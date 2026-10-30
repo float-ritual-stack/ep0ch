@@ -12,7 +12,7 @@ are its record. The outliner's entries from then are kept below, under
 
 ### A refusal never covers the lock chip it names (PIE-1456)
 
-- **The ▣ stays clickable under a message:** a status message the bar cuts short is said whole above it; its last row now covers only its words, so the desk's hint row shows past them, and a click on ▣ screen locked unlocks right after a refusal that says to click it (a click on the words still opens the message log).
+- **The ▣ stays clickable under a message:** a status message the bar cuts short is said whole above it, and on a desk it now sits above the hint row instead of over it, so its chips, dock handles and ▣ screen locked stay drawn and clickable at any width; a click on ▣ right after a refusal that says to click it unlocks (a click on the message still opens the log).
 - **containers.test passes alone:** it had been red alone since PIE-1453 made a click on the whole message open the log; "green in a whole run" was an older commit, not file order.
 - **Run:** `ep0ch install --apply`.
 

@@ -3806,7 +3806,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     else if (this.hintFull && (this.hintMoreOpen || (this.prefix && (!this.hasPanel() || this.panelOpen())))) { this.drawHintMore(canvas, cols, rows); placements = []; }
     canvas.text(0, rows - 2, hint, cols);
     this.overlayHits.push({ col: 0, row: this.hintRow, cols, rows: 1 });
-    return { lines: canvas.lines(), placements };
+    // The hint row is chrome: a status message said whole sits above it, never over its chips (PIE-1456).
+    return { lines: canvas.lines(), placements, chrome: 1 };
   }
 
   /**

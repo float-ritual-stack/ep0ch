@@ -520,8 +520,9 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     try {
       const said = `2 notes are titled Bird list, in ((${inbox.id}|in Inbox)) and in a garden note, but none is a page: add [page::Bird list] to one, or name the page this form writes into with [form-into::…]; did you mean [[Bird lists]]?`;
       app.flash(said, 60_000, { kind: "refusal" });
-      await until(() => { app.flush(); return / more alt\+M$/.test(visible(painted.at(-2) ?? "").trimEnd()); }, "… more at the end of the fourth row");
-      const band = painted.slice(-5, -1).map(l => visible(l));
+      // Above the desk's hint row (PIE-1456): the bar is the last row, the hint row the one above it.
+      await until(() => { app.flush(); return / more alt\+M$/.test(visible(painted.at(-3) ?? "").trimEnd()); }, "… more at the end of the fourth row");
+      const band = painted.slice(-6, -2).map(l => visible(l));
       expect(band.join(" ")).toContain("in Inbox");
       expect(band.join(" ")).not.toContain(inbox.id);
       const ran: string[] = [];
@@ -548,32 +549,28 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { size.cols = 220; app.flash(""); await board.trash(inbox.id, USER); }
   });
 
-  test("the whole message's last row covers only its words: past them the screen shows and a click there is the screen's (PIE-1456)", async () => {
-    size.cols = 44;
+  test("a refusal said whole sits above the desk's hint row: its ▣ screen locked unlocks on a click at 44 and 160 columns (PIE-1456)", async () => {
+    const said = "an agent (a-probe) · tile.close refused: the screen is locked: closing replies is refused · a click on ▣ screen locked (or ^W P) unlocks it";
     try {
-      app.flash("");
-      app.flush();
-      const under = visible(painted.at(-2) ?? "");
-      const said = "Pipe stopped at step 2 of 3: no note named Seed swap; the step before it ran";
-      app.flash(said, 60_000, { kind: "warning" });
-      await until(() => { app.flush(); return visible(painted.at(-2) ?? "").includes("the step before it ran"); }, "the last row of the whole message");
-      // Its last row is short: the words, a cell either side, then the screen's own row as it was (a desk's ▣ chip).
-      const last = visible(painted.at(-2) ?? ""), end = last.indexOf("ran") + "ran ".length;
-      expect(end).toBeLessThan(40);
-      expect(last.slice(end)).toBe(under.slice(end));
-      const ran: string[] = [];
-      const stop = traceActions(a => ran.push(a.name));
-      try {
-        press({ kind: "mouse", action: "down", button: 0, x: 42, y: 38 });
-        await Bun.sleep(50);
-        expect(ran).not.toContain("status.log");
-        press({ kind: "mouse", action: "down", button: 0, x: 3, y: 38 });
-        await until(() => ran.includes("status.log"), "a click on its words opens the log");
-      } finally { stop(); }
-    } finally {
-      while (app.screens().at(-1)?.title === "message log") press({ kind: "esc" });
-      size.cols = 220; app.flash("");
-    }
+      for (const cols of [44, 160]) {
+        size.cols = cols;
+        await app.act({ action: "layout.lock", args: { on: true }, as: "a-probe" });
+        app.flash(said, 60_000, { kind: "refusal" });
+        await until(() => { app.flush(); return painted.slice(-6, -1).map(l => visible(l)).join(" ").includes("closing replies"); }, `the refusal said whole at ${cols}`);
+        // The hint row is the screen's last, under the message: its chip is drawn, and a click on it is the chip's.
+        const hint = visible(painted.at(-2) ?? ""), x = hint.indexOf("screen locked");      // its ▣ is ◙ in some video modes
+        expect(x).toBeGreaterThanOrEqual(0);
+        expect(hint).not.toContain("closing replies");
+        const ran: string[] = [];
+        const stop = traceActions(a => ran.push(a.name));
+        try {
+          press({ kind: "mouse", action: "down", button: 0, x, y: 38 });
+          await until(() => ran.includes("layout.lock"), `the chip pressed at ${cols}`);
+          expect(ran).not.toContain("status.log");
+        } finally { stop(); }
+        expect(((app.screens().at(-1) as any).layoutGet()).locked).toBe(false);
+      }
+    } finally { size.cols = 220; app.flash(""); }
   });
 
   test("a message beside it never hides ^K: a click on it opens the power bar at 177 and 44 columns (PIE-1449)", async () => {
