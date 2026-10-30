@@ -13,6 +13,7 @@ import { resolveScreen } from "./screen-spec";
 import { subject } from "../board";
 import { leaf, serializeTree, splitOf, type LNode, type NaryForm, type BinaryForm, type Policy } from "./screen-layout";
 import { ReaderPane, type Pane } from "./panes";
+import { isTileHeader, type TileHeader } from "../surface/note";
 import { nowPage } from "../hub/now";
 import { isTileKind, missingKind, tileKind, tileKinds, UnavailableTile, type TileKindName } from "./tile-kinds";
 import { registerBuiltinTiles } from "./builtin-tiles";
@@ -35,6 +36,8 @@ export interface TileSpec {
   copiedFrom?: string;
   writtenTitle?: string;
   systemTitle?: boolean;
+  /** Its own header (PIE-1248): full, title or none; absent, the note's `[header::…]` decides. */
+  header?: TileHeader;
   /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. */
   id?: string;
   /** A reader's note (block id): it starts on it and keeps it. */
@@ -158,6 +161,7 @@ export function makeTile(given: Partial<TileSpec> & { kind: TileKindName }): Pan
   tileRegistry.restore(p, { role: s.role, openedFrom: s.openedFrom, copiedFrom: s.copiedFrom });
   p.writtenTitle = s.writtenTitle;
   p.systemTitle = s.systemTitle;
+  p.tileHeader = isTileHeader(s.header) ? s.header : undefined;
   return p;
 }
 export { isTileKind };

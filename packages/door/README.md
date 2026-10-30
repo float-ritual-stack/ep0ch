@@ -2653,6 +2653,10 @@ Bodies render with `src/doc.ts`:
   drawer, its body on the first row. `[header::crumbs]` or `[header::title]` leave out only those rows. The tile menu
   (⋯) still has the comment, comments, properties and sources rows.
 
+  **A tile's own header** (PIE-1248). `^W b`, the tile menu's header row or `tile.header mode=full|title|none` sets
+  what one reader tile draws above its note, over the note's `[header::…]`, saved with the layout; `mode=note` hands
+  it back. A note that is only embeds starts with none. A title written on the tile (`^W n`) heads its reader too.
+
   **Dark first.** A bright image is dimmed as it's scaled, so it's cached dimmed and never shown bright, not even for
   a frame: its brightness is scaled so the mean luminance of the part drawn (a header's crop), as it shows on the
   door's dark ground (a transparent pixel is the ground), is at most 0.3. Dark art is untouched; the caption says

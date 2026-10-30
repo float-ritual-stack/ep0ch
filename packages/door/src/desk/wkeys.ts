@@ -87,6 +87,7 @@ const W_TABLE = [
   { key: "x", group: "open", action: "tile.close", how: run("tile.close") },
   { key: "n", group: "open", action: "tile.title", how: run("tile.title") },
   { key: "N", group: "open", action: "tile.title.mode", how: run("tile.title.mode") },
+  { key: "b", group: "open", action: "tile.header", how: run("tile.header"), label: "cycle the header: full, title only, none" },
   { key: ".", group: "open", action: "tile.menu", how: run("tile.menu"), label: "this tile's menu" },
   { key: ",", group: "open", action: "tile.info", how: run("tile.info", { card: true }), label: "about this tile: its id, kind, wires" },
   { key: "y", group: "open", action: "note.copy-ref", how: run("note.copy-ref", { kind: "ref" }), label: "copy a reference to its note" },

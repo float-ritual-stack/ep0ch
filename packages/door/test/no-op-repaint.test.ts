@@ -125,6 +125,30 @@ describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)",
     expect(await painted("probe.later")).toBe(2);
     expect(await painted("probe.refused")).toBe(1);
   });
+
+  // PIE-1315: a render that asks for a redraw (a screen opening a stage inside render) painted again inside the paint, and
+  // again inside that, 82 deep in the showcase. Now the asks wait for the frame timer: one paint now, one a frame later.
+  test("a render that asks for redraws is painted once, then once more a frame later, never inside itself", async () => {
+    await settle();
+    let depth = 0, deepest = 0, renders = 0;
+    const screen = {
+      title: "redraws itself",
+      render(ctx: { redraw(): void }) {
+        deepest = Math.max(deepest, ++depth); renders++;
+        // Its first render asks three times; the ones after ask nothing.
+        try { if (renders === 1) for (let i = 0; i < 3; i++) ctx.redraw(); } finally { depth--; }
+        return { lines: ["redraws itself"] };
+      },
+      key() {},
+    };
+    app.push(screen as any);
+    try {
+      expect(renders).toBe(1);
+      await settle();
+      expect(renders).toBe(2);
+      expect(deepest).toBe(1);
+    } finally { app.pop(); }
+  });
 });
 
 describe("what a screen host's own pre-action change owes a repaint (PIE-1301)", () => {

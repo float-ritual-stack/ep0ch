@@ -18,7 +18,7 @@ import { MainMenu } from "../src/screens";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { SocketBoard } from "../src/socket";
 import { width } from "../src/style";
-import { NoteSurface, type SurfaceHost } from "../src/surface/note";
+import { headerShown, NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { valueTarget } from "../src/surface/props-panel";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -658,5 +658,20 @@ describe("the reader's header leads with the title (PIE-657)", () => {
     s.show(m, host(src));
     expect(s.titleShown(10)).toBe(true);
     expect(s.titleShown(1)).toBe(false);
+  });
+
+  // PIE-1248: which header rows a reader draws is one answer: the tile's own setting, else the note's [header::], else
+  // none for a note that is only embeds (a figure shown on its own), else all of them.
+  test("the tile's header wins over the note's; a note of embeds alone starts with none", () => {
+    const plain = { text: "Bed plan\n\nBeans by the fence.", properties: [] };
+    const figure = { text: "!((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34^beds))\n", properties: [] };
+    const told = { text: "Board [header::none]\n!((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34))", properties: [{ key: "header", value: "none" }] };
+    expect(headerShown(plain)).toEqual({ crumbs: false, title: false, byline: false, oneLine: false });
+    expect(headerShown(figure)).toEqual({ crumbs: true, title: true, byline: true, oneLine: false });
+    expect(headerShown(figure, "full").title).toBe(false);
+    expect(headerShown(told, "title")).toEqual({ crumbs: true, title: false, byline: true, oneLine: true });
+    expect(headerShown(plain, "none").title).toBe(true);
+    // Words beside the embed are the note's own: it keeps its header.
+    expect(headerShown({ text: "Bed plan\n!((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34))", properties: [] }).title).toBe(false);
   });
 });

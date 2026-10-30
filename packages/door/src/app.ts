@@ -1713,6 +1713,9 @@ export class App implements Ctx {
    * report that arrived during that paint) kept the screen scrolling for seconds after the fingers stopped.
    * What comes in during a paint is read as one chunk after it, so input paints as fast as the screen
    * renders and no faster.
+   *
+   * Asked while a frame is being drawn (a render that redraws itself), it never paints inside that paint: the frame
+   * timer paints once, a frame after it ends (`paint`, PIE-1315).
    */
   redraw() {
     this.redraws++; notePressRedraw();
@@ -1730,6 +1733,8 @@ export class App implements Ctx {
   redrawsAsked(): number { return this.redraws; }
   private lastPaint = 0;
   private paintTimer: Timer | null = null;
+  /** A frame is being drawn now (drawFrame): a paint asked meanwhile waits for the frame timer (PIE-1315). */
+  private painting = false;
   private batching = 0;
   private closed = false;
   private wanted = false;
@@ -1756,13 +1761,21 @@ export class App implements Ctx {
     // Ended (quit, or retired by the test run): every way to a paint (a tick, a media or figure change, the board's
     // events, the drawer) stops here.
     if (this.closed) return;
+    // Asked while a frame is being drawn (a render that redraws, a screen opened inside render: PIE-1315): never a paint
+    // inside the paint. It's the frame timer's, one frame after this one ends, however many ask meanwhile.
+    if (this.painting) {
+      this.changed = true;
+      this.paintTimer ??= setTimeout(() => { this.paintTimer = null; this.paint(); }, FRAME_MS);
+      return;
+    }
     // Nobody sees it (a session with no terminal attached and no live feed): rendered when someone looks (catchUp).
     if (!force && !this.viewers.size && this.display.unseen?.()) { this.skipped = true; this.lastPaint = Date.now(); return; }
     this.skipped = false;
     // A frame after nothing but wheel reports: views may move what they laid out last time (onlyScrolled).
     paintingScroll(!this.changed);
     this.changed = false;
-    try { this.drawFrame(); } finally { paintingScroll(false); this.lastPaint = Date.now(); }
+    this.painting = true;
+    try { this.drawFrame(); } finally { this.painting = false; paintingScroll(false); this.lastPaint = Date.now(); }
   }
 
   private drawFrame() {

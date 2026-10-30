@@ -17,6 +17,7 @@ import { ActionRefused, actionSet, asActor, def, lineWords, type ArgsOf } from "
 import { AGENT_WORDS, isAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { EDGE_WORD, isDir, OPEN_READS, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
+import type { TileHeader } from "../surface/note";
 import { lastTrashed, trashConfirm, trashNote, trashPlan, untrashNote } from "../note-trash";
 import { subject } from "../board";
 import { renamedPagesNote } from "@ep0ch/outline-core/protocol";
@@ -574,6 +575,26 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "note.rename tile=reader text=\"Seed swap, Saturday\"", does: "retitles the note the reader shows; [type::chirp] on its first line and its body stay" },
     ],
     run({ text, note, revision }, { d, reader }, actor) { return d.renameNote(reader, text, actor, { note, revision }); },
+  }),
+  "tile.header": def({
+    words: "set what this tile's header shows",
+    summary: "set tile=<tile>'s header (PIE-1248): what its reader draws above the note. mode=full (the crumbs, the title and the byline), title (the title alone, on one line) or none (the note starts on the first row); note takes the tile's own away, so the note's [header::…] decides again; left out, the next one (full, title, none). Saved with the layout. It wins over the note's own [header::…]; a note that is only embeds (an attached figure) has none until the tile says otherwise. With the byline hidden, its comment, comments, properties and sources stay in the tile menu; the frame names the note while the title is hidden. A title written on the tile (tile.title) heads it in place of the note's",
+    keys: [{ keys: "^W b", does: "cycle full, title, none" }, { via: "the tile menu's header row" }],
+    touches: "nothing", replay: "safe", repaints: r => r.changed !== false,
+    says: r => (r.changed === false ? null : `${r.name}'s header: ${r.header === "note" ? `the note's (${r.shown})` : r.header}`),
+    menu: { label: "header", group: TILE, key: "ctrl+w b", now: ({ d, reader }) => {
+      const h = d.headerNow(reader);
+      if (!h) return { hide: true };
+      const next = ({ full: "title only", title: "none", none: "full" } as const)[h.shown];
+      return { label: `header: ${h.shown === "title" ? "title only" : h.shown}${h.own ? "" : " (the note's)"} · set ${next}` };
+    } },
+    args: { mode: { type: "string", optional: true, choices: ["full", "title", "none", "note"], about: "full, title, none, or note (the note's [header::…] decides); left out, the next one" } },
+    examples: [
+      { act: "tile.header mode=none tile=reader", does: "the reader draws no header: its note starts on the first row" },
+      { act: "tile.header mode=title tile=reader", does: "the reader's header is the title alone, on one line" },
+      { act: "tile.header mode=note tile=reader", does: "takes the tile's own header away: the note's [header::…] decides again" },
+    ],
+    run({ mode }, { d, reader }, actor) { return d.headerTile(reader, mode as TileHeader | "note" | undefined, actor); },
   }),
   "tile.title.mode": def({
     summary: "toggle between the written tile title and the system title without losing the written title",

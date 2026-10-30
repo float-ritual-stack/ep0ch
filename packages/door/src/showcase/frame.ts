@@ -30,6 +30,8 @@ export class FramedScreen {
   get outerCtx(): Ctx { return this.outer(); }
   get depth() { return this.stack.length; }
 
+  /** The first screen has been entered (open). */
+  get isOpen(): boolean { return this.entered; }
   /** Enter the first screen once, when it is first shown (it reads the outline then). */
   open() { if (!this.entered) { this.entered = true; this.first.enter?.(this.ctx); this.opened(); } }
 
