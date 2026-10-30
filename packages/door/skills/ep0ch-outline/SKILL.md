@@ -641,7 +641,8 @@ dimmed: the door is dark-first, so write `[dim::0]` only when the person asks fo
 
 **A page of figures with no header** (PIE-1319): `[header::none]` on a note's first line leaves out the reader's crumbs,
 title and byline, so a dashboard or a contents page starts with its first figure (the tile's border still names it);
-`[header::crumbs]` or `[header::title]` leave out only those rows.
+`[header::crumbs]` or `[header::title]` leave out only those rows. A tile can say otherwise for itself (PIE-1248:
+`act tile.header mode=full|title|none tile=<tile>`, `mode=note` to follow the note again).
 
 ```
 - [img::~/shots/plot-at-dusk.png] [layout::hero] [height::14] [alt::the plot at dusk]
