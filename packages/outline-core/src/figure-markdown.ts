@@ -14,6 +14,8 @@
 
 import { boxStatus, STEP_BOX, stepDone, type ChecklistStatus } from "./checklist-marks";
 import { closesCodeFence, codeFenceOpen } from "./code-fence";
+import { codeSpanRanges } from "./code-ranges";
+import { linkOccurrences } from "./link-syntax";
 
 /** How a row is marked: bold (now, chosen, the accent) or italic (next, rejected, receding). */
 export type FigureEmphasis = "strong" | "em" | null;
@@ -59,6 +61,31 @@ const ITEM = /^([ \t]*)(?:([-*+])|(\d+)[.)])[ \t]+(.*)$/;
 // A step's box, by the one grammar (checklist-marks.ts): approved counts as done, as in a step tally.
 const BOX = new RegExp(`^(${STEP_BOX})[ \\t]+`);
 const NOTE = / — /;
+
+/**
+ * Where `sep` first matches in `text` outside its links and code spans (PIE-1334): the `|` of a `((id|label))` or
+ * `[[page|label]]`, the `: ` or ` — ` of a link's label, belong to the link, never to the row's cells.
+ */
+function freeMatch(text: string, sep: RegExp, from = 0): { index: number; length: number } | null {
+  const held = [...linkOccurrences(text, "inline"), ...codeSpanRanges(text)];
+  const re = new RegExp(sep.source, sep.flags.includes("g") ? sep.flags : sep.flags + "g");
+  re.lastIndex = from;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const at = m.index;
+    if (!held.some(r => r.start <= at && at < r.end)) return { index: at, length: m[0].length };
+    if (!m[0].length) re.lastIndex++;
+  }
+  return null;
+}
+
+/** `text` split at each `sep` outside its links and code spans (PIE-1334): a compare row's cells between `|`s. */
+export function splitOutsideLinks(text: string, sep: RegExp): string[] {
+  const out: string[] = [];
+  let at = 0;
+  for (let m = freeMatch(text, sep); m; m = freeMatch(text, sep, at)) { out.push(text.slice(at, m.index)); at = m.index + m.length; }
+  out.push(text.slice(at));
+  return out;
+}
 const PATH = /\s*(?:→|->)\s*/;
 const RUN = /^(.+?)\*(\d+)$/;
 
@@ -98,8 +125,8 @@ export function figureRow(source: string, line = 0, depth = 0, ordinal: number |
   const wrapped = outer.emphasis && NOTE.test(outer.text) ? outer.emphasis : null;
   if (wrapped) rest = outer.text;
   let note: string | null = null;
-  const dash = NOTE.exec(rest);
-  if (dash) { note = rest.slice(dash.index + dash[0].length).trim() || null; rest = rest.slice(0, dash.index).trim(); }
+  const dash = freeMatch(rest, NOTE);
+  if (dash) { note = rest.slice(dash.index + dash.length).trim() || null; rest = rest.slice(0, dash.index).trim(); }
   let { text, emphasis } = unwrapEmphasis(rest);
   emphasis ??= wrapped;
   // A row that starts with a bold or italic span (`**Raised beds** for the squash`) is marked as that span is.
@@ -108,7 +135,7 @@ export function figureRow(source: string, line = 0, depth = 0, ordinal: number |
     if (lead && !lead[2]!.includes(lead[1]!)) { emphasis = lead[1]!.length === 2 ? "strong" : "em"; text = lead[2]! + lead[3]!; }
   }
   let label: string | null = null, value = text;
-  const colon = text.indexOf(": ");
+  const colon = freeMatch(text, /: /)?.index ?? -1;
   if (colon > 0) {
     const l = unwrapEmphasis(text.slice(0, colon)), v = unwrapEmphasis(text.slice(colon + 2));
     label = l.text; value = v.text;

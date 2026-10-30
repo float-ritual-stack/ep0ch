@@ -10,7 +10,7 @@
 //   ::
 
 import { componentAttrs, componentBlocks, type ComponentBlock } from "./component-block";
-import { expandRuns, figureRow, numbersOf, parseFigureMarkdown, type FigureMarkdown, type FigureRow } from "./figure-markdown";
+import { expandRuns, figureRow, splitOutsideLinks, numbersOf, parseFigureMarkdown, type FigureMarkdown, type FigureRow } from "./figure-markdown";
 import { readDate } from "./dates";
 import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
 import { pageLinkRanges } from "./link-syntax";
@@ -459,7 +459,7 @@ export const FIGURE_MARKDOWN: Record<string, (md: Markdown, p: Props) => Props> 
   },
   // `- label: a | b | c`: the cells between `|`s. The YAML's `columns:` names them.
   compare: md => (md.rows.length
-    ? { entries: md.rows.map(r => ({ label: r.label ?? r.text, cells: (r.label === null ? "" : r.value).split(/\s*\|\s*/).map(s => s.trim()), accent: r.emphasis === "strong", muted: r.emphasis === "em", block: r.block })) }
+    ? { entries: md.rows.map(r => ({ label: r.label ?? r.text, cells: splitOutsideLinks(r.label === null ? "" : r.value, /\s*\|\s*/).map(s => s.trim()), accent: r.emphasis === "strong", muted: r.emphasis === "em", block: r.block })) }
     : {}),
   // `- a → b: 7` (or `->`): a flow of 7; no number is a flow of 1; a bold row is the accent.
   flow: md => {

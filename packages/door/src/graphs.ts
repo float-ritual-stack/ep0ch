@@ -11,7 +11,7 @@ import { asksPerItem, liveProps } from "@ep0ch/outline-core/figure-live";
 import { figureResultsMarkdown, resultsHead, type FigureResults, type ResultsContext } from "@ep0ch/outline-core/figure-results";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
 import { FIGURES } from "./figures/index";
-import { ACCENT, DIM, HI, INK, inlineRows, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
+import { ACCENT, DIM, HI, INK, inlineRows, presentRow, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
 export type { RowInline, RowLink } from "./figures/palette";
 import { setLinksSource, linksSource } from "./links";
 import type { SocketBoard } from "./socket";
@@ -301,11 +301,13 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       const card = (r: string[], i: number) => {
         const linkOf = (k: number) => named[i]?.[k] ?? blocks[i];
         const at = (to: unknown) => (to === blocks[i] ? revisionOf(i) : undefined);
-        const lead = rowLines(r[tcol] ?? "", w, Math.max(2, most)).map(l => fg(HI) + BOLD + l + UNBOLD + RESET);
+        // Each cell's words drawn as the note's line (PIE-1334): its links labelled and followable, its code and bold.
+        const shown = (k: number, ink: number) => presentRow(r[k] ?? "", ink, ui?.rows, !!link && typeof linkOf(k) === "string");
+        const lead = rowLines(BOLD + shown(tcol, HI), w, Math.max(2, most)).map(l => l + UNBOLD + RESET);
         const cells = r.map((value, k) => {
           if (k === tcol || !value.trim()) return [];
-          const label = head[k] ? `${head[k]}: ` : "";
-          return rowLines(label + value, w, most, { hang: 2 }).map((l, n) => n === 0 && label ? fg(DIM) + label + fg(INK) + l.slice(label.length) + RESET : fg(INK) + l + RESET);
+          const label = head[k] ? `${fg(DIM)}${head[k]}: ` : "";
+          return rowLines(label + shown(k, INK), w, most, { hang: 2 }).map(l => l + RESET);
         });
         // A card whose cells all open one note is one row (one element, walked and scrolled as one); else each cell its own.
         const targets = new Set(r.map((_, k) => linkOf(k)));
@@ -319,7 +321,14 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       reduce([tcol, [...Array(remaining).keys()].find(k => k !== tcol)!]);
       dropped += remaining - 2;
     }
-    const all = [head, ...rows, ...(foot ? [foot] : [])];
+    const blocks: unknown[] = p.blocks ?? [];
+    // A cell naming a note (PIE-1388, figure-live's cellBlocks) is that note's link; the row's other cells stay its own note's.
+    const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks.map((r: (string | null)[]) => keepCols(r)) : [];
+    // Each body cell's words drawn as the note's line (PIE-1334): `[[page]]` and `((id|label))` as their labels,
+    // followable, a code span and bold as the prose draws them. A cell that is itself a link to a note draws the links
+    // in it as links but not elements of their own (RowInline.present's `linked`). Measured as drawn, not as written.
+    const shown = rows.map((r, i) => r.map((c, k) => presentRow(c, INK, ui?.rows, !!link && typeof (named[i]?.[k] ?? blocks[i]) === "string")));
+    const all = [head, ...shown, ...(foot ? [foot] : [])];
     const n = Math.max(...all.map(r => r.length));
     // Nothing to draw (a figure written without its `---` lines also says so: figureProps' warning, PIE-941).
     if (!n) return [fg(DIM) + "no columns or rows" + RESET];
@@ -340,10 +349,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
         ? r.map((_, k) => tag(fg(INK) + cell(cells[k]![i] ?? "", k), k)).join(fg(DIM) + " ┊ ") + RESET
         : line(cells.map(c => c[i] ?? ""), fg(INK)));
     };
-    const blocks: unknown[] = p.blocks ?? [];
-    // A cell naming a note (PIE-1388, figure-live's cellBlocks) is that note's link; the row's other cells stay its own note's.
-    const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks.map((r: (string | null)[]) => keepCols(r)) : [];
-    const body = rows.flatMap((r, i) => [...(density === "comfortable" && i ? [""] : []), ...(named[i]?.some(Boolean) && link ? drawRow(r, k => named[i]![k] ?? blocks[i], to => (to === blocks[i] ? revisionOf(i) : undefined)) : rowLinks(link, blocks[i], drawRow(r), ui?.key, undefined, revisionOf(i)))]);
+    const body = shown.flatMap((r, i) => [...(density === "comfortable" && i ? [""] : []), ...(named[i]?.some(Boolean) && link ? drawRow(r, k => named[i]![k] ?? blocks[i], to => (to === blocks[i] ? revisionOf(i) : undefined)) : rowLinks(link, blocks[i], drawRow(r), ui?.key, undefined, revisionOf(i)))]);
     return [line(head, fg(HI)), rule, ...body, ...(foot ? [rule, line(foot, fg(HI))] : []), ...(dropped ? [fg(DIM) + `+${dropped} column${dropped === 1 ? "" : "s"} · widen to see` + RESET] : [])];
   },
 

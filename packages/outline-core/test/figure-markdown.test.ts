@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { expandRuns, figureRow, MAX_RUN, numbersOf, parseFigureMarkdown, unwrapEmphasis } from "../src/figure-markdown";
+import { expandRuns, figureRow, MAX_RUN, numbersOf, parseFigureMarkdown, splitOutsideLinks, unwrapEmphasis } from "../src/figure-markdown";
 
 describe("a figure's Markdown", () => {
   test("bold is strong and italic is em, around the whole row, its label or its value", () => {
@@ -76,5 +76,11 @@ describe("a figure's Markdown", () => {
   test("a side note inside a row's emphasis is still its note, and the row keeps the emphasis", () => {
     expect(figureRow("**a — b**")).toMatchObject({ text: "a", note: "b", emphasis: "strong" });
     expect(figureRow("*Jun: first picking — maybe*")).toMatchObject({ label: "Jun", value: "first picking", note: "maybe", emphasis: "em" });
+  });
+
+  test("a link's own `|`, `: ` and ` — ` stay in the link (PIE-1334): a cell, a label and a side note keep it whole", () => {
+    expect(splitOutsideLinks("((0a1b2c3d|hinge: list)) | [[Shed roof|roof]] | `a|b` | plain", /\s*\|\s*/)).toEqual(["((0a1b2c3d|hinge: list))", "[[Shed roof|roof]]", "`a|b`", "plain"]);
+    expect(figureRow("((garden:0a1b2c3d|beds: raised)): ten years | two seasons")).toMatchObject({ label: "((garden:0a1b2c3d|beds: raised))", value: "ten years | two seasons" });
+    expect(figureRow("dig [[Bed plan|beds — east]] — before frost")).toMatchObject({ text: "dig [[Bed plan|beds — east]]", note: "before frost" });
   });
 });
