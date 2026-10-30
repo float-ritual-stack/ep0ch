@@ -81,7 +81,7 @@ export interface Asked { to: string; note: string; title: string; thread: string
  */
 export async function askLanding(host: BarHost, o: { text: string; note?: string }, actor: Pick<Actor, "kind">): Promise<{ note: Msg } | { refused: string }> {
   const named = o.note?.trim() || (actor.kind === "agent" ? null : host.near()) || firstRef(o.text);
-  if (!named) return { refused: "the ask goes as a comment on a note: open one, name one in the words ([[page]] or ((id))), or give note=" };
+  if (!named) return { refused: "the ask goes as a comment on a note: open one, name one in the words (`[[page]]` or `((id))`), or give note=" };
   const [hit] = await hostAnswers(() => host.ctx.board.resolveRefs([named]), false);
   if (!hit?.id) return { refused: `${o.note?.trim() ? "note=" : ""}${named}: ${hit?.error ?? "no such note"}; the ask goes as a comment on a note: open one, or name one that is there` };
   const note = await hostAnswers(() => host.note(hit.id!), false);

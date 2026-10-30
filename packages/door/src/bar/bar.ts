@@ -745,7 +745,10 @@ export class PowerBar {
     const line = holds ? this.query : keep ? this.commandLine(n) : "";
     if (keep && !holds) { this.input.splice(0, this.query.length, line); this.refresh(); }
     try {
-      const result = await it.source.pick(it.row, this.host, { alt, actor }) ?? null;
+      // A held row sends what's on the line now: named again from it, never the words it was listed for (⏎ can come
+      // before the rows are asked again, as after a completion that lands after its check).
+      const row = holds && it.source.named ? it.source.named(line, this.host) ?? it.row : it.row;
+      const result = await it.source.pick(row, this.host, { alt, actor }) ?? null;
       // A held line is sent: the bar's done with it (an answer of its own said what happened).
       if (holds) { this.host.runs.push({ line, answer: runAnswer(this.commandLine(n), result), refused: false }); if (this.host.runs.length > 8) this.host.runs.shift(); void this.host.dispatch.press("bar.close"); }
       else if (keep) this.recordRun(line, result, false);

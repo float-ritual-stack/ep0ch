@@ -284,6 +284,9 @@ export class ScriptRuns {
       const finish = () => {
         const changes = this.store.changes.committed(attribution);
         for (const c of changes) {
+          // Only the run's own writes: a write another writer made meanwhile under the same capture (Jev's review
+          // records and its suggestions page, made the first time a create is reviewed) is not the run's (PIE-1436).
+          if (c.actor?.actorId && c.actor.actorId !== actor.actorId) continue;
           const how = CHANGED[c.kind];
           if (c.blockId && how && (RANK.indexOf(how) > RANK.indexOf(changed.get(c.blockId) ?? "edited") || !changed.has(c.blockId))) changed.set(c.blockId, how);
         }

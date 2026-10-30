@@ -54,10 +54,13 @@ describe("showcase: ask an agent (PIE-1437)", () => {
     await until(() => bar().describe().rows?.[0]?.label === "ask @wren", "the ask row first", 8000);
     const said: string[] = [], flash = h.app.flash.bind(h.app);
     h.app.flash = ((text: string, ...rest: unknown[]) => { said.push(text); return (flash as any)(text, ...rest); }) as typeof h.app.flash;
+    // What's on the line is what's sent, even when ⏎ comes before the rows are asked again (a completion lands after
+    // its check): the ask row's words are the line's now, never the ones it was listed for.
+    bar().input.splice(bar().query.length, 0, "please");
     press({ kind: "enter" });
     let body = "";
     await until(() => { void h.board.comments(rota().id).then(cs => { body = cs.find(c => c.body.startsWith("@wren"))?.body ?? ""; }); return !!body; }, "the comment on the rota", 8000);
-    expect(body).toStartWith("@wren looking at [[Raised beds plan]] can you pop it into %rota");
+    expect(body).toStartWith("@wren looking at [[Raised beds plan]] can you pop it into %rota please");
     expect(body).toContain("- %rota: the tile rota in the door");
     await until(() => said.some(t => t.startsWith("· asked @wren on Potting bench rota")), "said where the person looks", 8000);
     // Sent: the bar is put away, the line kept under "this session" with what it did.
