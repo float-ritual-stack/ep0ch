@@ -2902,6 +2902,23 @@ export class OutlinerStore {
     return this.update(id, text, expectedRevision, mutation, "properties");
   }
 
+  /**
+   * The notes a persona wrote since `since` (PIE-1452), most recently written first: `margin` matches `margin` and
+   * `margin/<client>@<machine>` (the mod signs a `claude`'s notes so). New notes too, which edit activity doesn't hold,
+   * and a note someone else has edited since (its earlier revision still says who wrote it).
+   */
+  blocksWrittenBy(persona: string, since: string, limit = 20): Block[] {
+    const like = `${persona.replace(/[\\%_]/g, "\\$&")}/%`;
+    const rows = this.database.query(`
+      SELECT id, MAX(at) AS at FROM (
+        SELECT id, updated_at AS at FROM blocks WHERE updated_at >= ? AND (actor_id = ? OR actor_id LIKE ? ESCAPE '\\')
+        UNION ALL
+        SELECT block_id AS id, saved_at AS at FROM block_revisions WHERE saved_at >= ? AND (actor_id = ? OR actor_id LIKE ? ESCAPE '\\')
+      ) GROUP BY id ORDER BY at DESC, id LIMIT ?`)
+      .all(since, persona, like, since, persona, like, limit * 2) as { id: string }[];
+    return rows.flatMap(({ id }) => { const block = this.get(id); return block && !block.effectiveDeletedRootId ? [block] : []; }).slice(0, limit);
+  }
+
   recentEditActivity(options: {
     afterCursor?: number;
     since?: string;
