@@ -23,48 +23,24 @@ the lockfile so it is applied.
 Before a PR claims a change works:
 
 1. `bun run check` passes at the root (each package's `tsc --noEmit`).
-2. The full suites pass once the change is stable: `bun run test` at the root, or `bun test` in each package.
-   Focused tests are fine while developing. The door's tests start their own scratch outline host from
-   `../outliner` (`test/scratch.ts`; `EP0CH_OUTLINER` overrides it). outline-core's tests are pure. The Claude
-   mod's run under `claude plugin test` (`claude` on PATH).
-   - **Whole suites run off float-2**: `scripts/box-test [--on float-box|boxd] [--each] [door|outliner|outline-core|claude-mod|all]`.
-     The default is float-box (Evan's dedicated server, 20 threads, usually idle) when `ssh float-box true` answers,
-     else boxd (`--on` or `EP0CH_BOX_TARGET` picks). On float-box the run gets a private dir
-     (`/tmp/ep0ch-box-<user>-<id>`, mode 700) with a clone of your commit (unpushed goes up as a bundle) and its
-     own `TMPDIR`, runs niced with `TEST_EACH_JOBS` files at once (default 8; the door's suite as `bun test --parallel`)
-     under a `timeout`, streams the output,
-     exits with the first failing suite's code and removes the dir on exit, Ctrl-C and TERM (a run whose ssh was
-     killed -9 removes it itself when its timeout ends). It touches nothing else there. The cost logged is 0.
-   - **float-box limits** (PIE-998; `scripts/box-test-guard` runs on the box and owns each run): one run per
-     worktree (a second is refused, naming the running pid, commit, age and how to stop it; `--replace` stops the old
-     run by its process group first); at most `EP0CH_BOX_SLOTS` (default 2) runs at once, by flock slots, and a run past the
-     cap prints "waiting for a slot: N run(s) ahead, oldest M min" until one frees; each run is its own process group,
-     killed whole on exit, Ctrl-C, TERM, timeout and a dead ssh, then anything still tied to its run dir (environment or
-     working folder, so a daemon that left the group too) is killed, and a survivor fails the run
-     (exit 97, "LEAK"); before each run, processes of runs whose dir is gone are swept (and counted in the output).
-     Finished run directories are swept only when no guard holds them and the directory, `kept` marker and
-     `guard.lock` are older than 15 minutes. Kept directories also need 24 hours without activity anywhere inside
-     before they are swept. Uploading runs keep the marker until their guard takes the directory lock; `--keep`
-     retains it after the run.
-   - **On boxd** (PIE-597) the script
-     forks the golden box (the repo cloned, `bun install` done), checks out your commit (unpushed is fine: it goes
-     up as a bundle), streams the output, exits with the first failing suite's code and removes the fork (one it
-     couldn't remove, its run killed, powers itself off and the next run removes it). Each run's time
-     and estimated cost (0 on float-box) and target are kept in `~/.local/state/ep0ch/box-test.tsv`. `scripts/box-test --refresh-golden`
-     rebuilds the golden boxd box (after a `bun.lock` change it saves the install). Boxd needs its CLI, signed in.
+2. The focused tests pass: the files you touched and their neighbours. That and step 1 are the whole gate
+   ([AGENTS.md](AGENTS.md#machines-checkouts-and-processes)). The door's tests start their own scratch outline host from
+   `../outliner` (`test/scratch.ts`; `EP0CH_OUTLINER` overrides it). outline-core's tests are pure. The Claude mod's
+   run under `claude plugin test` (`claude` on PATH).
    - **Focused runs on float-2** go through `scripts/agent-env <name> --test -- timeout 900 bun test <files>`: two at
-     once on the machine at most (`EP0CH_TEST_SLOTS`), each capped in a systemd user scope (`EP0CH_TEST_CPU`, `EP0CH_TEST_MEM`), in the
-     foreground, never `--parallel`: five agents' parallel runs once froze float-2. Each door `parity-*` file takes
-     two to four minutes whole (a scenario well under a minute, held to `PARITY_BUDGET_MS`, 60 s: past it the scenario fails by
-     name with its slowest key); run it in parts with `PARITY_ONLY` (see the ep0ch-core skill), or in a box.
-     Name the files from the package or from the root (`packages/door/test/edit.test.ts`): from the root, the root
-     `bunfig.toml` runs every package's own `test/preload.ts` (`scripts/test-preload.ts`), which Bun otherwise reads
-     only from the folder it starts in.
-   - Before merging a series, and in every review round, run the door's files each alone too
-     (`scripts/box-test --each`, or `bun run test:each` in packages/door with file names to run a few;
-     `TEST_EACH_JOBS` runs several at once): `bun test` loads every file into one process, so a file that only
-     loads because another loaded a module first passes there and fails alone. #204's import cycle left 13 files
-     unable to load alone for a day, and nobody saw.
+     once on the machine at most (`EP0CH_TEST_SLOTS`), each capped in a systemd user scope (`EP0CH_TEST_CPU`,
+     `EP0CH_TEST_MEM`), in the foreground, never `--parallel`. Each door `parity-*` file takes two to four minutes
+     whole (a scenario is held to `PARITY_BUDGET_MS`, 60 s); run the scenarios you touched with `PARITY_ONLY` (see the
+     ep0ch-core skill). Name the files from the package or from the root (`packages/door/test/edit.test.ts`): from the
+     root, the root `bunfig.toml` runs every package's own `test/preload.ts` (`scripts/test-preload.ts`).
+   - **Whole suites** (loki's merge batch, the nightly run on main) go through
+     `scripts/box-test [--on float-box|boxd] [--each] [door|outliner|outline-core|claude-mod|all]`: float-box when it
+     answers, else a boxd fork of the golden box (`--refresh-golden` rebuilds it after a `bun.lock` change). It runs
+     your commit (unpushed goes up as a bundle) in a private dir it removes, exits with the first failing suite's
+     code, and logs each run in `~/.local/state/ep0ch/box-test.tsv`. On float-box `scripts/box-test-guard` owns each
+     run (PIE-998): one per worktree (`--replace` stops the old one), at most `EP0CH_BOX_SLOTS` (default 2) at once,
+     each killed whole on exit, a leaked process fails it (exit 97). `--each` runs the door's files each alone: a file
+     that loads only because another loaded a module first passes in one process and fails alone (#204).
    - **A door test file leaves nothing for the next** (PIE-1412). Between files the door's preload
      (`packages/door/test/preload.ts`) retires the earlier file's Apps (which unbinds the extensions they read), stops
      its scratch hosts, puts the environment back and unbinds an extension list it bound itself; a scratch host still
@@ -107,24 +83,17 @@ Before a PR claims a change works:
      [live smoke test](packages/outliner/CONTRIBUTING.md#live-smoke-test) and
      [user-workflow walkthrough](packages/outliner/CONTRIBUTING.md#user-workflow-walkthrough) are the equivalent.
 
-7. A change to what a frame draws, how tiles lay out or resize, or how images are scaled or placed (the canvas,
-   the desk's drawing, NoteSurface's layout, figures, media.ts, kitty.ts) runs the **resize bench** before and
-   after, and the PR gives both:
-   `bun run bench:resize` in packages/door (`scripts/bench-resize.ts`; `--only kitty@250x70`, `--frames`, `--json`).
-   It drags a border across a typical desk on a scratch showcase (the hero, pictures and figures notes, the river,
-   the kanban, a terminal tile), Kitty graphics on and off at 120x40 and 250x70, and reports frame times (p50, p95,
-   frames over 16 ms), how long a report waited to be drawn, each tile's render, bytes and Kitty uploads a frame,
-   images scaled, CPU, and what letting go costs. It is CPU-heavy and its times mean something only on a quiet
-   machine: run it in a box of your own (fork `ep0ch-golden`, as box-test does), and compare numbers from one box,
-   never a box's with float-2's. `--check` fails a run over budget (nothing scaled or uploaded during a drag,
-   bytes a frame; `--check-time` adds p95 under 16 ms); `test/resize-bench.test.ts` runs it in the suite.
+7. A change meant to make drawing, layout or images faster or lighter gives `bun run bench:resize` (packages/door,
+   `scripts/bench-resize.ts`) before and after, from one quiet box, never float-2's numbers; `--check` holds the
+   budgets, and `test/resize-bench.test.ts` runs it in the whole suite, so other drawing changes leave it to the
+   nightly run.
 
-The PR says what ran, what was looked at, and what wasn't tested. Report implemented, exercised (with the actual
-journey), merged, deployed and owner-accepted separately ([Delivery claims](packages/outliner/CONTRIBUTING.md#delivery-claims)).
+The PR says what ran, the journey you drove, what was looked at, and what wasn't tested.
 
 ## Review checklist
 
-Every review, by the author before opening the PR and by the reviewer, goes through these sections in order.
+The PR's one review ([AGENTS.md](AGENTS.md#fixtures-prs-and-merging)) goes through these sections in order; the
+author reads them once before opening it.
 
 ### 1. Architecture pass
 
@@ -143,10 +112,10 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
   ([AGENTS.md](AGENTS.md#properties-are-open)).
 - **One grammar:** do keys, layout operations and terms match the glossary and the other screens? For layout,
   the words are block, tile, container and screen ([Layout](packages/door/docs/UI-GRAMMAR.md#layout-block-tile-container-screen)).
-- **Did you really?** List each shared part the brief or PR said it would use, and check the diff actually uses
-  it. Name any place where it built its own instead (a second dock or drawer, a screen-only layout, a key with no action,
-  a switch on a tile kind's name, a second renderer or parser, a client re-deriving what the service owns, a tool
-  path that skips the shared action list). Expect at least one; fix it or say why not.
+- **Did you really?** Check the diff uses the shared parts the brief named. Name any place where it built its own
+  instead (a second dock or drawer, a screen-only layout, a key with no action, a switch on a tile kind's name, a
+  second renderer or parser, a client re-deriving what the service owns, a tool path that skips the shared action
+  list); fix it or say why not.
 - **Keys said once, from the actions:** does every hint row, footer, strip, card or help line the change adds read its keys from the key table that binds them (`W_KEYS`; PIE-1173 for every mode), not from free text? A key list typed as a string is a finding, and so is a second line saying the same keys in another place or other words (PIE-1171). Check Esc's word against what Esc actually closes.
 - **Questions answered twice:** for each new helper that reads existing state, is that question already answered
   elsewhere (the function behind a panel row, a status line, an error, `^W P`)? A re-derivation of an answer the
@@ -161,10 +130,7 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
   Source boundaries or `docs/ARCHITECTURE.md` so the next change finds it?
 - **Ids, names, roles:** for each reference the change keeps (a tile, pane, note, outline, session), is it an id,
   a name or a role, and does it store only ids or roles ([ADR 0001](docs/adr/0001-ids-names-roles.md))?
-- **Demo it in the kitchen sink:** a user-visible feature gets a showcase section or note in the same PR, live
-  where possible (`ep0ch --showcase`), as each reuse-map row gets its section, and its test drives that section
-  through `act` and checks the result (`packages/door/test/showcase/`). If it can't be shown there, the PR
-  says why.
+- **Demo it in the kitchen sink** ([the door's rules](.claude/rules/door.md#demo-it-in-the-kitchen-sink)).
 
 ### 2. Correctness
 
@@ -251,9 +217,6 @@ Keeping this list honest, at each push-review round:
 - **Merge or reword** entries that overlap. The list stays short enough to read in one review; past about ten, the
   oldest unseen ones go.
 
-After a big push or two, review the system as a whole: one lens per reviewer (architecture and reuse,
-portability and runtime, daily-driver interaction), reporting, not fixing.
-
 ## Protocol and schema
 
 The policy is in [AGENTS.md](AGENTS.md#schema-and-protocol-one-version): one schema version, one protocol number.
@@ -298,27 +261,15 @@ timestamps.
 
 ## Branches, commits and pull requests
 
-- Work in a worktree (`git worktree add -b <branch> ~/wt/ep0ch-wt-<slug> origin/main`). Never switch branches in the
-  live checkout: it is what runs.
-- One focused branch per roadmap item (`feature/<behavior>`, `fix/<bug>`, `docs/<topic>`), and one coherent PR per
-  change. A feature split across agents uses a feature branch: slices branch from it (`<feature>/<slice>`) and open
-  PRs into it; one PR goes from the feature branch to main.
-- Keep commits reviewable. Don't include runtime databases, sockets, logs, session exports, screenshots or
-  unrelated local command files. Don't commit lockfile churn; commit `bun.lock` only when dependencies change.
+Worktrees, one PR per experience, the one review and who merges are in
+[AGENTS.md](AGENTS.md#fixtures-prs-and-merging). Beyond those:
+
+- Don't commit runtime databases, sockets, logs, session exports, screenshots or unrelated local command files.
 - Prefer clean cutovers: migrate every caller, test and import, then remove obsolete code. Don't leave
   compatibility aliases unless an external consumer requires one.
-- A PR states the observable problem, the chosen behavior and invariants, preserved contracts, exact verification
-  commands and results, and live pane proof when applicable.
-- Paid review runs on PRs into main. Put `[skip review]` in the title of docs-only, mechanical or small PRs and
-  review them yourself. Push fixes in one go; don't re-trigger reviews.
-- Address actionable review comments with minimal fixes. Reply with the validating evidence and resolve the
-  thread. Re-run affected checks after the fix. Before patching a finding, fetch the current remote head and any
-  bot patch already in flight; assign one active writer for that finding, and after a remote change verify the
-  combined source and update the PR's evidence to the exact revision being reviewed.
-- CodeRabbit's generic docstring warning is advisory here. Add comments only when they explain a non-obvious
-  invariant.
-- Merge yourself once review is resolved: `gh pr merge --merge` (never `--delete-branch` or `-d`: gh also deletes the local branch, and with it the worktree an agent has it checked out in). GitHub deletes the remote branch itself on merge and retargets a PR stacked on it; never delete a branch by hand (`gh api -X DELETE …/refs/heads/…` once closed a stacked PR). The live checkout
-  moves only through `ep0ch install --apply`, run by the deployer.
+- A PR states the observable problem, the experience it delivers, preserved contracts, and what ran (above).
+- Answer actionable review comments with the fix, pushed in one go, and resolve the thread. CodeRabbit's generic
+  docstring warning is advisory here.
 
 ## Documentation
 

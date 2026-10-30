@@ -218,16 +218,10 @@ time. Hand back one thing to try, never a checklist of increments.
 The root `CONTRIBUTING.md` has the checklist, architecture pass first
 ([Review checklist](../../../../CONTRIBUTING.md#review-checklist)). The question that catches the most:
 
-- **Did you really?** List each shared part the brief or PR said it would use and check the diff actually
-  uses it. Name every place it built its own instead (a second dock, a screen-only layout, a key with no
-  action, a switch on a tile kind's name). Expect at least one; fix it or say why not.
-- **Is it in the kitchen sink?** A user-visible feature gets a showcase section or note in the same PR, live
-  where possible (`ep0ch --showcase`), as each reuse-map row gets its section, and its test drives that section
-  through `act` (`packages/door/test/showcase/`); if it can't be shown, the PR says why.
-
-After a big push or two, review the system as a whole: one lens per reviewer (architecture and reuse,
-portability and runtime, daily-driver interaction), reporting, not fixing. Then refresh the docs (README and
-CHANGELOG, the demo hubs, the fresh-outline seed, the showcase and skills, the regenerated architecture map: `--sync`, then add structures for new shared parts).
+- **Did you really?** Check the diff uses the shared parts the brief named. Name every place it built its own
+  instead (a second dock, a screen-only layout, a key with no action, a switch on a tile kind's name); fix it or
+  say why not.
+- **Is it in the kitchen sink?** The door's rules, "Demo it in the kitchen sink".
 
 ## Branches, PRs, merging
 
@@ -236,13 +230,7 @@ CHANGELOG, the demo hubs, the fresh-outline seed, the showcase and skills, the r
   `ep0ch install --apply`, which fast-forwards it, restarts the outline host, the MCP gateway and the publishers only
   when the code each runs changed (`RUNS` in `packages/door/src/setup/model.ts`), and hands this
   machine's door sessions to the new code (a door on another machine is restarted there).
-- One coherent PR per change. A feature split across agents uses a feature branch: slices branch from it
-  (`<feature>/<slice>`) and open PRs into it; one PR goes from the feature branch to main.
-- Paid review runs on PRs into main. Put `[skip review]` in the title of docs-only, mechanical or small PRs
-  and review them yourself (`/code-review` for code). Push fixes in one go; don't re-trigger reviews.
-- Don't commit lockfile churn from a local bun; commit `bun.lock` only when dependencies change.
-- Merge yourself once review is resolved: `gh pr merge --merge` (never `--delete-branch` or `-d`: gh also deletes the local branch, and with it the worktree an agent has it checked out in). GitHub deletes the remote branch itself on merge and retargets a PR stacked on it; never delete a branch by hand (`gh api -X DELETE …/refs/heads/…` once closed a stacked PR). Check for bot reviews posted
-  after the merge, and answer them in a follow-up PR.
+- One PR per experience, one review, and who merges: the root `AGENTS.md`, "Fixtures, PRs and merging".
 
 ## Deploy and back up
 
