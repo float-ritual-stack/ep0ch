@@ -6,6 +6,7 @@ import { extensionProvider } from "./resources";
 import type { ScheduleListEntry } from "./extension-schedule";
 import type { ExtensionBarSource, ExtensionCompletionSource } from "@ep0ch/outline-core/protocol";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
+import { noteOrigin } from "@ep0ch/outline-core/script-component";
 import { existsSync, readdirSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -323,7 +324,7 @@ export class ExtensionRegistry {
       if (source.error) throw new ExtensionLoadError(source.error);
       if (!source.script?.code.trim()) throw new ExtensionLoadError("The script is empty; add a closed js or ts code fence to this script block, then run it again");
       const extension = loadExtensionManifest(source);
-      return { id: extension.id, origin: extension.origin, directory: extension.directory, state: "active", serving: extension, ...identity, loadedAt: now };
+      return { id: extension.id, origin: extension.origin, directory: extension.directory, state: "active", serving: extension, ...identity, loadedAt: now, ...(source.warning ? { error: source.warning } : {}) };
     } catch (error) {
       return { id: source.expectedId, origin: source.origin, directory: source.directory, state: "failed", ...identity, error: error instanceof Error ? error.message : String(error) };
     }
@@ -544,12 +545,18 @@ export class ExtensionRegistry {
     }] : []);
   }
 
-  /** The component schemas each serving extension ships (PIE-618), for `components.schemas`. */
-  components(): { id: string; components: ComponentSchema[] }[] {
+  /**
+   * The component schemas each serving extension ships (PIE-618), for `components.schemas`. A render script's note makes
+   * one too (origin `note:((id))`), said only by the script whose `board` lines it is: a second note of that name, which
+   * draws nothing, lists nothing.
+   */
+  components(): { id: string; components: ComponentSchema[]; origin?: string }[] {
     return this.slots.flatMap((slot) => {
       const extension = slot.serving;
-      const components = extension && (slot.state === "active" || slot.state === "failed") ? (extension.manifest.components ?? []) as ComponentSchema[] : [];
-      return components.length ? [{ id: slot.id, components }] : [];
+      const shipped = extension && (slot.state === "active" || slot.state === "failed") ? (extension.manifest.components ?? []) as ComponentSchema[] : [];
+      const components = extension?.script ? shipped.filter(c => this.bound.get(c.id)?.extension === extension) : shipped;
+      const blockId = extension?.script?.blockId;
+      return components.length ? [{ id: slot.id, components, ...(blockId ? { origin: noteOrigin(blockId) } : {}) }] : [];
     });
   }
 

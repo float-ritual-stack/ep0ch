@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
-import { scriptSourceId } from "../src/script-sources";
+import { scriptSourceId, scriptSources } from "../src/script-sources";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import { setup, until } from "./script-harness";
 
@@ -114,4 +114,37 @@ test("a script's own words are its summary (PIE-1284): a note script's its note'
   store.update(note.id, note.text.replace("Weekly", "Monthly"), note.revision, { author: "user" });
   expect(await until("the new title", async () => (await summary("tidyup")) === "Monthly tidy of the beds")).toBe(true);
   expect((await list()).generation).toBeGreaterThan(before);
+});
+
+// Note components: a render script's note is a component schema (its chips its props, its demo line its example); a
+// module is only imported; of two notes that say one name, the one whose lines it draws is the one listed.
+test("a render note's manifest carries its component, its demo line the example; a module has no run, @name or schema", async () => {
+  const { store, create, client } = await setup();
+  const board = create("Errand board [script::board] [mode::render] [form-field::where query required] [form-field::group property default=status]\nLanes of what a query holds.\n\n::board{where=\"type=errand\" group=owner}\n\n```js\nreturn props.where[0];\n```");
+  create("UI kit [script::ui-kit] [mode::module]\n```js\nreturn { Lane: () => 1 };\n```");
+  const sources = await scriptSources(store);
+  const manifest = (name: string) => JSON.parse(sources.find(s => s.scriptName === name)!.manifestRaw);
+  const [component] = manifest("board").components;
+  expect(component).toMatchObject({ id: "board", title: "Errand board", intro: "Lanes of what a query holds.", origin: `note:((${board.id}))`,
+    example: { where: "type=errand", group: "owner" }, source: { use: "::board{where=\"type=errand\" group=owner}" } });
+  expect(component.props.map((p: { key: string }) => p.key)).toEqual(["where", "group"]);
+  expect(manifest("ui-kit")).toMatchObject({ actions: [] });
+  expect(manifest("ui-kit").agents).toBeUndefined();
+  expect(manifest("ui-kit").components).toBeUndefined();
+  expect(sources.find(s => s.scriptName === "ui-kit")!.script!.module).toBe(true);
+  // The module still loads (an import finds it by name), with nothing to run or ask.
+  const listed = (await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true })).extensions;
+  const kit = listed.find(e => e.script && e.name === "ui-kit")!;
+  expect(kit.state).toBe("active");
+  expect([kit.actions, kit.agents, kit.handlers]).toEqual([[], [], []]);
+});
+
+test("of two render notes named board, only the one that draws board's lines lists its component", async () => {
+  const { create, client } = await setup();
+  const first = create("Board [script::board] [mode::render]\n```js\nreturn 'first';\n```");
+  create("Board again [script::board] [mode::render]\n```js\nreturn 'second';\n```");
+  await client.request({ action: "extensions.list", reload: true });
+  const answer = await client.request<{ schemas: { id: string; origin?: string }[]; problems: string[] }>({ action: "components.schemas" });
+  expect(answer.schemas.filter(s => s.id === "board").map(s => s.origin)).toEqual([`note:((${first.id}))`]);
+  expect(answer.problems.filter(p => p.includes("board"))).toEqual([]);
 });

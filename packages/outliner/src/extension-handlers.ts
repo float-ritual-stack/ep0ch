@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 import type { ExtensionHandler, ExtensionOptionSpec } from "./extension-manifest";
 import type { BoundHandler } from "./extension-registry";
-import { parsePropertyDirectiveLines } from "@ep0ch/outline-core/property-parse";
 import { splitWords } from "@ep0ch/outline-core/component-block";
 import { offsetInRanges, scanPropertyLiteralRanges, sourceLines } from "@ep0ch/outline-core/code-ranges";
+import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
+import { oneLineCalls } from "@ep0ch/outline-core/script-component";
+import { FORM_FIELD_KEY, formFields } from "@ep0ch/outline-core/form-fields";
+import { parsePropertyDirectiveLines, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 
 /**
  * Handler lines: `key:: [argument] [--option[=value]]` for a key an
@@ -165,11 +168,56 @@ export function pipelineCalls(text: string): HandlerCall[] {
   return calls;
 }
 
+/** The built-in components: a `::callout{…}` is never a script's, whatever a script calls itself. */
+const BUILT_IN_COMPONENTS: ReadonlySet<string> = new Set(BUILTIN_COMPONENT_SCHEMAS.map(schema => schema.id));
+
+/** The words a call hands its script: each `name="value"` as `slotProps` reads it back. */
+const slotWord = (key: string, value: string) => `${key}="${value.replace(/[\\"]/g, "\\$&")}"`;
+
+/** The slots a script declares (script-sources.ts declaredSlots, read here without the service's modules): its note's chips, or a file's opening comments. */
+function slotsOf(script: NonNullable<BoundHandler["extension"]["script"]>) {
+  const lines = script.file ? script.code.split(/\r?\n/) : [];
+  const end = lines.findIndex(line => !/^\s*\/\//.test(line));
+  const comments = (end < 0 ? lines : lines.slice(0, end)).join("\n");
+  return formFields(script.fields ?? parsePropertyRecords(comments).filter(p => p.key === FORM_FIELD_KEY).map(p => p.value)).fields;
+}
+
+/**
+ * The `::name{…}` lines of a block whose name a render script serves (note components): `::board{where="type=errand"}`
+ * is a second spelling of `board:: where="type=errand"`, so it draws the same way, under its line. The argument is its
+ * attributes as written, then the defaults its `[form-field::]` chips give for the rest; a required one left out is the
+ * call's problem.
+ */
+export function componentCalls(text: string, table: HandlerTable): HandlerCall[] {
+  if (!text.includes("::")) return [];
+  const names = new Set([...table.handlerKeys()].filter(key => !BUILT_IN_COMPONENTS.has(key) && table.handler(key)?.extension.script?.render));
+  const calls: HandlerCall[] = [];
+  for (const call of oneLineCalls(text, names)) {
+    if (calls.length >= MAX_CALLS) break;
+    const { handler, extension } = table.handler(call.name)!;
+    const given = new Set(call.attrs.map(a => a.key));
+    const slots = slotsOf(extension.script!);
+    const words = [...call.attrs.map(a => slotWord(a.key, a.value)),
+      ...slots.flatMap(slot => !given.has(slot.name) && slot.default !== undefined ? [slotWord(slot.name, slot.default)] : [])];
+    const argument = words.length ? words.join(" ") : null;
+    const missing = slots.filter(slot => slot.required && !given.has(slot.name) && slot.default === undefined).map(slot => slot.name);
+    const problems = [...missing.length ? [`::${call.name} needs ${missing.join(" and ")}`] : [], ...argument && argument.length > 500 ? ["its props are longer than 500 characters"] : []];
+    const lineStart = text.lastIndexOf("\n", call.start - 1) + 1;
+    calls.push({
+      extensionId: extension.id, handlerKey: handler.key, kind: handler.kind, effects: handler.effects, argument, options: {}, display: {}, unknown: [],
+      problems, argumentOk: problems.length === 0,
+      callKey: createHash("sha256").update(JSON.stringify([handler.key, argument])).digest("hex").slice(0, 32),
+      line: call.line, start: call.start, end: call.end, indent: text.slice(lineStart, call.start),
+    });
+  }
+  return calls;
+}
+
 /**
  * Cheap guard for readers: could this text hold a handler line (any `key::`
- * line) or an agent request (an `@name` line)? The service decides.
+ * line, a `::name{…}` call) or an agent request (an `@name` line)? The service decides.
  */
 export function mayHaveHandlerLines(text: string): boolean {
-  return /^(?:[ \t]*)(?:`{3,}|~{3,})(?:sh|bash|zsh)\s+run\s*$/m.test(text) || (text.includes("::") && /^[ \t]*(?:[-*+][ \t]+)?(?:[A-Za-z][A-Za-z0-9_.-]*::|::=)/m.test(text)) ||
+  return /^(?:[ \t]*)(?:`{3,}|~{3,})(?:sh|bash|zsh)\s+run\s*$/m.test(text) || (text.includes("::") && /^[ \t]*(?:[-*+][ \t]+)?(?:[A-Za-z][A-Za-z0-9_.-]*::|::=|::[a-z][a-z0-9-]*\{)/m.test(text)) ||
     (text.includes("@") && /^[ \t]*(?:[-*+][ \t]+)?@[a-z]/m.test(text));
 }

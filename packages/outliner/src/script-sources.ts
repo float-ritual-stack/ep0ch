@@ -9,6 +9,7 @@ import type { ExtensionEntry } from "./extension-registry";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { FORM_FIELD_KEY, FORM_FIELD_TYPES, formFields } from "@ep0ch/outline-core/form-fields";
 import { displayTitleOfText } from "./references";
+import { oneLineCalls, schemaOfScript } from "@ep0ch/outline-core/script-component";
 import { bind } from "./site-answer";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
 
@@ -31,6 +32,11 @@ export function scriptsAt(store: OutlinerStore, entries: readonly ExtensionEntry
 }
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/** What a render script's note says it is: its lines under the title, above its code, less its chips and its calls. */
+function introOf(lines: readonly string[]): string {
+  return lines.map(line => line.replace(/\[[A-Za-z][\w.-]*::[^\]\n]*\]/g, "").trim()).filter(line => line && !/^::/.test(line)).join("\n");
+}
 
 export const scriptSourceId = (identity: string) => `script-${hash(identity).slice(0, 24)}`;
 
@@ -92,17 +98,23 @@ const scriptStamp = (script: ScriptSource) => hash(JSON.stringify({ ...script, r
 export async function scriptSources(store: OutlinerStore, draft?: { blockId: string; text: string }, extensions: readonly LoadedExtension[] = []): Promise<ManifestSource[]> {
   const sources: ManifestSource[] = [];
   // What the script says it is (the extensions list's words for it, PIE-1284): its note's title, or the about its extension declares.
-  const add = (identity: string, name: string, script: ScriptSource, error?: string, location?: { origin: ExtensionOrigin; directory: string }, about?: string) => {
+  const add = (identity: string, name: string, script: ScriptSource, error?: string, location?: { origin: ExtensionOrigin; directory: string }, about?: string, component?: ReturnType<typeof schemaOfScript>) => {
     const id = scriptSourceId(identity);
     const description = about?.trim().slice(0, 500);
+    // A module (`[mode::module]`) is only imported: no run, no @name, no line of its own.
+    const runs = !script.module;
     sources.push({
-      ...(error ? { error } : {}), expectedId: id, idFrom: identity, ...(location ?? { origin: "outline", directory: store.workspaceRoot ?? "" }),
-      manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, ...(description ? { description } : {}), ...(/^[a-z][a-z0-9-]{0,31}$/.test(name) ? { agents: [{ name, effects: script.effects }] } : {}),
-        // Render mode: the script is a handler, its line (`name::`) draws what it returns under the line.
+      ...(error ? { error } : {}), ...(component?.problem ? { warning: `${component.problem}; ::${name}{…} isn't listed as a component` } : {}),
+      expectedId: id, idFrom: identity, ...(location ?? { origin: "outline", directory: store.workspaceRoot ?? "" }),
+      manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, ...(description ? { description } : {}), ...(runs && /^[a-z][a-z0-9-]{0,31}$/.test(name) ? { agents: [{ name, effects: script.effects }] } : {}),
+        // Render mode: the script is a handler, its line (`name::`, or `::name{…}`) draws what it returns under the line.
         ...(script.render ? { handlers: [{ key: name, kind: "output", effects: "read", description: `Draws what ${name} returns, in place`, argument: { name: "slots", description: "name=value words the script reads as props" } }] } : {}),
-        actions: [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as script:${name}; returns an answer, keeping content or a requested [results::keep] record`, on: "outline", effects: script.effects,
-          args: runArgs(script) }] }),
-      configRaw: "{}", scriptName: name, script, stamp: scriptStamp(script),
+        // Its note says what it takes, as an extension's components[] does (a schema that wouldn't load is the warning).
+        ...(component?.schema ? { components: [component.schema] } : {}),
+        actions: runs ? [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as script:${name}; returns an answer, keeping content or a requested [results::keep] record`, on: "outline", effects: script.effects,
+          args: runArgs(script) }] : [] }),
+      // What its note says of it is part of what clients hear changed (the intro, the demo line), as its code is.
+      configRaw: "{}", scriptName: name, script, stamp: component?.schema ? hash(scriptStamp(script) + JSON.stringify(component.schema)) : scriptStamp(script),
     });
   };
   // Only a note that says `script` (its `[script::…]`, in any case, or a fence's `script=`) can hold one: the rest are never
@@ -128,7 +140,9 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
       const name = attrs.script!;
       const setting = (key: string) => attrs[key] ?? (noteName === name ? block.properties.find(p => p.key === key)?.value : undefined);
       const noteValues = (key: string) => noteName === name ? block.properties.filter(p => p.key === key).map(p => p.value) : [];
-      const render = attrs.mode === undefined ? noteValues("mode").includes("render") : attrs.mode === "render";
+      const mode = attrs.mode === undefined ? noteValues("mode") : [attrs.mode];
+      const module = mode.includes("module");
+      const render = !module && mode.includes("render");
       const deadline = durationMs(setting("deadline"));
       const definition = isNamed ? { name, occurrence: named.filter(f => f.start < fence!.start && codeFenceInfo(f.fence.info).attrs.script === name).length } : undefined;
       const { code, effects } = scriptFence(block.text, definition);
@@ -136,10 +150,15 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
       const problem = duplicates.length > 1
         ? `Script ${name} is defined more than once in this note, at lines ${duplicates.map(f => f.start + 1).join(", ")}; give each fence a different script name`
         : undefined;
+      // A render script is a component (script-component.ts): its chips are its props, the words above its fence its intro,
+      // its own first `::name{…}` line its example.
+      const component = render ? schemaOfScript({ name, title: title ?? name, intro: introOf(lines.slice(1, fences[0]?.start ?? lines.length)), fields: noteValues(FORM_FIELD_KEY),
+        example: oneLineCalls(block.text, new Set([name])).map(call => lines[call.line]!)[0], blockId: block.id }) : undefined;
       add(isNamed ? `${block.id}:${name}:${definition!.occurrence}` : block.id, name,
         { code, fields: noteValues(FORM_FIELD_KEY), keys: (attrs.keys === undefined ? noteValues("keys") : [attrs.keys]).flatMap(value => value.split(",").map(k => k.trim()).filter(Boolean)), ...(language === "actions" ? { format: "actions" as const } : {}), blockId: block.id, ...(isNamed ? { line: fence!.start, fence: definition } : {}), revision: block.revision,
-          ...(render ? { render: true as const } : {}), ...(deadline ? { deadlineMs: Math.min(deadline, MAX_DEADLINE_MS) } : {}),
-          effects, author: { author: revision.author ?? block.author, ...(revision.actorId ? { actorId: revision.actorId } : {}) } }, problem, undefined, title);
+          ...(render ? { render: true as const } : {}), ...(module ? { module: true as const } : {}), ...(language === "tsx" || language === "jsx" ? { language } : {}),
+          ...(deadline ? { deadlineMs: Math.min(deadline, MAX_DEADLINE_MS) } : {}),
+          effects, author: { author: revision.author ?? block.author, ...(revision.actorId ? { actorId: revision.actorId } : {}) } }, problem, undefined, title, component);
     }
   }
   if (!draft) {
