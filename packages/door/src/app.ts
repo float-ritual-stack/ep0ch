@@ -1816,6 +1816,8 @@ export class App implements Ctx {
         if (!this.drawer.shown) { this.drawer.rect = null; this.drawer.made?.shownAs(false); continue; }
         const d = this.drawer.render(cols, rows, s.title);
         lines = overlay(lines, d);
+        // Laid over the screen's chrome, the drawer's own bottom rows are there instead: none of the screen's is left to keep clear.
+        if (d.rect.row < chromeAt) chromeAt = lines.length;
         // Images under the drawer would show through it; the drawer's tiles' own are drawn in it.
         // One running down under it is cut short at its edge (a spine's long title, PIE-794), not dropped whole.
         placements = [...uncover(placements, { col: 0, row: d.rect.row, cols, rows: rows - d.rect.row }), ...(this.graphics ? d.placements : [])];
