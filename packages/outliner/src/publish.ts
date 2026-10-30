@@ -1,7 +1,7 @@
 import { ageSince } from "@ep0ch/outline-core/age";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { type ArtifactInfo, type ArtifactReader } from "@ep0ch/outline-core/artifacts";
-import { pageSources, SOURCES_STYLE } from "./publish-sources";
+import { pageSources, SOURCE_ROUTE, sourceAt, sourceFile, SOURCES_STYLE, visibleSources } from "./publish-sources";
 import type { SiteAnswer, SiteAnswerRequest, SiteLink } from "@ep0ch/outline-core/site";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { blockTags, metadataLines } from "@ep0ch/outline-core/block-tags";
@@ -212,7 +212,7 @@ export interface PublisherOptions {
    * takes them. `fresh`: a write is about to land, so nothing remembered from earlier answers.
    */
   writes?: (fresh: boolean) => Promise<string | null>;
-  /** Tell the service who reads which page (`reader.report`); a read-only copy can't keep it. Default true. */
+  /** Tell the service who reads which page (`reader.report`); a mirror's copy keeps it beside the mirror (outline-mirror.ts). Default true. */
   presence?: boolean;
   /** Offer `share…` on a note's page (the shares page starts it); a publisher with no public listener of its own doesn't. Default true. */
   shares?: boolean;
@@ -452,6 +452,8 @@ main.browse{max-width:42rem;padding:1rem 1rem 6rem}
 nav.crumbs{font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--dim);border-bottom:1px solid var(--rule);padding-bottom:.4rem;margin-bottom:1.25rem;overflow-wrap:anywhere}
 nav.crumbs a{color:var(--dim);text-decoration:none;display:inline-block;padding:.45rem 0}
 nav.crumbs a:hover{color:var(--fg)}
+nav.crumbs a.mg-trail{color:var(--fg)}
+section#mg-trail{margin:-.75rem 0 1.25rem}section#mg-trail h2{margin-top:0}section#mg-trail a[aria-current] .t{color:var(--fg);font-weight:600}
 main.browse article{overflow-wrap:anywhere}
 section.inside h2{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:2.5rem 0 .4rem}
 ul.kids{list-style:none;margin:0;padding:0;border-top:1px solid var(--rule)}
@@ -661,11 +663,31 @@ function notFound(): Response {
  * A plain page of the web client's own (the sign-in page, a refusal): dark, no script, the publisher's style, nothing
  * from the outline. `body` is HTML the caller escaped.
  */
-export function plainPage(title: string, body: string, status = 200, headers: Record<string, string> = {}): Response {
-  return withHeaders(renderedHtml(htmlPage(title, `<article>\n${body}</article>\n`, `<nav class="crumbs">ep0ch</nav>`, { browse: true }), status), headers);
+export function plainPage(title: string, body: string, status = 200, headers: Record<string, string> = {}, home?: string): Response {
+  const crumbs = home ? `<nav class="crumbs"><a href="${escapeHtml(home)}">ep0ch</a></nav>` : `<nav class="crumbs">ep0ch</nav>`;
+  return withHeaders(renderedHtml(htmlPage(title, `<article>\n${body}</article>\n`, crumbs, { browse: true }), status), headers);
 }
 
 export { escapeHtml };
+
+/**
+ * Every error a browser opens is a dark page (he is photosensitive, PIE-1386): a plain-text answer at 400 or above, to a
+ * GET that accepts HTML, becomes `plainPage` with the same words, status and headers (Retry-After, Allow). A
+ * fetch from a page's script (no `text/html` in its Accept) keeps the plain words it reads.
+ */
+export async function darkError(request: Request, response: Response, home?: string): Promise<Response> {
+  const type = response.headers.get("content-type") ?? "text/plain";
+  if (response.status < 400 || !type.startsWith("text/plain") || !(request.headers.get("accept") ?? "").includes("text/html")) return response;
+  // A HEAD has no body to show; only a GET's page is drawn.
+  if (request.method !== "GET") return response;
+  const said = (await response.text()).trim() || response.statusText || `Error ${response.status}`;
+  const [first = said, ...rest] = said.split("\n");
+  // A way back where the page has one (PIE-1418): the outline's first page, or the share's.
+  const back = home ? `<p><a href="${escapeHtml(home)}">← back to the outline</a></p>\n` : "";
+  const page = plainPage(first, `<h1>${escapeHtml(first)}</h1>\n${rest.length ? `<p class="dim">${escapeHtml(rest.join(" "))}</p>\n` : ""}${back}`, response.status, {}, home);
+  for (const [name, value] of response.headers) if (name !== "content-type" && name !== "content-length" && name !== "content-security-policy") page.headers.set(name, value);
+  return page;
+}
 
 /** A share link that ended: 410, a plain dark page that names nothing from the outline. */
 function shareGone(state: "expired" | "revoked"): Response {
@@ -1133,6 +1155,17 @@ export class Publisher {
     return entry.public ? `${this.publicBase.origin ?? ""}${this.publicBase.basePath}${entry.path}` : undefined;
   }
 
+  /**
+   * Where an error page's way back goes: on the public listener, a share's first page under the mount it was asked at (a
+   * tunnel's at the root), and nothing else (it has no index); on the tailnet, the index.
+   */
+  private homeOf(request: Request, audience: PublishAudience): string | undefined {
+    const base = this.basePathFor(audience), path = new URL(request.url).pathname;
+    if (audience !== "public") return `${base}/`;
+    const mount = base && path.startsWith(`${base}/`) ? base : "", shared = SHARE_PATH.exec(path.slice(mount.length));
+    return shared ? `${mount}/s/${shared[1]}/` : undefined;
+  }
+
   private basePathFor(audience: PublishAudience): string {
     return audience === "public" ? this.publicBase.basePath : this.basePath;
   }
@@ -1143,7 +1176,7 @@ export class Publisher {
    * sees only public notes and takes no writes.
    */
   async handle(request: Request, audience: PublishAudience = "tailnet", tunnel?: string, signedIn?: SignedIn): Promise<Response> {
-    const response = await this.reading.run({ owner: !!signedIn && audience === "tailnet" && tunnel === undefined }, () => this.answer(request, audience, tunnel, signedIn));
+    const response = await darkError(request, await this.reading.run({ owner: !!signedIn && audience === "tailnet" && tunnel === undefined }, () => this.answer(request, audience, tunnel, signedIn)), this.homeOf(request, audience));
     return audience === "public" ? withHeaders(response, PUBLIC_HEADERS) : response;
   }
 
@@ -1266,6 +1299,8 @@ export class Publisher {
       if (media) return await this.serveMedia(request, media[1]!.toLowerCase(), Number(media[2]), audience, undefined, media[3] === undefined ? undefined : Number(media[3]));
       const artifact = ARTIFACT_PATH.exec(path);
       if (artifact) return await this.serveArtifact(artifact[1]!.toLowerCase(), Number(artifact[2]), url.searchParams.get("view"), audience);
+      const source = SOURCE_ROUTE.exec(path);
+      if (source) return await this.serveSource(request, source[1]!.toLowerCase(), source[2]!, source[3]!, source[4] as "csv" | "json", audience);
       let slug: string;
       try {
         slug = decodeURIComponent(path.slice(3)).replace(/\/+$/, "");
@@ -1380,6 +1415,8 @@ export class Publisher {
     if (media) return this.serveMedia(request, media[1]!.toLowerCase(), Number(media[2]), "tailnet", share, media[3] === undefined ? undefined : Number(media[3]));
     const artifact = ARTIFACT_PATH.exec(rest);
     if (artifact) return this.serveArtifact(artifact[1]!.toLowerCase(), Number(artifact[2]), new URL(request.url).searchParams.get("view"), "tailnet", share);
+    const source = SOURCE_ROUTE.exec(rest);
+    if (source) return this.serveSource(request, source[1]!.toLowerCase(), source[2]!, source[3]!, source[4] as "csv" | "json", "tailnet", share);
     if (rest === "/search" || rest === "/search/") return this.serveSearch(request, share);
     const index = await this.shareIndex(share);
     const url = new URL(request.url);
@@ -1655,7 +1692,7 @@ export class Publisher {
       // A step's box changes from the owner's own page (PIE-811); a share's and a public page's are drawn, read-only.
       const article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(drawSubtitle(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.subtitle), rendered.components), rendered.marks, browse), rendered.anchors), rendered.steps, owner), rendered.index, base);
       const sourceText = (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text;
-      const sources = await pageSources(this.liveHost(audience, index, base, share), entry.blockId, this.outlineName ?? "this outline", sourceText, rendered.drawn.get(entry.blockId) ?? new Map());
+      const sources = await pageSources(this.liveHost(audience, index, base, share), entry.blockId, this.outlineName ?? "this outline", sourceText, rendered.drawn.get(entry.blockId) ?? new Map(), base);
       if (!browse) return renderedHtml(this.page(entry, sources + article, audience, skin), 200, sources ? READER_CSP : RENDERED_CSP);
       const crumbs = await this.crumbs(entry, index, true, share);
       return renderedHtml(htmlPage(entry.title, `${sources}<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share), search: { base, near: entry.blockId }, skin }), 200, READER_CSP);
@@ -1729,7 +1766,7 @@ export class Publisher {
       : "";
     const bookmarks = system.find((block) => getProperty(block.properties, "system-view")?.toLowerCase() === "bookmarks");
     const top = share ? "" : `<footer>${bookmarks ? `<a href="${escapeHtml(`${base}/p/${bookmarks.id}`)}">bookmarks</a> · ` : ""}<a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
-    const sources = entry ? await pageSources(host, entry.blockId, this.outlineName ?? "this outline", (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text, sourceRegions) : "";
+    const sources = entry ? await pageSources(host, entry.blockId, this.outlineName ?? "this outline", (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text, sourceRegions, base) : "";
     const body = `${sources}<article>\n${article}</article>\n${lanes}${inside}${entry ? this.pageFooter(entry, false, share) : ""}${!entry || home ? top : ""}`;
     // The front page names the outline, with every root note one link away; it is still its note's page below.
     const crumbs = home
@@ -2065,6 +2102,41 @@ export class Publisher {
     // The public listener has no index to link to.
     const nav = audience === "public" ? escapeHtml(entry.slug) : `<a href="${href("/index")}">index</a> / ${escapeHtml(entry.slug)}`;
     return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${escapeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav, { skin, sourcesScript: `${this.basePathFor(audience)}${PAGE_ROUTE}/sources.js` });
+  }
+
+  /**
+   * A Sources panel's download (PIE-1383): the page's source with this key and name, among those the panel draws (the
+   * same visibility cut, read now), as a file: `Content-Disposition: attachment` with the source's name, so a phone saves or shares it. Behind
+   * whatever the note's page is behind: the lock, a share's scope, public only when the page is.
+   */
+  private async serveSource(request: Request, blockId: string, rawKey: string, rawName: string, format: "csv" | "json", audience: PublishAudience, share?: PageShare): Promise<Response> {
+    let key: string, name: string;
+    try { key = decodeURIComponent(rawKey); name = decodeURIComponent(rawName); } catch { return notFound(); }
+    if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
+    if ((await this.lockedIds([blockId])).size) return notFound();
+    if (share && !(await this.inScope([blockId], share)).has(blockId)) return notFound();
+    const index = share ? await this.shareIndex(share) : audienceIndex(await this.readIndex(), audience);
+    const entry = await this.entryAt(blockId, index, audience);
+    if (!entry || entry.blockId !== blockId) return notFound();
+    if (audience === "public" && !(await this.stillPublic(blockId))) return notFound();
+    const base = share?.base ?? this.basePathFor(audience);
+    // The page's own cuts, drawn as its page draws them: a folder page on the tailnet (and a share), the whole page in public.
+    const page = { ...entry, type: "block" as const };
+    const whole = audience === "tailnet" ? await this.noteWithAnnotations(blockId, !share || share.comments) : undefined;
+    if (audience === "tailnet" && !whole) return notFound();
+    const rendered = await this.blockMarkdown(page, index, audience, !share || share.comments, audience === "tailnet"
+      ? { whole, browse: true, owner: !share, anchors: [], ...(share ? { share } : {}) }
+      : { browse: false, owner: false, anchors: [] });
+    const sources = await visibleSources(this.liveHost(audience, index, base, share), blockId, rendered.drawn.get(blockId) ?? new Map());
+    const chosen = sources && sourceAt(sources.sources, key, name, format);
+    if (!chosen) return notFound();
+    const file = sourceFile(chosen, format);
+    return new Response(request.method === "HEAD" ? null : file.body, {
+      headers: {
+        ...COMMON_HEADERS, "content-type": file.type, "cache-control": "no-store",
+        "content-disposition": `attachment; filename="${file.filename}"`,
+      },
+    });
   }
 
   /**
@@ -2819,7 +2891,8 @@ function publishedText(text: string, context: TextContext, options: { keepProper
       if (inCode(start) || (raw.trim() && inCode(start + raw.length - raw.trimStart().length))) return;
       const sentinel = /[\ue000-\uf8ff].*$/s.exec(raw), text = sentinel ? raw.slice(0, sentinel.index) : raw, tail = sentinel?.[0] ?? "";
       const button = text.includes("::button") ? buttonCallAt([text], 0) : null;
-      if (button) { lines[i] = `**${button.label.replace(/[*_`\\[\]]/g, "")}**${tail}`; return; }
+      // In a list item or a quote (PIE-1224) the label keeps the item's marker or the quote's bar.
+      if (button) { lines[i] = `${button.prefix ?? ""}**${button.label.replace(/[*_`\\[\]]/g, "")}**${tail}`; return; }
       if (!text.includes("(act:")) return;
       let out = text;
       const here = (l: { start: number }) => !inCode(start + l.start);

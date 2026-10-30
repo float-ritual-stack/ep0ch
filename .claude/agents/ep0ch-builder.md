@@ -86,7 +86,10 @@ found" with what was checked.
 ## Done means
 
 - **The code works,** with tests a person would notice failing. Don't add tests for counts.
-- **Docs and skills that describe the behaviour updated** in the same PR, and the CHANGELOG.
+- **Docs and skills that describe the behaviour updated** in the same PR.
+- **A CHANGELOG entry** under `## [Unreleased]` for anything a person or agent will notice: a `###` heading in plain
+  words with the ticket id, one bold-led bullet per change, and a `- **Run:**` line last. Check it before you report
+  ready: on Oct 29 the freshness sweep found five merged PRs without one.
 - **The kitchen-sink demo** ([the door's rules](../rules/door.md#demo-it-in-the-kitchen-sink)).
 - **The sentence walked:** you open what Evan would open and do what he'd do, in a real pane in your own tmux for the
   door (the recipe is in ep0ch-core), a private Herdr session for Tree and Detail, headless Chromium for the web,

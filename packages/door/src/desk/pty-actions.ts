@@ -20,8 +20,9 @@ const TERMINAL = "Terminal";
 
 export const PTY_ACTIONS = actionSet<On>()("terminal", {
   "tile.type": def({
+    words: "send text to the terminal's program, as typed keys",
     summary: "send text=<text> to the program in terminal tile=<tile>, as typed keys (\\n is ⏎). Refused to an agent for the terminal the person is in",
-    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there (an nvim tile's socket edits other lines without their cursor)", says: r => `typed into ${r.tile}`,
+    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there · an nvim tile's socket edits other lines without their cursor", says: r => `typed into ${r.tile}`,
     args: { text: { type: "string", about: "what to type; \\n for enter, \\e for escape" } },
     examples: [
       { act: "tile.type tile=draft text=\"ls -la\\n\"", does: "types ls -la and enter into the program in the draft terminal" },
@@ -32,9 +33,10 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     },
   }),
   "tile.restart": def({
+    words: "run the terminal's program again",
     summary: "run the program in terminal tile=<tile> again (after it exited). Refused to an agent for the terminal the person is in",
     keys: "⏎ on an exited terminal",
-    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them (block.mark gets their attention)", says: r => `restarted ${r.tile}`,
+    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them · block.mark gets their attention", says: r => `restarted ${r.tile}`,
     menu: { label: "run it again", group: TERMINAL, key: "enter", now: ({ pane }) => (pane.exited === null ? { hide: true } : null) },
     args: {},
     run(_, { pane, desk, tile }, actor) {
@@ -42,6 +44,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     },
   }),
   "tile.enter": def({
+    words: "type in the terminal tile",
     summary: "type in terminal tile=<tile> (the focused one): every key but ctrl+] goes to its program; one that exited runs again. The person's only: an agent's would take their keys (tile.type sends a program text)",
     keys: "e, ⏎, click in a terminal tile; ctrl+] then ctrl+] sends ctrl+] to it",
     touches: "screen", replay: "safe", person: "typing in a terminal tile takes the person's keys; an agent sends it text with tile.type",
@@ -60,12 +63,12 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     run(_, { desk }) { return host(desk).leaveTerminal(); },
   }),
   "terminal.copy": def({
+    words: "copy the text selected in the terminal",
     summary: "copy the text selected in terminal tile=<tile> to the person's clipboard (OSC 52). A drag where the program hasn't asked for the mouse, or shift+drag (alt+drag) where it has, selects, and the release of it copies (copy on select; EP0CH_COPY_ON_SELECT=0 turns that off). The person's only: an agent's copy would be a selection of theirs",
-    keys: "the release of a drag in a terminal tile (shift+drag or alt+drag when its program has the mouse)",
+    keys: [{ keys: "drag", does: "the release of a drag in a terminal tile" }, { keys: "shift-drag alt-drag", does: "the same when its program has the mouse" }],
     touches: "nothing", replay: "safe", person: "the selection in a terminal tile is the person's, and so is their clipboard",
     args: {},
     run(_, { pane, tile }, actor) {
-      if (actor.kind === "agent") throw new ActionRefused(`${tile}'s selection is the person's: read the tile with peek instead`);
       if (!pane.hasSelection) throw new ActionRefused(`nothing is selected in ${tile} · drag across its text`);
       const text = pane.copySelection();
       if (!text) throw new ActionRefused("only blanks are selected");
@@ -73,6 +76,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     },
   }),
   "terminal.clip": def({
+    words: "copy what the terminal's program copied",
     summary: "the program in terminal tile=<tile> copied text=<text> (PIE-797): passed on to the person's clipboard as its own OSC 52 would be, if they typed or clicked in the tile in the last 2 min, with the \"copied from <tile>\" toast. Said by the door's wl-copy (scripts/clip) for Claude Code in a Herdr pane, whose OSC 52 Herdr's direct attach doesn't pass on (herdrdev/herdr#4612). It comes over the control socket like any program's request, so the rule is the tile's: nothing reaches the clipboard unless the person used that tile lately",
     touches: "nothing", replay: "safe",
     args: { text: { type: "string", about: "what the program copied" } },
@@ -86,6 +90,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     },
   }),
   "tile.herdr": def({
+    words: "show an agent that lives in a Herdr pane in this terminal tile",
     summary: "terminal tile=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). Said by scripts/door-agent-herdr.ts, the program in the tile, while it attaches: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
     // Flagged, quitting the door doesn't warn that it ends the program: never set by an agent on the terminal the
     // person types in. Cleared (on=false), the warning comes back: anyone, any time.

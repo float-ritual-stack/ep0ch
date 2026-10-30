@@ -349,7 +349,7 @@ for a page, a zip or a tar: one upload, one hour, checked and installed as the n
 the outline's note for today that says what arrived (page, site, document, image) and who sent it, and carries
 `[arrival::new]` for a tidy pass to clear (PIE-1370). A deck or PDF meant to be read goes on the wall as a poster; one sent
 anyway is drawn by its first page. `ep0ch device add <name>` / `ls` / `revoke <name|id>` make a phone's Shortcut token for the
-same route. Details: the outliner README, "Handing a file over from outside". The showcase's `upload` section drives a real
+same route; `device add <name> --shortcut` signs the whole Shortcut and prints the one sign-in link the phone opens. Details: the outliner README, "Handing a file over from outside". The showcase's `upload` section drives a real
 lease, a zip and the card.
 
 **SQLite snapshots (PIE-931):** `ep0ch outline snapshot <name> --out <file>` writes a consistent,
@@ -677,7 +677,7 @@ See [machine-link installation](../outliner/docs/machine-link.md#installing-over
     ep0ch --machine float-2         # this folder's outline on another machine (an ssh config name)
     ep0ch --remote float-2          # the door session running on another machine, in this terminal
     ep0ch --screen <name> [<target>] # any screen by name: board [<hub-id>], desk, river, brief, welcome,
-                                    # detail <id|((ref))|ep0ch://…>, or one someone registered
+                                    # detail <id|((ref))|ep0ch://…>, navigator [<query>], or one someone registered
     ep0ch --layout <name>           # the desk laid out by name
     ep0ch --showcase [--reset]      # the showcase on its own seeded outline (as ep0ch try --showcase)
 
@@ -763,7 +763,12 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   `properties` carry them), and a note's own address isn't among its links or backlinks. `record.links` and
   `record.backlinks` are each other's inverse: a property naming a block's id (`[source-block::<id>]`) is a
   `property` link, as the backlink relation counts it. `outline_find`'s `completeness` is `{kind, limit, more}` for
-  the limit asked, its `search` says whether the ranking was lexical or semantic (`semantic: true` asks) and why, and a
+  the limit asked, its `search` says whether the ranking was lexical or semantic (Jev ranks by default; `semantic:
+  false` doesn't ask) and how sure it is: `verdict` `strong` ("sure"), or `weak`/`none` with `said` "not sure it's the one: …" (a top Jev scores as a match, its
+  Noul unsettled, PIE-1409) or "no strong match: …", and
+  `exists`, Jev's "is it among these?"; each match carries its `score` (0 to 3) (PIE-1198); when none is sure, Jev
+  reads every note's title for ones the words missed (`deep`, PIE-1200: `byMeaning: true` on those rows, `search.deep`
+  what it found and cost; `deep: false` skips it); and a
   top-level note's `path` is `(root)`. `outline_links` cuts its links, resources and backlinks at `limit` each, and
   its `completeness` gives each group `{complete, shown, total, more}`. A `limit` outside 1 to the tool's maximum is
   refused, naming the default and the maximum.
@@ -812,6 +817,17 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   revision it made. A read that falls back to the mirror lays the caller's own such writes over the note (`pending`)
   until the copy reaches that revision, says `staleSince` (the revision, when, and what it means) when the copy is older
   than a write made through this server, and `list_outlines` carries `staleSince` for the outline.
+- **Snapshots and reader view of an away outline (PIE-1091).** `outline_snapshot` on another machine's outline is made
+  from its copy here, even while that machine answers, so the link is this machine's web client's
+  (`EP0CH_WEB_URL`, else `https://my.ep0ch.sh`: `…/pub/o/float-hub@laptop/s/<token>/snapshot.sqlite`), works once and
+  expires as any snapshot does. The answer carries the copy's `source`, `asOf`, `copy`, `stale` and `note`, and `said`
+  begins with them. `reader_view` served from the copy says what this machine's web pages of the copy have in front of
+  them (the copy's pages report presence too), with the same fields. The links, their files and that presence are kept
+  in `<EP0CH_MCP_MIRROR_DIR>/.shares/<machine>/<name>/`, shared by the gateway and the web client, which each serve the
+  copy from a host of their own; a copy writes no snapshot note (its session is the record). `share_list` and
+  `share_revoke` on an outline served from its copy list and end those snapshot links. `share_start` stays refused
+  there (a share is live and takes comments), saying the `ep0ch share start …` to run on its machine and that
+  `outline_snapshot` and `outline_read` read it now.
 - **Revoking.** `ep0ch mcp access none --ws <name>` (or `read`) stops reads (or writes) at once; a write already queued
   for another machine is dropped when it arrives, if its outline no longer takes writes there. Removing a subject from
   `EP0CH_MCP_ALLOWED_SUBJECTS` (or a client from `EP0CH_MCP_ALLOWED_CLIENTS`) and restarting stops that person (or
@@ -1214,6 +1230,11 @@ drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
   the phone's, attaches to that outline's session instead of starting a door of its own; a dropped connection only
   detaches. With no terminal (a script, an agent's shell, ssh without `-t`) `ep0ch` starts no session: it says so,
   and `--no-daemon` opens the door there.
+- **A dropped link leaves the terminal clean with `ep0ch door`.** Once the link is gone the far side can't turn off what
+  the door turned on (mouse reports, the alternate screen, paste), so the side still running does: `ep0ch door
+  [<ssh-name>] [<outline>]` runs `ssh -t` to that login (default `ep0ch`), then resets the terminal and says the
+  command that reattaches. Plain `ssh ep0ch` can't: ssh has no step after it exits. The ForceCommand script is
+  `scripts/ssh-door.sh` (installed by hand on float-box as `~/srv/ep0ch.io/door.sh`).
 - **The daily agent stays Herdr's.** With an agent chosen "in Herdr", the drawer attaches to its session's own pane in Herdr
   ([The daily agent in Herdr](#the-daily-agent-in-herdr)), and that stays so: the session now keeps the attach alive
   between terminals and across upgrades (the drawer's program is in the terminal host), and Herdr keeps the agent
@@ -1254,7 +1275,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | board, river, brief | the whole screen in a tile, its own keys inside; the board's card can be followed by a preview tile |
 | query | a saved view's cards with its own cursor (`view=<its block id>`; `^W o q` on a tile showing a view): a board lane, on the desk; `j k` pick, `⏎` opens where its opens go, `r` reads it again. Or a query of its own with a home reader (`query=#garden source=tile:<reader>`): what a `#tag` opens (PIE-800); `j k` or a click previews, `⏎` replaces the reader's note, `alt+⏎` a new detail beside it. `p` (or a click on the `○` on its frame, `●` while held; `tile.hold`) holds it (PIE-855): it keeps its tag, docks aside as any tile, and the next tag opens a list of its own; `p` again makes it the reader's list again |
 | tune | the tune inspector on another tile (`source=tile:<name>`; `alt+y` or `^W o y` on the tile, or "tune its look" in its ⋯ menu): each look value (measure, padding, margin, list gap, zebra and dividers, surfaces, frames, edges and tone, the header's surface and picture, heading spacing, breakpoints) and where it comes from; `j k` pick a value or group, Enter or a click folds a group (kept per person), `f` filters to values set at the chosen level, `+ −` (a click on `[−] [+]`, the wheel over a value) nudge it live, `v` the level, `w` this width only, `s` save, `u` `U` undo and redo every step of the session, `x` resets a value to what it inherits, `X` resets the picked level, `R` reverts the session's style notes (asked in place); a note still writing retired header-image keys gets one line with `[remove]` (`D`) and `[move to a hero line]` (`M`, PIE-1365); a level or a width picked shows its own column and marks ⊘ a row something nearer wins, where a nudge offers `a` `o` `c` (PIE-673, PIE-675) |
-| facets, tags | the first row counts matches out of all notes; matching notes keep a resizable share below the keys (drag the Matches divider, less/more buttons or `[` / `]`); `+` / `-` on a key, or its `[+]` / `[-]` buttons, require it / its absence; values still narrow. The properties the notes have, each opening to its values with their uses and last use (`^W o f`, `tile.open kind=facets query=<a starting query>`; `kind=tags`, `^W o #`, is the same opened on the tags facet; PIE-881). A tag is a facet like `project` or `type`. `⏎`, space or a click on a value includes it (`+`), again excludes it (`−`), again drops it (`+` `-` `0` do it at once; alt-click excludes); included values of one facet are ORed, facets are ANDed, an exclusion is a NOT; a path value (`project=x/y/z`, a nested tag) groups as a tree and picking `x` includes `x/…`. The selection is the views' query text on the second row (`project=x/* job=meeting (#a OR #b) NOT week=3`): `e` edits it (`⏎` applies, `esc` undoes), `facets.query` sets it, `v` (`facets.save`) saves it as a view, a lane on the newest board hub or under `parent=`. The notes the selection leaves are listed under the facets and open as every list's do. Sorted by uses, name or last use (`s`, a click on a header word); `z` lists what the selection leaves at 0, dimmed; `x` clears; the facets in use come first. The service counts it (`blocks.query` `where=<the selection>`, `facets=true`, `facetKeys`, `facetValues`; every value says its `last` update), never the door. Actions `facets.pick`, `.set`, `.fold`, `.open`, `.query`, `.save`, `.sort`, `.zero`, `.resize`, `.clear`, `.reload`, `.list`; the query, sort, open facets and matches share are saved with the layout |
+| facets, tags | the first row counts matches out of all notes; matching notes keep a resizable share below the keys (drag the Matches divider, less/more buttons or `[` / `]`); `+` / `-` on a key, or its `[+]` / `[-]` buttons, require it / its absence; values still narrow. The properties the notes have, each opening to its values with their uses and last use (`^W o f`, `tile.open kind=facets query=<a starting query>`; `kind=tags`, `^W o #`, is the same opened on the tags facet; PIE-881). A tag is a facet like `project` or `type`. `⏎`, space or a click on a value includes it (`+`), again excludes it (`−`), again drops it (`+` `-` `0` do it at once; alt-click excludes); included values of one facet are ORed, facets are ANDed, an exclusion is a NOT; a path value (`project=x/y/z`, a nested tag) groups as a tree and picking `x` includes `x/…`. The selection is the views' query text on the second row (`project=x/* job=meeting (#a OR #b) NOT week=3`): `e` edits it (`⏎` applies, `esc` undoes), `facets.query` sets it, `v` (`facets.save`) saves it as a view, a lane on the newest board hub or under `parent=`. The notes the selection leaves are listed under the facets and open as every list's do. Sorted by uses, name or last use (`s`, a click on a header word); `z` lists what the selection leaves at 0, dimmed; `x` clears; the facets in use come first. The service counts it (`blocks.query` `where=<the selection>`, `facets=true`, `facetKeys`, `facetValues`; every value says its `last` update), never the door. Matches (PIE-1443) is the tile's attachment: grouped by the service (Today, Yesterday, Previous 7 days, Previous 30 days, months; `args.group`), pinned notes first (`args.pin`, `pinned` by default; `*`), each row its line of preview and chips (`args.show`, tags by default), placed inline, split, floating, popup or in a `matches` tile of its own (ctrl+o, the ⧉ chip, `args.place`); `t` asks for a tag or property in the power bar; saved views are shortcuts at the top; a calendar at the foot narrows to a day (`d`, `,` `.`). Actions `facets.pick`, `.set`, `.fold`, `.open`, `.query`, `.save`, `.sort`, `.zero`, `.resize`, `.clear`, `.reload`, `.list`, `.match`, `.place`, `.pin`, `.tag`, `.day`, `.month`, `.view`; the query, sort, open facets, matches share and place are saved with the layout |
 | thread, activity, who, bulletin | as before: replies and comments, last callers, who's online, the ep0ch art |
 
 | Keys (mouse) | Action |
@@ -1270,6 +1291,8 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | click the `⧉` before a float's title | put it back in the layout (`tile.float`, as `^W f` and the board's `o`); the cell either side of it counts |
 | click the `⧉` in the focused tile's top right corner | float it (`tile.float`, as `^W f`) |
 | click the `⋯` in a tile's top right corner, or right-click anywhere in the tile | its menu (`tile.menu`, as `^W .`): the tile's actions, grouped (Tile: close, zoom, float, dock, spine, drawer, preview; then its kind's: a reader's Note and Reader rows, a terminal's, a board lane's), each with its key as a keycap. One click, `⏎` or the row's own key runs it as you; a dimmed row says in the menu's foot why it can't run now; `esc` or a click outside puts it away. A terminal whose program asked for the mouse (vim's `mouse=a`, claude) keeps its right-clicks, and its `⋯` still opens the menu; so does a step's box, whose right-click opens its status choice |
+| `^W y`, or the menu's Copy group, first in it (a right-click on a row is that row's) | copy the note the tile points at (a reader's note, a list's, the tree's or a lane's selected row; a power-bar hit through alt+m or a right-click on it, then its digit; another outline's note as that outline's): copy note id, copy note reference (`((id|title))`, as `^W y`), copy note web link (`https://my.ep0ch.sh/pub/o/<outline>/p/<id or PIE-n>`), and in a reader copy line reference (`((id^anchor|words))`, the anchor added once); `note.copy-ref kind=id\|ref\|link\|line`. The group's copy tile id and copy tile reference are the tile's own. Any of them pasted into the power bar is that note's row: ⏎ opens it |
+| `^W ,`, or the menu's "about this tile" | the tile's id, place, kind and wires in a card by it, with copy id and copy reference (`tile.info card=true`) |
 | click the `×` in a tile's top right corner | close it (`tile.close`, as `^W x`), your keys staying where they are; a tile with a running program asks twice. A tile its container keeps (the board's lanes, the river's library) has none, and a dock's tile closes by the dock's `[×]` |
 | drag a tile's header onto the status bar's drawer chip (`▲ claude`) or the open drawer | put it in your drawer: it joins the drawer as a tab and travels with you across screens (`tile.drawer`); the chip lights up `into your drawer: travels with you` while you're over it |
 | drag a drawer tab's title out over the screen | take it out there, by the same drop zones as any tile (`tile.drawer on=false to= where=`) |
@@ -1284,7 +1307,8 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Tab` / `Shift+Tab`, `1`–`9`, click | focus |
 | `alt+n` / `alt+p` | next / previous tab |
 | `alt+d` | load the `daily` layout |
-| `ctrl+k`, `cmd+k`, `alt+k`, a click on `^K` (the status bar's left) | the power bar over any screen ([The power bar](#the-power-bar-pie-656)): the tiles open everywhere, then what changed; type to look through tiles, notes, actions, what changed and screens at once, or start with `%` `/` `>` `+` `@` `&` (alt+← alt+→ cycle; tab completes the line) for one; ⏎ goes, alt+⏎ zooms a tile or opens a note in a new detail, esc puts it away. Never in a draft (there `ctrl+k` cuts to the line's end), a filter, a picker or a terminal tile |
+| `ctrl+k`, `cmd+k`, `alt+k`, a click on `^K` (the status bar's left) | the power bar over any screen ([The power bar](#the-power-bar-pie-656)): the tiles open everywhere, then what changed; type to look through tiles, notes, actions, what changed and screens at once, or start with `%` `/` `>` `+` `@` `&` (alt+← alt+→ cycle; tab completes the line) for one; past an action's name tab lists its arguments and their values in place (`tile.zoom t`, tab: `tile=`, then this screen's tiles), ↑↓ ⏎ tab esc the list's keys; ⏎ goes, alt+⏎ zooms a tile or opens a note in a new detail, esc puts it away. Never in a filter, a picker or a terminal tile; in a note's edit `ctrl+k` lists the actions that apply here at the cursor instead (next row) |
+| `ctrl+k` in a note's edit, `/` first on a line | the actions that apply here, in the edit's completion float (PIE-1076): type `sort list`, ⏎ or tab takes it and lists its arguments, ⏎ on the line runs it (the line goes, the note saves; ctrl+z in the reader takes it back). A sigil first in a value names its kind: `%` tiles, `/` notes, `[[` pages, `:` screens. `act`: `edit.actions`, `edit.run line=…` |
 | `ctrl+n` | a new note floating over the screen, opened to be written (again for another; from an edit too, what you typed saved first): under the note in the reader you're in, else at the top of the Inbox ([New notes and pages](#new-notes-and-pages-pie-544)); on every screen, never in a filter, a picker or a terminal tile. On the board's lanes: a new card in that lane |
 | `alt+l` | pick a wire target (open by default; `s` select, `o` open, `a` alt, then a click, `h j k l` or a number) |
 | `Z`, `K/J` or `alt+↑` `alt+↓` in a reader | move the note shown (`note.move`, PIE-943): `Z` asks in the power bar where (its parents first, then the notes changed lately, the Inbox, then any note by its words), `alt+↑` `alt+↓` put it up or down among its siblings; `ctrl+z` puts it back. Works in a reader of the note surface on an outline note (desk reader, detail, preview, welcome and board readers, the BBS message reader), not on a file or Resource preview. In the outline tile the same keys move the selected row (`I` `O` indent and outdent; `K` `J` for up and down on a terminal that doesn't send Option+arrows); in a river column, the selected card (`column.move`). Replies in the reader’s thread panel and BBS message lists take `K/J` or `alt+↑/↓` to reorder, `I/O` to indent/outdent, `Z` for the picker and `ctrl+z` to undo. Drag onto a row to nest; drop on its left mark to reorder. In river columns, start a move drag on the left mark; dragging text still selects it. Reader `I/O` keep properties/preview; a floating tile keeps `J/K` for moving the tile |
@@ -1293,7 +1317,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `W` in a reader, a click on a part's `⤢` | zoom into part of the note (PIE-780): the figure, table or heading's section the `[ ]` position (or the reading line) is in fills the reader, interactive at full size; the `⤢` at a figure's, a table's or a heading's right edge does it by mouse. Esc, `alt+←`, `⌫` or a click on the zoom's top row comes back to the whole note as it was; `alt+→` zooms in again (`element.zoom`). The part is the one `alt+D` would detach, as the service finds it (`fragments.at`); nothing is written |
 | `alt+r` | show the focused reader's note in the outline (a click on its crumbs does too); nothing else moves (`reader.reveal`) |
 | `alt+z`, `alt+Z` in a reader | route the note shown by the outline's routing rules (`note.route`, PIE-1010): the first rule note (`[type::route] [query::…] [route-to::((id))]`, listed in the Routing view) whose query holds for it moves it there, as `ext:route`, in one revision; the status bar says which rule; `ctrl+z` puts it back. `alt+Z` says what would move, moving nothing. The tile menu's "route by rules" is the same. A note being written is never moved under you: it routes when the draft closes. `ep0ch route <note>` and `ep0ch route --all [--dry-run]` do the same from a shell |
-| `?`, a click on `? more` | when the hint row is too long for the screen (it ends `? more`), show all of it in a box above it (`keys.more`, the person's); a `^W` chord's row shows it at once |
+| a click on `? more` | when the hint row is too long for the screen (it ends `? more`), show all of it in a box above it (`keys.more`, the person's); a `^W` chord's row shows it at once. `?` itself opens the keys window |
 | Hold `Ctrl`; `Ctrl+]` then `?` | Show every tile's hint card (x-ray). Release Ctrl or toggle again to hide. Bare Ctrl needs Kitty modifier reports; press-only reports toggle. |
 | Click or hover a frame's controls chip; `?` over a frame | Show that tile's controls without taking its keys. Choices use the tile menu's actions; wheel scrolls a long card. `[pin]` keeps it, `[dismiss]` or Esc closes it. |
 | `Ctrl+W` then `g` | what an agent may do to this tile: free, edit only (its note, not navigating, closing or retargeting it), hands off (peek only); cycles (`tile.agent`) |
@@ -1678,6 +1702,11 @@ it's the same process and the same conversation.
   folder, persona, what it's doing (working, waiting on you, idle) and where it's shown. `j k` pick, `⏎` or a click
   jumps to it, `a` pulls it into your drawer, `d` docks it on the screen you're on, `n` starts a new one.
   `act agents.list` reads the same rows (`peek` has them under `drawer.sessions`).
+- **Nothing kept is lost.** A program the session's terminal host still keeps with no tile (a restart that lost its
+  place) is a row saying `no tile` and when it last wrote, and the restart's status line counts it: `⏎`, `a` or `d`
+  puts it back in a tile, the same process. A door started from inside a Claude session passes none of that
+  session's identity (`CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_PID`, `CLAUDE_JOB_DIR`, `AI_AGENT`) to its session, its
+  terminal host or a tile, so a Claude in a tile is a session of its own (PIE-1432).
 - **Never stranded.** Every session starts inside your login shell: when the agent exits, its tile is that shell,
   in the same folder. `alt+s` opens a plain shell in the drawer from anywhere.
 - **Restart a Claude Code session from anywhere.** `ep0ch agent ls [--machine <ssh-name>]` lists the machine's Claude
@@ -1978,7 +2007,8 @@ The board's new-card composer is the same control too.
   Quick Capture do it, from the same service lookups, so the door keeps no index: `[[` offers pages,
   aliases and Work IDs (`pages.complete`), `((` blocks by the one search (`tree.search`, Goto's forgiving ranker),
   both asked from the draft's note and, after a 300 ms pause, re-ordered by Jev where the host has a key (the footer
-  says `jev ranked`; the picked candidate stays picked), `((note#heading` or
+  says `jev ranked · sure`, `not sure` or `no strong match`, the service's word for how sure it is of the top, PIE-1198,
+  PIE-1409; each row its score; a row moved to stays picked, the top row stays the top), `((note#heading` or
   `((note^id` fragments across every note (`fragments.candidates`, by the service's fragment rules; the
   door has none of its own), and `[file::` workspace paths (`files.complete`). The selected candidate
   shows where it sits and how it starts (`blocks.context`). A Work ID inserts `[[WORK-ID|title]]` (or
@@ -2030,6 +2060,44 @@ The board's new-card composer is the same control too.
 - **Attribution:** door edits are recorded as `author: user`, `actorId: ep0ch-door:<hostname>`, like the
   outliner's own Detail.
 - `peek` reports open drafts under `editing` (dirty, changed elsewhere, refused, where the copy went).
+
+### The keys window (PIE-492)
+
+`?` on any screen opens every key binding the door has, filtered to where you are (`in:note` in a reader, `in:board`
+on the board): on the desk, the board and the river a **keys tile** beside the one you're in (below a narrow one), resized by its border,
+docked and closed like any tile (`?` again goes back to it); elsewhere the keys screen. `/` and type to filter by a key
+(`^W x`), an action (`tile.close`), a scope or words. Each row is a keycap, where it works and what it does, as a whole
+sentence; the detail says what it runs, its layer, what it takes the key from, what gets it first and whether a terminal
+tile's program sees it. `⏎` runs the row in the tile you opened it from, as its key would there; one that needs
+arguments asks for them in the power bar's form. Tabs: Bindings, Conflicts (two bindings that really fight over a key:
+two rows of one key table, or one key twice in your keymap file, with which one runs; the states of one control, like
+esc clearing then closing the power bar, aren't), Yours, and Unbound: every action you can run that no key reaches on
+any screen, by where it runs (read from the actions themselves), with `r` to give one a key, what that key does now
+said first, and `⏎` to run it. One that can't run without arguments says to bind its act line with them instead.
+
+| Key | Does |
+|---|---|
+| `j` `k` `↓` `↑` `pgdn` `pgup` | select a binding |
+| `⏎`, a click on the selected row | run it where you opened the window (its arguments asked in the power bar) |
+| `/` | type the filter (`⏎` done, `esc` clears) |
+| `1` `2` `3` `4` | Bindings, Conflicts, Yours, Unbound |
+| `r` | rebind: press the new key (`^W` then a key for a ^W key); what it takes is said first, `⏎` saves, `esc` drops |
+| `u` / `d` | unbind it / give it its built-in keys back |
+| `ctrl+z` | undo the last change |
+| `esc` `q` | close |
+
+Rebinds go in one file, `keybindings.json` in the door's state dir (`$XDG_STATE_HOME/ep0ch-door`, or `EP0CH_STATE`):
+an act line to every key it has, as the outliner's keybindings.json, `[]` leaving it unbound. The window writes all of
+a binding's keys, so moving `^W x` leaves the board's `x` alone; a key left out of the list no longer runs it:
+
+```json
+{ "tile.close": ["x", "esc", "q", "ctrl+w q"], "note.new": ["hyper+n", "+", "alt+n"], "element.select by=1": ["]", "n"] }
+```
+
+The key, the ^W panel, the tile menu, the power bar and the desk's hint row follow it; a key you moved away says
+where it went. Edit it by hand too: the door reads it again within half a second and names a bad entry at the top of
+the window. Agents read and change it through the window's actions (`keys.find`, `keys.rebind id= key= to=`,
+`keys.unbind`, `keys.reset`, `keys.undo`, with `tile=keys`).
 
 ### The power bar (PIE-656)
 
@@ -2947,7 +3015,8 @@ Drawings of the book and of align left, centre and right: [UI-GRAMMAR, Spines](d
 | `list.select`, `list.open`, `list.read` | `n=` the row from 1 (`open`: default the lit one); `from=`, `limit=` for `read`, which moves nothing. On the BBS lists (a message list, Join, File areas); `select` and `open` wait as `screen.open` does | `j k ↑↓ PgUp PgDn Home End`, the wheel, a click; `⏎`, a click on the lit row |
 | `list.thread` | `n=` the row (default the lit one): its replies as a message list over this one. On message lists; waits as `screen.open` does | `t`, `T`, a click on `T thread` |
 | `menu.select` | `name=` an item's key or label, or `by=` steps (1 down, 4 a column right). The main menu's lit item; waits as `screen.open` does | `↑ ↓ ← →`, `Tab`, the wheel, pressing an item |
-| `screen.help` | none: the help screen over this one (any key goes back); waits as `screen.open` does | `?` on the menu |
+| `screen.help` | none: the help screen over this one (any key goes back); waits as `screen.open` does | H on the main menu (or a click on H help on its key line), the power bar |
+| `keys.open` | `filter=` the words: the keys window, a tile beside the focused one on the desk, board and river, else a screen over this one ([The keys window](#the-keys-window-pie-492)); waits as `screen.open` does | `?` on every screen |
 | `video.cycle` | none: the next video mode (Kitty+CRT, Kitty, cells); the person's display, said on the status bar | `alt+v` on every screen; `V` on the menu, board, desk, river, showcase and views; `v` in the art viewer; a click on the status bar's video mode |
 | `theme.set`, `theme.cycle` | `name=calm\|night\|classic` for `set`: the door's colours on every screen, kept for next time (see [Themes and accessibility](#themes-and-accessibility)); waits as `screen.open` does | `alt+t` on every screen (cycle); a click on the status bar's theme |
 | `who.refresh` | none: ask again who's attached; answers the callers (Who's online) | `r`, a click on `r refresh` |

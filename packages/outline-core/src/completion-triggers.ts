@@ -17,7 +17,7 @@ import { workIdReferences as configuredWorkIds } from "./work-ids";
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
  * `yaml-value` the same inside a component block's YAML.
  */
-export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value" | "fence-setting" | "button-step";
+export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value" | "fence-setting" | "button-step" | "action";
 
 export interface CompletionTarget {
   kind: CompletionKind;
@@ -154,7 +154,7 @@ export function workIdReferences(text: string, configuredPrefix: string): { work
 // ── pages and Work IDs ────────────────────────────────────────────────────────
 
 /** A named address as `pages.complete` returns it. */
-export interface PageAddressMatch { address: string; blockId: string; kind: string; title: string; subtitle?: string }
+export interface PageAddressMatch { address: string; blockId: string; kind: string; title: string; subtitle?: string; score?: number }
 
 /** What `pages.complete` is asked for: the part before `|`, or the one Work ID typed in a longer phrase. */
 export function pageCompletionLookupQuery(authoredQuery: string, workIdPrefix: string | null): string {

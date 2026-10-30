@@ -11,7 +11,8 @@ import { App } from "../../src/app";
 import { Desk } from "../../src/desk/desk";
 import { WhatChangedPane } from "../../src/desk/what-changed";
 import { seedRace, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, type Seeded } from "../../src/showcase/seed";
-import { gardenRound, Showcase } from "../../src/showcase/showcase";
+import { gardenRound, SECTIONS, Showcase } from "../../src/showcase/showcase";
+import { localPtys, usePtyBackend, type PtyBackend } from "../../src/desk/pty-backend";
 import { SocketBoard } from "../../src/socket";
 import { subject } from "../../src/board";
 import type { ReaderPane } from "../../src/desk/panes";
@@ -27,6 +28,7 @@ const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000)
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
 import { useShowcaseScreen } from "./harness";
+import { PtyPane } from "../../src/desk/pty";
 import { marks } from "./marks";
 import { prop } from "../../src/props";
 
@@ -47,6 +49,8 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await app.dispatch.act({ action: "element.select", tile: "notes", args: { n: found.elements.find(e => e.label.includes("Collapse"))!.n } }, { kind: "user" });
     const menu = await app.dispatch.act({ action: "tile.menu", tile: "notes" }, { kind: "agent", id: "test-agent" }) as any;
     expect(JSON.stringify(menu)).toContain("pin to status bar");
+    // The menu's first row, in reach in a short tile without typing pin (PIE-1428).
+    expect(menu.rows[0]).toMatchObject({ label: "pin to status bar", group: "Button" });
     await app.dispatch.act({ action: "button.pin", tile: "notes", args: { label: "Collapse" } }, { kind: "user" });
     const note = (await board.byProp("status-bar", "true"))[0]!;
     expect(note.text).toContain('::button{label="Collapse" act="tile.collapse tile=extra"}');
@@ -63,7 +67,101 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       const layout = await app.dispatch.act({ action: "layout.get" }, { kind: "user" }) as { tiles: { name: string; collapsed?: boolean }[] };
       expect(layout.tiles.find(t => t.name === "extra")?.collapsed).toBe(true);
       expect(layout.tiles.find(t => t.name === "notes")?.collapsed).not.toBe(true);
-    } finally { stop(); await board.trash(note.id); }
+    } finally {
+      stop();
+      await board.trash(note.id);
+      // The section's layout is kept: the next test starts with extra open, as a person entering it would.
+      await app.dispatch.act({ action: "tile.collapse", tile: "extra", args: { on: false } }, { kind: "user" }).catch(() => null);
+    }
+  });
+
+  test("a right-click on a button the person sees offers pin to status bar for that button, and presses nothing (PIE-1415)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "status-bar" }, as: "test-agent" });
+    await until(() => screen().includes("[Collapse]"), "the status bar guide");
+    // The [ ] on another button first: the right-click alone decides which one the menu pins.
+    const found = await app.dispatch.act({ action: "elements", tile: "notes" }, { kind: "user" }) as { elements: { n: number; label: string; kind: string }[] };
+    const other = found.elements.find(e => e.kind === "control" && !e.label.includes("Collapse"))!;
+    await app.dispatch.act({ action: "element.select", tile: "notes", args: { n: other.n } }, { kind: "user" });
+    app.flush();
+    const row = h.painted.findIndex((l, i) => i < h.painted.length - 1 && plain(l).includes("[Collapse]")), col = plain(h.painted[row]!).indexOf("[Collapse]") + 2;
+    const ran: string[] = [];
+    const stop = traceActions(a => ran.push(a.name));
+    let note: { id: string } | undefined;
+    try {
+      press({ kind: "mouse", action: "down", button: 2, x: col, y: row });
+      press({ kind: "mouse", action: "up", button: 2, x: col, y: row });
+      // The menu's row, not the guide's sentence about it.
+      const pinRow = (l: string) => /│ +pin to status bar/.test(plain(l));
+      await until(() => { app.flush(); return h.painted.some(pinRow); }, "the tile menu's pin row");
+      expect(ran).not.toContain("button.press");
+      expect(ran).not.toContain("tile.collapse");
+      const at = h.painted.findIndex(pinRow), x = plain(h.painted[at]!).search(/(?<=│ +)pin to status bar/);
+      press({ kind: "mouse", action: "down", button: 0, x, y: at });
+      press({ kind: "mouse", action: "up", button: 0, x, y: at });
+      await untilAsync(async () => !!(note = (await board.byProp("status-bar", "true"))[0]), "the pinned bar note");
+      await untilAsync(async () => (await board.get(note!.id))!.text.includes('label="Collapse"'), "Collapse pinned");
+      expect((await board.get(note!.id))!.text).not.toContain(`label="${other.label.replace(/^\[|\]$/g, "")}"`);
+    } finally {
+      stop();
+      if (note) await board.trash(note.id);
+      // The clicks put the person in the section; the next test moves from the index.
+      S().focus = "index";
+    }
+  });
+
+  test("the status-bar section's group opens as a menu that folds the extra tile, a typo shows as ! with the rest kept, and a list-item button presses in the guide (PIE-1224, PIE-1227)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "status-bar" }, as: "test-agent" });
+    await until(() => screen().includes("[Fold from a list]"), "the list-item button in the guide");
+    const guide = seeded.notes.statusBar.text.split("\n");
+    const example = guide.slice(guide.indexOf("```text") + 1, guide.lastIndexOf("```")).join("\n");
+    const note = await board.createBlock(null, example);
+    const bar = () => { app.flush(); return plain(h.painted.at(-1)!); };
+    const collapsed = async () => ((await app.dispatch.act({ action: "layout.get" }, { kind: "user" })) as { tiles: { name: string; collapsed?: boolean }[] }).tiles.find(t => t.name === "extra")?.collapsed === true;
+    const unfold = () => app.dispatch.act({ action: "tile.collapse", tile: "extra", args: { on: false } }, { kind: "user" });
+    try {
+      await until(() => bar().includes("Tiles ▲") && bar().includes("! line 8"), "the group and the skipped line");
+      expect(bar()).toContain("ep0ch");
+      const rows = (await app.dispatch.act({ action: "status.bar.menu", args: { group: "Tiles" } }, { kind: "agent", id: "test-agent" }) as any).rows;
+      expect(rows.map((r: any) => r.label)).toEqual(["[Fold extra]", expect.any(String), "More ▲"]);
+      // By mouse: the group's label, then the button's row in its menu.
+      press({ kind: "mouse", action: "down", button: 0, x: bar().indexOf("Tiles"), y: 59 });
+      await until(() => h.painted.some(l => plain(l).includes("[Fold extra]")), "the group's menu");
+      const row = h.painted.findIndex(l => plain(l).includes("[Fold extra]")), col = plain(h.painted[row]!).indexOf("[Fold extra]");
+      press({ kind: "mouse", action: "down", button: 0, x: col, y: row });
+      press({ kind: "mouse", action: "up", button: 0, x: col, y: row });
+      await untilAsync(collapsed, "Fold extra from the group's menu");
+      await unfold();
+      // A group in the group: its menu opens where Tiles's did, not at the left edge (PIE-1415).
+      press({ kind: "mouse", action: "down", button: 0, x: bar().indexOf("Tiles"), y: 59 });
+      await until(() => h.painted.some(l => plain(l).includes("More ▲")), "the group's menu again");
+      const more = h.painted.findIndex(l => plain(l).includes("More ▲")), at = plain(h.painted[more]!).indexOf("More ▲");
+      press({ kind: "mouse", action: "down", button: 0, x: at, y: more });
+      press({ kind: "mouse", action: "up", button: 0, x: at, y: more });
+      expect((await app.dispatch.act({ action: "status.bar.menu", args: { group: "Tiles/More" } }, { kind: "agent", id: "test-agent" }) as any).rows).toHaveLength(1);
+      // Its frame's title says More, beside the outer menu, which stays open under it (PIE-1428); Esc closes More, then Tiles.
+      await until(() => { app.flush(); return h.painted.some(l => /┌─ More /.test(plain(l))); }, "the inner menu");
+      const outer = h.painted.find(l => /┌─ Tiles /.test(plain(l)));
+      expect(outer).toBeDefined();
+      const inner = h.painted.find(l => /┌─ More /.test(plain(l)))!;
+      expect(plain(inner).indexOf("┌─ More")).toBeGreaterThan(plain(outer!).indexOf("┌─ Tiles"));
+      press({ kind: "esc" });
+      app.flush();
+      expect(h.painted.some(l => /┌─ More /.test(plain(l)))).toBe(false);
+      expect(h.painted.some(l => /┌─ Tiles /.test(plain(l)))).toBe(true);
+      press({ kind: "esc" });
+      app.flush();
+      expect(h.painted.some(l => /┌─ Tiles /.test(plain(l)))).toBe(false);
+      // The guide's own list-item button presses in the reader, by act.
+      const pressed = await app.dispatch.act({ action: "button.press", tile: "notes", args: { label: "Fold from a list" } }, { kind: "user" });
+      await untilAsync(collapsed, `the list-item button in the guide (it answered ${JSON.stringify(pressed)})`);
+      await unfold();
+    } finally {
+      await board.trash(note.id);
+      // The clicks put the person in the section; the next test moves from the index.
+      S().focus = "index";
+    }
   });
 
   test("the terminal showcase paints its program's browser link beside the notebook", async () => {
@@ -180,6 +278,34 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "esc" });
     expect(message()).toBe("nothing to close · q leaves");
     expect(app.describe()).toMatchObject({ screen: "showcase" });
+  }, 20_000);
+
+  test("the esc section's kettle (PIE-1431): typing in a terminal, the power bar over it takes Esc, a second Esc right after goes nowhere and says so, a moment later Esc is kettle's", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "esc" }, as: "test-agent" });
+    await until(() => marks.esc!.every(m => screen().includes(m)), "the esc section");
+    const stage = () => S().stages.get(S().sel).top;
+    const kettle = () => stage().pane("kettle") as PtyPane;
+    await until(() => kettle()?.running === true && kettle().text().some(l => l.includes("kettle: cat -v, an Esc")), "kettle runs");
+    const echoed = () => kettle().text().join("\n").includes("^[");
+    press({ kind: "enter" });
+    await stage().dispatch.press("tile.focus", {}, "kettle");
+    await stage().dispatch.press("tile.enter", {}, "kettle");
+    expect(S().rawKeys()).toBe(true);                              // the person types in kettle
+    await app.dispatch.press("bar.open");
+    await until(() => !!(app as any).bar, "the power bar over kettle");
+    press({ kind: "esc" });
+    expect((app as any).bar).toBeNull();                           // the bar took it
+    press({ kind: "esc" });                                        // a second Esc at once
+    await Bun.sleep(150);
+    expect(echoed()).toBe(false);
+    expect((app as any).message).toContain("pause, then esc is the program's");
+    await Bun.sleep(700);
+    press({ kind: "esc" });
+    await until(echoed, "a later Esc reaches kettle");
+    await stage().dispatch.press("tile.leave", {}, "kettle");
+    // The keys went into the section; the next test moves from the index.
+    S().focus = "index";
   }, 20_000);
 
 
@@ -378,6 +504,35 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await drawer.dispatch.act({ action: "tile.drawer", tile: "kettle", args: { on: false } }, user);
   });
 
+  // PIE-1432: the drawer section's word for a program kept with no tile, driven on the showcase's door: a terminal host
+  // (a fake here: the showcase's programs are this process's) keeps one; the panel lists it, a puts it back, the same pid.
+  test("the drawer section says what a program kept with no tile is, and agents.drawer puts one back: the same process (PIE-1432)", async () => {
+    expect(SECTIONS.find(x => x.key === "drawer")!.aside).toContain("alt+g lists it as a row saying no tile");
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
+    await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
+    let kept = true, adopted = 0;
+    const proc = { pid: 4321, exited: new Promise<number>(() => {}), write() {}, resize() {}, kill() {}, close() {} };
+    usePtyBackend({
+      kind: "host", spawn: () => { throw new Error("adopted, never started"); },
+      adopt: (key: string) => (kept && key === "drawer.json#2:drawer.agent" ? (kept = false, adopted++, { proc, replay: Buffer.from("claude: where were we\r\n"), cols: 60, rows: 8, argv: ["claude"], meta: { cmd: ["claude"] }, exited: null }) : null),
+      meta() {}, holds: (key: string) => kept && key === "drawer.json#2:drawer.agent",
+      kept: () => (kept ? [{ key: "drawer.json#2:drawer.agent", cmd: ["claude"], pid: 4321, at: Date.now() - 30 * 60_000 }] : []),
+    } as PtyBackend);
+    try {
+      const list = async () => ((await app.act({ action: "agents.list", args: {}, as: "test-agent" })) as any).sessions as any[];
+      const row = (await list()).find(r => r.pid === 4321);
+      expect(row).toMatchObject({ program: "claude", how: "kept", shown: { in: "no tile", key: "drawer.json#2:drawer.agent" }, where: "no tile · wrote 30m ago" });
+      const back = await app.act({ action: "agents.drawer", args: { session: row.id }, as: "test-agent" }) as any;
+      expect(back).toMatchObject({ pid: 4321, inDrawer: true });
+      expect(adopted).toBe(1);
+      // In a drawer tab now, adopted (a fake pid: no /proc says it's claude, so it's a terminal there, not a row).
+      expect((app.drawer.desk!.pane(back.tile) as any).pid).toBe(4321);
+      expect((await list()).some(r => r.shown.in === "no tile")).toBe(false);
+      await app.act({ action: "tile.close", tile: back.tile, args: { force: true }, as: "test-agent" }).catch(() => null);
+    } finally { usePtyBackend(localPtys); }
+  });
+
   test("the drawer section folds: a terminal on the screen to a spine, a lone drawer tile to a strip of the drawer, both opened as they were (PIE-1254)", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
@@ -531,10 +686,13 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     // A tab in the drawer has its × (tile.close): the kettle's program runs, so a click asks first and closes nothing yet.
     await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "kettle" }, { kind: "user" });
     (app as any).paint();
-    const row = app.drawer.rect!.row + 1, header = plain(h.painted[row] ?? ""), col = header.indexOf("x", header.indexOf("kettle"));
+    // The frame's × at the header's end: the tab's title is its program's (on a box whose shell names its host, "boxd@…"
+    // has an x of its own, PIE-1412).
+    const row = app.drawer.rect!.row + 1, header = plain(h.painted[row] ?? ""), col = Math.max(header.lastIndexOf("x┐"), header.lastIndexOf("x╗"));
     expect(col).toBeGreaterThan(0);
     for (const action of ["down", "up"] as const) press({ kind: "mouse", action, button: 0, x: col, y: row });
-    expect((app as any).message).toContain("closing ends it");
+    // The header row with it: a miss says what was clicked.
+    expect({ message: (app as any).message, header, col }).toMatchObject({ message: expect.stringContaining("closing ends it") });
     expect(app.drawer.tabs().map(t => t.name)).toContain("kettle");
     press({ kind: "char", ch: "]", ctrl: true });
     (app as any).lastInput = 0;
@@ -694,19 +852,19 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const listed = (await app.act({ action: "agents.list", args: {}, as: "test-agent" }) as any).sessions;
     expect(listed.filter((r: any) => r.program === "demo-agent").map((r: any) => [r.persona, r.how])).toEqual([["fern", "started"], ["moss", "started"]]);
     // A turn with moss, here.
-    const moss = of("moss").pane, pid = moss.pid;
+    const moss = of("moss").pane!, pid = moss.pid ?? null;
     await app.act({ action: "tile.type", tile: "moss", args: { text: "which bed for the leeks\\n" }, as: "test-agent" });
     await until(() => moss.text().join("\n").includes("moss · turn 1: which bed for the leeks"), "turn 1", 8000);
     // Into your drawer (a on its row): the same process, and the next turn is turn 2.
     await app.act({ action: "agents.drawer", args: { session: of("moss").id }, as: "test-agent" });
     expect(of("moss").shown).toMatchObject({ in: "drawer" });
-    expect(of("moss").pane.pid).toBe(pid);
+    expect(of("moss").pid).toBe(pid);
     await app.act({ action: "tile.type", tile: "moss", args: { text: "and the onions\\n" }, as: "test-agent" });
     await until(() => moss.text().join("\n").includes("moss · turn 2: and the onions"), "turn 2, in the drawer", 8000);
     // And back, docked here (d on its row).
     await app.act({ action: "agents.dock", args: { session: of("moss").id }, as: "test-agent" });
     expect(of("moss").shown).toMatchObject({ in: "screen", here: true });
-    expect(of("moss").pane.pid).toBe(pid);
+    expect(of("moss").pid).toBe(pid);
     // Jumping to one is the person's: an agent's is refused, nothing moved.
     await expect(app.act({ action: "agents.go", args: { session: of("fern").id }, as: "test-agent" })).rejects.toThrow();
   }, 30_000);

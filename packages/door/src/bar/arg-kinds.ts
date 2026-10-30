@@ -38,7 +38,9 @@ registerArgKind("tile", async (typed, host) => {
   return shownTileRows(host, typed).map(r => {
     let preview: BarPreview = null;
     try { const p = tiles?.preview(r, host); preview = p instanceof Promise ? null : p ?? null; } catch { /* no preview */ }
-    return { value: r.fill ?? r.label, label: r.label, ...(r.detail ? { detail: r.detail } : {}), ...(r.depth ? { depth: r.depth } : {}), ...(r.mark ? { mark: r.mark } : {}), preview };
+    // Listed by the name `tile=` takes (`drawer.agent`), what it shows beside it.
+    const value = r.fill ?? r.label;
+    return { value, label: value, detail: [value !== r.label ? r.label : "", r.detail ?? ""].filter(Boolean).join(" · "), ...(r.depth ? { depth: r.depth } : {}), ...(r.mark ? { mark: r.mark } : {}), preview };
   });
 });
 

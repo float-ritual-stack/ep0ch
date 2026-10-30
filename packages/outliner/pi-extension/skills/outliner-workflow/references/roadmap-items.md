@@ -14,7 +14,8 @@ it read, reads the result back and prints JSON with the Work ID, `((block ref))`
 and new revision. Refusals print one `error: …` line and exit 1.
 
 ```sh
-bun src/cli.ts work create --title … --project … --arc … --track … --priority … [--stage queued] [--wave <theme>] [--source <uuid>] [--stdin|--body-file f]
+bun src/cli.ts work create --title … --project … --arc … --track … --priority … [--stage queued] [--wave <theme>] [--source <uuid>] [--stdin|--body-file f] [--new]
+bun src/cli.ts work create --title … --attach PIE-12 [--source <uuid>] [--stdin|--body-file f]   # the ask under an open item
 bun src/cli.ts work stage PIE-123 doing [--expected N]
 bun src/cli.ts work set PIE-123 priority high [--expected N]
 bun src/cli.ts work set PIE-123/site delivery-stage complete [--expected N]
@@ -30,8 +31,11 @@ bun src/cli.ts work help
 Add `--author agent --actor <id>` for agent writes. `work stage … done` is
 refused: Done goes through `work complete`, which creates or links the proof.
 `work deliver` reads the PR through `gh` and refuses a PR whose branches differ
-from the delivery's. A merged PR's delivery gets `merged-at` (GitHub's
-`mergedAt`) beside `pull-request-state=merged` and `merge-commit`.
+from the delivery's. The PR number is the delivery's identity: when GitHub
+retargets a stacked PR (its base merged, so it now merges into main), the
+delivery that records that PR follows its new base rather than refusing it. A
+merged PR's delivery gets `merged-at` (GitHub's `mergedAt`) beside
+`pull-request-state=merged` and `merge-commit`.
 
 ### Every merge on the record
 
@@ -144,7 +148,11 @@ Optional:
 2. Use `outliner_roadmap_create` (or `work create`) with title, body, priority, project, arc and tracks.
    Source and relationship fields take UUIDs. New work defaults to `unprioritized`.
    Ticketing a request, pass its copy as the source (`--source`, the mod's `from`)
-   so the copy names its ticket.
+   so the copy names its ticket. An agent's create that looks like open work is
+   refused naming the twins, the original first: attach the ask there (`--attach PIE-n`,
+   the mod's and Pi's `attach`), or file it anyway (`--new`, `new: true`), said in the
+   item. Twins are read by meaning, a paraphrase included; one Jev is unsure of is
+   offered too ("maybe the same work"), for you to decide.
 3. After the owner commits scope, create an ordinary `work-batch` block with its
    project and objective. Assign members through optimistic `work-batch` property
    patches; use `queued` for selected items waiting to start. `workBatchId` on

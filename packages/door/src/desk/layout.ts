@@ -176,6 +176,8 @@ export interface PlaceOpts<I> {
   asPinned?: boolean | ((d: Dock<I>) => boolean);
   /** A tile holding work (a draft): its flow column resists compression. */
   holds?(id: I): boolean;
+  /** A tile folded to a spine (`tile.collapse`): a flow column of only such tiles stays a spine (PIE-1392). */
+  folded?(id: I): boolean;
 }
 
 export interface Placed<I = number> {

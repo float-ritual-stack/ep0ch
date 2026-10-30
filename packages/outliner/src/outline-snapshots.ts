@@ -5,11 +5,15 @@ import type { MutationProvenance } from "./types";
 import type { OutlinerStore } from "./store";
 import { ShareSessions, shareOnWire, shareTtlMs } from "./share-sessions";
 
-/** Copies and download lifetimes belong to the host; tokens and revocation belong to ShareSessions. */
+/**
+ * Copies and download lifetimes belong to the host; tokens and revocation belong to ShareSessions. Each snapshot gets a
+ * record note in the outline, except on a read-only copy (`records` false: another machine's outline, PIE-1091), whose
+ * session in the shares file is its only record.
+ */
 export class OutlineSnapshots {
   private timer?: ReturnType<typeof setInterval>;
   private readonly downloading = new Map<string, { at: string; ip: string; userAgent: string; method: string }>();
-  constructor(private readonly store: OutlinerStore, private readonly shares: ShareSessions, private readonly folder: string) {}
+  constructor(private readonly store: OutlinerStore, private readonly shares: ShareSessions, private readonly folder: string, private readonly records = true) {}
 
   start(): void {
     this.sweep();
@@ -31,7 +35,7 @@ export class OutlineSnapshots {
     if (code !== 0) throw new Error(`Snapshot copy failed: ${stderr.trim()}`);
     const metadata = JSON.parse(stdout) as Pick<OutlineSnapshot, "bytes" | "sha256" | "schema" | "asOf">;
     const by = input.mutation?.author === "agent" ? input.mutation.actorId ?? "agent" : "you";
-    const record = this.store.create(`Snapshot of ${outline} [type::snapshot] [machine::snapshot] [publish::never]\n\nWho: ${by}\nOutline: ${outline}\nAs of: ${metadata.asOf}\nBytes: ${metadata.bytes}\nSHA-256: ${metadata.sha256}\nSchema: ${metadata.schema}\nState: ${input.out ? "saved to file" : "waiting"}`, null, "system");
+    const record = !this.records ? { id: "" } : this.store.create(`Snapshot of ${outline} [type::snapshot] [machine::snapshot] [publish::never]\n\nWho: ${by}\nOutline: ${outline}\nAs of: ${metadata.asOf}\nBytes: ${metadata.bytes}\nSHA-256: ${metadata.sha256}\nSchema: ${metadata.schema}\nState: ${input.out ? "saved to file" : "waiting"}`, null, "system");
     if (input.out) return { ...metadata, path: destination };
     try {
       const share = this.shares.start({ scope: { kind: "outline" }, ttlMs, comments: false, by, snapshot: { ...metadata, recordId: record.id, base: origin! } });
@@ -72,6 +76,7 @@ export class OutlineSnapshots {
   }
 
   private log(share: ShareSession, attempt: { at: string; ip: string; userAgent: string; method: string; bytes: number; outcome: string }): void {
+    if (!this.records) return;
     const note = this.store.get(share.snapshot!.recordId);
     if (note) this.store.update(note.id, `${note.text}\nAttempt: ${JSON.stringify(attempt)}`, note.revision, { author: "system" });
   }
@@ -87,7 +92,7 @@ export class OutlineSnapshots {
 
   private remove(share: ShareSession, state: string): void {
     rmSync(this.path(share.id), { force: true });
-    const note = this.store.get(share.snapshot!.recordId);
+    const note = this.records ? this.store.get(share.snapshot!.recordId) : null;
     if (note?.text.includes("State: waiting")) this.store.update(note.id, note.text.replace(/State: waiting(?=\n|$)/, `State: ${state}\nEnded: ${new Date().toISOString()}`), note.revision, { author: "system" });
     this.shares.snapshotRemoved(share.id);
   }

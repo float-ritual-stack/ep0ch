@@ -42,9 +42,15 @@ Evan, Oct 29: the thing to catch is "unit tests, e2e test passes - but the actua
 wrong". The tests passed before you were sent; re-running them proves nothing new. Your job is to use it the way he
 will and find where it's wrong.
 
+- **Start from Jev's list of what to try:** `ep0ch work try PIE-a PIE-b … --ws pie --machine float-2` (loki puts its
+  `[type::validation-plan]` note in your brief): per ticket, the actions Jev picked with their keys and `act` calls,
+  the pages and views to open (each with its `screen.open` call), and the ticket's lines that say what should show. It's a map, not a script: drive it, then go past it. A ticket it
+  marks **Finding** never said what Evan opens and does; that is your first finding. For a groom pass's "Jev thinks
+  this is done", the ticket carries Jev's comment: keep it when Jev was right, resolve it when not.
 - **Start from the purpose, not the code:** what is this for, in Evan's day? Use it for that, cold, before reading the
   diff. If you can't tell how he'd find it (a key, a menu row, a hint, the power bar), that's a finding.
-- **Use it his ways:** mouse and keys both; at 40 columns and at a full desk; inside a group, a mount and the drawer;
+- **Use it his ways:** mouse and keys both; in his daily shape, a 177-column desk with four tiles 43–44 columns wide
+  and 9–13 rows tall (read from his door, Oct 29), and at 40 columns; inside a group, a mount and the drawer;
   on the web page if it has one; with a realistic amount of content (`ep0ch try --copy` gives real shapes; never copy
   content out).
 - **Look at the screen:** capture it (`tmux capture-pane`, `snap` PNG) and read it as he would: is it readable at a

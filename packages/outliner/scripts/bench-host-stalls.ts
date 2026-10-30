@@ -14,7 +14,7 @@ import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { OutlinerStore } from "../src/store";
+import { makeOutline } from "./host-bench/fixture";
 
 const { values } = parseArgs({ options: { outliner: { type: "string" }, keep: { type: "boolean" }, budget: { type: "string" } } });
 const outliner = resolve(values.outliner ?? join(import.meta.dir, ".."));
@@ -24,52 +24,7 @@ const outlines = join(root, "outlines");
 const socket = join(outlines, ".host", "host.sock");
 const OUTLINE = "bench";
 
-// ─── The fictional outline ───────────────────────────────────────────────
-
-/** About the shape of a working outline: ~2.4k notes, ~14k property tokens, 72 saved views, references between notes. */
-function makeOutline(path: string): { notes: number; views: number; probe: string } {
-  const store = new OutlinerStore(path, { workspaceRoot: join(outlines, OUTLINE) });
-  const projects = ["harbor", "lantern", "meadow", "quarry", "orchard", "beacon", "thistle", "copper"];
-  const tracks = ["stability", "performance", "docs", "ux", "data"];
-  const stages = ["queued", "doing", "review", "validate", "done", "later"];
-  let notes = 0, views = 0;
-  const ids: string[] = [];
-  const add = (text: string, parent: string | null = null) => { notes += 1; const block = store.create(text, parent, "user"); ids.push(block.id); return block; };
-  const pick = <T>(list: readonly T[], n: number) => list[n % list.length]!;
-  const prose = (n: number) => `Some words about step ${n}: who does it, what it needs, and what done looks like. See https://example.test/notes/${n}.`;
-  store.database.transaction(() => {
-    const hubs = projects.map((name, i) => add(`Project ${name} [type::project] [owner::team-${i % 3}]`));
-    const board = add("Workboard [type::hub]");
-    for (let i = 0; i < 560; i++) {
-      const project = pick(projects, i), hub = pick(hubs, i);
-      const related = ids.length > 10 ? ` [related-to::((${pick(ids, i * 7)}))]` : "";
-      const item = add(`BEN-${i} — Make the ${project} thing better, part ${i} [type::roadmap-item] [priority::${pick(["high", "medium", "low"], i)}] ` +
-        `[work-stage::${pick(stages, i)}] [project::${project}] [arc::${pick(["core", "edge"], i)}] [track::${pick(tracks, i)}] [ref::BEN-${i}]${related}\n\n` +
-        `${prose(i)}\n- first, ((${pick(ids, i * 3)}))\n- then the rest #followup`, hub.id);
-      if (i % 2 === 0) add(`Delivery for BEN-${i} [type::delivery] [repository::example/${project}] [pull-request-number::${1000 + i}] ` +
-        `[pull-request-state::${pick(["open", "merged"], i)}] [work-branch::ben-${i}] [base-branch::main] [delivery-stage::review]`, item.id);
-      if (i % 5 === 0) add(`Proof for BEN-${i} [type::proof] [commit::${(i * 2654435761 >>> 0).toString(16)}]\n${prose(i + 1)}`, item.id);
-    }
-    for (let i = 0; i < 1_350; i++) {
-      const parent = i % 4 === 0 ? null : pick(ids, i * 13);
-      const long = i % 97 === 0;
-      const body = long
-        ? Array.from({ length: 300 }, (_, n) => n % 40 === 0 ? `## Part ${n}\n\`\`\`ts\nconst step${n} = ${n};\n\`\`\`` : `- ${prose(n)} [[Page ${n % 30}]]`).join("\n")
-        : `${prose(i)}\n- a line with [status::${pick(["open", "closed"], i)}] and ((${pick(ids, i * 5)}))`;
-      add(`Note ${i} about ${pick(projects, i)} [type::${pick(["note", "log", "idea", "task"], i)}] [project::${pick(projects, i)}] [tag::t${i % 9}]\n${body}`, parent);
-    }
-    for (let i = 0; i < 30; i++) add(`Page ${i} [page::Page ${i}] [type::page]\n${prose(i)}`);
-    for (let i = 0; i < 4; i++) add(`Callout ${i} [callout-type::kind-${i}] [color::${pick(["red", "blue"], i)}]`);
-    for (let i = 0; i < 72; i++) {
-      views += 1;
-      const query = i % 3 === 0 ? `type=roadmap-item project=${pick(projects, i)}` : i % 3 === 1 ? `work-stage=${pick(stages, i)}` : `type=${pick(["note", "task", "delivery"], i)}`;
-      add(`View ${i} [type::virtual-branch] [query::${query}] [limit::${pick([20, 50, 200], i)}]`, board.id);
-    }
-  })();
-  const probe = ids[ids.length >> 1]!;
-  store.close();
-  return { notes, views, probe };
-}
+// ─── The fictional outline: host-bench/fixture.ts's `small` ──────────────────
 
 // ─── Talking to the host ─────────────────────────────────────────────────
 
@@ -171,7 +126,7 @@ async function probe(blockId: string): Promise<void> {
 
 console.log(`host: ${outliner}`);
 const made = performance.now();
-const outline = makeOutline(join(outlines, `${OUTLINE}.sqlite`));
+const outline = makeOutline(join(outlines, `${OUTLINE}.sqlite`), join(outlines, OUTLINE), "small");
 console.log(`fixture: ${outline.notes} notes, ${outline.views} saved views (${((performance.now() - made) / 1000).toFixed(1)} s)`);
 const viewIds = (new Database(join(outlines, `${OUTLINE}.sqlite`), { readonly: true })
   .query("SELECT block_id FROM block_properties WHERE key = 'type' AND value = 'virtual-branch'").all() as { block_id: string }[]).map(row => row.block_id);

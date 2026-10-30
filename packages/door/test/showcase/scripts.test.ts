@@ -233,6 +233,9 @@ if (!prompt.includes("wrap each item in a callout") || !prompt.includes("- apple
 console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, message: "rewrote 2 items as callouts" }));`);
     writeFileSync(join(folder, "config.json"), JSON.stringify({ config: { answer: ["bun", model] } }));
     await app.loadExtensions(true);
+    // Esc keeps the keys in a float (PIE-1418): the float an earlier test's new note made still has them. Closed, as a
+    // person's x does, so this new note opens as a tab.
+    for (const f of (stage as any).describe().floats ?? []) await stage.dispatch.press("tile.close", {}, f.name);
     await (app as any).dispatch.press("note.new", { opens: "tab" });
     await until(() => [...stage.panes.values()].some(p => p.surface?.draft), "new draft");
     const r = [...stage.panes.values()].find(p => p.surface?.draft) as ReaderPane;
@@ -240,7 +243,9 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     const instruction = "@tidy wrap each item in a callout";
     const source = `Orchard\n- cherries\n@tidy earlier\nFruit to wrap:\n- apples\n\n  more apples\n\n- pears\n${instruction}\n${instruction}\n@tidy yo\n`;
     await stage.dispatch.press("draft.paste", { text: source }, tile);
-    await until(() => d.text.includes("> [!note] Apples"), "the instructed rewrite in the live draft", 8000);
+    // What the ask says when it doesn't land: its status and the draft's text.
+    await until(() => d.text.includes("> [!note] Apples"), "the instructed rewrite in the live draft", 8000)
+      .catch(e => { throw new Error(`${e.message}: ${JSON.stringify({ status: d.askStatus(instruction), yo: d.askStatus("@tidy yo"), text: d.text })}`); });
     await until(() => d.askStatus(instruction).includes("rewrote 2 items as callouts") && d.askStatus("@tidy yo").includes("answer command exited 2"), "every ask's outcome", 8000);
     expect(d.text).toContain("- cherries\n@tidy earlier\nFruit to wrap:\n");
     expect(d.text).toContain(instruction + "\n" + instruction);
@@ -274,13 +279,15 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await until(() => !app.recording.active, "the click stopped recording");
     let saved: any;
     await untilAsync(async () => {
-      const hit = (await board.queryNotes("script", 100)).notes.find(n => n.text.startsWith("recording-"));
+      const hit = (await board.queryNotes("script", 100)).notes.find(n => n.text.startsWith("Recorded: "));
       saved = hit ? await board.get(hit.id) : undefined;
       return !!saved;
     }, "the recording saved");
+    // Named after what it did, never by its own timestamp alone (a row reading "recording-1792… · recording-1792…").
+    expect(saved.text.split("\n")[0]).toMatch(/^Recorded: \S/);
     expect(saved.text).toContain(body.replaceAll('"', '\\"').replaceAll("\\ path", "\\\\ path"));
-    await until(() => !!extensionList()?.extensions.find(e => e.name?.startsWith("recording-")), "the multiline recording loaded");
-    const extension = extensionList()!.extensions.find(e => e.name?.startsWith("recording-"))!;
+    await until(() => !!extensionList()?.extensions.find(e => e.name?.startsWith("recorded-")), "the multiline recording loaded");
+    const extension = extensionList()!.extensions.find(e => e.name?.startsWith("recorded-"))!;
     await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER);
     await until(() => (app as any).message.includes("done · ctrl+z"), "the multiline comment replayed");
     await app.dispatch.act({ action: "comment.close", tile: "notes" }, USER);

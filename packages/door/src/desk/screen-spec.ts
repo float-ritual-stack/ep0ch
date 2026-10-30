@@ -14,6 +14,7 @@
 // Everything a screen does that isn't layout lives in its tiles' kinds (src/desk/tile-kinds.ts) and their actions.
 // A spec is plain data (`specData` writes it, `readSpec` reads it back and checks it): what a screen note holds (a
 // screen a person made, PIE-565: src/desk/screen-notes.ts), which can't hold an override.
+import { useScreenTables, type KeyTable } from "../surface/keymap";
 import { isTileKind } from "./tile-kinds";
 import { canonKind } from "./layout";
 import type { LayoutSpec } from "./tiles";
@@ -24,6 +25,8 @@ export interface KeyBinding {
   key: string;
   action: string;
   label?: string;
+  /** The whole sentence the keys window lists for it (TableRow.says). */
+  says?: string;
   args?: Record<string, unknown>;
   /** The tile it runs in (by name); left out, the action's own default (the focused tile, or the one tile of its kind). */
   tile?: string;
@@ -32,6 +35,9 @@ export interface KeyBinding {
   /** Only while the focused tile is one of these kinds. */
   only?: string[];
 }
+
+/** x closes a reader or a preview where the screen lets it close (a detail, a float): the board's and the river's one key (PIE-1403). */
+export const CLOSE_KEY: KeyBinding = { key: "x", label: "close", action: "tile.close", only: ["preview", "reader"] };
 
 /**
  * Where a new note opens (PIE-591): `float`, a draft floating over the screen (each one more, cascaded); `tab`, a new tab
@@ -124,6 +130,7 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
     return {
       key: b.key, action: b.action,
       ...(typeof b.label === "string" ? { label: b.label } : {}),
+      ...(typeof b.says === "string" ? { says: b.says } : {}),
       ...(b.args && typeof b.args === "object" && !Array.isArray(b.args) ? { args: { ...b.args } } : {}),
       ...(typeof b.tile === "string" ? { tile: b.tile } : {}),
       ...(kinds(b.unless) ? { unless: kinds(b.unless)! } : {}),
@@ -272,6 +279,21 @@ export function screenSpec(name: string, args?: Record<string, unknown>): Screen
 export const screenTargetArg = (name: string): string | undefined => registrations.get(name)?.target;
 /** Every screen registered, by name. */
 export const screenNames = (): string[] => [...specs.keys()];
+
+// Each screen's own key map is a key table of the keymap's (PIE-492), under the screen's name: built once per set of screens.
+let screenKeyTables: { names: string; tables: KeyTable[] } | null = null;
+useScreenTables(() => {
+  const names = screenNames().join(" ");
+  if (screenKeyTables?.names === names) return screenKeyTables.tables;
+  const tables: KeyTable[] = [];
+  for (const n of screenNames()) {
+    let keys: readonly KeyBinding[] | undefined;
+    try { keys = screenSpec(n)?.keys; } catch { keys = undefined; }      // a screen that needs its target to be made has none to say
+    if (keys?.length) tables.push({ scope: n, about: `the ${n} screen's own keys`, rows: keys, prefix: "", screen: true });
+  }
+  screenKeyTables = { names, tables };
+  return tables;
+});
 
 // ── a screen mounted in another (PIE-651) ──
 

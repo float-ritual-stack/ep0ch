@@ -1,3 +1,4 @@
+import { parseActor } from "@ep0ch/outline-core/attribution";
 import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-core/site-values";
 /**
  * Outline operations for agents (PIE-504): read, find, resolve, edit, create,
@@ -14,14 +15,16 @@ import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-cor
  * empty write, a stale revision, and an edit that drops a `[page::…]` or an
  * anchor other notes link to.
  */
-import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
+import { parseMachineryMode, readsRecentActivity, type MachineryLeftOut, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
-import { FIX_BEFORE_DONE, shapeNext, shapeWarnings } from "@ep0ch/outline-core/write-shape";
+import { hasCountCandidate, shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
+import { outlineFacets, reviewWarnings, reviewWrite, type WriteReview } from "./write-review";
+import { houseRule } from "./work-review";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
-import { figureShape, suggestFigure, type FigureFit, type FigureFitReading } from "./figure-fit";
-import type { SuggestionKeep, SuggestionWrite } from "./jev-suggestions";
+import { figureShape, suggestFigure } from "./figure-fit";
+import { toldKeys, type SuggestionKeep, type SuggestionWrite } from "./jev-suggestions";
 import { figureRowReport } from "./figure-rows";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -30,7 +33,7 @@ import { randomUUID } from "node:crypto";
 import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
 import { createBlockComment } from "./block-comments";
-import { matchFacts, resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { matchFacts, resourceTextRevision, type BlockRevisions } from "@ep0ch/outline-core/protocol";
 import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } from "./resource-references";
 import { resourceCommentSource } from "./resource-comments";
 import type { ResourceDescription } from "./resources";
@@ -60,6 +63,8 @@ import type {
   BlockEditActivityPage,
   BlockReadCollection,
   BlockSearchQuery,
+  GotoSearchCollection,
+  SearchCertainty,
   MutationProvenance,
   ProjectedBlock,
   ResolvedBlockReferences,
@@ -373,8 +378,10 @@ export const READ_CHILDREN_MAX_CHARS = 60_000;
  */
 export async function readBlock(
   client: AgentToolsClient,
-  input: { ref: string; depth?: number; limit?: number },
+  input: { ref: string; depth?: number; limit?: number; view?: boolean },
 ): Promise<ReadResult | ResourceReadResult> {
+  // The drawing is the door's (ep0ch show); the Claude mod and the MCP gateway add it, a script reads the text.
+  if (input.view === true) throw new WorkToolRefusal("view is the note as the door draws it, which this read can't draw: read without view, or draw it with ep0ch show <id>");
   const resource = resourceRefOf(input.ref);
   if (resource) return readResource(client, resource);
   const depth = boundedInteger(input.depth, "depth", 1, 0, 6);
@@ -417,6 +424,10 @@ export async function readBlock(
   else await markMore([{ id: block.id, text: "", revision: block.revision }]);
   const record = textRecord(block);
   const site = await readSiteOf(client, block);
+  // Who last wrote it (its current revision's edit), as `updated` says when: the block's own author is who made it.
+  // Only the entry for the revision read: a write that lands between the two reads never lends its author to older text.
+  const saved = (await client.request<BlockRevisions>({ action: "block.revisions", blockId: block.id, latest: true }).catch(() => undefined))?.revisions.find(r => r.revision === block.revision);
+  const writer = saved?.author ? { author: saved.author, ...(saved.actorId ? { actorId: saved.actorId } : {}) } : { author: block.author, ...(block.actorId ? { actorId: block.actorId } : {}) };
   return {
     ...resolved,
     title: blockDisplayTitle(block),
@@ -424,8 +435,7 @@ export async function readBlock(
     text: block.text,
     properties: record.properties,
     fields: record.fields,
-    author: block.author,
-    ...(block.actorId ? { actorId: block.actorId } : {}),
+    ...writer,
     updated: block.updatedAt,
     parentId: block.parentId,
     children,
@@ -507,7 +517,12 @@ function propertyScopeInput(value: string): PropertyQueryScope {
  * next (id, title, revision). `text`, `property`, `hasKey`, `query` and `under`
  * combine; `view` stands alone. `complete: false` means more matched than `limit`.
  */
-export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: FindRow[]; complete: boolean; total?: number }> {
+/** How sure a ranked find is (PIE-1198): the service's verdict and sentence, and Jev's "is it among these?". */
+export interface FindSearch { status: "ranked" | "lexical" | "unavailable"; verdict?: SearchCertainty["verdict"]; label?: string; said: string; exists?: number; deep?: GotoSearchCollection["semantic"]["deep"] }
+/** A words-only find is the ranked search: at most this many rows (tree.search's own cap). */
+const RANKED_FIND_LIMIT = 30;
+
+export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: (FindRow & { score?: number })[]; complete: boolean; total?: number; search?: FindSearch; machineryOmitted?: MachineryLeftOut }> {
   const limit = boundedInteger(input.limit, "limit", 20, 1, 200);
   const given = (key: keyof FindInput) => typeof input[key] === "string" && (input[key] as string).trim() !== "";
   if (given("view")) {
@@ -527,6 +542,27 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
   if (!["text", "property", "hasKey", "query"].some(key => given(key as keyof FindInput))) {
     throw new WorkToolRefusal("Give text, property, hasKey, query or view to find blocks by");
   }
+  // Words alone are a search, not a filter: the service's ranked one (ep0ch find's, the door's), re-ordered by Jev, each
+  // row its Score and the answer how sure it is, so a weak top says "no strong match" instead of reading as the answer.
+  if (given("text") && !["property", "hasKey", "query", "under", "this", "propertyScope"].some(key => given(key as keyof FindInput)) && (input.machinery === undefined || input.machinery === "hide")) {
+    // Every candidate is ranked (as the door's / ranks them), then cut to what was asked: at most RANKED_FIND_LIMIT.
+    // Deep when the ranked hits hold no sure answer (PIE-1200): notes that never use the words are found by meaning.
+    const found = await client.request<GotoSearchCollection>({ action: "tree.search", query: input.text!, semantic: true, deep: true });
+    const shown = Math.min(limit, RANKED_FIND_LIMIT);
+    const ids = found.matches.slice(0, shown).map(m => m.block.id);
+    const read = await Promise.all(ids.map(blockId => client.request<Block | null>({ action: "get", blockId }).catch(() => null)));
+    const by = new Map(read.flatMap(b => b ? [[b.id, b] as const] : []));
+    const scores = new Map(found.matches.map(m => [m.block.id, m.score]));
+    const byMeaning = new Set(found.matches.flatMap(m => m.deep ? [m.block.id] : []));
+    const s = found.semantic;
+    const search: FindSearch = s.status === "ranked" && s.verdict ? { status: "ranked", verdict: s.verdict, ...(s.label ? { label: s.label } : {}), said: s.said ?? "", ...(s.exists !== undefined ? { exists: s.exists } : {}), ...(s.deep ? { deep: s.deep } : {}) }
+      : s.status === "ranked" ? { status: "ranked", said: "ranked by Jev over the text matches" }
+      : { status: s.status, said: `text matches only${s.message ? ` (${s.message})` : ""}` };
+    return {
+      blocks: ids.flatMap(id => { const b = by.get(id); if (!b) return []; const score = scores.get(id); return [{ ...findRow(b), ...(score !== undefined ? { score } : {}), ...(byMeaning.has(id) ? { byMeaning: true } : {}) }]; }),
+      complete: found.completeness.kind === "complete" && found.matches.length <= shown, search,
+    };
+  }
   const filters: PropertyFilter[] = [];
   if (given("property")) filters.push(parsePropertyFilterClause(input.property!));
   if (given("hasKey")) filters.push({ key: input.hasKey!.trim() });
@@ -539,11 +575,13 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     ...(given("this") ? { this: input.this } : {}),
     ...(input.machinery !== undefined ? { machinery: machineryInput(input.machinery) } : {}),
     ...(given("propertyScope") ? { propertyScope: propertyScopeInput(input.propertyScope!) } : {}),
+    // A recent-activity read (`updated >= -1d`) says how many notes tools stamped it left out, by producer (PIE-1427).
+    ...(readsRecentActivity(input.query) ? { countMachinery: true } : {}),
   };
   // An older service ignores `where` and would return unfiltered results.
   if (query.where !== undefined) await client.requireCompatibleService();
   const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query });
-  return { blocks: found.blocks.map(findRow), complete: found.completeness.kind === "complete" };
+  return { blocks: found.blocks.map(findRow), complete: found.completeness.kind === "complete", ...(found.machineryLeftOut ? { machineryOmitted: found.machineryLeftOut } : {}) };
 }
 
 // ─── Edit ──────────────────────────────────────────────────────────────────
@@ -639,55 +677,54 @@ async function componentsRead(client: AgentToolsClient, text: string): Promise<C
 }
 
 /**
- * The figure the written text would read best as (figure-fit.ts, PIE-721), for the answer to a create, an edit or a
- * patch: asked only when this write gave the note a figure's shape it didn't have (`before`, its text before the write;
- * none for a create), so a note is told once and a property set or a comment never asks, and said only when Jev is
- * sure enough. On unless OUTLINER_FIGURE_FIT is `off` (the tests' preloads set it): a feature that waits for someone to
- * switch it on is one nobody switched on (Evan, Oct 22). Null when Jev can't be asked; it never throws, since the write has landed.
+ * The outline's property values (write-review.ts outlineFacets), asked once a minute per connection.
  */
-async function figureSuggestion(client: AgentToolsClient, text: string, before?: string, at?: Omit<SuggestionWrite, "source">): Promise<{ component: string; said: string } | null> {
-  if (process.env.OUTLINER_FIGURE_FIT === "off" || figureShape(text) !== "shaped") return null;
-  type Asked = { fit: FigureFit; reading?: FigureFitReading } | { quiet: FigureFitReading | undefined } | "unavailable" | null;
-  const ask = async (): Promise<Asked> => {
-    const schemas = await schemasOf(client);
-    if (!schemas || figureShape(text, schemas) !== "shaped" || (before !== undefined && figureShape(before, schemas) === "shaped")) return null;
-    const answer = await suggestFigure(text, schemas, { timeoutMs: FIGURE_FIT_BUDGET_MS });
-    if ("unavailable" in answer) return "unavailable";
-    return answer.fit ? { fit: answer.fit, reading: answer.reading } : { quiet: answer.reading };
-  };
-  // The whole ask (schemas, key, prompt and Jev) is bounded, since the write's answer waits on it.
-  const asked = await Promise.race([ask().catch((): Asked => null), Bun.sleep(FIGURE_FIT_BUDGET_MS).then((): Asked => "unavailable")]);
-  if (!asked) return null;
-  // PIE-1251: what Jev said is a fact, recorded only once the writer is about to hear it (an ask that outlived the budget is
-  // not a suggestion anyone was told). The service makes the records (`suggestions.keep`): a one-shot CLI that waited for a
-  // dozen requests over ssh was cut off and left none. The writer's answer waits for it no longer than the budget.
-  if (at) {
-    const change: SuggestionKeep = asked === "unavailable" ? { kind: "unavailable" }
-      : "quiet" in asked ? { kind: "quiet", ...(asked.quiet ? { reading: asked.quiet } : {}) }
-      : { kind: "suggested", fit: asked.fit, ...(asked.reading ? { reading: asked.reading } : {}), at: { ...at, source: "write" } };
-    await keepRecords(client, change);
-  }
-  if (asked === "unavailable" || "quiet" in asked) return null;
-  return { component: asked.fit.component, said: asked.fit.said };
+const facetsAsked = new WeakMap<AgentToolsClient, { at: number; facets: Promise<ShapeFacet[]> }>();
+function facetsOf(client: AgentToolsClient): Promise<ShapeFacet[]> {
+  const kept = facetsAsked.get(client);
+  if (kept && Date.now() - kept.at < 60_000) return kept.facets;
+  const facets = outlineFacets(client as never);
+  facetsAsked.set(client, { at: Date.now(), facets });
+  return facets;
 }
 
 /**
- * Whether the suggestions made on this note were followed (jev-suggestions.ts, PIE-1251): asked after a write, only when
- * the note now draws a component at all (a note with none can be neither followed nor answered with another figure), so
- * an ordinary write pays nothing. Writes the verdict as a record; never throws.
+ * The review of a create, an edit or a patch (write-review.ts, PIE-1388): code's measures with ready patches, and Jev's
+ * judgment of what the write changed against Evan's rubric and the outline's whole kit, answered ship or fix. Jev is
+ * asked unless OUTLINER_FIGURE_FIT is `off` (the tests' preloads set it), whatever the note's shape: prose included.
+ * The answer waits for Jev no longer than the budget; past it, code's findings stand alone. What the writer is told is
+ * kept as records by the service (`suggestions.keep`). Never throws: the write has landed.
  */
-async function settleSuggestions(client: AgentToolsClient, noteId: string, text: string): Promise<void> {
-  if (process.env.OUTLINER_FIGURE_FIT === "off" || !componentBlocks(text.split("\n")).length) return;
-  await keepRecords(client, { kind: "settle", note: noteId });
+async function reviewOf(client: AgentToolsClient, text: string, before: string | undefined, at: Omit<SuggestionWrite, "source">): Promise<WriteReview> {
+  const input = { text, ...(before === undefined ? {} : { before }), id: at.note };
+  const off = process.env.OUTLINER_FIGURE_FIT === "off";
+  const within = <T,>(work: Promise<T>, fallback: T) => Promise.race([work.catch(() => fallback), Bun.sleep(REVIEW_BUDGET_MS).then(() => fallback)]);
+  const started = Date.now();
+  const full = async () => {
+    // Each read is bounded on its own; the outline's facets (pie's answer in about 0.2 s since PIE-1396, 2 to 7 s before)
+    // are read while Jev answers, and only when the text types a number before a word, so they never hold Jev up.
+    // The host answers a connection's requests in turn, so the quick reads go first and the facets after them.
+    const [schemas, qaRule, told] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined), off ? Promise.resolve(undefined) : within(toldKeys(client as never, at.note), undefined)]);
+    const facets = hasCountCandidate(text) ? within(facetsOf(client), []) : Promise.resolve([]);
+    return reviewWrite({ ...input, schemas, facets, jev: !off, ...(qaRule ? { qaRule } : {}), ...(told ? { told } : {}) }, { timeoutMs: REVIEW_BUDGET_MS });
+  };
+  // The whole review is bounded, and any failure leaves code's measures alone, saying why Jev wasn't heard: the write has landed.
+  const codeOnly = (why: string) => reviewWrite({ ...input, schemas: null, jev: false, jevWhy: why });
+  const { review, reading } = await Promise.race([
+    full(),
+    Bun.sleep(REVIEW_BUDGET_MS * 2 + 1000).then(() => codeOnly(`not heard: the review ran past ${((REVIEW_BUDGET_MS * 2 + 1000) / 1000).toFixed(1)} s`)),
+  ]).catch((e: unknown) => codeOnly(`not heard: ${(e as Error)?.message ?? String(e)} (after ${((Date.now() - started) / 1000).toFixed(1)} s)`));
+  if (!off) await keepRecords(client, { kind: "reviewed", at: { ...at, source: "write" }, title: headerLine(text).prose.trim(), review, ...(reading ? { reading } : {}) });
+  return review;
 }
 
 /** Asks the service to make the records of what Jev said (jev-suggestions.ts); waits for it no longer than the budget, and never throws. */
 async function keepRecords(client: AgentToolsClient, keep: SuggestionKeep): Promise<void> {
   await Promise.race([(async () => client.request({ action: "suggestions.keep", keep }))().catch(() => undefined), Bun.sleep(RECORD_BUDGET_MS)]);
 }
-/** At most this long added to a write's answer by its figure suggestion, whatever Jev does. */
-const FIGURE_FIT_BUDGET_MS = 1500;
-/** And at most this long for the suggestion's record and the settling of earlier ones (jev-suggestions.ts). */
+/** At most this long added to a write's answer by Jev's review, whatever Jev does. */
+const REVIEW_BUDGET_MS = 2500;
+/** And at most this long for the review's records and the settling of earlier ones (jev-suggestions.ts). */
 const RECORD_BUDGET_MS = 3000;
 
 /** What a figure-fit sweep found: each note it would tell, and the margin thread it left when asked to. */
@@ -867,15 +904,14 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
  * create's or an edit's, with the text before), the figure it would read best as (figure-fit.ts). Every finding is a
  * warning worded as a gate, never a refusal; `next` always ends the answer.
  */
-async function warned(client: AgentToolsClient, text: string, near?: string, self = near, gate?: { before?: string; at?: Omit<SuggestionWrite, "source"> }): Promise<{ warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
-  const [{ warnings, components }, fit, rows] = await Promise.all([
+async function warned(client: AgentToolsClient, text: string, near?: string, self = near, gate?: { before?: string; at: Omit<SuggestionWrite, "source"> }): Promise<{ warnings?: string[]; components?: string[]; figures?: string[]; review?: WriteReview; next?: string }> {
+  const [{ warnings, components }, review, rows] = await Promise.all([
     writtenReading(client, text, near, self),
-    gate ? figureSuggestion(client, text, gate.before, gate.at) : null,
+    gate ? reviewOf(client, text, gate.before, gate.at) : null,
     gate && near ? figureRowReport(client, near, text, gate.before) : null,
   ]);
-  if (gate && near) await settleSuggestions(client, near, text);
-  const all = [...warnings, ...(gate ? shapeWarnings(text, gate.before) : []), ...(rows?.warnings ?? []), ...(fit ? [FIX_BEFORE_DONE + fit.said] : [])];
-  return { ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(near ? { next: shapeNext(near) } : {}) };
+  const all = [...warnings, ...(review ? reviewWarnings(review) : []), ...(rows?.warnings ?? [])];
+  return { ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(review ? { review } : {}), ...(near ? { next: review?.next ?? shapeNext(near) } : {}) };
 }
 
 // ─── Create ────────────────────────────────────────────────────────────────
@@ -1281,7 +1317,7 @@ export async function patchDraft(
   actor: AgentActor,
   /** `suggest: false`: a write that isn't the note's words (a property set) asks figure-fit nothing, measures nothing and has no next check. */
   o: { suggest?: boolean } = {},
-): Promise<DraftPatchResult & { warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
+): Promise<DraftPatchResult & { warnings?: string[]; components?: string[]; figures?: string[]; review?: WriteReview; next?: string }> {
   const revision = requireRevision(input.revision);
   const policy = input.policy ?? "edit";
   if (!DRAFT_PATCH_POLICIES.includes(policy)) throw new WorkToolRefusal(`policy is ${DRAFT_PATCH_POLICIES.join(" or ")}`);
@@ -1312,19 +1348,17 @@ export async function patchDraft(
   const after = await read();
   if (after === undefined || after === was) return result;
   const before = new Set(await referenceWarningsFor(client, was, block.id));
-  const [now, suggestion, rows] = await Promise.all([
+  const [now, review, rows] = await Promise.all([
     writtenReading(client, after, block.id),
-    o.suggest === false ? null : figureSuggestion(client, after, was, { note: block.id, revision: (result.outcome === "applied" ? result.edits.find(e => e.blockId === block.id)?.revision : undefined) ?? block.revision, actorId: actor.actorId }),
+    o.suggest === false ? null : reviewOf(client, after, was, { note: block.id, revision: (result.outcome === "applied" ? result.edits.find(e => e.blockId === block.id)?.revision : undefined) ?? block.revision, actorId: actor.actorId }),
     o.suggest === false ? null : figureRowReport(client, block.id, after, was),
   ]);
-  if (o.suggest !== false) await settleSuggestions(client, block.id, after);
   const warnings = [
     ...now.warnings.filter(w => !before.has(w)),
-    ...(o.suggest === false ? [] : shapeWarnings(after, was)),
+    ...(review ? reviewWarnings(review) : []),
     ...(rows?.warnings ?? []),
-    ...(suggestion ? [FIX_BEFORE_DONE + suggestion.said] : []),
   ];
-  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(o.suggest === false ? {} : { next: shapeNext(block.id) }) };
+  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(review ? { review, next: review.next } : {}) };
 }
 
 // ─── One header property ───────────────────────────────────────────────────
@@ -1550,9 +1584,34 @@ export async function settleProposal(client: AgentToolsClient, input: { ref: str
   return client.request({ action: `draft.proposal.${op}`, proposalId: id, mutation: mutationOf(actor) }, op === "resolve" ? 120_000 : undefined);
 }
 
+/**
+ * What became of an agent's proposals (PIE-1086): the service reads them from the proposals' own revisions
+ * (proposal-outcomes.ts). Whose: `actor` when given, else the caller's own: a persona in it covers every client it writes
+ * through; with none, only the caller's session (`--session`) is its own.
+ */
+export async function proposalOutcomesOf(client: AgentToolsClient, input: { since?: string; actor?: string; limit?: number }, actor: AgentActor | undefined): Promise<unknown> {
+  const whose = input.actor?.trim() || actor?.actorId.trim();
+  if (!whose) throw new WorkToolRefusal("agent proposals: give actor (an actor id, or a persona such as loki), or pass --actor <agent id>");
+  // The caller's own, with no persona to name it: this session's proposals, not every session's that writes as the same client.
+  const session = !input.actor?.trim() && actor?.sessionId && !parseActor(whose).persona ? actor.sessionId : undefined;
+  await client.requireCompatibleService();
+  return client.request({ action: "proposals.outcomes", actor: whose, ...(session ? { session } : {}), ...(input.since !== undefined ? { since: input.since } : {}), ...(input.limit !== undefined ? { limit: input.limit } : {}) });
+}
+
+/**
+ * Runs a script block as an agent (PIE-1272), the way a person's press runs it: `this` the note it is about, `slots`
+ * its props. The service caps its writes at the outline's MCP access, the same as the gateway's script_run.
+ */
+export async function runScriptBlock(client: AgentToolsClient, input: { ref: string; this?: string; slots?: Record<string, string> }, actor: AgentActor): Promise<unknown> {
+  await client.requireCompatibleService();
+  const { id } = await resolveRef(client, input.ref);
+  const about = input.this ? (await resolveRef(client, input.this)).id : undefined;
+  return client.request({ action: "scripts.run", blockId: id, ...(about ? { this: about } : {}), ...(input.slots ? { slots: input.slots } : {}), access: "full", mutation: mutationOf(actor) }, 120_000);
+}
+
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["artifact-deploy", "proposal-resolve", "proposal-apply", "proposal-dismiss", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file", "figure-fit"] as const;
+export const AGENT_OPERATIONS = ["artifact-deploy", "proposal-resolve", "proposal-apply", "proposal-dismiss", "proposals", "script-run", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file", "figure-fit"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -1587,6 +1646,8 @@ export function runAgentOperation(
     case "proposal-resolve": return settleProposal(client, any, "resolve", writer());
     case "proposal-apply": return settleProposal(client, any, "apply", writer());
     case "proposal-dismiss": return settleProposal(client, any, "dismiss", writer());
+    case "proposals": return proposalOutcomesOf(client, any, actor);
+    case "script-run": return runScriptBlock(client, any, writer());
     case "patch": return patchDraft(client, any, writer());
     case "set-property": return setBlockProperty(client, any, writer());
     case "assign-id": return assignWorkId(client, any, writer());

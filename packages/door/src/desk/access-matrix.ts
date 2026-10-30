@@ -217,7 +217,7 @@ const cellArgs = {
 export const ACCESS_MATRIX_ACTIONS = actionSet<KindHost>()("access-matrix", {
   "access.pick": def({
     summary: "pick a cell of the matrix (row and col from 1, or caller= and outline=)",
-    keys: "h j k l, the arrows, a click on a cell",
+    keys: [{ keys: "h j k l", does: "move over the cells" }, { keys: "← ↑ ↓ →", does: "the arrows, the same" }, { keys: "click", does: "on a cell" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's cell (peek lists every cell)",
     args: { row: { type: "number", optional: true, about: "the caller's row, from 1" }, col: { type: "number", optional: true, about: "the outline's column, from 1" }, ...cellArgs },
     examples: [
@@ -238,7 +238,7 @@ export const ACCESS_MATRIX_ACTIONS = actionSet<KindHost>()("access-matrix", {
   }),
   "access.plan": def({
     summary: "what it would take for a caller to have a level in an outline: the commands that would run (the outline's grant, the path's cap, or both) and whom each affects. It writes nothing. The person's planning is kept on the tile for ⏎ to apply; an agent's is only returned",
-    keys: "n r p f (none, read, propose, full), the chips under the table",
+    keys: [{ keys: "n r p f", does: "none, read, propose, full" }, { via: "the chips under the table" }],
     touches: "tile", replay: "safe",
     args: { level: { type: "string", about: "none, read, propose or full" }, ...cellArgs },
     examples: [
@@ -254,16 +254,14 @@ export const ACCESS_MATRIX_ACTIONS = actionSet<KindHost>()("access-matrix", {
   }),
   "access.apply": def({
     summary: "make the change planned: write the outline's grant and/or the path's cap, and say the commands that ran. With caller, outline and level it plans and applies in one step; with none it applies what the tile has planned. The person's only: access is the person's to change (agents are gated by it, ADR 0005)",
-    keys: "⏎ on a planned change, the [⏎ apply] chip",
+    keys: [{ keys: "⏎", does: "on a planned change" }, { via: "the [⏎ apply] chip" }],
     touches: "nothing", replay: "ask", says: (r: { ran: string[] }) => `ran ${r.ran.join(" and ")}`,
-    person: "what agents may reach is the person's to set: an agent reads the matrix and asks access.plan what a change would do, and the person applies it",
+    personAlways: "what agents may reach is the person's to set: an agent reads the matrix and asks access.plan what a change would do, and the person applies it",
     args: { level: { type: "string", optional: true, about: "none, read, propose or full (left out: the change the tile has planned)" }, ...cellArgs },
     examples: [
       { act: "access.apply", does: "applies the change the tile has planned (the person only)" },
     ],
     async run(a, { pane, desk }, actor) {
-      // `person` is checked by the dispatcher, but not while yolo lifts the agent gate: access is never lifted with it.
-      if (actor.kind === "agent") throw new ActionRefused("what agents may reach is the person's to set: an agent reads the matrix and asks access.plan what a change would do");
       const p = pane as AccessMatrixPane;
       let plan = p.staged;
       if (a.level !== undefined || !plan) {

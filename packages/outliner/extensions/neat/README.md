@@ -1,32 +1,55 @@
-# neat: a worked layout script
+# Neat
 
-`neat` puts two notes side by side, folds the other shown main-screen tiles to spines, and opens the left note's links in the drawer. Selecting or opening a link targets the right reader; alt-open targets the left.
+Two notes side by side, the other tiles folded to spines, and the left note's links open in the drawer.
 
-Install from the power bar: ctrl+k, type `&neat`, and pick **install Neat** (Enter or a double click).
-An agent runs `ep0ch act extensions.install id=neat`. Then run `neat` from the power bar, or press a button in a note:
+## What you do
+
+- **Install:** from the power bar, ctrl+k, type `&neat`, and pick **install Neat** (Enter or a double click).
+  - An agent runs `ep0ch act extensions.install id=neat`.
+- **Run it:** run `neat` from the power bar, or press a button in a note.
 
 ```text
 ::button{label="neat" of=neat page=[[Garden plan]] page=[[Shed repairs]]}
 ```
 
-Each `page=` is a reference `read` understands: a page, block reference, id or Work ID. The first slot chooses the left reader, the second the right. Without the first slot, it uses this outline's `[welcome::1]` note, then `[page::home]`, then the current note's top ancestor. Without the second slot, it uses the reader with the person's keys. Press from a reader when using these defaults.
+- **Pick the pages:** each `page=` is a reference `read` understands: a page, block reference, id or Work ID.
+  - The first is the left reader, the second the right.
+- **Leave them to the press:** `::button{label="two up" of=neat page={page1} page={page2} page1= page2=}` asks for page 1, then page 2, from your notes.
+  - The last pick arranges them; later presses use what the line holds.
+- **Follow links:** selecting or opening a link targets the right reader; alt-open targets the left.
+- **Remove:** `ep0ch act extensions.uninstall id=neat demo=keep`, or the power bar's remove row.
+  - The button stays in your note and names the reinstall command when pressed.
 
-Leave the pages for the press to ask: `::button{label="two up" of=neat page={page1} page={page2} page1= page2=}` asks for page 1 of 2, then page 2, from your notes (neat's second line, `// [form-field::page note]`, says a page is a note), writes each on the line, and the next press arranges them.
+## Defaults
 
-The manifest declares `scripts/neat.js` as the script `neat`. An outline's own `[script::neat]` note wins over it. Edit that note to customize your arrangement; no setting or copied layout engine is needed.
+- **No first page:** it uses this outline's `[welcome::1]` note, then `[page::home]`, then the current note's top ancestor.
+- **No second page:** it uses the reader with the person's keys.
+- **Press from a reader** when you use these defaults.
 
-Remove it with `ep0ch act extensions.uninstall id=neat demo=keep`, or the power bar's remove row. The button stays in your note and names the reinstall command when pressed.
+## Make it yours
+
+- **Edit the script:** an outline's own `[script::neat]` note wins over the bundled one; edit that note to customize.
+  - No setting or copied layout engine is needed.
+- **Try it:** `ep0ch --showcase`, section **neat**; its made-up notes run this source through a real button in `test/showcase/neat-builtin.test.ts`.
 
 ## Follow the script
 
-The complete runnable source is [scripts/neat.js](./scripts/neat.js). It is a file script: its first line opts in with `// ep0ch-script effects=write`. Extension `scripts/` folders use the same runtime as an outline's `.ep0ch/scripts/` files and script notes. `ep0ch install --apply` brings the bundled source with the checkout and refreshes unchanged installed extension copies.
+The complete source is [scripts/neat.js](./scripts/neat.js), a file script whose first line opts in with `// ep0ch-script effects=write`.
 
-1. `props.page` holds the repeated slots. `read(ref)` resolves each explicit reference before any arrangement changes. `q` asks the service for the welcome or home note.
-2. `act('layout.get')` reads the screen's tiles and layers. The layer's `focus` is a tile id; `showing.id` is the note id. These identify different things.
-3. `readerFor` reuses a main-screen reader already showing each note, or opens a held reader with `tile.open`. It keeps the returned tile id for every later action; a tile's name can change.
-4. `reader.follow` stops either reader following another tile. `tile.collapse` unfolds the pair, `layout.move` places the second to the right of the first, then the remaining shown main-screen tiles fold through `tile.collapse`. `layout.even` shares the space after the links are placed.
-5. `links` returns the left reader's links tile id. `tile.drawer on=true` puts that tile in the drawer even on a screen whose links normally open below the reader. Three `tile.link` calls wire `select` and `open` to the right reader and `alt` to the left.
+1. **Pages:** `props.page` holds the repeated slots.
+   - `read(ref)` resolves each explicit reference before anything changes; `q` asks the service for the welcome or home note.
+   - A form field (neat's second line, `// [form-field::page note]`) says a page is a note.
+2. **Layout:** `act('layout.get')` reads the tiles and layers.
+   - The layer's `focus` is a tile id; `showing.id` is the note id.
+3. **Readers:** `readerFor` reuses a main-screen reader already showing each note, or opens a held one with `tile.open`.
+   - It keeps the returned tile id, because a tile's name can change.
+4. **Arrange:** `reader.follow` stops either reader following another tile.
+   - `tile.collapse` unfolds the pair, `layout.move` puts the second to the right, and the rest fold through `tile.collapse`.
+   - `layout.even` shares the space after the links are placed.
+5. **Links:** `links` returns the left reader's links tile id, and `tile.drawer on=true` puts it in the drawer.
+   - Three `tile.link` calls wire `select` and `open` to the right reader and `alt` to the left.
+6. **Refusals:** the `step`/`failed` pattern catches a refused action, remembers its name and reason, and continues.
+   - The final answer lists every refusal instead of claiming success; the shared layout rules don't change.
 
-The script uses the `step`/`failed` pattern: catch a refused action, remember its name and reason, and continue the remaining steps. Its final answer lists every refusal instead of claiming success. This is useful for layout scripts, where a locked screen or protected tile may refuse a step; it does not change the shared layout rules.
-
-Try it in `ep0ch --showcase`, section **neat**. The made-up notes there exercise this source through a real button and scratch outline in `test/showcase/neat-builtin.test.ts`.
+- **Same runtime** as an outline's `.ep0ch/scripts/` files and script notes.
+- **Updates:** `ep0ch install --apply` brings the bundled source with the checkout and refreshes unchanged installed copies.

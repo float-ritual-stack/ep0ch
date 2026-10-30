@@ -15,17 +15,26 @@ export const marks: Record<string, string[]> = {
   // The meeting on the left, a comment being written on the guide on the right (PIE-762).
   "detach": ["Shed rebuild plan", "SHED JOBS", "Drop a part of the plan here."],
   "zoom": ["Orchard winter plan", "WINTER JOBS", "Bramley", "Pruning"],
+  "trail": ["Garden walk: the gate", "Stop 1 of 5"],
+  "back-anywhere": ["Back anywhere: weekend jobs", "Seed order for the weekend"],
   "sticky-pad": ["Raised beds plan", "BED JOBS", "Turn the compost"],
   "deep-links": ["Greenhouse meeting, October", "We agreed to water the seedlings", "» comment"],
   completion: ["Ask about the beds, see ((Gree", "block"],
   // A comment ending in [[seed: the pages and an extension's issues in one list (PIE-1340).
   sources: ["Which issue is the swap, see [[seed", "issue"],
+  // A note's edit open with a / line, the actions that apply here asked for at it (PIE-1076).
+  "one-completer": ["Seed tray jobs", "editing · Seed tray jobs"],
+  twins: ["Fix the back gate latch", "Queued"],
+  "at-revision": ["Jev's suggestions", "Each finding, newest first", "Roof on"],
+  "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],
+  "search-sure": ["Search evals", "EVERY RUN, NEWEST FIRST", "Cases by source"],
   // Four readers on one note, each writing a comment in another place (PIE-770).
   composer: ["Writing in the margin", "[inline ▸]", "[floating ▸]", "[split ▸]", "[popup ▸]"],
   // A comment on the whole note in its own tile beside the reader (PIE-846); the note's whole-note thread in the margin.
   "comment-tile": ["Seed library opening hours", "comment on the whole note", "The winter shelf needs a lock", "comment · reader"],
   // The draft session: an edit open on the left, a comment being written on the right.
   drafts: ["editing · Kitchen whiteboard", "» comment", "[add them]"],
+  "while-typing": ["editing · Kitchen whiteboard", "Allotment notebook"],
   // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
   kept: ["Greenhouse watering rota", "from your edit yesterday", "[add them]", "was already in the note", "1 old edit"],
   // The guide two agents raced on: @fern's words in it, @moss's proposal drawn after its last line with its controls.
@@ -33,7 +42,9 @@ export const marks: Record<string, string[]> = {
   // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
   undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
   hints: ["source: select wire", "select wire", "HintCard"],
-  panes: ["outline", "children", "Visitors", "Kitchen sink"],
+  // The tree's row for the note it follows: the outline is scrolled to show it (the root, above, is off a 60-row screen
+  // once the seed has more top-level notes than the dock has rows).
+  panes: ["outline", "children", "Visitors", "▸ Allotment notebook"],
   "book-spines": ["Bike shed", "Allotment notebook", "spines"],
   folds: ["outline", "children", "◂", "▾"],
   screens: ["Daily brief", "2026-03-11", "Needs you"],
@@ -95,7 +106,7 @@ export const marks: Record<string, string[]> = {
   steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],
   values: ["Vent rail demo", "Owner: Ada", "did you mean owner?", "Spring sowing jobs"],
   "figure-steps": ["Shed door test plan", "YOU TEST", "lift the latch twice", "Plane the door"],
-  "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "shown (M)"],
+  "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", " (M)"],
   // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
   marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
   // The pump rota's margin: its current comment and the kept one's TL;DR face; the seen one is off the margin.
@@ -115,8 +126,8 @@ export const marks: Record<string, string[]> = {
   "line-asks": ["Club asks, header only", "Club asks, any line", "line 12 to do"],
   runbook: ["Try a terminal runbook", "[run]"],
   // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
-  "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],
-  "ext-settings": ["Bare @tidy"],
+  "ext-pages": ["Extensions", "## Installed", "Notifications hub", "Your GitHub notifications"],
+  "ext-settings": ["Agents can't set each other off"],
   // Two notes, each writing its own form: the reading log and the shed repairs, side by side.
   forms: ["Reading log", "Shed repairs"],
   // The outliner's example rules, installed by the seed: meeting-card's card, shout's band, the job done-stamp watches.
@@ -151,6 +162,7 @@ export const marks: Record<string, string[]> = {
   // A reader and a terminal whose program asked for the mouse, each with its ⋯.
   menu: ["Allotment notebook", "this program asked for the mouse", "\u2261"],
   wkeys: ["Allotment notebook", "Bike shed"],
+  keys: ["Bindings", "runs", "Allotment notebook"],
   "line-field": ["Allotment notebook", "Bike shed"],
   // A blank screen: its rows, each a first step.
   made: ["A blank screen. Start it with a tile here:", "t  the outline", "o  open a screen…"],
@@ -172,6 +184,8 @@ export const marks: Record<string, string[]> = {
   hyper: ["Allotment notebook", "a terminal tile: with the layer on", "reach the door"],
   // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
   "facets": ["#frost-jobs", "uses▾", "facets"],
+  // The navigator (PIE-1443): the facets on #frost-jobs, its Matches in a tile with the pinned note first, a reader.
+  "navigator": ["☼ views", "▾ Pinned", "Lag the standpipe", "« "],
   "rich-edit": ["Seed inventory", "Beans", "Packets"],
   asks: ["Keep writing while the answer arrives"],
   neat: ["A neat workbench", "[neat]"],

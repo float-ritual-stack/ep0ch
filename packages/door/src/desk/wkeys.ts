@@ -6,6 +6,7 @@
 // tests find (test/wkeys.test.ts): add it here, with the action it runs.
 import type { ActionDef } from "../surface/actions";
 import { keyCaption } from "../surface/actions";
+import { effective, keyTable } from "../surface/keymap";
 import type { PanelGroup } from "./key-panel";
 
 /** The groups the panel and the popup show them under, in order. */
@@ -36,6 +37,8 @@ export interface WKey {
   how: WHow;
   /** A label where the action alone says too little (several keys run `tile.resize`). */
   label?: string;
+  /** The whole sentence the keys window lists for it (TableRow.says). */
+  says?: string;
   /** Stays in resize mode after it (the desk's sticky mode): the next resize keys need no ^W. */
   sticky?: true;
 }
@@ -43,7 +46,7 @@ export interface WKey {
 const run = (action: string, args?: Record<string, unknown>, tile?: "n" | "-"): WHow => ({ k: "run", action, ...(args ? { args } : {}), ...(tile ? { tile } : {}) });
 
 /** Every key after ^W, in the order the popup lists them under each group. */
-export const W_KEYS = [
+const W_TABLE = [
   { key: "h", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile to the left" },
   { key: "j", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile below" },
   { key: "k", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile above" },
@@ -57,10 +60,10 @@ export const W_KEYS = [
   { key: "L", group: "focus & move", action: "layout.move", how: { k: "edge" }, label: "to the right edge" },
   { key: "s", group: "focus & move", action: "layout.swap", how: { k: "special" }, label: "swap with the next tile" },
 
-  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", sticky: true },
-  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", sticky: true },
-  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", sticky: true },
-  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", sticky: true },
+  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", says: "make this tile narrower", sticky: true },
+  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", says: "make this tile wider", sticky: true },
+  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", says: "make this tile shorter", sticky: true },
+  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", says: "make this tile taller", sticky: true },
   { key: "=", group: "size & shape", action: "layout.even", how: run("layout.even", {}, "-"), label: "even out every split", sticky: true },
   { key: "{", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "right" }) },
   { key: "}", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "left" }) },
@@ -85,6 +88,8 @@ export const W_KEYS = [
   { key: "n", group: "open", action: "tile.title", how: run("tile.title") },
   { key: "N", group: "open", action: "tile.title.mode", how: run("tile.title.mode") },
   { key: ".", group: "open", action: "tile.menu", how: run("tile.menu"), label: "this tile's menu" },
+  { key: ",", group: "open", action: "tile.info", how: run("tile.info", { card: true }), label: "about this tile: its id, kind, wires" },
+  { key: "y", group: "open", action: "note.copy-ref", how: run("note.copy-ref", { kind: "ref" }), label: "copy a reference to its note" },
 
   { key: " ", group: "mounts & groups", action: "tile.select", how: run("tile.select"), label: "pick this tile to gather, or let it go" },
   { key: "G", group: "mounts & groups", action: "tile.group", how: run("tile.group", { ask: true }), label: "gather the picked tiles into a group, or spill one" },
@@ -104,13 +109,19 @@ export const W_KEYS = [
   { key: "!", group: "layouts & more", action: "screen.shell", how: { k: "special" }, label: "drop to your shell" },
   { key: "?", group: "layouts & more", action: "bar.open", how: { k: "special" }, label: "all the ^W keys: a list you can filter" },
 ] as const satisfies readonly WKey[];
+export const W_KEYS = keyTable("^W", "the desk's window keys, after ^W", W_TABLE, "ctrl+w ") as typeof W_TABLE;
 
-type Entry = (typeof W_KEYS)[number];
+type Entry = (typeof W_TABLE)[number];
 /** The keys the desk handles itself: it must have a handler for each (Desk's `WSPECIAL`, typed by this). */
 export type WSpecialKey = Extract<Entry, { how: { k: "special" } }>["key"];
 
 /** The entry for the key typed after ^W, or undefined: the one place a ^W binding is read. */
-export const wKey = (key: string): WKey | undefined => (W_KEYS as readonly WKey[]).find(e => e.key === key);
+export const wKey = (key: string): WKey | undefined => wNow().find(e => e.key === key);
+/**
+ * The ^W keys with the person's keymap applied (src/surface/keymap.ts): a key the file moves is found at its new key, and
+ * a `ctrl+w <key>` the file gives any action is a row that runs it, in "yours".
+ */
+export const wNow = (): readonly WKey[] => effective(W_KEYS as readonly WKey[], "ctrl+w ", (e, key) => W_KEYS.some(w => w.action === e.action && w.how.k !== "run") ? null : { key, group: "layouts & more", action: e.action, how: run(e.action, e.args), label: undefined } as WKey);
 
 /** A key as it is shown after ^W. */
 export const wCaption = (key: string): string => `^W ${key === " " ? "space" : key}`;
@@ -138,7 +149,7 @@ export interface WRow {
  * the summary's first clause; the same def the menu and `actions` read.
  */
 export function wRows(defOf: (action: string) => ActionDef<any, any> | undefined): WRow[] {
-  return (W_KEYS as readonly WKey[]).map(e => {
+  return wNow().map(e => {
     const def = defOf(e.action), chord = `ctrl+w ${e.key === " " ? "space" : e.key}`;
     const entries = def?.menu === undefined ? [] : Array.isArray(def.menu) ? def.menu : [def.menu];
     const menu = entries.find(m => m.key === chord);

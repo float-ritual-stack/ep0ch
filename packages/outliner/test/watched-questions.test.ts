@@ -6,11 +6,12 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BlockQueryError, THIS_MISSING } from "../src/block-query";
+import { Turns } from "../src/loop-watch";
 import { QueryWatches } from "../src/query-watches";
-import { dateBucket } from "../src/question-answer";
+import { dateBucket, questionFacets } from "../src/question-answer";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import type { BlockSearchQuery, VisibleBlockCollection } from "../src/types";
+import type { Block, BlockSearchQuery, VisibleBlockCollection } from "../src/types";
 
 let root: string;
 let store: OutlinerStore;
@@ -146,6 +147,28 @@ describe("groups, sorts, facets and hints", () => {
     expect(() => ask({ facets: true, facetKeys: 0 })).toThrow(/facetKeys/);
   });
 
+  // PIE-1396: pie (11k notes, 521 keys) took 4.5 s for every key's facets, each key reading every note. Each note is
+  // read once now, for the keys it carries: the work grows with what notes hold, not notes times keys.
+  test("every key's facets read each note once, for the keys it carries; a tag facet still counts tags", () => {
+    type Fake = Block & { keys: string[] };
+    const blocks = Array.from({ length: 400 }, (_, i) => ({ id: `b${i}`, updatedAt: `2026-10-${String(1 + (i % 28)).padStart(2, "0")}`, keys: [`k${i % 200}`, "type", ...(i % 2 ? ["tags"] : ["tag"])] }) as unknown as Fake);
+    let reads = 0;
+    const valuesOf = (block: Block, key: string) => {
+      reads += 1;
+      return (block as Fake).keys.filter(k => k === key || key === "tag" && k === "tags").map(k => k === "type" ? "note" : `${k}-v`);
+    };
+    const facets = questionFacets(blocks, true, valuesOf, block => (block as Fake).keys, 50, 300);
+    expect(reads).toBeLessThanOrEqual(400 * 4);
+    expect(facets.find(f => f.key === "type")).toMatchObject({ count: 400, values: [{ value: "note", count: 400, last: "2026-10-28" }] });
+    // `tag` reads `tags` too (block-query's rule); `tags` reads only itself.
+    expect(facets.find(f => f.key === "tag")).toMatchObject({ count: 400, values: [{ value: "tag-v", count: 200 }, { value: "tags-v", count: 200 }] });
+    expect(facets.find(f => f.key === "tags")).toMatchObject({ count: 200 });
+    expect(facets.length).toBe(203);
+    expect(facets.slice(0, 2).map(f => f.key)).toEqual(["tag", "type"]);
+    // A key carried with no value still answers, with a count of 0, as it did before.
+    expect(questionFacets([{ id: "e", updatedAt: "2026-10-01", keys: ["area"] } as unknown as Fake], true, () => [], block => (block as Fake).keys)).toEqual([{ key: "area", count: 0, values: [] }]);
+  });
+
   test("a key nobody carries is a hint with the nearest keys; a known key with no matches isn't", () => {
     hub();
     expect(ask({ where: "aera=beds" }).hint).toMatch(/^no notes have aera; nearest: area, /);
@@ -265,6 +288,31 @@ describe("the watch registry", () => {
     expect(changesOf(b)).toEqual([[{ key: "b1", generation: 1 }, { key: "b2", generation: 1 }]]);
     watches.closed(b);
     expect(watches.size).toBe(1);
+    watches.stop();
+  });
+
+  test("a pass takes a turn a watch at a time, so other requests go between, and asks a question two doors watch once (PIE-1413)", async () => {
+    const turns = new Turns();
+    let value = 0, answers = 0;
+    const order: string[] = [];
+    // Each answer holds the loop 20 ms, as a view read over a big outline does.
+    const watches = new QueryWatches({
+      answer: r => { if (r.id === "watch") { answers += 1; order.push(`watch ${String(r.query && (r.query as { key?: string }).key)}`); const until = performance.now() + 20; while (performance.now() < until) { /* busy */ } } return { id: r.id, ok: true, result: { value }, sequence: 1 }; },
+      sequence: () => 1, settleMs: 5, turn: action => turns.next(action, "watches"),
+    });
+    const a = conn(), b = conn();
+    for (const key of ["k1", "k2", "k3", "k4"]) watches.ask(a, { id: "x", action: "blocks.query", query: { key }, watch: key });
+    watches.ask(b, { id: "x", action: "blocks.query", query: { key: "k1" }, watch: "same" });
+    value = 1;
+    watches.flush();
+    // A note read asked as the pass starts goes in before most of it.
+    await turns.next("get", {}).then(() => { order.push("get"); });
+    while (changesOf(a).length === 0 || changesOf(b).length === 0) await Bun.sleep(5);
+    expect(order.indexOf("get")).toBeLessThan(2);
+    expect(answers).toBe(4);
+    // One event per connection, naming what changed.
+    expect(changesOf(a)).toEqual([[{ key: "k1", generation: 1 }, { key: "k2", generation: 1 }, { key: "k3", generation: 1 }, { key: "k4", generation: 1 }]]);
+    expect(changesOf(b)).toEqual([[{ key: "same", generation: 1 }]]);
     watches.stop();
   });
 

@@ -13,6 +13,8 @@
  * And whose turn it is (`Turns`): the service gives each request its turn on the loop, the whole-outline reads last.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 export interface LoopStall {
   status: "loop_stalled";
   ms: number;
@@ -90,12 +92,15 @@ export function loopWatched(): boolean {
 /**
  * Reads that walk the whole outline (PIE-625). A client asks for many at once (Tree reads the tree and every saved
  * view after each change; five Details read their styles), and one outline's are each a few milliseconds: they wait
- * behind every other request, so a note read, a write or a ping is never queued behind a burst of them.
+ * behind every other request, so a note read, a write or a ping is never queued behind a burst of them, on another
+ * connection or on its own (they don't hold their connection's queue, PIE-1413). Only reads go here.
  */
 export const WHOLE_OUTLINE_READS: ReadonlySet<string> = new Set([
   "tree.index", "tree.query", "tree.focus", "tree.search", "views.read", "blocks.query", "blocks.records", "site.answer", "workspace.snapshot",
   "callouts.types", "headings.styles", "styles.list", "components.schemas", "references.backlinks", "checklist.search", "fragments.candidates",
   "pages.complete", "properties.catalog", "properties.inventory", "query.matches", "activity.recent",
+  // A board's links and choosers read these over the whole outline (PIE-1413).
+  "blocks.authored-links", "blocks.facets",
 ]);
 
 /**
@@ -104,21 +109,80 @@ export const WHOLE_OUTLINE_READS: ReadonlySet<string> = new Set([
  * requests go before the whole-outline reads. A turn ends where its request first waits (I/O, a child process); the
  * order within one connection is kept by its own queue. A whole-outline read still gets one turn in LAST_EVERY + 1 while
  * other requests keep coming.
+ *
+ * And fair between who asks (PIE-1413): each turn names who it is for (a connection, an agent by its actor id, the
+ * service's own jobs), each is charged the loop time its turns took (`charge`, halved every second), and of those
+ * waiting in a lane the one that has used the loop least goes first. A ping or a note read between an import's
+ * thousands of writes waits for one of them at most, never behind every one already in line; the import still gets
+ * every turn nobody else wants. No job is throttled: only who goes next changes.
  */
 const LAST_EVERY = 8;
+/** How fast what someone used of the loop is forgotten: halved each this long. */
+const USAGE_HALF_LIFE_MS = 1_000;
+
+/** Which lane a request waits in: the whole-outline reads last. */
+const laneOf = (action: unknown): "first" | "last" => (WHOLE_OUTLINE_READS.has(String(action)) ? "last" : "first");
+
+/** Who a turn is for: a connection, an `actor:<id>`, the service's `own` jobs, its `watches`. */
+export type TurnKey = object | string;
+
+/** Whose request this work is for: what the service asks itself while answering one goes as that one's (`own`). */
+export const turnOwner = new AsyncLocalStorage<TurnKey>();
+
+interface Waiting { resolve: () => void; key: TurnKey }
 
 export class Turns {
-  private readonly first: Array<() => void> = [];
-  private readonly last: Array<() => void> = [];
+  private readonly first: Waiting[] = [];
+  private readonly last: Waiting[] = [];
   private scheduled = false;
   /** Turns given in a row to other requests while a whole-outline read waited. */
   private passedOver = 0;
+  private charges = 0;
+  /** What each one asking used of the loop lately, decayed, with when it was last brought up to date. */
+  /**
+   * What each one asking used of the loop lately, decayed, per lane: a door's lane reads count against its other reads,
+   * never against its note read or its save, so a busy board doesn't put its own person at the back (PIE-1413).
+   */
+  private readonly usage = { first: new Map<TurnKey, { ms: number; at: number }>(), last: new Map<TurnKey, { ms: number; at: number }>() };
 
-  next(action: unknown): Promise<void> {
+  constructor(private readonly now: () => number = () => performance.now()) {}
+
+  next(action: unknown, key: TurnKey = "anonymous"): Promise<void> {
     return new Promise(resolve => {
-      (WHOLE_OUTLINE_READS.has(String(action)) ? this.last : this.first).push(resolve);
+      (laneOf(action) === "last" ? this.last : this.first).push({ resolve, key });
       this.schedule();
     });
+  }
+
+  /** `key`'s turn took `ms` of the loop (its handling and what it set off). */
+  charge(key: TurnKey, ms: number, action?: unknown): void {
+    if (!(ms > 0)) return;
+    const lane = laneOf(action);
+    const used = this.used(key, this.now(), lane);
+    this.usage[lane].set(key, { ms: used + ms, at: this.now() });
+    // Those who stopped asking are forgotten (a closed connection is let go).
+    if (++this.charges % 512 === 0) for (const l of ["first", "last"] as const) for (const known of [...this.usage[l].keys()]) this.used(known, this.now(), l);
+  }
+
+  /** What `key` has used of the loop, forgetting as it goes (as of `now`: one moment for a whole choice). */
+  used(key: TurnKey, now = this.now(), lane: "first" | "last" = "first"): number {
+    const entry = this.usage[lane].get(key);
+    if (!entry) return 0;
+    const ms = entry.ms * 2 ** (-(now - entry.at) / USAGE_HALF_LIFE_MS);
+    if (ms < 0.01) { this.usage[lane].delete(key); return 0; }
+    return ms;
+  }
+
+  /** The one waiting in `lane` that has used the loop least (the longest waiting among equals). */
+  private take(lane: Waiting[], which: "first" | "last"): Waiting | undefined {
+    if (lane.length <= 1) return lane.shift();
+    const now = this.now();
+    let best = 0, bestUsed = this.used(lane[0]!.key, now, which);
+    for (let i = 1; i < lane.length; i++) {
+      const used = this.used(lane[i]!.key, now, which);
+      if (used < bestUsed) { best = i; bestUsed = used; }
+    }
+    return lane.splice(best, 1)[0];
   }
 
   private schedule(): void {
@@ -129,10 +193,26 @@ export class Turns {
       // Never starved: after LAST_EVERY turns to other requests, a whole-outline read gets one.
       const fromLast = this.last.length > 0 && (this.first.length === 0 || this.passedOver >= LAST_EVERY);
       this.passedOver = fromLast || this.last.length === 0 ? 0 : this.passedOver + 1;
-      (fromLast ? this.last.shift() : this.first.shift())?.();
+      this.take(fromLast ? this.last : this.first, fromLast ? "last" : "first")?.resolve();
       if (this.first.length || this.last.length) this.schedule();
     });
   }
+}
+
+/**
+ * Whether work begun now is still in the same pass of the loop: a request that never waited for anything outside it
+ * ran its continuations in this pass, so all of it held the loop, not only what ran before its first await.
+ */
+export function thisTurn(): () => boolean {
+  let same = true;
+  setImmediate(() => { same = false; });
+  return () => same;
+}
+
+/** Who a request line is for, for its turn: the agent it names (`actorId`), else the connection it came on. */
+export function turnKeyOf(line: string, connection: object): TurnKey {
+  const actor = /"actorId"\s*:\s*"([^"]{1,120})"/.exec(line)?.[1];
+  return actor ? `actor:${actor}` : connection;
 }
 
 /** The action a request line names, read without parsing the line (it is parsed once, when its turn comes). */

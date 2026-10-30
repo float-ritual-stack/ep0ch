@@ -865,7 +865,8 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const tile = (name: string) => tiles().find(x => x.name === name);
     const at = () => S().stageRect;
     const click = (x: number, y: number, mods?: number) => { press({ kind: "mouse", action: "down", button: 0, x, y, ...(mods ? { mods } : {}) }); press({ kind: "mouse", action: "up", button: 0, x, y, ...(mods ? { mods } : {}) }); };
-    const get = async () => (await app.act({ action: "layout.get", args: {}, as: "test-agent" })) as any;
+    // full=true: a mount's own layout whole (in brief, its tree and focus; PIE-1444).
+    const get = async () => (await app.act({ action: "layout.get", args: { full: true }, as: "test-agent" })) as any;
     // layout.get: each mount says what it mounts, and its own layout under its own ids; the lanes alone are filled, the place holder gone.
     await until(() => { sc.render(app); const m = stage().pane("lanes")?.layoutOf(true).mount; return m?.layout?.tiles.length > 0 && m.layout.tiles.every((t: any) => t.kind === "query"); }, "the lanes mount filled", 8000);
     const l0 = await get();
@@ -942,6 +943,10 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     expect(await app.act({ action: "tile.info", tile: "calls/yo", args: {}, as: "test-agent" })).toMatchObject({ name: "yo" });
     await expect(app.act({ action: "tile.title", tile: "calls/yo", args: { text: "activity" }, as: "test-agent" })).rejects.toThrow(/already a tile named activity/);
     expect(await app.act({ action: "tile.info", tile: "reader", args: {}, as: "test-agent" })).toMatchObject({ name: "reader" });
+    // Showing a note, its menu has both renames side by side, each saying what it renames (PIE-1283).
+    await app.act({ action: "open", tile: "calls/yo", args: { id: seeded.notes.hub.id }, as: "test-agent" });
+    const rows = ((await app.act({ action: "tile.menu", tile: "calls/yo", args: {}, as: "test-agent" })) as { rows: { action: string; label: string }[] }).rows;
+    expect(rows.filter(r => r.action === "tile.title" || r.action === "note.rename").map(r => r.label).sort()).toEqual(["rename this note…", "rename this tile…"]);
   }, 40_000);
 
 

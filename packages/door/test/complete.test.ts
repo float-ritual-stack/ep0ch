@@ -67,6 +67,12 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
   });
   const draw = (s: CompletionState, w: number) => renderCompletion(s, w, 14, [], 4).map(visible);
 
+  test("at 40 columns how sure Jev is reads whole beside a note about the list (PIE-1409)", () => {
+    const s = state("see ((gree", { jev: "ranked", sure: { verdict: "weak", label: "no strong match", said: "" }, message: "showing the first 20 matches" });
+    // The popup at 40 columns, beside its anchor: about 30 wide.
+    expect(draw(s, 30).some(l => l.includes("no strong match · show"))).toBe(true);
+  });
+
   test("at 120 columns the docs wrap beside the list, the first word drawn and none cut; each row has its kind at the right", () => {
     const s = state(), lines = draw(s, 120);
     const row = lines.find(l => l.includes("Greenhouse meeting"))!;
@@ -364,6 +370,18 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     expect(renderCompletion(c.state!, 60, 8).map(visible).join("\n")).toContain("jev ranked");
   });
 
+  test("a person who never moved off the top row stays on the top row: Jev's #1, not the old #1 wherever it sank (PIE-1409)", async () => {
+    const { board } = fake();
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "((party hats") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading && c.state.items.length === 3, "the lexical lookup");
+    expect(c.state!.index).toBe(0);
+    await until(() => c.state?.jev === "ranked", "Jev's order");
+    expect(c.state!.items.map(i => i.blockId)).toEqual(["b3", "b1", "b2"]);
+    expect(c.state!.index).toBe(0);                                       // Fat cats, Jev's best, lit
+  });
+
   test("typing more selects the best match again; a re-ask of the same query keeps the pick", async () => {
     const { board } = fake();
     const d = new Draft("note-1", 1, "");
@@ -441,6 +459,50 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     expect(c.state!.items[c.state!.index]!.blockId).toBe("p2");
     expect(asked.every(a => a.near === "note-7")).toBe(true);
     expect(asked.filter(a => a.semantic).map(a => a.query)).toEqual(["party"]);
+  });
+
+  test("[[ naming no page yet asks Jev, which finds one by meaning; the new page stays lit and Enter stays the draft's (PIE-1409)", async () => {
+    const found = { address: "heap-rota", blockId: "p9", kind: "page", title: "Compost turning schedule" };
+    const board = serviced({
+      completePages: async (_q: string | undefined, _l: number, opts: { semantic?: boolean } = {}) => opts.semantic
+        ? { addresses: [found], completeness: { kind: "complete" }, semantic: { status: "ranked", verdict: "weak", label: "no strong match", said: "" } }
+        : { addresses: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } },
+      completeFiles: async () => [],
+      searchBlocks: async () => ({ matches: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
+      blockContext: async (id: string) => ({ selected: { id, text: "x" }, ancestors: [] }),
+      workIdPrefix: async () => "HOME",
+    });
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "[[rotating the pile") completionKey(d, char(ch), c);
+    await until(() => c.state?.jev === "ranked", "Jev's order");
+    expect(c.state!.items.map(i => i.blockId ?? i.newPage)).toEqual(["p9", "rotating the pile"]);
+    expect(c.state!.items[c.state!.index]!.newPage).toBe("rotating the pile");
+    expect(enterKeeps(c.state!)).toBe("new line");
+  });
+
+  test("[[ naming no page yet: a page Jev is sure of takes the cursor from the new page, and Tab links it (PIE-1409)", async () => {
+    const found = { address: "bike-shed", blockId: "p9", kind: "page", title: "Bike shed" };
+    const board = serviced({
+      // The words find no page; Jev finds Bike shed by meaning, and is sure. Inserting checks the address still names it.
+      completePages: async (q: string | undefined, _l: number, opts: { semantic?: boolean } = {}) => opts.semantic
+        ? { addresses: [found], completeness: { kind: "complete" }, semantic: { status: "ranked", verdict: "strong", label: "sure", said: "" } }
+        : { addresses: q === "bike-shed" ? [found] : [], completeness: { kind: "complete" }, semantic: { status: "lexical" } },
+      completeFiles: async () => [],
+      searchBlocks: async () => ({ matches: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
+      blockContext: async (id: string) => ({ selected: { id, text: "x" }, ancestors: [] }),
+      workIdPrefix: async () => "HOME",
+      followPage: async () => { throw new Error("no page is made: the sure answer is linked"); },
+    });
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "[[where the bikes live") completionKey(d, char(ch), c);
+    await until(() => c.state?.jev === "ranked", "Jev's order");
+    expect(c.state!.items.map(i => i.blockId ?? i.newPage)).toEqual(["p9", "where the bikes live"]);
+    expect(c.state!.items[c.state!.index]!.blockId).toBe("p9");
+    completionKey(d, K("tab"), c);
+    await until(() => d.text.includes("]]"), "the link inserted");
+    expect(d.text).toBe("[[bike-shed]]");
   });
 
   test("a draft session that ends drops its popup, and the Jev ask waiting for its pause is never sent", async () => {
@@ -562,6 +624,10 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(query.items.some((i: any) => i.insertion === 'trellis=north"')).toBe(true);
     const density: any = await e.s.act("complete", { text: '::graph-table{density="' }, e.h, AGENT);
     expect(density.items.some((i: any) => i.insertion === 'compact"')).toBe(true);
+    // A figure's query value is its words alone: no glimpse of the example's first drawn row after it (PIE-1392).
+    const yq: any = await e.s.act("complete", { text: "::graph-table\n---\nquery: trellis=" }, e.h, AGENT);
+    const north = yq.items.find((i: any) => String(i.insertion).includes("trellis=north"));
+    expect(north?.label).toBe("trellis=north");
     const ref: any = await e.s.act("complete", { text: '::fields{of="Seed list' }, e.h, AGENT);
     expect(ref.items.some((i: any) => i.insertion === `((${ids.seeds}))"`)).toBe(true);
     const template = await create("Picker template [page::picker-template] [form-field::which property]");
@@ -1239,7 +1305,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(f.items.map((i: any) => i.insertion).sort()).toEqual(["[file::notes/beds/", "[file::notes/plan.md]"]);
     // The person's draft is theirs: a candidate isn't put in at their cursor (round 3, deferred), their text and cursor as they were.
     const before = [e.d.text, e.d.row, e.d.col];
-    await expect(e.s.act("complete", { insert: 1 }, e.h, AGENT)).rejects.toThrow("this draft is the person's; an agent doesn't type in it");
+    await expect(e.s.act("complete", { insert: 1 }, e.h, AGENT)).rejects.toThrow("the person is typing in this draft; an agent doesn't type in it");
     expect([e.d.text, e.d.row, e.d.col]).toEqual(before);
     expect(e.d.writers.map(w => w.kind)).toEqual(["user"]);
     // An invitation for another agent, or one made up, opens nothing.
@@ -1498,6 +1564,10 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     app.push(b);
     try {
       await until(() => B.lanes[0]?.items?.length && B.preview.msg && !B.preview.msg.partial, "the lane and preview", 10_000);
+      // A note popped out earlier, before the person types (an agent's open beside the preview they type in would resize it, PIE-1294).
+      const run = (action: string, args: Record<string, unknown>, tile: string) => b.dispatch.act({ action, args, tile }, { kind: "agent", id: "float-maker" });
+      await run("tile.open", { kind: "reader", name: "over", where: "right" }, "preview");
+      await run("tile.float", {}, "over");
       key(char("e"));
       await until(() => !!B.preview.draft, "the draft");
       const draft: Draft = B.preview.draft;
@@ -1508,10 +1578,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       const y = lines.findIndex(l => l.includes("seeds · Seed list"));
       const x = lines[y]!.indexOf("seeds · Seed list");
       expect(y).toBeGreaterThan(0);
-      // A float drawn over the popup's rows (a note popped out earlier and dragged there).
-      const run = (action: string, args: Record<string, unknown>, tile: string) => b.dispatch.act({ action, args, tile }, { kind: "agent", id: "float-maker" });
-      await run("tile.open", { kind: "reader", name: "over", where: "right" }, "preview");
-      await run("tile.float", {}, "over");
+      // The float dragged over the popup's rows.
       await run("float.place", { col: x - 5, row: y - 2, cols: 30, rows: 6 }, "over");
       screen();                                                            // drawn before the person clicks
       key({ kind: "mouse", action: "down", button: 0, x, y });

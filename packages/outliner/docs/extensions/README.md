@@ -244,6 +244,13 @@ disk). From that, each installed copy of a built-in is one of:
   `<outline root>/extensions-forks/`), which no service reads.
 - Without `--outline-folder`, `ext update` looks in the user folder and every outline's own folder under the outlines
   folder (`EP0CH_OUTLINES`, else `~/outlines`). `ep0ch doctor` lists the stale and forked copies under `extensions`.
+- A copy is what runs: the built-in is never loaded in place. `extensions.list` marks each copy with `builtIn`
+  (the built-in's folder and the copy's state), so `ext ls`, the power bar's `&` list and its page say "your copy
+  overrides the built-in" for a copy changed here or behind the built-in (one installed as it ships just reads as
+  installed, PIE-1399), with both folders in `ext ls --long` and the preview. `ep0ch doctor` and `ep0ch install
+  --apply` name the command that removes a stale or forked copy (`ep0ch ext remove <name>`, with `--outline-folder`
+  for an outline's own). A script an extension ships (its manifest's `scripts`) is listed under that extension
+  (`partOf`), not as one of its own, and has no page of its own (PIE-1283).
 - `ext add <path>` of your own folder over a built-in's id writes no record: it is your extension, not a copy.
 
 ## The folder
@@ -1199,6 +1206,12 @@ actions yet; `r` is its path today.
   refuses with the same words, as it does a field named like a declared argument, or a note with no form and no
   declared arguments. The door asks for every field the person didn't give (a text or number typed, an optional one left
   empty); an agent gives them in `with=` as JSON. The example is `extensions/form` (`Fill in the form`).
+  The note also says its button and where an entry lands (PIE-1442): `[form-submit::Log it]` is the button's words
+  where the door draws the form, and `[form-into::…]` is `child` (the default), `inline`, a `[[page]]` or a
+  `((block))`, with `[form-line::{book} · {pages} pages]` the line an `inline` entry adds. The service tells the action
+  them as `input.form`: `{ submit?, into: { kind, blockId, title, revision?, text? }, line? }`, a page found to its
+  block and an inline target with the note's whole text and revision. A target it can't read, or a page nobody has, is
+  saved as written, warned on with a did-you-mean, and refused when the action runs, writing nothing.
 
   ```json
   { "id": "sort-blocks", "label": "Sort the children", "on": "block", "effects": "write", "args": [
@@ -2009,11 +2022,12 @@ Answers `RenderedNote`.
 | `propertyScope?` | `PropertyQueryScope` |  |
 | `sort?` | `string \| BlockQuerySort` | An object, or `"<field>[ asc\|desc]"` (asc unless said). |
 | `limit?` | `number` | Rows returned: 200 when left out, at most 1000. |
-| `group?` | `string` | A property name, or created:day\|week\|month, updated:day\|week\|month: the answer's `groups`, over every match. |
+| `group?` | `string` | A property name, or a date bucket (created:month, updated:recent, due:week): the answer's `groups`, over every match. |
 | `facets?` | `true \| string[]` | `true`: value counts for every key the matches carry; or these keys. |
 | `facetValues?` | `number` | Values a facet lists per key: 50 when left out, at most 1000. |
 | `facetKeys?` | `number` | Keys `facets: true` lists: 50 when left out, at most 1000. |
 | `machinery?` | `MachineryMode` | `hide` leaves out what tools write for their own bookkeeping (`[machine::…]`, outline-core `machinery.ts`), `only` holds just that, `show` everything (PIE-867). The service's requests answer `hide` when it is left out; asked of the store directly, left out means unfiltered. |
+| `countMachinery?` | `boolean` | `true`: with `machinery: hide`, the answer's `machineryLeftOut` counts every stamped note the same question would have held, by producer, and says so in words (PIE-1427): a recent-activity read reports what it left out. |
 
 **`VisibleBlockCollection`**
 
@@ -2022,6 +2036,7 @@ Answers `RenderedNote`.
 | `blocks` | `VisibleBlock[]` |  |
 | `completeness` | `BlockCollectionCompleteness` |  |
 | `machineryHidden?` | `number` | How many notes `machinery: hide` left out of the answer (at most 50: then there are more), when it left any (PIE-867). |
+| `machineryLeftOut?` | `MachineryLeftOut` | With `countMachinery`: every note `machinery: hide` left out, by producer, and the sentence (outline-core `machineryLeftOut`, PIE-1427). |
 | `generation?` | `number` |  |
 | `groups?` | `QuestionGroup[]` |  |
 | `facets?` | `QuestionFacet[]` |  |

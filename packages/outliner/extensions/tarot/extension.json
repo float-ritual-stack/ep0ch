@@ -3,7 +3,7 @@
   "id": "tarot",
   "version": 1,
   "name": "Tarot",
-  "description": "A whole tile: a card of the day you can draw again and keep in the outline.",
+  "description": "A card of the day, drawn again whenever you like and kept in the outline.",
   "run": ["bun", "tarot.ts"],
   "actions": [
     { "id": "draw", "label": "Draw a card", "on": "tile:reading", "key": "d", "effects": "read",

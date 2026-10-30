@@ -23,15 +23,65 @@ import { WELCOME_VIEW_TEXT } from "../hub/welcome";
 import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, PROGRAM_EXAMPLES, RULE_EXAMPLES, SOURCE_EXAMPLES, VIEW_EXAMPLES } from "./tickets/install";
 
 import { SEED, SEED_AGENT, SHOWCASE_MARK, type SeedName, WORK_PREFIX } from "./seed/names";
+
+/** The outliner's review, loaded by name: its sources are the outliner's to type-check (as mcp-write loads agent-tools). */
+interface WriteReviewModule {
+  outlineFacets(client: unknown): Promise<unknown[]>;
+  reviewWrite(input: { text: string; id: string; schemas: unknown; facets: unknown[]; jev: boolean }): Promise<{ review: unknown }>;
+}
+const WRITE_REVIEW_MODULE = "@ep0ch/outliner/write-review";
+
+/** A note reviewed as an agent's write is, and the review kept (`suggestions.keep`): returns the suggestions page it made. */
+async function keepReview(board: SocketBoard, note: Msg): Promise<Msg> {
+  const { outlineFacets, reviewWrite } = await import(WRITE_REVIEW_MODULE) as WriteReviewModule;
+  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.request<T>(action, params); } };
+  const schemas = (await board.request<{ schemas: unknown }>("components.schemas")).schemas;
+  const { review } = await reviewWrite({ text: note.text, id: note.id, schemas, facets: await outlineFacets(client), jev: false });
+  await board.request("suggestions.keep", { keep: { kind: "reviewed", at: { note: note.id, revision: note.revision ?? 1, actorId: "moss/claude-code@showcase", source: "write" }, title: SEED.writeReview, review } });
+  const [page] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-view=jev-suggestions" } })).blocks;
+  // Beside the note, under the showcase's root, as every seeded note is: the page, the Records page its records went
+  // under, and the rule that reads them (each made at the outline's top, which the tree lists above the showcase).
+  const made = await Promise.all(["system-view=jev-suggestions", "system-records=true", "rule-name=review-records"].map(async where =>
+    (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where, machinery: "show" } })).blocks[0]?.id));
+  // At the end of the root's children: first, they'd push the notes other sections reveal out of the tree's view.
+  const parent = note.parentId ?? null;
+  for (const id of made) if (id) await board.move(id, parent, USER, parent ? (await board.children(parent)).filter(c => c.id !== id).length : 0);
+  return (await board.get(page!.id))!;
+}
+/** The outliner's search eval (PIE-1197), loaded by name as the review is. */
+interface SearchEvalModule {
+  keepCase(client: unknown, c: { query: string; outline: string; expect: string[] | "none"; source: string }): Promise<void>;
+  reportNote(scores: unknown[], sweeps: Record<string, unknown[]>, meta: { day: string; outlines: string[]; promptRev: string; current: string }): string;
+  keepRun(client: unknown, scores: unknown[], runs: unknown[], note: string, day: string): Promise<string>;
+}
+const SEARCH_EVAL_MODULE = "@ep0ch/outliner/search-eval";
+
+/**
+ * The search eval as a run keeps it (`ep0ch search eval --into`): two made-up cases labelled with seeded notes, a run
+ * per model with made-up numbers, and its report under the Search evals page. Returns the page and the report.
+ */
+async function keepSearchEval(board: SocketBoard, root: Msg, cases: { query: string; expect: Msg }[]): Promise<{ page: Msg; report: Msg }> {
+  const e = await import(SEARCH_EVAL_MODULE) as SearchEvalModule;
+  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.request<T>(action, params); } };
+  for (const c of cases) await e.keepCase(client, { query: c.query, outline: "showcase", expect: [c.expect.id], source: "agent-read" });
+  const scores = SEARCH_EVAL_SCORES.map(s => ({ ...s }));
+  const runs = scores.map(s => ({ model: s.model, promptRev: "goto-ranking.json:000000000000", prompt: [], results: [] }));
+  const note = e.reportNote(scores, { "jev-1.13.0": SEARCH_EVAL_SWEEP }, { day: "2026-10-20", outlines: ["showcase"], promptRev: "goto-ranking.json:000000000000", current: "jev-1.13.0" });
+  const id = await e.keepRun(client, scores, runs, note, "2026-10-20");
+  const [page] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-view=search-evals" } })).blocks;
+  await board.move(page!.id, root.id, USER);
+  return { page: (await board.get(page!.id))!, report: (await board.get(id))! };
+}
 import { ECHO_COPIES, ECHO_NODELIST, ECHO_POSTS, ECHO_SEEN_BY, ECHO_TOSSER, ECHO_TOSSES } from "./seed/echonet";
 import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
 import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, COPY_PAGE, COPY_CRATES, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, dashboardText, figuresText, markdownFiguresText } from "./seed/figures";
-import { DEEP_LINKS, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
+import { SEARCH_EVAL_SCORES, SEARCH_EVAL_SWEEP } from "./seed/notes";
+import { DEEP_LINKS, ONE_COMPLETER, TRAIL_STOPS, trailStopText, backHubText, backJobText, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, WRITE_REVIEW, WRITE_REVIEW_FIXED, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { LIST_FOLDS } from "./seed/list-folds";
 import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
-import { ALMANAC, FORM_READING, FORM_REPAIRS, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
+import { ALMANAC, FORM_READING, FORM_REPAIR_LIST, FORM_REPAIRS, FORM_WATERING, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, OLD_LOOK, SPACING_LAB, SINGLE_LIST, STYLE_MIDDLE_LIST, DISPATCH_SKIN } from "./seed/looks";
 import { seedAccess } from "./seed/access";
 import { scriptExamples } from "@ep0ch/outliner/script-examples";
@@ -106,7 +156,9 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     await orchard.info();
     const neighbour = await orchard.createBlock(null, "Pear tree [page::pear-tree]\nWater deeply on dry days.");
     const journal = await orchard.createBlock(null, `Orchard journal\nWater the pear tree. See [[pear-tree]] or ((${neighbour.id}|the tree)).`);
-    notes.crossOutline = await make(notes.root.id, `${SEED.crossOutline} [foreign-note::${journal.id}]\nThe reader beside this one holds a note in showcase-orchard. Edit or comment there: the save belongs to that outline. Its tinted frame names the outline.\n[Open the orchard journal](https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id})\n[web::https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id}]\nQualified page: [[showcase-orchard:pear-tree]]. Qualified note: ((showcase-orchard:${journal.id}|the journal)). Bare UUID: ((${neighbour.id})).\n!((showcase-orchard:${neighbour.id}))\nPress / and type outline:showcase-orchard pear to search that outline without leaving this screen.`);
+    // A reply under the journal: its links tile lists that outline's notes (PIE-1297: copied as that outline's).
+    await orchard.createBlock(journal.id, "Pruned the pear\nTook out the crossing branches.");
+    notes.crossOutline = await make(notes.root.id, `${SEED.crossOutline} [foreign-note::${journal.id}]\nThe reader beside this one holds a note in showcase-orchard. Edit or comment there: the save belongs to that outline. Its tinted frame names the outline.\n[Open the orchard journal](https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id})\n[web::https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id}]\nQualified page: [[showcase-orchard:pear-tree]]. Qualified note: ((showcase-orchard:${journal.id}|the journal)). Bare UUID: ((${neighbour.id})).\n!((showcase-orchard:${neighbour.id}))\nPress / and type outline:showcase-orchard pear to search that outline without leaving this screen; alt+m on a hit copies its reference as that outline's. b in the orchard reader lists that outline's notes (the journal's reply): a row's menu copy note reference gives ((showcase-orchard:…|…)), copy note web link its /pub/o/showcase-orchard/ address. Paste either into the power bar (ctrl+k) and that note is its first row: ⏎ opens it, in its own outline.`);
   } finally { orchard.close(); }
 
   // The workboard's allocator needs a Work-ID prefix and the project's one active work queue.
@@ -273,7 +325,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   await make(notes.scripts.id, "Shuffle tiles [script::shuffle-tiles] [results::keep] [effects::write]\n```js\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: true, motion: 'fantasia' });\nawait wait(1400);\nawait act('float.place', { tile: 'source', dx: 10, dy: 3, motion: 'fantasia' });\nawait act('float.place', { tile: 'extra', dx: -8, dy: 2, motion: 'fantasia' });\nawait wait(1400);\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: false, motion: 'fantasia' });\nreturn 'settled';\n```");
   notes.statusBar = await make(notes.root.id, [
     SEED.statusBar,
-    'Put [ ] on Collapse and open the tile menu: pin to status bar appends this line to your bar note. Or run button.pin label="Collapse" here.',
+    'Right-click Collapse (or put [ ] on it and open the tile menu): pin to status bar appends this line to your bar note; the right-click presses nothing. Every ::button in a note offers it. Or run button.pin label="Collapse" here.',
     '<!-- Evan\'s layout: ::button{label="Collapse" act="tile.collapse tile=screen"} -->',
     '::button{label="Collapse" act="tile.collapse tile=extra"}',
     'A button can reach past this screen: Lift lifts the agent tab you used last as a column wherever it is (in the drawer, or the screen it went out to), opening one when none is; press it again to drop it. ✦a does the same with the hyper layer on.',
@@ -281,8 +333,21 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     'The same lift, said with an address that does not depend on a name: an agent tab is a tile with role agent (tile=role:agent names the one you used last), kept with the tile through a restart, a handover and a restore. t-<id> names one exact tile, <slot>@<screen> a place and ^ the tile that opened this one.',
     '::button{label="pop it" act="tile.zoom tile=role:agent reach=column"}',
     'Right-click or alt+click an empty part of the bar, or ^K status bar: edit. The first edit makes a note seeded with today\'s built-ins. Order them with - <id> lines; leave an id out to hide it. A ::button line puts the same button on the bar, and alt="theme.cycle" gives it an alternate click.',
-    'At 80 columns, pin eight differently named buttons: later items give way to +N, which opens this bar note. The clock and drawer chip stay whole. A duplicate label is refused when pinned; if written into the note, the first button stays and the later line is warned about once in the message log.',
-    'status.bar.items describes the built-ins and their actions. Changes are live; malformed lines stay saved, say why in the message log, and keep the default bar until fixed.',
+    'A narrow bar keeps your buttons: built-ins shorten first (the drawer chip to ▼ shell +1, +3 machine to +3, then to its arrow), then built-ins drop, and only then the last pins give way to +N. A click on +N lists what it hid by name; alt+click opens the bar note. A duplicate label is refused when pinned; written into the note, the later line is skipped.',
+    'A list item holds a button too, in any note, and in the bar note an item with items nested under it is a group: its label on the bar opens them as a menu (status.bar.menu group=Tiles by act). Groups nest: More inside Tiles opens where Tiles did (group=Tiles/More).',
+    '- ::button{label="Fold from a list" act="tile.collapse tile=extra"}',
+    'A bar note with a group and a typo (write it in your bar note to try it):',
+    '```text',
+    'Your status bar [status-bar::true]',
+    '- brand',
+    '- Tiles',
+    '  - ::button{label="Fold extra" act="tile.collapse tile=extra"}',
+    '  - theme',
+    '  - More',
+    '    - video',
+    'clock',
+    '```',
+    'A line the bar can\'t read (clock above, missing its - ) is skipped: the rest stays, and a ! line 8 item says it once with a did-you-mean; its click opens the note at that line. status.bar.items describes the built-ins and their actions. Changes are live.',
   ].join("\n"));
   // A Claude session running twice (PIE-1369): the section hands the door's watch made-up processes on garden-box.
   notes.splitBrain = await make(notes.root.id, [
@@ -409,7 +474,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   ].join("\n"));
   await make(notes.root.id, "Fleece over the brassicas\nTwo layers on the north bed; weigh the edges with bricks. #frost-jobs");
   await make(notes.root.id, "Lift the dahlias\nDry the tubers in the shed; the stems go on the heap. #frost-jobs #compost");
-  await make(notes.root.id, "Lag the standpipe\nThe lagging is in the shed, top shelf. #frost-jobs/water");
+  await make(notes.root.id, "Lag the standpipe [pinned::true]\nThe lagging is in the shed, top shelf. #frost-jobs/water");
   // A thread whose replies carry stages (PIE-693): the links tile's Children group, narrowed by Stage like any other group.
   // Where it meets is a property whose value is a link (PIE-874): the shed lists the swap among its backlinks, as "meets-at".
   notes.swap = await make(notes.root.id, `${SEED.swap} [type::thread] [meets-at::[[${SEED.shed}]]]\nWho brings what to the seed swap on Saturday.`);
@@ -463,12 +528,34 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.stickyPlan = await make(notes.root.id, STICKY_PLAN);
   for (const job of STICKY_JOBS) await make(notes.stickyPlan.id, job);
   notes.stickyPad = await make(notes.root.id, STICKY_PAD);
+  notes.oneCompleter = await make(notes.root.id, ONE_COMPLETER);
   notes.shedPlan = await make(notes.root.id, SHED_PLAN);
   for (const job of SHED_JOBS) await make(notes.shedPlan.id, job);
   notes.shedPad = await make(notes.root.id, SHED_PAD);
   notes.zoomPlan = await make(notes.root.id, ZOOM_PLAN);
   for (const job of ZOOM_JOBS) await make(notes.zoomPlan.id, job);
+  // The trail (PIE-208): the walk's stops made last first, so each links the next.
+  let next: string | null = null;
+  for (let i = TRAIL_STOPS.length - 1; i >= 0; i--) { const stop = await make(notes.root.id, trailStopText(i, next)); next = stop.id; if (i === 0) notes.trailGate = stop; }
+  // Back anywhere (PIE-1426): the jobs first, so the hub links them; then the notes that link back.
+  notes.backBeans = await make(notes.root.id, backJobText(SEED.backBeans, "Canes along the fence."));
+  notes.backShed = await make(notes.root.id, backJobText(SEED.backShed, "Two coats, green."));
+  notes.backHub = await make(notes.root.id, backHubText(notes.backBeans.id, notes.backShed.id));
+  notes.backSeeds = await make(notes.root.id, backJobText(SEED.backSeeds, "Runner beans and sweet peas.", notes.backHub.id));
+  notes.backRain = await make(notes.root.id, backJobText(SEED.backRain, "Check it on Friday.", notes.backHub.id));
+  notes.backCanes = await make(notes.root.id, backJobText(SEED.backCanes, "Eight-foot canes, tied at the top.", notes.backBeans.id));
   notes.sources = await make(notes.root.id, SOURCES);
+  // The write review (PIE-1388): an agent's wall, reviewed as its write's answer reviews it (code's measures; the seed
+  // asks no Jev), kept as the service keeps a review, which makes Jev's suggestions page with its first finding.
+  notes.writeReview = await make(notes.root.id, WRITE_REVIEW, { kind: "agent", id: "moss" });
+  notes.jevPage = await keepReview(board, notes.writeReview);
+  // The writer follows the finding (PIE-1433): a second revision, so the page's row opens revision 1 beside it.
+  notes.writeReview = await board.update(notes.writeReview.id, WRITE_REVIEW_FIXED, notes.writeReview.revision!, { kind: "agent", id: "moss" });
+  // Search says how sure it is (PIE-1197, PIE-1198): the eval's page and a run's report, as `ep0ch search eval --into` keeps them.
+  ({ page: notes.searchEvals } = await keepSearchEval(board, notes.root, [
+    { query: "what should I bring to the swap", expect: notes.jevPage },
+    { query: "shed roof felt", expect: notes.writeReview },
+  ]));
   notes.swapDay = await make(notes.root.id, `${SEED.swapDay} [page::${SEED.swapDay}]\nBring seeds in paper envelopes, labelled with what and when.`);
   notes.margin = await make(notes.root.id, MARGIN);
   notes.wholeNote = await make(notes.root.id, WHOLE_NOTE);
@@ -490,7 +577,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   // The note first (its card needs it), then its text: an arrival's card as the watcher writes one (PIE-1370), embedded,
   // and the live count a tidy pass works down.
   const arrival = await make(notes.upload.id, "Orbit lamp [arrival::new] [arrival-kind::page] [sent-by::fictional-agent/claude-code@showcase]\n[artifact::showcase-orbit]", SEED_AGENT);
-  notes.upload = await board.update(notes.upload.id, `${SEED.upload}\n\nA page, a zip or a tar of a built site reaches the artifacts inbox from a shell, from claude.ai's code sandbox or from a phone's share sheet. Nothing passes through a model.\n\nPress ctrl+k, type upload, and run > artifact.lease. It copies one command to run where the file is:\n\n\`\`\`sh\ncurl -sS -T <file> 'https://my.ep0ch.sh/_upload/…/'\n\`\`\`\n\nOne upload, good for an hour. A link preview, a HEAD request or a failed transfer doesn't use it up. The file is checked (no links, no paths outside the folder, caps on the entry count and the unpacked size), installed as the next version of its artifact, and a card for it lands in this outline's note for today, titled by the page's own title. The card says what arrived (a page, a site, a document or an image) and who sent it, and carries [arrival::new] until a tidy pass connects it and clears the chip. A deck or a PDF meant to be read goes on the wall as a poster instead; one sent anyway lands as a document drawn by its first page. A file that fails the check waits in the inbox's .failed folder with its reason, and the curl says why.\n\nFrom a shell: ep0ch artifact lease orrery. From a phone: ep0ch device add "Fictional Phone" makes a token for the "Send to ep0ch" Shortcut (the Artifacts hub has its recipe); ep0ch device revoke "Fictional Phone" ends it if the phone is lost.\n\n## What arrived\n\n::graph-stat\n---\ntitle: arrivals\nitems: [{ label: new, query: "arrival=new" }, { label: documents, query: "arrival-kind=document" }]\n---\n::\n\nA card as it lands:\n\n!((${arrival.id}))\n`, notes.upload.revision!);
+  notes.upload = await board.update(notes.upload.id, `${SEED.upload}\n\nA page, a zip or a tar of a built site reaches the artifacts inbox from a shell, from claude.ai's code sandbox or from a phone's share sheet. Nothing passes through a model.\n\nPress ctrl+k, type upload, and run > artifact.lease. It copies one command to run where the file is:\n\n\`\`\`sh\ncurl -sS -T <file> 'https://my.ep0ch.sh/_upload/…/'\n\`\`\`\n\nOne upload, good for an hour. A link preview, a HEAD request or a failed transfer doesn't use it up. The file is checked (no links, no paths outside the folder, caps on the entry count and the unpacked size), installed as the next version of its artifact, and a card for it lands in this outline's note for today, titled by the page's own title. The card says what arrived (a page, a site, a document or an image) and who sent it, and carries [arrival::new] until a tidy pass connects it and clears the chip. A deck or a PDF meant to be read goes on the wall as a poster instead; one sent anyway lands as a document drawn by its first page. A file that fails the check waits in the inbox's .failed folder with its reason, and the curl says why.\n\nFrom a shell: ep0ch artifact lease orrery. From a phone: ep0ch device add "Fictional Phone" --shortcut signs a "Send to ep0ch" Shortcut around its own token and prints one sign-in link; the phone opens it and taps Add Shortcut; ep0ch device revoke "Fictional Phone" ends it if the phone is lost.\n\n## What arrived\n\n::graph-stat\n---\ntitle: arrivals\nitems: [{ label: new, query: "arrival=new" }, { label: documents, query: "arrival-kind=document" }]\n---\n::\n\nA card as it lands:\n\n!((${arrival.id}))\n`, notes.upload.revision!);
   notes.frontMatter = await make(notes.root.id, FRONT_MATTER);
   notes.frontMatterAgent = await make(notes.root.id, FRONT_MATTER_AGENT);
   notes.title = await make(notes.root.id, titleText(notes.whiteboard.id));
@@ -618,12 +705,15 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
       await Bun.sleep(100);
     }
   }
-  // A form written in each note it's used on (PIE-828): one action, ext.form.fill, asks each note for its own fields.
+  // A form written in each note it's used on (PIE-828): one action, ext.form.fill, asks each note for its own fields;
+  // each lands its entries where it says (PIE-1442): under it, under a page, or as a line in it.
   notes.formReading = await make(notes.root.id, FORM_READING);
   notes.formRepairs = await make(notes.root.id, FORM_REPAIRS);
+  notes.formRepairList = await make(notes.root.id, FORM_REPAIR_LIST);
+  notes.formWatering = await make(notes.root.id, FORM_WATERING);
   // The gallery (PIE-827): its cards first, so the line's first run draws them.
   // Machinery (PIE-867): one question asked twice, of what people wrote and of what tools stamped for their own bookkeeping.
-  const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch]";
+  const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch OR notify.key]";
   notes.machineryPeople = await make(notes.root.id, `${SEED.machineryPeople} [type::virtual-branch] ${MACHINERY_QUERY}`);
   notes.machineryTools = await make(notes.root.id, `${SEED.machineryTools} [type::virtual-branch] ${MACHINERY_QUERY} [machinery::only]`);
   // Line chips (PIE-1277): an ask buried on a step of long minutes, one ticked already; one query, asked of the header and of every line.

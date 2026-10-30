@@ -6,10 +6,13 @@
 // read and write, and every answer says where it came from (`source`: live or mirror, and `asOf`). A write to a mirror's
 // outline never touches the mirror: it queues for the outline's home machine (src/mcp-netmail.ts).
 import { randomUUID } from "node:crypto";
-import { boardFor, canonicalLocalMachineName, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
-import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
+import { boardFor, canonicalLocalMachineName, drawNote, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
+import { visible } from "./style";
+import { agentToolDefinition, READING_WIDTH } from "@ep0ch/outline-core/agent-tool-definitions";
+import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource, type SearchHits } from "./socket";
 import { matchFacts, MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type OutlineSnapshot } from "@ep0ch/outline-core/protocol";
 import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
+import { parseMachineryMode, readsRecentActivity, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { localAdmin, outlineAdminDefinitions, outlineArchive, outlineNew, OUTLINE_ADMIN_EXAMPLES, type McpOutlineAdmin } from "./mcp-outlines";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
@@ -20,6 +23,7 @@ import { docResource, docResources } from "./docs";
 import { gatewayInstructions, gatewaySkills, skillPrompt, skillPrompts, skillResource, skillResources, withLoadHint, writeReading } from "./mcp-guide";
 import { inboxThreads, notesWithThreads, threadRows, threadSummary } from "./mcp-threads";
 import { noAnswer, QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
+import { DEFAULT_WEB_ORIGIN, webBase } from "@ep0ch/outliner/artifact-grants";
 import { listShares, readerLine, readerView, revokeShares, shareLine, startShare } from "./share-cli";
 import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
@@ -27,7 +31,7 @@ import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, Respo
 import { recordUsage, usageShape, usageCommand } from "./mcp-usage";
 import { CAP_KEY, gatherMatrix, hostSourceFor, matrixLines, setPathCap } from "./mcp-access-matrix";
 import { callRegistry, callShown } from "./mcp-calls";
-import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, takesPersona, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, PERSONA_PROPERTY, personaRefusal, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { proposalOutcomesOn, sharedToolDefinition, sharedToolRefusal, actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, takesPersona, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, PERSONA_PROPERTY, personaRefusal, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp usage [--since 24h] [--by tool|actor|outline] [--json]
   ep0ch mcp usage --census [--ws <name>] [--machine <ssh-name>] [--json]
@@ -135,8 +139,12 @@ export interface McpQueue {
 export interface McpOutlines {
   kind: "local" | "remote";
   machine: string;
-  /** `write`: for a write, which tries another machine's host again even inside the backoff of a failed try. */
-  board(named?: NamedOutline, how?: { write?: boolean }): Promise<McpBoard | { error: string }>;
+  /**
+   * `write`: for a write, which tries another machine's host again even inside the backoff of a failed try. `copy`: an
+   * outline of another machine read from its copy here even while that machine answers (a snapshot: its link is this
+   * machine's web client's, PIE-1091); this machine's own outlines are read as ever.
+   */
+  board(named?: NamedOutline, how?: { write?: boolean; copy?: boolean }): Promise<McpBoard | { error: string }>;
   /** A request to another machine's host got no answer: it is served from its mirror until it answers again. */
   lost?(machine: string, outline: string, why: string): void;
   list(caller?: McpCaller): Promise<McpOutlineListing[]>;
@@ -353,6 +361,17 @@ async function resourceBoard(outlines: McpOutlines, args: Record<string, unknown
   return target;
 }
 
+/** The width outline_read's view is drawn at when none is asked: the shared definition's (Evan's reading width). */
+export const READ_VIEW_WIDTH = READING_WIDTH;
+
+/** The note as the door draws it, plain text a line each, by the door's own drawNote (what `ep0ch show` prints); a refusal when the width is unusable. */
+async function readView(board: Board, id: string, width: unknown): Promise<string[] | string> {
+  const w = width === undefined ? READ_VIEW_WIDTH : width;
+  if (typeof w !== "number" || !Number.isInteger(w) || w < 30 || w > 200) return `width is the columns the view is drawn at: a whole number from 30 to 200 (${READ_VIEW_WIDTH} when left out); got ${JSON.stringify(width)}.`;
+  const lines = await drawNote(board, id, w);
+  return (lines ?? []).map(l => visible(l).trimEnd());
+}
+
 async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, caller?: McpCaller, scope?: ResponseScope): Promise<ToolResult> {
   const ref = refArg(args);
   if (ref && await isResourceRef(ref)) {
@@ -389,7 +408,33 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
   if (first) return toolText({ uri: target.uri, ...seeStub(read.record.id, read.record.revision, first), reachability: read.access });
   const threads = await target.board.comments(target.id).then(c => threadSummary(threadRows(c)), () => undefined);
   const env = envelope(target.board, target.uri, read.access, read.record, read.record.revision);
-  return toolText({ ...env, ...(pointer ? { record: pointer } : {}), ...(pending ? { pending } : {}), ...(staleSince ? { staleSince } : {}), ...(threads ? { threads } : {}) });
+  const view = args.view === true ? await readView(target.board, target.id, args.width) : undefined;
+  if (typeof view === "string") return toolError(view);
+  return toolText({ ...env, ...(pointer ? { record: pointer } : {}), ...(pending ? { pending } : {}), ...(staleSince ? { staleSince } : {}), ...(threads ? { threads } : {}), ...(view ? { view } : {}) });
+}
+
+/** outline_proposals (PIE-1086): what became of the caller's proposals in one outline, by the outliner's own reader. */
+async function proposalsTool(outlines: McpOutlines, args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
+  const refused = sharedToolRefusal("outline_proposals", args);
+  if (refused) return toolError(refused);
+  const named = namedOutline(args.outline);
+  if (named && "error" in named) return toolError(named.error);
+  if (!named && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
+  const target = await outlines.board(named);
+  if ("error" in target) return toolError(target.error);
+  const status = await requireReadAccess(outlines, target);
+  if ("error" in status) return toolError(status.error);
+  const actor = typeof args.actor === "string" && args.actor.trim() ? undefined : caller ? actorOf(caller) : undefined;
+  if (!actor && !(typeof args.actor === "string" && args.actor.trim())) return toolError("Give actor: whose proposals (an actor id, or a persona such as loki).");
+  const { outline: _outline, persona: _persona, call: _call, ...input } = args;
+  try {
+    // Whose: the caller as its writes are recorded (its persona, this call's or the connection's). With no persona, a
+    // conversation that names its call hears that call's proposals only (its writes' sessionId); one that names none, the principal's.
+    const own = actor && caller?.call && !caller.freshCall ? { actorId: actor.actorId, sessionId: actor.sessionId } : actor ? { actorId: actor.actorId } : undefined;
+    const page = await proposalOutcomesOn(target.board, input, own as never);
+    const outcomes = Array.isArray(page.outcomes) ? (page.outcomes as Array<Record<string, unknown>>).map(o => ({ ...o, uri: blockUri(target.board, String(o.proposal)), noteUri: blockUri(target.board, String(o.note)) })) : page.outcomes;
+    return toolText({ outline: target.board.address.outline, machine: target.board.address.machine, ...page, outcomes });
+  } catch (e) { return toolError((e as Error).message); }
 }
 
 const QUERY_LIMIT_RULE: LimitRule = QUERY_LIMIT;
@@ -427,14 +472,20 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
   const propertyScope = typeof args.propertyScope === "string" ? args.propertyScope.trim().toLowerCase() : args.propertyScope;
   if (propertyScope !== undefined && !(PROPERTY_QUERY_SCOPES as readonly unknown[]).includes(propertyScope)) return toolError(`propertyScope is ${PROPERTY_QUERY_SCOPES.join(", ")}; got ${JSON.stringify(args.propertyScope)}. all reads a [needs::…] on any line as well as the note's own header.`);
   if (args.includeOwn !== undefined && typeof args.includeOwn !== "boolean") return toolError("includeOwn is true or false: true keeps the rows only your own call changed (they are left out of a recent-activity read by default).");
-  // Recent activity (an `updated` range or sort, or fold) leaves out what this call itself just wrote: it isn't news to it.
-  const recent = !!query && /\bupdated\s*(?:<=|>=|<|>)/i.test(query) || sort?.field === "updated" || args.fold === true;
+  let machinery: MachineryMode | undefined;
+  try { machinery = args.machinery === undefined ? undefined : parseMachineryMode(args.machinery); }
+  catch (e) { return toolError(`${(e as Error).message}. show brings back fetched notifications and bookkeeping notes; only with machine=notification asks for just the notifications.`); }
+  if (machinery && machinery !== "hide" && view) return toolError("machinery goes with query; a saved view says its own with [machinery::show] or [machinery::only].");
+  // Recent activity (an `updated` range or sort, or fold) leaves out what this call itself just wrote: it isn't news to it,
+  // and says how many fetched notifications and bookkeeping notes it left out (PIE-1427).
+  const recent = readsRecentActivity(query) || sort?.field === "updated" || args.fold === true;
   const omitOwn = recent && args.includeOwn !== true && !!caller?.call && !caller.freshCall && !!query ? caller.call : undefined;
   const answer = await queryPage(board, {
     ...(omitOwn ? { omitCall: omitOwn } : {}),
     ...(query ? { query: callRegistry().resolveIn(query) } : {}), ...(view ? { view } : {}), limit, offset, ...(sort ? { sort } : {}), ...(under ? { under } : {}),
     ...(args.fold === true ? { fold: true } : {}), ...(fields?.fields.includes("path") ? { path: true } : {}),
     ...(typeof propertyScope === "string" ? { propertyScope } : {}),
+    ...(machinery ? { machinery } : {}), ...(readsRecentActivity(query) ? { countMachinery: true } : {}),
   });
   if ("error" in answer) return toolError(answer.error);
   const { rows, ...page } = answer;
@@ -565,10 +616,14 @@ async function threadsTool(outlines: McpOutlines, args: Record<string, unknown>)
 const ROOT_PATH = "(root)";
 const pathOf = (path: string) => path || ROOT_PATH;
 
-/** What a search's ranking was, in words a caller can act on. */
-const semanticSays = (asked: boolean, semantic: { status: string; message?: string } | undefined) => {
-  if (!asked) return { asked, status: "lexical", said: "lexical: ep0ch find's ranker (title, text, properties); pass semantic: true to ask for a semantic re-ranking" };
+/**
+ * What a search's ranking was and how sure it is, in words a caller can act on: on a ranked one the service's verdict
+ * (`strong`: "sure"; `weak`: "not sure" or "no strong match"; `none`: "no strong match"), its sentence, and Jev's "is it among these?" (`exists`).
+ */
+const semanticSays = (asked: boolean, semantic: SearchHits["semantic"] | undefined) => {
+  if (!asked) return { asked, status: "lexical", said: "lexical: ep0ch find's ranker (title, text, properties); semantic: false left Jev out" };
   const status = semantic?.status ?? "unavailable";
+  if (status === "ranked" && semantic?.verdict) return { asked, status, verdict: semantic.verdict, ...(semantic.label ? { label: semantic.label } : {}), said: semantic.said, ...(semantic.deep ? { deep: semantic.deep } : {}), ...(semantic.exists !== undefined ? { exists: semantic.exists } : {}) };
   return { asked, status, said: status === "ranked" ? "re-ranked semantically (Jev) over the lexical candidates" : `lexical: semantic re-ranking was asked for and isn't available here${semantic?.message ? ` (${semantic.message})` : ""}` };
 };
 
@@ -586,13 +641,15 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>):
   const query = stringField(args, "query")?.trim() ?? "";
   const limit = limitOf(args.limit, query ? FIND_LIMIT : LIST_LIMIT);
   if (typeof limit !== "number") return toolError(limit.error);
-  const askSemantic = args.semantic === true;
+  // Agents' searches are ranked and say how sure they are unless they ask not to (PIE-1198).
+  const askSemantic = args.semantic !== false;
   // `completeness` is about this answer: the limit asked for, and whether there are more than it shows (cut here, or
   // already cut at the service's own limit).
   let rows: (Found & { revision?: number })[], more: boolean, search: ReturnType<typeof semanticSays> | undefined;
   if (query) {
-    const found = await board.searchBlocks(query, askSemantic ? { semantic: true } : {});
-    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), uri: blockUri(board, m.block.id), revision: m.block.revision }));
+    // An agent's search goes deep when the ranked hits hold no sure answer (PIE-1200): Jev reads the notes themselves.
+    const found = await board.searchBlocks(query, askSemantic ? { semantic: true, deep: args.deep !== false } : {});
+    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), uri: blockUri(board, m.block.id), revision: m.block.revision, ...(m.score !== undefined ? { score: m.score } : {}), ...(m.deep ? { byMeaning: true } : {}) }));
     // A hit the caller holds at this revision is a stub: its title and path are what they already have.
     if (seen) rows = rows.map(r => r.revision !== undefined && seen.has(pairOf(r.id, r.revision)) ? ({ ...unchangedStub(r.id, r.revision, r.uri), path: r.path }) as unknown as typeof r : r);
     more = found.matches.length > limit || found.completeness.kind !== "complete";
@@ -731,13 +788,12 @@ function toolsFor(outlines: McpOutlines) {
     type: "array", items: { type: "string" }, maxItems: 1000,
     description: `Blocks you already hold, as "id@revision" (the id and revision of an earlier answer). One at that revision comes back as {id, revision, unchanged: true} instead of its body, like If-None-Match; one that changed since comes back whole.`,
   };
+  // The note as drawn (PIE-1272): the shared outline_read's view and width, so both surfaces say it the same way.
+  const viewProperty = agentToolDefinition("outline_read")!.properties.view, widthProperty = agentToolDefinition("outline_read")!.properties.width;
   const rawProperty = { type: "boolean", default: false, description: "Send a proposal or a comment as the block is stored. By default it points at its note (id@revision): a proposal as its diff, a comment as its own words and the span it is about." };
   return [
-    {
-      name: "script_run",
-      description: "Run a script block and answer with what it said: its last word (message), its state (done, failed, stopped, or running when it outlasted the 3 s wait: then script.stop ends it and scripts.ended brings its end) and, when it returned more than a line, answer. Documents and explicit output are kept as run notes; [results::keep] requests a full run record. Writes use this caller's MCP access: proposals at propose, applied at full.",
-      inputSchema: addressSchema,
-    },
+    sharedToolDefinition("script_run", outlineProperty(outlines)),
+    sharedToolDefinition("outline_proposals", outlineProperty(outlines)),
     {
       name: "list_outlines",
       description: "List the outlines this server reads: each one's machine, whether it is served live or from a read-only mirror or unreachable, and its MCP access setting. " +
@@ -750,8 +806,9 @@ function toolsFor(outlines: McpOutlines) {
         `record.links are the notes it links to; record.backlinks the notes linking to it (outline_links lists the same, with where), so a note two notes link both ways appears in both. Requires ${grant}. Input: exactly one of uri or ref. ` +
         `A ref that is a Resource (resource:<id>, or a [file::path] token) reads as its stored text and the comment threads open on it (live outlines only): read a file's threads before rewriting it. ` +
         `A proposal or a comment reads as a pointer to the note it is on (its diff, or its words and the span), not a copy of the note (raw: true for the block as stored). ` +
-        `seen ("id@revision" pairs you hold) answers a block you already have as {id, revision, unchanged: true}; a block already sent earlier in the same response (a batch) comes back as {id, revision, see}.`,
-      inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, seen: seenProperty, raw: rawProperty } },
+        `seen ("id@revision" pairs you hold) answers a block you already have as {id, revision, unchanged: true}; a block already sent earlier in the same response (a batch) comes back as {id, revision, see}. ` +
+        `view: true adds view: the note as the door draws it (live figures, views and components answered) at width columns (${READ_VIEW_WIDTH} when left out), as ep0ch show prints it: look at it before saying a write is done.`,
+      inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, seen: seenProperty, raw: rawProperty, view: viewProperty, width: widthProperty } },
     },
     {
       name: "outline_threads",
@@ -768,12 +825,13 @@ function toolsFor(outlines: McpOutlines) {
     },
     {
       name: "outline_find",
-      description: `Search ${which} with the same ranker as ep0ch find: lexical (title, text, properties) unless semantic is true, and search says which ranking it got and why. ` +
+      description: `Search ${which} with the same ranker as ep0ch find: lexical candidates (title, text, properties) re-ranked by Jev, and when none is a sure answer Jev reads every note to find ones the words missed (deep), each match with its score (0 to 3), and search says how sure it is: verdict strong ("sure"), or weak ("not sure" over a top Jev scores as a match, else "no strong match": the closest is named, not claimed; none: nothing here answers it), with exists (Jev's "is it among these?", 0 to 1). semantic: false is the lexical order alone. ` +
         `source and asOf say whether it searched the live outline or a read-only mirror; a top-level note's path is "${ROOT_PATH}". Requires ${grant}. Empty query lists index rows.`,
       inputSchema: { type: "object", properties: {
         query: { type: "string" },
         limit: { ...limitSchema(LIST_LIMIT, "Rows for an empty query"), description: `Matches: 1 to ${FIND_LIMIT.max} for a query (default ${FIND_LIMIT.fallback}); 1 to ${LIST_LIMIT.max} rows for an empty query (default ${LIST_LIMIT.fallback})` },
-        semantic: { type: "boolean", default: false, description: "Ask for a semantic re-ranking (Jev) of the lexical candidates; the answer's search says whether it happened" },
+        semantic: { type: "boolean", default: true, description: "Jev re-ranks the lexical candidates and says how sure it is (the default); false for the lexical order alone. The answer's search says whether it happened" },
+        deep: { type: "boolean", default: true, description: "When the ranked hits hold no sure answer, Jev reads every note's title to find ones the words missed (byMeaning: true on those rows; search.deep says what it found and cost); false skips it" },
         seen: seenProperty,
         outline: outlineProperty(outlines),
       }, additionalProperties: false },
@@ -783,6 +841,7 @@ function toolsFor(outlines: McpOutlines) {
       description: `Run a query in ${which}, read-only, in the grammar the views use ([query::…], virtual branches, ::graph-table): clauses like type=outbox-item outbox=next, AND/OR/NOT, groups, updated >= -7d, any property compared as a date or number (due <= +3d, wait-until <= today, release-window = today, rating > 3), or a saved view by its block id. hint says a key no note has, or values a comparison couldn't read. ` +
         `The outline evaluates it, so the rows are the ones a view shows in the door. Answers block records (title, properties, revision, uri) with total and completeness; more says there are further rows, nextOffset is where to continue. Requires ${grant}. Give query or view. ` +
         `To orient (what changed lately, in a few KB): query "updated >= -1d NOT type=peer-message", sort "updated desc", fields "id,title,updated,actor,path", fold true; then outline_read the rows that are new, and pass seen on later reads. ` +
+        `Fetched notifications and tools' bookkeeping ([machine::…]) are left out unless machinery says show or only; a recent-activity read says how many in machineryOmitted ("212 notifications and bookkeeping notes left out"), so report real work, and that count beside it. ` +
         `The service sorts, so limit takes the newest first. A projected row (fields) never carries the body. fold collapses the proposals, comments and deliveries into their note: "PIE-637 · 3 changes (1 proposal, 2 comments)".`,
       inputSchema: { type: "object", properties: {
         query: { type: "string", description: "A query in the views' grammar: type=ticket NOT work-stage=done, due <= +3d" },
@@ -791,6 +850,7 @@ function toolsFor(outlines: McpOutlines) {
         fields: { type: ["string", "array"], items: { type: "string" }, description: `The columns of each row instead of the whole record: ${FIELD_NAMES.join(", ")}, or any property key ("id,title,updated,actor,path"). id and revision are always there; the body never is (outline_read).` },
         under: { type: "string", description: "Only blocks under this note (its subtree): its id, ((id)), [[page]] or Work ID, as ref names a block" },
         propertyScope: { type: "string", enum: ["block", "line", "inline", "all"], description: "Which chips the query reads: block (the note's own header, the default) or all, for a [needs::…] on any line too (a ticked - [x] step's chips no longer match). Each row then names its matches: key, value, line (from 1), and task on a step. A view says its own with [property-scope::all]." },
+        machinery: { type: "string", enum: ["hide", "only", "show"], default: "hide", description: "What the query holds of the notes tools wrote for themselves, stamped [machine::…]: fetched notifications (machine=notification), file touches, tosses, deliveries. hide leaves them out (the default; a recent-activity read counts them in machineryOmitted), show holds them with the rest, only holds just them. Not with view: a view says its own [machinery::]." },
         includeOwn: { type: "boolean", default: false, description: "Keep the rows only your own call changed. A recent-activity read (an updated range or sort, or fold) leaves them out by default, with a count (ownOmitted), since what you just wrote isn't news to you; another session's writes always show" },
         call: CALL_PROPERTY,
         fold: { type: "boolean", default: false, description: "Fold proposals, comments and deliveries into the note they belong to, with a count (changes: {count, proposals, comments, deliveries, summary, ids}); total counts folded rows" },
@@ -818,7 +878,7 @@ function toolsFor(outlines: McpOutlines) {
     {
       name: "reader_view",
       description: `What the person's web client shows now in ${which} (a tailnet page or a share link's): the page's note, title and address, the words they have selected with the text either side, the note row they're in and their offsets in its source, the blocks on screen and the scroll position, as the page last said (presence; when is \`at\`), and journal: what they did lately (pages opened, words selected, folds). ` +
-        `Read it to answer "what am I looking at" or "this paragraph" without fetching or navigating anything. readers lists every reader seen lately. An agent that sees the page itself calls the same through the page's helpers (ep0ch.view(), ep0ch.reveal(ref), ep0ch.journal(since)). A share link's address is given without its secret. Requires ${grant}.`,
+        `Read it to answer "what am I looking at" or "this paragraph" without fetching or navigating anything. readers lists every reader seen lately. An agent that sees the page itself calls the same through the page's helpers (ep0ch.view(), ep0ch.reveal(ref), ep0ch.journal(since)). A share link's address is given without its secret. An outline served from a read-only copy answers what this server's web pages of the copy show, with the copy's source, asOf and note. Requires ${grant}.`,
       inputSchema: { type: "object", properties: { outline: outlineProperty(outlines) }, additionalProperties: false },
     },
   ];
@@ -826,7 +886,7 @@ function toolsFor(outlines: McpOutlines) {
 
 const snapshotDefinition = (outline: Record<string, unknown>) => ({
   name: "outline_snapshot",
-  description: "Download a consistent, integrity-checked SQLite copy for read-only analysis. Requires read access or higher. Returns url, expiresAt, bytes, sha256, schema, asOf and a one-line curl command. The share link works once, expires in 15 minutes (ttl up to 24h), and is revocable through share_revoke or ep0ch share revoke. Add ?gz=1 for gzip; bytes and sha256 describe the uncompressed SQLite file. Includes the entire database, including private notes. The file stays out of chat. Show the curl command and URL only inside a fenced code block, never as a clickable link: chat clients may preview links and interrupt the download.",
+  description: "Download a consistent, integrity-checked SQLite copy for read-only analysis. Requires read access or higher. Returns url, expiresAt, bytes, sha256, schema, asOf and a one-line curl command. The share link works once, expires in 15 minutes (ttl up to 24h), and is revocable through share_revoke or ep0ch share revoke. Add ?gz=1 for gzip; bytes and sha256 describe the uncompressed SQLite file. Includes the entire database, including private notes. An outline of another machine is snapshotted from this server's read-only copy of it: the answer's source, asOf (the copy's newest change), stale and note say how fresh the copy is, and snapshotAt when the snapshot was made. The file stays out of chat. Show the curl command and URL only inside a fenced code block, never as a clickable link: chat clients may preview links and interrupt the download.",
   inputSchema: { type: "object", properties: { outline, ttl: { type: "string", description: "15m by default, 1m to 24h" } }, additionalProperties: false },
 });
 
@@ -868,24 +928,33 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
   const which = namedOutline(args.outline);
   if (which && "error" in which) return toolError(which.error);
   if (!which && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
-  const target = await outlines.board(which);
+  // A snapshot of another machine's outline is made from its copy here, so this machine's web client serves the link.
+  const target = await outlines.board(which, { copy: name === "outline_snapshot" });
   if ("error" in target) return toolError(target.error);
   const { board } = target;
   const status = withLevel(await board.mcpAccessStatus(), caller, board.address);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
-  if (target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: its web client and its shares are there.`);
+  // A share is live and takes comments: it is the outline's own machine's. Listing and revoking an outline served from
+  // its copy are the copy's own links, its snapshots' (PIE-1091).
+  if (target.home && name === "share_start") return toolError(awayShareRefusal(outlines, target, args));
   try {
     if (name === "outline_snapshot") {
       const snapshot = await board.request<OutlineSnapshot>("outline.snapshot", {
         ...(args.ttl !== undefined ? { ttl: args.ttl } : {}),
-        ...(caller?.sub !== STDIO_SUBJECT && process.env.EP0CH_WEB_URL ? { webUrl: process.env.EP0CH_WEB_URL.split(",")[0]!.trim() } : {}),
+        // A copy has no web client of its own: its link is this machine's web client's, the signed-in one unless EP0CH_WEB_URL names another.
+        ...(target.home ? { webUrl: webBase() ?? DEFAULT_WEB_ORIGIN } : caller?.sub !== STDIO_SUBJECT && process.env.EP0CH_WEB_URL ? { webUrl: process.env.EP0CH_WEB_URL.split(",")[0]!.trim() } : {}),
         mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" },
       }, 120_000);
-      return toolText({ ...snapshot, said: "Show the curl command with its URL inside a fenced code block, never as a clickable link, to avoid chat link previews." });
+      const how = "Show the curl command with its URL inside a fenced code block, never as a clickable link, to avoid chat link previews.";
+      // From a copy, the headline is the copy's newest change (PIE-1439: a snapshot made at 23:46 of a copy whose newest
+      // change was 23:16 is as of 23:16); the snapshot's own time is its own field, snapshotAt.
+      if (!target.home) return toolText({ ...snapshot, said: how });
+      const { asOf: snapshotAt, ...made } = snapshot;
+      return toolText({ ...copyFields(target), ...made, asOf: target.served.asOf, snapshotAt, said: `${copyLine(target, "A snapshot of")} ${how}` });
     }
     if (name === "reader_view") {
       const seen = await readerView(board);
-      return toolText({ ...seen, said: readerLine(seen.view) });
+      return toolText({ ...seen, ...copyFields(target), said: target.home ? `${readerLine(seen.view)}\n${copyLine(target, "This machine's web pages of")}` : readerLine(seen.view) });
     }
     if (!caller || !writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
     if (name === "share_start") {
@@ -906,6 +975,18 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
     return toolText({ revoked: revoked.map(s => s.id), said: revoked.length ? `ended ${revoked.map(s => s.id).join(", ")}: the links open nothing now (410 on the outline's host; a Cloudflare tunnel is stopped)` : "no share was open" });
   } catch (e) { return toolError((e as Error).message); }
 }
+
+/** Where a read of another machine's outline came from: its copy here (`source`, `asOf`, `copy`, `stale`, `note`), as reads say it. */
+const copyFields = (target: McpBoard) => target.home ? target.served : {};
+
+/** One line for an answer from a copy: as of when, and how fresh, in the words reads use (the mirror's note, which says a stale copy is). */
+const copyLine = ({ board, served }: McpBoard, what: string) => `${what} ${board.address.outline} as of ${served.asOf}: ${served.note ?? "read-only copy"}.`;
+
+/** A share of an outline served from its copy: refused, with why and the two ways out. */
+const awayShareRefusal = (outlines: McpOutlines, { board, served, home }: McpBoard, args: Record<string, unknown>) =>
+  `${board.address.outline} lives on ${home!.machine}${served.liveTried ? `, which isn't reached from here now (${served.liveTried.why})` : ""}; ${outlines.machine} reads ${served.liveTried ? "only " : "it only from "}its read-only copy (as of ${served.asOf}). ` +
+  `A share is live and takes comments, so it is made by the outline's own host: on ${home!.machine}, run \`ep0ch share start ${typeof args.ref === "string" ? args.ref : "<ref>"} --ws ${board.address.outline}\`${served.liveTried ? ` (or share_start again once ${home!.machine} answers)` : ""}. ` +
+  `To read it now: outline_snapshot gives a download of the copy, and outline_read and outline_find read it.`;
 
 const lokiDefinition = { name: "loki_lease", description: "Mint an hour-long read-only Loki query URL for curl/scripts. Requires read access or higher to a local outline on this host. Keep it in LOKI_URL; do not publish it. A host restart ends leases too.", inputSchema: { type: "object", properties: { ttl: { type: "string", description: "Duration, default 1h (1m to 24h)" } }, additionalProperties: false } };
 
@@ -1065,10 +1146,15 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
     const status = withLevel(await target.board.mcpAccessStatus(), caller, target.board.address);
     if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
     try {
-      return toolText(await target.board.request("scripts.run", { blockId: target.id, access: status.level, mutation: { author: "agent", ...actorOf(caller) } }));
+      const refused = sharedToolRefusal("script_run", args);
+      if (refused) return toolError(refused);
+      const about = typeof args.this === "string" ? (await resolveBoardRef(target.board, args.this.trim())).id : undefined;
+      const slots = args.slots as Record<string, string> | undefined;
+      return toolText(await target.board.request("scripts.run", { blockId: target.id, ...(about ? { this: about } : {}), ...(slots ? { slots } : {}), access: status.level, mutation: { author: "agent", ...actorOf(caller) } }));
     } catch (error) { return toolError((error as Error).message); }
   }
   if (params.name === "outline_read") return readRecord(outlines, args, caller, scope);
+  if (params.name === "outline_proposals") return proposalsTool(outlines, args, caller);
   if (params.name === "outline_threads") return threadsTool(outlines, args);
   if (params.name === "outline_query") return queryTool(outlines, args, scope, caller);
   if (params.name === "outline_write_status" && caller) return writeStatusTool(outlines, args, caller);

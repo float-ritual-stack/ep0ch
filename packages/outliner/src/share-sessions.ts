@@ -7,8 +7,14 @@
 // owner's own surfaces (the CLI, the tailnet's shares page, the MCP tools) show it, inside the link.
 //
 // Also here: what a reader of the web client has in front of them (`reader.report` / `reader.view`), presence kept in
-// memory only, so an agent in chat can say "you have X selected" without fetching or navigating anything.
+// memory, so an agent in chat can say "you have X selected" without fetching or navigating anything.
+//
+// A read-only copy of another machine's outline (outline-mirror.ts) keeps both in files beside the mirror instead
+// (`fileStorage`): the gateway and the web client each serve the copy from a host of their own, and a snapshot link the
+// gateway mints, or a page the web client reports, is the same session or reader to both (PIE-1091).
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { READER_VISIBLE_MAX, SHARE_TTL, SHARE_VIAS, type ReaderEvent, type ReaderView, type ShareSession, type ShareVia } from "@ep0ch/outline-core/protocol";
 
 /** Where the sessions are kept in the metadata table. */
@@ -89,12 +95,28 @@ export function shareTtlMs(value: unknown, kind: "share" | "bounded" = "bounded"
   return Math.round(ms);
 }
 
+/** What sessions or presence are kept in. */
+export interface ShareStorage { read(): string | undefined; write(value: string): void }
+
+/** One file as the storage (written whole, by rename, so a reader in another process never sees half of it). */
+export function fileStorage(path: string): ShareStorage {
+  return {
+    read() { try { return readFileSync(path, "utf8"); } catch { return undefined; } },
+    write(value) {
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      const temporary = `${path}.${process.pid}.tmp`;
+      writeFileSync(temporary, value, { mode: 0o600 });
+      renameSync(temporary, path);
+    },
+  };
+}
+
 const digest = (token: string) => createHash("sha256").update(token).digest();
 
 /** Share sessions over the outline's metadata (`read`/`write` the one key). `now` is the clock, for tests. */
 export class ShareSessions {
   constructor(
-    private readonly storage: { read(): string | undefined; write(value: string): void },
+    private readonly storage: ShareStorage,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -228,6 +250,9 @@ const READER_CONTEXT_MAX = 200;
 /** A reader not heard from for this long is no longer reading. */
 const READER_STALE_MS = 12 * 60 * 60_000;
 
+/** A stop on a web reader's trail (PIE-208): a note its tab opened, by the title it had then, and when. */
+export interface ReaderStop { blockId: string; title: string; at: string }
+
 /** At most this many of what readers did are kept (the journal), newest last. */
 export const READER_JOURNAL_MAX = 200;
 
@@ -237,20 +262,39 @@ export const READER_JOURNAL_MAX = 200;
  * the reports themselves, so a page says only where it is and what's selected; a fold it says (`fold`).
  */
 export class ReaderPresence {
-  private readonly readers = new Map<string, ReaderView>();
+  private readers = new Map<string, ReaderView>();
   /** Each visitor's last report (a share's reader is everyone with its link), to say what changed for them. */
-  private readonly last = new Map<string, ReaderView>();
-  private readonly events: (ReaderEvent & { visitor: string })[] = [];
+  private last = new Map<string, ReaderView>();
+  private events: (ReaderEvent & { visitor: string })[] = [];
   private next = 1;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  /** `storage`: kept there as well as in memory, read again before each answer (a copy's, shared by two processes). */
+  constructor(private readonly now: () => number = Date.now, private readonly storage?: ShareStorage) {}
+
+  /** What the storage holds now, when there is one. */
+  private load(): void {
+    const raw = this.storage?.read();
+    if (!raw) return;
+    try {
+      const kept = JSON.parse(raw) as { readers: [string, ReaderView][]; last: [string, ReaderView][]; events: (ReaderEvent & { visitor: string })[]; next: number };
+      this.readers = new Map(kept.readers);
+      this.last = new Map(kept.last);
+      this.events = kept.events;
+      this.next = kept.next;
+    } catch { /* an unreadable file is no presence */ }
+  }
+
+  private save(): void {
+    this.storage?.write(JSON.stringify({ readers: [...this.readers], last: [...this.last], events: this.events, next: this.next }));
+  }
 
   /**
    * A page's report, capped and trimmed; the newest one per reader is kept, and what changed for its `visitor` (one
    * browser tab, a random id the page keeps) goes in the journal. Answers the view and the journal the page may see:
    * the tailnet's (the person's own), or on a share only this visitor's, since anyone with the link reads as the share.
    */
-  report(input: Record<string, unknown>): { view: ReaderView; journal: ReaderEvent[] } {
+  report(input: Record<string, unknown>): { view: ReaderView; journal: ReaderEvent[]; trail: ReaderStop[] } {
+    this.load();
     const text = (value: unknown, max: number) => (typeof value === "string" ? value.slice(0, max) : "");
     const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.round(value)) : undefined);
     const reader = text(input.reader, 64);
@@ -299,11 +343,28 @@ export class ReaderPresence {
     this.last.delete(key);
     this.last.set(key, view);
     if (this.last.size > READER_JOURNAL_MAX) this.last.delete(this.last.keys().next().value!);
-    return { view, journal: this.journal(reader, 0, reader === "tailnet" ? undefined : visitor) };
+    this.save();
+    return { view, journal: this.journal(reader, 0, reader === "tailnet" ? undefined : visitor), trail: this.trail(reader, visitor) };
+  }
+
+  /**
+   * The notes one tab (`visitor`) opened, newest first, each once at its latest visit (PIE-208): the trail its page
+   * lists, read from the journal's page events, so it is as long as the journal still holds them.
+   */
+  trail(reader: string, visitor: string): ReaderStop[] {
+    const out: ReaderStop[] = [], seen = new Set<string>();
+    for (let at = this.events.length - 1; at >= 0; at -= 1) {
+      const event = this.events[at]!;
+      if (event.kind !== "page" || event.reader !== reader || event.visitor !== visitor || !event.blockId || seen.has(event.blockId)) continue;
+      seen.add(event.blockId);
+      out.push({ blockId: event.blockId, title: event.title ?? "", at: event.at });
+    }
+    return out;
   }
 
   /** The reader seen most recently (or `reader`'s), every reader seen lately (newest first), and its journal. */
   view(reader?: string, since = 0): { view: ReaderView | null; readers: ReaderView[]; journal: ReaderEvent[] } {
+    this.load();
     const now = this.now();
     for (const [key, value] of this.readers) if (now - Date.parse(value.at) > READER_STALE_MS) this.readers.delete(key);
     const readers = [...this.readers.values()].sort((a, b) => b.at.localeCompare(a.at));
@@ -325,8 +386,10 @@ export class ReaderPresence {
 
   /** A reader that's gone (its share ended): forgotten. */
   forget(reader: string): void {
+    this.load();
     this.readers.delete(reader);
     for (let at = this.events.length - 1; at >= 0; at -= 1) if (this.events[at]!.reader === reader) this.events.splice(at, 1);
     for (const key of this.last.keys()) if (key.startsWith(`${reader} `)) this.last.delete(key);
+    this.save();
   }
 }

@@ -26,14 +26,16 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
    `ep0ch --skill outliner-workflow` prints; the `work_*` tools run it). Items are made only by the
    allocator, never by hand.
 4. **Look before you make.** Find the existing owner and the vocabulary in use (`outline_find` by text,
-   `property`, `hasKey` or `query`) before creating a note, a key or a view.
+   `property`, `hasKey` or `query`) before creating a note, a key or a view. Text alone is the ranked search: each row
+   its `score`, and `search.verdict` says whether the top answers it; "no strong match" means it likely doesn't exist
+   yet, so make it rather than reuse the closest; "not sure" means the top scores as a match: read it before deciding.
 
 ## Tools
 
 In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_find`, `outline_resolve`, `outline_site` (what a note's `{{this.key}}`, `parent.key`, a bare `key` up the outline, `((id)).key`, `this.tasks | status=todo` or `now.date-1d` resolve to, with the route and a did-you-mean for a typo), `outline_edit`,
 `outline_patch`, `outline_proposal_apply`/`outline_proposal_dismiss`, `outline_create`, `outline_assign_id`,
 `outline_move`, `outline_trash`/`outline_restore`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
-`outline_changes`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
+`outline_changes`, `outline_proposals`, `script_run`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
 `door_act`, `door_open`. Every tool that names a note takes it as `ref` (`id`, `reference`, `block`, `blockId`, `uri`, `note` are accepted; two that disagree are refused, so pass one), and a wrong call comes back with the tool's arguments and a call that works. The table is in `packages/claude-mod/README.md`, "Outline tools". Other agents run
 the same operations as `outliner agent <operation> --json '{…}' --actor <id>`; `ep0ch find <words>` and
 `ep0ch show <id>` read (ranked search, a note drawn as text) with no door and no mod; `ep0ch show <id> --markdown` is
@@ -69,6 +71,9 @@ Arriving cold, read the outline's recent changes, not a context store. Per outli
    `fold: true` (or the outline's saved orient view, by `view`: its own `[sort::]` orders it). The service sorts; a
    projected row is a title, never a body. With `fold`, a note's proposals, comments and deliveries are one row with
    `changes` ("4 changes (1 proposal, 2 comments, 1 delivery)"). `under` limits it to a note's subtree.
+   Fetched notifications and tools' bookkeeping (`[machine::…]`) are left out, and the answer counts them:
+   `machineryOmitted` ("212 notifications and bookkeeping notes left out"). Report the real work and that count;
+   `machinery: "show"` brings them back, `"only"` with `machine=notification` asks for just the notifications.
 2. `outline_read` (by `ref`) only the rows that are new to you. A proposal or a comment reads as a pointer
    (`target: id@revision`, the diff or the anchored span), not a copy of its note; `raw: true` gives it as stored.
 3. On every later read, query or find, pass `seen: ["<id>@<revision>", …]` for what you already hold. A block still at
@@ -120,6 +125,11 @@ revision, so concurrent edits rarely collide.
 - **Settle a proposal by id:** `outline_proposal_apply {ref: "<proposal id>"}` or
   `outline_proposal_dismiss {ref: "<proposal id>"}` needs no reader. Apply keeps the normal patch comparison;
   any agent may dismiss any proposal (recorded as the one who did; the Trash takes it back). MCP settlement requires full access.
+- **Hear what became of your proposals:** `outline_proposals {since}` lists each edit of yours that was proposed
+  instead, and each change after it (`stale`, `applied`, `dismissed`, `resolved`), oldest first, once each, with the
+  note, who and why; pass its `cursor` as `since` next time. With the Claude mod you don't poll: the next prompt
+  carries what changed, and a stale one wakes a persona's idle session. A stale one is a task: re-read the note and
+  send the edit again, or dismiss your proposal.
 - A refusal is an answer: read again and retry, or leave it. Never route around it.
 - A write's `warnings` are answers too, and each one that starts "fix before you call this done" is a gate: a long
   title, a wall, a buried question (the floor, under "Shaping a note"). A `((` that leads nowhere (with a did-you-mean), and each construct you
@@ -263,7 +273,7 @@ one.
   ticked. The scope widens what puts a note in; a `NOT` clause still asks the note's own header, so a body line's
   `[work-stage::done]` never hides it. A comparison (`cost < 10`) names the chip that holds. `outline_find` and `outline_query` take `propertyScope: "all"`, and
   `ep0ch find --query … --property-scope all`; each row then names its matched lines.
-  A view, a find and an agent's feed leave out the notes tools stamped `[machine::<producer>]` (file touches, EchoNet's
+  A view, a find and an agent's feed leave out the notes tools stamped `[machine::<producer>]` (fetched notifications, file touches, EchoNet's
   logs, deliveries, backup runs) unless `machinery` says `show` or `only`; `by:user` or `by:agent` and `revision >= 2`
   ask who wrote a note last and how often it was saved. Stamp your own tool's bookkeeping notes `[machine::<tool>]`.
   The service evaluates it: `AND`, `OR`, `NOT`, parentheses, `updated >= -7d`, comparisons on any property (`due <= +3d`, `wait-until <= today`, `rating > 3`, `release-window = today` for a span `2026-10-20..2026-10-24`: dates as people write them, `Oct 20`, `10/20`, `20 Oct`; a value with a space is quoted, `due <= "Oct 20"`) and the atoms `#tag`, `links:[[page]]` (or `((id))`, `PIE-123`), `linkedfrom:[[page]]` (what it links to), `under:[[page]]` (the subtree), `parent:[[page]]` (its children), `this` as any of their targets in a figure or a `::links` query (the note it sits in: `links:this NOT linkedfrom:this` is what mentions the note that it doesn't link back), `call:<id or handle>` (what one MCP call last wrote), `title~text` / `text~text` (caseless substrings; quote spaces), `thread:me` and `unread:me` (the threads you started or wrote in, and what you haven't read: Recent replies is `type=annotation-reply AND thread:me AND NOT annotation-source=user`), and `child:key=value` with a count, `child>=2:type=virtual-branch` (every hub, tagged or not). `under:[[orient]] NOT links:[[archive]]` replaces a list of types to exclude. Live figures and board lanes take them unchanged; a `::graph-tabs` or `::graph-rank` `group:` takes any property, or a date bucket of any property (`group: due:week`, day, week, month or year), grouped and counted by the service. A note that waits for a day is a saved view, not a reminder: `wait-until <= today` on Welcome or a board lane fills itself that morning. Its rows are the canonical
@@ -380,7 +390,8 @@ needed: the publisher's tailnet URL plus `/p/<id>` (on pie, `https://my.ep0ch.sh
 the note's text, its children as links, breadcrumbs back up. They can highlight, comment and ask `@margin` there;
 it lands as their own threads in the outline, so "go check the notes I left" means reading the note's threads.
 In the door a reader draws its comments as cards in the margin; to keep just the marks, `M` (or a click on the
-comment count after the note's date) cycles cards a row each, whole, and **marks only**, kept with the tile.
+comment count after the note's date, which says which: "short cards", "whole", "as marks") cycles them, kept with
+the tile. Quoting a comment (`[Quote]`) opens the new note beside them to write in, under the note by default.
 
 ## Shaping a note: a floor, not a ceiling
 
@@ -407,12 +418,19 @@ fits; `ep0ch library --guide` (the Claude mod's context, the MCP gateway's instr
 A write answers with the `components` the note now holds and its `warnings` (a figure's name or key with a typo, YAML
 that doesn't read, a reference that leads nowhere): the text is saved as written, so fix them in the same turn. A live figure you wrote (a `query:` or `view:`)
 comes back in `figures` with the rows it returned, and one that returned 0 is a warning too: check the query with
-`outline_find` (`hasKey` names a property). The answer also measures the note against the house rules above, and each finding is a warning that starts "fix before you
-call this done": a title line over about 70 characters, a paragraph past three sentences, a long run of prose with no
-figure or callout, a callout inside a callout, a question for Evan below the top with no `[needs::sysop]`. Where
-figure-fit is on, a write that leaves a note as rows with no figure adds one more ("this reads as a timeline:
-::graph-timeline would draw it"): take it from `outline_components <id>`. Every answer ends with `next`, the check to
-make: read the note as drawn (`ep0ch show <id>`, or `outline_read` it back) before you call the write done. In
+`outline_find` (`hasKey` names a property). Every create, edit and patch is reviewed (PIE-1388): the answer's `review` has a `verdict`, `ship` or `fix`, and
+`findings`, each filed under Evan's rubric (dense, format, buried, unclear, mixed, context, argues, qa-for-evan) with
+where it is and the smallest fix. Code measures a title over about 70 characters, a paragraph past three sentences, a
+bullet stacking several points, a note past a screen with no headings, a count typed in prose that a query keeps true,
+a bare id, a question for Evan below the top; Jev reads every section the write changed (prose too) for the rest, and
+which of the outline's components would show it. Many findings carry a `patch`: pass it to `outline_patch` as written
+(the figure built from your own lines, the bullet split a point a line, the question moved to the top); patches that
+would touch the same text come one per review. Each new
+finding is also a warning that starts "fix before you call this done"; a component Jev would draw a section with that
+code can't build comes as advice ("consider: …"), never a fix. You hear each finding once: one you were told on an
+earlier write is carried, so a note whose patches you applied ships. Every answer ends with `next`, the check to
+make: read the note as drawn (`ep0ch show <id>`, or `outline_read` it back with `view: true`) before you call the write done. What you
+were told and what you did next land on Jev's suggestions page. In
 the Claude mod a note that holds a figure comes back drawn already. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
 the content.
 
@@ -482,7 +500,8 @@ items:
 | `annotate` | static only | `code`, `notes` (or a fence with `# (1)` markers and a `1.` list) |
 
 **Width.** Every kind follows one rule (`tier`: narrow under 48 columns, cozy under 90, wide): a table in a narrow
-column keeps its title column and one more and says `+n columns`; stat tiles wrap into rows; a timeline's or
+column with three or more columns draws each row as a card (its title, then every other cell as `header: value`), and
+on a phone page the same; stat tiles wrap into rows; a timeline's or
 decision's side note goes under its row; `compare` stacks; `matrix` cuts its heads; `quadrant` shows dots and a
 legend. Write for the content, not the pane: the figure fits itself.
 
@@ -677,8 +696,12 @@ parentheses. A button with no glyph says running and done by colour only. The ki
 lines place buttons there. Closed button bodies and list sugar work there too; pinning preserves the whole body. `alt="theme.cycle"` names a button's alternate click. The shared `button.press note=<id> label=...`
 presses it without moving focus. `status.bar.items` describes the ids and their declared actions; `status.bar.edit` opens
 or creates the config note, also reached by right-click or alt+click on empty bar space and the power bar's `status bar: edit`.
-A note button's menu offers **pin to status bar** (`button.pin label="Collapse"`). Missing or broken config keeps the default
-bar and says malformed lines in the message log. Keep edits as ordinary Blockdown, through the service with revision checks.
+A right-click on a `::button` in a note opens its menu with **pin to status bar** for that button, pressing nothing (`button.pin label="Collapse"`). The note is a list (PIE-1224): a
+`- ::button{…}` item is a button, and an item with items indented under it is a **group**, its label on the bar opening
+them as a menu (`status.bar.menu group=Tools`, `Tools/More` for a nested one, which opens where `Tools`'s did; an agent's answers the rows). A line the bar
+can't read is skipped, never the whole bar (PIE-1227): the rest stays, a `! line N` item opens the note at it, and the
+message log says it once with a did-you-mean. A narrow bar shortens built-ins, then drops them, before a pinned button goes
+into `+N` (PIE-1213), whose click lists what it hid. A message keeps the pins, `!` and `+N` that fit before it, and a click finds only what's drawn (PIE-1410). Keep edits as ordinary Blockdown, through the service with revision checks.
 
 **Heading styles and rules** (PIE-599; outline-core's `src/heading-styles.ts`, drawn by the door's
 `src/figures/banner.ts`). To divide a page more strongly than a plain heading, give the heading a style. Don't use
@@ -767,7 +790,7 @@ arrived and who sent it, `[arrival::new] [arrival-kind::page|site|document|image
 `arrival=new`, connects each one (links it from its thread, makes a deck a poster) and clears the chip. **A deck or a PDF
 meant to be read is not an artifact:** it goes on the wall as a poster (a note of its pages as images), not through a
 lease; one sent anyway lands as a document drawn by its first page. A phone sends with its own token
-(`ep0ch device add <name>`), which the person makes.
+(`ep0ch device add <name> --shortcut` prints one sign-in link that adds a signed "Send to ep0ch" Shortcut), which the person makes.
 See the outliner README's **Artifacts** section for import, limits and deployment.
 
 ## Keys and secrets (for an extension that needs one)
@@ -814,9 +837,9 @@ the name. The whole-note form uses `[script::name]` and a closed `js` fence; `[m
 entry: `packages/outliner/docs/scripts.md` in the repository. Read it before writing a script; its example 2 is the
 usual start (a table of a note's children with a computed column). Two traps to know first: `this.children` is always
 empty (use `q("parent:this")` or `read(this.id)`), and a `q` row has no properties (read the row: one `read()` per row).
-More traps: a render script run as an action leaves a run note (31 KB with `[results::keep]`); `script_run` over MCP
-passes no slots or `this` yet (PIE-1272); and pass `persona` when you aren't the connector's owner, or the write is
-recorded as theirs.
+More traps: a render script run as an action leaves a run note (31 KB with `[results::keep]`); `script_run` runs a
+script the way a person's press does only with `this` (the note it is about) and `slots` (`{ card: "lamplighter" }`,
+its `props`); and pass `persona` when you aren't the connector's owner, or the write is recorded as theirs.
 
 The short form for working in an outline is [references/scripts.md](references/scripts.md).
 

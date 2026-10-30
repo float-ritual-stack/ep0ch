@@ -21,7 +21,8 @@ export interface FormField { name: string; spec: ArgSpec; selector?: true }
 
 /** The fields of an action's form: the arguments it needs, then tile= when it runs on a tile, then the rest. */
 export function formFields(info: ActionInfo): FormField[] {
-  const args = Object.entries(info.args).filter(([name]) => name !== SELECTOR);
+  // What the host binds (the block in front, a passage) is never asked: `act` still takes it.
+  const args = Object.entries(info.args).filter(([name, s]) => name !== SELECTOR && !s.context);
   const needed = args.filter(([, s]) => !s.optional).map(([name, spec]) => ({ name, spec }));
   const rest = args.filter(([, s]) => s.optional).map(([name, spec]) => ({ name, spec }));
   // An argument named tile can't be reached from an act line (tile= is the selector): its meaning is the selector's.
@@ -86,7 +87,7 @@ export async function openActionForm(host: BarHost, req: ActRequest, actor: Acto
   if (req.tile !== undefined && fields.some(f => f.selector)) given[SELECTOR] = req.tile;
   const run = (answers: Record<string, string>) => {
     const call = callOf(info, answers);
-    return actor.kind === "agent" ? host.dispatch.act({ action: info.name, ...call }, actor) : host.dispatch.press(info.name, call.args, call.tile);
+    return host.dispatch.as(actor, { action: info.name, ...call });
   };
   return askInBar(host as never, info.name, fields.map(fieldQuestion), given, actor, run, {
     action: info.name, ...(fields.some(f => f.selector) ? { selector: SELECTOR } : {}),

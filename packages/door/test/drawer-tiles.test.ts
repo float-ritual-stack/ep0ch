@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App, type Screen } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { hostSpec, oldOwnLeaves } from "../src/drawer";
+import { hostSpec } from "../src/drawer";
 import { openScreen } from "../src/desk/screen-specs";
 import { screenNames } from "../src/desk/screen-spec";
 import { ArtViewer, MainMenu } from "../src/screens";
@@ -1024,7 +1024,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         expect(r).toMatchObject({ zoomed: true });
         await d.app.dispatch.press("agent.lift", {}); await settle(null, "act drops it");
         const why = await d.app.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: "drawer.nothing" }, USER).then(() => "", (e: Error) => e.message);
-        expect(why).toMatch(/no tile drawer\.nothing/);
+        expect(why).toMatch(/no tile (is called )?drawer\.nothing/);
         await board.trash(bar.id);
       } finally { d.app.quit(); }
     }, 45_000);
@@ -1184,39 +1184,6 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
-  // PIE-1286, Evan's real file: the own tile saved by an older door as a plain terminal named for its program, known only by the
-  // key it runs under (no role, and `role: shell` meaning its slot). The one-off (scripts/migrations/tile-roles.ts) gives it its role.
-  test("a drawer-tiles.json saved by an older door: run through the one-off, the drawer's own tile answers role:agent and drawer.agent", async () => {
-    const { migrateLayout } = await import("../scripts/migrations/tile-roles");
-    const d = await door();
-    await d.app.act({ action: "tile.drawer", args: {}, tile: "replies", as: AS });
-    d.app.quit();
-    const file = join(outlineState(), "drawer-tiles.json");
-    const saved = JSON.parse(readFileSync(file, "utf8"));
-    const walk = (n: any, f: (l: any) => void) => { if (!n) return; if (n.t === "leaf") f(n); for (const k of n.kids ?? []) walk(k, f); for (const k of n.tabs ?? []) walk(k, f); };
-    walk(saved.root, l => {
-      if (l.role === "agent") { for (const k of ["slot", "role"]) delete l[k]; Object.assign(l, { kind: "pty", name: "shell", role: "shell", kept: "drawer.json:drawer.agent", cmd: ["cat"] }); }
-      else { l.role = l.slot; delete l.slot; }
-    });
-    delete saved.records;
-    const legacy = JSON.stringify(saved);
-    writeFileSync(file, legacy);
-    // Before: nothing names the program (the older door's file, read by this door).
-    const before = await door();
-    try { expect(before.app.drawer.desk).toBeTruthy(); before.paint(); expect(before.app.drawer.resolveTile("role:agent")).toBeNull(); } finally { before.app.quit(); }
-    await until(() => readFileSync(file, "utf8") !== legacy, "that door's save on the way out", 3000).catch(() => {});      // it lands before the one-off's
-    writeFileSync(file, JSON.stringify(migrateLayout(saved, true).value));
-    const e = await door();
-    try {
-      expect(e.app.drawer.desk).toBeTruthy();                    // the drawer's desk is made, restored from the migrated file
-      e.paint();
-      const a = e.app.drawer.agentPane();
-      expect(a?.pane).toBe(e.app.drawer.tile!);
-      expect(e.app.drawer.resolveTile("drawer.agent")?.tile.id).toBe(e.app.drawer.resolveTile("role:agent")?.tile.id);
-      expect(e.app.drawer.tabs().map(t => t.name)).toEqual(["cat", "replies2"]);
-    } finally { e.app.quit(); }
-  });
-
   // PIE-1331: several agent tabs are no ambiguity. role:agent (drawer.agent) and the lift name the one the person used last.
   test("two tiles with role agent: role:agent and the lift name the one used last, never a refusal", async () => {
     const d = await door();
@@ -1285,7 +1252,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         expect([name, lifted() !== null]).toEqual([name, true]);
         await screen.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: DRAWER_TILE_ID }, USER);
         expect([name, lifted()]).toEqual([name, null]);
-        await expect(screen.dispatch.act({ action: "tile.zoom", args: {}, tile: "drawer.nothing" }, USER)).rejects.toThrow(/no tile drawer\.nothing|answers to tile\.zoom/);
+        await expect(screen.dispatch.act({ action: "tile.zoom", args: {}, tile: "drawer.nothing" }, USER)).rejects.toThrow(/no tile (is called )?drawer\.nothing|answers to tile\.zoom/);
         d.app.pop(); d.paint();
       }
     } finally { d.app.quit(); }
@@ -1764,57 +1731,6 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         expect(e.paint().join("\n")).not.toContain("isn't available here");
       } finally { e.app.quit(); }
     } finally { d.app.quit(); }
-  });
-
-  // PIE-1331: a drawer an older door saved holds its own program as a drawer.own leaf, known by the key it ran under
-  // (drawer.json#<gen>:drawer.agent). The drawer reads it once as an agent tab adopting that key (PIE-1332 deletes this).
-  test("an older door's drawer.own leaf comes back as an agent tab that adopts the key its program ran under; the place a program out on a screen left goes", () => {
-    const old = { root: { t: "tabs", tabs: [{ t: "leaf", kind: "drawer.own", name: "drawer.agent", slot: "drawer.agent", role: "agent", cmd: ["/bin/bash"] }, { t: "leaf", kind: "reader", name: "notes" }], active: 0 }, records: 1 };
-    const got = oldOwnLeaves(old, { gen: 2 }).value as any;
-    expect(got.root.tabs[0]).toEqual({ t: "leaf", kind: "pty", name: "shell", role: "agent", cmd: ["/bin/bash"], kept: "drawer.json#2:drawer.agent" });
-    expect(got.root.tabs[1]).toEqual({ t: "leaf", kind: "reader", name: "notes" });
-    // In a group, and with the key it was saved with.
-    const grouped = { root: { t: "leaf", kind: "screen", name: "group3", inner: { root: { t: "leaf", kind: "drawer.own", name: "claude", kept: "drawer.json:drawer.agent", cmd: ["claude"] } } } };
-    expect((oldOwnLeaves(grouped, null).value as any).root.inner.root).toMatchObject({ kind: "pty", name: "claude", role: "agent", kept: "drawer.json:drawer.agent" });
-    // While its program was out on a screen, the leaf only held its place: it goes, and the tab set stays in range.
-    const out = oldOwnLeaves({ root: { t: "tabs", tabs: [old.root.tabs[1], old.root.tabs[0]], active: 1 } }, { gen: 2, out: true });
-    expect(out.changed).toBe(1);
-    expect((out.value as any).root).toEqual({ t: "tabs", tabs: [{ t: "leaf", kind: "reader", name: "notes" }], active: 0 });
-    // The tab shown stays the one shown when the holder before it goes.
-    const shown = oldOwnLeaves({ root: { t: "tabs", tabs: [old.root.tabs[0], { t: "leaf", kind: "reader", name: "a" }, { t: "leaf", kind: "reader", name: "b" }], active: 1 } }, { out: true }).value as any;
-    expect([shown.root.tabs.map((t: any) => t.name), shown.root.active]).toEqual([["a", "b"], 0]);
-    // A drawer the new door saved: nothing changes.
-    expect(oldOwnLeaves(got, { gen: 2 }).changed).toBe(0);
-  });
-
-  test("an older door's drawer comes back in this door: its own program's leaf is an agent tab, drawer.agent names it, the file is rewritten once", async () => {
-    const d = await door();
-    d.paint();
-    await d.app.act({ action: "tile.drawer", args: {}, tile: "replies", as: AS });
-    d.app.quit();
-    const file = join(outlineState(), "drawer-tiles.json");
-    const saved = JSON.parse(readFileSync(file, "utf8"));
-    const leaves: any[] = [];
-    const walk = (n: any) => { if (!n) return; if (n.t === "leaf") leaves.push(n); for (const k of n.kids ?? []) walk(k); for (const k of n.tabs ?? []) walk(k); };
-    walk(saved.root);
-    const own = leaves.find(l => l.role === "agent");
-    expect(own).toBeTruthy();
-    // As the older door saved it.
-    Object.assign(own, { kind: "drawer.own", name: "drawer.agent", slot: "drawer.agent" });
-    delete own.kept;
-    writeFileSync(file, JSON.stringify(saved));
-    writeFileSync(join(state, "drawer.json"), JSON.stringify({ open: false, share: 0.5, gen: 2 }));
-    const e = await door();
-    try {
-      expect(readFileSync(file, "utf8")).not.toContain("drawer.own");
-      expect(e.app.drawer.desk).toBeTruthy();
-      e.paint();
-      const a = e.app.drawer.agentPane()!;
-      expect(a.pane).toBe(e.app.drawer.tile!);
-      expect(a.pane.keptKey).toBe("drawer.json#2:drawer.agent");
-      expect(e.app.drawer.resolveTile("drawer.agent")?.tile.id).toBe(a.desk.answerFor(a.pane)!.tile.id);
-      expect(e.app.drawer.tabs().map(t => t.name)).toEqual(["cat", "replies2"]);
-    } finally { e.app.quit(); }
   });
 
   test("saved: the next door's drawer has the tile back (drawer-tiles.json), the dock as it was", async () => {

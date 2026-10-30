@@ -28,7 +28,7 @@ describe("the ^W key table", () => {
     expect(new Set(keys).size).toBe(keys.length);
     for (const e of W_KEYS as readonly WKey[]) {
       expect(W_GROUPS).toContain(e.group);
-      expect(e.action).toMatch(/^[a-z]+(?:\.[a-z]+)+$/);
+      expect(e.action).toMatch(/^[a-z]+(?:\.[a-z-]+)+$/);
       expect(wKey(e.key)).toBe(e);
     }
   });

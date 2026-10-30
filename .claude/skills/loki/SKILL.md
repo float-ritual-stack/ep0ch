@@ -30,7 +30,9 @@ After a merge to main (yours, or a sha an agent hands you):
    said to deploy: the handover to the new code once cost Evan his comment layout mid-draft.
 3. Deploy both legs with one command: `ssh float-2 'cd ~/projects/ep0ch && ep0ch install --apply'`.
    The host's `ep0ch install` shows the plan first when needed. Install backs up the outlines, fast-forwards the
-   checkout, migrates and restarts the host, then updates its `.host/clients` sequentially over ssh. Register
+   checkout, migrates, and restarts the host, the MCP gateway and the publishers (`publish serve`, the artifact
+   services) only when the code each runs changed ("host unchanged: no restart" otherwise; PIE-1397),
+   then updates its `.host/clients` sequentially over ssh. Register
    float-box once on float-2 with `ep0ch install --apply --add-client float-box`; `--remove-client <ssh-name>`
    removes one. Read every leg's ✓ or !: a failed client leaves the host successful and prints the exact command
    to run by hand. Busy door sessions stay running; after typing ends, run that command again. `--as-client`
@@ -39,17 +41,17 @@ After a merge to main (yours, or a sha an agent hands you):
    while the door is idle, then register float-box: the old installer cannot accept `--as-client`. If install
    leaves an older session protocol running, finish typing and use the exact session-upgrade command it prints.
 4. `ep0ch doctor`: the host, the CLI and the doors on one `PROTOCOL`, nothing behind.
-5. Restart what install doesn't:
-   - the publishers, after any deploy that touched the outliner, outline-core or the web pages:
-     `systemctl --user restart outliner-publish.service outliner-publish-gurgle.service`;
-   - the MCP gateway when `PROTOCOL` or the MCP server changed: `systemctl --user restart ep0ch-mcp.service`;
-   - doors and agents that should run the new code (`ep0ch session upgrade`, `ep0ch act agent.restart`); say which.
+5. Restart what install doesn't: doors and agents that should run the new code (`ep0ch session upgrade`,
+   `ep0ch act agent.restart`); say which. The publishers and the MCP gateway are install's now: never restart them by
+   hand after a deploy (a docs-only merge left alone is the point). A unit install says it can't tell about is restarted
+   by the command it prints.
 6. Check it took: the tailnet page answers (`curl -s https://float-2.tail2a183e.ts.net/pub/ | head`), and
    `systemctl --user status` for what you restarted.
 7. The laptop (float-hub) updates when it is reachable or when Evan runs `ep0ch install --apply` there. Inbound ssh to
    it is often off by work policy: that is normal, never work around it. A step only Evan can do goes on the build
    log's **Needs you** with the exact command.
 8. Write it up: a line in today's build log, patch notes on the requests it answers, and the release notes (below).
+   A build-log line's time comes from `date` (local time, Toronto) or the event's own stamp (`gh pr view <n> --json mergedAt`), never from memory or an estimate: on Oct 29 estimated times ran two hours ahead and a reader caught it.
 
 Never deploy over someone else's half-finished migration, and never kill the outline host or a publisher you didn't
 start except through its service.
@@ -65,9 +67,11 @@ merging, one bumping PR at a time. A PR that bumps it says what each machine nee
 A cron at minutes 17 and 47 (set up at Evan's ask, Oct 12). Check quietly, act on what you find, and tell Evan only
 what needs him or what changed; if nothing changed and nothing's wrong, one line. What changed goes in the build log.
 
-1. **Margins:** comments addressed to @loki in pie or gurgle since the last check:
-   `ep0ch find --ws <ws> --query "(type=annotation OR type=annotation-reply) AND annotation-source=user AND updated >= -40m" --json`.
-   Reply in place, act on clear asks, and summarise.
+1. **Margins:** an @loki comment (Evan's, daddy's, kitty's, anyone's) wakes this session by itself: the mod's
+   addressed check (PIE-1404) sends an `Addressed to @loki` prompt within 30 minutes, listing every open thread that
+   asks you with no reply from you, Evan's first. Answer each in its thread (`outline_reply`, its thread id) or
+   resolve it; it stays on that list until you do. The check-in only sweeps what that can't see: Evan's comments
+   that name nobody, `ep0ch find --ws <ws> --query "(type=annotation OR type=annotation-reply) AND annotation-source=user AND updated >= -40m" --json`.
 2. **Requests:** new copies in pie's "ep0ch requests" subscription (`67a152f1-779a-482c-9b58-d5f7594714f0`; short
    ids don't resolve in `ep0ch show`) created since the last check (compare `created_at` with
    `date -u -d '-40 min' +%Y-%m-%dT%H:%M`), and whether intake wrote a prior-art note for each. Also list every
@@ -136,8 +140,13 @@ it. The first check only records what was already settled (one baseline line in 
 The repository's mod hands your session the drain every 30 minutes (PIE-1372; `EP0CH_DRAIN=off` stops it for a
 session), so no cron is set by hand. The rules are daddy's request ((5bfab6fb-75d1-49ee-9ec6-5f02e653a5f6|Drain on its own clock)). Each tick:
 
-1. **Merge what's ready:** a builder reported green and its findings are answered.
-2. **Fill free builder slots, up to 3, with experiences, not tickets** (Evan, Oct 29: "instead of taking the ambitious
+1. **Merge what's ready, in one batch** (Evan, Oct 29: "the dozens of small let's verify the smallest slice = backs up
+   the building queue = each one doing test runs … code rabbit hitting quota … a blacksmith bill of over $500"). Every
+   PR that's green with its findings answered goes onto one integration branch from main; one box-test covers the batch
+   where any of them needs one; they merge together and deploy once. A red batch is bisected by PR, not rerun whole.
+   loki's own mod, skill and changelog edits collect on one branch a day and merge as one PR with a real review
+   (Oct 28–29 night: 7 separate `[skip review]` PRs, which this replaces).
+2. **Fill free builder slots, up to 5 while float-box's load stays under 8 (Evan, Oct 29: quota is not the limit; the box is), with experiences, not tickets** (Evan, Oct 29: "instead of taking the ambitious
    swing to deliver a coherent experience it's getting sliced off into the smallest safe deliverables leading to a
    disjointed experience for me at the end"). Pick what he will use: Up next (the Waiting to start lane), then a
    capability note or thread, then high priority. Write the one sentence of what Evan will open and do, gather every

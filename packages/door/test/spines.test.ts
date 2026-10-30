@@ -76,8 +76,9 @@ describe("alt+c", () => {
 
 test("the board's collapse and expand are tile.collapse, with the board's keys", () => {
   const collapse = TILE_ACTIONS.list().find(a => a.name === "tile.collapse")!;
-  expect(collapse.keys).toContain("board c on a reader");
-  expect(collapse.keys).toContain("alt+c");
+  // Its keys are rows (PIE-1048): the board's c and alt+c each a row of their own, saying what they do.
+  expect(collapse.keys).toContainEqual({ keys: "c", does: expect.stringContaining("on the board: folds a reader") });
+  expect(collapse.keys).toContainEqual({ keys: "alt+c", does: "every one" });
   expect(BOARD_ACTIONS.has("reader.collapse")).toBe(false);
 });
 
@@ -326,7 +327,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     key({ kind: "tab" });
     key(char("i"));
     expect(B().preview.surface.panel).not.toBeNull();
-    await expect(act("tile.collapse", { on: true }, "preview")).rejects.toThrow(/preview has the person's keys; an agent doesn't fold it/);
+    await expect(act("tile.collapse", { on: true }, "preview")).rejects.toThrow(/the person is typing in preview; an agent doesn't fold it/);
     expect(!!folded(B().preview)).toBe(false);
     key({ kind: "esc" });
     await act("tile.collapse", { on: true }, "detail1");

@@ -243,7 +243,7 @@ describe("the drawer", () => {
       d.key(mouse("down", 10, 27)); d.key(mouse("up", 10, 27));
       expect(d.app.drawer.entered).toBe(true);
       d.A.lastInput = 0;
-      await expect(d.app.act({ action: "host.toggle", args: { open: false }, as: "claude-7" })).rejects.toThrow(/typing in the drawer/);
+      await expect(d.app.act({ action: "host.toggle", args: { open: false }, as: "claude-7" })).rejects.toThrow(/typing in claude in the drawer/);
       await expect(d.app.act({ action: "host.size", args: { share: 0.6 }, as: "claude-7" })).rejects.toThrow(/typing in claude in the drawer/);
       // Their screen can still change under the drawer (dispatch.test.ts: typing in the drawer doesn't hold back a screen
       // change); putting the drawer itself away waits, above.
@@ -259,7 +259,7 @@ describe("the drawer", () => {
       d.paint(); const inside = d.app.drawer.rect!.row + 3;               // a click in the drawer: the person goes in
       d.key(mouse("down", 10, inside)); d.key(mouse("up", 10, inside));
       expect(d.app.drawer.entered).toBe(true);
-      await expect(d.app.act({ action: "host.toggle", args: { open: false }, as: "claude-7" })).rejects.toThrow(/typing in the drawer/);
+      await expect(d.app.act({ action: "host.toggle", args: { open: false }, as: "claude-7" })).rejects.toThrow(/typing in claude in the drawer/);
       // An agent can't hand itself the door.
       await expect(d.app.act({ action: "agents.yolo", args: { on: true }, as: "claude-7" })).rejects.toThrow(/the person's to hand over/);
       await d.app.dispatch.press("agents.yolo", { on: true });

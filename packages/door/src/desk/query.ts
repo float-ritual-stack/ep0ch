@@ -24,6 +24,7 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
 import { readView, type ViewRead } from "../views";
+import { RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
 import { summarySegments, viewSummaryKeys, prop } from "../props";
 import { clamp, pressOn, RowView, wheelRows, type RowPress } from "../scroll";
 import { hasUnsent } from "../draft-session";
@@ -70,6 +71,40 @@ export function laneTileName(lane: string): string {
 /** A card's place in the lane, or what's being dragged over it (for its frame). */
 export type DropShown = { plan: MovePlan | null } | null;
 
+/** A tile not shown reads what changed at most this often, and only one such read is out at a time, door-wide. */
+const HIDDEN_REFRESH_MS = 10_000;
+/** The pause between two of those reads. */
+const BEHIND_GAP_MS = 100;
+
+/**
+ * The tiles not shown with changes to read (a board's lanes off the screen): read one at a time, each at most every
+ * HIDDEN_REFRESH_MS, so an agent's `act` on a lane still finds the outline nearly as it is, while the board's 86 lanes
+ * never ask the host all at once (PIE-1413).
+ */
+const hiddenStale = new Set<QueryPane>();
+
+let hiddenReading = false;
+function behind(p: QueryPane) {
+  hiddenStale.add(p);
+  if (!hiddenReading) void readBehind();
+}
+async function readBehind() {
+  hiddenReading = true;
+  try {
+    while (hiddenStale.size) {
+      const now = Date.now();
+      const next = [...hiddenStale].find(p => now - p.readAt >= HIDDEN_REFRESH_MS);
+      if (!next) { await Bun.sleep(Math.max(250, HIDDEN_REFRESH_MS - Math.max(...[...hiddenStale].map(p => now - p.readAt)))); continue; }
+      hiddenStale.delete(next);
+      // Shown meanwhile, read already, or put away: nothing to do.
+      if (!next.stale || !next.desk || next.disposed) continue;
+      await next.refreshNow(next.desk).catch(() => {});
+      // Spaced, so a board of lanes off the screen is a trickle, not a stream.
+      await Bun.sleep(BEHIND_GAP_MS);
+    }
+  } finally { hiddenReading = false; }
+}
+
 export class QueryPane implements Pane {
   readonly kind = "query" as const;
   /** The view: its block (null until read), and what the service answered for it. */
@@ -97,8 +132,8 @@ export class QueryPane implements Pane {
   model: { laneKeys(k: Key): boolean; laneMouse(k: Extract<Key, { kind: "mouse" }>, press?: RowPress): boolean } | null = null;
   /** The board's hint for its lanes (c collapse · H L move); the tile's own otherwise. */
   boardHint: string | null = null;
-  private asked = 0;
-  private reload: Timer | null = null;
+  /** Its reads: a newer one stops the one before; a burst of outline changes reads once, after a pause. */
+  private readonly search = new SearchSchedule(RELOAD_PAUSE_MS);
   /**
    * `view`: the saved view's block id. `query`: a query in the views' grammar it lists instead (`#garden`), with no
    * saved view. `home`: the reader it belongs to (a tile's name): its selection previews, ⏎ lands there (PIE-794).
@@ -154,8 +189,11 @@ export class QueryPane implements Pane {
   }
   spine() { return { title: this.title() }; }
 
-  /** Given the keys: a list with a home previews its selected card there, as a links tile does (PIE-794). */
-  focused(desk: DeskApi) { const m = this.card(); if (m && this.home && desk.showFrom) desk.showFrom(this, m); }
+  /** Given the keys: its selected card fills a preview that shows nothing yet, never replacing one (PIE-1426). */
+  focused(desk: DeskApi) { if (desk.previewsEmpty?.(this)) this.showSelected(desk); }
+  /** Its selected card shown where its selection goes (a new query's first card): a selection change, never focus alone (PIE-1426). */
+  showSelected(desk: DeskApi) { const m = this.card(); if (m && this.home && desk.showFrom) desk.showFrom(this, m); }
+
 
   /** The selected card. */
   card(): Msg | undefined { return this.items?.[this.sel]; }
@@ -170,13 +208,14 @@ export class QueryPane implements Pane {
   load(desk: DeskApi): Promise<void> {
     const def = this.def, query = this.query;
     if (!def && query === null) return Promise.resolve();
-    const n = ++this.asked;
+    const turn = this.search.begin();
     // A query of its own is the service's to answer (the views' grammar, `where`), as a saved view's is.
     const reading: Promise<ViewRead> = query !== null
-      ? desk.ctx.board.queryNotes(query, 200).then(r => ({ status: "ready" as const, items: r.notes, limit: 200, truncated: r.truncated, errors: [] }), (e: Error) => ({ status: "failed" as const, items: [], limit: 200, truncated: false, errors: [`${query}: ${e.message}`] }))
-      : readView(desk.ctx.board, def!);
+      ? desk.ctx.board.queryNotes(query, 200, undefined, turn.signal).then(r => ({ status: "ready" as const, items: r.notes, limit: 200, truncated: r.truncated, errors: [] }), (e: Error) => ({ status: "failed" as const, items: [], limit: 200, truncated: false, errors: [`${query}: ${e.message}`] }))
+      : readView(desk.ctx.board, def!, {}, turn.signal);
     const mine: Promise<void> = reading.then(read => {
-      if (n !== this.asked) return this.inflight ?? undefined;   // a newer read is on its way: done when that one has landed
+      // A newer read is on its way: done when that one has landed. Put away (the tile closed), nothing is.
+      if (!turn.alive()) { const next = this.inflight; if (next === mine) this.inflight = null; return next === mine ? undefined : next ?? undefined; }
       this.inflight = null;
       const items = read.items;
       this.read = read;
@@ -190,7 +229,7 @@ export class QueryPane implements Pane {
       this.sel = Math.max(0, at >= 0 ? at : Math.min(this.sel, items.length - 1));
       this.loaded?.(this);
       desk.redraw();
-    }, () => { if (n === this.asked) { this.inflight = null; this.items = []; desk.redraw(); } });
+    }, () => { if (turn.alive()) { this.inflight = null; this.items = []; desk.redraw(); } });
     this.inflight = mine;
     return mine;
   }
@@ -199,10 +238,52 @@ export class QueryPane implements Pane {
 
   onEvent(desk: DeskApi, e?: OutlineEvent) {
     if (this.managed || e?.change?.kind === "draft" || e?.change?.kind === "annotate") return;
-    if (this.reload) clearTimeout(this.reload);
-    this.reload = setTimeout(() => { this.reload = null; void this.load(desk); }, 300);
+    this.search.pause(() => void this.refresh(desk));
   }
-  dispose() { if (this.reload) clearTimeout(this.reload); }
+
+  private refreshing: Promise<void> | null = null;
+  private again = false;
+  /** When it was last drawn and last read because the outline changed, and whether a change since is still to read. */
+  disposed = false;
+  readAt = 0;
+  stale = false;
+  /** A frame was asked for since it was last read: asking again would only draw the same screen. */
+  private redrawAsked = false;
+  desk: DeskApi | null = null;
+  /**
+   * Read again because the outline changed: one read at a time, and changes while it is out read once more when it
+   * lands (PIE-1413: a board's lanes each started a read per change and dropped the last, which the host still answered,
+   * so a backfill's records queued thousands of lane reads). A reload asked on purpose (`r`, a new query) is `load`.
+   */
+  refresh(desk: DeskApi): Promise<void> {
+    // Not drawn lately (a lane scrolled off the board, a tile folded to its spine): read when it is drawn again, or at
+    // most every HIDDEN_REFRESH_MS meanwhile, so an agent's `act` on it still sees the outline nearly as it is.
+    this.desk = desk;
+    const now = Date.now();
+    // Not in the desk's frame lately (a lane off the board, a tab behind another, a session nobody watches): it reads
+    // behind, and the desk is asked to draw, so a tile that is on the screen of an idle door reads at once when its frame
+    // comes. One never read yet, and any on a desk that has never drawn (a test's, an agent's headless one), reads now.
+    // A card an action waits to see here (`want`, the board's own move or create) is read for at once too.
+    const hidden = this.items !== null && !this.want && desk.shows?.(this) === false;
+    if (hidden) {
+      // A frame asked once, when it first falls behind: a tile on an idle door's screen is drawn, and reads then.
+      if (!this.stale && !this.redrawAsked) { this.redrawAsked = true; desk.redraw(); }
+      this.stale = true; behind(this); return Promise.resolve();
+    }
+    return this.refreshNow(desk);
+  }
+
+  /** Read what changed now: one read at a time, once more if more changed while it was out. */
+  refreshNow(desk: DeskApi): Promise<void> {
+    this.stale = false;
+    this.redrawAsked = false;
+    this.readAt = Date.now();
+    if (this.disposed) return Promise.resolve();
+    if (this.refreshing) { this.again = true; return this.refreshing; }
+    const run = async () => { do { this.again = false; await this.load(desk); } while (this.again && !this.disposed); };
+    return this.refreshing = run().finally(() => { this.refreshing = null; });
+  }
+  dispose() { this.search.cancel(); this.disposed = true; this.again = false; hiddenStale.delete(this); }
 
   private drawnItems: number[] = [];
   private cardHeight = 2;
@@ -210,6 +291,7 @@ export class QueryPane implements Pane {
   fits(rows: number) { return Math.max(1, Math.floor(rows / this.cardHeight)); }
 
   render(w: number, h: number, focused: boolean): PaneView {
+    if (this.stale && this.desk) { const desk = this.desk; this.stale = false; queueMicrotask(() => void this.refreshNow(desk)); }
     const items = this.items ?? [];
 
     const lines: string[] = [];
@@ -306,7 +388,7 @@ export interface QueryOn { pane: QueryPane; desk: DeskApi; standing: boolean }
 export const QUERY_ACTIONS = actionSet<QueryOn>()("query", {
   "query.pick": def({
     summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it; a tile beside a reader, its home, only previews: the current note stays), open=true opens it as ⏎ does (in its home, replacing its note), fresh=true as alt+⏎ (a new detail beside its home). An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
-    keys: "j k ↑ ↓ PgUp PgDn, click, wheel (pick) · ⏎, double click (open) · alt+⏎, alt- ctrl- or middle-click (fresh)",
+    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "pick" }, { keys: "click wheel", does: "pick" }, { keys: "⏎ double-click", does: "open", says: "open the picked card where this tile's opens land" }, { keys: "alt+⏎ alt-click ctrl-click middle-click", does: "open fresh", says: "open the picked card in a new detail beside" }],
     touches: "nothing", replay: "safe", says: (r, a) => `${a.open ? "opened" : "picked"} "${r.title}"`,
     args: {
       n: { type: "number", optional: true, about: "the card, from 1" },

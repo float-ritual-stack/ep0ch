@@ -3,6 +3,7 @@
   "id": "jira",
   "version": 2,
   "name": "Jira",
+  "description": "A Jira ticket's status, assignee and priority on the note that names it, kept fresh.",
   "run": ["bun", "jira.ts"],
   "configSchema": {
     "type": "object",

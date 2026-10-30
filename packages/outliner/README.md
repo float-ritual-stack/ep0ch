@@ -1168,7 +1168,8 @@ tailnet page, a phone, someone else). Narrowing it to one note and below is opt-
 
 **What's on screen.** Every web client page (tailnet and share) says what its reader has in front of them: the page,
 and the words selected (debounced, at most 2,000 characters) with the text either side and the note row they're in.
-The service keeps the latest per reader in memory (`reader.report`); `reader.view`, the MCP's `reader_view` and
+The service keeps the latest per reader in memory (`reader.report`; a mirror's copy keeps it beside the mirror, for
+the MCP gateway's reader_view, PIE-1091); `reader.view`, the MCP's `reader_view` and
 `ep0ch reader` read it, so an agent in chat can say "you have X selected" without fetching or navigating anything.
 A share's address is said without its token. The page also holds the selection in `#ep0ch-selection`
 (`aria-live`), for an agent driving a browser. With it go where the words are in the row's source (`offsets` at its
@@ -1185,6 +1186,7 @@ script. `window.ep0ch` on every web client page (tailnet and share):
 | `ep0ch.view()` | What's in front of the reader: `blockId`, `title`, `url`; `selection` (`text`, `before`, `after`, `blockId`, `offsets: {start, end}` in that block's source at `revision`); `visible` (the block ids on screen, in page order); `scroll` (`y` of `max` pixels). The same object `reader.view` keeps. |
 | `ep0ch.reveal('((id))')` | Scrolls to the block and outlines it for five seconds (a still outline: nothing flashes). Takes an id (at least 8 characters), `((id))` or `((id\|label))`. A block not on the page is refused with its own page's address; it never navigates. |
 | `ep0ch.journal(since)` | What the reader did after event `since`, oldest first: `{ events, next }`. Pass `next` back to get only what's new. |
+| `ep0ch.trail()` | Where this tab has been (PIE-208): `{ stops }`, the notes it opened, newest first, each once (`blockId`, `title`, `at`), read from the journal. The breadcrumbs' `≡ trail` lists the same. |
 
 Each returns a promise. From a desktop-pane agent's JavaScript tool:
 
@@ -1196,7 +1198,7 @@ await ep0ch.journal(0)                      // everything kept; then journal(nex
 
 They only read and point: none writes. A change to the outline still goes through the MCP (`outline_patch`,
 `outline_comment`, …), attributed. The page says on screen when an agent calls one ("an agent is pointing at …").
-The same helpers are **WebMCP tools** (`ep0ch_help`, `ep0ch_view`, `ep0ch_reveal`, `ep0ch_journal`, read-only) on
+The same helpers are **WebMCP tools** (`ep0ch_help`, `ep0ch_view`, `ep0ch_reveal`, `ep0ch_journal`, `ep0ch_trail`, read-only) on
 `navigator.modelContext`, from the same definitions, so the catalog, the tools and `window.ep0ch` can't drift. Where
 the browser has no WebMCP yet, the publisher serves the `@mcp-b/global` polyfill (pinned in package.json) from this
 origin at `<base>/_marginalia/webmcp.js`, after the reader script: `navigator.modelContext.listTools()` lists them, and
@@ -1387,6 +1389,14 @@ curl -sS -T orrery-site.zip 'https://my.ep0ch.sh/_upload/<token>/'
 - **A device** (`ep0ch device add "Evan's iPhone" --ws pie`, `device ls`, `device revoke <name|id>`) has a token of its own
   that opens this route and nothing else, until revoked. Its link is shown once. A Shortcut posts to
   `…/_upload/<token>/?name=<artifact>&note=<page>` with the file as the body; the Artifacts hub in pie has the recipe.
+- **The signed Shortcut** (`ep0ch device add "Evan's iPhone" --ws pie --shortcut`, PIE-1408) builds that Shortcut
+  around the new device's link (`src/send-to-ep0ch-shortcut.ts`: per shared file, `POST <link>/<Name>.<File
+  Extension>?reply=text` and a notification of the plain-text answer, no questions), signs it with `shortcuts sign
+  --mode anyone` on a Mac (`EP0CH_SHORTCUT_SIGNER`: an ssh name, or `local`; default `laptop` off macOS), keeps it 0600
+  in the host's folder and prints the one link that serves it behind the sign-in: `/_shortcut/<device id>/Send%20to%20ep0ch.shortcut`.
+  The phone opens it and taps Add Shortcut. A signing failure revokes the new device, so the same command can run
+  again; `device ls` shows the link; revoking the device deletes the file. A file sent with no extension is named by
+  its first bytes (PDF, PNG, JPEG, HEIC, WebP), and a HEIC photo is kept as a JPEG (ImageMagick's `convert`).
 
 The CLI streams a ustar archive through the outline service over its existing
 socket/SSH forward. MCP `artifact_put` accepts `{name, kind, content}` for one file
@@ -2465,8 +2475,10 @@ Property filters and catalogs default to `block` scope, so body examples and lin
 `blocks.query` answers a question, the same everywhere (a `::links` block's `query`, a `::graph-*` figure's YAML,
 `outliner_query`), and the service does all of it: no client narrows, groups, sorts or counts rows itself.
 
-- `group`: a property name, or a date bucket: `<property>:day|week|month|year` (`due:week`, read by outline-core
-  `dates.ts` however the date is written; a span goes in its first day's bucket), `created:…` or `updated:…`. The
+- `group`: a property name, or a date bucket: `<property>:day|week|month|year|recent` (`due:week`, read by outline-core
+  `dates.ts` however the date is written; a span goes in its first day's bucket), `created:…` or `updated:…`.
+  `recent` buckets relative to now on the host's wall clock (as `today` in a query): Today, Yesterday, Previous 7 days,
+  Previous 30 days, then each month (`2026-09`), newest first (PIE-1443). The
   answer's `groups` are `{ value, count, ids }`: `count` over every match, `ids` the returned rows in it. A property
   with several values puts a row in each of their groups; matches without it (or, for a date bucket, without a date
   in it) are the `null` group, last. Groups follow the property's value order (`work-stage` in the workboard's stage
@@ -2496,8 +2508,10 @@ List views should not fetch full documents to show titles and metadata.
 order, reduced to `fields`: `id` (always), `parent` (`parentId`, `position`),
 `title` (first content line without property tokens), `properties` (block
 scope), `revision`, `timestamps` (`createdAt`, `updatedAt`), `author` (with any
-actor/session/task provenance), `hasChildren` and opt-in `text`. Omitting
-`fields` returns everything except `text`. Every other id appears once in
+actor/session/task provenance), `hasChildren`, opt-in `text` and opt-in
+`excerpt` (the words after the title as one line, outline-core `noteExcerpt`:
+a list row's preview, PIE-1443). Omitting `fields` returns everything except
+`text` and `excerpt`. Every other id appears once in
 `unavailable` as `missing` or `trashed` (with its `deletedRootId`); one absent
 id never fails the batch. Duplicate ids collapse to their first occurrence.
 `blocks.query` accepts the same optional `fields` and then returns

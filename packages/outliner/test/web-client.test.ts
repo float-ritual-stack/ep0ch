@@ -408,6 +408,8 @@ test("the page says what's on screen and the service keeps it with what the read
   // Only this page's blocks are said to be on screen.
   expect(opened.view).toMatchObject({ blockId: survey.id, title: "Moth survey", visible: [survey.id], scroll: { y: 120, max: 900 } });
   expect(opened.journal.at(-1)).toMatchObject({ kind: "page", blockId: survey.id, title: "Moth survey" });
+  // The page's ≡ trail (PIE-208): the notes this tab opened, newest first, by title.
+  expect((opened as unknown as { trail: { blockId: string; title: string }[] }).trail.slice(0, 2)).toMatchObject([{ blockId: survey.id, title: "Moth survey" }, { blockId: swap.id }]);
   const since = opened.journal.at(-1)!.n;
 
   const words = { quote: "elephant hawk-moths", prefix: "The night-scented stock drew ", suffix: " after dusk." };
@@ -574,7 +576,23 @@ test("the owner's pages hold nothing back by [publish::]: a [publish::false] chi
   const gone = store.create("Old compost plan", hub.id, "user");
   store.delete(gone.id);
   expect((await get(`/pub/p/${gone.id}`)).status).toBe(404);
-  expect(await (await get(`/pub/p/${gone.id}`)).text()).toBe("Not found\n");
+  expect(await (await get(`/pub/p/${gone.id}`, {})).text()).toBe("Not found\n");
+});
+
+test("every error page a browser opens is dark (he is photosensitive): a missing note, a work id nobody has, a bad path; a fetch still gets the plain words", async () => {
+  for (const path of ["/pub/p/PIE-9999", "/pub/p/no-such-page", "/pub/_nothing/here"]) {
+    const response = await get(path);
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toStartWith("text/html");
+    const body = await response.text();
+    expect(body).toContain("color-scheme:dark");
+    expect(body).toContain("background:var(--bg)");
+    expect(body).toContain("Not found");
+    expect(body).toContain('<a href="/pub/">← back to the outline</a>');   // a way back (PIE-1418)
+  }
+  const fetched = await get("/pub/p/PIE-9999", { accept: "*/*" });
+  expect(fetched.status).toBe(404);
+  expect(await fetched.text()).toBe("Not found\n");
 });
 
 test("the top level shows the outline's notes, not its system views: no Trash, no board of untitled deleted notes, Bookmarks a quiet link", async () => {

@@ -5,7 +5,7 @@
 // reach their named outline here, without granting page reads. Another machine's outline is at
 // `/pub/o/<name>@<machine>/`, read live through that machine's forward or from its copy here (publish-remote.ts).
 import { isOutlineName } from "./paths";
-import { escapeHtml, plainPage, type Publisher, type PublishAudience, type SignedIn } from "./publish";
+import { darkError, escapeHtml, plainPage, type Publisher, type PublishAudience, type SignedIn } from "./publish";
 import type { RemoteOutline } from "./publish-remote";
 
 export interface OutlinePublishersOptions {
@@ -36,8 +36,12 @@ export class OutlinePublishers {
     return this.options.home.webRoot;
   }
 
-  /** One request: an outline's own publisher below `/o/<name>`, the outlines' list at `/o/`, else the home outline. */
+  /** One request: an outline's own publisher below `/o/<name>`, the outlines' list at `/o/`, else the home outline; an error a browser opens is a dark page. */
   async handle(request: Request, audience: PublishAudience = "tailnet", signedIn?: SignedIn): Promise<Response> {
+    return darkError(request, await this.route(request, audience, signedIn));
+  }
+
+  private async route(request: Request, audience: PublishAudience, signedIn?: SignedIn): Promise<Response> {
     if (audience === "public") {
       if (!this.options.home.hostAllowed(request.headers.get("host") ?? new URL(request.url).host, audience)) {
         return new Response("Host not allowed\n", { status: 421 });
@@ -64,6 +68,8 @@ export class OutlinePublishers {
     try { name = decodeURIComponent(named[1]!); } catch { name = ""; }
     if (name === this.options.homeName) return redirect(`${root}${named[2] ?? "/"}`);
     const remote = this.options.remotes?.find((candidate) => candidate.address === name);
+    // Its snapshot link is its copy's here, whether or not the machine answers now (PIE-1091).
+    if (remote && /^\/s\/[^/]+\/snapshot\.sqlite$/.test(named[2] ?? "")) return this.snapshot(request, root);
     if (!remote && (!isOutlineName(name) || !(await this.options.names()).includes(name))) return plainPage("No such outline", `<h1>No outline “${escapeHtml(name)}” here</h1>\n<p><a href="${escapeHtml(`${root}/o/`)}">the outlines</a></p>\n`, 404);
     let publisher: Publisher;
     try {
@@ -109,6 +115,12 @@ export class OutlinePublishers {
     let name: string | undefined;
     try { name = match?.[1] ? decodeURIComponent(match[1]) : this.options.homeName; }
     catch { return new Response("Not found", { status: 404 }); }
+    // Another machine's outline: its copy here minted the link (the gateway's outline_snapshot), never its own host.
+    const remote = this.options.remotes?.find((candidate) => candidate.address === name);
+    if (match && remote) {
+      const copy = await remote.copyPublisher();
+      return "error" in copy ? new Response("Not found", { status: 404 }) : copy.snapshotDownload(request, match[2]!);
+    }
     if (!match || !name || !isOutlineName(name) || !(await this.options.names()).includes(name)) return new Response("Not found", { status: 404 });
     const publisher = name === this.options.homeName ? this.options.home : await this.publisher(name);
     return publisher.snapshotDownload(request, match[2]!);

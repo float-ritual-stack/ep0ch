@@ -330,6 +330,20 @@ var PERSONA_PATTERN = new RegExp(`^${NAME}{0,63}$`);
 var CLIENT = `${NAME}{0,252}`;
 var CLIENT_PATTERN = new RegExp(`^${CLIENT}$`);
 var PRINCIPAL_PATTERN = new RegExp(`^${CLIENT}(@${NAME}{0,31})?$`);
+function parseActor(actorId) {
+  const id = (actorId ?? "").trim();
+  const mcp = id.startsWith("mcp:");
+  const rest = mcp ? id.slice(4) : id;
+  const slash = rest.indexOf("/");
+  if (slash > 0) {
+    const persona = rest.slice(0, slash), principal = rest.slice(slash + 1);
+    if (PERSONA_PATTERN.test(persona) && PRINCIPAL_PATTERN.test(principal))
+      return { persona, principal, handle: persona, label: `${persona} (${principal})`, mcp };
+  }
+  if (PRINCIPAL_PATTERN.test(rest) && (mcp || rest.includes("@")))
+    return { principal: rest, handle: rest.split("@")[0], label: rest, mcp };
+  return { handle: rest, label: rest, mcp };
+}
 
 // packages/outline-core/src/outline-location.ts
 function isOutlineName(name) {
@@ -1149,16 +1163,42 @@ function linkOccurrences(text, code) {
   }
   return outsideCode(text, out, codeRanges).sort((a, b) => a.start - b.start);
 }
+// packages/outline-core/src/checklist-marks.ts
+var STEP_BOX_CHARS = " xX~!✓✗+\\-";
+var STEP_BOX = `\\[[${STEP_BOX_CHARS}]\\]`;
+var BY_CHAR = {
+  " ": "todo",
+  x: "done",
+  X: "done",
+  "~": "waiting",
+  "!": "problem",
+  "✓": "approved",
+  "+": "approved",
+  "✗": "rejected",
+  "-": "rejected"
+};
+function boxStatus(box) {
+  const c = box.length === 3 && box[0] === "[" && box[2] === "]" ? box[1] : box;
+  return Object.hasOwn(BY_CHAR, c) ? BY_CHAR[c] : null;
+}
+// packages/outline-core/src/mention.ts
+function mentions(text, name) {
+  const bare = name.trim().replace(/^@/, "");
+  return !!bare && new RegExp(`(^|[^\\w])@${bare.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "i").test(text);
+}
 export {
   BLOCK_ID_PATTERN,
   COMPONENT_OPEN,
+  boxStatus,
   codeBlocks,
   componentBlocks,
   formatEp0chBlockUri,
   labelBar,
   linkOccurrences,
+  mentions,
   pageAddressText,
   pageLinkSpans,
+  parseActor,
   qualifiedReference,
   referencedBlock
 };

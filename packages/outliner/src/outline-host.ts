@@ -1,11 +1,12 @@
 import { OutlineLinks } from "./outline-links";
 import { LokiLeases } from "./loki-leases";
 import { UploadTokens } from "./upload-tokens";
+import { SHORTCUT_NAME } from "./send-to-ep0ch-shortcut";
 import { ArtifactStore } from "./artifact-store";
 import { artifactReference, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { writeDotEp0ch } from "./outline-binding";
 import { Database } from "bun:sqlite";
-import { PROTOCOL, GRAMMAR, type OutlineAbout, type UploadLease } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, type OutlineAbout, type UploadDevice, type UploadLease } from "@ep0ch/outline-core/protocol";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
@@ -40,6 +41,7 @@ import { answerWebSessions, WEB_SESSION_ACTIONS, WebSessions } from "./web-sessi
 import { readMcpAccessFiles } from "./mcp-access-files";
 import { acquireLockFile, acquireWorkspaceOwnership, ownerLockOf } from "./workspace-ownership";
 import { metaDir, withLitestreamPaused } from "./litestream-guard";
+import { DEFAULT_WEB_ORIGIN } from "./artifact-grants";
 
 /*
  * The outline host (PIE-457, PIE-530): one process per user and machine, one socket, any number of outlines, like
@@ -83,10 +85,12 @@ export interface OutlineHostOptions {
    * (`READ_ONLY_ACTIONS`) and `outlines.list`. It never creates, imports or deletes an outline.
    */
   readOnly?: boolean;
+  /** A read-only copy of another machine's outline: what its OutlinerServer is told (its `copy` option, PIE-1091). */
+  copy?: { address: string; state: string };
 }
 
 // `web.sessions.*`: the signed-in web client's sessions (web-sessions.ts), the host's own since one opens every outline.
-const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS, "loki.lease.start", "loki.lease.revoke", "loki.lease.use", "uploads.take", "uploads.finish", "devices.add", "devices.list", "devices.revoke", "mcp.access.files"]);
+const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS, "loki.lease.start", "loki.lease.revoke", "loki.lease.use", "uploads.take", "uploads.finish", "devices.add", "devices.list", "devices.revoke", "devices.shortcut.put", "devices.shortcut.get", "mcp.access.files"]);
 /** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
 const RELAY_WAIT_MS = 60_000;
 const RELAY_MAX_ANSWER = 64 * 2 ** 20;
@@ -691,7 +695,7 @@ export class OutlineHost {
     try {
       const promptDirectory = aiPromptDirectory(this.options.promptDirectory ?? join(stateDirectory, "prompts"));
       if (this.options.promptDirectory === undefined && !this.options.readOnly) await initializeAiPrompts(promptDirectory);
-      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder });
+      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder, ...(this.options.copy ? { copy: this.options.copy } : {}) });
       server.setOutline({ name });
       server.setHost(() => this.status());
       server.setUploadLeases(input => this.startUploadLease(input));
@@ -892,7 +896,13 @@ export class OutlineHost {
 
   /** Where the web client is reached from outside (`EP0CH_WEB_URL`, the first when it lists several). */
   private webOrigin(): string {
-    return (process.env.EP0CH_WEB_URL?.split(",")[0]?.trim() || "https://my.ep0ch.sh").replace(/\/+$/, "");
+    return (process.env.EP0CH_WEB_URL?.split(",")[0]?.trim() || DEFAULT_WEB_ORIGIN).replace(/\/+$/, "");
+  }
+
+  /** The device, with the sign-in page that hands it its signed Shortcut when one is waiting. */
+  private withShortcut(device: UploadDevice): UploadDevice {
+    if (device.revokedAt || !this.uploads().hasShortcut(device.id)) return device;
+    return { ...device, shortcutUrl: `${this.webOrigin()}/_shortcut/${device.id}/${encodeURIComponent(SHORTCUT_NAME)}.shortcut` };
   }
 
   private requireOutline(name: string): void {
@@ -942,7 +952,17 @@ export class OutlineHost {
         const url = `${this.webOrigin()}/_upload/${token}`;
         return { device, token, url };
       }
-      case "devices.list": return { devices: this.uploads().devices() };
+      case "devices.list": return { devices: this.uploads().devices().map(device => this.withShortcut(device)) };
+      // The signed "Send to ep0ch" Shortcut for a device (PIE-1408): kept here, served behind the sign-in.
+      case "devices.shortcut.put": {
+        if (typeof request.device !== "string" || typeof request.data !== "string") throw new Error("devices.shortcut.put needs the device's id and the signed Shortcut (base64)");
+        return { device: this.withShortcut(this.uploads().putShortcut(request.device, Buffer.from(request.data, "base64"))) };
+      }
+      case "devices.shortcut.get": {
+        if (typeof request.device !== "string") throw new Error("devices.shortcut.get names the device's id");
+        const signed = this.uploads().shortcut(request.device);
+        return signed ? { data: Buffer.from(signed).toString("base64") } : { data: null };
+      }
       case "devices.revoke":
         if (typeof request.device !== "string") throw new Error("devices.revoke names the device (ep0ch device ls)");
         return { revoked: this.uploads().revokeDevice(request.device) };

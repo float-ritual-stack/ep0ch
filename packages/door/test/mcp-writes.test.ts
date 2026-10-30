@@ -180,6 +180,46 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(threads[0]!.replies[0]!.body).toBe("Seven packets");
   });
 
+  test("script_run takes this and slots, as a press in that note gives them (PIE-1272)", async () => {
+    const board = boardOn(here, "garden-notes", HERE);
+    const cave = await board.request<{ id: string }>("create", { author: "user", text: "The Undercroft" });
+    const source = await board.request<{ id: string }>("create", { author: "user", text: [
+      "Lamp [script::lamp]", "```js", "return `${this.title}: ${props.card[0]} ${props.choice[0]}`;", "```",
+    ].join("\n") });
+    const pressed = await tool("script_run", { outline: "garden-notes", ref: source.id, this: cave.id, slots: { card: "lamplighter", choice: "2" } });
+    expect(pressed.isError).toBe(false);
+    expect(pressed.json.message).toBe("The Undercroft: lamplighter 2");
+    const bad = await tool("script_run", { outline: "garden-notes", ref: source.id, slots: { card: "two\nlines" } });
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toContain("one line of text");
+  });
+
+  test("outline_proposals tells the caller what became of its proposals, each once, with links (PIE-1086)", async () => {
+    await make("garden-notes", "heard", "Bean rota\nWater on Mondays.");
+    const uri = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.heard! });
+    const read = (await tool("outline_read", { uri })).json;
+    const before = (await tool("outline_proposals", { outline: "garden-notes" })).json;
+    const proposed = await tool("outline_patch", { uri, revision: read.revision, propose: true, patches: [{ observed: "Water on Mondays.", replacement: "Water on Tuesdays." }] });
+    expect(proposed.json.outcome).toBe("proposed");
+    const board = boardOn(here, "garden-notes", HERE);
+    const proposal = (await board.children(ids.heard!)).find(n => prop(n, "type") === "draft-proposal")!;
+    await Bun.sleep(5);
+    await board.request("draft.proposal.dismiss", { proposalId: proposal.id, mutation: { author: "user" } });
+    const heard = (await tool("outline_proposals", { outline: "garden-notes", since: before.cursor })).json;
+    expect(heard.outcomes.map((o: { state: string }) => o.state)).toEqual(["proposed", "dismissed"]);
+    expect(heard.outcomes[0]).toMatchObject({ proposal: proposal.id, note: ids.heard, title: "Bean rota", noteUri: uri });
+    expect((await tool("outline_proposals", { outline: "garden-notes", since: heard.cursor })).json.outcomes).toEqual([]);
+  });
+
+  test("outline_read with view: true answers the note as the door draws it", async () => {
+    await make("garden-notes", "drawn", "Seed tin\n- borlotti\n- chard");
+    const read = await tool("outline_read", { outline: "garden-notes", ref: ids.drawn!, view: true, width: 40 });
+    expect(read.isError).toBe(false);
+    expect(read.json.view.join("\n")).toContain("borlotti");
+    expect(read.json.view.every((l: string) => !l.includes("\x1b"))).toBe(true);
+    expect((await tool("outline_read", { outline: "garden-notes", ref: ids.drawn!, view: true, width: 5 })).isError).toBe(true);
+  });
+
   afterAll(async () => {
     gateway?.stop(); closeOutlines?.();
     for (const b of boards) b.close();

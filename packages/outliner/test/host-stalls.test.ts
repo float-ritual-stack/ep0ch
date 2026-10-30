@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:net";
 import { OutlinerClient } from "../src/client";
-import { actionOf, noteWork, requestSubject, subjectLabel, Turns, watchEventLoop, type LoopStall } from "../src/loop-watch";
+import { actionOf, noteWork, requestSubject, subjectLabel, turnKeyOf, Turns, watchEventLoop, type LoopStall } from "../src/loop-watch";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, TreeIndexSnapshot } from "../src/types";
+import { reviewBackfill } from "../src/write-review-backfill";
+import { readBlockRecords } from "../src/block-records";
 
 // What keeps the outline host answering (PIE-625). The timing guard is scripts/bench-host-stalls.ts (a note read
 // answered in under 200 ms at start-up, under load, during a backup and after a restart). The bounded-read
@@ -27,6 +29,10 @@ function graphReads(store: OutlinerStore) {
   let reads = 0;
   internals.loadGraph = () => { reads += 1; return loadGraph(); };
   return () => reads;
+}
+
+async function until(ok: () => boolean, ms = 30_000): Promise<void> {
+  for (const end = Date.now() + ms; !ok();) { if (Date.now() > end) throw new Error("timed out"); await Bun.sleep(10); }
 }
 
 const graphOf = (store: OutlinerStore) => (store as unknown as { loadGraph(): { byId: Map<string, Block> } }).loadGraph();
@@ -126,6 +132,49 @@ test("the outline graph is read once per change, is frozen, and a failed transac
   }
 });
 
+test("a write patches the graph, and the patched graph is the one a fresh read gives (PIE-1413)", () => {
+  const { store, done } = scratch("graph-patch");
+  const internals = store as unknown as { readGraph(): ReturnType<typeof graphOf> & Record<string, Map<unknown, unknown>> };
+  const readGraph = internals.readGraph.bind(store);
+  let wholeReads = 0;
+  internals.readGraph = () => { wholeReads += 1; return readGraph(); };
+  // Everything a reader can see of a graph, in its order.
+  const seen = (graph: ReturnType<typeof internals.readGraph>) => JSON.stringify({
+    order: [...graph.byId.values()].map(b => [b.id, b.text, b.revision, b.parentId, b.properties, b.effectiveDeletedRootId ?? null]),
+    ...Object.fromEntries((["byParent", "propertyRecordsByBlock", "lineTasksByBlock", "settledBlockRecords", "deletedDescendantCountByRoot"] as const)
+      .map(key => [key, [...graph[key] as Map<unknown, unknown>].map(([k, v]) => [k, v instanceof Map ? [...v] : Array.isArray(v) ? v.map(x => (x as Block)?.id ?? x) : v])
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0])))])),
+  });
+  try {
+    const bed = store.create("Beds [type::hub]");
+    const notes = Array.from({ length: 12 }, (_, i) => store.create(`Row ${i} [row::${i % 3}]\n- [ ] sow [crop::bean]\n- [x] dig [crop::leek]`, i % 2 ? bed.id : null));
+    graphOf(store);
+    const before = wholeReads;
+    const steps: Array<[string, () => void]> = [
+      ["an edit", () => store.update(notes[1]!.id, "Row 1, sown [row::9]\n- [x] sow [crop::bean]", store.require(notes[1]!.id).revision)],
+      ["a new note", () => store.create("Row 12 [row::1]", bed.id)],
+      ["a new note first among its siblings", () => store.create("Row 13 [row::2]", bed.id, "agent", { actorId: "moss" })],
+      ["a move", () => store.move(notes[2]!.id, bed.id, 0)],
+      ["a trash", () => store.delete(notes[3]!.id)],
+      ["a restore", () => store.restore(notes[3]!.id)],
+      ["a nested trash", () => { store.create("Under row 5", notes[5]!.id); store.delete(notes[5]!.id); }],
+      ["an edit inside a rolled back transaction, then one that lands", () => {
+        expect(() => store.database.transaction(() => { store.update(notes[7]!.id, "half", store.require(notes[7]!.id).revision); graphOf(store); throw new Error("abandoned"); })()).toThrow("abandoned");
+        store.update(notes[7]!.id, "Row 7 [row::7]", store.require(notes[7]!.id).revision);
+      }],
+    ];
+    for (const [what, step] of steps) {
+      step();
+      const patched = graphOf(store) as ReturnType<typeof internals.readGraph>;
+      expect(`${what}: ${seen(patched)}`).toBe(`${what}: ${seen(readGraph())}`);
+    }
+    // Only the rolled back transaction read the whole outline again.
+    expect(wholeReads - before).toBe(1);
+  } finally {
+    done();
+  }
+});
+
 test("the tree index made a slice at a time is the one read at once", async () => {
   const { store, done } = scratch("tree-slices");
   try {
@@ -173,6 +222,26 @@ test("a whole-outline read is never starved by a stream of other requests", asyn
   });
   await Promise.all([index, ...streams]);
   expect(order.indexOf("index")).toBeLessThan(10);
+});
+
+test("whoever used the loop least goes next: a ping waits for one of an import's writes, not every one in line (PIE-1413)", async () => {
+  let now = 0;
+  const turns = new Turns(() => now);
+  const order: string[] = [];
+  const importer = {}, door = {};
+  // An import that has been writing: each of its turns took 20 ms, and four more are waiting.
+  for (let i = 0; i < 10; i++) turns.charge(importer, 20);
+  const writes = Array.from({ length: 4 }, (_, i) => turns.next("create", importer).then(() => { order.push(`write-${i}`); turns.charge(importer, 20); }));
+  const ping = turns.next("ping", door).then(() => { order.push("ping"); });
+  await Promise.all([...writes, ping]);
+  expect(order.indexOf("ping")).toBeLessThanOrEqual(1);
+  expect(order.filter(label => label.startsWith("write"))).toEqual(["write-0", "write-1", "write-2", "write-3"]);
+  // Forgotten as time goes: a second later it has used half as much.
+  const used = turns.used(importer);
+  now += 1_000;
+  expect(turns.used(importer)).toBeCloseTo(used / 2, 5);
+  expect(turnKeyOf(`{"id":"1","action":"create","author":"agent","actorId":"moss"}`, door)).toBe("actor:moss");
+  expect(turnKeyOf(`{"id":"1","action":"create","text":"a note that says \\"actorId\\":\\"x\\""}`, door)).toBe(door);
 });
 
 test("a loop stall is reported with the work that held it", async () => {
@@ -349,3 +418,128 @@ test("a page's question about 50 rows of a 5,000-note outline leaves another out
     done();
   }
 }, 180_000);
+
+// PIE-1413, found live on pie (Oct 29; the case is jev-in-use's): a write-review backfill --into stalled the host 5–8 s
+// per note's records, and a door waited up to 64 s. The host stays fair: a door's ping answers at once while it runs,
+// with the door watching the very records it writes. The timing guard at pie's size is scripts/bench-host-fairness.ts.
+test("a backfill --into leaves a watching door's ping answered at once (PIE-1413)", async () => {
+  const { root, store, done } = scratch("backfill-load");
+  const server = new OutlinerServer(store, join(root, "host.sock"));
+  const client = new OutlinerClient(join(root, "host.sock")), door = new OutlinerClient(join(root, "host.sock"));
+  try {
+    // Old notes first, then the agents' walls the backfill reviews (the newest).
+    store.database.transaction(() => {
+      for (let i = 0; i < 6000; i++) store.create(`Seed packet ${i} [type::packet] [bed::b${i % 40}]\n\nSown in row ${i % 12}.`, null, "user");
+    })();
+    // Notes made faster than one a millisecond are stamped ahead of the clock: wait until it has caught up.
+    const newest = Date.parse((store.database.query("SELECT max(created_at) AS at FROM blocks").get() as { at: string }).at);
+    await Bun.sleep(Math.max(0, newest - Date.now()) + 5);
+    store.database.transaction(() => {
+      const wall = (i: number) => `Shed status ${i}\n\n- The roof went on at nine and the felt was cut to size. The tacks ran out halfway; we borrowed a box. Then the rain held off.\n- Evan, should we paint it now or wait for spring?\n\n${"The gutter came down and went back up again. ".repeat(5)}`;
+      for (let i = 0; i < 40; i++) store.create(wall(i), null, "agent", { actorId: "moss/claude-code@shed" });
+    })();
+    await server.start();
+    // A door watching what the backfill writes, as the suggestions page does: its queries are evaluated after changes.
+    await door.request({ action: "blocks.query", query: { where: "type=review-finding", sort: "updated desc", limit: 50, machinery: "show" }, watch: "findings" } as never);
+    await door.request({ action: "blocks.query", query: { where: "type=packet", group: "bed", limit: 20 }, watch: "packets" } as never);
+    let running = true;
+    const pings: number[] = [];
+    const pinging = (async () => {
+      while (running) {
+        const at = performance.now();
+        await door.request({ action: "ping" } as never);
+        pings.push(performance.now() - at);
+        await Bun.sleep(25);
+      }
+    })();
+    const report = await reviewBackfill(client as never, { since: "7d", jev: false, into: client as never, limit: 40 });
+    running = false;
+    await pinging;
+    expect(report.reviewed).toBe(40);
+    expect(report.findings).toBeGreaterThan(40);
+    const sorted = pings.sort((a, b) => a - b);
+    expect({ p95: sorted[Math.floor(sorted.length * 0.95)]! < 200, max: sorted.at(-1)! < 1_000 }).toEqual({ p95: true, max: true });
+  } finally {
+    await server.close();
+    done();
+  }
+}, 300_000);
+
+// PIE-1413's second round, found by driving a door on the Desk: a board's lane reads, queued on the door's one
+// connection, held its note reads and saves behind them for minutes, and a closed door's queue kept running.
+test("a connection's whole-outline reads never hold its note read or its save, and a closed connection's queue is dropped", async () => {
+  const { root, store, done } = scratch("own-connection");
+  const server = new OutlinerServer(store, join(root, "host.sock"));
+  try {
+    store.database.transaction(() => { for (let i = 0; i < 3000; i++) store.create(`Seed packet ${i} [type::packet] [bed::b${i % 40}]`, null, "user"); })();
+    const note = store.create("Shed key [type::note]", null, "user");
+    for (let i = 0; i < 40; i++) store.create(`Lane ${i} [type::virtual-branch] [query::type=packet bed=b${i}]`, null, "user");
+    const views = store.queryBlocks({ filters: [{ key: "type", value: "virtual-branch" }], limit: 100 }).blocks.map(b => b.id);
+    await server.start();
+    const reads = graphReads(store);
+    const open = () => {
+      const socket = connect(join(root, "host.sock"));
+      socket.setEncoding("utf8");
+      const answered = new Map<string, number>();
+      let buffer = "";
+      socket.on("data", (chunk: string) => {
+        buffer += chunk;
+        for (let at = buffer.indexOf("\n"); at >= 0; at = buffer.indexOf("\n")) { answered.set(JSON.parse(buffer.slice(0, at)).id, performance.now()); buffer = buffer.slice(at + 1); }
+      });
+      const send = (id: string, request: object) => socket.write(`${JSON.stringify({ id, ...request })}\n`);
+      return { socket, answered, send };
+    };
+    // A door: every lane's read sent at once, then its person reads a note and saves it, all on the one connection.
+    const door = open();
+    const sent = performance.now();
+    for (const [i, viewId] of views.entries()) door.send(`lane-${i}`, { action: "views.read", viewId, format: "tree" });
+    door.send("note", { action: "children", blockId: note.id });
+    door.send("save", { action: "update", blockId: note.id, text: "Shed key, by the door [type::note]", expectedRevision: note.revision, mutation: { author: "user" } });
+    await until(() => door.answered.size === views.length + 2);
+    const lanesDone = Math.max(...views.map((_, i) => door.answered.get(`lane-${i}`)!));
+    expect(door.answered.get("note")!).toBeLessThan(lanesDone);
+    expect(door.answered.get("save")!).toBeLessThan(lanesDone);
+    expect(door.answered.get("save")! - sent).toBeLessThan((lanesDone - sent) / 2);
+    door.socket.destroy();
+    // A door that goes away with its lanes asked: nobody waits for them, and the host doesn't read them.
+    const gone = open();
+    await new Promise(resolve => gone.socket.once("connect", resolve));
+    const before = reads();
+    for (const [i, viewId] of views.entries()) gone.send(`lane-${i}`, { action: "views.read", viewId, format: "tree" });
+    gone.socket.destroy();
+    await Bun.sleep(300);
+    const after = store.get(note.id);
+    expect(after?.text).toBe("Shed key, by the door [type::note]");
+    expect(reads() - before).toBeLessThan(views.length / 4);
+  } finally {
+    await server.close();
+    done();
+  }
+}, 120_000);
+
+// Seen live on gurgle (Oct 29): one `blocks.records` of 200 notes held the loop 24 s, checking every value-reading
+// note's deps twice for each record. The value references are checked once per change to the outline.
+test("a records read of many notes checks the value-reading notes once, not once a note (PIE-1413)", () => {
+  const { store, done } = scratch("records-values");
+  try {
+    // Notes whose links are built from values: each reads its 30 children.
+    for (let i = 0; i < 5; i++) {
+      const shelf = store.create(`Shelf ${i}\n[[{{this.children}}]]`);
+      for (let j = 0; j < 30; j++) store.create(`Tool ${i}.${j}`, shelf.id);
+    }
+    const notes = Array.from({ length: 100 }, (_, i) => store.create(`Note ${i}`).id);
+    const internals = store as unknown as { valueReferenceVersion(id: string): string };
+    const version = internals.valueReferenceVersion.bind(store);
+    let checks = 0;
+    internals.valueReferenceVersion = (id: string) => { checks += 1; return version(id); };
+    store.referenceValues(notes[0]!);
+    const once = checks;
+    readBlockRecords(store as never, notes);
+    expect(checks).toBe(once);
+    store.update(notes[1]!, "Note 1, oiled", store.require(notes[1]!).revision);
+    readBlockRecords(store as never, notes);
+    expect(checks - once).toBeLessThanOrEqual(once);
+  } finally {
+    done();
+  }
+});

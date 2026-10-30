@@ -1,5 +1,6 @@
 import { standsAsPerson } from "../surface/dispatch";
-import { NOBODY } from "../whereabouts";
+import { keyTable } from "../surface/keymap";
+import { holdsEdit, NOBODY } from "../whereabouts";
 import { COLUMN_MOVE_KEYS } from "../surface/attached-keys";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
 import { errorDetails } from "../status-log";
@@ -16,7 +17,7 @@ import { bodyLinesOf, headedTitle, subject, type Msg } from "../board";
 import { authorName, USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { actorHandle } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
-import { COPY_ROWS, historyRow, IN_TRASH, type Link } from "../surface/note";
+import { COPY_ROWS, historyAction, historyRow, IN_TRASH, type Link, type TrailDir } from "../surface/note";
 import { inWindow, type Placement } from "../kitty";
 import { Gesture, isCopyKey, lineAt, modeKey, paintRange, putCell, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
@@ -28,13 +29,13 @@ import { outlineState, readState, writeState } from "../state";
 import { C, fg, pad, paint, RESET, selectedRow, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, ago, wrap } from "../text";
-import { lastTop, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
+import { lastTop, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
 import { askInBar } from "../bar/ask";
 import type { WriteBoard } from "../mcp-writes";
 import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
-import type { ScreenSpec } from "../desk/screen-spec";
+import { CLOSE_KEY, type ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
 import { LineField } from "../surface/line";
@@ -56,7 +57,7 @@ export type Source = { kind: "roots" } | { kind: "block"; id: string } | { kind:
 interface Clause { key: string; value: string; exclude: boolean }
 interface Row { m: Msg; depth: number }
 /** A row as drawn: its card (-1: none), whether it's the replies toggle, the links on it, the history row's parts. */
-type HitRow = { card: number; replies: boolean; copy?: { from: number; to: number; n: number }[]; linksHead?: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: -1 | 1 }[]; fold?: { to: number; n: number } };
+type HitRow = { card: number; replies: boolean; copy?: { from: number; to: number; n: number }[]; linksHead?: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: TrailDir }[]; fold?: { to: number; n: number } };
 
 /** A source as a tile spec writes it: `roots`, `block:<id>`, `tag:<key>=<value>`. */
 export const sourceText = (s: Source) => (s.kind === "roots" ? "roots" : s.kind === "block" ? `block:${s.id}` : `tag:${s.key}=${s.value}`);
@@ -229,6 +230,8 @@ export class RiverColumn extends ReaderPane {
   /** Its header: its title (the Library, a note, #value), then how many it lists and what it holds. */
   headName() { return this.titleOf(); }
   headLabel() { const st = this.surface.state(); return `${fg(C.dark)}${this.items ? this.listed() : ""}${st ? `${fg(C.yellow)} · ${st}` : ""}${RESET}`; }
+  /** Its keys are the river's (COLUMN_ACTIONS, the column tables), but an edit's or a comment's while one is open. */
+  override keysScope(): string { return this.surface.editing ? super.keysScope() : COLUMN_ACTIONS.scope; }
   override hint() {
     // Typing a filter or choosing a property: the hint row is its prompt (the screen's row shows a typing tile's own).
     if (this.mode === "filter") return completionOf(this.input)?.items.length ? paint(`|08${popupHint(completionOf(this.input)!)}`) : paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
@@ -512,7 +515,14 @@ export class RiverColumn extends ReaderPane {
     // Back and forward are the flow's (its trail): the surface's own history keys and actions go there.
     h.history = {
       peek: dir => desk.travelPeek?.(this, dir) ?? null,
-      go: async (dir, actor) => { await desk.perform?.("tile.travel", { dir: dir < 0 ? "back" : "forward" }, actor, this); return null; },
+      trail: () => desk.travelTrail?.(this) ?? { back: [], forward: [] },
+      // Several stops (the trail's choice, PIE-208): each from the column the last one landed on, which has the keys.
+      go: async (dir, actor, steps = 1) => {
+        const want = desk.travelTrail?.(this)?.[dir < 0 ? "back" : "forward"].length ?? 0;
+        if (steps > 1 && steps > want) return `only ${want} ${dir < 0 ? "back" : "ahead"}: steps=${want} at most (trail lists them)`;
+        for (let i = 0; i < steps; i++) await desk.perform?.("tile.travel", { dir: dir < 0 ? "back" : "forward" }, actor, i ? undefined : this);
+        return null;
+      },
       agentRefusal: "back and forward in the river move the person's keys between columns; an agent opens beside (open, link.follow) instead",
     };
     return h;
@@ -715,7 +725,7 @@ export class RiverColumn extends ReaderPane {
     const row = y >= this.headRows ? this.rows[y - this.headRows] : this.sticky[y - (this.headRows - this.sticky.length)];
     if (row?.linksHead) { this.run(desk, "column.links"); return true; }
     const back = row?.history?.find(h => x >= h.from && x < h.to);
-    if (back) { void desk.perform?.(back.dir < 0 ? "back" : "forward", {}, USER, this); return true; }
+    if (back) { void desk.perform?.(historyAction(back.dir), {}, USER, this); return true; }
     const copy = row?.copy?.find(c => x >= c.from && x < c.to);
     if (copy) { this.run(desk, "column.block", { n: copy.n + 1 }); return true; }
     const link = row?.links?.find(l => x >= l.from && x < l.to);
@@ -726,7 +736,9 @@ export class RiverColumn extends ReaderPane {
     if (!(row && row.card >= 0 && !link)) this.presses.forget();                 // a press elsewhere: the next on a card starts afresh
     if (row && row.card >= 0 && !link) this.run(desk, "column.select", { n: row.card + 1, scroll: false });
     const fold = !link && row?.fold && x >= 1 && x <= row.fold.to ? row.fold.n : undefined;
-    this.down = { row, link: link?.link, ...(fold !== undefined ? { fold } : {}), same, ...(x < 4 && row && row.card >= 0 ? { move: this.flat()[row.card]?.m } : {}), ...(g === "fresh" ? { fresh: true } : {}), dragging: false };
+    // An alt-, ctrl- or middle-click on a link is a fresh one, as in a reader (a button's alt=, or asking its slots again).
+    const fresh = g === "fresh" || (!!link && (!!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE));
+    this.down = { row, link: link?.link, ...(fold !== undefined ? { fold } : {}), same, ...(x < 4 && row && row.card >= 0 ? { move: this.flat()[row.card]?.m } : {}), ...(fresh ? { fresh: true } : {}), dragging: false };
     if (row && row.card >= 0) this.gesture.forget();
     const n = this.gesture.press(x, y);
     const rows = this.drawn && this.selRows();
@@ -741,7 +753,7 @@ export class RiverColumn extends ReaderPane {
     if (d.fold !== undefined) { void this.surface.runKey("fold.toggle", { n: d.fold }, this.host(desk)); return; }
     if (d.link) {
       this.gesture.forget();
-      try { void this.surface.open(d.link, this.host(desk)); } catch (e) { desk.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); }
+      try { this.surface.clickLink(d.link, this.host(desk), !!d.fresh); } catch (e) { desk.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); }
       return;
     }
     const row = d.row;
@@ -903,7 +915,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.link": def({
     summary: "open link row n (from 1, counted from the first links row) of a river column in the next column, as ⏎ on it does (fresh=true: a new column, as alt+⏎); on a group's header it folds or opens the group. A Resource is registered if it must be and shown",
-    keys: "⏎ alt+⏎ space on a links row, a double click or an alt-, ctrl- or middle-click on one",
+    keys: [{ keys: "⏎ space", does: "on a links row, opens it in the next column" }, { keys: "alt+⏎", does: "on a links row, opens it in a new column" }, { keys: "double-click alt-click ctrl-click middle-click", does: "on a links row" }],
     touches: "nothing", replay: "ask", says: () => "opened a link",
     args: { n: { type: "number", about: "the links row, from 1" }, fresh: { type: "boolean", optional: true, about: "a new column, as alt+⏎" } },
     examples: [
@@ -924,7 +936,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.complete": def({
     summary: "what a filter's word offers in a river column's `/`: text=<the filter as typed, ending in the word> (`ty`, `type:`, `-status:do`) answers the keys, or the values of the key before its colon, each with the insertion a choice writes, from the outline's property index (`properties.catalog`, most used first) and the component schemas. Nothing on screen moves and nothing is typed: an agent's filter is `column.filter query=`",
-    keys: "typing in /: ↑↓ choose, ⏎ or tab insert, esc dismiss, a click on a candidate, ctrl+space asks again",
+    keys: [{ keys: "↑ ↓", does: "choose, while typing in /" }, { keys: "⏎ tab", does: "insert the candidate" }, { keys: "esc", does: "dismiss", says: "dismiss the filter's suggestions" }, { keys: "click", does: "on a candidate" }, { keys: "ctrl+space", does: "asks again", says: "ask for the filter's suggestions again" }],
     touches: "nothing", replay: "safe",
     args: { text: { type: "string", about: "the filter text ending in the word to complete" } },
     examples: [
@@ -939,7 +951,8 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     },
   }),
   "column.scroll": def({
-    summary: "scroll a river column by= rows (a page is its height less two); what it lists, its selection and the keys stay", keys: "PgUp PgDn, the wheel",
+    words: "scroll a river column",
+    summary: "scroll a river column by= rows (a page is its height less two); what it lists, its selection and the keys stay", keys: [{ keys: "pgup pgdn", does: "by a page" }, { keys: "wheel", does: "by a few rows" }],
     touches: "tile", replay: "safe", way: "an agent doesn't scroll what they're reading · peek reads the column whole, or act on another column", says: r => `scrolled ${r.tile}`,
     args: { by: { type: "number", about: "rows: positive down, negative up" } },
     examples: [
@@ -950,7 +963,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.filter": def({
     summary: "filter what a river column lists: type:hub -status:done author:codex word (query= empty clears it). The person's /, typing, ⏎",
-    keys: "/ then typing, ⏎ or alt+⏎ (esc cancels)",
+    keys: [{ keys: "/", does: "then typing sets the filter" }, { keys: "⏎ alt+⏎", does: "applies it", says: "apply the typed filter to the column" }, { keys: "esc", does: "cancels", says: "cancel the typed filter" }],
     touches: "tile", replay: "safe", way: "an agent doesn't change what it lists under them (a filter goes back to the top) · search finds notes; open or column.tag puts a column of your own beside, or act on another column", says: r => `filtered ${r.tile}${r.filter ? ` by ${r.filter}` : " (cleared)"}`,
     args: { query: { type: "string", about: "clauses: key:value, -key:value, author:x, or words" } },
     examples: [
@@ -993,6 +1006,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     },
   }),
   "column.move": def({
+    words: "move the selected card of a river column",
     summary: "move the selected card of a river column, or id=, as note.move does (to=, before=, after=, step=up|down|in|out, position=, revision=): the shared move, recorded as who asks; with none of them the person is asked in the power bar. The column reads its notes again; an agent's never moves your selection",
     keys: modeActionKeys([COLUMN_MOVE_KEYS], "column.move"),
     touches: "nothing", replay: "ask", says: r => String((r as { said?: string }).said ?? "moved a note"),
@@ -1047,7 +1061,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.copy": def({
     summary: "copy the text selected in a river column (its drawn rows: drag, or v and move): the person's goes to their clipboard (a drag's when the button comes up); an agent's is given back, the clipboard left alone",
-    keys: "y, cmd+c, the release of a drag (or a double or triple click)",
+    keys: [{ keys: "y cmd+c", does: "copy the selected text" }, { keys: "drag", does: "copies when the button comes up" }, { keys: "double-click", does: "copies the selection (a triple click too)" }],
     touches: "nothing", replay: "safe",
     args: {},
     run: (_, { pane, desk }, actor) => columnOf(pane).copy(actor, desk),
@@ -1059,16 +1073,16 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
  * column beside, w widen, p hold (keep full), x close, g search. Back and forward (alt+← backspace alt+→) are its surface's history,
  * which goes along the flow's trail (`host`).
  */
-const FLOW_KEYS: readonly ModeKey[] = [
+const FLOW_KEYS: readonly ModeKey[] = keyTable("river column", "a river column", [
   { key: "x", action: "tile.close", label: "close" },
-  { key: "h", action: "tile.focus", args: { dir: "left" }, label: "columns" },
-  { key: "left", action: "tile.focus", args: { dir: "left" }, label: "columns" },
-  { key: "l", action: "tile.focus", args: { dir: "right" }, label: "columns" },
-  { key: "right", action: "tile.focus", args: { dir: "right" }, label: "columns" },
-  { key: "w", action: "tile.widen", label: "widen" },
+  { key: "h", action: "tile.focus", args: { dir: "left" }, label: "columns", says: "give your keys to the column on the left" },
+  { key: "left", action: "tile.focus", args: { dir: "left" }, label: "columns", says: "give your keys to the column on the left" },
+  { key: "l", action: "tile.focus", args: { dir: "right" }, label: "columns", says: "give your keys to the column on the right" },
+  { key: "right", action: "tile.focus", args: { dir: "right" }, label: "columns", says: "give your keys to the column on the right" },
+  { key: "w", action: "tile.widen", label: "widen", says: "give this column the wide place in its flow" },
   { key: "p", action: "tile.hold", label: "hold" },
-  { key: "g", action: "search", label: "search" },
-];
+  { key: "g", action: "search", label: "search", says: "search for notes by their words" },
+], "", "river");
 
 /** The river column as a tile kind: a reader of the river's own view, opening a column of its own kind next. */
 export function riverColumnKind(): TileKind {
@@ -1087,7 +1101,7 @@ export function riverColumnKind(): TileKind {
     // A swipe sideways steps to the column beside, as h and l do.
     sideways: (_p, dir) => modeBinding(FLOW_KEYS, { kind: dir < 0 ? "left" : "right" }) ?? null,
     accepts: { notes: true },
-    take: (p, m, desk) => { const c = p as RiverColumn; if (c.holdsKeys || c.editing) return "holds an edit or a comment"; c.hold(m, desk); return null; },
+    take: (p, m, desk) => { const c = p as RiverColumn; if (c.holdsKeys || c.editing) return holdsEdit("the column"); c.hold(m, desk); return null; },
     holdsWork: p => (p as RiverColumn).unsaved() || (p as RiverColumn).editing,
     shows: p => (p as RiverColumn).noteOf() ?? null,
     opensNext: (_p, m) => ({ t: "leaf", kind: "river.column", source: `block:${m.id}` } as TileSpec),
@@ -1103,5 +1117,7 @@ export function riverSpec(): ScreenSpec {
     // The Library is what the river is made around: it doesn't close (closable off, held by its tab set of one, as the
     // board's preview's is), so a saved river always comes back with it.
     layout: { focus: "library", root: { t: "flow", key: "river", held: [0], kids: [{ t: "tabs", tabs: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" } as TileSpec], active: 0, policy: { closable: false } }] } },
+    // x closes a reader floating over the river (a new note's float) as it closes a column, and as the board's x does (PIE-1403).
+    keys: [CLOSE_KEY],
   };
 }

@@ -1,9 +1,11 @@
 // PIE-621: a draft's one history (undo and redo for every change), its keyboard selection and its copy keys.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { BIG_PASTE_LINES, changeOf, Draft, DRAFT_ACTIONS, TYPING_PAUSE_MS } from "../src/edit";
+import { BIG_PASTE_LINES, changeOf, Draft, DRAFT_ACTIONS, TYPING_PAUSE_MS, UNDO_ASK_PAUSE_MS } from "../src/edit";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
+import { editHint } from "../src/surface/editor";
 import { SocketBoard, USER } from "../src/socket";
+import { visible } from "../src/style";
 import { NOTE_ACTIONS } from "../src/surface/note";
 import { pasteKeys, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -196,19 +198,53 @@ describe("a draft's history", () => {
     expect(c.text).toBe("see [[garden]]!");                            // the old selection doesn't eat the insert
   });
 
-  test("a history carried over (a save, then the note opened again unchanged) goes on back past it", async () => {
+  test("a history carried over (a save, then the note opened again unchanged) stops at the save and asks before going past it (PIE-1414)", async () => {
     const a = new Draft("b1", 1, "one");
     a.place(0, 3);
     type(a, " two");
     const b = new Draft("b1", 2, "one two");
-    b.adopt(a.undos);
+    b.adopt(a.undos, 2);
+    b.place(0, 7);
+    type(b, " three");
     await undo(b);
+    expect(b.text).toBe("one two");                                    // what was typed since the reopen goes first
+    await undo(b);
+    expect(b.text).toBe("one two");                                    // the saved text stays: ctrl+z says so and asks
+    expect(b.note).toContain("saved");
+    expect(b.note).toContain("ctrl+z again");
+    // The ask first, whole on the draft's one row in a 40-column tile; what was saved after it (PIE-1428).
+    expect(b.note.split(" · ").slice(0, 2).join(" · ")).toBe("saved · ctrl+z again undoes past it");
+    type(b, "!");                                                      // anything else lets the question go
+    await undo(b);
+    expect(b.text).toBe("one two");
+    await undo(b);
+    expect(b.text).toBe("one two");
+    for (let i = 0; i < 5; i++) await undo(b);                         // a held ctrl+z's repeats keep asking
+    expect(b.text).toBe("one two");
+    await Bun.sleep(UNDO_ASK_PAUSE_MS);
+    b.place(0, 0);                                                     // a click lets the question go too
+    await undo(b);
+    expect(b.text).toBe("one two");
+    await Bun.sleep(UNDO_ASK_PAUSE_MS);
+    await undo(b);                                                     // pressed again after a pause: it goes past the save
     expect(b.text).toBe("one");
     expect(b.dirty).toBe(true);                                        // against what's saved now
+    expect(b.note).toContain("undid");
+    // An agent never takes back saved text, and draft.undo past=true is the asked-for crossing.
+    const c = new Draft("b1", 2, "one two");
+    c.adopt(a.undos, 2);
+    expect(editHint(c, { save: "save" })).toContain("ctrl+z undo (asks: saved)");   // the keys line says it first
+    await expect(DRAFT_ACTIONS.run("draft.undo", {}, c, { kind: "agent", id: "tidy" } as never)).rejects.toThrow();
+    expect(DRAFT_ACTIONS.def("draft.undo")!.personWith!({ past: true })).toMatchObject({ always: expect.stringContaining("only the person") });
+    expect(c.text).toBe("one two");
+    expect(await DRAFT_ACTIONS.run("draft.undo", {}, c, USER)).toMatchObject({ asks: expect.stringContaining("revision 2 stays") });
+    expect(c.text).toBe("one two");
+    expect(await DRAFT_ACTIONS.run("draft.undo", { past: true }, c, USER)).toMatchObject({ undone: expect.stringContaining("undid"), redo: 1 });
+    expect(c.text).toBe("one");
     // Only onto the text it ended on.
-    const c = new Draft("b1", 2, "something else");
-    c.adopt(a.undos);
-    expect(c.undos).toEqual([]);
+    const e = new Draft("b1", 2, "something else");
+    e.adopt(a.undos, 2);
+    expect(e.undos).toEqual([]);
   });
 });
 
@@ -271,7 +307,7 @@ describe.skipIf(!outliner)("against a scratch outline: past a save, and back to 
   }, 20_000);
   afterAll(async () => { board?.close(); await scratch?.dispose(); delete process.env.EP0CH_STATE; });
 
-  test("undo survives a save: the note opened again unchanged, ctrl+z goes on back past it", async () => {
+  test("write, save, reopen, ctrl+z: the saved text stays; ctrl+z again goes past the save, said first (PIE-1414)", async () => {
     const b = await board.request("create", { parentId: null, text: "Jam labels", author: "user" });
     const a = await open(b.id);
     a.pane.key({ kind: "end" }, a.d);
@@ -279,13 +315,38 @@ describe.skipIf(!outliner)("against a scratch outline: past a save, and back to 
     a.pane.key(ctrl("s"), a.d);
     await until(() => !a.pane.editing, "the save");
     const again = await open(b.id);
-    expect(again.draft().undos.length).toBeGreaterThan(0);
+    again.pane.key(ctrl("z"), again.d);
+    await until(() => again.draft().note.includes("saved"), "ctrl+z says the text is saved");
+    expect(again.draft().text).toBe("Jam labels for the plums");
+    expect(again.draft().dirty).toBe(false);
+    await Bun.sleep(UNDO_ASK_PAUSE_MS);
     again.pane.key(ctrl("z"), again.d); again.pane.key(ctrl("z"), again.d); again.pane.key(ctrl("z"), again.d);
-    await until(() => again.draft().text === "Jam labels", "back to where the first draft started");
+    await until(() => again.draft().text === "Jam labels", "asked, then back to where the first draft started");
     again.pane.key(ctrl("y"), again.d);
     await until(() => again.draft().text === "Jam labels for ", "redone a word");
+    expect((await board.get(b.id))!.text).toBe("Jam labels for the plums");   // nothing saved changed
   }, 20_000);
 
+  test("at 40 columns the undo ask reads whole, wrapped under the draft's status, never cut (PIE-1431)", async () => {
+    const b = await board.request("create", { parentId: null, text: "Fig netting", author: "user" });
+    const a = await open(b.id);
+    a.pane.key({ kind: "end" }, a.d);
+    for (const c of " before June") a.pane.key(char(c), a.d);
+    a.pane.key(ctrl("s"), a.d);
+    await until(() => !a.pane.editing, "the save");
+    const again = await open(b.id);
+    again.pane.key(ctrl("z"), again.d);
+    await until(() => again.draft().note.includes("saved"), "ctrl+z asks");
+    const said = again.draft().note;
+    const rows = again.pane.render(40, 20, true, again.d).lines.map(l => visible(l).trimEnd());
+    const at = rows.findIndex(r => r.startsWith("saved · ctrl+z again"));
+    expect(at).toBeGreaterThan(-1);
+    expect(rows.every(r => r.length <= 40)).toBe(true);
+    // Its rows, joined, are the whole ask: the revision it keeps included.
+    const joined = rows.slice(at, at + 4).join(" ").replace(/\s+/g, " ");
+    expect(joined).toContain(said.replace(/\s+/g, " "));
+    expect(joined).toMatch(/revision \d+ stays in its history/);
+  }, 20_000);
 
   test("a saved paste taken back: revision.restore puts the earlier text in the edit (one step), ctrl+s saves it; the CLI lists, prints and restores", async () => {
     const b = await board.request("create", { parentId: null, text: "Shed rota\nTuesdays: oil the hinges", author: "user" });

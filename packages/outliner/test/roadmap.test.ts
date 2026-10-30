@@ -136,7 +136,7 @@ test("delivery and task transitions commit together; retry preserves deliberate 
     repository: "fixture/repository", baseBranch: "main", workBranch: "feature/pie-001" });
   const sync = () => store.syncDelivery({ taskBlockId: task.id, deliveryBlockId: delivery.id,
     expectedDeliveryRevision: store.require(delivery.id).revision, expectedTaskRevision: store.require(task.id).revision,
-    pullRequest: { number: 1, url: "https://github.com/fixture/repository/pull/1", state: "OPEN", mergeCommit: null } }, { author: "agent", actorId: "fixture" });
+    pullRequest: { number: 1, url: "https://github.com/fixture/repository/pull/1", state: "OPEN", mergeCommit: null, baseBranch: "main" } }, { author: "agent", actorId: "fixture" });
   store.database.exec(`CREATE TRIGGER reject_task_update BEFORE UPDATE OF text ON blocks WHEN old.id = '${task.id}' BEGIN SELECT RAISE(ABORT, 'fixture interruption'); END`);
   expect(sync).toThrow("fixture interruption");
   expect(store.require(delivery.id).revision).toBe(delivery.revision);
@@ -153,4 +153,23 @@ test("delivery and task transitions commit together; retry preserves deliberate 
   expect(sync).toThrow("expected task");
   expect(store.require(other.id).revision).toBe(other.revision);
   expect(store.require(delivery.id).revision).toBe(repeated.delivery.revision);
+});
+
+test("a delivery's base follows its own PR when GitHub retargets it; a PR it doesn't record can't move it (PIE-1440)", () => {
+  const store = fixture();
+  const task = store.createRoadmapItem({ ...input, workStage: "doing" }).block;
+  const { delivery } = store.ensureDelivery({ taskBlockId: task.id, deliveryKey: "PIE-001/primary",
+    repository: "fixture/repository", baseBranch: "feat/stack", workBranch: "feature/pie-001" });
+  const sync = (number: number, baseBranch: string) => store.syncDelivery({ taskBlockId: task.id, deliveryBlockId: delivery.id,
+    expectedDeliveryRevision: store.require(delivery.id).revision, expectedTaskRevision: store.require(task.id).revision,
+    pullRequest: { number, url: `https://github.com/fixture/repository/pull/${number}`, state: "OPEN", mergeCommit: null, baseBranch } },
+    { author: "agent", actorId: "fixture" });
+  // Recording no PR yet, a different base is another delivery's.
+  expect(() => sync(1, "main")).toThrow("Delivery PIE-001/primary has conflicting base-branch");
+  sync(1, "feat/stack");
+  expect(sync(1, "main").delivery.properties).toContainEqual({ key: "base-branch", value: "main" });
+  expect(() => sync(2, "feat/stack")).toThrow("conflicting base-branch");
+  expect(() => sync(1, "bad..name")).toThrow("Invalid delivery base branch");
+  expect(store.require(delivery.id).properties.filter((property) => property.key === "base-branch"))
+    .toEqual([{ key: "base-branch", value: "main" }]);
 });

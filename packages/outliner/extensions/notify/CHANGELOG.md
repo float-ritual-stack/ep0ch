@@ -1,5 +1,20 @@
 # Changelog
 
+## 5 (2026-10-29)
+
+- **The notifications page is left out of "what changed lately"** (PIE-1427): it's stamped `[machine::notify]`, since
+  every pull rewrites its cursors.
+- **It still opens by `[[notifications]]`.** A page an earlier version made is stamped on the next pull, or by
+  `ep0ch machinery backfill --apply`.
+- **The boards stay unstamped:** they're your demo notes, and a stamped view would drop out of the door's boards.
+- **Its page reads in ten seconds:** what it does for you, where to look and what you do come first.
+
+## 4 (2026-10-29)
+
+- Each notification is stamped `[machine::notification]` (PIE-1427), so lists and a chat's "what changed lately" leave
+  fetched notifications out by default and count them; the boards say `[machinery::show]`. `ep0ch machinery backfill
+  --apply` stamps the notes and boards an earlier version wrote.
+
 ## 3 (2026-10-16)
 
 - Reads a note's state and the page's cursors from the service's parse of its properties, not from the first line's text.

@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
-import { hintKeys, declaredKeys } from "../../src/surface/actions";
+import { hintKeys, declaredKeys, keysText } from "../../src/surface/actions";
 import { COMMENT_KEYS, EDIT_PREVIEW_KEYS } from "../../src/surface/attached-keys";
 import { Canvas } from "../../src/canvas";
 import { BacklinksPane } from "../../src/desk/backlinks-pane";
@@ -19,6 +19,8 @@ import { completionOf } from "../../src/surface/completer";
 import { ReaderPane } from "../../src/desk/panes";
 import { Desk } from "../../src/desk/desk";
 import { USER } from "../../src/socket";
+import { TRAIL_CHIP } from "../../src/surface/note";
+import { REGION_MARK } from "../../src/output-region";
 import { useShowcaseScreen } from "./harness";
 
 describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
@@ -140,11 +142,11 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     const stage = h.S().stages.get(h.S().sel).top as Desk;
     for (const actions of [stage.dispatch, app.dispatch]) {
       for (const help of [actions.defOf("tile.focus"), actions.list().actions.find(a => a.name === "tile.focus")]) {
-        for (const key of ["Tab", "shift+tab", "1-9", "hyper", "^W"]) expect(help?.keys).toContain(key);
+        for (const key of ["Tab", "shift+tab", "1-9", "hyper", "^W"]) expect(keysText(help?.keys)).toContain(key);
       }
       for (const help of [actions.defOf("layout.move"), actions.list().actions.find(a => a.name === "layout.move")]) {
-        expect(help?.keys).toContain("^W m then h j k l beside");
-        expect(help?.keys).toContain("^W t then h j k l into tabs");
+        expect(keysText(help?.keys)).toContain("^W m then h j k l: beside");
+        expect(keysText(help?.keys)).toContain("^W t then h j k l: into tabs");
       }
     }
   });
@@ -806,7 +808,8 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     const r = d.layoutGet().tiles.find(t => t.name === "notes")!.rect!, stage = h.S().stageRect;
     const body = screen().split("\n").slice(stage.row + r.row + 1, stage.row + r.row + r.rows - 1)
       .map(line => line.slice(stage.col + r.col + 1, stage.col + r.col + r.cols - 1)).join("\n");
-    expect(body).not.toContain("\u2261");
+    // The footer's trail chip has the same glyph; it's there once an earlier test opened the note again (a back stop).
+    expect(body.replaceAll(TRAIL_CHIP, "")).not.toContain(REGION_MARK);
     expect(body).not.toMatch(/ran (just now|\d+ s ago|\d+ min ago)|\[keep\]|run again|\[!output\]|╭─ ▾ .*output/);
     // The way in: the header's [sources], S, or a selection's "Where from" opens the Sources inspector beside the note.
     expect(screen()).toContain("[sources]");

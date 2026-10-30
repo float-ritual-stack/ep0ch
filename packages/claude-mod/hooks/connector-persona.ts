@@ -18,7 +18,7 @@ export const CONNECTOR_PREFIX = 'mcp__claude_ai_ep0ch__'
 export const CONNECTOR_PERSONA_TOOLS = [
   'outline_create', 'outline_patch', 'outline_comment', 'outline_reply', 'outline_resolve_thread', 'outline_quote', 'outline_set_property',
   'outline_move', 'outline_trash', 'outline_restore', 'outline_assign_id', 'outline_proposal_apply', 'outline_proposal_dismiss', 'outline_proposal_resolve',
-  'outline_write_status', 'outline_snapshot', 'script_run', 'share_start', 'share_revoke', 'loki_lease', 'artifact_upload_lease', 'outline_new', 'outline_archive',
+  'outline_write_status', 'outline_proposals', 'outline_snapshot', 'script_run', 'share_start', 'share_revoke', 'loki_lease', 'artifact_upload_lease', 'outline_new', 'outline_archive',
 ] as const
 
 /** The `tool.call` matcher for those tools. */

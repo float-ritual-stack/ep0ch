@@ -1,9 +1,9 @@
 {
   "contract": 2,
   "id": "notify",
-  "version": 3,
+  "version": 5,
   "name": "Notifications hub",
-  "description": "A deterministic fetcher (no model): GitHub notifications, and Gmail, Jira and Slack behind the same shape, become one note each on a notifications page, with a board by read state and one by source.",
+  "description": "Your GitHub notifications as notes, on boards by read state and by source.",
   "demo": "demo",
   "run": ["bun", "notify.ts"],
   "deadline": "2m",
@@ -22,7 +22,7 @@
   "actions": [
     {
       "id": "pull", "label": "Pull notifications", "on": "outline", "effects": "write",
-      "description": "Fetches each source's notifications changed since its last pull: a new one becomes a note, a changed one is updated, one read at the source is marked read here; one you marked read stays read",
+      "description": "Fetches what changed since the last pull: new ones become notes, changed ones update, and one you marked read stays read",
       "schedule": { "every": "5m", "once": "host" }
     }
   ]

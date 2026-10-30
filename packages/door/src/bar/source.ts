@@ -36,6 +36,8 @@ export interface BarRow {
   group?: string;
   /** What's typed names this row outright (an action line with its arguments): the main list puts its source first, so ⏎ picks it. */
   exact?: true;
+  /** The note it stands for (a notes hit), in another outline when `outline` says: its row menu copies its address (note.copy-ref). */
+  note?: { id: string; outline?: string };
   data?: unknown;
 }
 
@@ -58,6 +60,11 @@ export interface BarHost {
   near(): string | null;
   /** Read a note: none when it's gone; a read that fails (offline, refused) throws, so a caller never takes it for gone. */
   note(id: string): Promise<Msg | null>;
+  /**
+   * The screen the rows are for, where it isn't where the person's keys are: a draft's own (PIE-1439), so a note's edit
+   * lists its tile's actions first even while the keys are still outside it (a showcase stage). Default: the keys' screen.
+   */
+  here?: Screen;
 }
 
 export interface BarSource {
@@ -82,13 +89,16 @@ export interface BarSource {
   alone?: true;
   /** The door's own, or the extension's id. */
   by: string;
-  /** Rows for `query` (the prefix taken off). An answer that needs the service is a promise; the bar shows `…` meanwhile. */
-  rows(query: string, host: BarHost, scope: string | null): BarRow[] | Promise<BarRow[]>;
   /**
-   * Asked once its rows came (the service's search, Jev re-ordering the same hits after a pause): the rows again with
-   * a word for the bar's line (`jev ranked`), or null to keep them. The lit row stays lit.
+   * Rows for `query` (the prefix taken off). An answer that needs the service is a promise; the bar shows `…` meanwhile.
+   * `signal` goes with the source's requests: aborted when typing replaced the query or the bar closed (src/search-schedule.ts).
    */
-  later?(query: string, rows: BarRow[], host: BarHost, alive: () => boolean): Promise<{ rows: BarRow[]; said?: string } | null> | null;
+  rows(query: string, host: BarHost, scope: string | null, signal?: AbortSignal): BarRow[] | Promise<BarRow[]>;
+  /**
+   * Asked a pause after its rows came, while the query is still the one typed (the service's search, Jev re-ordering the
+   * same hits): the rows again with a word for the bar's line (`jev ranked`), or null to keep them. The lit row stays lit.
+   */
+  later?(query: string, rows: BarRow[], host: BarHost, signal: AbortSignal): Promise<{ rows: BarRow[]; said?: string } | null> | null;
   /**
    * Lines it draws above its rows, under the bar's line, while the bar is scoped to it (the ask scope's form: its
    * fields and the act line, PIE-1031); `headClick` hears a click on its `i`-th (true when it was its).
@@ -103,6 +113,11 @@ export interface BarSource {
   preview(row: BarRow, host: BarHost): BarPreview | Promise<BarPreview>;
   /** Pick it: through the shared paths, as `how.actor`. */
   pick(row: BarRow, host: BarHost, how: PickHow): Promise<unknown>;
+  /**
+   * The act line its pick runs (`tile.focus tile=b`, `screen.open name=K`), for the row menu's copy command and copy
+   * button (PIE-1405): the source says it, as its pick does it. None: the row has no line (a note's row copies its ref).
+   */
+  command?(row: BarRow, host: BarHost): string | null;
 }
 
 const sources: BarSource[] = [];
@@ -124,11 +139,11 @@ export const barSource = (id: string): BarSource | undefined => sources.find(s =
 /** The open bar hears when a source came or went (an extension added or removed). */
 export function onBarSources(f: () => void) { changed = f; }
 
-/** Open note `id` where the screen's opens land (alt: in a new detail, as alt+⏎ on a link), as `actor`. */
-export async function openNote(id: string, host: BarHost, how: PickHow): Promise<unknown> {
-  const top = host.screens().at(-1);
-  // A screen with an open of its own (the desk's) takes fresh=: a new detail beside the tile with the keys.
-  const args = how.alt && top?.dispatch?.has("open") ? { id, fresh: true } : { id };
-  return how.actor.kind === "agent" ? host.dispatch.act({ action: "open", args }, how.actor) : host.dispatch.press("open", args);
+/** Open note `id` where the screen's opens land (alt: in a new detail, as alt+⏎ on a link; `fragment`: at that line), as `actor`. */
+export async function openNote(id: string, host: BarHost, how: PickHow, fragment?: string): Promise<unknown> {
+  const top = host.screens().at(-1), own = !!top?.dispatch?.has("open");
+  // A screen with an open of its own (the desk's) takes fresh=: a new detail beside the tile with the keys; and a line's anchor.
+  const args = { id, ...(how.alt && own ? { fresh: true } : {}), ...(fragment && own ? { fragment } : {}) };
+  return host.dispatch.as(how.actor, { action: "open", args });
 }
 

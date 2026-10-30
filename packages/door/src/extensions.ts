@@ -29,7 +29,7 @@ import type { Actor, SocketBoard } from "./socket";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { printable } from "./text";
 import { partyOf, UndoHistory } from "./steps";
-import { ActionRefused, ActionSet, actionSet, asActor, def, type ActionDef } from "./surface/actions";
+import { ActionRefused, ActionSet, actionSet, asActor, def, shownLine, type ActionDef } from "./surface/actions";
 import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/screen-layout";
 import type { DeskApi } from "./desk/panes";
@@ -93,6 +93,10 @@ export interface ExtensionEntry {
   schedules?: ExtensionScheduleEntry[];
   /** Its settings (PIE-1343): config.json's path on the host, each field its configSchema declares and its state. */
   settings?: ExtensionSettings;
+  /** A copy of one of the repo's built-ins (PIE-1283): the built-in's folder and this copy's state; this copy is what runs. */
+  builtIn?: { directory: string; state: "current" | "stale" | "forked" };
+  /** A script an extension ships: that extension's id (lists fold it under it). */
+  partOf?: string;
 }
 export interface ExtensionScheduleEntry {
   entry: string; every?: string; cron?: string; next: string; running?: boolean;
@@ -198,6 +202,10 @@ let mentions: RegExp | null = null;
 const boundActions = new Set<string>();
 /** The tile kinds this module registered, with what they were made from (a changed entry is registered again). */
 const boundKinds = new Map<string, string>();
+// The test run's leak check (test/preload.ts), when there is one: what a test file left bound is named between files,
+// and unbound before the next one runs (PIE-1412). Nothing outside tests sets it.
+(globalThis as { [k: symbol]: { set(what: string, left: () => string[], reset: () => void): void } | undefined })[Symbol.for("ep0ch.test.leftovers")]
+  ?.set("extensions bound", () => (current ? (current.extensions.length ? current.extensions.map(e => e.id) : ["an empty list"]) : []), () => { asking++; boundFrom = null; bindExtensions(null); });
 
 /**
  * An extension the service serves from: active, or failed but still on its last good version (it has a name).
@@ -472,19 +480,21 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
   const key = k && handler && !READER_OWN_KEYS.has(k) ? k : undefined;
   const unbound = a.key && !key ? ` Its key ${a.key} isn't bound here (${!keyOf(a.key) ? "the door binds one printable character" : "the reader keeps it"}): a click on its control, or act.` : "";
   return {
+    words: a.label,
     summary: `${e.name ?? e.id}: ${a.label}${a.description ? `. ${a.description}` : ""}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : outline ? " (on the outline: no block)" : " (on block=<id>)"}. The service runs it and attributes its writes${a.effects === "write" ? "" : " (it only answers)"}.${a.fieldsFrom === "block" ? ` It also asks for the fields the note writes as [form-field::<name> <type> …] (read the note for them): give them as with='{"<field>":"<value>"}'.` : ""}${unbound}`,
     ...(e.script?.keys.length ? { keys: `${e.script.keys.join(", ")}, click` } : key ? { keys: `${key}, click` } : { keys: "click" }),
     // The service runs it and writes as the extension: nothing of the person's moves. Replaying it writes again.
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     args: {
-      block: { type: "string", optional: true, about: handler ? `the note with the ${handler}:: line` : e.script ? "the note the script is about, its `this` (the person's: default the note in front of them)" : `the block it acts on${!bar && !outline ? " (the person's: default the note in front of them)" : ""}` },
-      line: { type: "number", optional: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
-      with: { type: "string", optional: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
-      invitation: { type: "string", optional: true, about: "the one-run invitation a person's press minted (src/surface/invite.ts): a script this starts may move their tiles, with it" },
-      via: { type: "string", optional: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
+      block: { type: "string", optional: true, context: true, about: handler ? `the note with the ${handler}:: line` : e.script ? "the note the script is about, its `this` (the person's: default the note in front of them)" : `the block it acts on${!bar && !outline ? " (the person's: default the note in front of them)" : ""}` },
+      line: { type: "number", optional: true, context: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
+      with: { type: "string", optional: true, context: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
+      invitation: { type: "string", optional: true, context: true, about: "the one-run invitation a person's press minted (src/surface/invite.ts): a script this starts may move their tiles, with it" },
+      via: { type: "string", optional: true, context: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
+      asked: { type: "boolean", optional: true, context: true, about: "its arguments were completed where the person typed (a / line in an edit, PIE-1076): what they left out takes its default, and nothing is asked again in the power bar" },
       ...declaredArgs(a),
     } as ActionDef<ExtArgs, ExtOn>["args"],
-    run({ block: named, line, with: w, invitation, via, ...rest }, on, actor) {
+    run({ block: named, line, with: w, invitation, via, asked, ...rest }, on, actor) {
       // The person's run on a block names none: the note in front of them. An agent always names its block.
       // A script is an action on the outline that is still about a note: the one in front of the person is its `this`.
       const block = named ?? (actor.kind === "user" && !handler && !bar && (!outline || !!e.script) ? on.ctx.noteInFront?.() ?? undefined : undefined);
@@ -492,21 +502,33 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       // A `motion=` on a script's press (a button's `motion=fantasia`) is the script's to read: props.motion, and it passes it on to its own acts.
       const hint = TXN.getStore()?.motion;
       const given = { ...withArgs(w), ...givenArgs(a, rest), ...(e.script && hint ? { motion: hint } : {}) };
-      return askingFirst(on.ctx, e, a, block, given, actor, args =>
-        runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(args).length ? { args } : {}),
-          ...(typeof invitation === "string" && invitation ? { invitation } : {}),
-          ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor));
+      // The person's own run of a script (the power bar's row, a key, their act) invites it as their button's press does
+      // (src/surface/invite.ts, PIE-1186): it acts as them on their screen. Runs nobody pressed carry none (PIE-1403).
+      // Minted when it runs, never for a form left unanswered.
+      const invite = () => typeof invitation === "string" && invitation ? invitation : e.script && actor.kind === "user" ? INVITES.mint("you") : undefined;
+      return askingFirst(on.ctx, e, a, block, given, actor, args => {
+        const invited = invite();
+        return runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(args).length ? { args } : {}),
+          ...(invited ? { invitation: invited } : {}),
+          ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor)
+          // The run it started: the invitation belongs to it from here (and is spent when it ends).
+          .then(r => { if (invited && r.undo) INVITES.bind(invited, r.undo); return r; });
+      }, !!asked);
     },
   };
 }
 
 /** An action's declared arguments as its def's (PIE-784): `act ext.<id>.<action> by=price`, listed with their choices. */
-function declaredArgs(a: ExtensionAction): Record<string, { type: string; optional: true; about: string; kind?: "note" }> {
+function declaredArgs(a: ExtensionAction): Record<string, { type: string; optional: true; about: string; kind?: "note" | "key"; choices?: readonly string[] }> {
   return Object.fromEntries((a.args ?? []).map(x => [x.name, {
     type: x.type === "number" ? "number" : "string", optional: true,
-    // What it names, as declared (a script's `[form-field::page note]`): a note is picked from the notes. A choice's options stay
-    // in `about` (the service checks and defaults them; as choices here an empty or spaced value would be refused before it).
+    // What it names, as declared (a script's `[form-field::page note]`): a note is picked from the notes. A choice's options
+    // stay in `about` too; single-word ones are its choices as well (PIE-1076), so they complete where they're typed (a
+    // spaced or empty option would be refused here before the service, which checks and defaults them, saw it).
     ...(x.type === "note" ? { kind: "note" as const } : {}),
+    // Completed where they're typed (PIE-1076): a choice's single-word options as its choices, a property by the outline's keys.
+    ...(x.type === "choice" && x.options?.length && x.options.every(o => /^\S+$/.test(o)) ? { choices: x.options } : {}),
+    ...(x.type === "property" ? { kind: "key" as const } : {}),
     about: `${x.label ?? x.name}${x.description ? `: ${x.description}` : ""}${x.options ? ` (${x.type === "property" ? `${x.options.join(", ")}, or a property${x.from ? ` the ${x.from === "outline" ? "outline has" : x.from === "children" ? "children have" : "block has"}` : ""}` : x.options.join(", ")})` : x.type === "property" ? " (a property's name)" : ""}${x.default !== undefined ? `; default ${x.default}` : ""}${x.defaultProperty ? `, or the block's own [${x.defaultProperty}::]` : ""}${x.required ? "; needed" : ""}`,
   }]));
 }
@@ -529,8 +551,8 @@ const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "prope
  * (src/bar/ask.ts), its choices from the service (`extensions.args`: a property's from the rows it would act on) and its
  * value now lit, then the action runs with them. An agent is never asked: what it leaves out takes its default, or is refused.
  */
-export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>): Promise<R | { asking: string; action: string }> {
-  if (actor.kind !== "user" || !ctx.dispatch) return run(given);
+export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>, asked = false): Promise<R | { asking: string; action: string }> {
+  if (actor.kind !== "user" || !ctx.dispatch || asked) return run(given);
   // A form from the note (PIE-828): what it asks is the note's, so the service says it (a form it can't read is refused there).
   if (a.fieldsFrom === "block") {
     let specs: ExtensionArgChoice[];
@@ -555,15 +577,16 @@ export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: Ex
  */
 function passageAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs & { quote?: string; near?: number }, ExtOn> {
   return {
+    words: a.label,
     summary: `${e.name ?? e.id}: ${a.label}${a.description ? `. ${a.description}` : ""} (on a passage: block=<the note's id> quote=<its exact words>, near=<an offset> among repeats; in a reader, its selection through passage.act). The service checks the passage, then runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.`,
     keys: "a then its key, or a click on its chip, while text is selected in a reader",
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     args: {
-      block: { type: "string", optional: true, about: "the note the words are in" },
-      quote: { type: "string", optional: true, about: "the exact words, as stored" },
-      near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
-      line: { type: "number", optional: true, about: "unused on a passage" },
-      with: { type: "string", optional: true, about: "arguments, as JSON (names to text)" },
+      block: { type: "string", optional: true, context: true, about: "the note the words are in" },
+      quote: { type: "string", optional: true, context: true, about: "the exact words, as stored" },
+      near: { type: "number", optional: true, context: true, about: "when the words occur more than once: the offset to be nearest" },
+      line: { type: "number", optional: true, context: true, about: "unused on a passage" },
+      with: { type: "string", optional: true, context: true, about: "arguments, as JSON (names to text)" },
       ...declaredArgs(a),
     },
     async run({ block, quote, near, with: w, line: _line, ...rest }, on, actor) {
@@ -661,30 +684,38 @@ function kindEntry(t: ExtensionTileKind): TileKind {
  * through `extensions.act` like any of its actions (written as `ext:<id>`, who asked recorded beside it).
  */
 function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
+  // A row's action as one request, for its pick and its copied line alike.
+  const barRequest = (r: ExtensionBarRow): { action: string; args: Record<string, unknown> } | null => {
+    if (!r.action) return null;
+    const a = extensionNamed(b.extension)?.actions.find(x => x.id === r.action);
+    if (!a) throw new ActionRefused(`${b.extension} no longer has the action ${r.action}`);
+    return { action: a.name, args: { ...(r.block ? { block: r.block } : {}), ...(r.args ? { with: JSON.stringify(r.args) } : {}) } };
+  };
   return {
     id: b.name, title: b.title, prefix, by: b.extension, asks: true,
     about: `${b.description ?? b.title} (extension ${b.extension})`,
     main: { empty: b.main, typed: b.main, most: 6 },
-    async rows(q, host) {
-      const r = await host.ctx.board.barRows(b.extension, b.id, q, { near: host.near() ?? undefined });
+    async rows(q, host, _scope, signal) {
+      const r = await host.ctx.board.barRows(b.extension, b.id, q, { near: host.near() ?? undefined, signal });
       return r.rows.map(row => ({ key: oneLine(row.id), label: oneLine(row.label), ...(row.detail ? { detail: oneLine(row.detail) } : {}), data: row }));
     },
     preview(row) {
       const r = row.data as ExtensionBarRow;
       return r.preview ? { markdown: r.preview } : r.block ? { note: r.block } : { lines: [row.label, ...(r.copy ? ["", `⏎ copies ${oneLine(r.copy)}`] : r.resource ? ["", `⏎ opens ${oneLine(r.resource)}`] : [])] };
     },
+    // The line its pick runs (PIE-1405): its action's, or the open of its Resource; a note's row has none.
+    command(row) {
+      const r = row.data as ExtensionBarRow, req = barRequest(r);
+      return req ? shownLine(req.action, req.args) : r.resource && !r.block ? shownLine("open", { resource: r.resource }) : null;
+    },
     async pick(row, host, how) {
       const r = row.data as ExtensionBarRow;
       // Its action runs as any of the extension's actions does: through the dispatcher, as who picked it, its rules its own.
-      if (r.action) {
-        const a = extensionNamed(b.extension)?.actions.find(x => x.id === r.action);
-        if (!a) throw new ActionRefused(`${b.extension} no longer has the action ${r.action}`);
-        const args = { ...(r.block ? { block: r.block } : {}), ...(r.args ? { with: JSON.stringify(r.args) } : {}) };
-        return how.actor.kind === "agent" ? host.dispatch.act({ action: a.name, args }, how.actor) : host.dispatch.press(a.name, args);
-      }
+      const req = barRequest(r);
+      if (req) return host.dispatch.as(how.actor, req);
       if (r.block) return openNote(r.block, host, how);
       // A Resource (PIE-754): opened where opens land, registered first if it must be (the desk's open resource=).
-      if (r.resource) return how.actor.kind === "agent" ? host.dispatch.act({ action: "open", args: { resource: r.resource } }, how.actor) : host.dispatch.press("open", { resource: r.resource });
+      if (r.resource) return host.dispatch.as(how.actor, { action: "open", args: { resource: r.resource } });
       // A copy is the person's clipboard; an agent gets the text back.
       if (r.copy !== undefined) { if (how.actor.kind !== "agent") host.ctx.copy?.(r.copy); return { copied: r.copy }; }
       throw new ActionRefused("that row does nothing when picked");
@@ -776,8 +807,10 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   }
   if (changed) kindsChanged();
   bindBar(next?.barSources ?? [], problems);
+  // Said by name (PIE-1399): an extension's own, never a script it ships (`partOf`: its row is the extension's), never an id.
   const after = new Set(served.map(e => e.id));
-  return { added: [...after].filter(id => !before.has(id)), removed: [...before].filter(id => !after.has(id)), problems };
+  const named = (e: ExtensionEntry | undefined) => (e && !e.partOf ? [e.name ?? e.id] : []);
+  return { added: [...after].filter(id => !before.has(id)).flatMap(id => named(served.find(e => e.id === id))), removed: [...before].filter(id => !after.has(id)).flatMap(id => named(was.get(id))), problems };
 }
 
 let asking = 0;
@@ -800,6 +833,15 @@ export async function loadExtensions(board: SocketBoard, reload = false): Promis
 
 /** The board whose list is bound now (loadExtensions): only the door on it unbinds it. */
 let boundFrom: SocketBoard | null = null;
+/**
+ * What's bound now and whose it is, to bind back after a read of another board's list (drawNote's: `ep0ch show`
+ * inside a door). Bound back with its board, the door on it still unbinds it when it ends (PIE-1412).
+ */
+export const extensionBinding = () => ({ list: current, from: boundFrom });
+export function restoreExtensionBinding(b: ReturnType<typeof extensionBinding>): void {
+  boundFrom = b.from;
+  bindExtensions(b.list);
+}
 /**
  * The door on `board` ended (App.quit): what its list bound goes, and a read of it still on its way binds nothing. A list
  * another board bound since is left alone.

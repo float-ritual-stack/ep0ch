@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { namesDemoIds, readDemo, rewriteDemoReferences, type Demo } from "./extension-demo";
 import { loadExtensionManifest, manifestSources, type ExtensionManifest, type LoadedExtension } from "./extension-manifest";
 import { cleanExtensionText, extensionActorId } from "./extension-records";
-import type { ExtensionEntry, ExtensionRegistry } from "./extension-registry";
+import { overrideWords, type ExtensionEntry, type ExtensionRegistry } from "./extension-registry";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance } from "./types";
 
@@ -181,7 +181,13 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string): str
   const settings = (manifest.configSchema as { properties?: Record<string, { description?: string; default?: unknown }> } | undefined)?.properties;
   if (settings && Object.keys(settings).length) {
     const fallback = (value: unknown) => Array.isArray(value) && value.every((word) => typeof word === "string") ? commandLine(value) : JSON.stringify(value);
-    out.push(`- Settings (\`${directory ? join(directory, "config.json") : "config.json"}\`, in the door: ctrl+k then \`& settings ${manifest.id}\`; \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`): ${Object.entries(settings).map(([key, spec]) => `\`${key}\`${spec?.description ? ` (${words(spec.description)}${spec.default !== undefined ? `; default \`${fallback(spec.default).replaceAll("`", "'")}\`` : ""})` : spec?.default !== undefined ? ` (default \`${fallback(spec.default).replaceAll("`", "'")}\`)` : ""}`).join("; ")}`);
+    const said = (spec: { description?: string; default?: unknown } | undefined) => {
+      const fallen = spec?.default !== undefined ? `default \`${fallback(spec.default).replaceAll("`", "'")}\`` : "";
+      return spec?.description ? `${words(spec.description).replace(/\.$/, "")}${fallen ? ` (${fallen})` : ""}` : fallen;
+    };
+    // A lead line saying where they're changed, then one item per setting: a bullet is one point (the write review's rule).
+    out.push(`- **Settings:** in the door ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`, or edit \`${directory ? join(directory, "config.json") : "config.json"}\`:`,
+      ...Object.entries(settings).map(([key, spec]) => { const line = said(spec); return `  - \`${key}\`${line ? `: ${line}` : ""}`; }));
   }
   return out;
 }
@@ -324,7 +330,7 @@ export class ExtensionPages {
   }
 
   private async syncOnce(): Promise<void> {
-    const listed = this.registry.list().extensions.filter((entry) => entry.state !== "shadowed");
+    const listed = this.registry.list().extensions.filter((entry) => entry.state !== "shadowed" && !entry.partOf);
     this.available = this.readAvailable(new Set(listed.map((entry) => entry.id)));
     const state = this.read();
     const installed = listed.map((entry) => ({ entry, loaded: this.registry.loaded(entry.id) }));
@@ -489,6 +495,8 @@ export class ExtensionPages {
     const lines = [`${name} [ext.page::${entry.id}] [page::ext-${entry.id}]`];
     if (loaded?.description ?? entry.description) lines.push(words(loaded?.description ?? entry.description));
     lines.push(`\`${entry.id}\` · version ${loaded?.version ?? entry.version ?? "?"} · ${STATE_WORDS(entry)} · ${entry.origin === "outline" ? "this outline's own" : "for every outline this host serves"}`);
+    const override = entry.builtIn && overrideWords(entry.id, entry.builtIn);
+    if (override) lines.push(override);
     const directory = loaded?.directory ?? entry.directory;
     const readme = readText(join(directory, "README.md"));
     if (readme?.trim()) lines.push("", readmeBody(readme));

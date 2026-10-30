@@ -15,12 +15,13 @@
 // without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep. `--site` prints
 // the text and the service's whole `site.answer` for its `{{ }}` (PIE-533 S2), as a JSON line a program reads.
+import type { MachineryLeftOut, MachineryMode } from "@ep0ch/outline-core/machinery";
 import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { linesToCells } from "./cells";
-import { bindExtensions, extensionList, loadExtensions } from "./extensions";
+import { extensionBinding, loadExtensions, restoreExtensionBinding } from "./extensions";
 import { connectFigures } from "./graphs";
 import { pageWithResults } from "./page-results";
 import { listenLive, liveBoard, liveSettled, liveSource, setLiveSource } from "./live";
@@ -44,13 +45,17 @@ import type { Ctx } from "./app";
 import { recordJson } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 
-export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
+export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
   ep0ch find [<words>…] [--query "<expression>" [--property-scope block|line|inline|all]] [--view <id>] [--under <id>]
              [--sort <key> [--direction asc|desc]] [--updated-after|--updated-before|--created-after|--created-before <date>]
              [--ids | --lines | --json]
                                    notes: with words, the service's ranked search, tree.search (the ranker
-                                   Goto, the door's / and (( use, asked from no note and without Jev; at
-                                   most 30); --recent, its newest 30; --tree, the outline (or the notes under
+                                   Goto, the door's / and (( use, asked from no note; at most 30), re-ordered
+                                   by Jev when it's set up: each row its Score (2.7/3) and a last line saying
+                                   how sure it is ("strong match: …"; "not sure it's the one: …" when the top
+                                   scores as a match but isn't settled; "no strong match: …" when it isn't one; on stderr with --ids, --lines, --json); when none is
+                                   sure, Jev reads every note's title for ones the words missed (deep, PIE-1200:
+                                   such a row says "by meaning"); --lexical leaves Jev out; --recent, its newest 30; --tree, the outline (or the notes under
                                    <root id>) depth first, as Tree draws it; without, every note, newest first.
                                    A <note> here is an id, ((id)), an id's first 8+ characters, a Work ID of
                                    any prefix the outline has (PIE-870) or a [[page]], resolved by the service.
@@ -106,7 +111,7 @@ export interface BoardAddress { outline: string; machine: string }
 export type NotesBoard = SocketBoard & { address: BoardAddress };
 
 /** One note as `find` lists it. */
-export interface Found { id: string; title: string; path: string; uri?: string; /** Where a line-scope query matched it (PIE-1277). */ matched?: string }
+export interface Found { id: string; title: string; path: string; uri?: string; /** Where a line-scope query matched it (PIE-1277). */ matched?: string; /** Jev's Score on a ranked search (0 to 3). */ score?: number }
 
 /** A field of a `--lines` row: one line, no tabs. */
 const field = (s: string) => printable(s.replace(/[\t\r\n]+/g, " ")).trim();
@@ -234,7 +239,7 @@ export interface Out { out: (s: string) => void; err: (s: string) => void; colum
 
 /** Which notes, by the outline's own reading: a query, a saved view, a subtree, words, or ids given. */
 /** `sort`/`direction`: the order the outline gives a query's notes (created, updated or a property key), as views sort. */
-export interface Selection { ids: string[]; query?: string; view?: string; under?: string; sort?: string; direction?: string; words: string[]; dates: string[]; /** Which chips the query reads (PIE-1277): block (the default), line, inline or all. */ propertyScope?: string }
+export interface Selection { ids: string[]; query?: string; view?: string; under?: string; sort?: string; direction?: string; words: string[]; dates: string[]; /** Which chips the query reads (PIE-1277): block (the default), line, inline or all. */ propertyScope?: string; /** What a query holds of the notes tools stamped `[machine::…]` (PIE-867): the service's hide when left out. */ machinery?: MachineryMode; /** Ask the service to count what hide left out, by producer (PIE-1427). */ countMachinery?: boolean }
 
 /** The flags that select notes and take a value, and the query clause each date flag writes. */
 export const SELECT_FLAGS = ["--query", "--view", "--under", "--sort", "--direction", "--property-scope", "--updated-after", "--updated-before", "--created-after", "--created-before"];
@@ -301,7 +306,7 @@ async function resolveNote(board: SocketBoard, ref: string): Promise<{ id: strin
  * query, the subtree and words through `query.matches`), or else the notes a query, a subtree and words hold for, in
  * outline order (`blocks.query`). The outline evaluates all of it. `truncated` says what was cut at its limits.
  */
-export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string; hint?: string; matches?: Map<string, PropertyMatch[]> } | { error: string }> {
+export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string; hint?: string; matches?: Map<string, PropertyMatch[]>; machineryLeftOut?: MachineryLeftOut } | { error: string }> {
   const named = await resolveNotes(board, [...s.ids, ...(s.view ? [s.view] : []), ...(s.under ? [s.under] : [])]);
   const bad = named.find((n): n is { error: string } => "error" in n);
   if (bad) return { error: bad.error };
@@ -310,7 +315,7 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
   if (s.under) s = { ...s, under: (named.at(-1) as { id: string }).id };
   const expression = selectionQuery(s), text = s.words.join(" ").trim() || undefined;
   const filtered = !!(expression || text || s.under || s.sort);
-  let truncated: string | undefined, hint: string | undefined, matches: Map<string, PropertyMatch[]> | undefined;
+  let truncated: string | undefined, hint: string | undefined, matches: Map<string, PropertyMatch[]> | undefined, machineryLeftOut: MachineryLeftOut | undefined;
   let found: string[] = [];
   const refused = (e: unknown) => {
     const why = (e as Error).message;
@@ -341,15 +346,16 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
     } catch (e) { return refused(e); }
   } else if (filtered) {
     try {
-      const q = await board.queryIds({ expression, text, subtreeRootId: s.under, ...(s.sort ? { sort: { field: s.sort, direction: s.direction ?? "asc" } } : {}), ...(s.propertyScope ? { propertyScope: s.propertyScope } : {}) });
+      const q = await board.queryIds({ expression, text, subtreeRootId: s.under, ...(s.sort ? { sort: { field: s.sort, direction: s.direction ?? "asc" } } : {}), ...(s.propertyScope ? { propertyScope: s.propertyScope } : {}), ...(s.machinery ? { machinery: s.machinery } : {}), ...(s.countMachinery ? { countMachinery: true } : {}) });
       if (q.truncated) truncated = "the outline's first 1000 matches";
       hint = q.hint;
       matches = q.matches;
+      machineryLeftOut = q.machineryLeftOut;
       found = q.ids;
     } catch (e) { return refused(e); }
   }
   const seen = new Set<string>();
-  return { ids: [...ids, ...found].filter(id => !seen.has(id) && !!seen.add(id)), ...(truncated ? { truncated } : {}), ...(hint ? { hint } : {}), ...(matches ? { matches } : {}) };
+  return { ids: [...ids, ...found].filter(id => !seen.has(id) && !!seen.add(id)), ...(truncated ? { truncated } : {}), ...(hint ? { hint } : {}), ...(matches ? { matches } : {}), ...(machineryLeftOut ? { machineryLeftOut } : {}) };
 }
 
 /** The most of a view's members a selection reads (ten pages of the service's thousand). */
@@ -368,7 +374,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   // --tree takes the root's id as its value when one follows.
   const treeAt = args.indexOf("--tree"), tree = treeAt >= 0;
   const root = tree && args[treeAt + 1] !== undefined && !args[treeAt + 1]!.startsWith("--") ? args[treeAt + 1]! : undefined;
-  const words = without(picked.rest, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids", "--here"]);
+  const words = without(picked.rest, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids", "--here", "--lexical"]);
   // --recent and --tree keep their own order: a refusal names what it was given and the same find without them (a
   // --tree root becomes --under, which lists a subtree in outline order).
   const given = [...(recent && tree ? ["--recent"] : []), ...(words.length ? ["words"] : []), ...SELECT_FLAGS.filter(f => args.includes(f))];
@@ -398,7 +404,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
       return 0;
     }
     const query = words.join(" ").trim();
-    let found: Found[];
+    let found: Found[], sure: string | undefined;
     if (asked) {
       // --query, --view, --under (and words with them): the outline's own reading, in outline (or the view's) order.
       const picked = await selectNotes(board, { ids: [], ...sel, words });
@@ -411,13 +417,21 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
       found = withUris(board, picked.ids.flatMap(id => { const b = by.get(id); return b ? [{ id, title: previewTitle(b.title), path: pathOf(b), ...(picked.matches?.get(id) ? { matched: matchedWhere(picked.matches.get(id)!) } : {}) }] : []; }));
     } else {
       // --recent: the service's own answer to an empty search (the newest notes), without reading the whole index.
-      found = withUris(board, query || recent ? (await board.searchBlocks(query)).matches.map(m => ({ id: m.block.id, title: m.title, path: m.path })) : everyNote(await board.index()));
+      // Words are ranked by Jev when the service has it (PIE-1198): each hit its Score, and how sure the list is.
+      const hits = query || recent ? await board.searchBlocks(query, query && !args.includes("--lexical") ? { semantic: true, deep: true } : {}) : null;
+      found = withUris(board, hits ? hits.matches.map(m => ({ id: m.block.id, title: m.title, path: m.path, ...(m.score !== undefined ? { score: m.score } : {}), ...(m.deep ? { matched: "by meaning" } : {}) })) : everyNote(await board.index()));
+      sure = hits?.semantic.status === "ranked" ? hits.semantic.said : undefined;
     }
+    // How sure the ranked list is: under the rows, or on stderr where stdout is for a program.
+    if (sure && (idsOut || json || lines)) io.err(`ep0ch: ${sure}`);
     if (idsOut) { for (const f of found) io.out(`((${f.id}))`); }
     else if (json) return await printRecords(board, found.map(f => f.id), io);
     else if (lines) { for (const f of found) io.out(foundLine(f)); }
     else if (!found.length) io.out(asked ? "nothing matches" : query ? `nothing matches ${query}` : "the outline has no notes");
-    else for (const f of found) io.out(`${f.id.slice(0, 8)}  ${field(f.title)}${f.path ? `  · ${field(f.path)}` : ""}${f.matched ? `  · ${field(f.matched)}` : ""}`);
+    else {
+      for (const f of found) io.out(`${f.id.slice(0, 8)}  ${f.score !== undefined ? `${f.score.toFixed(1)}/3  ` : ""}${field(f.title)}${f.path ? `  · ${field(f.path)}` : ""}${f.matched ? `  · ${field(f.matched)}` : ""}`);
+      if (sure) io.out(sure);
+    }
     return 0;
   } catch (e) {
     io.err(`ep0ch: ${(e as Error).message}`);
@@ -459,7 +473,7 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   if (lent) connectFigures(board, () => {});
   // Either kind of answer arriving (a live figure's, a link title's or ::links') draws it again.
   const unlistenLive = listenLive(() => { arrived = true; }), unlistenLinks = listenLinks(() => { arrived = true; });
-  const previousExtensions = extensionList();
+  const previousExtensions = extensionBinding();
   const surface = new NoteSurface(), tall = 100_000, end = Date.now() + settle.max;
   // Nobody presses a key in what show prints: folded callouts come unfolded, with no "z unfolds".
   surface.unfold = true;
@@ -483,7 +497,7 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
     drawn = surface.render(width, tall, host).lines;
   } finally {
     surface.dispose();
-    bindExtensions(previousExtensions);
+    restoreExtensionBinding(previousExtensions);
     unlistenLive(); unlistenLinks();
     if (lent) { setLiveSource(lent.live.board, lent.live.redraw); setLinksSource(lent.links.board, lent.links.redraw); }
   }

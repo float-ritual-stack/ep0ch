@@ -98,13 +98,27 @@ describe("the squeeze: full → peek → spine around the wide column", () => {
     expect(p.boxes!.has(4)).toBe(false);                         // a full column is all shown
   });
 
+  test("the wide column is never a peek: narrower than a full column, it is full at the width there is (PIE-1392)", () => {
+    // At 36-44 the wide column was a peek, drawn at reading width and cut 2-3 columns under its ▒ edge.
+    for (const cols of [30, 36, 40, 44, 48, 60]) {
+      AREA = wide(cols); holding = new Set();
+      const s = river(6, 3);
+      const p = place(s, AREA);
+      expect(p.covers!.get(3)).toBe("full");
+      expect(p.boxes?.has(3) ?? false).toBe(false);
+      expect([...p.rects.values()].reduce((a, r) => a + r.cols, 0)).toBe(cols);
+    }
+  });
+
   test("too many columns even as spines: the ones nearest the wide one are shown, the rest place nothing", () => {
     AREA = wide(60);
     const s = river(25, 1);
     const p = place(s, AREA);
     expect(p.rects.has(1)).toBe(true);
-    expect(p.rects.has(20)).toBe(true);
-    expect(p.rects.has(21)).toBe(false);
+    // The wide one keeps a peek's width (24) to read in: 12 spines beside it, the rest off the strip (PIE-1392).
+    expect(p.rects.get(1)!.cols).toBe(24);
+    expect(p.rects.has(13)).toBe(true);
+    expect(p.rects.has(14)).toBe(false);
     expect([...p.rects.values()].reduce((a, r) => a + r.cols, 0)).toBe(60);
   });
 
@@ -257,14 +271,13 @@ describe("the explicit shift, holding, closing, back and forward", () => {
     expect(leaves(flowIn(stacked).kids[1]!)).toEqual([2, 9]);
     const beside = ok(s, { op: "open", tile: 9, kind: "reader", name: "beside", at: { kind: "split", target: 2, dir: "right" } }).state;
     expect(flowIn(beside).kids.length).toBe(4);
-    no(s, { op: "collapse", tile: 2, on: true }, /c2 is a column of a flow: it squeezes to a spine by itself/);
     no(s, { op: "grow", tile: 2, axis: "row", by: 1 }, /sizes its columns itself/);
     no(s, { op: "flow.widen", tile: 9 }, /no tile/);
     const locked = ok(s, { op: "policy", node: flowIn(s).id!, set: { locked: true }, clear: [] }).state;
     no(locked, { op: "flow.widen", tile: 1 }, /is locked: widening is refused/);
     no(locked, { op: "flow.hold", tile: 1, on: true }, /is locked: holding a column is refused/);
     // An agent's widen never squeezes the column the person types in; elsewhere it shifts, the keys staying put.
-    no(s, { op: "flow.widen", tile: 1 }, /the person is typing in c3, a column of this flow; an agent's widen would squeeze it/, AGENT, { focus: 3, typingIn: 3, busy: true });
+    no(s, { op: "flow.widen", tile: 1 }, /the person is typing in c3, a column of this flow; an agent doesn't widen another column: it would squeeze theirs/, AGENT, { focus: 3, typingIn: 3, busy: true });
     // reveal (tile.preview's) brings a column off the strip on; an agent's never shifts the strip the person types in.
     AREA = wide(60); const long = river(25, 1);
     expect(place(long, AREA).rects.has(24)).toBe(false);
@@ -272,6 +285,33 @@ describe("the explicit shift, holding, closing, back and forward", () => {
     expect(wideTile(ok(long, { op: "reveal", tile: 24 }, AGENT, { focus: 1, typingIn: 1, busy: true }).state)).toBe(1);
     AREA = wide(220);
     no(init({ tree: splitOf("row", [leaf(1), leaf(2)]), names: new Map([[1, "a"], [2, "b"]]) }), { op: "flow.widen", tile: 1 }, /a isn't in a flow/);
+  });
+
+  test("tile.collapse folds a column to a spine whatever the room; the wide one passes the wide place on; widen opens it (PIE-1392)", () => {
+    AREA = wide(220); holding = new Set();
+    const s = river(4, 4);
+    // Two folded, the other two share the room (what neat asks of a river: two up, the rest spines).
+    let t = ok(s, { op: "collapse", tile: 1, on: true }).state;
+    t = ok(t, { op: "collapse", tile: 4, on: true }).state;
+    expect(covers(t)).toEqual({ 1: "spine", 2: "full", 3: "full", 4: "spine" });
+    expect(wideTile(t)).toBe(3);
+    expect(place(t, AREA).rects.get(1)!.cols).toBe(3);
+    // Opening it again: it squeezes as any column (here, a peek beside the two full ones).
+    expect(covers(ok(t, { op: "collapse", tile: 1, on: false }).state)[1]).toBe("peek");
+    // Widened, a folded column opens: the wide place is never a spine.
+    const w = ok(t, { op: "flow.widen", tile: 4 }).state;
+    expect(wideTile(w)).toBe(4);
+    expect(covers(w)[4]).toBe("full");
+    // Closing the wide one passes the wide place on; a folded column that takes it opens (never a folded reading column).
+    const passed = ok(ok(river(3, 2), { op: "collapse", tile: 1, on: true }).state, { op: "close", tile: 2 }).state;
+    expect(wideTile(passed)).toBe(1);
+    expect(passed.collapsed.has(1)).toBe(false);
+    expect(covers(passed)[1]).toBe("full");
+    // The last open column stays open.
+    let one = ok(river(2, 2), { op: "collapse", tile: 1, on: true }).state;
+    no(one, { op: "collapse", tile: 2, on: true }, /c2 is the only open column of its flow/);
+    one = ok(one, { op: "collapse", tile: 1, on: false }).state;
+    expect(covers(one)[1]).toBe("full");
   });
 
   test("a column taken out whole (a stack put in a dock at an edge) leaves the flow a flow, its memory tidied", () => {

@@ -5,7 +5,6 @@
 // `bar.pick` lists them for itself and picks one, which runs through the source's shared path as the agent, so every
 // rule an action has for an agent (never their keys, focus or screen) is that path's own.
 import { ActionRefused, actionSet, actRequestOf, def, lineWords, type ActRequest } from "../surface/actions";
-import { actorRule } from "../surface/dispatch";
 import type { Actor } from "../socket";
 import type { PowerBar } from "./bar";
 import { clearPrivateForm, formFocus, formLine, formOpen, formRun, formSet, formState } from "./ask";
@@ -47,7 +46,7 @@ const scopes = () => barSources().map(s => ({ scope: s.id, prefix: s.prefix, tit
 export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", {
   "bar.open": def({
     summary: "the power bar: one palette over every screen. With nothing typed it lists the tiles open on every screen and in your drawer (indented as each screen's layout tree, with the note each shows), then what others changed since you looked; typed, the tiles, the outline's notes (the service's one search), the actions you can do here (with their keys), what changed and the screens, each under its heading; scope=tiles|notes|actions|recent|screens|extensions or an extension's (or its prefix: % / > + @ &, ~ and so on) lists one. The person's opens it with their keys in it (query= typed in); an agent's answers the rows it would list (numbered from 1, with scope=, query=) and opens nothing",
-    keys: "ctrl+k, cmd+k (where the terminal sends it), alt+k (PIE-1346), alt+left alt+right (alt+b alt+f) and a click on a scope in the open bar, a prefix on its empty line, ✦p (hyper, also while typing; ✦g in its screens scope), a click on the status bar's ^K, on every screen and in your drawer (not while typing, in a terminal tile or the drawer's program); / on the desk and the screens on it, g in a river column (the notes scope); ^W ? on the desk (the actions scope on the ^W keys, to filter and press one)",
+    keys: [{ keys: "ctrl+k cmd+k alt+k", does: "on every screen and in your drawer, not while typing, in a terminal tile or the drawer's program (cmd+k where the terminal sends it; alt+k is PIE-1346)" }, { keys: "alt+left alt+right alt+b alt+f", does: "in the open bar, move between scopes" }, { keys: "click", does: "on a scope in the open bar, or on the status bar's ^K" }, { via: "a prefix typed on the bar's empty line" }, { keys: "✦p", does: "hyper chord, also while typing" }, { keys: "✦g", does: "hyper chord, in the bar's screens scope" }, { keys: "/", does: "on the desk and the screens on it" }, { keys: "g", does: "in a river column, the notes scope" }, { keys: "^W ?", does: "on the desk: the actions scope on the ^W keys, to filter and press one" }],
     touches: "nothing", replay: "safe",
     args: {
       query: { type: "string", optional: true, about: "what's typed in it" },
@@ -62,8 +61,6 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     async run({ query, scope, by, keep }, { on, standing }, actor: Actor) {
       const s = scopeArg(scope);
       if (!standing) { const b = await on.unseen({ query, scope: s }); try { return { ...b.describe(), scopes: scopes() }; } finally { b.close(); } }
-      const held = actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
-      if (held) throw new ActionRefused(held);
       const open = on.bar();
       if ((by !== undefined || keep) && open && !open.ended()) {
         const all = open.scopes();
@@ -98,19 +95,18 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
           return await b.pickRow(at, !!alt, actor);
         } catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); } finally { b.close(); }
       }
-      const held = actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
-      if (held) throw new ActionRefused(held);
       const b = on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
       if (query !== undefined || scope !== undefined) throw new ActionRefused("the person's pick is from the bar as they see it: query= and scope= are an agent's");
-      const at = n ?? b.selected + 1;
+      const lit = b.litPick(n), at = typeof lit === "number" ? lit : await lit;
+      if (on.bar() !== b) throw new ActionRefused("the power bar was put away");
       if (!b.keepsRun(at)) on.close();
       try { return await b.pickRow(at, !!alt, actor); } catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
     },
   }),
   "bar.edit": def({
     summary: "edit the power bar's shared line: clear, complete, paste, select, cut, delete-word or undo. An agent edits an unseen line supplied by query= and scope=",
-    keys: "esc with text, ctrl+u, tab, paste, shift+arrows, drag, double click, ctrl+x, ctrl+w, ctrl+z",
+    keys: [{ keys: "esc", does: "with text in the line, clears it" }, { keys: "ctrl+u", does: "clear the line" }, { keys: "tab", does: "complete", says: "complete the word in the power bar's line" }, { keys: "paste", does: "paste into the line" }, { keys: "shift+left shift+right shift+up shift+down", does: "select", says: "select text in the power bar's line" }, { keys: "drag", does: "select" }, { keys: "double-click", does: "select" }, { keys: "ctrl+x", does: "cut", says: "cut the selection from the power bar's line" }, { keys: "ctrl+w", does: "delete a word" }, { keys: "ctrl+z", does: "undo", says: "undo the last change to the power bar's line" }],
     touches: "nothing", replay: "safe",
     args: {
       op: { type: "string", about: "clear, complete, paste, select, cut, delete-word or undo" },
@@ -126,8 +122,6 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     ],
     async run({ op, text, from, to, query, scope }, { on, standing }, actor: Actor) {
       if (!["clear", "complete", "paste", "select", "cut", "delete-word", "undo"].includes(op)) throw new ActionRefused("choose clear, complete, paste, select, cut, delete-word or undo");
-      const held = standing && actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
-      if (held) throw new ActionRefused(held);
       const b = !standing ? await on.unseen({ query, scope: scopeArg(scope) }) : on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
       try { await b.edit(op, { text, from, to }, actor.kind === "user"); return { query: b.query, selected: b.input.selectedText() }; }
@@ -148,7 +142,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
   }),
   "bar.command": def({
     summary: "copy the command as an ep0ch act line or a note button, recall the last run, or open its copy menu",
-    keys: "alt+o copy command, alt+y copy button, alt+m menu, up on an empty line recalls the last run; right click a row",
+    keys: [{ keys: "alt+o", does: "copy command", says: "copy the command as an act line" }, { keys: "alt+y", does: "copy button", says: "copy the command as a note button" }, { keys: "alt+m", does: "menu", says: "open the command's copy menu" }, { keys: "up", does: "on an empty line recalls the last run" }, { keys: "right-click", does: "a row" }],
     touches: "nothing", replay: "safe", person: "the bar and clipboard are the person's",
     args: { op: { type: "string", choices: ["copy", "button", "recall", "menu"], about: "copy, button, recall or menu" }, n: { type: "number", optional: true, about: "row from 1; default the lit row" } },
     examples: [{ act: "bar.command op=button", does: "copies the selected command as an authored note button" }],
@@ -160,7 +154,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
   }),
   "bar.insert": def({
     summary: "insert the command as a button into the note at the person's cursor, as one unsaved draft edit",
-    keys: "alt+i; insert button in the command menu",
+    keys: [{ keys: "alt+i", does: "insert the command as a button into the note" }, { via: "the insert button in the command menu" }],
     touches: "nothing", replay: "ask", person: "inserting at the person's cursor is their action",
     args: {},
     async run(_, { on }, actor) {
@@ -174,6 +168,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     summary: "an action's form in the power bar (PIE-1031): a field per argument (the ones it needs first, then tile= when it runs on a tile, then the rest), each with what it means; the field in focus lists its values, the things in the system it can name (a tile, a note, a page, a screen, a saved view, a property's key or value, a tile kind), its choices, or true and false, typing filtering them; the act line it will run under them, and its examples, a pick of one filling the form. op=open action=<name> (or line=<an act line> to start from some of its arguments) opens it; op=focus field=<name> (run: the act line) moves to a field; op=set field= value= answers one and goes on; op=clear field= leaves one out; op=back goes back a field; op=copy copies the act line; op=run runs it as the person, through the dispatcher. An agent's op=open answers the fields (their kinds, choices and defaults) and opens nothing; an agent runs the action itself",
     keys: "enter on an action that takes arguments in the power bar's actions (alt+enter runs one that needs none as it is); in the form: enter picks a value and goes on, alt+enter picks and runs, shift+tab or backspace on an empty line goes back a field, a click on a field or the act line",
     touches: "nothing", replay: "ask",
+    personWith: a => (a.op === "open" ? null : "the form open in the power bar is the person's; an agent runs the action itself (ep0ch act <action> …, op=open answers its fields)"),
     args: {
       op: { type: "string", choices: FORM_OPS, about: "open, focus, set, clear, back, copy or run" },
       action: { type: "string", optional: true, about: "op=open: the action whose form it is" },
@@ -192,7 +187,6 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
         await openActionForm(on.host(), req, actor);
         return formState();
       }
-      if (actor.kind === "agent") throw new ActionRefused("the form open in the power bar is the person's; an agent runs the action itself (ep0ch act <action> …, op=open answers its fields)");
       if (!formOpen()) throw new ActionRefused("no form is open · pick an action that takes arguments in the power bar (ctrl+k then >)");
       const need = () => { if (field === undefined) throw new ActionRefused(`op=${op} names field=`); return field; };
       if (op === "run") { const why = formState()?.refused; if (typeof why === "string") throw new ActionRefused(why); on.close(); return formRun(); }

@@ -1,3 +1,4 @@
+import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { grammarWarning } from "@ep0ch/outline-core/protocol";
 import { meetRules } from "@ep0ch/outliner/client-code";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -8,7 +9,7 @@ import type { SourcesAnswer } from "@ep0ch/outline-core/sources";
 // started from, so a stale one is refused instead of overwriting someone else's change; a comment names
 // the note's revision and an exact quote, and carries a requestId, so a retry after a lost answer
 // returns the comment that was already saved instead of adding a second one.
-import type { MachineryMode } from "@ep0ch/outline-core/machinery";
+import type { MachineryLeftOut, MachineryMode } from "@ep0ch/outline-core/machinery";
 import type { StyleSheet } from "@ep0ch/outline-core/style-cascade";
 import { isMarkLifecycle, isTldr, markCurrent, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { actorName } from "@ep0ch/outline-core/attribution";
@@ -18,7 +19,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { connect, type Socket } from "node:net";
 import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
-import type { PartAt, PropertyMatch } from "@ep0ch/outline-core/protocol";
+import type { PartAt, PropertyMatch, TwinAnswer } from "@ep0ch/outline-core/protocol";
 import type { CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
@@ -83,12 +84,17 @@ interface WireBlock {
   properties?: { key: string; value: string }[];
   /** A line-scope question's matches (PIE-1277). */
   propertyMatches?: PropertyMatch[];
+  /** The words after the title as one line (`fields: ["excerpt"]`, outline-core `noteExcerpt`): a list row's preview. */
+  excerpt?: string;
 }
 /** What `roadmap.items.create` takes (pi-herdr-outliner src/types.ts RoadmapItemCreateInput). */
 export interface RoadmapItemInput {
   title: string; body?: string; priority: string; workStage?: string; workBatchId?: string;
   project: string; arc: string; tracks: string[]; dependsOn?: string[]; relatedTo?: string[]; sourceBlockId?: string; wave?: string;
+  /** File it although open items look like the same work (the service refuses an agent's otherwise). */
+  new?: boolean;
 }
+
 /** Everything a list row needs, without the note's full text. */
 export const LIST_FIELDS = ["parent", "title", "properties", "revision", "timestamps", "author", "hasChildren"] as const;
 
@@ -238,6 +244,7 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   revision: b.revision,
   properties: (b.properties ?? []).map(p => ({ key: p.key, value: p.value })),
   ...(b.text === undefined ? { partial: true } : {}),
+  ...(b.excerpt ? { excerpt: b.excerpt } : {}),
   ...(b.deletedAt || b.effectiveDeletedRootId ? { deleted: true } : {}),
   ...(b.propertyMatches?.length ? { propertyMatches: b.propertyMatches } : {}),
 });
@@ -435,35 +442,64 @@ export const AGENT_ACTOR_ID = `${ACTOR_ID}:agent`;
 export const actorIdOf = (actor: Actor): string => (actor.kind === "agent" ? actor.id : ACTOR_ID);
 /** The actor id a write records: the saver's, then anyone else who wrote part of it, joined by `+`. */
 export const recordedActorId = (actor: Actor): string => [actorIdOf(actor), ...(actor.with ?? [])].join("+");
-/** Who asks (an extension's action, a proposal applied or dismissed): the person, or an agent by its own id, which the service checks ownership by. */
-export const requesterOf = (actor: Actor) => (actor.kind === "agent" ? { author: "agent", actorId: actorIdOf(actor) } : { author: "user" });
-/** The `mutation` a write carries for `actor`. */
-export const mutationFor = (actor: Actor = USER) =>
-  actor.kind === "agent" || actor.with?.length ? { author: actor.kind, actorId: recordedActorId(actor) } : EDIT_MUTATION;
 /**
- * How a comment or reply is authored. A person's alone carries no actor id: the service takes one only on
- * agent comments. So one a person and an agent both wrote is recorded as `author: agent`, with an actor
- * id naming both (the sender first), rather than as the person's with the agent left out.
+ * Who asks (an extension's action, a proposal applied or dismissed): the person, or an agent by its own id, which the
+ * service checks ownership by. Not who a write is recorded as (`recorded`): an ask names one party, so co-writers
+ * (`with`) aren't in it.
  */
-const annotationAuthor = (actor: Actor = USER) =>
-  actor.kind === "agent" || actor.with?.length
-    ? { author: "agent", source: "agent", provenance: { actorId: recordedActorId(actor) } }
-    : { author: COMMENT_AUTHOR, source: COMMENT_AUTHOR };
+export const requesterOf = (actor: Actor) => (actor.kind === "agent" ? { author: "agent", actorId: actorIdOf(actor) } : { author: "user" });
+/**
+ * Who a write by `actor` is recorded as: the one answer (PIE-1294; ADR 0005, how a change is recorded is shared by
+ * every client), for what the service stores and for the words an answer or a status line says about it. The saver
+ * is named first and anyone who wrote part of it after (`recordedActorId`).
+ *
+ * - `revision`: a change to a block that exists (an edit, a property, a move, a trash): the saver's kind, naming
+ *   them and their co-writers (`mutation`). The person with an agent's words in it is `author: user` naming both.
+ * - `new`: a block or a comment made now (`block`). The service keeps agent provenance on agent-authored blocks only
+ *   (outliner store.ts `normalizeCreatorProvenance`: a person's block never claims an agent's id), so one a person
+ *   and an agent both wrote is `author: agent` naming both, the person's door first; the person's alone carries none.
+ *
+ * `says` is what was stored, in words: "yours", "yours, naming <ids>", "an agent (<ids>)'s" or, for a new block both
+ * wrote, "an agent's, naming <ids>". The guard test
+ * (test/one-owner.test.ts) fails when a write spells its own `author: "agent", provenance`.
+ */
+export function recorded(actor: Actor = USER, made: "revision" | "new" = "revision") {
+  const shared = actor.kind === "agent" || !!actor.with?.length, actorId = recordedActorId(actor);
+  const agent = actor.kind === "agent" || made === "new";
+  return {
+    mutation: shared ? { author: actor.kind, actorId } : EDIT_MUTATION,
+    block: shared ? { author: "agent" as const, provenance: { actorId } } : { author: "user" as const },
+    says: !shared ? "yours" : actor.kind === "agent" ? `an agent (${actorId})'s` : agent ? `an agent's, naming ${actorId}` : `yours, naming ${actorId}`,
+  };
+}
+/** The `mutation` a change to a block carries for `actor` (`recorded`). */
+export const mutationFor = (actor: Actor = USER) => recorded(actor).mutation;
+/** How a comment or reply is authored (`recorded`, made `new`): a person's alone carries no actor id, as Detail sends it. */
+const annotationAuthor = (actor: Actor = USER) => {
+  const b = recorded(actor, "new").block;
+  return b.author === "agent" ? { ...b, source: "agent" } : { author: COMMENT_AUTHOR, source: COMMENT_AUTHOR };
+};
 
 /** What `tree.search` answers (the outliner's `GotoSearchCollection`). */
 export interface SearchHits {
-  matches: { block: { id: string; revision: number }; title: string; subtitle?: string; path: string; snippet: string; exact: boolean; reason?: "linked" | "near" | "yours" }[];
+  /** `score`: Jev's for the row (0 to 3), on a ranked search (PIE-1198). */
+  matches: { block: { id: string; revision: number }; title: string; subtitle?: string; path: string; snippet: string; exact: boolean; score?: number; deep?: true; reason?: "linked" | "near" | "yours" }[];
   completeness: { kind: string; limit?: number };
-  semantic: { status: "lexical" | "ranked" | "unavailable"; message?: string };
+  /** How sure a ranked search is (`verdict`, `said`): the service decides, the door only says it. */
+  semantic: { status: "lexical" | "ranked" | "unavailable"; message?: string; deep?: { status: string; windows?: number; found?: number; elapsedMs?: number; inputTokens?: number; message?: string } } & Partial<SearchCertainty>;
 }
 /** How a search is asked: `semantic` has Jev re-order the candidates; `near` is the note it's asked from. */
-export interface SearchOptions { semantic?: boolean; near?: string; limit?: number }
+export interface SearchOptions { semantic?: boolean; /** With semantic: when the ranked hits hold no sure answer, Jev reads the notes themselves (PIE-1200). */ deep?: boolean; near?: string; limit?: number; signal?: AbortSignal }
 
 /** What the service says of a selection's facets (SocketBoard.facetList). */
 export interface FacetAnswer {
   facets: { key: string; count: number; more: number; values: { value: string; count: number; last: number }[] }[];
   notes: Msg[]; truncated: boolean; matched: number; hint?: string;
+  /** With `group=`: the service's groups of the notes (a date bucket's newest first), each its count over every match. */
+  groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[];
 }
+/** How the notes of a facet answer come: grouped by the service (`updated:recent`), sorted, each with its excerpt. */
+export interface FacetNotes { group?: string; sort?: string; excerpt?: boolean; facets?: boolean }
 
 export class SocketBoard implements Board {
   private sock: Socket | null = null;
@@ -514,16 +550,24 @@ export class SocketBoard implements Board {
   /** A replayed action is not another physical command to record in a macro. */
   get inScriptRun(): boolean { return this.scriptRun.getStore() !== undefined; }
 
-  request<T = any>(action: string, params: Record<string, unknown> = {}, timeoutMs = this.timeoutMs): Promise<T> {
+  /**
+   * `signal` (a search turn's, src/search-schedule.ts): aborted, the request stops waiting and fails with an AbortError.
+   * The host still answers it; the answer is dropped.
+   */
+  request<T = any>(action: string, params: Record<string, unknown> = {}, timeoutMs = this.timeoutMs, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     const id = `d${++this.seq}`;
     if (this.sent.length > 5000) this.sent.splice(0, 2500);
     this.sent.push(action);
+    const stop = () => { const w = this.waiting.get(id); if (w) { clearTimeout(w.timer); this.waiting.delete(id); w.reject(signal!.reason); } };
     return traced(new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error(`${action} timed out`)); }, timeoutMs);
       const sock = this.conn();
       this.waiting.set(id, { resolve, reject, timer, sock });
+      // Taken off the turn's signal once the request settles, however it does.
+      signal?.addEventListener("abort", stop, { once: true });
       sock.write(jsonLine({ id, action, ...params, ...(this.scriptRun.getStore() ? { scriptRun: this.scriptRun.getStore() } : {}), ...(this.outline ? { outline: this.outline } : {}) }));
-    }));
+    }).finally(() => signal?.removeEventListener("abort", stop)));
   }
 
   /** A file's text, read by the service (`files.read`): a relative path is the outline's own folder (an artifact's card, PIE-793). */
@@ -632,8 +676,8 @@ export class SocketBoard implements Board {
    * opening a block, running one of the extension's actions or copying text. It writes nothing. `near` is the note
    * in front of the person, which the call sees as its context.
    */
-  barRows(extension: string, source: string, query: string, o: { near?: string; limit?: number } = {}): Promise<ExtensionBarResult> {
-    return this.request<ExtensionBarResult>("extensions.bar", { extension, source, query, ...(o.near ? { near: o.near } : {}), ...(o.limit ? { limit: o.limit } : {}) });
+  barRows(extension: string, source: string, query: string, o: { near?: string; limit?: number; signal?: AbortSignal } = {}): Promise<ExtensionBarResult> {
+    return this.request<ExtensionBarResult>("extensions.bar", { extension, source, query, ...(o.near ? { near: o.near } : {}), ...(o.limit ? { limit: o.limit } : {}) }, undefined, o.signal);
   }
 
   /**
@@ -812,7 +856,7 @@ export class SocketBoard implements Board {
    * the note (or one per `for` match), recorded as `actor`'s. Never retried blindly.
    */
   async templateStamp(req: { of: string; parent?: string; title?: string; props?: Record<string, string>; for?: string; freeze?: string; as?: string; into?: string }, actor: Actor = USER): Promise<{ template: { id: string; title: string }; stamped: { id: string; title: string; parentId: string | null; blocks: number; frozen: number; for?: string }[]; skipped: { for: string; stamped: string }[]; warnings: string[]; said: string }> {
-    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    const who = recorded(actor, "new").block;
     return this.request("template.stamp", { ...req, ...who });
   }
 
@@ -913,15 +957,19 @@ export class SocketBoard implements Board {
    * `text` lists what's linked and edited around it.
    */
   searchBlocks(text: string, opts: SearchOptions = {}): Promise<SearchHits> {
-    return this.request<SearchHits>("tree.search", { query: text, ...(opts.limit !== undefined ? { limit: opts.limit } : {}), ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) });
+    // A deep search reads every note's title in windows: it gets longer than a keystroke's.
+    return this.request<SearchHits>("tree.search", { query: text, ...(opts.limit !== undefined ? { limit: opts.limit } : {}), ...(opts.semantic ? { semantic: true } : {}), ...(opts.semantic && opts.deep ? { deep: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) }, opts.deep ? 60_000 : undefined, opts.signal);
   }
 
-  /** `searchBlocks`, at most `limit` hits read whole for a preview, with what Jev did (`semantic`). */
-  async search(text: string, limit: number, opts: SearchOptions = {}): Promise<Msg[] & { semantic?: SearchHits["semantic"] }> {
+  /** `searchBlocks`, at most `limit` hits read whole for a preview, with what Jev did (`semantic`) and its Score per hit (`scores`). */
+  async search(text: string, limit: number, opts: SearchOptions = {}): Promise<Msg[] & { semantic?: SearchHits["semantic"]; scores?: Map<string, number>; deep?: Set<string> }> {
     const r = await this.searchBlocks(text, opts);
     const ids = r.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
-    const by = new Map((ids.length ? (await this.readBlocks(ids)).blocks : []).map(m => [m.id, m]));
-    return Object.assign(ids.flatMap(id => by.get(id) ?? []), { semantic: r.semantic });
+    // A search replaced meanwhile (its signal aborted) stops reading its hits.
+    const by = new Map((ids.length ? (await this.readBlocks(ids, opts.signal)).blocks : []).map(m => [m.id, m]));
+    const scores = new Map(r.matches.flatMap(m => m.score !== undefined ? [[m.block.id, m.score] as const] : []));
+    const deep = new Set(r.matches.flatMap(m => m.deep ? [m.block.id] : []));
+    return Object.assign(ids.flatMap(id => by.get(id) ?? []), { semantic: r.semantic, ...(scores.size ? { scores } : {}), ...(deep.size ? { deep } : {}) });
   }
 
   async callers(): Promise<Caller[]> {
@@ -993,8 +1041,8 @@ export class SocketBoard implements Board {
    * there were more than `limit`. `machinery` (outline-core `machinery.ts`): the service leaves out what tools stamped
    * `[machine::…]` unless this says `show` (or `only`).
    */
-  async queryNotes(expression: string, limit = 200, machinery?: MachineryMode): Promise<{ notes: Msg[]; truncated: boolean }> {
-    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string } }>("blocks.query", { query: { where: expression, limit: Math.min(1000, limit), ...(machinery ? { machinery } : {}) }, ...this.listFields(true) });
+  async queryNotes(expression: string, limit = 200, machinery?: MachineryMode, signal?: AbortSignal): Promise<{ notes: Msg[]; truncated: boolean }> {
+    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string } }>("blocks.query", { query: { where: expression, limit: Math.min(1000, limit), ...(machinery ? { machinery } : {}) }, ...this.listFields(true) }, undefined, signal);
     return { notes: r.blocks.map(b => toMsg(b)), truncated: r.completeness?.kind === "truncated" };
   }
 
@@ -1005,14 +1053,14 @@ export class SocketBoard implements Board {
    * `facets=true`, `facetValues`), with the notes themselves (up to `noteLimit`, none when `noteLimit` is 0). The door
    * never counts or narrows. `more`: values a key's list left out.
    */
-  async facetList(where: string, noteLimit = 200): Promise<FacetAnswer> {
-    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string; matched?: number }; facets?: { key: string; count: number; values: { value: string; count: number; last: string }[]; more?: number }[]; hint?: string }>(
-      "blocks.query", { query: { ...(where.trim() ? { where } : {}), facets: true, facetKeys: 1000, facetValues: 1000, limit: Math.max(1, Math.min(1000, noteLimit)) }, ...this.listFields(true) });
+  async facetList(where: string, noteLimit = 200, o: FacetNotes = {}): Promise<FacetAnswer> {
+    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string; matched?: number }; facets?: { key: string; count: number; values: { value: string; count: number; last: string }[]; more?: number }[]; hint?: string; groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[] }>(
+      "blocks.query", { query: { ...(where.trim() ? { where } : {}), ...(o.facets === false ? {} : { facets: true, facetKeys: 1000, facetValues: 1000 }), ...(o.group ? { group: o.group } : {}), ...(o.sort ? { sort: o.sort } : {}), limit: Math.max(1, Math.min(1000, noteLimit)) }, fields: o.excerpt ? [...LIST_FIELDS, "excerpt"] : LIST_FIELDS });
     const notes = noteLimit ? r.blocks.map(b => toMsg(b)) : [];
     const truncated = r.completeness?.kind === "truncated";
     return {
       facets: (r.facets ?? []).map(f => ({ key: f.key, count: f.count, more: f.more ?? 0, values: f.values.map(v => ({ value: v.value, count: v.count, last: Date.parse(v.last) || 0 })) })),
-      notes, truncated, matched: truncated ? r.completeness?.matched ?? notes.length : r.blocks.length, ...(r.hint ? { hint: r.hint } : {}),
+      notes, truncated, matched: truncated ? r.completeness?.matched ?? notes.length : r.blocks.length, ...(r.hint ? { hint: r.hint } : {}), ...(r.groups ? { groups: r.groups } : {}),
     };
   }
 
@@ -1034,16 +1082,16 @@ export class SocketBoard implements Board {
    * Whole blocks, text included, in one `blocks.read` (PIE-400), with the ids that are missing or in
    * Trash.
    */
-  async readBlocks(ids: string[]): Promise<{ blocks: Msg[]; unavailable: { id: string; status: "missing" | "trashed" }[] }> {
-    const r = await this.request<{ blocks: WireBlock[]; unavailable?: { id: string; status: "missing" | "trashed" }[] }>("blocks.read", { ids, fields: [...LIST_FIELDS, "text"] });
+  async readBlocks(ids: string[], signal?: AbortSignal): Promise<{ blocks: Msg[]; unavailable: { id: string; status: "missing" | "trashed" }[] }> {
+    const r = await this.request<{ blocks: WireBlock[]; unavailable?: { id: string; status: "missing" | "trashed" }[] }>("blocks.read", { ids, fields: [...LIST_FIELDS, "text"] }, undefined, signal);
     return { blocks: r.blocks.map(b => toMsg(b)), unavailable: r.unavailable ?? [] };
   }
 
   /**
    * A saved view's members as the service evaluates them (PIE-397 `views.read`), as list rows.
    */
-  async readSavedView(viewId: string, page: { limit?: number; offset?: number } = {}): Promise<SavedViewRead> {
-    const r = await this.request<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", { viewId, format: "tree", ...page });
+  async readSavedView(viewId: string, page: { limit?: number; offset?: number } = {}, signal?: AbortSignal): Promise<SavedViewRead> {
+    const r = await this.request<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", { viewId, format: "tree", ...page }, undefined, signal);
     return { ...r, blocks: r.blocks.map(b => toMsg(b)) };
   }
 
@@ -1075,15 +1123,16 @@ export class SocketBoard implements Board {
    * and `text` (every word, any order) as the service evaluates them, under `subtreeRootId` (itself included). At most
    * 1000; `truncated` when there were more.
    */
-  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string; sort?: { field: string; direction: string }; propertyScope?: string }, limit = 1000): Promise<{ ids: string[]; truncated: boolean; hint?: string; matches?: Map<string, PropertyMatch[]> }> {
-    const r = await this.request<{ blocks: { id: string; propertyMatches?: PropertyMatch[] }[]; completeness: { kind: string }; hint?: string }>("blocks.query", {
-      query: { limit: Math.min(1000, limit), ...(q.expression ? { where: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}), ...(q.sort ? { sort: q.sort } : {}), ...(q.propertyScope ? { propertyScope: q.propertyScope } : {}) },
+  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string; sort?: { field: string; direction: string }; propertyScope?: string; machinery?: MachineryMode; countMachinery?: boolean }, limit = 1000): Promise<{ ids: string[]; truncated: boolean; hint?: string; matches?: Map<string, PropertyMatch[]>; machineryLeftOut?: MachineryLeftOut }> {
+    const r = await this.request<{ blocks: { id: string; propertyMatches?: PropertyMatch[] }[]; completeness: { kind: string }; hint?: string; machineryLeftOut?: MachineryLeftOut }>("blocks.query", {
+      query: { limit: Math.min(1000, limit), ...(q.expression ? { where: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}), ...(q.sort ? { sort: q.sort } : {}), ...(q.propertyScope ? { propertyScope: q.propertyScope } : {}), ...(q.machinery ? { machinery: q.machinery } : {}), ...(q.countMachinery ? { countMachinery: true } : {}) },
       fields: ["id"],
     });
     // With a scope past the note's own header (PIE-1277), where each note matched: `ep0ch find` says the line.
     const matched = r.blocks.filter(b => b.propertyMatches?.length);
     // `hint`: a key no note has, or values a date or number comparison couldn't read (PIE-769).
-    return { ids: r.blocks.map(b => b.id), truncated: r.completeness.kind !== "complete", ...(r.hint ? { hint: r.hint } : {}),
+    // `machineryLeftOut`: with countMachinery, what hide left out, by producer (PIE-1427).
+    return { ids: r.blocks.map(b => b.id), truncated: r.completeness.kind !== "complete", ...(r.hint ? { hint: r.hint } : {}), ...(r.machineryLeftOut ? { machineryLeftOut: r.machineryLeftOut } : {}),
       ...(matched.length ? { matches: new Map(matched.map(b => [b.id, b.propertyMatches!])) } : {}) };
   }
 
@@ -1268,8 +1317,8 @@ export class SocketBoard implements Board {
    * after a line, as a reference or (`as: copy`) an element's own lines, through draft.patch. As `actor`.
    */
   quote(subjects: QuoteSubject[], place: QuotePlace, actor: Actor = USER, opts: { as?: "reference" | "copy"; text?: string } = {}): Promise<QuoteReceipt> {
-    // A block the person makes is theirs with no actor id (the service takes one only on an agent's), as a comment is.
-    const mutation = actor.kind === "agent" || actor.with?.length ? mutationFor(actor) : { author: "user" };
+    // A block the person makes is theirs with no actor id (recorded, made new), as a comment is.
+    const mutation = recorded(actor, "new").block.author === "agent" ? mutationFor(actor) : { author: "user" };
     return this.request<QuoteReceipt>("quote", { input: { subjects, place, ...(opts.as ? { as: opts.as } : {}), ...(opts.text ? { text: opts.text } : {}) }, mutation });
   }
 
@@ -1520,7 +1569,7 @@ export class SocketBoard implements Board {
    * blocks); an agent's, or one a person and an agent both typed, is `author: agent` naming them.
    */
   async createBlock(parentId: string | null, text: string, actor: Actor = USER): Promise<Msg> {
-    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    const who = recorded(actor, "new").block;
     return toMsg(await this.request<WireBlock>("create", { parentId, text, ...who }));
   }
 
@@ -1531,7 +1580,7 @@ export class SocketBoard implements Board {
    * (the reader's own note falls back to the Inbox). Like `create`, never retried blindly.
    */
   async newNote(text: string, near: string | undefined, actor: Actor = USER, nearOnly = false): Promise<{ note: Msg; placement: NotePlacement }> {
-    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    const who = recorded(actor, "new").block;
     const r = await this.request<{ block: WireBlock; placement: NotePlacement }>("notes.create", { text, intent: { kind: "note", ...(near ? { near, ...(nearOnly ? { nearOnly } : {}) } : {}) }, ...who });
     return { note: toMsg(r.block), placement: r.placement };
   }
@@ -1542,7 +1591,7 @@ export class SocketBoard implements Board {
    * (`page.create`); a follow never calls it.
    */
   async followPage(address: string, actor: Actor = USER): Promise<{ note: Msg | null; created: boolean; status: PageResolution["status"]; placement?: NotePlacement }> {
-    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    const who = recorded(actor, "new").block;
     const r = await this.request<{ status: PageResolution["status"]; created: boolean; block?: WireBlock; placement?: NotePlacement }>("pages.follow", { address, ...who });
     return { note: r.block ? toMsg(r.block) : null, created: r.created, status: r.status, ...(r.placement ? { placement: r.placement } : {}) };
   }
@@ -1590,10 +1639,34 @@ export class SocketBoard implements Board {
    * so it is never retried.
    */
   async createRoadmapItem(input: RoadmapItemInput, actor: Actor = USER): Promise<{ workId: string; workQueueId: string; block: Msg }> {
-    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    const who = recorded(actor, "new").block;
     const r = await this.request<{ workId: string; workQueueId: string; block: WireBlock }>("roadmap.items.create", { input, ...who });
     return { workId: r.workId, workQueueId: r.workQueueId, block: toMsg(r.block) };
   }
+
+  /** Open items like a new one (`roadmap.items.similar`): the service's candidates and the ones it calls twins. */
+  similarItems(input: { title: string; body?: string }, timeoutMs = 8000): Promise<TwinAnswer> {
+    return this.request<TwinAnswer>("roadmap.items.similar", { input }, timeoutMs);
+  }
+
+  /** A new ask added under an open item instead (`roadmap.items.attach`): its words, dated, at the end of the item. */
+  async attachToItem(input: { item: string; title: string; body?: string; sourceBlockId?: string }, actor: Actor = USER): Promise<{ attached: string; block: Msg }> {
+    const who = recorded(actor, "new").block;
+    const r = await this.request<{ attached: string; block: WireBlock }>("roadmap.items.attach", { input, ...who });
+    return { attached: r.attached, block: toMsg(r.block) };
+  }
+
+  /**
+   * A search's row opened (the power bar, `[[`): the words, the row and its place, kept for the search eval's labels
+   * (PIE-1197). Best-effort: an open never waits on it or fails for it.
+   */
+  searchPicked(query: string, blockId: string, rank: number, surface: string): void {
+    if (query.trim().length < 3) return;
+    this.request("search.picked", { query, blockId, rank, surface }).catch(() => undefined);
+  }
+
+  /** The search picks the outline keeps, oldest first (`search.picks`). */
+  searchPicks() { return this.request<{ picks: { query: string; blockId: string; rank: number; surface: string; at: string }[] }>("search.picks", {}); }
 
   // ── reference completion (the lookups Tree, Detail and Quick Capture use) ────────────────────────
 
@@ -1602,7 +1675,7 @@ export class SocketBoard implements Board {
    * `searchBlocks` is; `semantic` and `near` as there.
    */
   completePages(query: string | undefined, limit: number, opts: SearchOptions = {}) {
-    return this.request<{ outlines?: string[]; addresses: { address: string; blockId: string; kind: string; title: string; subtitle?: string }[]; completeness: { kind: string; limit?: number }; semantic?: SearchHits["semantic"] }>("pages.complete", {
+    return this.request<{ outlines?: string[]; addresses: { address: string; blockId: string; kind: string; title: string; subtitle?: string; score?: number }[]; completeness: { kind: string; limit?: number }; semantic?: SearchHits["semantic"] }>("pages.complete", {
       ...(query ? { query } : {}), limit, ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}),
     });
   }
@@ -1612,8 +1685,8 @@ export class SocketBoard implements Board {
    * extensions' sources, each on outline-core's row contract, with the trigger's picks; the completer merges them with
    * its own sources' rows.
    */
-  completionRows(input: CompletionRowsRequest): Promise<CompletionRowsResult> {
-    return this.request<CompletionRowsResult>("completion.rows", { ...input });
+  completionRows(input: CompletionRowsRequest, signal?: AbortSignal): Promise<CompletionRowsResult> {
+    return this.request<CompletionRowsResult>("completion.rows", { ...input }, undefined, signal);
   }
 
   /** A completion row was chosen: the host counts the pick, so it ranks higher next time on every client. */

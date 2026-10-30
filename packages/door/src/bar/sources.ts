@@ -1,6 +1,8 @@
-import { outlineBoards } from "../desk/outline-boards";
-import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { overrideWords } from "@ep0ch/outliner/extension-update";
+import { outlineBoards, readTarget } from "../desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
+import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { addressOf } from "../open";
 // The power bar's built-in sources (PIE-656), each a scope with its prefix: tiles (%), notes (/), actions (>),
 // recent (+) and screens (@). None keeps a list of its own: tiles are the layout tree's (`Desk.tileOutline`) on every
 // screen and in the drawer; notes are the service's one search (`board.search`, Goto's ranker, Jev re-ordering after
@@ -14,8 +16,8 @@ import { PtyPane } from "../desk/pty";
 import { tileKinds } from "../desk/tile-kinds";
 import { wCaption, type WRow } from "../desk/wkeys";
 import { ScreenTile } from "../desk/screen-tile";
-import { notConfigured, jevOff, SEARCH_JEV_PAUSE_MS } from "../surface/completer";
-import { ActionRefused, actRequestOf, coerceActionArgs, declaredKeys, lineWords, shownLine, type ActionInfo, type ActRequest } from "../surface/actions";
+import { notConfigured, jevOff } from "../surface/completer";
+import { ActionRefused, actRequestOf, coerceActionArgs, declaredKeys, lineWords, type Keys, shownLine, type ActionInfo, type ActRequest } from "../surface/actions";
 import { authorName, USER } from "../socket";
 import { ago } from "../text";
 import { filtered } from "./filter";
@@ -28,7 +30,7 @@ import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
 import { extensionList, extensionParts, PART_KINDS, partKind, scriptActions, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
-import { settingsChip, settingsMarkdown, shownValue } from "../extension-settings";
+import { settingsChip, settingsMarkdown, settingsNeedYou, settingsWords, shownValue } from "../extension-settings";
 
 /** The arguments action `name` declares, as the door lists it now. */
 const actionArgs = (host: BarHost, name: string) => host.dispatch.list().actions.find(a => a.name === name)?.args ?? {};
@@ -99,6 +101,9 @@ const TILES: BarSource = {
     if (p instanceof PtyPane) { const text = p.text(); while (text.length && !text.at(-1)!.trim()) text.pop(); return { lines: text.length ? text : ["(the terminal is blank)"] }; }
     return { lines: [`${t.name}: a ${t.kind} tile${t.screen ? ` on the ${t.screen.title}` : " in your drawer"}`, "", p?.title?.() ?? "", "", "⏎ goes to it · alt+⏎ zooms it"] };
   },
+  // The line its pick runs, where a line can run it: a tile on the screen shown (one in the drawer, under this screen or in
+  // a mount is gone to by the person's pick alone).
+  command(row, host) { const t = row.data as TileAt; return t.screen === host.screens().at(-1) && !t.mounts.length ? shownLine("tile.focus", {}, t.path) : null; },
   async pick(row, host, how) {
     const t = row.data as TileAt, p = t.desk.pane(t.name);
     if (!p) throw new ActionRefused(`${t.path} isn't open any more`);
@@ -130,7 +135,21 @@ const TILES: BarSource = {
 };
 
 /** A hit's row: its work id (when its title doesn't start with it) and its title. */
-const noteRow = (m: Msg): BarRow => ({ key: m.id, label: headedTitle(m), subtitle: subtitleOf(m), fill: subject(m) });
+const noteRow = (m: Msg): BarRow => ({ key: m.id, label: headedTitle(m), subtitle: subtitleOf(m), fill: subject(m), note: { id: m.id } });
+
+/** What a search's row carries to its pick: the words and its place, kept as the search eval's label (`search.picked`). */
+interface Searched { query: string; rank: number }
+/** A search's rows, each with where it came from, and Jev's Score on a ranked one (`2.7/3`: how well it answers). */
+const searchRows = (hits: Msg[] & { scores?: Map<string, number>; deep?: Set<string> }, query: string): BarRow[] => hits.map((m, rank) => {
+  const score = hits.scores?.get(m.id), detail = [score !== undefined ? `${score.toFixed(1)}/3` : "", hits.deep?.has(m.id) ? "by meaning" : ""].filter(Boolean).join(" · ");
+  return { ...noteRow(m), ...(detail ? { detail } : {}), data: { query, rank } satisfies Searched };
+});
+/** What the bar says of a ranked list: the service's verdict, said short (the sentence is on the row it names). */
+const jevSaid = (semantic: { label?: string; verdict?: string; deep?: { status: string; found?: number } } | undefined, deep: boolean) =>
+  [semantic?.label ? `jev ranked · ${semantic.label}` : "jev ranked",
+    semantic?.deep?.status === "found" ? `${semantic.deep.found ?? 0} found by meaning` : "",
+    // Not sure, and the words were all it read: a second / reads every note (PIE-1200).
+    !deep && semantic?.verdict && semantic.verdict !== "strong" ? "// reads every note" : ""].filter(Boolean).join(" · ");
 
 /** How many notes `/` lists with nothing typed. */
 const RECENT_NOTES = 30;
@@ -151,37 +170,64 @@ export async function recentNotes(host: BarHost): Promise<BarRow[]> {
   return [...found.values()].sort((a, b) => b.at - a.at).slice(0, RECENT_NOTES).map(x => x.row);
 }
 
+/**
+ * What's typed is a note's address (PIE-1398: an id, a reference, another outline's reference, a line's, an `ep0ch://`
+ * address or a web link, `addressOf`): that note's row, read where it lives (`readNote`, another outline's through its
+ * board; a page or Work ID by `pages.resolve`), never a search for its words. Refused, it says which note it named.
+ */
+async function addressedRows(to: NonNullable<ReturnType<typeof addressOf>>, host: BarHost): Promise<BarRow[]> {
+  const named = "block" in to ? to.block : to.page;
+  const m = await readTarget(host.ctx, to);
+  // Named once, on one line (PIE-1405): the row is the id (or the reference's label, the id then said after it).
+  if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, oneLine: true,
+    refused: to.label ? `no note ${named} in ${to.outline ?? "this outline"}` : to.outline ? `no such note in ${to.outline}` : "no such note in this outline; one from another outline opens by its ep0ch:// or web link" }];
+  const there = m.address, c = there ? await outlineBoards(host.ctx).on(there) : null;
+  const key = there ? formatEp0chBlockUri({ outline: there.outline, machine: there.machine ?? c!.machine ?? (await c!.board.info()).machine!, blockId: m.id }) : m.id;
+  const detail = [there?.outline, to.fragment ? `line ^${to.fragment}` : ""].filter(Boolean).join(" · ");
+  return [{ ...noteRow(m), key, exact: true, oneLine: true, ...(detail ? { detail, subtitle: undefined } : {}), note: { id: m.id, ...(there ? { outline: there.outline } : {}) }, data: { fragment: to.fragment } }];
+}
+
 const NOTES: BarSource = {
   id: "notes", title: "notes", prefix: "/", by: "door", asks: true,
-  about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up; ⏎ opens one where opens land, alt+⏎ in a new detail",
+  about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up, saying how sure it is (\"no strong match\" when the top isn't); a second / (//words) also has Jev read every note's title for ones the words missed (PIE-1200); ⏎ opens one where opens land, alt+⏎ in a new detail; alt+m or a right-click on a hit is its menu: copy its id, reference or web link (note.copy-ref)",
   main: { empty: false, typed: true, most: 10 },
-  async rows(q, host) {
+  async rows(q, host, _scope, signal) {
     const named = q.match(/^outline:([^\s]+)(?:\s+(.*))?$/);
     if (named) {
       const ctx = await outlineBoards(host.ctx).on({ outline: named[1]! });
       const info = await ctx.board.info();
-      return (await ctx.board.search(named[2] ?? "", 30)).map(m => ({ ...noteRow(m), key: formatEp0chBlockUri({ outline: named[1]!, machine: ctx.machine ?? info.machine!, blockId: m.id }), detail: named[1] }));
+      return (await ctx.board.search(named[2] ?? "", 30, { signal })).map(m => ({ ...noteRow(m), key: formatEp0chBlockUri({ outline: named[1]!, machine: ctx.machine ?? info.machine!, blockId: m.id }), detail: named[1], note: { id: m.id, outline: named[1]! } }));
     }
+    const to = addressOf(q);
+    if (to) return addressedRows(to, host);
     if (!q.trim()) return recentNotes(host);
-    if (q.trim().length < 2) return [];
-    return (await host.ctx.board.search(q.trim(), 30, { near: host.near() ?? undefined })).map(noteRow);
+    // `//words` (a second /): the deep search, by meaning; the words' hits first, Jev's after the pause.
+    const words = q.replace(/^\//, "").trim();
+    if (words.length < 2) return [];
+    return searchRows(await host.ctx.board.search(words, 30, { near: host.near() ?? undefined, signal }), words);
   },
-  later(q, rows, host, alive) {
+  later(q, rows, host, signal) {
     const board = host.ctx.board;
-    if (q.startsWith("outline:") || q.trim().length < 3 || rows.length < 2 || jevOff.has(board)) return null;
-    // Asked only if the query is still the one typed after the pause, and the bar still open.
-    return Bun.sleep(SEARCH_JEV_PAUSE_MS).then(() => (alive() ? board.search(q.trim(), 30, { semantic: true, near: host.near() ?? undefined }) : null)).then(h => {
-      if (!h) return null;
+    const deep = q.startsWith("/"), words = q.replace(/^\//, "").trim();
+    // A deep search runs with no word hits too: finding what the words missed is its point.
+    if (q.startsWith("outline:") || rows[0]?.exact || words.length < 3 || (!deep && rows.length < 2) || jevOff.has(board)) return null;
+    return board.search(words, 30, { semantic: true, deep, near: host.near() ?? undefined, signal }).then(h => {
       if (h.semantic && notConfigured(h.semantic)) jevOff.add(board);
-      return h.semantic?.status === "ranked" ? { rows: h.map(noteRow), said: "jev ranked" } : null;
+      return h.semantic?.status === "ranked" ? { rows: searchRows(h, words), said: jevSaid(h.semantic, deep) } : null;
     }, () => null);
   },
-  preview: row => ({ note: row.key }),
-  pick: (row, host, how) => openNote(row.key, host, how),
+  preview: row => (row.refused ? { lines: [row.refused] } : { note: row.key }),
+  pick(row, host, how) {
+    if (row.refused) throw new ActionRefused(row.refused);
+    // The person's own pick labels the words with the note wanted; an agent's doesn't speak for him.
+    const data = row.data as (Partial<Searched> & { fragment?: string }) | undefined;
+    if (data?.query !== undefined && data.rank !== undefined && how.actor.kind === "user") host.ctx.board.searchPicked(data.query, row.key, data.rank, "power-bar");
+    return openNote(row.key, host, how, data?.fragment);
+  },
 };
 
 /** An action's first plain key (not a gesture, not a chord), for its keycap. */
-const firstKey = (keys: string | undefined) => [...declaredKeys(keys)].find(k => k !== "click" && k !== "drag" && k !== "wheel" && !k.includes(" "));
+const firstKey = (keys: Keys | undefined) => [...declaredKeys(keys)].find(k => k !== "click" && k !== "drag" && k !== "wheel" && !k.includes(" "));
 /** An action anyone can run with no arguments, from the bar (the bar's own aren't listed). */
 const bare = (a: ActionInfo) => !a.name.startsWith("bar.") && Object.values(a.args).every(s => s.optional);
 /** An action the bar lists: any but its own; one that takes arguments opens its form (PIE-1031). */
@@ -223,7 +269,7 @@ function wKeyRows(desk: Desk, q: string, host: BarHost): BarRow[] {
  * The screen the person's keys are in (PIE-1346, the App's keysScreen): its focused tile's menu and its ^W keys are the
  * actions scope's, and a row runs there, so "unlock your drawer" is the drawer's when the keys are in it.
  */
-const keysScreen = (host: BarHost) => host.ctx.keysScreen?.() ?? host.screens().at(-1);
+const keysScreen = (host: BarHost) => host.here ?? host.ctx.keysScreen?.() ?? host.screens().at(-1);
 const keysDispatch = (host: BarHost) => keysScreen(host)?.dispatch;
 
 const ACTIONS: BarSource = {
@@ -243,7 +289,7 @@ const ACTIONS: BarSource = {
       seen.add(a.name);
       const k = firstKey(a.keys);
       const script = scriptActions().find(s => s.action.name === a.name);
-      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ its form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys, form: takesArgs(a), bare: bare(a) } });
+      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${script ? scriptSaid(script, true) : a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ its form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, ...(a.words ? { words: a.words } : {}), keys: a.keys, form: takesArgs(a), bare: bare(a) } });
     }
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
     const found = filtered(rows, q, r => [r.label, r.fill ?? "", r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
@@ -253,10 +299,18 @@ const ACTIONS: BarSource = {
   named: (q, host) => actionLine(q, host),
   preview(row, host) {
     const d = row.data as { action: string; summary?: string; keys?: string };
-    const info = host.dispatch.list().actions.find(a => a.name === d.action);
+    const found = host.dispatch.list().actions.find(a => a.name === d.action);
+    // A script reads as itself (PIE-1405): its name, as it's typed, and its own words, never its action's id.
+    const script = scriptActions().find(s => s.action.name === d.action);
+    const info = found && script ? { ...found, name: script.extension.name ?? found.name, summary: scriptSaid(script) } : found;
     // Its page (PIE-1032): the lead, its keys as keycaps, its arguments as a properties table, its examples.
     const page: ActionInfo = info ?? { name: d.action, summary: d.summary ?? "", ...(d.keys ? { keys: d.keys } : {}), args: {}, scope: "", touches: "nothing", replay: "ask" };
     return { markdown: actionPage(page, { title: row.label, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action) } : {}) }) };
+  },
+  command(row) {
+    if (row.key.startsWith("line:")) return row.fill!;
+    const d = row.data as { action: string; args?: Record<string, unknown>; tile?: string };
+    return shownLine(d.action, d.args, d.tile);
   },
   async pick(row, host, how) {
     if (row.refused) throw new ActionRefused(row.refused);
@@ -277,12 +331,28 @@ const ACTIONS: BarSource = {
 };
 
 /**
+ * A script's row and page in its own words (PIE-1405): what it says it is (its note's title, its extension's about),
+ * then (on its page) what running it does, never its action's "<name>: Run <name>." summary said under its name again.
+ */
+function scriptSaid({ extension: e, action: a }: ReturnType<typeof scriptActions>[number], short = false): string {
+  // Its summary is what it is; a script's description says where it is written, so never that.
+  const about = (e.summary || a.label).trim().replace(/[.;:]$/, "");
+  // The row: what it is. The page: that, then what a run does (the revision it runs, what it keeps).
+  return short ? about : [about, a.description].filter(Boolean).join(". ");
+}
+
+/**
  * What's typed as an action line, as `ep0ch act` takes it (PIE-856): an action this door has, then its `key=value`
  * words, quoted as a shell quotes them (`tile.open kind=query query="#build-report"`), or the name alone of one that
  * needs arguments. Its row runs it as typed, as the person; an argument the action doesn't take, of the wrong type
  * or missing is said on the row (refused), and its summary and arguments are on the right. Anything else: none.
  */
 function actionLine(q: string, host: BarHost, command = false): BarRow | null {
+  // A note's address pasted (a web link, an ep0ch:// one) is the notes source's to open, never an action that isn't there.
+  if (addressOf(q)) return null;
+  // Typed as its row reads (`run neat`): the line after `run`, so the action's row comes first, before notes it names (PIE-1403).
+  const lead = /^run\s+(?=\S)/.exec(q);
+  if (lead && !host.dispatch.has("run")) q = q.slice(lead[0].length);
   const words = lineWords(q);
   let req: ActRequest;
   try { req = actRequestOf(words); } catch (e) {
@@ -297,7 +367,7 @@ function actionLine(q: string, host: BarHost, command = false): BarRow | null {
   if (!info && (command || req.action.includes(".") || words.some(w => w.includes("=")))) {
     const near = closest(req.action, actions.map(a => a.name));
     if (near) { corrections.push(`did you mean ${req.action} -> ${near}`); req.action = near; info = actions.find(a => a.name === near); }
-    else return { key: `line:${q}`, label: q, fill: q, exact: true, refused: `no action ${req.action} here; > lists actions`, data: { action: req.action, args: {} } };
+    else return { key: `line:${q}`, label: q, fill: q, exact: true, refused: command ? `no action ${req.action} here; / searches the notes for it` : `no action ${req.action} here; > lists actions`, data: { action: req.action, args: {} } };
   }
   if (info) {
     const fields = formFields(info);
@@ -376,6 +446,7 @@ const RECENT: BarSource = {
 
 interface ScreenListed { stack: string[]; screens: { key: string; label: string; about: string }[]; named: { name: string; title?: string; made?: boolean }[] }
 
+const screenArgs = (row: BarRow) => ({ name: (row.data as { name: string }).name });
 const SCREENS: BarSource = {
   id: "screens", title: "screens", prefix: "@", by: "door",
   about: "the screens to open: the menu's and every registered one (the ones people made too); ⏎ opens it over this one (q comes back)",
@@ -387,16 +458,17 @@ const SCREENS: BarSource = {
     return filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as { about: string }).about]);
   },
   preview: row => ({ markdown: `**${row.label}**\n\n${(row.data as { about: string }).about || "a screen"}\n\n⏎ opens it over this screen; q comes back.` }),
+  command: row => shownLine("screen.open", screenArgs(row)),
   pick(row, host, how) {
-    const args = { name: (row.data as { name: string }).name };
-    return how.actor.kind === "agent" ? host.dispatch.act({ action: "screen.open", args }, how.actor) : host.dispatch.press("screen.open", args);
+    const args = screenArgs(row);
+    return host.dispatch.as(how.actor, { action: "screen.open", args });
   },
 };
 
 interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make" | "settings"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string; scripts?: { name: string; about: string }[] }
 
-/** A description's first sentence: what an extension says it is, at a glance. */
-const firstSentence = (text: string | undefined) => (text ?? "").replace(/\s+/g, " ").trim().match(/^.*?[.!?](?=\s|$)/)?.[0] ?? (text ?? "").trim();
+/** A description's first sentence: what an extension says it is, at a glance. A sentence ends before a capital (shout's "ends in !!! drawn as a band" is one). */
+const firstSentence = (text: string | undefined) => (text ?? "").replace(/\s+/g, " ").trim().match(/^.*?[.!?](?=\s+["'(\[*_`]*[\p{Lu}\d]|\s*$)/u)?.[0] ?? (text ?? "").trim();
 
 /**
  * A row's words for an installed one, all its own (PIE-1284): a script's summary (its note's title, its extension's
@@ -412,12 +484,15 @@ function summaryOf(e: ExtensionEntry, l: ExtensionList): string {
 
 /** An installed extension as its preview reads it: its id and version, its state and settings, where it lives, its words, what it adds. */
 function extensionFacts(e: ExtensionEntry, then: string): string {
-  const parts = extensionParts(e);
+  const parts = extensionParts(e), override = e.builtIn && overrideWords(e.id, e.builtIn);
   return [
-    `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}${e.settings ? ` · settings ${settingsChip(e.settings)}` : ""}`,
+    `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}`,
     ...(e.error ? ["", `> [!warning] ${e.error}`] : []), ...(e.script && e.summary ? ["", e.summary] : []), "", e.description ?? "",
+    ...(e.settings ? ["", settingsWords(e.id, e.settings)] : []),
     ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${partKind(p.kind)} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
-    ...(e.directory ? ["", `\`${e.directory}\``] : []), "", then,
+    ...(e.directory ? ["", `\`${e.directory}\``] : []),
+    // A copy of a built-in (PIE-1283): this copy runs, the built-in never does in place; both folders said.
+    ...(e.builtIn ? ["", override ? `${override}: this copy runs; the built-in is \`${e.builtIn.directory}\`` : `installed from the built-in \`${e.builtIn.directory}\``] : []), "", then,
   ].join("\n");
 }
 
@@ -427,25 +502,31 @@ function extensionFacts(e: ExtensionEntry, then: string): string {
  * installs one, `extensions.install`), and, once a name is typed, removing one (`extensions.uninstall`), keeping its demo
  * notes or not. `&` is the door's: an extension's bar source can't take it.
  */
+/** What an install or remove row runs, for its pick and its copied line alike; the rest open a page or a form. */
+const extRequest = (d: ExtRow): [string, Record<string, unknown>] | null =>
+  d.block ? null : d.kind === "install" ? ["extensions.install", { id: d.id }] : d.kind === "remove" ? ["extensions.uninstall", { id: d.id, demo: d.demo! }] : null;
+
 const EXTENSIONS: BarSource = {
   id: "extensions", title: "extensions", prefix: "&", by: "door",
-  about: "the outline's extensions: the Extensions hub, each installed one's page (⏎ opens it: its README, what it adds, its demo notes; its row says its settings: default, set, needs setup, failing), each one's settings (⏎ opens its form, drawn from its configSchema), the ones the repo has that aren't installed (⏎ installs one with its demo notes), and, with its name typed, removing one",
+  about: "the outline's extensions: the Extensions hub, each installed one's page (⏎ opens it: its README, what it adds, its demo notes; its row says when its settings need you: needs setup, failing), each one's settings once a name is typed (⏎ opens its form, drawn from its configSchema), the ones the repo has that aren't installed (⏎ installs one with its demo notes), and, with its name typed, removing one",
   main: { empty: false, typed: true, most: 4 },
   rows(q, host) {
     const l = extensionList();
     if (!l) return [];
     const rows: BarRow[] = [{ key: "make", label: "make your own", detail: "ep0ch-extend skill · ep0ch docs extensions", group: "make", oneLine: true, data: { kind: "make", id: "" } satisfies ExtRow }];
-    const installed = l.extensions.filter(e => e.state !== "shadowed"), all = installed.length + (l.available?.length ?? 0);
+    // A script an extension ships is part of that extension's row, not one of its own (PIE-1283).
+    const installed = l.extensions.filter(e => e.state !== "shadowed" && !e.partOf), all = installed.length + (l.available?.length ?? 0);
     if (l.hub) rows.push({ key: "hub", label: "Extensions", detail: `the hub · ${installed.length} of ${all} installed`, group: "installed", data: { kind: "hub", id: "", block: l.hub } satisfies ExtRow });
     // One line each, grouped under installed by what it adds first, that kind its chip (PIE-1284): the words are its own; the rest is the preview's.
     const kindOf = (e: ExtensionEntry) => extensionParts(e, l)[0]?.kind ?? "actions";
     for (const kind of PART_KINDS) {
       const these = installed.filter(e => kindOf(e) === kind);
-      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", summaryOf(e, l)].filter(Boolean).join(" · "), group: `installed · ${kind} · ${these.length}`, chip: partKind(kind), oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
+      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.builtIn ? overrideWords(e.id, e.builtIn) : "", settingsNeedYou(e.settings) ? settingsChip(e.settings!) : "", summaryOf(e, l)].filter(Boolean).join(" · "), group: `installed · ${kind} · ${these.length}`, chip: partKind(kind), oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
     }
-    // Its settings (PIE-1343): a row each, its chip the words; where config.json is, the preview's; ⏎ the form its configSchema draws.
-    const configured = installed.filter(e => e.settings);
-    for (const e of configured) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: settingsChip(e.settings!), group: `settings · ${configured.length}`, oneLine: true, data: { kind: "settings", id: e.id } satisfies ExtRow });
+    // Its settings (PIE-1343): ⏎ opens the form its configSchema draws. Listed only where they need you (needs setup,
+    // failing) until something is typed (`settings tidy`), as removing is: the rest are in each one's preview, in words.
+    const needing = installed.filter(e => settingsNeedYou(e.settings));
+    for (const e of q.trim() ? installed.filter(e => e.settings) : needing) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: settingsChip(e.settings!), ...(q.trim() ? {} : { group: `settings that need you · ${needing.length}` }), oneLine: true, data: { kind: "settings", id: e.id } satisfies ExtRow });
     for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: firstSentence(a.description), group: `not installed · ${l.available!.length}`, oneLine: true, data: { kind: "install", id: a.id, about: a.description, scripts: a.scripts } satisfies ExtRow });
     // Removing one is offered once its name is typed, both ways, so the demo notes never go by a stray ⏎.
     if (q.trim()) for (const e of installed) {
@@ -476,6 +557,10 @@ const EXTENSIONS: BarSource = {
     if (d.kind === "remove") return { markdown: [`**${row.label}**`, "", !d.notes ? "Its folder goes, and its lines and actions stop working. Its page goes with it." : d.demo === "keep" ? "Its folder goes, and its lines and actions stop working. Its demo notes stay under its page." : "Its folder goes, and its demo notes go to Trash: the ones nobody changed (the rest are kept, and named). Trash can restore them.", "", `The same from a shell: \`ep0ch ext remove ${d.id}${d.demo === "remove" ? " --demo remove" : ""}\``].join("\n") };
     return { lines: [row.label, "", row.refused ?? ""] };
   },
+  command(row) {
+    const req = extRequest(row.data as ExtRow);
+    return req ? shownLine(req[0], req[1]) : null;
+  },
   async pick(row, host, how) {
     const d = row.data as ExtRow;
     if (row.refused) throw new ActionRefused(row.refused);
@@ -498,8 +583,8 @@ const EXTENSIONS: BarSource = {
       return openActionForm(host, { action, args: now }, how.actor);
     }
     if (d.block) return openNote(d.block, host, how);
-    const [action, args] = d.kind === "install" ? ["extensions.install", { id: d.id }] : ["extensions.uninstall", { id: d.id, demo: d.demo! }];
-    return how.actor.kind === "agent" ? host.dispatch.act({ action, args }, how.actor) : host.dispatch.press(action, args);
+    const [action, args] = extRequest(d)!;
+    return host.dispatch.as(how.actor, { action, args });
   },
 };
 

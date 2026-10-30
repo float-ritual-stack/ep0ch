@@ -120,7 +120,10 @@ A click, `show` and `door_open` share one open (`openNote` in
   and `Link` print the address beside a link when the terminal has no hyperlinks, and cannot be told not to, so in a
   terminal the mod draws the lines that hold a reference itself (`hooks/reply-lines.ts`: one pressable `Button` per
   reference, prose around it with bold, italic and code kept) and leaves every other line to the engine's Markdown.
-  The desktop and VS Code keep the Markdown, whose links are real, on `https://pi-outliner.invalid/...` stand-ins.
+  The desktop and VS Code keep the Markdown, whose links are real: each reference links to its note's page on the web
+  client (PIE-926), `<EP0CH_WEB_URL's first origin, else https://my.ep0ch.sh>/pub/o/<the session's outline>/p/<PIE-n|page|id>`
+  (another outline's reference names that outline), so it opens in a browser, in claude.ai and on a phone; a press the
+  mod takes maps it back and opens it in the door or Detail as before.
   `https://my.ep0ch.sh/pub/p/<PIE-n|page|id>` that Claude writes, bare or as `[label](url)`, is the same reference
   (a bare one drawn as its PIE-n, page name or the note's title). An unaliased `((id))` or `((id^anchor))` is drawn as its note's title (cut to 48 characters, then `› anchor`), looked up once through the same cache as a tool row's titles and redrawn when it lands; until then, and when the block is not found, as its first eight characters and `…`; a press still opens it. Any other http(s) link, bare or `[label](url)`, is drawn in the terminal as the engine's `Link` (an OSC 8 hyperlink the terminal opens) in the dim `inactive` colour with a trailing `↗`, apart from the underlined references that open in the door; a bare address keeps its text.
   Emphasis spanning a reference and other text stays bold or italic, and a table with a reference in a cell is drawn
@@ -278,6 +281,34 @@ session ends. Every report carries `app=claude-code`. `hooks/claude-status.ts` h
 identical by outline-core's test. It writes only where the terminal speaks the protocol: `EP0CH_PROGRAM_STATUS` says
 outright (1, 0), else `tput Pst` (a door's tiles have it); it never sends the feature query, as Claude owns the input. This build of Claude Code reports nothing itself (its plugin API has no such call); once it does, `EP0CH_PROGRAM_STATUS=native` makes the mod step aside, so a record never has two writers (the mod can't read Claude's own output to notice by itself).
 
+### Approve from the phone (PIE-1386)
+
+A permission dialog in a session nobody is watching (a background job: `CLAUDE_JOB_DIR` is set) shows in the session
+at once and is put to the person through the outline at the same time (`hooks/approve.ts`). The first answer wins.
+
+- **One list for agents' asks:** every session's asks go to `EP0CH_APPROVE_WS` (`<name>` or `<name>@<machine>`, default
+  `pie`, on the bound outline's machine), so pie's Waiting on Evan holds them all beside pie's own `needs` notes. A
+  `needs` note written in another outline (gurgle, float-hub) stays on that outline's list. A session bound to
+  float-hub (client work) keeps its asks in float-hub, never pie; an outline that can't be read from here keeps them in
+  the bound outline.
+- **The ask:** a note under that outline's `[[permission-asks]]` page, `Allow <tool>: <what>?` with
+  `[needs::sysop: …]` on its first line, so pie's Waiting on Evan view (any view of `needs`) lists it; its steps:
+  `allow this once`, the session step, `deny`; and the call's input.
+- **The session step says what it grants:** ``allow every `touch` command for this session`` adds only `Bash(touch:*)` for this session
+  (`sessionGrantOf`): the dialog's own suggested rule when it has one; else a prefix rule for `touch` or `mkdir` (whose
+  dialog suggests accept-edits mode, which would let the next `rm` run unasked); else the exact command, `rm` included.
+  Never a mode switch, a folder or a standing rule. A call no rule names exactly (`a && b`, a `*`) gets no session step.
+- **A tick answers it:** the person's tick, on the web page (a tap on my.ep0ch.sh) or in the door, both the one
+  `checklist.update` written as `author: user`. The hook reads the note every 3 s; a tick whose last write is an
+  agent's counts for nothing. The tick answers the dialog that is showing, and the note says who answered and when.
+- **Answered in the session instead:** the call ends (it runs, or the dialog's No refuses it), and the note leaves the
+  list at once (within the 3 s read), saying it was answered in the session and whether it ran. The mod matches the
+  dialog to its call by the tool and its input (`callKey`, `CallsUnderWay`).
+- **No answer for 600 s:** the note leaves the list, saying the dialog still waits in the session.
+  `EP0CH_APPROVE_WAIT=<seconds>` sets that time for any session (0 is off).
+- **Watched sessions** write no ask: whoever watches answers the dialog there.
+- **Not covered:** auto mode's classifier denials (PermissionDenied) can't be answered by a hook.
+
 ## Recent mentions in Claude Code
 
 The blocks this conversation's answers mentioned show beside it, read from the
@@ -427,6 +458,48 @@ has the steps for a wake.
 - A host older than `list --facets` is one toast naming `ep0ch install --apply`; the check changes nothing until it
   can read.
 
+## Addressed mail: an @persona comment reaches its sessions (PIE-1404)
+
+A comment that says `@loki` (or `@daddy`, `@kitty`, any persona) on any note, written in the door, on a web page or
+by another agent, wakes every live session of that persona, and stays on its list until it answers. The capability is
+"Addressed mail" in pie (f9f2475c).
+
+- **Who:** any session that writes as a persona (the folder's `.ep0ch` `agent =`, or `EP0CH_AGENT`), on the settle
+  check's clock: 15 seconds after the start, then every `every` minutes (30; `EP0CH_SETTLE_TUNING`'s `every=`).
+- **What it asks** (`hooks/addressed.ts`, three reads, no scan and no thread limit): the comments naming `@<persona>`
+  (`list --query '((type=annotation AND annotation-status=open) OR type=annotation-reply) AND text~"@<persona>"'`),
+  the thread roots and notes they sit under (`read`), and every reply in those threads
+  (`type=annotation-reply AND (parent-annotation=… OR …)`). The `@name` matcher is outline-core's `mention.ts`, the
+  one the gateway's thread inbox uses: `@loki` is loki, `@loki-sr` isn't, and an `@loki` in the quoted passage isn't.
+- **An ask** is an open thread where a comment the persona didn't write names it, and no comment by the persona comes
+  after (from any client: `mcp:loki/claude.ai` and `loki/claude-code@float-2` are both loki). A reply from it, or the
+  thread resolved, takes it off the list; a later @ in the same thread puts it back.
+- **A wake** is one prompt, `Addressed to @loki: N open threads ask you …`, sent when an ask is new to this session
+  (or asked again): every open ask, the new first, Evan's first, each with who, when, the note, the thread id and the
+  words, then how to answer (`outline_reply`). What was told is kept in memory, so every session of the persona hears
+  each ask once, and a session that starts later hears what is still open at its first check. A wake that doesn't go
+  is tried again at the next check.
+- **Where:** the bound outline, and the outlines `settleOutlines` or `EP0CH_SETTLE_OUTLINES` name; with neither, pie
+  and gurgle on its machine when the bound outline is one of them. An outline that can't be read is one toast and is
+  left out of that check.
+- **Agents asking agents:** another agent's @ counts, so kitty can raise loki's traffic with loki. The wake says to
+  name another agent only when its answer is needed; a loop costs one wake per check at most.
+
+## What became of your proposals (PIE-1086)
+
+An edit of this session's that was proposed instead of applied, and every change to it after (gone stale, applied,
+dismissed, resolved), reaches the session once each, with the note's link and the proposal's.
+
+- **What it reads** (`hooks/proposals-heard.ts`): `outliner agent proposals`, the service's `proposals.outcomes`
+  (`src/proposal-outcomes.ts`), from the proposals' own revision records: no feed of its own. The same reader answers
+  `outline_proposals` here and on the MCP gateway.
+- **Whose:** a session that writes as a persona hears that persona's proposals from every client (`loki/claude-code@…`
+  and `mcp:loki/claude.ai`); a session with none hears its own session's only.
+- **When:** looked up every 2 minutes from the session's start (or a `/clear`); what is new rides with the next prompt
+  as an `ep0ch-proposals` block. A stale one wakes a persona's idle session (one prompt, as addressed mail does): it
+  asks for the edit again, or the proposal dismissed. Nothing is said to the person: the waiting-on-you tile has the
+  open ones.
+
 ## Workboard tools
 
 In a bound folder Claude also gets `work_create`, `work_stage`, `work_set`, `work_link`,
@@ -476,7 +549,9 @@ copy from the marker down.
 
 | Tool | Input | Returns |
 |---|---|---|
-| `outline_read` | `ref`, `depth?` (1, at most 6), `limit?` (50, at most 500) | full `text` (never the title alone), `properties`, `revision`, `author`, `actorId`, `updated`, children to `depth` with full text (60k characters of children's text at most), `complete`, and for a note that holds a `{{ }}` its `site`: the service's answer for each placeholder (`values`, or a `problem` with the nearest keys), how it was found (`route`) and the notes it came from (`deps`), while `text` stays what the author wrote |
+| `outline_read` | `ref`, `depth?` (1, at most 6), `limit?` (50, at most 500), `view?`, `width?` (44) | with `view: true` also `view`: the note as the door draws it, a line each (`ep0ch show`); full `text` (never the title alone), `properties`, `revision`, `author`, `actorId`, `updated`, children to `depth` with full text (60k characters of children's text at most), `complete`, and for a note that holds a `{{ }}` its `site`: the service's answer for each placeholder (`values`, or a `problem` with the nearest keys), how it was found (`route`) and the notes it came from (`deps`), while `text` stays what the author wrote |
+| `outline_proposals` | `since?` (an ISO time or the last `cursor`; a week back when left out), `actor?` (yours; a persona covers every client it writes through), `limit?` | `outcomes`, oldest first, each once: `proposal`, `note`, `title`, `state` (`proposed`, `stale`, `applied`, `dismissed`, `resolved`), `at`, `by`, `reason`; `cursor`, `complete` |
+| `script_run` | `ref` (the script block), `this?` (the note the run is about), `slots?` (`{ name: "value" }`, its `props`) | what the run said: `message`, `state`, `answer`, what it `written` |
 | `outline_find` | `text?`, `property?` (`key=value` or `key`), `hasKey?`, `query?`, `under?`, or `view?`; `limit?` | rows: `id`, `title`, `revision`; `complete` |
 | `outline_resolve` | `ref` | `id`, `title`, `revision`, `workId`, `fragmentId` |
 | `outline_edit` | `ref`, `expectedRevision`, one of `text`, `replaceSection {heading, body}`, `append`; `allowStructural?` | the new `revision`, a short `diff`, and with `allowStructural` what it `dropped` |
@@ -513,7 +588,7 @@ id: "PIE-588"}`) is refused as ambiguous, and nothing runs; the same note spelt 
 accepted. A wrong call is answered with what was wrong and the right call: the unknown argument and the closest valid
 one, what is missing or the wrong type, the tool's arguments in one line, and a call that works. A name near no argument
 (the host's own metadata, `agentId` in a subagent, or a name made up) doesn't stop the call, but it's said first in the
-answer, `Not used: \`flavour\` is no argument of outline_comment (its arguments: …)` (PIE-871: a `kind` dropped
+answer, `Not used: `flavour` is no argument of outline_comment (its arguments: …)` (PIE-871: a `kind` dropped
 silently cost nine patch notes their kind). That file is the same
 code as `packages/outline-core/src/tool-args.ts` (hooks can't import it); the door's
 `test/tool-args.test.ts` fails when the two differ.
@@ -635,7 +710,7 @@ agent's `outline_comment`). The thread is stored in the outline, beside the file
 When Claude runs in a door tile (`EP0CH_CONTROL` set), it also gets
 `door_where`, `door_peek`, `door_act { action, args?, tile? }` and
 `door_open { ref }`. `door_peek` is the compact text by default (a few KB: where, the person, the door's speed, the screen as text);
-`full: true` adds the whole structured state (`ep0ch peek --json`) and `section: "speed"` is one part of it. They run `ep0ch where --json`, `ep0ch peek` and
+`full: true` adds the whole structured state (`ep0ch peek --json`) and `section: "speed"` is one part of it; each tile is in brief, as `layout.get` gives it, and `tiles: "full"` has each whole (`--full`). They run `ep0ch where --json`, `ep0ch peek` and
 `ep0ch act …` on that socket; `door_open` is the same open as a click or `show`
 ([Where a note opens](#where-a-note-opens)). Without
 `EP0CH_CONTROL` they are not offered, and a call is refused.

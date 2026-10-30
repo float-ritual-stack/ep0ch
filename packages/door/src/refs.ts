@@ -247,6 +247,8 @@ export type LinkTarget = {
   resource?: AuthoredResourceLink;
   /** A Resource an extension's view links to (PIE-754): `file:/path`, `web:https://…` or `resource:<id>`. */
   resourceRef?: string;
+  /** With `block`: open it at this revision, beside how it is now (PIE-1433; a live table's `at:` row). */
+  revision?: number;
   block?: string; fragment?: string; at?: number; atLabel?: string; /** With `at`: what the lit line is (a `::fields` row's: "the line it was written on"). */ atSays?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout" | "figure" | "image" | "picture"; reason?: string;
   /**
    * A live figure's control (role "figure"): one of a tabs figure's tabs, or its density; on a row (role "row"), the
@@ -285,7 +287,8 @@ export type LinkTarget = {
    * A press (PIE-957): a `::button`, or a view's button, badge, card, text or table row that carries an action line (role
    * "control"). ⏎ and a click run `act` through the door's one dispatcher as the person, on the note `block` (the script's `this`).
    */
-  press?: { act: string; steps?: readonly import("@ep0ch/outline-core/button-call").ButtonStep[]; alt?: string; block: string; line: number };
+  /** `label`: a `::button`'s words, so its press's state stays with it when an edit moves lines (PIE-1415). */
+  press?: { act: string; steps?: readonly import("@ep0ch/outline-core/button-call").ButtonStep[]; alt?: string; block: string; line: number; label?: string };
   /** A ticket's age (PIE-445): following it refreshes the tickets this block shows (`projection.refresh`). */
   refresh?: string;
   /** With `refresh`: only the ticket under this line of that block (its index in the note's text). */
@@ -367,6 +370,21 @@ function tagsIn(noteText: string, src: Source | null | undefined): { raw: string
 
 /** A value's words with the characters inline Markdown would take for emphasis kept as typed. */
 const plainWords = (words: string) => words.replace(/[*_~\\]/g, "\\$&");
+
+/**
+ * A line of words that may name notes (a status message, a refusal): each labelled reference said as its label, as a
+ * reader draws one (`((id|Seed order))` reads "Seed order", PIE-1439), by outline-core's one scan; an unlabelled one stays
+ * as written, since its id is all it says. For one row of words with no note to resolve against; a note is presentLinks'.
+ */
+export function referenceWords(text: string): string {
+  let out = "", at = 0;
+  for (const r of blockReferenceOccurrences(text, "inline")) {
+    if (r.label === undefined) continue;
+    out += text.slice(at, r.start) + r.label;
+    at = r.end;
+  }
+  return at ? out + text.slice(at) : text;
+}
 
 /**
  * `site`: the note this text is drawn for. Its `{{ }}` are drawn as the service's `site.answer` reads them (PIE-533 S2):

@@ -1,5 +1,5 @@
 import { LIST_MOVE_KEYS } from "./surface/attached-keys";
-import { modeBinding, modeHint, modeActionKeys } from "./surface/modes";
+import { modeBinding, modeHint, modeActionKeys, Modes } from "./surface/modes";
 import { clipText } from "./overflow";
 import { errorDetails } from "./status-log";
 import { matchesSearchText } from "@ep0ch/outline-core/search-match";
@@ -32,7 +32,8 @@ import { RowView, RowPresses, overscroll, overscrollOf, useOverscroll } from "./
 import { composerPlace, useComposerPlace } from "./surface/composer";
 import { attachedPlaceOf } from "./surface/attached";
 import { ATTACHED_PLACES } from "./surface/attached";
-import { overflows, scrollPct } from "./canvas";
+import { Canvas, overflows, scrollPct } from "./canvas";
+import type { ListPicker } from "./surface/picker";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
@@ -45,10 +46,11 @@ import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { bbsDate, printable, rowLines, rule, wrap } from "./text";
 import { LISTVIEW_ACTIONS } from "./surface/list-actions";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
+import { copyNoteById, NOTE_REF_ACTIONS, ownOutline, type NoteRefOn } from "./note-ref";
 import { shellRunner } from "./drop";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { Dispatcher, type TileRef } from "./surface/dispatch";
-import { SHELL_IDLE_MS } from "./whereabouts";
+import { holdsEdit, SHELL_IDLE_MS } from "./whereabouts";
 import { authorName, type Actor, type OutlineEvent } from "./socket";
 import { parseFieldKey, parseStyleValue, type FieldKey } from "@ep0ch/outline-core/style-cascade";
 import { lookFor, tuningOf, UNSET, type TuneTarget } from "./look";
@@ -183,6 +185,7 @@ function artWithText(ctx: Ctx, key: string, art: Art, overlays: Overlay[], at = 
 // ── logon ────────────────────────────────────────────────────────────────────
 
 export class Logon implements Screen {
+  readonly ownsQuestion = true;
   title = "logon";
   readonly noDrawer = true;
   private shown = 0;
@@ -285,6 +288,7 @@ const ITEMS: MenuItem[] = [
 export const MENU_SCREENS: [string, (ctx: Ctx) => Screen | null][] = ITEMS.map(i => [i.key, i.open]);
 
 export class MainMenu implements Screen {
+  readonly ownsQuestion = true;
   title = "main menu";
   private sel = 0;
   private readonly ptr = new Pointer();
@@ -330,11 +334,13 @@ export class MainMenu implements Screen {
     });
     // The lit item's name at the width of the longest, so the line (and every key on it) stays put as it changes.
     const lit = ` |07: |15${item.label.padEnd(Math.max(...ITEMS.map(i => i.label.length)))}`;
-    const all = [...keys, ...extras, lit];
+    // ? and H, said and clickable: the keys window and the help screen.
+    const asks: (string | [string, Key])[] = [" |08· ", ["|15? |07keys", char("?")], " ", ["|15H |07help", char("H")]];
+    const all = [...keys, ...extras, lit, ...asks];
     // Too wide for one line (80 columns): the named items go on a line of their own under the keys.
     if (width(paint(all.map(q => (typeof q === "string" ? q : q[0])).join(""))) <= ctx.t.cols) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, all, { centre: true }));
     else {
-      lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [...keys, lit], { centre: true }));
+      lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [...keys, lit, ...asks], { centre: true }));
       // The named items on as many lines as the width takes (80 columns: two), each item whole.
       const named = (q: string | [string, Key, number]) => width(paint(typeof q === "string" ? q : q[0]));
       let row: (string | [string, Key, number])[] = [];
@@ -370,7 +376,9 @@ export class MainMenu implements Screen {
     // (or a click on it). q stays the menu's own letter, the Quay.
     else if (k.kind === "esc") return nothingToClose(ctx, "G logs off");
     else if (k.kind === "char" && !k.ctrl && k.ch.toUpperCase() === "V") return shellKey("video.cycle", {}, this, ctx);
-    else if (ch(k) === "?") return shellKey("screen.help", {}, this, ctx);
+    else if (ch(k) === "?") return shellKey("keys.open", { filter: "menu" }, this, ctx);
+    // H, no item's letter: the help screen, every item and what it does (? is the keys window here as everywhere).
+    else if (k.kind === "char" && !k.ctrl && k.ch.toUpperCase() === "H") return shellKey("screen.help", {}, this, ctx);
     else if (k.kind === "char" && !k.ctrl) {
       const hit = ITEMS.findIndex(i => i.key === k.ch.toUpperCase());
       if (hit >= 0) return this.open(ITEMS[hit]!, ctx);
@@ -408,7 +416,7 @@ function openItem(item: MenuItem, ctx: Ctx): Screen | null {
 export const MENU_ACTIONS = actionSet<{ menu: MainMenu; ctx: Ctx }>()("menu", {
   "menu.select": def({
     summary: "light a menu item: name=<its key or label>, or by=<steps> (↑↓ one, ←→ a column of four); ⏎ or its letter opens it (screen.open). An agent's waits until the person is idle and is said on the status bar",
-    keys: "↑ ↓ ← → tab, the wheel, click on an item (lit as it is pressed)",
+    keys: [{ keys: "↑ ↓ ← → tab", does: "light a menu item" }, { keys: "wheel", does: "light a menu item" }, { keys: "click", does: "on an item (lit as it is pressed)" }],
     touches: "screen", replay: "safe", says: out => `· lit ${out.label} on the menu · ⏎ opens it`,
     args: { name: { type: "string", optional: true, about: "the item's key (S) or label (Stats)" }, by: { type: "number", optional: true, about: "steps from the lit item: 1 down, -1 up, 4 a column right" } },
     examples: [
@@ -540,16 +548,17 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "agents.yolo": def({
     summary: "hand the door to your agents (on=true) or take it back (on=false); left out, it toggles. In yolo no person guard holds an agent back: not your typing, focus or idle, not a tile's limit or a lock, not the drawer. What keeps state valid (revisions, the layout's shape) still holds, and every agent action is still attributed and said. Loud on the status bar (YOLO; a click takes it back). Kept across an update of the same session; off after the door ends or crashes. Turning it on is the person's; an agent may turn it off",
-    keys: "> agents.yolo in the power bar (ctrl+k); a click on the status bar's YOLO turns it off",
+    keys: [{ via: "> agents.yolo in the power bar (ctrl+k)" }, { keys: "click", does: "on the status bar's YOLO turns it off" }],
     touches: "nothing", replay: "ask",
-    args: { on: { type: "boolean", optional: true, about: "true hands the door to agents, false takes it back; default: toggle" } },
+    // Handing the door over is the person's alone, on their press too; taking it back (on=false) is anyone's.
+    personWith: ({ on }) => (on === false ? null : { always: "yolo is the person's to hand over: they turn it on (ctrl+k > agents.yolo); an agent takes it back with on=false" }),
+    args: { on: { type: "boolean", optional: true, about: "true hands the door to agents, false takes it back; default: toggle (an agent's says on=false)" } },
     examples: [
       { act: "agents.yolo on=true", does: "hands the door to agents, with YOLO on the status bar (the person's to turn on)" },
       { act: "agents.yolo on=false", does: "puts agents back under the person's guards" },
     ],
     run({ on }, { ctx }, actor) {
       const want = on ?? !ctx.agentsYolo;
-      if (want && actor.kind === "agent") throw new ActionRefused("yolo is the person's to hand over: they turn it on (ctrl+k > agents.yolo); ask them to");
       ctx.agentsYolo = want;
       ctx.flash(want ? "YOLO: agents act with no person guard until you take it back (click YOLO, or agents.yolo on=false)" : "agents are back under the person guards", 8000);
       ctx.redraw();
@@ -557,6 +566,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "changes.machinery": def({
+    words: "include or leave out the tools' bookkeeping when counting what changed",
     summary: "whether \"what changed\" (the status bar's +N new, the new scan) includes machinery: what tools wrote for their own bookkeeping (notes stamped [machine::…], tosses, file touches, deliveries) and extensions' writes (a refreshed Jira ticket, `ext:…`); include=true or false sets it, else it toggles. Off by default. The person's view: an agent's is refused",
     keys: "a click on the status bar's +N machine",
     touches: "screen", replay: "safe",
@@ -587,7 +597,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "outline.snapshot": def({
     summary: "copy a one-time SQLite snapshot link for read-only analysis; expires in 15 minutes, revocable with share.revoke. Includes private notes. Append ?gz=1 for gzip",
-    keys: "> outline.snapshot in the power bar",
+    keys: [{ via: "> outline.snapshot in the power bar" }],
     touches: "nothing", replay: "ask", says: out => `· snapshot link created · ${out.bytes} bytes · expires ${out.expiresAt}`,
     args: { ttl: { type: "string", optional: true, about: "15m by default, up to 24h" } },
     examples: [
@@ -605,7 +615,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "artifact.lease": def({
     summary: "upload a file: a one-time link to send a page, a zip or a tar (or an image) into the artifacts inbox from a shell, good for one upload for an hour. Prints the curl to run where the file is and copies it; the file is checked, installed as the next version of its artifact, and a card for it lands in this outline's note for today. name= names the artifact (left out, the file names itself by its page title). `ep0ch artifact lease` from a shell",
-    keys: "> artifact.lease (or: upload) in the power bar",
+    keys: [{ via: "> artifact.lease (or: upload) in the power bar" }],
     touches: "nothing", replay: "ask", says: out => `· upload link made${out.name ? ` for ${out.name}` : ""} · one upload, good until ${out.expiresAt}`,
     args: { name: { type: "string", optional: true, about: "the artifact's name: letters, numbers, dots, underscores, hyphens; sending it again is its next version. Left out, the file names itself" } },
     examples: [
@@ -623,7 +633,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "share.start": def({
     summary: "start a short-lived public link (a share session) to the outline, navigated as the tailnet's web client is: ref= is the page it opens on (an id, ((id)), a page name, [[page]] or PIE-123), only= narrows it to that note and what's under it; until it is revoked, or for ttl= (30m, 4h, 7d) when given, taking comments unless comments=false. The link goes on the clipboard and the status bar; [publish::never] notes stay hidden. `ep0ch share start` from a shell. An agent's is attributed to it",
-    keys: "> share.start in the power bar",
+    keys: [{ via: "> share.start in the power bar" }],
     touches: "nothing", replay: "ask", says: out => (out?.share ? { text: `· shared ${out.share.scope.kind === "outline" ? "the outline" : `only “${out.share.scope.title}”`} for ${endsIn(out.share.expiresAt)}: ${out.share.url ?? out.share.id}`, ms: 15_000 } : null),
     args: {
       ref: { type: "string", optional: true, about: "the page the link opens on (id, ((id)), a page name, [[page]], PIE-123); default: the top of the outline" },
@@ -653,7 +663,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "share.list": def({
     summary: "the open share sessions: each one's id, link, what it shares, when it ends and whether it takes comments; the status bar says how many and the soonest to end. Read-only. `ep0ch share list` from a shell; the tailnet's /pub/shares page shows the same, with Revoke and Kill all",
-    keys: "> share.list in the power bar",
+    keys: [{ via: "> share.list in the power bar" }],
     touches: "nothing", replay: "safe",
     args: {},
     async run(_, { ctx }) {
@@ -664,7 +674,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "share.revoke": def({
     summary: "end a share session now (id= from share.list), or every open one (all=true): its link answers 410 from the next request. `ep0ch share revoke <id> | --all` from a shell",
-    keys: "> share.revoke in the power bar",
+    keys: [{ via: "> share.revoke in the power bar" }],
     touches: "nothing", replay: "ask", says: out => (out?.revoked ? `· ended ${out.revoked.length} share${out.revoked.length === 1 ? "" : "s"}` : null),
     args: {
       id: { type: "string", optional: true, about: "the share's id (share.list)" },
@@ -682,8 +692,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.open": def({
-    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C I E + A M, or n j k r w l f s q b d g x t o c i e a m, ⏎, click on a menu item or its letter on the key line",
+    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: [{ keys: "N J K R W L F S Q B D G X T O C I E + A M n j k r w l f s q b d g x t o c i e a m", does: "the menu's letters open that screen", on: "menu" }, { keys: "⏎", does: "opens the lit menu item", on: "menu" }, { keys: "click", does: "on a menu item or its letter on the key line" }],
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
+    // Logging off is the person's G alone, on their press too (an agent's never ends their session).
+    personWith: a => ((itemNamed(a.name) ?? itemNamed(resolveScreen(a.name) ?? ""))?.key === "G" ? { always: "an agent doesn't log the person off; only G, pressed or clicked by them, does" } : null),
     args: {
       name: { type: "string", kind: "screen", about: "the menu key (S), its label (Stats), the screen's title, a registered screen name, or the title of a screen a person made as they typed it (daily test; screen.list)" },
       target: { type: "string", optional: true, about: "what the screen opens on, where it takes one: detail's block (an id, ((ref)) or ep0ch:// URI), the board's hub" },
@@ -716,8 +728,6 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
         return { opened: s.title, screen: name, ...(value ? { target: value } : {}) };
       }
       if (given !== undefined) throw new ActionRefused(`${item.label} takes no target · ep0ch --screen ${name}`);
-      // Logging off is the person's G alone (an agent's never ends their session).
-      if (item.key === "G" && actor.kind === "agent") throw new ActionRefused("an agent doesn't log the person off; only G, pressed or clicked by them, does");
       // An item that is another action's key (the Shell's !) runs that action, through the dispatcher, as the same actor.
       if (item.action) return again ? again(item.action, {}) : Promise.reject(new ActionRefused(`${item.action} runs from the door's own dispatcher`));
       // The menu lights what it opens, so coming back it's where the person left it.
@@ -736,7 +746,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.back": def({
-    summary: "leave this screen for the one under it (the main menu is the top: there it stays; G logs off)", keys: "q Q, click on Q back; ⏎ on Who's online and Stats; any key (Esc too) on the help screen. Never Esc elsewhere: Esc closes the innermost temporary thing and never leaves a screen",
+    summary: "leave this screen for the one under it (the main menu is the top: there it stays; G logs off)", keys: [{ keys: "q Q", does: "leave this screen" }, { keys: "click", does: "on Q back" }, { keys: "⏎", does: "on Who's online and Stats" }, { via: "any key on the help screen" }, { keys: "esc", does: "on the help screen; elsewhere never leaves a screen: Esc closes the innermost temporary thing" }],
     touches: "screen", replay: "safe", says: out => (out?.from ? { text: `· went back from the ${out.from} to the ${out.to}`, ms: 6000 } : null),
     args: {},
     run(_, { ctx, here }, actor) {
@@ -770,9 +780,9 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "session.end": def({
     summary: "end the session: the door stops, with every program in its terminal tiles and the drawer, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
-    keys: "E on the main menu (or a click on End on its key line); `ep0ch session end [--ws <name>] [--yes]` from a shell (this folder's outline's session, or --ws's; --yes is force=true)",
+    keys: [{ keys: "E", does: "on the main menu", on: "menu" }, { keys: "click", does: "on End on the main menu's key line" }, { via: "`ep0ch session end [--ws <name>] [--yes]` from a shell (this folder's outline's session, or --ws's; --yes is force=true)" }],
     touches: "screen", replay: "ask",
-    person: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",
+    personAlways: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",
     args: { force: { type: "boolean", optional: true, about: "end it even with programs running or a draft unsaved (the drafts are copied to disk and put aside); else it says what's running, and again within 3s ends it" } },
     examples: [
       { act: "session.end", does: "asks first when programs run or a draft is unsaved; again within 3s ends the session" },
@@ -786,9 +796,9 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "session.upgrade": def({
     summary: "hand the session to a new daemon on the code in its checkout: the programs in its tiles keep running in the terminal host, the screens and the edits on top come back, and every attached terminal starts again on the new code and attaches by itself (clients=true: only the terminals start again). The person's only",
-    keys: "`ep0ch session upgrade [--ws <name>] [--clients] [--all]` (and `ep0ch install --apply` when the door's code changed, for every session)",
+    keys: [{ via: "`ep0ch session upgrade [--ws <name>] [--clients] [--all]`" }, { via: "`ep0ch install --apply` when the door's code changed, for every session" }],
     touches: "screen", replay: "ask",
-    person: "an agent doesn't restart the person's session; `ep0ch install --apply` and `ep0ch session upgrade` are the person's commands",
+    personAlways: "an agent doesn't restart the person's session; `ep0ch install --apply` and `ep0ch session upgrade` are the person's commands",
     args: { clients: { type: "boolean", optional: true, about: "only restart the attached terminals on the new code; the daemon goes on" } },
     examples: [
       { act: "session.upgrade", does: "hands the session to a daemon on the checkout's code; terminals reattach" },
@@ -802,7 +812,8 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.help": def({
-    summary: "open the help screen over this one: every menu item and what it does (any key goes back); an agent's waits until the person is idle and is said on the status bar", keys: "? on the main menu",
+    summary: "open the help screen over this one: every menu item and what it does (any key goes back; ? on the menu is the keys window, keys.open); an agent's waits until the person is idle and is said on the status bar",
+    keys: [{ keys: "H h", does: "on the main menu", on: "menu" }, { keys: "click", does: "on H help on the main menu's key line" }],
     touches: "screen", replay: "safe", says: () => ({ text: "· opened help · any key goes back", ms: 6000 }),
     args: {},
     run(_, { ctx }) {
@@ -810,8 +821,20 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       return { opened: "help" };
     },
   }),
+  "keys.open": def({
+    summary: "open the keys window: on a screen of tiles (the desk, the board, the river) a keys tile beside the focused one, resized, docked and closed like any tile (esc or q closes it; the one already open gets the keys back); elsewhere the keys screen over this one (q comes back). Every key binding, filtered by filter= (a key, an action, a scope or words), each with what it does, what it takes its key from and what takes it first, and a rebind that says what it would do before it saves it in your keymap. An agent's waits until the person is idle",
+    keys: [{ keys: "?", does: "on every screen, filtered to where you are (on the desk: after ? more, when the hint row was cut)" }, { keys: "click", does: "on ? keys in the hint row" }],
+    touches: "screen", replay: "safe", says: () => ({ text: "· opened the keys window · ⏎ runs a row · esc closes it", ms: 6000 }),
+    args: { filter: { type: "string", optional: true, about: "the words to filter by: a key (^W x), an action (tile.close), a scope (note, board) or what it does" } },
+    examples: [{ act: "keys.open filter=board", does: "opens the keys window on the board's keys" }, { act: "keys.open filter=\"^W\"", does: "opens it on the ^W keys" }],
+    async run({ filter }, { here, again }, actor) {
+      if (here?.openKeys) return here.openKeys(filter, actor);
+      if (!again) throw new ActionRefused("this screen can't open another one");
+      return again("screen.open", { name: "keys", ...(filter ? { target: filter } : {}) });
+    },
+  }),
   "video.cycle": def({
-    summary: "the next video mode: Kitty+CRT, Kitty, plain cells (the person's display: an agent's waits until they're idle and is said on the status bar)", keys: "alt+v on every screen; V on the menu, the board, the desk, the river, the showcase and the views; v in the art viewer, or click on its v video; click on the status bar's video mode",
+    summary: "the next video mode: Kitty+CRT, Kitty, plain cells (the person's display: an agent's waits until they're idle and is said on the status bar)", keys: [{ keys: "alt+v", does: "on every screen" }, { keys: "V", does: "on the menu, the board, the desk, the river, the showcase and the views" }, { keys: "v", does: "in the art viewer" }, { keys: "click", does: "on the art viewer's v video, or the status bar's video mode" }],
     touches: "screen", replay: "safe", says: out => `· switched the video to ${out.video}`,
     args: {},
     run(_, { ctx }) {
@@ -837,8 +860,9 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "edit.arm.set": def({
+    words: "choose whether e arms the edit first or opens it at once",
     summary: "whether the person's e (and ctrl+e) in a reader arms the edit first (edit.arm: the status bar asks, ⏎ or e again opens it) or opens it at once, and how long it waits. Kept for the next start (EP0CH_EDIT_ARM overrides it). An agent's own edit always opens at once",
-    keys: "`ep0ch act edit.arm.set on=false`",
+    keys: [{ via: "`ep0ch act edit.arm.set on=false`" }],
     touches: "screen", replay: "ask", says: out => `· ${out.armed ? `e asks first (${out.ms} ms)` : "e opens an edit at once"}`,
     args: {
       on: { type: "boolean", about: "true: e arms the edit and ⏎ opens it; false: e opens it at once" },
@@ -862,7 +886,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "keys.probe": def({
     summary: "show exactly what the next keys arrive as, and run none of them: the bytes (a Kitty keyboard report such as CSI 107;16u, or legacy bytes), the modifiers they carry (⌃⌥⇧⌘), the key the door reads them as and whether the hyper layer is on. The way to learn what a terminal, Herdr or ssh passes through: a chord that never shows up never reached the door. Esc, or the action again, ends it; clicks still work. The person's: an agent can't take their keys",
-    keys: "`ep0ch act keys.probe`, the power bar's actions scope (>)",
+    keys: [{ via: "`ep0ch act keys.probe`" }, { via: "the power bar's actions scope (>)" }],
     touches: "screen", replay: "safe", person: "the probe takes the person's next keys; an agent's `act` would swallow them",
     says: out => (out.probing ? null : "· key probe ended"),
     args: { on: { type: "boolean", optional: true, about: "true starts it, false ends it; default toggles" } },
@@ -877,7 +901,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "hyper.set": def({
     summary: "turn the hyper layer on or off (PIE-699): ⌃⌥⇧⌘ and a key reach the door's own actions from anywhere, even while typing in a draft or a terminal tile (src/hyper.ts is the keymap; the hints and the power bar show ✦). Off by default. Kept for the next start; EP0CH_HYPER=1 or 0 overrides it. Needs a terminal that sends the Kitty keyboard protocol and a Caps Lock (or key) mapped to ⌃⌥⇧⌘ (Raycast's Hyper Key, Karabiner): keys.probe shows whether the chord arrives",
-    keys: "`ep0ch act hyper.set on=true`, the power bar's actions scope (>)",
+    keys: [{ via: "`ep0ch act hyper.set on=true`" }, { via: "the power bar's actions scope (>)" }],
     touches: "screen", replay: "ask", says: out => `· hyper layer ${out.on ? "on" : "off"}`,
     args: { on: { type: "boolean", about: "true turns the layer on, false off" } },
     examples: [
@@ -895,7 +919,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "reader.hero": def({
     summary: "whether a reader's sticky header (title, summary, byline, crumbs) takes a picture of the note as a dimmed, muted background once it scrolls under (PIE-598), and which: mode=first, the note's hero ([layout::hero], else an image that is its first block); mode=follow, each picture in turn as it scrolls under, fading in over the one before. [hero-focus::x,y] on a picture's line says where its crop centres. Every reader at once, kept for the next start",
-    keys: "`ep0ch act reader.hero on=false`, `ep0ch act reader.hero on=true mode=follow`",
+    keys: [{ via: "`ep0ch act reader.hero on=false`" }, { via: "`ep0ch act reader.hero on=true mode=follow`" }],
     touches: "screen", replay: "ask", says: out => `· ${out.on ? `headers take ${out.mode === "follow" ? "each picture as it scrolls under" : "the hero image"}` : "headers stay plain"}`,
     args: {
       on: { type: "boolean", optional: true, about: "true: the header takes the picture as it scrolls under; false: headers stay plain; left out, it stays as it was" },
@@ -917,7 +941,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "reader.ruler": def({
     summary: "show the reading line as a calm block highlight, on by default; kept for the next start",
-    keys: "power bar: reader.ruler", touches: "screen", replay: "ask",
+    keys: [{ via: "power bar: reader.ruler" }], touches: "screen", replay: "ask",
     args: { on: { type: "boolean", optional: true, about: "show the reading line; omitted toggles it" } },
     examples: [
       { act: "reader.ruler on=false", does: "hides the reading line's block highlight" },
@@ -931,8 +955,9 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "reader.overscroll": def({
+    words: "set how far readers scroll past their last line",
     summary: "how far readers (detail, preview, the desk's, a river column, the BBS reader) and drafts scroll past their last line (PIE-622): rows=half (the last line can come up to the middle, the default), none (it stops on the bottom edge), or a number of rows. End or G goes to the last line first, and again past it. Every reader and draft at once, kept for the next start",
-    keys: "`ep0ch act reader.overscroll rows=none`, `ep0ch act reader.overscroll rows=half`, `ep0ch act reader.overscroll rows=5`",
+    keys: [{ via: "`ep0ch act reader.overscroll rows=none`" }, { via: "`ep0ch act reader.overscroll rows=half`" }, { via: "`ep0ch act reader.overscroll rows=5`" }],
     touches: "screen", replay: "ask", says: out => `· readers scroll ${out.rows === "none" ? "to their last line" : out.rows === "half" ? "past their end to the middle" : `${out.rows} rows past their end`}`,
     args: { rows: { type: "string", about: "half, none, or a number of rows (0 to 200)" } },
     examples: [
@@ -951,7 +976,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "motion.set": def({
     summary: "how a layout change moves (PIE-958): full (tiles glide from where they were to where they are, and a script's motion=fantasia wanders), calm (a short plain glide, 200 ms, whatever was asked) or off (they snap). It caps every actor's hint, an agent's and a script's included. Movement only: nothing flashes or changes brightness. EP0CH_MOTION over it; kept for the next start. A key or a click always snaps what is in flight first",
-    keys: "`ep0ch act motion.set mode=calm`, the power bar's actions scope (>)",
+    keys: [{ via: "`ep0ch act motion.set mode=calm`" }, { via: "the power bar's actions scope (>)" }],
     touches: "screen", replay: "ask", says: out => `· motion is ${out.mode}`,
     args: { mode: { type: "string", about: MOTION_MODES.join(", ") } },
     examples: [
@@ -973,7 +998,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "composer.place": def({
     summary: `where a comment, question, explain or reply is written (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it; the default), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer), popup (a box in the middle, the passage quoted) or tile (PIE-846: a tile of its own beside the reader, which docks as tiles do; split where there are no tiles). Every reader, kept for the next start; ctrl+o (comment.place) moves the one being written`,
-    keys: "`ep0ch act composer.place place=floating`, the power bar's actions scope (>)",
+    keys: [{ via: "`ep0ch act composer.place place=floating`" }, { via: "the power bar's actions scope (>)" }],
     touches: "screen", replay: "ask", says: out => `· comments are written ${out.place === "inline" ? "at their passage" : out.place}`,
     args: { place: { type: "string", about: ATTACHED_PLACES.join(", ") } },
     examples: [
@@ -1036,7 +1061,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "look.nudge": def({
     summary: "put one look nudge in memory, unsaved, as the tune inspector's nudges are (PIE-673): target= where it applies (global, kind:<kind>, screen:<name>, page:<id>, instance:<tile id>, list:<note>:<line>), field= the token or its width variant (measure, wide.measure), value= as a style note writes it. Nothing is written; s in the inspector saves it. What a handover keeps of the inspector's unsaved nudges comes back this way (PIE-847)",
-    keys: "none: the tune inspector's + − and tune.set nudge with the inspector open",
+    keys: [{ via: "none: the tune inspector's + − and tune.set nudge with the inspector open" }],
     touches: "nothing", replay: "safe",
     args: {
       target: { type: "string", about: "the tune target" },
@@ -1140,7 +1165,7 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
     },
   }),
   "list.select": def({
-    summary: "light row n of the list (an agent's waits until the person is idle and is said on the status bar)", keys: "j k ↑↓ PgUp PgDn Home End, a click, the wheel",
+    summary: "light row n of the list (an agent's waits until the person is idle and is said on the status bar)", keys: [{ keys: "j k ↑↓ pgup pgdn home end", does: "move the lit row" }, { keys: "click", does: "on a row" }, { keys: "wheel", does: "move the lit row" }],
     touches: "screen", replay: "safe", says: out => `· lit row ${out.selected}: ${out.row.title}`,
     args: { n: { type: "number", about: "the row, from 1 (list.read numbers them)" } },
     examples: [
@@ -1257,7 +1282,7 @@ abstract class BbsList implements Screen {
 const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("status", {
   "status.filter": def({
     summary: "search the message log's whole messages, actions and tiles; text= sets the query, editing=true opens its line",
-    keys: "/ opens search; enter or esc finishes search",
+    keys: [{ keys: "/", does: "opens search", says: "start searching the message log" }, { keys: "enter esc", does: "finishes search", says: "finish searching the message log" }],
     touches: "screen", replay: "safe",
     args: { text: { type: "string", optional: true, about: "the search words" }, editing: { type: "boolean", optional: true, about: "show the search cursor" } },
     examples: [{ act: 'status.filter text="layout load"', does: "finds messages about loading a layout" }],
@@ -1270,7 +1295,7 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
   }),
   "status.reload": def({
     summary: "refresh the message log with the latest 500 messages; its rows stay still between refreshes so a row you read is the one you open",
-    keys: "r reload; click r reload",
+    keys: [{ keys: "r", does: "reload", says: "refresh the message log" }, { keys: "click", does: "on r reload" }],
     touches: "screen", replay: "safe", args: {},
     run(_, { list, ctx }) { list.reload(); ctx.redraw(); return { rows: list.listRows().length }; },
   }),
@@ -1502,6 +1527,8 @@ export class MessageReader implements Screen {
   private replies: { for: string; n: number | null } | null = null;
   private shown = false;
   private ctx: Ctx | null = null;
+  /** Lists over the reader (the trail, alt+T, PIE-208): the first takes every key and click. */
+  private readonly overlays = new Modes<MessageReader, ListPicker<any, MessageReader>>();
   constructor(private readonly list: Msg[], private index: number) {}
 
   private get msg() { return this.list[this.index]!; }
@@ -1540,20 +1567,51 @@ export class MessageReader implements Screen {
       ctx,
       redraw: () => ctx.redraw(),
       navigate: (m, how) => {
-        // An agent never takes the person's keys: while they're in an edit, a comment or the panel here,
-        // what it followed is named, not opened over them.
-        if (how?.by?.kind === "agent" && this.surface.holdsKeys && !ctx.agentsYolo) { ctx.flash(`not opened while you're in ${this.personIn()}: ${subject(m)}`); return; }
+        // A reader pushed over this one changes the person's screen: the actor rule's (touches screen) to say, the one
+        // answer (PIE-1294). An agent's waits while they're in an edit, a comment or the panel here, and what it
+        // followed is named, not opened over them; their press's run and yolo open it.
+        const no = how?.by ? this.dispatch.rule("screen", how.by) : null;
+        if (no) { ctx.flash(`not opened: ${subject(m)} · ${no}`); return; }
         ctx.push(new MessageReader([m], 0));
       },
+      // Back is the reader a link was followed from (PIE-1431): the trail is the readers under this one on the screen stack,
+      // read from it (a followed link pushes the next reader, q pops it), never a copy kept here.
+      history: {
+        peek: dir => (dir < 0 ? this.readersBelow(ctx)[0]?.title ?? null : null),
+        trail: () => ({ back: this.readersBelow(ctx), forward: [] }),
+        go: (dir, _actor, steps = 1) => {
+          const below = this.readersBelow(ctx).length;
+          if (dir > 0) return "nothing ahead: a reader gone back from is closed";
+          if (!below) return "nothing to go back to: this reader hasn't followed a link here";
+          if (steps > below) return `only ${below} back: steps=${below} at most (trail lists them)`;
+          for (let i = 0; i < steps; i++) ctx.pop();
+          return null;
+        },
+        agentRefusal: "back in the message reader closes the person's reader; an agent opens beside (open, link.follow) instead",
+      },
       header: (m, w, info) => this.header(m, w, info),
+      // Back or forward along the trail landed on a message of the list: n and p go on from there.
+      historyLanded: () => { const i = this.list.findIndex(x => x.id === this.surface.msg?.id); if (i >= 0) this.index = i; },
       // A new note opened over a reader, trashed still empty: this reader was for it alone.
       gone: id => { if (this.list.length === 1 && this.msg.id === id && ctx.screens?.().at(-1) === this) ctx.pop(); },
       // What the surface doesn't take is the BBS reader's: next, previous, the thread, back.
       ownKeys: "nNpPtTqQU",
+      overlay: p => { this.overlays.push(p); ctx.redraw(); },
       // Its own keys and clicks run its note actions through the reader's dispatcher.
       press: (name, args, quiet, given) => this.dispatch.pressIn(NOTE_ACTIONS, name, args, READER, quiet, given),
       pressSet: (set, name, args, quiet, given) => this.dispatch.pressIn(set, name, args, READER, quiet, given),
     };
+  }
+
+  /** The readers this one was followed from, nearest first: the run of message readers under it on the screen stack. */
+  private readersBelow(ctx: Ctx): { id: string; title: string }[] {
+    const stack = ctx.screens?.() ?? [], out: { id: string; title: string }[] = [];
+    for (let i = stack.indexOf(this) - 1; i >= 0; i--) {
+      const r = stack[i];
+      if (!(r instanceof MessageReader) || !r.surface.msg) break;
+      out.push({ id: r.surface.msg.id, title: subject(r.surface.msg) });
+    }
+    return out;
   }
 
   /** The BBS message header, from the note the surface shows (the whole one once a list row is read). */
@@ -1563,11 +1621,13 @@ export class MessageReader implements Screen {
     const c = info.comments;
     const comments = c?.total ? ` |08· ${c.open ? `|14■ ${c.open} open comment${c.open === 1 ? "" : "s"}` : `■ ${c.total} resolved`} |08(m)` : "";
     const props = info.properties ? ` |08· i ${info.properties} propert${info.properties === 1 ? "y" : "ies"}` : "";
+    // Two fields a row where they fit; at 40 columns each on its own, so none is cut short (PIE-1428).
+    const two = (a: string, b: string) => (width(a) + width(b) <= w ? [a + b] : [a.trimEnd(), b]);
     return [
-      paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}|09Number: |15${prop(m, "work-id") ?? clipText(m.id, 8)} |08(${this.index + 1} of ${this.list.length})`),
+      ...two(paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}`), paint(`|09Number: |15${prop(m, "work-id") ?? clipText(m.id, 8)} |08(${this.index + 1} of ${this.list.length})`)),
       // Addressed with a `to::` property, else to everyone, as a BBS message is.
-      paint(`|09  To: |07${pad(prop(m, "to")?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId ? clipText(m.parentId, 8) : "none"}`),
-      paint(`|09From: |14${pad(authorName(m.author), 23)} |09Reply: |07${replies === null ? "…" : replies}`),
+      ...two(paint(`|09  To: |07${pad(prop(m, "to")?.trim() || "ALL", 24)}`), paint(`|09Refer#: |07${m.parentId ? clipText(m.parentId, 8) : "none"}`)),
+      ...two(paint(`|09From: |14${pad(authorName(m.author), 23)} `), paint(`|09Reply: |07${replies === null ? "…" : replies}`)),
       // An edit armed here (e, src/arm.ts): the subject asks in the edit's colour until ⏎ opens it or a key lets it go.
       this.ctx?.armed?.()?.of === this.surface
         ? paint(`|09Subj: |14✎ edit? ${clipText(subject(m), Math.max(1, w - 14))} |06⏎ opens it`)
@@ -1606,7 +1666,8 @@ export class MessageReader implements Screen {
     if (to < 0 || to >= this.list.length) throw new ActionRefused(dir > 0 ? "end of messages" : "this is the first message");
     const was = this.index;
     this.index = to;
-    if (!this.open(ctx)) { this.index = was; throw new ActionRefused(`finish ${this.personIn()} first · ${this.surface.holdingHint()}`); }
+    // A step is a navigation (PIE-1418): the message left goes on the reader's trail, so back and alt+T reach it.
+    if (!this.surface.track(() => this.open(ctx))) { this.index = was; throw new ActionRefused(`${holdsEdit("the message reader")} · ${this.surface.holdingHint()}`); }
     return { index: to + 1, of: this.list.length, id: this.msg.id };
   }
 
@@ -1630,7 +1691,12 @@ export class MessageReader implements Screen {
     const lines = v.lines.slice(0, h - 1);
     while (lines.length < h - 1) lines.push("");
     lines.push(this.hint(v.scroll, w));
-    return { lines, placements: v.placements };
+    if (!this.overlays.top()) return { lines, placements: v.placements };
+    const canvas = new Canvas(w, lines.length);
+    lines.forEach((l, row) => canvas.text(0, row, l, w));
+    const values = lookFor(ctx, { screen: this.title }, w).values;
+    for (const o of [...this.overlays.all()].reverse()) o.draw(canvas, { col: 0, row: 0, cols: w, rows: lines.length }, values);
+    return { lines: canvas.lines() };
   }
 
   /**
@@ -1646,6 +1712,7 @@ export class MessageReader implements Screen {
   key(k: Key, ctx: Ctx) {
     this.ctx = ctx;
     const host = this.host(ctx);
+    if (this.overlays.key(k, this) !== null) { ctx.redraw(); return; }
     if (k.kind === "mouse") return this.mouse(k, ctx, host);
     // An edit, a comment or the property panel takes every key, q and esc included, until it closes.
     if (this.surface.holdsKeys || this.surface.choosing) { this.surface.key(k, host); return; }
@@ -1689,7 +1756,7 @@ export class MessageReader implements Screen {
   /** Screen.dispose: the reader is closed; its draft's hold on the service is let go (PIE-501). */
   dispose() { this.surface.dispose(); }
   /** Screen.holdsKeys: an edit, a comment or the panel the person is in, or a step's status choice (as on the desk and the river). */
-  holdsKeys() { return this.surface.holdsKeys || this.surface.choosing; }
+  holdsKeys() { return this.surface.holdsKeys || this.surface.choosing || !!this.overlays.top(); }
   /** Screen.keys: the one reader has the person's focus; they type in it while it holds their keys. */
   keys() {
     const busy = this.holdsKeys();
@@ -1700,9 +1767,12 @@ export class MessageReader implements Screen {
     return { kind: "message reader", message: { n: this.index + 1, of: this.list.length }, replies: this.replies?.n ?? null, reader: READER, ...this.surface.describe() };
   }
 
-  /** `open <id>`: the note in a new message reader above this one, unless the person is in an edit, a comment or the panel here. */
+  /**
+   * `open <id>`: the note in a new message reader above this one; what's being written here stays in this reader, under
+   * it (q comes back to it). Whether it may open now is `open`'s actor rule (touches screen), the one answer: an agent's
+   * waits while the person is in an edit, a comment or the panel here, the person's own open is theirs.
+   */
   openBlock(m: Msg) {
-    if (this.surface.holdsKeys) throw new ActionRefused(`the person is in ${this.personIn()} here; try again once they close it`);
     this.ctx?.push(new MessageReader([m], 0));
   }
 
@@ -1721,6 +1791,15 @@ export class MessageReader implements Screen {
     draftOf: () => ({ board: this.ctx?.board, blockId: this.surface.msg?.id ?? null, session: this.surface.draftSession() }),
   }, [
     { set: MESSAGE_ACTIONS, takes: "screen", on: (_, how) => ({ r: this, ctx: how.ctx, actor: how.actor }) },
+    // note.copy-ref (PIE-1297): the message read here, as a desk's reader copies its note; ref= another.
+    { set: NOTE_REF_ACTIONS, takes: "screen", on: (): NoteRefOn => ({
+      copy: async (a, actor) => {
+        const ctx = this.ctxShown(), m = this.surface.msg;
+        if (!a.ref && !m) throw new ActionRefused("no message is shown to copy");
+        return !a.ref || (a.ref === m?.id && !a.outline) ? this.surface.copyNoteRef(a.kind, this.host(ctx), actor, await ownOutline(ctx), a.line) : copyNoteById(ctx, actor, a.kind, a.ref, a.outline ? { outline: a.outline } : undefined);
+      },
+      has: () => !!this.surface.msg,
+    }) },
     {
       set: NOTE_ACTIONS, takes: "tile", noun: "a reader",
       on: (_, how) => ({ surface: this.surface, standing: how.standing, host: (how.given as SurfaceHost | undefined) ?? this.host(this.ctxShown()) }),
@@ -1964,6 +2043,7 @@ export class Stats implements Screen {
 }
 
 export class Help implements Screen {
+  readonly ownsQuestion = true;
   title = "help";
   private readonly ptr = new Pointer();
   /** `ptr`: where the item rows are recorded for the mouse (the main menu's own, when it draws this without its art). */
@@ -2010,6 +2090,7 @@ const HELP: Record<string, string> = {
 };
 
 export class Goodbye implements Screen {
+  readonly ownsQuestion = true;
   readonly title = "logoff";
   readonly noDrawer = true;
   private at = Date.now();

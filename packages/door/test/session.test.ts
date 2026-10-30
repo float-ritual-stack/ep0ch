@@ -95,6 +95,8 @@ describe("the session's environment", () => {
     expect(env).toEqual({ HOME: "/home/fern", EP0CH_STATE: "/tmp/plot" });
     // A test door's own EP0CH_CONTROL (not inside a door) is kept.
     expect(sessionEnv({ EP0CH_CONTROL: "/tmp/plot/door.sock" })).toEqual({ EP0CH_CONTROL: "/tmp/plot/door.sock" });
+    // Nor the Claude session it was started from (PIE-1432): the session, its terminal host and its tiles are their own.
+    expect(sessionEnv({ HOME: "/home/fern", CLAUDECODE: "1", CLAUDE_CODE_SESSION_ID: "5f0e-outer", CLAUDE_PID: "4242", CLAUDE_JOB_DIR: "/tmp/jobs/abc", AI_AGENT: "claude-code", CLAUDE_CONFIG_DIR: "/home/fern/.claude" })).toEqual({ HOME: "/home/fern", CLAUDE_CONFIG_DIR: "/home/fern/.claude" });
     // An outer door's outline session folder goes with its other variables (PIE-604).
     expect(sessionEnv({ EP0CH_IN_DOOR: "1", EP0CH_PLACE: "/tmp/plot/sessions/local/outer" })).toEqual({});
   });
@@ -782,6 +784,10 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     expect(await shape()).toBe(layout);
     const peek = await control({ cmd: "peek" });
     expect(JSON.stringify(peek.screen.person)).toContain("typing");
+    // The person saves it: the tests after this one start with nobody typing (an agent's open beside an edit is refused, PIE-1294).
+    b.type("\x13");
+    for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.typingIn !== null; i++) await Bun.sleep(100);
+    expect((await control({ cmd: "peek" })).screen.person.typingIn).toBeNull();
     b.send({ t: "detach" });
     await until(() => b.closed, "the detach", 5000);
   }, 60_000);
@@ -1255,6 +1261,14 @@ describe("the checkpoint and the restore", () => {
     expect(said).toContain("a comment opened without its words");
   });
 
+  // PIE-1432: a program the terminal host still keeps that no tile took back is never dropped without a word.
+  test("the restore says what the terminal host keeps with no tile, and where it is put back", () => {
+    const r = { screens: 2, held: [], reopened: 0, errors: [] };
+    expect(restoredSaying(r, "crash", 1, 1)).toBe("the session came back after its daemon stopped · 2 screens reopened · 1 program kept running · 1 program kept with no tile: alt+g lists it, ⏎ on its row puts it back");
+    expect(restoredSaying(r, "upgrade", 0, 2)).toContain("2 programs kept with no tile: alt+g lists them");
+    expect(restoredSaying(r, "upgrade", 3)).not.toContain("no tile");
+  });
+
   test("look.nudge puts a nudge back in memory, unsaved, as whoever made it; a field or value the look doesn't have is refused", async () => {
     const ctx = { board: {}, redraw() {} } as any;
     const fern = { kind: "agent" as const, id: "fern" };
@@ -1649,7 +1663,8 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     const info = (tile: string) => control({ cmd: "act", action: "tile.info", tile, as: "test-agent" });
     const running = async (tile: string) => {
       for (let i = 0; i < 100; i++) {
-        try { const r = await info(tile); if (r.terminal?.running) return r; } catch { /* not there yet */ }
+        // Running, and its pid known: on a loaded box the program runs a moment before its pid is reported (PIE-1412).
+        try { const r = await info(tile); if (r.terminal?.running && r.terminal.pid) return r; } catch { /* not there yet */ }
         await Bun.sleep(100);
       }
       return info(tile);
@@ -1702,7 +1717,8 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     const info = (tile: string) => control({ cmd: "act", action: "tile.info", tile, as: "test-agent" });
     const running = async (tile: string) => {
       for (let i = 0; i < 100; i++) {
-        try { const r = await info(tile); if (r.terminal?.running) return r; } catch { /* not there yet */ }
+        // Running, and its pid known: on a loaded box the program runs a moment before its pid is reported (PIE-1412).
+        try { const r = await info(tile); if (r.terminal?.running && r.terminal.pid) return r; } catch { /* not there yet */ }
         await Bun.sleep(100);
       }
       return info(tile);

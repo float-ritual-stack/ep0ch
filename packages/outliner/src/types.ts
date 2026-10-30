@@ -1102,8 +1102,15 @@ export interface DeliverySyncInput {
   deliveryBlockId: string;
   expectedDeliveryRevision: number;
   expectedTaskRevision: number;
-  /** `mergedAt` is GitHub's ISO time of the merge, stamped as `merged-at` on a merged delivery (PIE-1352). */
-  pullRequest: { number: number; url: string; state: "OPEN" | "CLOSED" | "MERGED"; mergeCommit: string | null; mergedAt?: string | null };
+  /**
+   * `mergedAt` is GitHub's ISO time of the merge, stamped as `merged-at` on a merged delivery (PIE-1352).
+   * `baseBranch` is the PR's base now: a delivery already recording this PR follows it when GitHub retargets the PR
+   * (PIE-1440); a delivery recording no PR, or another, refuses a different base.
+   */
+  pullRequest: {
+    number: number; url: string; state: "OPEN" | "CLOSED" | "MERGED"; mergeCommit: string | null; mergedAt?: string | null;
+    baseBranch: string;
+  };
 }
 
 export interface DeliverySyncReceipt {
@@ -1278,6 +1285,8 @@ export interface PageAddressFollowResult extends PageAddressResolution {
 export interface PageAddressMatch extends PageAddressRecord {
   subtitle?: string;
   title: string;
+  /** Jev's Score for it (0 to 3), on a ranked lookup (PIE-1198). */
+  score?: number;
 }
 
 export interface PageAddressCollection {
@@ -1326,6 +1335,11 @@ export interface RoadmapItemCreateInput {
   sourceBlockId?: string;
   /** The wave it ships in (`[wave::<theme>]`), when it's one of several tickets under one theme. */
   wave?: string;
+  /**
+   * File it although open items look like the same work (work-twins.ts): an agent's create with twins is refused
+   * without it. The item says it was filed beside them, and relates to them.
+   */
+  new?: boolean;
 }
 
 export interface RoadmapBranchMembership {
@@ -1493,7 +1507,7 @@ export interface BlockSearchQuery {
   sort?: BlockQuerySort | string;
   /** Rows returned: 200 when left out, at most 1000. */
   limit?: number;
-  /** A property name, or created:day|week|month, updated:day|week|month: the answer's `groups`, over every match. */
+  /** A property name, or a date bucket (created:month, updated:recent, due:week): the answer's `groups`, over every match. */
   group?: string;
   /** `true`: value counts for every key the matches carry; or these keys. */
   facets?: true | string[];
@@ -1507,6 +1521,11 @@ export interface BlockSearchQuery {
    * of the store directly, left out means unfiltered.
    */
   machinery?: import("@ep0ch/outline-core/machinery").MachineryMode;
+  /**
+   * `true`: with `machinery: hide`, the answer's `machineryLeftOut` counts every stamped note the same question would
+   * have held, by producer, and says so in words (PIE-1427): a recent-activity read reports what it left out.
+   */
+  countMachinery?: boolean;
 }
 
 /** A watched read (outline-core `WATCHABLE_ACTIONS`): kept on the connection under `watch`; `generation` is answered from what's kept. */
@@ -1539,6 +1558,8 @@ export interface VisibleBlockCollection extends QuestionAnswerFields {
   completeness: BlockCollectionCompleteness;
   /** How many notes `machinery: hide` left out of the answer (at most 50: then there are more), when it left any (PIE-867). */
   machineryHidden?: number;
+  /** With `countMachinery`: every note `machinery: hide` left out, by producer, and the sentence (outline-core `machineryLeftOut`, PIE-1427). */
+  machineryLeftOut?: import("@ep0ch/outline-core/machinery").MachineryLeftOut;
 }
 
 /** Fields a projected block read can return; `id` is always included. */
@@ -1552,11 +1573,12 @@ export const BLOCK_READ_FIELDS = [
   "author",
   "hasChildren",
   "text",
+  "excerpt",
 ] as const;
 export type BlockReadField = (typeof BLOCK_READ_FIELDS)[number];
 /** Omitted `fields` return everything except full text. */
 export const DEFAULT_BLOCK_READ_FIELDS: readonly BlockReadField[] = BLOCK_READ_FIELDS.filter(
-  (field) => field !== "text",
+  (field) => field !== "text" && field !== "excerpt",
 );
 
 /** A block reduced to the requested fields. Absent keys were not requested. */
@@ -1581,6 +1603,8 @@ export interface ProjectedBlock {
   /** `hasChildren`: at least one child outside Trash. */
   hasChildren?: boolean;
   text?: string;
+  /** `excerpt`: the words after the title as one line (outline-core `noteExcerpt`), what a list row previews. */
+  excerpt?: string;
 }
 
 export interface ProjectedVisibleBlock extends ProjectedBlock {
@@ -1704,6 +1728,12 @@ export interface GotoSearchMatch {
   path: string;
   snippet: string;
   exact: boolean;
+  /** Jev's Score for it (0 to 3), on a ranked search (PIE-1198). */
+  score?: number;
+  /** What a ranked search reads beside its text (PIE-1199): its type, its length in characters, when it last changed. */
+  facts?: { type?: string; length: number; updated: string };
+  /** Found by meaning, not words (the deep pass, PIE-1200). */
+  deep?: true;
   /**
    * An empty query asked from a note (`contextBlockId`) lists, in order: what its parent and siblings link to
    * (`linked`), notes near it (`near`), the person's own recent edits (`yours`).
@@ -1723,9 +1753,14 @@ export interface GotoSearchCollection {
     elapsedMs?: number;
     candidateCount?: number;
     inputTokens?: number;
+    outputTokens?: number;
     promptRevisions?: PromptRevision[];
-  };
+    /** The deep pass (PIE-1200, `deep: true`): skipped when the ranked search was sure, else what Jev found and what it cost. */
+    deep?: { status: "found" | "skipped" | "unavailable"; windows?: number; found?: number; elapsedMs?: number; inputTokens?: number; message?: string };
+  } & Partial<SearchCertainty>;
 }
+export type { SearchCertainty } from "@ep0ch/outline-core/protocol";
+import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 
 interface BacklinkOccurrenceBase {
   label: string;
@@ -1966,6 +2001,9 @@ export type OutlinerRequestAction =
   | { id: string; action: "devices.add"; name: string; outline: string }
   | { id: string; action: "devices.list" }
   | { id: string; action: "devices.revoke"; device: string }
+  /** A device's signed "Send to ep0ch" Shortcut (PIE-1408): kept by the host (base64), and read back for the sign-in route. */
+  | { id: string; action: "devices.shortcut.put"; device: string; data: string }
+  | { id: string; action: "devices.shortcut.get"; device: string }
   /**
    * The signed-in web client's sessions (web-sessions.ts), answered by the outline host for every outline: `start` after
    * a sign-in (answers the cookie's token once), `resolve` a cookie's token on each request (renewing it), `list`, and
@@ -2036,7 +2074,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "workspace.snapshot"; view?: WorkspaceSnapshotView }
   | { id: string; action: "tree.index"; view?: WorkspaceSnapshotView }
   | { id: string; action: "tree.query"; query: BlockSearchQuery }
-  | { id: string; action: "tree.search"; query: string; limit?: number; semantic?: boolean; contextBlockId?: string; machinery?: import("@ep0ch/outline-core/machinery").MachineryMode }
+  | { id: string; action: "tree.search"; query: string; limit?: number; semantic?: boolean; deep?: boolean; contextBlockId?: string; machinery?: import("@ep0ch/outline-core/machinery").MachineryMode }
   | { id: string; action: "tree.focus"; query: string }
   | { id: string; action: "events.subscribe"; client: OutlinerClientRegistration }
   | { id: string; action: "clients.list"; role?: OutlinerClientRole }
@@ -2251,6 +2289,21 @@ export type OutlinerRequestAction =
       id: string;
       action: "roadmap.items.create";
       input: RoadmapItemCreateInput;
+      author?: BlockAuthor;
+      provenance?: BlockProvenance;
+    }
+  | {
+      /** Open items like a new one (work-twins.ts): the search matcher's candidates, Jev's Nouls, code's twins. */
+      id: string;
+      action: "roadmap.items.similar";
+      input: { title: string; body?: string };
+      limit?: number;
+    }
+  | {
+      /** A new ask added under an open item, in its writer's words and dated (work-twins.ts attachText). */
+      id: string;
+      action: "roadmap.items.attach";
+      input: { item: string; title: string; body?: string; sourceBlockId?: string };
       author?: BlockAuthor;
       provenance?: BlockProvenance;
     }
@@ -2493,6 +2546,8 @@ export type OutlinerRequestAction =
   | ({ id: string; action: "completion.rows" } & import("@ep0ch/outline-core/protocol").CompletionRowsRequest)
   /** A completion row was chosen (PIE-1340): its pick is counted, so every client ranks it higher next time. `{ picks }`. */
   | ({ id: string; action: "completion.picked" } & import("@ep0ch/outline-core/protocol").CompletionPickedRequest)
+  | ({ id: string; action: "search.picked" } & import("@ep0ch/outline-core/protocol").SearchPickedRequest)
+  | { id: string; action: "search.picks" }
   /**
    * An extension's command-palette source answers a query (PIE-656, the door's power bar): `{ extension, source,
    * rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }`. It writes nothing.
@@ -2506,7 +2561,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "extensions.undo"; undo: string; mutation?: MutationProvenance }
   | { id: string; action: "scripts.sequence"; blockId: string; line: number; clientId: string; invitation?: string; mutation: MutationProvenance }
   | { id: string; action: "scripts.stop"; run: string; mutation?: MutationProvenance }
-  | { id: string; action: "scripts.run"; blockId: string; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance; /** The door a script's `act` goes to (PIE-957); with none, the only door here, else a refusal naming them. */ door?: string }
+  | { id: string; action: "scripts.run"; blockId: string; /** The note the run is about: the script's `this`, as a press in that note gives it (PIE-1272). */ this?: string; /** The slots' values, the script's props, as a button's line would fill them. */ slots?: Record<string, string>; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance; /** The door a script's `act` goes to (PIE-957); with none, the only door here, else a refusal naming them. */ door?: string }
   | { id: string; action: "scripts.answer"; requestId: string; clientId: string; result?: unknown; error?: string }
   /**
    * What an action asks for (its declared `args`, PIE-784), each with the choices it has on `blockId` and its value
@@ -2574,7 +2629,9 @@ export type OutlinerRequestAction =
    * A block's earlier texts (PIE-621): without `revision` the list (BlockRevisions), with it that revision's whole
    * text. Going back is an ordinary `update` with that text, recorded as whoever writes it.
    */
-  | { id: string; action: "block.revisions"; blockId: string; revision?: number }
+  | { id: string; action: "block.revisions"; blockId: string; revision?: number; latest?: boolean }
+  /** What became of an agent's proposals (PIE-1086, proposal-outcomes.ts): `actor` an actor id or a persona, `since` an ISO time. */
+  | { id: string; action: "proposals.outcomes"; actor: string; session?: string; since?: string; limit?: number }
   | { id: string; action: "trash.purge"; blockId: string; confirmation: string }
   | {
       id: string;

@@ -12,6 +12,7 @@ import { actorName, parseActor } from "@ep0ch/outline-core/attribution";
 import { checkToolArgs, closest, REF_ALIASES } from "@ep0ch/outline-core/tool-args";
 import { visible, width } from "../style";
 import type { Key } from "../term";
+import { moved } from "./keymap";
 
 /**
  * An act line as the door shows it (the power bar's typed line, an action's form, PIE-1031): the action, its tile=,
@@ -54,6 +55,11 @@ export interface ArgSpec {
   of?: string;
   /** What a left-out optional one means, when it means one thing (`focused`, `1`): its page's default column. */
   default?: string;
+  /**
+   * The host binds it (the block in front, a passage, the button that pressed it): an agent's `act` names it, and a
+   * person is never asked it, so no form or completion offers it (PIE-1076).
+   */
+  context?: true;
 }
 
 /**
@@ -91,14 +97,42 @@ export type Replay = "safe" | "ask";
  */
 export type DraftUse = "type" | "leave" | "write" | "safe" | "text" | "replace";
 
+/**
+ * One way to run an action (PIE-1048): `keys` in the keycap grammar `::graph-keys` reads (`alt+h`, `^W c`, `g then d`,
+ * `j k`), or a mouse gesture (`click`, `double-click`, `drag`, `wheel`); `does`, what this way does, in a few words
+ * (`on a spine opens it`). `via`, instead of keys: a way that is no key at all (the tile menu's "fold", the power bar).
+ */
+/**
+ * One row of an action's keys: the keys and what they do under the action's heading (its page, `::graph-keys`), and
+ * `says`, the whole sentence the keys window lists where `does` would read as a fragment after the action's words (PIE-1425).
+ * `on`, the one screen or tile these keys are that place's own, by the name `in:` filters it (`menu`: the main menu's
+ * letters, matched by its own key code; `tune`): the keys window then never says they take a key anywhere else (PIE-1439).
+ */
+export type KeyRow = { keys: string; does: string; says?: string; on?: string } | { via: string };
+/** An action's keys: rows (KeyRow), or one line that reads cleanly as them (declaredKeys, keyRows). */
+export type Keys = string | readonly KeyRow[];
+/** An action's keys as one line, for a listing (`actions`, a flash): each row's keys and what it does. */
+export function keysText(keys: Keys | undefined): string | undefined {
+  if (keys === undefined || typeof keys === "string") return keys;
+  return keys.map(r => ("via" in r ? r.via : r.does ? `${r.keys}: ${r.does}` : r.keys)).join("; ") || undefined;
+}
+
 export interface ActionDef<A, H> {
   /** What the action does, in the words `actions` and the README use. */
   summary: string;
+  /**
+   * What it does as a person reads it, a whole sentence without act's arguments (`fold this tile to a spine`, not
+   * `fold tile=<tile> to a spine`): the keys window's rows. Left out, the summary's first clause is it.
+   */
+  words?: string;
   hint?: Hint | ((args: A, host: H) => Hint | null);
   /** A mode-owned hint keeps its mode identity when an action opens it. Otherwise the action name is its id. */
   hintId?: string;
-  /** The key that does the same thing, when there is one. */
-  keys?: string;
+  /**
+   * Every way to press it (PIE-1048): rows of keys and what each does (KeyRow), or, for a key list that reads cleanly as
+   * keycaps, one line of them ("j k ↓ ↑, or a click on a row"). `test/key-rows.test.ts` fails on a line that doesn't.
+   */
+  keys?: Keys;
   /** What it touches of the person's: the one actor rule, checked by the dispatcher (Touches). The most it can touch. */
   touches: Touches;
   /** tile= names where something lands, rather than what this action works on. */
@@ -137,8 +171,23 @@ export interface ActionDef<A, H> {
    * level check: `tile.agent` lets an agent tighten a limited tile, and the layout module refuses it loosening one.
    */
   ownGate?: true;
-  /** The person's own: an agent's is refused with this, which says why and what an agent does instead. */
+  /**
+   * The person's own: an agent's is refused with this, which says why and what an agent does instead. Their press of a
+   * script invites its run (src/surface/invite.ts), and a pressed run is their keystroke (PIE-1186), so an invitation
+   * lifts it; yolo never does.
+   */
   person?: string;
+  /**
+   * The person's alone, never lifted (PIE-1294): not by their press's invitation, not by yolo. For what is theirs to
+   * decide rather than their keys (what agents may reach, handing the door over, ending their session): a script an
+   * agent wrote, pressed by them, is refused it too. Said on the action's page.
+   */
+  personAlways?: string;
+  /**
+   * `person` or `personAlways` that its arguments decide (yolo on= is theirs alone, off= anyone's; a form's own fields
+   * are theirs, op=open an agent's too): a reason is `person`'s, `{ always }` never lifted, null not theirs.
+   */
+  personWith?(args: A): string | { always: string } | null;
   /** `touches: "tile"`: what an agent does instead, said when it's refused in the person's tile. */
   way?: string;
   /**
@@ -205,7 +254,7 @@ export interface Again { again(action: string, args: Record<string, unknown>, ti
  */
 type PresetTile<S, H> = string | ((args: ArgsOf<S>, host: H, actor: Actor) => string);
 export function preset<const S extends Record<string, ArgSpec>, H extends Again>(d: {
-  summary: string; keys?: string; touches: Touches; host?: true; replay: Replay; args: S;
+  summary: string; keys?: Keys; touches: Touches; host?: true; replay: Replay; args: S;
   says?: ActionDef<ArgsOf<S>, H>["says"]; examples?: readonly ActionExample[];
   /** `own`: the preset's arguments its steps read and the target doesn't take (agent.lift's `drawer`); they aren't passed on. */
   to: { action: string; tile?: PresetTile<S, H>; args?: Record<string, unknown>; own?: readonly (keyof S & string)[] };
@@ -234,7 +283,7 @@ export const actionSet = <H>() => <M extends { [K in keyof M]: object }>(scope: 
  * An action as `ep0ch-door actions` lists it: `touches`, `replay` and `person` are its declarations (what it touches
  * of the person's, whether a restarted door may run it again, the person's only).
  */
-export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
+export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; /** What it does as a person reads it (ActionDef.words), when it says. */ words?: string; keys?: Keys; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; /** The person's own (ActionDef.person): why, as an agent is told. */ person?: string; /** The person's alone, never lifted (ActionDef.personAlways): why. */ personAlways?: string; /** Its arguments decide whether it is the person's own (ActionDef.personWith). */ personVaries?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
 
 /**
  * A set of actions over one kind of host. `M` maps each action name to its argument object (derived from each
@@ -273,7 +322,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   list(): ActionInfo[] {
     return (Object.keys(this.defs) as (keyof M & string)[]).map(name => {
       const d = this.defs[name];
-      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
+      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, ...(d.words ? { words: d.words } : {}), keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: d.person } : {}), ...(d.personAlways ? { personAlways: d.personAlways } : {}), ...(d.personWith ? { personVaries: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
     });
   }
 
@@ -290,7 +339,11 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
     // The screen key that ran it names only the action it ran, not one that action runs in turn.
     const bound = boundKey;
     boundKey = null;
-    for (const t of tracers) t({ scope: this.scope, name, keys: [this.defs[name].keys, bound].filter(Boolean).join("; ") || undefined, touches: this.defs[name].touches, actor });
+    const keys = this.defs[name].keys;
+    // A key the person's keymap took away from this action runs nothing (src/surface/keymap.ts): said, never done.
+    const gone = moved(name, args as Record<string, unknown>, keys);
+    if (gone) throw new ActionRefused(gone);
+    for (const t of tracers) t({ scope: this.scope, name, keys: bound ? [...(typeof keys === "string" ? [{ keys, does: "" }] : keys ?? []), { keys: bound, does: "" }] : keys, touches: this.defs[name].touches, actor });
     return this.defs[name].run(args, host, actor);
   }
 
@@ -324,7 +377,7 @@ export function allActionSets(): ActionSet<any, any>[] {
 }
 
 /** One action run, as a tracer sees it: which set, which action, the keys it declares, what it touches, and who ran it. */
-export interface ActionRun { scope: string; name: string; keys?: string; touches: Touches; actor: Actor }
+export interface ActionRun { scope: string; name: string; keys?: Keys; touches: Touches; actor: Actor }
 const tracers = new Set<(r: ActionRun) => void>();
 /** The screen's key map entry running now (a spec's `keys`): the key names the action it runs, as the action's own keys do. */
 let boundKey: string | null = null;
@@ -433,6 +486,20 @@ function wordKeys(w: string): string[] | null {
   return null;
 }
 
+/**
+ * One key or a ^W chord as its one name (`^W x` → `ctrl+w x`, `⏎` → `enter`, `ctrl+W` → `ctrl+w`), as the keymap file
+ * and a binding name it; null when it names no key, several (`j k`, `1-9`), or a chord after anything but ^W.
+ */
+export function chordName(text: string): string | null {
+  // A hyper chord (src/hyper.ts) by its one name, `hyper+p`, or as hints show it, `✦p`.
+  const hyper = /^(?:hyper\+|✦)(\S)$/u.exec(text.trim());
+  if (hyper) return `hyper+${hyper[1]}`;
+  const words = text.trim().split(/\s+/).filter(Boolean).map(wordKeys);
+  if (!words.length || words.length > 2 || words.some(w => w?.length !== 1)) return null;
+  const names = words.map(w => w![0]!);
+  return names.length === 2 && names[0] !== "ctrl+w" ? null : names.join(" ");
+}
+
 /** Whether a word names keys (`ctrl+k`, `^W`, `j`, `1-9`, `⏎/e`, `↑↓`): a key sheet draws it as keycaps. */
 export const isKeyWord = (w: string): boolean => wordKeys(w) !== null;
 
@@ -440,9 +507,12 @@ export const isKeyWord = (w: string): boolean => wordKeys(w) !== null;
  * Every key an action's `keys` names, anywhere in it ("h l j k, click" → h l j k click). A chord is the
  * prefix and the key after it: `^W x` → `ctrl+w x`; so is `X then Y` (`alt+l then h`).
  */
-export function declaredKeys(text: string | undefined): Set<string> {
+export function declaredKeys(keys: Keys | undefined): Set<string> {
   const out = new Set<string>();
-  if (!text) return out;
+  if (!keys) return out;
+  // Rows: each row's keys, never the words saying what it does.
+  if (typeof keys !== "string") { for (const r of keys) if ("keys" in r) for (const k of declaredKeys(r.keys)) out.add(k); return out; }
+  const text = keys;
   // Words are split on spaces only, so `,` `;` `(` `)` can be keys themselves; a word's own trailing comma or
   // semicolon, and parentheses around it, are punctuation.
   const words = text.split(/\s+/).filter(w => w && w !== "·").map(w => ([...w].length === 1 ? w : w.replace(/^\(+/, "").replace(/[,;:)]+$/, "")));

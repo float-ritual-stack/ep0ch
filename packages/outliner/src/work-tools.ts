@@ -8,6 +8,9 @@
  * roadmap properties, delivery facts); these helpers only refuse what they can
  * tell is wrong before writing, and say why.
  */
+import { headerLine } from "@ep0ch/outline-core/header-line";
+import { reviewCompletion, reviewTicket } from "./work-review";
+import { reviewWarnings, type ReviewReading, type WriteReview } from "./write-review";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import type { RequestInput } from "./client";
 import { deliveryIdentities, parseDeliveryIdentity, type DeliveryIdentity } from "./delivery-lifecycle";
@@ -20,6 +23,7 @@ import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { parseWorkId } from "./work-ids";
 import { ticketOf } from "./work-stage-follows";
+import { keptBecause } from "./work-keep";
 import {
   ROADMAP_WORK_STAGES,
   type BacklinkCollection,
@@ -194,7 +198,12 @@ function requireRevision(block: Block, expectedRevision: number | undefined): nu
 
 export interface WorkCreateResult extends WorkItemRef {
   workQueueId: string;
+  review?: WriteReview;
+  warnings?: string[];
 }
+
+/** How long a create waits: the twin check (TWIN_JEV_MS) and the service's own work, with room. */
+const CREATE_TIMEOUT_MS = 15_000;
 
 /** Allocates a Work ID and creates the item under its project's work queue. */
 export async function createWorkItem(
@@ -207,8 +216,41 @@ export async function createWorkItem(
     input,
     author: actor.author,
     provenance: provenanceOf(actor),
-  });
-  return { ...workItemRef(receipt.block), workQueueId: receipt.workQueueId };
+  // The service asks Jev for twins first (work-twins.ts, a few seconds at most): a timeout here would report a failure while it files.
+  }, CREATE_TIMEOUT_MS);
+  return { ...workItemRef(receipt.block), workQueueId: receipt.workQueueId, ...(await workReview(client, actor, receipt.block, () => reviewTicket(client, receipt.block))) };
+}
+
+/**
+ * The workboard's rules where agents act (work-review.ts, PIE-1388): an agent's create or completion is answered with a
+ * review, ship or fix, its finding said as a gate in `warnings` and kept as a record like a note's review. A person's
+ * own isn't reviewed. Never throws: the item has landed.
+ */
+async function workReview(client: WorkToolsClient, actor: WorkActor, block: Block, review: () => Promise<{ review: WriteReview; reading?: ReviewReading }>): Promise<{ review?: WriteReview; warnings?: string[] }> {
+  if (actor.author !== "agent") return {};
+  try {
+    // Kept as records when Jev is on, as a note's review is (agent-tools reviewOf): the tests switch it off.
+    const keeps = process.env.OUTLINER_FIGURE_FIT !== "off";
+    const { review: r, reading } = await review();
+    const keep = { kind: "reviewed", at: { note: block.id, revision: block.revision, actorId: actor.actorId, source: "write" }, title: headerLine(block.text).prose.trim(), review: r, ...(reading ? { reading } : {}) };
+    if (keeps) await Promise.race([client.request({ action: "suggestions.keep", keep } as never).catch(() => undefined), Bun.sleep(3000)]);
+    return { review: r, ...(r.verdict === "fix" ? { warnings: reviewWarnings(r) } : {}) };
+  } catch { return {}; }
+}
+
+/**
+ * A new ask added under an open item instead of a ticket of its own (PIE-1258): its title and body, in its writer's
+ * words and dated, at the end of the item (the service's `roadmap.items.attach`). What a refused create's answer names.
+ */
+export async function attachToItem(
+  client: WorkToolsClient,
+  input: { item: string; title: string; body?: string; sourceBlockId?: string },
+  actor: WorkActor,
+): Promise<{ attached: string; ref: BlockRef }> {
+  const receipt = await client.request<{ attached: string; block: Block }>({ action: "roadmap.items.attach", input, author: actor.author, provenance: provenanceOf(actor) }, CREATE_TIMEOUT_MS);
+  // A request copy names the item it went to, as a create from it does.
+  if (input.sourceBlockId) await linkTicket(client, input.sourceBlockId, receipt.attached, actor);
+  return { attached: receipt.attached, ref: blockRef(receipt.block) };
 }
 
 // ─── Properties ────────────────────────────────────────────────────────────
@@ -218,6 +260,8 @@ export interface WorkSetResult extends WorkItemRef {
   previous: string | null;
   value: string;
   changed: boolean;
+  /** Moved to later though a groom would keep it (PIE-1421): why it's kept. Set anyway; this says so. */
+  warning?: string;
 }
 
 function isDeliveryBlock(block: Block): boolean {
@@ -293,7 +337,9 @@ export async function setWorkProperty(
   if (readBack !== stage) {
     throw new Error(`${block.id} reads back [${key}::${readBack ?? ""}] after setting ${stage}`);
   }
-  return { ...workItemRef(updated), key, previous, value: readBack, changed: true };
+  // A groom never parks a kept item (work-later.ts); by hand it's the writer's call, said back to them.
+  const kept = key === "work-stage" && stage === "later" ? keptBecause(block) : null;
+  return { ...workItemRef(updated), key, previous, value: readBack, changed: true, ...(kept ? { warning: `parked though ${kept}: a groom would keep it queued; say why in the item, or set it back with work stage ${workItemRef(updated).workId ?? block.id} queued` } : {}) };
 }
 
 export function setWorkStage(
@@ -438,7 +484,8 @@ export function defaultDeliveryKey(
  * Records a pull request as one of the item's deliveries (`deliveries.ensure`)
  * and syncs its facts (`deliveries.sync`): open → Review, merged → Validate.
  * The PR must be the delivery's branch into its base, so a wrong number is
- * refused rather than recorded. `deliveryKey` is a name (`door`) or a full key
+ * refused rather than recorded; the PR the delivery already records may have a
+ * new base (GitHub retargeted it), which the sync records (PIE-1440). `deliveryKey` is a name (`door`) or a full key
  * (`PIE-123/door`); omitted, `defaultDeliveryKey` chooses one.
  */
 export async function deliverPullRequest(
@@ -469,7 +516,9 @@ export async function deliverPullRequest(
     ? defaultDeliveryKey(workId, deliveries, input.repository, workBranch)
     : deliveryKeyFor(workId, input.deliveryKey);
   const existing = deliveries.find((delivery) => delivery.key === deliveryKey);
-  if (existing && (existing.repository !== input.repository || existing.workBranch !== workBranch || existing.baseBranch !== baseBranch)) {
+  // The same PR number is the same delivery: a new base is GitHub retargeting it, which the sync records (PIE-1440).
+  const retargeted = existing?.pullRequestNumber === pr.number && existing.baseBranch !== baseBranch;
+  if (existing && (existing.repository !== input.repository || existing.workBranch !== workBranch || (existing.baseBranch !== baseBranch && !retargeted))) {
     throw new WorkToolRefusal(
       `${existing.key} already records ${existing.repository}:${existing.workBranch} into ${existing.baseBranch}; ` +
         `pass --key <name> to record ${input.repository}:${workBranch} as another delivery`,
@@ -481,7 +530,7 @@ export async function deliverPullRequest(
       taskBlockId: task.id,
       deliveryKey,
       repository: input.repository,
-      baseBranch,
+      baseBranch: existing?.baseBranch ?? baseBranch,
       workBranch,
     },
     author: actor.author,
@@ -494,7 +543,7 @@ export async function deliverPullRequest(
       deliveryBlockId: ensured.delivery.id,
       expectedDeliveryRevision: ensured.delivery.revision,
       expectedTaskRevision: ensured.task.revision,
-      pullRequest: { number: pr.number, url: pr.url, state: pr.state, mergeCommit: pr.mergeCommit, mergedAt: pr.mergedAt },
+      pullRequest: { number: pr.number, url: pr.url, state: pr.state, mergeCommit: pr.mergeCommit, mergedAt: pr.mergedAt, baseBranch },
     },
     mutation: mutationOf(actor),
   });
@@ -525,7 +574,7 @@ export interface WorkLandResult {
   pullRequest: { number: number; url: string; state: string; mergeCommit: string | null; mergedAt: string | null };
   /** The deliveries that record this PR, synced again so each says it merged and when. */
   deliveries: Array<WorkDeliverResult["delivery"] & { workId: string }>;
-  /** Deliveries that couldn't be synced (a PR retargeted since it was recorded), with why: the row is written anyway. */
+  /** Deliveries that couldn't be synced, with why: the row is written anyway. A retargeted PR syncs (PIE-1440). */
   failed: Array<{ deliveryKey: string; blockId: string; error: string }>;
 }
 
@@ -623,7 +672,7 @@ export async function landPullRequest(
     try {
       const synced = await deliverPullRequest(client, {
         address: recorded.block.parentId!, repository: input.repository, pullRequest: pr,
-        baseBranch: recorded.baseBranch, workBranch: recorded.workBranch, deliveryKey: recorded.key,
+        workBranch: recorded.workBranch, deliveryKey: recorded.key,
       }, actor, { land: false });
       deliveries.push({ ...synced.delivery, workId: synced.workId });
     } catch (error) {
@@ -696,6 +745,8 @@ export interface WorkCompleteResult extends WorkItemRef {
   proof: BlockRef & { created: boolean };
   /** The deliveries this completion covered, each now Complete. */
   deliveries: DeliveryRef[];
+  review?: WriteReview;
+  warnings?: string[];
 }
 
 function deliveryRef(block: Block): DeliveryRef {
@@ -843,6 +894,7 @@ export async function completeWorkItem(
       ...workItemRef(updated),
       proof: { ...blockRef(proof), created: proofCreated },
       deliveries: completed.map(deliveryRef),
+      ...(await workReview(client, actor, updated, () => reviewCompletion(client, { ticket: updated, proof: proof.text }))),
     };
   } catch (error) {
     const written = completed.filter((block) => selected.find((delivery) => delivery.block.id === block.id)!.stage !== "complete");

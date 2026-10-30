@@ -16,8 +16,12 @@ import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRevisions } from "@ep0ch/outline-core/protocol";
 import type { RequestInput } from "./client";
+import { writeShape, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
+import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { figuresIn, type FigureFit, type FigureFitReading } from "./figure-fit";
-import { writeRecord, type RecordWho, type RecordWriter } from "./records";
+import { jevScope, kitIn, sectionsOf, type ReviewReading, type WriteReview } from "./write-review";
+import { chips, chipValue, writeRecord, type RecordCache, type RecordWho, type RecordWriter } from "./records";
+import { LOOPS_SECTION } from "./work-jev";
 import type { AnnotationThread, Block, VisibleBlockCollection } from "./types";
 
 /** A suggestion is followed when one of the note's next writes, within a day, draws the figure; this many writes count. */
@@ -40,13 +44,10 @@ export function writerOf(actorId: string): { writer: string; harness: string } {
 }
 
 /** The prompt revisions a reading was made with, as short names: `figure-fit.json:1a2b3c4d5e6f`. */
-export const promptRevOf = (reading?: FigureFitReading) => reading?.prompt.map(p => `${p.path.split("/").pop()}:${p.sha256.slice(0, 12)}`).join(" ") || "unknown";
-
-/** A value written as a property chip: one line, with nothing that reads as a bracket or a `::` opener. */
-const chipValue = (v: string) => v.replace(/[\[\]\r\n]+/g, " ").replace(/:{2,}/g, ":").trim().slice(0, 200) || "none";
+export const promptRevOf = (reading?: Pick<FigureFitReading, "prompt">) => reading?.prompt.map(p => `${p.path.split("/").pop()}:${p.sha256.slice(0, 12)}`).join(" ") || "unknown";
 
 /** Every value a record is stamped with, as a chip may hold it: actor ids and titles are the writer's own words. */
-const clean = (props: Record<string, string>) => Object.fromEntries(Object.entries(props).map(([k, v]) => [k, chipValue(v)]));
+const clean = chips;
 
 const propsOf = (text: string) => Object.fromEntries(parsePropertyRecords(text).map(p => [p.key, p.value]));
 
@@ -55,7 +56,7 @@ export interface SuggestionWrite {
   note: string;
   revision: number;
   actorId: string;
-  source: "write" | "sweep";
+  source: "write" | "sweep" | "backfill";
   /** The sweep's margin thread, when it left one. */
   thread?: string;
 }
@@ -75,6 +76,225 @@ export async function recordSuggestion(client: SuggestionClient, fit: FigureFit,
   } catch { /* the write has landed; a record that can't be made is not its failure */ }
 }
 
+/**
+ * What a review told its writer, as facts (PIE-1388): a `suggestion` per new finding, code's and Jev's alike, with its
+ * rule, Evan's rubric item, the passage, what was said and whether a ready patch came with it; the day's run counts the
+ * review's tokens. A review with nothing new is a quiet ask on the run. Never throws.
+ */
+export async function recordReview(client: SuggestionClient, keep: Extract<SuggestionKeep, { kind: "reviewed" }>, now = new Date(), cache: RecordCache = {}): Promise<void> {
+  try {
+    const day = dayOf(now), told = keep.review.findings.filter(f => f.new);
+    if (told.length) await suggestionsPage(client);
+    // Each finding is told once (PIE-1402: a repeat patch wrote the same one four times): one the note's records hold is skipped.
+    const had = told.length && keep.at.source !== "backfill" ? await toldKeys(client, keep.at.note) : new Set<string>();
+    // One lookup of the Records page and the templates for every record (the service keeps it across keeps).
+    for (const f of told) {
+      if (had.has(chipValue(f.key))) continue;
+      had.add(chipValue(f.key));
+      await writeRecord(board(client), "review-finding", {
+        ...clean({
+          day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), component: f.component ?? f.rule,
+          source: keep.at.source, rule: f.rule, rubric: f.rubric, key: f.key, line: String(f.line ?? 0), title: keep.title || "untitled",
+          passage: f.passage, said: f.say, patch: f.patch ? "ready" : "none",
+        }),
+        fix: fixText(f.patch),
+      }, JEV, { title: `${f.advice ? "consider" : "fix"}: ${f.rubric} in ${keep.title || "untitled"}`.slice(0, 120), cache });
+    }
+    const asked = keep.review.jev === "asked";
+    const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);
+    // A note that was read whole and said nothing is kept too: findable on the suggestions page (PIE-1388), and a
+    // backfill rerun skips it rather than ask Jev again. One Jev couldn't read isn't, so a rerun tries it again.
+    if (!told.length && (asked || /^not asked/.test(keep.review.jev))) {
+      await suggestionsPage(client);
+      await writeRecord(board(client), "review-quiet", clean({ day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), source: keep.at.source }), JEV, { title: `quiet: ${keep.title || "untitled"}`.slice(0, 120), cache });
+    }
+    if (keep.at.source === "backfill") return;
+    await updateRun(client, day, { ...(told.length ? {} : asked ? { quiet: 1 } : {}), ...(unavailable ? { unavailable: 1 } : {}), ...(keep.reading ? { reading: keep.reading } : {}) });
+  } catch { /* the write has landed; a record that can't be made is not its failure */ }
+}
+
+/**
+ * The keys a note's writers were already told: its `review-finding` records' keys, as a chip holds them. The one answer
+ * to "was this said before?", for the review (write-review.ts `told`) and for the records.
+ */
+export async function toldKeys(client: SuggestionClient, note: string): Promise<Set<string>> {
+  return new Set((await read(client, `type=review-finding note=${note} NOT source=backfill`, 500)).flatMap(b => { const k = propsOf(b.text).key; return k ? [k] : []; }));
+}
+
+/** Between the pieces of a fix that edits more than one place (a question's ask, and the line it left). */
+const FIX_GAP = "⋯";
+
+/** A ready patch's new text as a record keeps it, in its code fence: each piece that writes something, a `⋯` line between. */
+export function fixText(patch?: readonly { replacement: string }[]): string {
+  const pieces = patch?.map(p => p.replacement.replace(/```/g, "ˋˋˋ")).filter(r => r.trim()) ?? [];
+  // Fenced, so the fix's own chips and boxes stay text: a `[needs::sysop]` in it is never the record's.
+  return pieces.length ? `\`\`\`text\n${pieces.join(`\n${FIX_GAP}\n`)}\n\`\`\`` : "none";
+}
+
+/** A record's fix, back as its pieces (none when it came with no patch). */
+export function fixOf(recordText: string): string[] {
+  const m = /\nfix:\n```text\n([\s\S]*?)\n```/.exec(recordText);
+  return m ? m[1]!.split(`\n${FIX_GAP}\n`).filter(Boolean).map(p => p.replace(/ˋˋˋ/g, "```")) : [];
+}
+
+/**
+ * The page a person reads the reviews on, made with the first finding an outline keeps (PIE-1388), as the Records page
+ * is: each review with its note (drawn by title, linked), what was said and the passage; what the writer did; a box per
+ * finding to mark Jev right (x) or wrong (`-`, Reject: the status chooser's keys), which writes `jev::right` or
+ * `jev::rejected` on the record; and the
+ * backfill's stats by rubric and writer. Every number is a live figure. An outline that already has a page by this
+ * address (pie's, made by hand) keeps its own, gaining only what a later version added (`upgradeSuggestionsPage`).
+ */
+const QUIET_HEADING = "## Reviewed, nothing to fix";
+
+export const SUGGESTIONS_PAGE = [
+  "Jev's suggestions [page::jevs-suggestions] [system-view::jev-suggestions]",
+  "",
+  "> [!summary] Every note an agent writes is reviewed: ship, or fix with the smallest fix.",
+  "> Each row is what the writer was told, the passage it was about, and what the writer did next.",
+  "> Mark a finding below: x when Jev was right, - (Reject) when it was wrong. The thresholds are tuned from your marks.",
+  "",
+  "::graph-stat",
+  "---",
+  "title: last 7 days",
+  'items: [{ label: findings, query: "type=review-finding NOT source=backfill created >= -7d", machinery: show }, { label: followed, query: "type=suggestion-outcome outcome=followed created >= -7d", machinery: show, accent: true }, { label: patched, query: "type=suggestion-outcome patched=yes created >= -7d", machinery: show }, { label: ignored, query: "type=suggestion-outcome outcome=ignored created >= -7d", machinery: show }]',
+  "---",
+  "::",
+  "",
+  "## Each finding, newest first",
+  "::graph-table",
+  "---",
+  "title: what each writer was told",
+  "query: type=review-finding NOT source=backfill",
+  "machinery: show",
+  "columns: [note, said, passage, rubric, patch, writer]",
+  "link: note",
+  // A row opens the note at the revision the review read, beside how it is now (PIE-1433).
+  "at: revision",
+  "sort: created",
+  "direction: desc",
+  "limit: 30",
+  "---",
+  "::",
+  "",
+  QUIET_HEADING,
+  "::graph-table",
+  "---",
+  "title: writes the review passed",
+  "query: type=review-quiet NOT source=backfill",
+  "machinery: show",
+  "columns: [note, writer, revision, created]",
+  "link: note",
+  "at: revision",
+  "sort: created",
+  "direction: desc",
+  "limit: 30",
+  "---",
+  "::",
+  "",
+  "## What the writer did",
+  "::graph-table",
+  "---",
+  "title: followed, patched or ignored",
+  "query: type=suggestion-outcome",
+  "machinery: show",
+  "columns: [note, outcome, because, said, patched, writer]",
+  "link: note",
+  "sort: created",
+  "direction: desc",
+  "limit: 30",
+  "---",
+  "::",
+  "",
+  "## Was Jev right?",
+  "::graph-check",
+  "---",
+  "title: x when Jev was right, - (Reject) when it was wrong",
+  "query: type=review-finding NOT source=backfill created >= -7d",
+  "machinery: show",
+  // By when it was told, so a row marked stays where it was (the default, by update, moved it under the pointer).
+  "sort: created",
+  "direction: desc",
+  "done: jev=right",
+  "note: said",
+  "---",
+  "::",
+  "",
+  "## By rubric and writer",
+  "::graph-matrix",
+  "---",
+  "title: findings, 30 days",
+  "query: type=review-finding created >= -30d",
+  "machinery: show",
+  "down: rubric",
+  "across: writer",
+  "---",
+  "::",
+  "",
+  "## Backfill runs",
+  "::graph-table",
+  "---",
+  "title: what agents already wrote, reviewed (items reviewed, suggested flagged, quiet passed)",
+  "query: type=jev-run experiment=write-review-backfill",
+  "machinery: show",
+  "columns: [title, items, suggested, quiet, tokens-in, model]",
+  "sort: created",
+  "direction: desc",
+  "---",
+  "::",
+  "",
+  LOOPS_SECTION,
+].join("\n");
+
+/**
+ * How a review's record reads when it's opened (a tap on a row lands on the note; one opened another way still reads): a
+ * rule note drawing a card of what the record says, its note by title and linked. A rule, so the records written
+ * before it read too, with nothing rewritten.
+ */
+export const REVIEW_RECORDS_RULE =
+  "Review records read [rule-name::review-records] [rule-match::type=review-finding OR type=suggestion OR type=suggestion-outcome] " +
+  "[rule-decorate::card] [rule-place::prepend] [rule-fields::note, rubric, component, verdict, said, passage, outcome, because, writer]";
+
+/**
+ * An existing suggestions page with what a later version added and it lacks (PIE-1388): the quiet writes' section, with
+ * when each was written, and (PIE-1433) `at: revision` on the review tables, so a row opens the note at the revision the
+ * review read. Only added, never rewritten, so a page shaped by hand keeps its order and words; a page that has it is
+ * returned as it is.
+ */
+export function upgradeSuggestionsPage(text: string): string {
+  let lines = text.split("\n");
+  if (!lines.some(l => l.includes("query: type=review-quiet"))) {
+    const section = SUGGESTIONS_PAGE.split("\n"), from = section.indexOf(QUIET_HEADING);
+    const quiet = section.slice(from, section.indexOf("", from) + 1);
+    const before = lines.findIndex(l => l.trim() === "## What the writer did");
+    lines = before < 0 ? [...lines, "", ...quiet.slice(0, -1)] : [...lines.slice(0, before), ...quiet, ...lines.slice(before)];
+  }
+  // A review table's `link: note` gets `at: revision` after it, unless its figure says `at:` already.
+  let query = "", out: string[] = [];
+  lines.forEach((l, i) => {
+    if (l.startsWith("query: ")) query = l;
+    if (l.trim() === "::") query = "";
+    out.push(l);
+    if (l.trim() === "link: note" && /type=review-(finding|quiet)\b/.test(query)) {
+      // Anywhere in the figure's properties, before or after `link:`: an `at:` written already is kept as it is.
+      const from = lines.slice(0, i).map(x => x.trim()).lastIndexOf("---"), end = lines.indexOf("---", i);
+      if (!lines.slice(from + 1, end < 0 ? undefined : end).some(x => x.startsWith("at:"))) out.push("at: revision");
+    }
+  });
+  return out.join("\n");
+}
+
+async function suggestionsPage(client: SuggestionClient): Promise<void> {
+  const has = await read(client, "system-view=jev-suggestions OR page=jevs-suggestions", 1);
+  if (!has.length) await client.request({ action: "create", text: SUGGESTIONS_PAGE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
+  else {
+    const page = has[0]!, text = upgradeSuggestionsPage(page.text);
+    // An upgrade that can't be made now (the page changed meanwhile) is never why a record is lost: the next review tries again.
+    if (text !== page.text) await client.request({ action: "update", blockId: page.id, text, expectedRevision: page.revision, mutation: { author: "agent", actorId: "jev/figure-fit" } } as RequestInput).catch(() => undefined);
+  }
+  if (!(await read(client, "rule-name=review-records", 1)).length) await client.request({ action: "create", text: REVIEW_RECORDS_RULE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
+}
+
 /** Jev was asked and said nothing (`quiet`, with its reading), or couldn't be asked (`unavailable`): counted on the day's run. Never throws. */
 export async function tallyAsk(client: SuggestionClient, what: "quiet" | "unavailable", reading?: FigureFitReading, now = new Date()): Promise<void> {
   try { await updateRun(client, dayOf(now), { [what]: 1, reading }); } catch { /* best-effort */ }
@@ -86,7 +306,7 @@ export const LIVE_EXPERIMENT = "figure-fit-live";
 const countOf = async (client: SuggestionClient, where: string, group: string) =>
   Object.fromEntries(((await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, machinery: "show", limit: 1, group } })).groups ?? []).map(g => [g.value ?? "", g.count]));
 
-const setChip = (text: string, key: string, value: string | number) => {
+export const setChip = (text: string, key: string, value: string | number) => {
   const chip = new RegExp(`\\[${key}::[^\\]]*\\]`);
   return chip.test(text) ? text.replace(chip, () => `[${key}::${value}]`) : text;
 };
@@ -99,7 +319,7 @@ const chipNumber = (text: string, key: string) => Number(new RegExp(`\\[${key}::
  * outcome records of the day, never carried by hand; `quiet`, `unavailable` and tokens are the tally itself. The one
  * record that is rewritten, as a rate: a conflicting write loses a count rather than looping.
  */
-async function updateRun(client: SuggestionClient, day: string, change: { quiet?: number; unavailable?: number; reading?: FigureFitReading }): Promise<void> {
+async function updateRun(client: SuggestionClient, day: string, change: { quiet?: number; unavailable?: number; reading?: Pick<FigureFitReading, "model" | "prompt" | "usage"> }): Promise<void> {
   const find = async () => (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=jev-run experiment=${LIVE_EXPERIMENT} run=${day}`, machinery: "show", limit: 1 } })).blocks[0];
   let run = await find();
   if (!run) {
@@ -108,7 +328,7 @@ async function updateRun(client: SuggestionClient, day: string, change: { quiet?
     run = await find();
     if (!run) return;
   }
-  const suggested = (await countOf(client, `type=suggestion day=${day}`, "day"))[day] ?? 0;
+  const suggested = ((await countOf(client, `type=suggestion day=${day}`, "day"))[day] ?? 0) + ((await countOf(client, `type=review-finding day=${day} NOT source=backfill`, "day"))[day] ?? 0);
   const outcomes = await countOf(client, `type=suggestion-outcome day=${day}`, "outcome");
   const quiet = chipNumber(run.text, "quiet") + (change.quiet ?? 0);
   let text = run.text;
@@ -137,6 +357,82 @@ export interface OpenSuggestion {
   at: number;
   component: string;
   thread?: string;
+  /** A review's finding (PIE-1388): its rule, its key and its line; none for a figure-fit suggestion. */
+  rule?: string;
+  key?: string;
+  line?: number;
+  /** The ready patch's new text, as its record keeps it (fixOf): a later write holding it applied the patch. */
+  fix?: string[];
+}
+
+/** What a later write's review said and read (PIE-1402): the keys it said, new or carried, and what Jev judged. */
+export interface Heard { said: ReadonlySet<string>; judged: ReadonlySet<string> }
+
+/** Jev's judgments: no code rule can tell they're gone, so only Jev reading the rewrite and not saying it again can. */
+const JEV_RULES: ReadonlySet<string> = new Set(["dense", "mixed", "context", "argues", "unclear", "qa-for-evan"]);
+
+/** The values a count finding's key names (`count:work-stage=queued,…`), so its patch can be made again from the note as it was. */
+const facetsOfKey = (key: string): ShapeFacet[] => key.startsWith("count:") ? key.slice(6).split(",").flatMap(q => { const m = /^([^=]+)=(.*)$/.exec(q); return m ? [{ key: m[1]!, value: m[2]!.replace(/^"|"$/g, "") }] : []; }) : [];
+
+/**
+ * A review finding's verdict (PIE-1388): followed when a later write applied its ready patch (made again from the
+ * note as it was), or left the note without the problem (code's rules: the same key no longer found; a kit finding:
+ * the component drawn; Jev's judgments: the passage rewritten); ignored when the window closed with neither.
+ */
+function judgeFinding(
+  s: Pick<OpenSuggestion, "component" | "at" | "rule" | "key" | "line">, baseline: string,
+  window: readonly { revision: number; savedAt: string; text: string }[], schemas: readonly ComponentSchema[], closed: boolean,
+  heard?: ReadonlyMap<number, Heard>, fix?: readonly string[],
+): { outcome: Outcome; because: string; patched?: boolean } | null {
+  const rule = s.rule!, key = s.key ?? "";
+  const facets = facetsOfKey(key);
+  const was = writeShape(baseline, { facets }).find(f => f.key === key);
+  const kitSection = rule === "kit" && s.line ? sectionsOf(baseline).find(x => x.line + 1 === s.line) : undefined;
+  const made = kitSection ? figurePatch(kitSection.text, s.component) : null;
+  // The fix as it was offered (its record keeps it); a record from before it did is made again from the note as it was.
+  const pieces = fix?.length ? fix : (rule === "kit" ? (made && "patch" in made ? made.patch : undefined) : was?.patch)?.map(p => p.replacement).filter(r => r.trim());
+  const scope = jevScope(key);
+  let rewrittenUnread: number | undefined;
+  const section = s.line ? sectionsOf(baseline).find(x => x.line + 1 === s.line) : undefined;
+  const named = s.line ? baseline.split("\n")[s.line - 1] : undefined;
+  // A kit finding is about its section: the component drawn there, its patch applied there, not anywhere in the note
+  // (PIE-1388: two sections told graph-compare, one patched, and both read followed). Found again by its heading; a
+  // heading renamed or gone reads the whole note.
+  const within = (text: string) => kitSection ? sectionsOf(text).find(x => x.heading === kitSection.heading)?.text ?? text : text;
+  for (const w of window) {
+    if (pieces?.length && pieces.every(p => within(w.text).includes(p))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true };
+    // Jev's own judgment: followed only when Jev read the rewrite and didn't say it again; said again, it stands.
+    const review = heard?.get(w.revision);
+    if (review?.said.has(key) || review?.said.has(chipValue(key))) continue;
+    const rewritten = section ? !w.text.includes(section.text) : named !== undefined ? !w.text.split("\n").includes(named) : w.text !== baseline;
+    if (JEV_RULES.has(rule) && !was) {
+      // A qa line code found by its words is gone when the line is; Jev's judgments wait for Jev to read the rewrite.
+      const byWords = rule === "qa-for-evan" && !section;
+      if (rewritten && byWords) return { outcome: "followed", because: `revision ${w.revision} no longer has it` };
+      if (rewritten && review?.judged.has(scope)) return { outcome: "followed", because: `revision ${w.revision} rewrote it and Jev, reading it again, didn't say it` };
+      if (rewritten) rewrittenUnread ??= w.revision;
+      continue;
+    }
+    // A wall or a stacked bullet is the same problem wherever its words moved: gone only when no finding of that rule is near
+    // its line (a cosmetic edit to its first words changes its key, not the problem).
+    const near = (f: { rule: string; line?: number }) => f.rule === rule && Math.abs((f.line ?? 0) - (s.line ?? was?.line ?? 0)) <= 3;
+    const gone = rule === "kit" ? kitIn(within(w.text), schemas).has(s.component)
+      : was ? !writeShape(w.text, { facets }).some(f => (rule === "wall" || rule === "stacked" ? near(f) : f.key === key))
+      // Otherwise (the work rules): the passage it named was rewritten. A section by its text, a line by its words, a
+      // note without a line by any change.
+      : rewritten;
+    if (gone) return { outcome: "followed", because: rule === "kit" ? `revision ${w.revision} draws ${s.component}` : `revision ${w.revision} no longer has it` };
+  }
+  if (!closed) return null;
+  if (rule === "kit") {
+    const had = kitIn(baseline, schemas);
+    for (const w of window) {
+      const other = [...kitIn(w.text, schemas)].find(id => !had.has(id) && schemas.some(x => x.id === id && x.group === "figures"));
+      if (other) return { outcome: "different", because: `revision ${w.revision} draws ${other} instead` };
+    }
+  }
+  if (rewrittenUnread !== undefined) return { outcome: "ignored", because: `revision ${rewrittenUnread} rewrote it, but Jev never read it again` };
+  return { outcome: "ignored", because: `${window.length} later write${window.length === 1 ? "" : "s"} within a day left it as it was` };
 }
 
 /**
@@ -150,14 +446,20 @@ export interface OpenSuggestion {
  * - ignored: it closed with neither.
  */
 export function judgeSuggestion(
-  s: Pick<OpenSuggestion, "component" | "at">,
+  s: Pick<OpenSuggestion, "component" | "at"> & Partial<Pick<OpenSuggestion, "rule" | "key" | "line" | "fix">>,
   baseline: string,
   after: readonly { revision: number; savedAt: string; text: string }[],
   schemas: readonly ComponentSchema[],
   now: number,
   threadLifecycle?: string,
-): { outcome: Outcome; because: string } | null {
+  /** A review finding's: what the later writes' reviews said and read, by revision (the ones in hand). */
+  heard?: ReadonlyMap<number, Heard>,
+): { outcome: Outcome; because: string; patched?: boolean } | null {
   if (threadLifecycle === "kept") return { outcome: "followed", because: "the margin thread was kept" };
+  if (s.rule) {
+    const window = after.filter(w => Date.parse(w.savedAt) - s.at <= FOLLOW_WITHIN_MS).slice(0, FOLLOW_WITHIN_WRITES);
+    return judgeFinding(s, baseline, window, schemas, window.length >= FOLLOW_WITHIN_WRITES || now - s.at > FOLLOW_WITHIN_MS, heard, s.fix);
+  }
   const schema = schemas.find(x => x.id === s.component);
   const suggested = (schema && blockNameOf(schema)) ?? s.component;
   const had = new Set(figuresIn(baseline, schemas));
@@ -181,26 +483,30 @@ async function read(client: SuggestionClient, where: string, limit = 1000): Prom
 
 const openOf = (suggestions: Block[], outcomes: Block[]): OpenSuggestion[] => {
   const settled = new Set(outcomes.map(o => propsOf(o.text).suggestion));
-  return suggestions.filter(b => !settled.has(b.id)).map(b => {
+  // A backfill's findings were never told to anyone: nothing to follow.
+  return suggestions.filter(b => !settled.has(b.id) && propsOf(b.text).source !== "backfill").map(b => {
     const p = propsOf(b.text);
-    return { id: b.id, note: p.note!, revision: Number(p.revision), at: Date.parse(b.createdAt), component: p.component!, ...(p.thread && p.thread !== "none" ? { thread: p.thread } : {}), writer: p.writer, harness: p.harness, day: p.day };
+    return {
+      id: b.id, note: p.note!, revision: Number(p.revision), at: Date.parse(b.createdAt), component: p.component!, ...(p.thread && p.thread !== "none" ? { thread: p.thread } : {}), writer: p.writer, harness: p.harness, day: p.day,
+      ...(p.rule ? { rule: p.rule, key: p.key, line: Number(p.line) || undefined, rubric: p.rubric, title: p.title, passage: p.passage, said: p.said, fix: fixOf(b.text) } : {}),
+    };
   }).filter(s => s.note && Number.isFinite(s.revision) && s.component);
 };
 
-type OpenWithWho = OpenSuggestion & { writer?: string; harness?: string; day?: string };
+type OpenWithWho = OpenSuggestion & { writer?: string; harness?: string; day?: string; rubric?: string; title?: string; passage?: string; said?: string };
 
 /**
  * Settles what can be settled of one note's open suggestions against its revisions: a verdict from `judgeSuggestion`
  * becomes a `suggestion-outcome` record, once. Returns how many it wrote. Never throws.
  */
-export async function settleNote(client: SuggestionClient, note: string, schemas: readonly ComponentSchema[], now = Date.now()): Promise<number> {
+export async function settleNote(client: SuggestionClient, note: string, schemas: readonly ComponentSchema[], now = Date.now(), heard?: ReadonlyMap<number, Heard>): Promise<number> {
   try {
-    const open = openOf(await read(client, `type=suggestion note=${note}`, 50), await read(client, `type=suggestion-outcome note=${note}`, 100)) as OpenWithWho[];
-    return await settle(client, note, open, schemas, now);
+    const open = openOf(await read(client, `(type=suggestion OR type=review-finding) note=${note}`, 50), await read(client, `type=suggestion-outcome note=${note}`, 100)) as OpenWithWho[];
+    return await settle(client, note, open, schemas, now, heard);
   } catch { return 0; }
 }
 
-async function settle(client: SuggestionClient, note: string, open: OpenWithWho[], schemas: readonly ComponentSchema[], now: number): Promise<number> {
+async function settle(client: SuggestionClient, note: string, open: OpenWithWho[], schemas: readonly ComponentSchema[], now: number, heard?: ReadonlyMap<number, Heard>): Promise<number> {
   if (!open.length) return 0;
   const list = await client.request<BlockRevisions>({ action: "block.revisions", blockId: note });
   const text = async (revision: number) => (await client.request<{ text: string }>({ action: "block.revisions", blockId: note, revision })).text;
@@ -216,13 +522,14 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
     const later = list.revisions.filter(r => r.revision > s.revision).sort((a, b) => a.revision - b.revision).slice(0, FOLLOW_WITHIN_WRITES);
     const baseline = list.revisions.some(r => r.revision === s.revision) ? await text(s.revision) : "";
     const after = await Promise.all(later.map(async r => ({ revision: r.revision, savedAt: r.savedAt, text: await text(r.revision) })));
-    const verdict = judgeSuggestion(s, baseline, after, schemas, now, lifecycle);
+    const verdict = judgeSuggestion(s, baseline, after, schemas, now, lifecycle, heard);
     if (!verdict) continue;
     // Settled by another pass while this one read the revisions: one outcome per suggestion.
     if ((await read(client, `type=suggestion-outcome suggestion=${s.id}`, 1)).length) continue;
     await writeRecord(board(client), "suggestion-outcome", clean({
       day: s.day ?? dayOf(s.at), suggestion: s.id, note, outcome: verdict.outcome, component: s.component, writer: s.writer ?? "unknown", harness: s.harness ?? "unknown", because: verdict.because,
-    }), JEV);
+      rule: s.rule ?? "figure-fit", rubric: s.rubric ?? "format", title: s.title ?? "none", passage: s.passage ?? "none", said: s.said ?? "none", patched: verdict.patched ? "yes" : "no",
+    }), JEV, { title: `${verdict.outcome}${verdict.patched ? " (patched)" : ""}: ${s.rubric ?? s.component} in ${s.title ?? "a note"}`.slice(0, 120) });
     written++;
     await updateRun(client, s.day ?? dayOf(s.at), {}).catch(() => undefined);
   }
@@ -236,7 +543,7 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
  */
 export async function settleOpen(client: SuggestionClient, schemas: readonly ComponentSchema[], now = Date.now()): Promise<number> {
   try {
-    const open = openOf(await read(client, "type=suggestion created >= -30d"), await read(client, "type=suggestion-outcome created >= -30d")) as OpenWithWho[];
+    const open = openOf(await read(client, "(type=suggestion OR type=review-finding) created >= -30d"), await read(client, "type=suggestion-outcome created >= -30d")) as OpenWithWho[];
     const byNote = new Map<string, OpenWithWho[]>();
     for (const s of open) byNote.set(s.note, [...(byNote.get(s.note) ?? []), s]);
     let written = 0;
@@ -257,6 +564,8 @@ export async function settleOpen(client: SuggestionClient, schemas: readonly Com
 export type SuggestionKeep =
   | { kind: "suggested"; fit: FigureFit; reading?: FigureFitReading; at: SuggestionWrite }
   | { kind: "quiet" | "unavailable"; reading?: FigureFitReading }
+  /** A write's review (PIE-1388): what it told the writer, kept as a suggestion per new finding. */
+  | { kind: "reviewed"; at: SuggestionWrite; title: string; review: WriteReview; reading?: ReviewReading }
   /** A note's open suggestions judged (after a write to it), or, with no note, every open one (the tidy sweep's). */
   | { kind: "settle"; note?: string };
 
@@ -265,6 +574,13 @@ export function readKeep(value: unknown): SuggestionKeep {
   const keep = value as Partial<SuggestionKeep> | null | undefined;
   const text = (v: unknown, what: string) => { if (typeof v !== "string" || !v) throw new Error(`suggestions.keep: ${what} is a non-empty string`); return v; };
   if (!keep || typeof keep !== "object") throw new Error("suggestions.keep needs keep: {kind: suggested | quiet | unavailable | settle, …}");
+  if (keep.kind === "reviewed") {
+    const { at, review } = keep as Extract<SuggestionKeep, { kind: "reviewed" }>;
+    if (!at || typeof at !== "object" || !Number.isInteger(at.revision) || !["write", "backfill"].includes(at.source)) throw new Error("suggestions.keep: a reviewed keep needs at: {note, revision, actorId, source: write | backfill}");
+    text(at.note, "at.note"); text(at.actorId, "at.actorId");
+    if (!review || !Array.isArray(review.findings) || (review.verdict !== "ship" && review.verdict !== "fix")) throw new Error("suggestions.keep: a reviewed keep needs review: {verdict: ship | fix, findings: […]}");
+    return keep as SuggestionKeep;
+  }
   if (keep.kind === "settle") return { kind: "settle", ...(keep.note === undefined ? {} : { note: text(keep.note, "note") }) };
   if (keep.kind === "quiet" || keep.kind === "unavailable") return { kind: keep.kind, ...(keep.reading ? { reading: keep.reading } : {}) };
   if (keep.kind === "suggested") {
@@ -274,7 +590,7 @@ export function readKeep(value: unknown): SuggestionKeep {
     text(at.note, "at.note"); text(at.actorId, "at.actorId");
     return { kind: "suggested", fit, ...(keep.reading ? { reading: keep.reading } : {}), at };
   }
-  throw new Error(`suggestions.keep: kind is suggested, quiet, unavailable or settle (got ${JSON.stringify((keep as { kind?: unknown }).kind)})`);
+  throw new Error(`suggestions.keep: kind is suggested, reviewed, quiet, unavailable or settle (got ${JSON.stringify((keep as { kind?: unknown }).kind)})`);
 }
 
 /**
@@ -283,12 +599,24 @@ export function readKeep(value: unknown): SuggestionKeep {
  * the next time Jev speaks); a quiet or unavailable ask counted on the day's run; or the settling alone. Returns the
  * outcomes it wrote. Never throws.
  */
-export async function keepSuggestion(client: SuggestionClient, keep: SuggestionKeep, schemas: readonly ComponentSchema[]): Promise<number> {
+export async function keepSuggestion(client: SuggestionClient, keep: SuggestionKeep, schemas: readonly ComponentSchema[], cache?: RecordCache): Promise<number> {
   switch (keep.kind) {
     case "suggested":
       await recordSuggestion(client, keep.fit, keep.reading, keep.at);
       // A write's suggestion also settles the day-old ones; the sweep settles once, before it starts.
       return keep.at.source === "write" ? settleOpen(client, schemas) : 0;
+    case "reviewed": {
+      await recordReview(client, keep, new Date(), cache);
+      if (keep.at.source !== "write") return 0;
+      // The note's earlier findings are judged against this write; a review that told something new also settles the
+      // day-old ones anywhere (as a figure suggestion did), so an ordinary clean write costs one note's settling.
+      // What this write's review said (new or carried) and what Jev read: how a Jev finding is known fixed, or not.
+      // Both as written and as a record's chip holds them, so a stored key with brackets in it still meets them.
+      const both = (xs: readonly string[]) => new Set(xs.flatMap(x => [x, chipValue(x)]));
+      const heard = new Map([[keep.at.revision, { said: both(keep.review.findings.map(f => f.key)), judged: both(keep.review.judged ?? []) }]]);
+      const here = await settleNote(client, keep.at.note, schemas, Date.now(), heard);
+      return here + (keep.review.findings.some(f => f.new) ? await settleOpen(client, schemas) : 0);
+    }
     case "quiet":
     case "unavailable":
       await tallyAsk(client, keep.kind, keep.reading);

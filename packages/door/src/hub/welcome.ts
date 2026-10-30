@@ -1,4 +1,5 @@
 import { standsAsPerson } from "../surface/dispatch";
+import { keyTable } from "../surface/keymap";
 import { NOBODY } from "../whereabouts";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
 import { clipText } from "../overflow";
@@ -178,16 +179,16 @@ type BandHit = { y0: number; y1: number; from: number; to: number; action: strin
  * screen's model too: which notes are welcome notes (read again as the outline changes), the fallback page while
  * there are none, the logo, and the band its kind draws.
  */
-const WELCOME_LIST_KEYS: readonly ModeKey[] = [
+const WELCOME_LIST_KEYS: readonly ModeKey[] = keyTable("welcome", "the welcome screen's lists", [
   { key: "click", action: "welcome.select", label: "pick" },
   { key: "wheel", action: "welcome.select", label: "pick" },
   { key: "drag", action: "welcome.move", label: "reorder" },
-  ...["j", "down", "k", "up"].map(key => ({ key, action: "welcome.select", label: "pick", args: { by: ["j", "down"].includes(key) ? 1 : -1 } })),
-  { key: "home", action: "welcome.select", label: "first", args: { n: 1 } },
-  { key: "end", action: "welcome.select", label: "last", args: { last: true } },
+  ...["j", "down", "k", "up"].map(key => ({ key, action: "welcome.select", label: "pick", says: ["j", "down"].includes(key) ? "read the next welcome note" : "read the previous welcome note", args: { by: ["j", "down"].includes(key) ? 1 : -1 } })),
+  { key: "home", action: "welcome.select", label: "first", says: "read the first welcome note", args: { n: 1 } },
+  { key: "end", action: "welcome.select", label: "last", says: "read the last welcome note", args: { last: true } },
   { key: "enter", action: "welcome.select", label: "read", args: { read: true } },
-  ...["alt+up", "alt+down"].map(key => ({ key, action: "welcome.move", label: "reorder", args: { by: key === "alt+up" ? -1 : 1 } })),
-];
+  ...["alt+up", "alt+down"].map(key => ({ key, action: "welcome.move", label: "reorder", says: key === "alt+up" ? "move this welcome note up the Welcome order" : "move this welcome note down the Welcome order", args: { by: key === "alt+up" ? -1 : 1 } })),
+]);
 
 export class WelcomeList implements Pane {
   readonly bindings = WELCOME_LIST_KEYS;
@@ -348,14 +349,16 @@ export class WelcomeList implements Pane {
   readHere(m: Msg, actor: Actor, desk: DeskApi, focus = true): Shown {
     const d = this.detail;
     if (!d) throw new ActionRefused("the welcome screen has no detail to read it in");
-    if (d.holdsKeys || d.editing) throw new ActionRefused("the detail holds an edit or a comment; save or close it first");
+    // Where it lands is placement's (PIE-1294): a detail holding an edit or a comment stays on its note, so the person's
+    // pick opens beside it as anywhere on the desk (PIE-592), and an agent's is refused in placement's words.
     // Another note read by the person: what the preview showed came from the one before (its link, its backlink),
     // so it empties rather than show something the detail no longer points at. An agent's leaves what the person
     // may be reading there. Either way the preview never repeats the note read.
     const other = d.msg?.id !== m.id, pv = this.preview(desk), standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile");
     if (other) desk.setCurrent(m, { from: this, to: d, by: actor, ...(focus ? {} : { keys: false as const }) });
-    if (pv && (pv.msg?.id === m.id || (other && standing))) pv.show(null, desk);
-    if (focus && standing && !desk.holdsKeys?.()) desk.focusPane?.(d, actor);
+    const here = d.msg?.id === m.id;
+    if (pv && (pv.msg?.id === m.id || (other && standing && here))) pv.show(null, desk);
+    if (here && focus && standing && !desk.holdsKeys?.()) desk.focusPane?.(d, actor);
     const items = this.items ?? [], i = items.findIndex(x => x.id === m.id);
     const s: Shown = { id: m.id, title: subject(m), welcome: prop(m, WELCOME_KEY) ?? null, n: i >= 0 ? i + 1 : null, of: items.length };
     desk.redraw();

@@ -61,7 +61,7 @@ describe('the drain tick', () => {
     await s.clock.advance(2 * MIN)
     expect(s.submitted).toEqual([drainPrompt()])
     expect(s.submitted[0]).toContain(DRAIN_REQUEST)
-    expect(s.submitted[0]).toContain('up to 3 builders')
+    expect(s.submitted[0]).toContain('up to 5 builders')
     await drainedAndMoved($, s, 3)
     await s.clock.advance(30 * MIN)
     expect(s.submitted).toHaveLength(2)

@@ -1,7 +1,7 @@
 import { filterLine } from "../surface/line";
 import { standsAsPerson } from "../surface/dispatch";
 import { NOBODY } from "../whereabouts";
-import { outlineBoards, readNote } from "./outline-boards";
+import { outlineBoards, readTarget } from "./outline-boards";
 // The links tile (kind `backlinks`, PIE-432, PIE-442): the links of a note, its *subject*, in the shared links model
 // (src/links.ts): its Outlinks, its Resources, its Backlinks and its
 // Children (PIE-693: the notes under it, a thread's replies), the backlinks grouped, filtered and sorted as Detail
@@ -35,7 +35,8 @@ import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel } from "../surface/actions";
 import { C, drawEllipsized, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
+import { runOwn, type DeskApi, type Pane, type PaneView, type TileTrail } from "./panes";
+import { HISTORY, historyKey } from "../surface/note";
 import { pressOn, type RowPress } from "../scroll";
 import { LISTVIEW_ACTIONS, type ListHost } from "../surface/list-actions";
 import { ListView, PERSON, type ListHandle, type ListViewRow } from "../surface/list-view";
@@ -179,6 +180,8 @@ export class BacklinksPane implements Pane {
   private get childrenOnly() { return this.groups.length === 1 && this.groups[0] === "children"; }
 
   subject() { const r = this.rows()[this.sel]; return r?.kind === "backlink" ? r.source.blockId : r?.kind === "child" ? r.child.block.id : null; }
+  /** Its rows are the target's outline's: another outline's note lists that outline's links and replies. */
+  noteAt() { const id = this.subject(); return id ? { id, ...(this.target?.address ? { address: this.target.address } : {}) } : null; }
   get titleNote() { return this.target; }
   title() {
     const word = this.childrenOnly ? "children" : this.every ? "links" : `links (${this.groups.join(", ")})`;
@@ -195,7 +198,7 @@ export class BacklinksPane implements Pane {
       chip: true as const, press: () => this.run(desk, "backlinks.groups", { choose: true }) }];
   }
   renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
-  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview · ⏎ open in ${this.desk?.wireDescription?.(this.desk.nameOfPane?.(this), "open")} · alt+⏎ ${this.desk?.wireDescription?.(this.desk.nameOfPane?.(this), "alt")} · b ${this.follows ? "aim" : "re-aim"} at ${this.sourceLabel()}'s note · . fold · s K w h n view · v groups`; }
+  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview${this.backs.length ? ` · alt+← back to ${subject(this.backs.at(-1)!)}` : ""} · ⏎ open in ${this.desk?.wireDescription?.(this.desk.nameOfPane?.(this), "open")} · alt+⏎ ${this.desk?.wireDescription?.(this.desk.nameOfPane?.(this), "alt")} · b ${this.follows ? "aim" : "re-aim"} at ${this.sourceLabel()}'s note · . fold · s K w h n view · v groups`; }
   spec() { return { source: this.source ? `tile:${this.source}` : "", ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const, ...(this.options.stages?.length ? { stages: this.options.stages.join(",") } : {}) }; }
 
   /**
@@ -269,8 +272,41 @@ export class BacklinksPane implements Pane {
   /** The view as shown now: a filter being typed applies as it's typed. */
   private opts(): BacklinkViewOptions { return this.draft === null ? this.options : { ...this.options, filter: this.draft.text.trim() }; }
 
+  /**
+   * Back and forward (PIE-1426): the notes it listed before, nearest last, whoever changed it (`b`, its home moving
+   * while it follows, an agent naming one). Back lists that note again until its home moves on, as a named one does.
+   */
+  private backs: Msg[] = [];
+  private aheads: Msg[] = [];
+  private travelling = false;
+  readonly trail: TileTrail = {
+    stops: () => { const t = (ms: Msg[]) => ms.map(m => ({ id: m.id, title: subject(m), ...(m.address ? { address: m.address } : {}) })).reverse(); return { here: this.target ? { id: this.target.id, title: subject(this.target) } : null, back: t(this.backs), forward: t(this.aheads) }; },
+    go: async (dir, steps, desk) => {
+      const stack = dir < 0 ? this.backs : this.aheads, other = dir < 0 ? this.aheads : this.backs;
+      if (!stack.length) return dir < 0 ? "nothing to go back to: this list hasn't listed another note's links here" : "nothing ahead: go back first";
+      if (steps > stack.length) return `only ${stack.length} ${dir < 0 ? "back" : "ahead"}: steps=${stack.length} at most`;
+      if (this.draft !== null) return "finish the filter first · ⏎ keeps it, esc goes back";
+      const passed = stack.splice(stack.length - steps), to = passed.shift()!;
+      if (this.target) other.push(this.target);
+      other.push(...passed.reverse());
+      const shown = desk.tileShowing?.(this.source) ?? null;
+      if (this.follows) this.named = { m: to, over: shown && isOutlineNote(shown) ? shown.id : null };
+      this.travelling = true;
+      let read: Promise<void>;
+      try { read = this.load(to, desk); } finally { this.travelling = false; }
+      desk.redraw();
+      await read;
+      return null;
+    },
+  };
+
   /** Ask the service for `m`'s backlinks (the list keeps its view options, as Detail's panel does). */
   async load(m: Msg | null, desk: DeskApi, keepSel = false): Promise<void> {
+    if (!this.travelling && this.target && m && m.id !== this.target.id) {
+      this.backs.push(this.target);
+      if (this.backs.length > HISTORY) this.backs.shift();
+      this.aheads = [];
+    }
     // Another note: its groups start as a first read opens them. `openedFor` goes with `expanded`: a read cut short (the
     // person moved on before it came) never left them shut on the way back to a note opened before.
     if (m?.id !== this.target?.id) { this.options = { ...this.options, filter: "", kind: null }; this.expanded = new Set(); this.openedFor = null; this.headerPicked = false; }
@@ -324,14 +360,16 @@ export class BacklinksPane implements Pane {
     }, (e: Error) => { if (current()) { this.children = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
   }
 
-  /** The tile was given the keys: the selected source shows where its selection goes, as moving to it would. */
-  focused(desk: DeskApi, actor: Actor) {
-    if (this.data) this.showSelected(desk, actor);
-    else if (this.target) this.showOnLoad = actor;
-  }
+  /** Given the keys: its selection fills a preview that shows nothing yet, and never replaces what one shows (PIE-1426). */
+  focused(desk: DeskApi, actor: Actor) { if (desk.previewsEmpty?.(this)) this.showSelected(desk, actor); }
 
-  /** Show the selected row's note (a group's header shows nothing). */
-  private showSelected(desk: DeskApi, actor: Actor) {
+  /**
+   * Show the selected row's note (a group's header shows nothing): when the selection changes (a step, a pick, `b`
+   * listing another note's links), never because the tile was given the keys (PIE-1426: a preview gone back stays).
+   * Asked before its rows are read, it shows once they are.
+   */
+  showSelected(desk: DeskApi, actor: Actor) {
+    if (!this.data) { if (this.target) this.showOnLoad = actor; return; }
     if (!isLinkEntry(this.rows()[this.sel])) return;
     void this.pick(this.sel, "show", desk, actor).catch(() => {});
   }
@@ -426,8 +464,7 @@ export class BacklinksPane implements Pane {
     let result: { note: Msg; registered?: boolean };
     if (target?.outline) {
       const at = { outline: target.outline, machine: target.machine ?? ctx.machine };
-      const on = await outlineBoards(ctx).on(at);
-      const note = target.block ? await readNote(on, target.block, at) : (await on.board.resolvePage(target.page!)).block;
+      const note = await readTarget(ctx, { ...target, ...at });
       if (!note) throw new ActionRefused(`nothing answers at ${target.block ?? target.page} in ${target.outline}`);
       note.address = at;
       result = { note };
@@ -584,6 +621,9 @@ export class BacklinksPane implements Pane {
     if (k.kind === "home") return to(0);
     if (k.kind === "end") return to(n - 1);
     if (k.kind === "enter" || k.kind === "alt-enter") { if (n) this.runList(desk, "list.open", { n: this.sel + 1, where: k.kind === "alt-enter" ? "new" : "home" }); return true; }
+    // Back and forward (PIE-1426): the note it listed before, as in a reader (tile.travel walks this tile's trail).
+    const travel = historyKey(k);
+    if (travel) { void desk.perform?.("tile.travel", { dir: travel < 0 ? "back" : "forward" }, USER, this)?.catch((e: Error) => desk.ctx.flash(e.message)); return true; }
     // b: the list aims at its home's note now (PIE-794), as b in that reader does.
     if (c === "b") { this.run(desk, "backlinks", {}); return true; }
     if (c === "." || c === " ") { this.run(desk, "backlinks.fold", {}); return true; }
@@ -736,7 +776,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
   }),
   "backlinks.view": def({
     summary: "change a backlinks tile's view as Detail's controls do: filter (text to match), kind (a kind or all), stage (all, open, waiting, draft, active, done), resolved, related, sort (updated, created, title, -asc or -desc); step=filter starts typing one (the person's)",
-    keys: "K w h n s, click on the status line; / then typing, backspace ctrl+u, ⏎ keeps it, esc goes back",
+    keys: [{ keys: "K w h n s", does: "a setting of the view" }, { keys: "click", does: "on the status line" }, { keys: "/", does: "then typing sets the filter" }, { keys: "backspace ctrl+u", does: "edit the filter" }, { keys: "⏎", does: "keeps it", says: "keep the typed filter" }, { keys: "esc", does: "goes back", says: "leave the filter box" }],
     touches: "nothing", replay: "safe", says: r => (r.said ? `· ${r.said}` : "changed the backlinks view"),
     args: {
       filter: { type: "string", optional: true, about: "text to match, as / filters (empty clears)" },

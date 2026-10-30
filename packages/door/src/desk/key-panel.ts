@@ -3,6 +3,7 @@
 // joined to each action's own words (wkeys.ts `wRows`), ^W o's from the tile kinds' own keys, and ^W's first group, the
 // focused tile's own keys (PIE-1338), from its tile menu's rows (`tileKeys`). A prefix shows it after a
 // short pause (which-key's), so a fast typist never sees it; the hint row's one-line strip stays where it can't fit.
+import { keyTable } from "../surface/keymap";
 import { C, fg, pad, RESET, width } from "../style";
 import { drawEllipsized } from "../style";
 import { modeHint, type ModeKey } from "../surface/modes";
@@ -21,10 +22,10 @@ export interface PanelGroup { title: string; keys: PanelKey[]; accent?: true }
  * The panel's own keys, said in its foot: a click on a row presses that key, esc lets the prefix go; on ^W, `?` opens
  * the filtered list (W_KEYS' own row). Its foot is drawn from this table, never written as words (PIE-1171).
  */
-export const PANEL_KEYS: readonly ModeKey[] = [
+export const PANEL_KEYS: readonly ModeKey[] = keyTable("key panel", "the panel a prefix opens", [
   { key: "click", action: "keys.panel", label: "a row runs its key" },
-  { key: "esc", action: "keys.panel", label: "close" },
-];
+  { key: "esc", action: "keys.panel", label: "close", says: "close the panel of the keys that follow a prefix" },
+]);
 /**
  * Esc's words when the panel lists the tile's own keys (PIE-1338): after ^W the next key is ^W's (x closes the tile), so
  * the tile's own keys are typed once the panel is closed.

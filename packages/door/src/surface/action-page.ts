@@ -22,7 +22,9 @@ export interface PageExtras { refused?: string; hyper?: readonly string[]; title
  */
 export function inert(text: string, keyValues = true): string {
   const risky = keyValues ? /(?<![\w`])(?:[a-z][\w.-]*=(?:<[^>]*>|"[^"]*"|[^\s,;)<"]+)+|\S*(?:::|\[\[|\(\(|\]\]|\)\))\S*)/g : /\S*(?:::|\[\[|\(\(|\]\]|\)\))\S*/g;
-  return text.split(/(`[^`]*`)/).map((part, i) => (i % 2 ? part
+  // A component written whole (`::button{label="▲ lift" …}`) is one span, its spaces and all (PIE-1076).
+  const spans = text.split(/(`[^`]*`)/).flatMap((part, i) => (i % 2 ? [part] : part.split(/(::[\w-]+\{[^}]*\})/).map((p, j) => (j % 2 ? "`" + p + "`" : p))));
+  return spans.join("").split(/(`[^`]*`)/).map((part, i) => (i % 2 ? part
     : part.replace(risky, m => {
       // Punctuation that ends the sentence stays outside the span.
       const tail = /[.,;:]+$/.exec(m)?.[0] ?? "";
@@ -57,8 +59,8 @@ export function argDefault(s: ArgSpec): { value?: string; about: string } {
 }
 
 /** Whether an agent may run an example as it is: it says so, or the action only reads or changes the door's own view. */
-export function exampleSafe(info: Pick<ActionInfo, "touches" | "replay" | "person">, ex: ActionExample): boolean {
-  return ex.safe ?? (info.touches === "nothing" && info.replay === "safe" && !info.person);
+export function exampleSafe(info: Pick<ActionInfo, "touches" | "replay" | "person" | "personAlways" | "personVaries">, ex: ActionExample): boolean {
+  return ex.safe ?? (info.touches === "nothing" && info.replay === "safe" && !info.person && !info.personAlways && !info.personVaries);
 }
 
 /** A figure block: its title in its YAML, its rows after. */
@@ -71,7 +73,10 @@ export function actionPage(info: ActionInfo, extras: PageExtras = {}): string {
   const lead = actionLead(info.summary);
   out.push(`**${extras.title ?? info.name}** · ${inert(lead)}${extras.title && extras.title !== info.name ? ` · \`${info.name}\`` : ""}`);
   if (extras.refused) out.push("", "> [!warning] Not now", `> ${inert(extras.refused)}`);
-  if (info.person) out.push("", "> [!note] The person's own", "> An agent's is refused; it says what an agent does instead.");
+  // What the declaration says, in its own words (ActionDef.person, personAlways, personWith): nothing written again here.
+  if (info.personAlways) out.push("", "> [!note] The person's alone", `> An agent's is refused, on the person's press too: ${info.personAlways}.`);
+  else if (info.person) out.push("", "> [!note] The person's own", `> An agent's is refused (a script the person pressed may): ${info.person}.`);
+  else if (info.personVaries) out.push("", "> [!note] Partly the person's own", "> Some of its arguments are the person's alone; an agent asking for them is told why.");
   const keys = keyAlternatives(info.keys);
   for (const h of extras.hyper ?? []) keys.push({ keys: h, action: "hyper" });
   if (keys.length) out.push("", figure("keys", { title: "keys" }, keys.map(k => `- ${k.keys}:${k.action ? ` ${inert(k.action, false)}` : ""}`)));

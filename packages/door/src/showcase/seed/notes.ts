@@ -225,7 +225,7 @@ export const OVERSCROLL = [
 export const LABELS_BEFORE = [`${SEED.labels} [page::${SEED.labels}]`, "[room::pantry]", "", "Write the date on every lid."].join("\n");
 
 export const LABELS = [`${SEED.labels} [page::${SEED.labels}]`, "[room::pantry]", "", "Write the date on every lid.", "Rota: whoever fills a jar labels it.",
-  "Drag across text in an edit and it's copied; ctrl+z undoes, ctrl+y redoes; the tile menu's \"an earlier revision\" goes back past a save."].join("\n");
+  "Drag across text in an edit and it's copied; ctrl+z undoes, ctrl+y redoes; opened again after a save, ctrl+z stops at the save and asks before taking saved text back; the tile menu's \"an earlier revision\" goes back past a save."].join("\n");
 
 /**
  * The kept-edits section's three notes (PIE-637): each was written, then changed once by someone else (`after`), and the
@@ -338,6 +338,42 @@ export const MEETING = [
   "> They mind the draught from the door.",
 ].join("\n");
 
+/**
+ * The write review section (PIE-1388): a status note as an agent writes one when nobody reviews it, stacked bullets and a
+ * count typed in, kept as the agent left it; the seed asks the review of it and keeps what it said, as a write's answer
+ * does, so Jev's suggestions page has its row.
+ */
+export const WRITE_REVIEW = [
+  SEED.writeReview,
+  "",
+  "- The shed roof went on at nine and the felt was cut to size. The tacks ran out halfway, which slowed the job. Then the second box came and nothing leaked.",
+  "- Board: 2 queued and 1 in review, with more coming tomorrow.",
+].join("\n");
+
+/** The same note once its writer split the stacked bullet (PIE-1433's at-revision section opens revision 1 beside it). */
+export const WRITE_REVIEW_FIXED = [
+  SEED.writeReview,
+  "",
+  "- **Roof on** at nine; the felt was cut to size.",
+  "- **Tacks ran out** halfway; the second box came.",
+  "- **Nothing leaked.**",
+  "- Board: 2 queued and 1 in review, with more coming tomorrow.",
+].join("\n");
+
+/**
+ * The search section (PIE-1197, PIE-1198): a made-up eval run, both models side by side, as `ep0ch search eval` scores
+ * one (search-eval.ts ModelScore). The numbers are invented; the page around them is the real one.
+ */
+const score = (model: string, hit1: number, hit5: number, sureRight: number, sureNothing: number) => ({
+  model, cases: 24, positives: 12, reachable: 11, negatives: 12, asked: 22, unavailable: 0, hit1, hit5, lexHit1: 5, lexHit5: 9,
+  existsAnswered: 0.81, existsNot: 0.34, sureRight, sureWrong: 1, sureNothing, quietRight: 14, quietWrong: 2, tokensIn: 41000, tokensOut: 90, setIn: 41000, setOut: 90,
+});
+export const SEARCH_EVAL_SCORES = [score("jev-1.13.0", 7, 10, 6, 1), score("jev-1.14.0", 7, 10, 6, 2)];
+export const SEARCH_EVAL_SWEEP = [
+  { exists: 0.7, strong: 2, sureRight: 7, sureWrong: 2, sureNothing: 3, quietWrong: 1 },
+  { exists: 0.8, strong: 2, sureRight: 6, sureWrong: 1, sureNothing: 1, quietWrong: 2 },
+];
+
 /** The completion sources section (PIE-1340): an extension's rows under [[, ranked with the pages. */
 export const SOURCES = [
   SEED.sources,
@@ -374,6 +410,19 @@ export const STICKY_PLAN = [
   "The rest of the plan: rotations, seed orders, who has the van.",
 ].join("\n");
 export const STICKY_JOBS = ["Turn the compost", "Mend the north bed"];
+/** The one completer (PIE-1076): a list to sort from inside its own edit, with the keys that do it written beside it. */
+export const ONE_COMPLETER = [
+  SEED.oneCompleter,
+  "",
+  "- Water the leeks",
+  "- Label the chilli trays",
+  "- Sow the broad beans",
+  "",
+  "- **From where you type:** in the edit, ctrl+k (or `/` first on a line) lists the actions that apply here; type `sort list` and ⏎.",
+  "- **Its arguments in place:** `o` then tab gives `order=`, ↓ and ⏎ choose `desc`; ⏎ on the line runs it and saves the note; ctrl+z in the reader takes it back.",
+  "- **The same list in the power bar:** ctrl+k outside the edit, `tile.zoom t`, tab gives `tile=`, and the list is this screen's tiles by the names `tile=` takes; `%` first in a value lists tiles whatever it takes.",
+].join("\n");
+
 export const STICKY_PAD = [
   SEED.stickyPad,
   `One part of the [[${SEED.stickyPlan}]], kept beside the long note:`,
@@ -421,6 +470,24 @@ export const SHED_PAD = [
  * The zoom section (PIE-780): a long note whose figure, table and heading's section each zoom to fill the reader, by W,
  * a click on the ⤢ at its right edge, or act; back returns.
  */
+/**
+ * The trail (PIE-208): a walk round the garden, five notes each linking the next, so a reader that follows them has a
+ * trail to list. `next` is the following stop's id; the last has none.
+ */
+export const TRAIL_STOPS = ["the gate", "the pond", "the orchard", "the shed", "the compost heap"] as const;
+export function trailStopText(i: number, next: string | null): string {
+  const title = `Garden walk: ${TRAIL_STOPS[i]}`;
+  if (!next) return `${title}\nThe end of the walk.\n\n- **alt+T** (or the ≡ trail beside ← back, or the tile menu): every stop you've passed, by title.\n- Pick one and the reader goes straight there; ← back and forward → walk the same trail.`;
+  return `${title}\nStop ${i + 1} of ${TRAIL_STOPS.length}. Walk on: ((${next}|${TRAIL_STOPS[i + 1]})).`;
+}
+
+/**
+ * Back anywhere (PIE-1426): a detail up top whose opens and picks go to a preview below, a links tile beside it whose
+ * pick shows there too. The hub links two jobs; two notes link the hub; one links a job, so `b` on it lists something.
+ */
+export const backHubText = (beans: string, shed: string) => `${SEED.backHub}\nFirst ((${beans}|the beans)), then ((${shed}|the shed)). Pick a row in the links tile, open a link up here, press b in the preview: alt+← in the preview steps back through each, in order. alt+← in the links tile lists what it listed before b.`;
+export const backJobText = (title: string, body: string, link?: string) => `${title}\n${body}${link ? ` For ((${link})).` : ""}`;
+
 export const ZOOM_PLAN = [
   SEED.zoomPlan,
   "Everything the orchard needs this winter. Click in the figure, the table or a section: a ⤢ shows at its right edge; click it (or press W) and that part fills the reader. Esc, alt+← or a click on the top row comes back.",

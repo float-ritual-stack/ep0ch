@@ -1,5 +1,6 @@
 import { publishLoki } from "./publish-loki";
 import { publishUpload } from "./publish-upload";
+import { shortcutResponse } from "./send-to-ep0ch-shortcut";
 import { artifactLimit } from "./artifact-inbox";
 import { createBlockComment } from "./block-comments";
 import { readSavedView } from "./saved-view-read";
@@ -26,6 +27,7 @@ import type { AnnotationBatchReceipt } from "./types";
 import type { BlockActivityKind, HostedOutlineArchival, HostedOutlineDeletion, HostedOutlineSummary, BlockReadField, BlockSearchQuery, CaptureReceipt, MutationProvenance, RoadmapItemCreateInput } from "./types";
 import {
   completeWorkItem,
+  attachToItem,
   createWorkItem,
   linkTicket,
   deliverPullRequest,
@@ -115,7 +117,7 @@ Publishing and extensions
   loki lease [--ttl 1h] | lease --revoke
   web sessions [--json] | web revoke <id> | --all
                                        the signed-in web client's browsers (my.ep0ch.sh), and signing them out
-  device add <name> [--ws <outline>] | ls | revoke <name|id>
+  device add <name> [--ws <outline>] [--shortcut] | ls | revoke <name|id>
                                        the phones and devices that may send a file to the artifacts inbox
 
 More in README.md, "Headless service and CLI".`;
@@ -463,6 +465,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
         loki: request => publishLoki(request, host, "http://127.0.0.1:3101", console.error),
         upload: request => publishUpload(request, host, { outlines: resolveOutlinesFolder(), log: console.error }),
         snapshot: request => web.snapshot(request),
+        shortcut: deviceId => shortcutResponse(host, deviceId),
         readerWrite: request => web.readerWrite(request),
         settings, request: input => host.request(input as Parameters<typeof host.request>[0]),
         serve: (request, signedIn) => web.handle(request, "tailnet", signedIn), log: line => console.error(line),
@@ -636,7 +639,8 @@ function workActor(values: Record<string, unknown>): WorkActor {
 
 /** The `work` / `note` synopsis, printed by `work help` and after an unknown operation. */
 const WORK_USAGE = [
-  "  work create --title T --project P --arc A --track T… --priority high|medium|low [--stage S] [--batch UUID] [--wave W] [--source <request>] [--stdin|--body-file F]",
+  "  work create --title T --project P --arc A --track T… --priority high|medium|low [--stage S] [--batch UUID] [--wave W] [--source <request>] [--stdin|--body-file F] [--new | --attach PIE-n]",
+  "      an agent's create that looks like open work is refused with the twins: --attach PIE-n adds it under that item (its words, dated); --new files it anyway, beside them",
   "  work stage <item> <stage> [--expected N]",
   "  work set <item> <key> <value> [--expected N]",
   "  work set <delivery> delivery-stage complete|validate [--expected N]   (delivery: block UUID or key, e.g. PIE-123/door)",
@@ -682,9 +686,15 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
           track: { type: "string", multiple: true }, priority: { type: "string" }, stage: { type: "string" },
           batch: { type: "string" }, "depends-on": { type: "string", multiple: true },
           "related-to": { type: "string", multiple: true }, source: { type: "string" }, wave: { type: "string" },
-          "body-file": { type: "string" }, stdin: { type: "boolean" },
+          "body-file": { type: "string" }, stdin: { type: "boolean" }, new: { type: "boolean" }, attach: { type: "string" },
         });
         if (positionals.length) throw new Error("work create takes no positional arguments");
+        if (values.attach !== undefined) {
+          if (values.new) throw new Error("work create: --attach adds it to an open item, --new files it anyway; give one");
+          if (values.title === undefined) throw new Error("work create --attach PIE-n requires --title (the ask, as written)");
+          const body = await textInput(values, "body-file", "work create", false);
+          return await attachToItem(client, { item: values.attach as string, title: values.title as string, ...(body === undefined ? {} : { body }), ...(values.source === undefined ? {} : { sourceBlockId: values.source as string }) }, workActor(values));
+        }
         for (const name of ["title", "project", "arc", "track", "priority"] as const) {
           if (values[name] === undefined) throw new Error(`work create requires --${name}`);
         }
@@ -702,6 +712,7 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
           ...(values.source === undefined ? {} : { sourceBlockId: values.source as string }),
           ...(values.wave === undefined ? {} : { wave: values.wave as string }),
           ...(body === undefined ? {} : { body }),
+          ...(values.new ? { new: true } : {}),
         }, workActor(values));
       }
       case "stage": {

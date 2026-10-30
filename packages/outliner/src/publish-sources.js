@@ -15,6 +15,22 @@
       catch { copy.textContent = 'Select the text to copy'; }
     }
     if (event.target.closest('[data-sources-close]')) panel.open = false;
+    // On a phone a download link saves into a folder nobody sees (PIE-1383): the share sheet (Save to Files, AirDrop)
+    // takes the file instead, where it can; the link itself is the fallback.
+    const download = event.target.closest('a[data-source-download]');
+    if (download && navigator.share && navigator.canShare && matchMedia('(pointer: coarse)').matches) {
+      event.preventDefault();
+      try {
+        const response = await fetch(download.href, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`the publisher answered ${response.status}`);
+        const file = new File([await response.blob()], download.getAttribute('download') || 'source', { type: response.headers.get('content-type') || 'text/plain' });
+        if (!navigator.canShare({ files: [file] })) throw new Error('this browser shares no files');
+        await navigator.share({ files: [file], title: file.name });
+      } catch (error) {
+        // Dismissed is no failure; anything else falls back to the link.
+        if (error?.name !== 'AbortError') location.href = download.href;
+      }
+    }
   });
   document.addEventListener('keydown', event => {
     if (event.target.closest('input,textarea,[contenteditable]')) return;

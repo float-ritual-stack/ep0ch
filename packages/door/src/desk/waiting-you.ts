@@ -178,7 +178,7 @@ const which = {
 export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
   "status.pick": def({
     summary: "pick a row of the waiting-on-you list (n from 1, or tile=<the terminal's id or name>)",
-    keys: "j k ↑ ↓, the wheel, a click",
+    keys: [{ keys: "j k ↑ ↓", does: "pick a row" }, { keys: "wheel", does: "pick a row" }, { keys: "click", does: "on a row" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's row (peek lists the rows)",
     args: which,
     examples: [
@@ -235,20 +235,19 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     summary: "send a held request (n: its row in the list, as peek numbers it, or id=<the note's id>; left out, the selected row): ask its agent now, as the person who pressed r (the line's own `r`). An agent's is refused: a held request waits for a person",
     keys: "r, a click on a held row's [r send]",
     touches: "nothing", replay: "ask", says: r => `asked @${r.agent} (${r.title})`,
-    person: "a request an agent or an extension wrote waits for a person's r: an agent's is refused, as the line's own r is",
+    personAlways: "a request an agent or an extension wrote waits for a person's r: an agent's is refused, as the line's own r is",
     args: { n: { type: "number", optional: true, about: "its row in the list, from 1, as peek lists them" }, id: { type: "string", optional: true, about: "the note's id, instead of n" } },
     examples: [
       { act: "held.send n=1", does: "sends the first held request: its agent is asked now" },
     ],
     async run(a, { pane, desk }, actor) {
-      if (actor.kind === "agent") throw new ActionRefused("a held request waits for a person's r: an agent can't send it");
       const ask = heldOf(pane as WaitingYouPane, a);
       await desk.ctx.board.refreshProjections(ask.blockId, ask.line >= 0 ? ask.line : undefined, actor);
       return { id: ask.blockId, title: ask.title, agent: ask.agent };
     },
   }),
   "ask.open": def({
-    summary: "open an outline ask where this tile's opens land", keys: "⏎ alt+⏎ double click",
+    summary: "open an outline ask where this tile's opens land", keys: [{ keys: "⏎ alt+⏎ double-click", does: "open", says: "open the ask where this tile's opens land" }],
     touches: "nothing", replay: "safe",
     args: { n: { type: "number", optional: true, about: "row number from peek" }, fresh: { type: "boolean", optional: true, about: "use the alt wire" } },
     examples: [{ act: "ask.open n=1", does: "opens the first outline ask where this tile opens notes" }],
@@ -275,7 +274,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     },
   }),
   "ask.proposal": def({
-    summary: "apply, resolve or dismiss an open proposal", keys: "A r X, row controls",
+    summary: "apply, resolve or dismiss an open proposal", keys: [{ keys: "A", does: "apply" }, { keys: "r", does: "resolve" }, { keys: "X", does: "dismiss" }, { via: "row controls" }],
     touches: "nothing", replay: "ask",
     args: { n: { type: "number", optional: true, about: "row number from peek" }, op: { type: "string", about: "apply, resolve or dismiss" } },
     examples: [
@@ -315,5 +314,5 @@ export const WAITING_YOU_KIND: TileKind = {
   kind: WAITING_YOU_KIND_NAME, previews: true, opensOnScreen: true, about: "decisions, proposals, calls, held requests and programs waiting on you", noun: "the waiting-on-you list",
   make: () => new WaitingYouPane(), actions: WAITING_YOU_ACTIONS,
   peek: p => ({ waitingOnYou: (p as WaitingYouPane).describe() }),
-  describe: p => ({ rows: (p as WaitingYouPane).describe() }),
+  describe: (p, full) => { const rows = (p as WaitingYouPane).describe(); return full ? { rows } : { count: rows.length }; },
 };

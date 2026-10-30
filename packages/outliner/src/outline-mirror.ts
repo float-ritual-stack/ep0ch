@@ -17,6 +17,10 @@
 // Each client attaches its own reader to a generation's socket (`attach`): the gateway a door board, the web client a
 // publisher. The gateway's own settings and checks (the follower's health, the migration scripts) are the door's
 // (packages/door/src/mcp-mirror.ts), passed in. Which outlines are mirrored is one setting, `EP0CH_MCP_MIRRORS`.
+//
+// A snapshot is a read, so a copy makes one (PIE-1091): its links, their files and what the web client's pages of the
+// copy have in front of them are kept in `<mirrors>/.shares/<machine>/<name>/`, one folder for every process and
+// generation, so the link the gateway mints downloads through the web client's own copy host.
 import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -28,7 +32,7 @@ type Env = Record<string, string | undefined>;
 
 /** The outliner's OutlineHost, as much of it as a mirror uses. Loaded when the first generation opens. */
 interface OutlineHost { readonly socketPath: string; start(): Promise<void>; close(): Promise<void> }
-type OutlineHostClass = new (o: { outlinesFolder: string; readOnly: boolean; log: (line: string) => void }) => OutlineHost;
+type OutlineHostClass = new (o: { outlinesFolder: string; readOnly: boolean; log: (line: string) => void; copy?: { address: string; state: string } }) => OutlineHost;
 /** Loaded by a name the type checker doesn't follow: a client package checks this file by its own settings, not the host's. */
 const OUTLINE_HOST_MODULE = "./outline-host";
 const OUTLINE_INSTANCE_MODULE = "./outline-instance";
@@ -169,7 +173,11 @@ export class OutlineMirror<B> {
     this.restic = join(folder, ".restic", machine, `${outline}.sqlite`);
     // This process's own folder: another process on the same mirrors (the gateway, the web client) serves from its own.
     this.work = join(folder, ".serve", machine, outline, String(process.pid));
+    // Shared by both, and by every generation: a snapshot link the gateway mints is downloaded through the web client,
+    // and what the web client's pages of the copy show is what the gateway's reader_view says (PIE-1091).
+    this.shared = join(folder, ".shares", machine, outline);
   }
+  private readonly shared: string;
 
   /**
    * The name the outline's own machine gives itself (its host's hostname, as a URI machine name), learned the last time
@@ -324,7 +332,7 @@ export class OutlineMirror<B> {
       // instance, so it is told to keep the one it carries (answers name the outline's id, not the copy's).
       (await import(OUTLINE_INSTANCE_MODULE) as { adoptOutlineInstance(path: string): void }).adoptOutlineInstance(served);
       const OutlineHost = await loadOutlineHost();
-      host = new OutlineHost({ outlinesFolder: dir, readOnly: true, log: line => this.log(`${this.label} ${this.outline}@${this.machine}: ${line}`) });
+      host = new OutlineHost({ outlinesFolder: dir, readOnly: true, copy: { address: `${this.outline}@${this.machine}`, state: this.shared }, log: line => this.log(`${this.label} ${this.outline}@${this.machine}: ${line}`) });
       await host.start();
       const attached = await this.options.attach(host.socketPath, this.outline);
       // The marker taken before the snapshot: a change during it is picked up at the next check.

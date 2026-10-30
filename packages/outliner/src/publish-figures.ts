@@ -56,11 +56,17 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
     const blocks: unknown[] = p.blocks ?? [];
     const align: string[] = Array.isArray(p.align) ? p.align : [];
     const tc = Math.max(0, Number(p.titleColumn) || 0);
-    const cell = (tag: "td" | "th", text: string, k: number, block?: unknown) =>
-      `<${tag}${align[k] === "right" ? ` class="num"` : ""}>${k === tc && block !== undefined ? rowText(text, block, href) : esc(text)}</${tag}>`;
+    // A cell naming a note (PIE-1388, figure-live's cellBlocks) links that note, drawn by its title.
+    const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks : [];
+    // On a phone (PIE-1402) a table of three or more columns reads as cards: each cell labelled by its header (FIGURE_STYLE).
+    const cards = Math.max(head.length, ...rows.map(r => r.length)) > 2;
+    const cell = (tag: "td" | "th", text: string, k: number, block?: unknown, names?: unknown) => {
+      const classes = [align[k] === "right" ? "num" : "", tag === "td" && k === tc ? "lead" : ""].filter(Boolean).join(" ");
+      return `<${tag}${classes ? ` class="${classes}"` : ""}${tag === "td" && cards && head[k] ? ` data-label="${esc(head[k]!)}"` : ""}>${typeof names === "string" ? rowText(text, names, href) : k === tc && block !== undefined ? rowText(text, block, href) : esc(text)}</${tag}>`;
+    };
     const foot: string[] | undefined = Array.isArray(p.footer) ? p.footer.map(String) : undefined;
-    return `<div class="fig-scroll"><table>${head.length ? `<thead><tr>${head.map((h, k) => cell("th", h, k)).join("")}</tr></thead>` : ""}` +
-      `<tbody>${rows.map((r, i) => `<tr>${r.map((c, k) => cell("td", c, k, blocks[i])).join("")}</tr>`).join("")}</tbody>` +
+    return `<div class="fig-scroll"><table${cards ? ` class="fig-cards"` : ""}>${head.length ? `<thead><tr>${head.map((h, k) => cell("th", h, k)).join("")}</tr></thead>` : ""}` +
+      `<tbody>${rows.map((r, i) => `<tr>${r.map((c, k) => cell("td", c, k, blocks[i], named[i]?.[k])).join("")}</tr>`).join("")}</tbody>` +
       `${foot ? `<tfoot><tr>${foot.map((f, k) => cell("th", f, k)).join("")}</tr></tfoot>` : ""}</table></div>`;
   },
 
@@ -364,6 +370,7 @@ export const FIGURE_STYLE = `
 .fig td,.fig th{min-width:0}
 .fig td.num,.fig th.num{text-align:right}
 .fig-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+@media (max-width:36rem){.fig table.fig-cards,.fig-cards tbody,.fig-cards tr,.fig-cards td{display:block;width:auto}.fig-cards thead{display:none}.fig-cards tr{padding:.55rem 0;border-bottom:1px solid var(--rule)}.fig-cards tr:last-child{border-bottom:0}.fig-cards td{padding:.1rem 0}.fig-cards td.lead{font-weight:600}.fig-cards td[data-label]:not(.lead)::before{content:attr(data-label) ": ";color:var(--dim)}.fig-cards td:empty{display:none}}
 .fig-tabs{display:flex;flex-wrap:wrap;gap:.25rem .9rem;align-items:baseline}
 .fig-tab-input{position:absolute;opacity:0;width:1px;height:1px}
 .fig-tab{cursor:pointer;padding:.45rem 0;min-height:2rem;border-bottom:2px solid transparent;color:var(--fg)}

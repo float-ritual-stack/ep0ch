@@ -302,7 +302,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     const one = (await act("tile.group", {}, "activity")).name;
     render();
     // A place that isn't there is refused before anything is spilled.
-    await expect(me("layout.move", { out: true, beside: "nope" }, `${one}/activity`)).rejects.toThrow(/no tile nope/);
+    await expect(me("layout.move", { out: true, beside: "nope" }, `${one}/activity`)).rejects.toThrow(/no tile (is called )?nope/);
     expect(names()).toContain(one);
     expect(await me("layout.move", { out: true }, `${one}/activity`)).toMatchObject({ out: true });
     render();

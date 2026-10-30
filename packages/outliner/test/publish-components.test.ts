@@ -322,6 +322,16 @@ test("a button is its label on a page and runs nothing: ::button{…} and [label
   expect(html).toContain("[start over](act: ttt-reset) in an indented example");
 });
 
+test("a button in a list item or a quote is its label on a page too, never its source line (PIE-1224)", async () => {
+  const { store, page } = await setup();
+  const note = store.create('Shelf\n- ::button{label="Tidy the shelf" act="layout.load name=tidy"}\n\n> ::button{label="Quoted press" act="theme.cycle"}');
+  const html = await page(`/p/${note.id}`);
+  expect(html).toContain("Tidy the shelf");
+  expect(html).toContain("Quoted press");
+  expect(html).not.toContain("layout.load");
+  expect(html).not.toContain("theme.cycle");
+});
+
 
 test("published Sources exposes query, transform and downloadable visible rows", async () => {
   const { store, publisher } = await setup();
@@ -337,11 +347,37 @@ test("published Sources exposes query, transform and downloadable visible rows",
   expect(html).toContain("Result");
   expect(html).toContain('download="graph-table.csv"');
   expect(html).toContain('download="graph-table.json"');
-  const json = /download="graph-table.json" href="data:application\/json;charset=utf-8,([^"]+)"/.exec(html)!;
-  expect(JSON.parse(decodeURIComponent(json[1]!))).toEqual([{ id: shown.id, title: "Sow peas [crop::peas] [publish::public]" }]);
+  // On a phone (PIE-1409): the downloads sit right under the source's name, not inside its Result, each a 44 px tap target.
+  const entry = /<details class="source-entry"[^>]*><summary>[\s\S]*?<\/summary>\s*<p class="source-downloads">([\s\S]*?)<\/p>/.exec(html)?.[1] ?? "";
+  expect(entry).toContain('download="graph-table.csv"');
+  expect(html).toMatch(/<details class="source-entry"[^>]* open><summary>/);
+  expect(entry).toContain('download="graph-table.json"');
+  expect(html).toMatch(/\.source-downloads a[^{]*\{[^}]*min-height:44px/);
+  // A real URL, not a data: link a phone saves into a folder nobody sees (PIE-1383): the file, named, behind the note's own gate.
+  expect(html).not.toContain('href="data:');
+  // The source is named by its key in the note (the line it starts on) and its name, never its place in the list.
+  const route = /href="([^"]+\/_sources\/[^"]+\.json)" download="graph-table.json"/.exec(html)?.[1];
+  expect(route).toBe(`/share/p/${note.id}/_sources/4/graph-table.json`);
+  const file = await publisher.handle(new Request(`http://127.0.0.1${route}`), "public");
+  expect(file.status).toBe(200);
+  expect(file.headers.get("content-type")).toBe("application/json; charset=utf-8");
+  expect(file.headers.get("content-disposition")).toBe('attachment; filename="graph-table.json"');
+  expect(await file.json()).toEqual([{ id: shown.id, title: "Sow peas [crop::peas] [publish::public]" }]);
+  const csv = await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/4/graph-table.csv`), "public");
+  expect(csv.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+  expect(await csv.text()).not.toContain("PRIVATE_HARVEST");
   expect(html).toContain(shown.id);
   expect(html).not.toContain(hidden.id);
   expect(html).not.toContain("PRIVATE_HARVEST");
+  // Nothing past the panel's sources, and nothing of a note the public can't open.
+  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/9/graph-table.json`), "public")).status).toBe(404);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/4/graph-other.json`), "public")).status).toBe(404);
+  const closed = store.create("Kept close\n::graph-table\n---\nquery: crop=peas\n---\n::");
+  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${closed.id}/_sources/1/graph-table.json`), "public")).status).toBe(404);
+  // Locked, it's gone from the owner's pages too.
+  const locked = store.create("Locked [publish::never]\n::graph-table\n---\nquery: crop=peas\n---\n::");
+  expect((await publisher.handle(new Request(`http://127.0.0.1/p/${locked.id}/_sources/1/graph-table.json`))).status).toBe(404);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/p/${closed.id}/_sources/1/graph-table.json`))).status).toBe(200);
 });
 
 

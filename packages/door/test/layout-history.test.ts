@@ -126,7 +126,8 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     await person("layout.undo");
     expect(names()).toContain(victim);
     const menu = app.dispatch.list().actions.find(a => a.name === "layout.undo");
-    expect(menu?.keys).toContain("ctrl+z");
+    expect(menu?.keys).toContainEqual(expect.objectContaining({ keys: "ctrl+z" }));
+    expect(menu?.keys).toContainEqual({ via: "the tile menu's row" });
   });
 
   test("txn=<id> and motion=<style> are open to every action; motion needs a txn; a bad id is refused with the shape", async () => {
@@ -193,11 +194,11 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     const ext = extensionList()!.extensions.find(e => e.name === "tidy-tiles")!;
     const text = async (run: { written: string[] }) => (await board.get(run.written[0]!))?.text ?? "";
     const settled = async (run: { written: string[] }) => untilAsync(async () => !(await text(run)).split("\n")[0]!.includes("· working"), "the run to finish");
-    // The person has just clicked: without the press's invitation the script's moves are refused while they are at the keys.
+    // The person has just clicked: a run they didn't start (an agent's) carries no invitation, so its moves are refused while
+    // they are at the keys. The person's own run is their press (PIE-1403): it would carry one, as the run below does.
     (app as any).lastInput = Date.now();
-    const bare = await person(`ext.${ext.id}.run`, { block: note.id, a, b, f: D().layoutGet().focus }) as { undo: string; written: string[] };
-    await settled(bare);
-    expect(await text(bare)).toContain("at the keys");
+    // A failed run refuses the agent's act with the script's own words (PIE-1264).
+    await expect(app.act({ action: `ext.${ext.id}.run`, args: { block: note.id, a, b, f: D().layoutGet().focus }, as: AS })).rejects.toThrow("at the keys");
     expect(names().sort()).toEqual(before.sort());
     // With the press's invitation the same run moves them, as one entry in the layout's history.
     (app as any).lastInput = Date.now();
@@ -340,5 +341,40 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     expect(D().history.isOpen(run.undo)).toBe(true);
     await board.stopScript(run.undo, USER);
     await untilAsync(async () => names().includes(b), "the stopped run's layout put back", 8000);
+  }, 60_000);
+
+  // PIE-1435: the reader owns ctrl+z while it has something of its own; a tile closed elsewhere afterwards stays closed.
+  test("ctrl+z in a reader undoes the extension's write on its note, not a tile closed elsewhere after it", async () => {
+    await board.request("create", { author: "user", text: 'Stamp [script::stamp-note] [results::keep] [effects::write]\n```js\nreturn "stamped";\n```' });
+    const note = await board.request<{ id: string }>("create", { author: "user", text: "A note a script stamps" });
+    await board.request("extensions.list", { reload: true });
+    await app.loadExtensions(true);
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "stamp-note"), "the script loaded");
+    const ext = extensionList()!.extensions.find(e => e.name === "stamp-note")!;
+    const reader = await person("tile.open", { kind: "detail", note: note.id }) as { tile: string };
+    await person("tile.focus", {}, reader.tile);
+    const here = D().layoutGet().focus as string;
+    const run = await person(`ext.${ext.id}.run`, { block: note.id }) as { undo: string; written: string[] };
+    const result = run.written[0]!;
+    await untilAsync(async () => (await board.get(result))?.text.includes("· done") ?? false, "the run to finish");
+    // The person closes another tile: the layout's newest change is now newer than the reader's write.
+    const victim = names().find(n => n !== here)!;
+    await person("tile.close", {}, victim);
+    await person("tile.focus", {}, reader.tile);
+    expect(D().layoutGet().focus).toBe(here);
+    key({ kind: "char", ch: "z", ctrl: true });
+    await untilAsync(async () => { const b = await board.get(result).catch(() => null); return !b || !!b.deleted || !b.text.includes("stamped"); }, "ctrl+z undid the script's write");
+    expect(names()).not.toContain(victim);
+    // A note trashed after the reader's own change comes back first, even with a tile closed after the trash.
+    await person(`ext.${ext.id}.run`, { block: note.id });
+    const gone = await board.request<{ id: string }>("create", { author: "user", text: "A note trashed from the tree" });
+    await person("note.trash", { ref: gone.id, confirm: gone.id }, here);
+    await untilAsync(async () => !!(await board.get(gone.id).catch(() => null))?.deleted || !(await board.get(gone.id).catch(() => null)), "the note trashed");
+    const second = names().find(n => n !== here)!;
+    await person("tile.close", {}, second);
+    await person("tile.focus", {}, reader.tile);
+    key({ kind: "char", ch: "z", ctrl: true });
+    await untilAsync(async () => { const b = await board.get(gone.id).catch(() => null); return !!b && !b.deleted; }, "ctrl+z brought the trashed note back");
+    expect(names()).not.toContain(second);
   }, 60_000);
 });

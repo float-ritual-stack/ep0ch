@@ -9,7 +9,8 @@
 import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
 import { interpolate } from "@ep0ch/outline-core/interpolation";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
-import { asksPerItem, CHILDREN_QUERY, figureQuestion, liveAsk, sortProblem } from "@ep0ch/outline-core/figure-live";
+import { asksPerItem, cellBlockId, CHILDREN_QUERY, figureQuestion, liveAsk, sortProblem } from "@ep0ch/outline-core/figure-live";
+import { displayTitleOfText } from "./references";
 import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/outline-core/site";
 import type { BlockSearchQuery, SavedViewReadResult, TreeIndexBlock, VisibleBlock, VisibleBlockCollection } from "./types";
 import type { Bound } from "./site-answer";
@@ -178,12 +179,36 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
   const done = asking.props.done ? subset(store, tools, thisId, String(asking.props.done), ids) : {};
   const now = asking.props.now ? subset(store, tools, thisId, String(asking.props.now), ids) : {};
   const error = done.error ? `done: ${done.error}` : now.error ? `now: ${now.error}` : undefined;
+  const titles = kind === "table" || kind === "tabs" ? cellTitles(store, a.blocks, Array.isArray(p.columns) ? p.columns.map(String) : undefined) : undefined;
+  // (A `link:` property's notes are the rows' links; they need no title.)
   return {
-    kind: "figure", blocks: a.blocks, truncated: a.truncated,
+    kind: "figure", blocks: a.blocks, truncated: a.truncated, ...(titles ? { titles } : {}),
     ...(a.groups ? { groups: a.groups } : {}), ...(a.hint ? { hint: a.hint } : {}),
     ...(done.ids ? { done: done.ids } : {}), ...(now.ids ? { now: now.ids } : {}),
     ...(error ? { error } : {}),
   };
+}
+
+/** The most cells naming a note one table answers with titles. */
+const MAX_CELL_TITLES = 500;
+
+/**
+ * The titles of the notes a table's rows name by id in their properties (PIE-1388: a record's `note::<uuid>`), so every
+ * reader draws the title, linked, where the value is a uuid. Ids of notes that aren't there are left as written.
+ */
+function cellTitles(store: ProducerStore, blocks: readonly { properties?: { key: string; value: string }[] }[], columns?: readonly string[]): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  let n = 0;
+  // Only the columns the table draws (a table that names none draws title and updated: no property cells).
+  if (!columns?.length) return undefined;
+  for (const block of blocks) for (const property of block.properties ?? []) {
+    if (!columns.includes(property.key)) continue;
+    const id = cellBlockId(property.value ?? "");
+    if (!id || id in out || n++ >= MAX_CELL_TITLES) continue;
+    const named = store.get(id);
+    if (named) out[id] = displayTitleOfText(named.text) ?? id;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** A field as written: a `[key::value]` chip to its closing bracket (links inside nest), else its `key:: value` line. */

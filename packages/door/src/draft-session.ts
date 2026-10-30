@@ -21,6 +21,7 @@ import { outlineState } from "./state";
 import type { Key } from "./term";
 import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
 import { actorHandle, actorName } from "@ep0ch/outline-core/attribution";
+import { heldBack, MARK_THEM } from "./whereabouts";
 
 // ── the target adapters' seam ─────────────────────────────────────────────────
 
@@ -78,7 +79,7 @@ export interface SessionEnv {
 export type Ended = "written" | "closed" | "aside";
 
 /** What a key in a draft asks its host to run as an action (the key path is the action path, PIE-506). */
-export type DraftCommand = "save" | "close" | "discard" | "editor" | "pick" | "reload" | "copy" | "follow" | "image";
+export type DraftCommand = "save" | "close" | "discard" | "editor" | "pick" | "reload" | "copy" | "follow" | "image" | "attach";
 
 /**
  * What leaving a draft by a click (or ^W) did: `closed` (nothing changed), `saved`, `kept` as unsent (with
@@ -160,7 +161,7 @@ export class DraftSession {
     if (by.kind !== "agent" && !s.restore()) {
       // The last draft written here, on the text this one starts from: its history carries on (PIE-621).
       const h = histories.get(target.place);
-      if (h && h.revision === s.draft.base) s.draft.adopt(h.steps);
+      if (h && h.revision === s.draft.base) s.draft.adopt(h.steps, h.revision);
     }
     if (init.position) {
       if (s.draft.restored !== null) Object.assign(init.position, s.draft.position);
@@ -215,7 +216,8 @@ export class DraftSession {
     if (why) return { ok: false, why };
     const r = await this.target.submit(this, recordAs(d, actor), { asked: actor, away });
     if (r.ok) {
-      // Undo survives the save: an edit of this note opened again on what was written takes up its history.
+      // Undo survives the save: an edit of this note opened again on what was written takes up its history, stopping
+      // at the save to ask before it takes saved text back (PIE-1414).
       if (r.revision !== undefined && d.undos.length) keepHistory(this.target.place, r.revision, d.undos);
       if (this.open) this.end("written");
       return r;
@@ -571,10 +573,11 @@ export function agentRefusal(actor: Actor, on: DraftSession | { board?: object |
   }
   if (on instanceof DraftSession) {
     if (!sameParty(on.openedBy, actor)) {
-      return op === "leave" ? "the person is in this edit or comment; an agent doesn't save or close it (block.mark gets their attention)"
-        : "this draft is the person's; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention";
+      // Another agent's draft is its own; the person's is theirs while they're in it.
+      const why = on.openedBy.kind === "agent" ? `${actorName(actorIdOf(on.openedBy))} has this ${op === "leave" ? "edit or comment" : "draft"} open` : `the person is typing in this ${op === "leave" ? "edit or comment" : "draft"}`;
+      return op === "leave" ? heldBack(why, "save or close it") : heldBack(why, "type in it", `draft.patch lands in an edit; ${MARK_THEM}`);
     }
-    if (on.draft.writers.some(w => !sameParty(w, actor))) return "someone else is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention";
+    if (on.draft.writers.some(w => !sameParty(w, actor))) return heldBack("someone else is typing in this draft", "type in it", `draft.patch lands in an edit; ${MARK_THEM}`);
     return null;
   }
   const theirs = [...registry(on.board)].find(s => s !== on.except && s.target.blockId === on.blockId && !(sameParty(s.openedBy, actor) && s.draft.writers.every(w => sameParty(w, actor))));

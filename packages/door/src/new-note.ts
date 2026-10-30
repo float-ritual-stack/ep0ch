@@ -15,7 +15,6 @@ import { changedSinceRead, Refused, type NotePlacement } from "./socket";
 import { paint, width } from "./style";
 import { readState, writeState } from "./state";
 import { NEW_NOTE_OPENS, type NewNoteOpens } from "./desk/screen-spec";
-import { actorRule } from "./surface/dispatch";
 import { type Actor } from "./socket";
 import type { Key } from "./term";
 
@@ -51,6 +50,8 @@ export function personOpens(env: Record<string, string | undefined> = process.en
   const pick = (x: unknown) => (NEW_NOTE_OPENS as readonly unknown[]).includes(x) ? x as NewNoteOpens : null;
   return pick(env.EP0CH_NEW_NOTE) ?? pick(readState<{ opens?: string }>("new-note.json")?.opens) ?? "float";
 }
+/** Where the person's new note opens when nothing asked: the screen's rule, else their own choice (`personOpens`). The one answer for `note.new` and a quote (PIE-1184). */
+export const newNoteOpens = (rule: { opens?: NewNoteOpens } | null | undefined): NewNoteOpens => rule?.opens ?? personOpens();
 const opensArg = (x: string | undefined): NewNoteOpens | undefined => {
   if (x === undefined) return undefined;
   if (!(NEW_NOTE_OPENS as readonly string[]).includes(x)) throw new ActionRefused(`opens= is ${NEW_NOTE_OPENS.join(", ")}, not ${x}`);
@@ -87,7 +88,7 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
         const out = await here.dispatch.act({ action: rule.action, args: rule.args ?? {} }, actor);
         return { via: rule.action, ...(out && typeof out === "object" ? out : {}) };
       }
-      if (standing) opens ??= rule?.opens ?? personOpens();
+      if (standing) opens ??= newNoteOpens(rule);
       // The person's context is the reader they're in; an agent's is only what it names (never the person's reader).
       const at = inbox ? undefined : near ?? (!standing ? undefined : here?.noteContext?.() ?? undefined);
       let made: { note: Msg; placement: NotePlacement };
@@ -115,7 +116,7 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
       // open puts a message reader over it, and that reader opens the edit. Only an edit on this very note counts.
       let reader: string | null = null;
       try {
-        const held = ctx.dispatch && actorRule({ touches: "screen", host: true }, actor, ctx.dispatch.where(), {});
+        const held = ctx.dispatch?.rule("screen", actor, { host: true });
         if (held) throw new ActionRefused(held);
         if (here?.editNew) reader = await here.editNew(note, { opens: opens ?? "float", context: at ?? null, actor });
         else if (ctx.press) {

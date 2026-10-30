@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import { runExtCommand } from "../src/extension-install";
+import { formatExtensionsList, runExtCommand } from "../src/extension-install";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import type { ResourceProjection, ResourceProjectionReadResult } from "../src/resource-projection";
 import type { Block } from "../src/types";
@@ -543,4 +543,97 @@ test("a script extension names missing files and opt-in headers, and exposes onl
   expect(listed.extensions.find(e => e.script && e.name === "water")?.state).toBe("active");
   expect(listed.extensions.some(e => e.script && e.name === "steps")).toBe(false);
   expect(listed.extensions.some(e => e.script && e.name === "unused")).toBe(false);
+});
+
+test("a user copy of a built-in lists once, its shipped script folded under it; installed as it ships, it doesn't say it overrides anything (PIE-1283, PIE-1399)", async () => {
+  const { list } = await setup({ userInstall: ["neat"] });
+  const listed = await list(true);
+  const neat = listed.extensions.find(e => e.id === "neat")!;
+  expect(neat.builtIn).toEqual({ directory: join(REPO_EXTENSIONS, "neat"), state: "current" });
+  // The script it ships is still served (so @neat binds), named as part of neat, and gets no page of its own.
+  const script = listed.extensions.find(e => e.script && e.name === "neat")!;
+  expect(script.partOf).toBe("neat");
+  expect(script.builtIn).toBeUndefined();
+  const pages = await until("neat's page", async () => { const l = await list() as ExtensionsListResult & { pages?: Record<string, string> }; return l.pages?.neat ? l.pages : undefined; });
+  expect(Object.keys(pages)).not.toContain(script.id);
+  // ext ls: one row, saying whose copy runs and where the built-in is.
+  const lines = formatExtensionsList(listed, true);
+  expect(lines.filter(line => line.startsWith("neat "))).toHaveLength(2); // its row, and its --long folder line
+  expect(lines.some(line => line.includes(script.id))).toBe(false);
+  // A plain install is the built-in's files in the user folder: it reads as installed (PIE-1399), the built-in named in --long.
+  expect(lines.find(line => line.startsWith("neat "))).not.toContain("overrides");
+  expect(lines.join("\n")).toContain(`built-in: ${join(REPO_EXTENSIONS, "neat")}`);
+});
+
+test("a shipped script's refusal is said on its extension's row, since the script's own row is folded (PIE-1283)", async () => {
+  const { create, list } = await setup({ userInstall: ["neat"] });
+  await create("My neat [script::neat]\n```js\nreturn 'mine';\n```");
+  const listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "neat")!.error).toContain("script neat: agent @neat is already answered by");
+  expect(formatExtensionsList(listed).find(line => line.startsWith("neat "))).toContain("script neat: agent @neat");
+});
+
+test("a copy of a built-in changed here says it overrides the built-in, changed here (PIE-1283)", async () => {
+  const { root, list } = await setup({ userInstall: ["neat"] });
+  writeFileSync(join(root, "user-extensions", "neat", "scripts", "neat.js"), `${readFileSync(join(REPO_EXTENSIONS, "neat", "scripts", "neat.js"), "utf8")}// my own tweak\n`);
+  const listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "neat")!.builtIn).toEqual({ directory: join(REPO_EXTENSIONS, "neat"), state: "forked" });
+  expect(formatExtensionsList(listed).find(line => line.startsWith("neat "))).toContain("your copy overrides the built-in (changed here)");
+});
+
+test("an extension of your own that isn't a built-in's copy carries no built-in mark (PIE-1283)", async () => {
+  const { extensionsFolder, list } = await setup();
+  writeExtension(extensionsFolder, "garden", {});
+  const listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "garden")!.builtIn).toBeUndefined();
+});
+
+test("a form says where each entry lands: under it, under a page, or as a line in it (PIE-1442)", async () => {
+  const { create, store, list, client } = await setup({ install: ["form"] });
+  await list(true);
+  const fill = (blockId: string, args: Record<string, string>) =>
+    client.request<{ written: string[]; message?: string }>({ action: "extensions.act", extension: "form", extensionAction: "fill", blockId, args, mutation: PERSON });
+  const live = (id: string) => store.children(id).filter((child) => !child.effectiveDeletedRootId).map((child) => child.text);
+  const fields = "[form-field::book text required] [form-field::pages number]";
+
+  const child = await create(`Reading log [form-submit::Log it]\n${fields}`);
+  await fill(child.id, { book: "Moss", pages: "90" });
+  expect(live(child.id)).toEqual(["Moss [book::Moss] [pages::90]"]);
+
+  const shelf = await create("Shelf [page::Shelf]");
+  const paged = await create(`Book form [form-into::[[Shelf]]]\n${fields}`);
+  expect((await fill(paged.id, { book: "Tide", pages: "12" })).message).toContain("Shelf");
+  expect(live(paged.id)).toEqual([]);
+  expect(live(shelf.id)).toEqual(["Tide [book::Tide] [pages::12]"]);
+
+  // A block named by its id's first characters, as the door draws it.
+  const short = await create(`Short form [form-into::((${shelf.id.slice(0, 8)}))]\n${fields}`);
+  await fill(short.id, { book: "Fern" });
+  expect(live(shelf.id)).toEqual(["Tide [book::Tide] [pages::12]", "Fern [book::Fern]"]);
+
+  const inline = await create(`Pages read [form-into::inline] [form-line::{book}: {pages} pages]\n${fields}\nSo far:`);
+  await fill(inline.id, { book: "Lantern", pages: "40" });
+  await fill(inline.id, { book: "Fern" });
+  expect(store.get(inline.id)!.text).toBe(`Pages read [form-into::inline] [form-line::{book}: {pages} pages]\n${fields}\nSo far:\nLantern: 40 pages\nFern:  pages`);
+  expect(live(inline.id)).toEqual([]);
+  const plain = await create(`Quick log [form-into::inline]\n${fields}`);
+  await fill(plain.id, { book: "Moss", pages: "3" });
+  expect(store.get(plain.id)!.text.split("\n").at(-1)).toBe("- Moss · 3");
+
+  // A page nobody has yet, or a target it can't read: saved as written, and the fill refuses with what it may have meant, writing nothing.
+  const typo = await create(`Typo log [form-into::[[Shelff]]]\n${fields}`);
+  await expect(fill(typo.id, { book: "Moss" })).rejects.toThrow(/no page \[\[Shelff\]\].*did you mean \[\[Shelf\]\]\?/);
+  // A note titled as the page but with no [page::…] (PIE-1445): the refusal names it and says the two ways to point at it.
+  const titled = await create("Bird list\nwrens, finches");
+  const birds = await create(`Bird form [form-into::[[Bird list]]]\n${fields}`);
+  await expect(fill(birds.id, { book: "Moss" })).rejects.toThrow(`a note is titled Bird list (((${titled.id.slice(0, 8)}))), but it isn't a page: add [page::Bird list] to it, or write [form-into::((${titled.id.slice(0, 8)}))]`);
+  expect(live(titled.id)).toEqual([]);
+  // Its title after properties, or with its spaces doubled, is still that title.
+  const propped = await create("[kind::list] Moth  list");
+  const moths = await create(`Moth form [form-into::[[Moth list]]]\n${fields}`);
+  await expect(fill(moths.id, { book: "Moss" })).rejects.toThrow(`a note is titled Moth list (((${propped.id.slice(0, 8)}))), but it isn't a page`);
+  const word = await create(`Word log [form-into::inlne]\n${fields}`);
+  expect(store.get(word.id)!.text).toContain("[form-into::inlne]");
+  await expect(fill(word.id, { book: "Moss" })).rejects.toThrow(/did you mean inline\?/);
+  expect([...live(typo.id), ...live(word.id), ...live(shelf.id).slice(2)]).toEqual([]);
 });

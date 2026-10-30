@@ -147,13 +147,13 @@ async function signIn(gate: SignInGate, next = "/pub/", options: { bindCookie?: 
   return { response, ...(token ? { cookie: `${SESSION_COOKIE}=${token}` } : {}) };
 }
 
-test("signed out, every page is the sign-in page: dark, noindex, no-referrer, nothing from the outline; an API call is 401", async () => {
+test("signed out, every page is the sign-in page: dark, noindex, no cross-site referrer, nothing from the outline; an API call is 401", async () => {
   const gate = gateFor();
   for (const path of ["/pub/", `/pub/p/${survey.id}`, "/pub/o/orchard/", "/pub/sessions", "/"]) {
     const page = await at(gate, path);
     expect(page.status).toBe(401);
     expect(page.headers.get("x-robots-tag")).toBe("noindex, nofollow");
-    expect(page.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(page.headers.get("referrer-policy")).toBe("same-origin");
     const body = await page.text();
     expect(body).toContain('<meta name="color-scheme" content="dark">');
     expect(body).toContain("Sign in with GitHub");
@@ -502,3 +502,39 @@ test.skipIf(!Bun.which("docker") || Bun.spawnSync(["docker", "image", "inspect",
     await docker("rm", "-f", container);
   }
 }, 120_000);
+
+test("signed in on the phone, a page's steps are its owner's: each box is a button, and a tap lands as the person's (PIE-1235)", async () => {
+  const gate = gateFor();
+  const { cookie } = await signIn(gate);
+  const plan = (await homeClient.request<Block>({ action: "create", parentId: survey.id, text: "Lantern plan\n- [ ] hang the lantern\n- [ ] trim the wick", mutation: { author: "user" } } as never));
+  const page = await (await at(gate, `/pub/p/${plan.id}`, { cookie })).text();
+  const boxes = [...page.matchAll(/<button type="button" class="step s-todo"[^>]*data-step-start="(\d+)"[^>]*data-step-evidence="([0-9a-f]+)"/g)];
+  expect(boxes).toHaveLength(2);
+  const [, start, evidence] = boxes[0]!;
+  const tap = await at(gate, "/pub/_marginalia/write", { method: "POST", cookie, body: JSON.stringify({ page: plan.id, action: "step", status: "done", block: plan.id, start: Number(start), revision: plan.revision, evidence }), headers: { "content-type": "application/json", origin: ORIGIN } });
+  expect(await tap.json()).toMatchObject({ ok: true, status: "done" });
+  const after = await homeClient.request<Block>({ action: "get", blockId: plan.id });
+  expect(after.text).toContain("- [x] hang the lantern");
+  // The tick is the person's own write, as from the door: what an approval hook counts (PIE-1386).
+  const saved = await homeClient.request<{ revisions: Array<{ author?: string }> }>({ action: "block.revisions", blockId: plan.id } as never);
+  expect(saved.revisions[0]!.author).toBe("user");
+  // Each box is a thumb's target on a touch screen: 44px around the drawn box, and its row as tall.
+  expect(page).toContain("button.step::after{content:\"\";position:absolute;left:50%;top:50%;width:44px;height:44px");
+  expect(page).toContain("@media (pointer:coarse){li:has(> .step:first-child)");
+});
+
+test("signed in, a Sources download is a file behind the sign-in: named, typed, and a 401 signed out (PIE-1383)", async () => {
+  const gate = gateFor();
+  const { cookie } = await signIn(gate);
+  await homeClient.request<Block>({ action: "create", parentId: survey.id, text: "Hawk-moth tally [kind::tally]", mutation: { author: "user" } } as never);
+  const table = await homeClient.request<Block>({ action: "create", parentId: survey.id, text: "Tallies\n::graph-table\n---\nquery: kind=tally\n---\n::", mutation: { author: "user" } } as never);
+  const page = await (await at(gate, `/pub/p/${table.id}`, { cookie })).text();
+  const href = /href="([^"]+_sources\/[^"]+\.json)"/.exec(page)?.[1];
+  expect(href).toBe(`/pub/p/${table.id}/_sources/1/graph-table.json`);
+  const file = await at(gate, href!, { cookie, headers: { accept: "*/*" } });
+  expect(file.status).toBe(200);
+  expect(file.headers.get("content-disposition")).toBe('attachment; filename="graph-table.json"');
+  expect(JSON.stringify(await file.json())).toContain("Hawk-moth tally");
+  expect((await at(gate, href!, { headers: { accept: "application/json" } })).status).toBe(401);
+});
+

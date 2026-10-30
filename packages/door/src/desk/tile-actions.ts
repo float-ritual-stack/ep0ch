@@ -1,4 +1,5 @@
 import { canonSpec } from "./tiles";
+import { COPY_GROUP } from "../note-ref";
 import { HYPER_KEYS } from "../hyper";
 import { W_KEYS, wCaption, ZOOM_WHEEL } from "./wkeys";
 import { FRAME_GLYPHS } from "./frame-controls";
@@ -14,7 +15,7 @@ import { TXN } from "../surface/txn";
 import { USER, type Actor } from "../socket";
 import { ActionRefused, actionSet, asActor, def, lineWords, type ArgsOf } from "../surface/actions";
 import { AGENT_WORDS, isAgentLevel, type AgentLevel } from "../surface/agent-level";
-import { EDGE_WORD, isDir, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
+import { EDGE_WORD, isDir, OPEN_READS, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
 import { lastTrashed, trashConfirm, trashNote, trashPlan, untrashNote } from "../note-trash";
 import { subject } from "../board";
@@ -36,6 +37,8 @@ export interface TileNow {
   shuts: boolean;
   /** The program running in it (a terminal tile), whose close ends it. */
   running: string | null;
+  /** The note it shows (a reader, not a list), and whether it is being edited there; null when it shows none. */
+  note: { id: string; editing: boolean } | null;
   refused(op: "close" | "float" | "zoom" | "collapse" | "pin" | "drawer" | "widen" | "hold"): string | null;
 }
 /** The tile menu's group for the tile operations. */
@@ -45,21 +48,22 @@ const TILE = "Tile";
 export interface TileDone { tile: string; [k: string]: unknown }
 
 /** A new tile: its kind and what it needs (the fields of a saved tile). */
-export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; outline?: string; machine?: string; page?: string; mode?: "follows" | "held" | "pinned"; cwd?: string; view?: string; query?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string }
+export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; outline?: string; machine?: string; page?: string; mode?: "follows" | "held" | "pinned"; cwd?: string; view?: string; query?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string; /** A kind's own state to start with (the keys window's filter), opened in code. */ state?: Record<string, unknown> }
 
 /**
  * What a tile action runs on: the desk, and the tile `tile=` named (by its name: the dispatcher read the grammar).
  * An agent's change is said on screen with who made it (each def's `says`); the person's own isn't (they see it
  * happen), unless it `confirms`: something the screen doesn't show (a layout saved, where a drag put a tile).
  */
-interface On { d: Desk; reader?: string }
+interface On { d: Desk; reader?: string; standing?: boolean }
 
 /** The tile menu's group for saving and loading the screen. */
 const SCREEN = "Screen";
 
 const loadLayout = {
+  words: "lay this screen out as a saved screen",
   summary: "lay this screen out as the screen named name= (one a person made: a screen note) or a built-in layout (daily, river, board, desk). Tiles with the same name and kind are kept as they are (a running program, a reader's note); a running program or an unsaved edit the new layout has no place for is kept as a shut dock (said: kept=), never ended. The person's with no name opens the picker. Refused to an agent while the person is typing",
-  keys: "alt+d (daily); ^W r picks one",
+  keys: [{ keys: "alt+d", does: "daily", says: "lay this screen out as the daily layout" }, { keys: "^W r", does: "picks one", says: "pick a saved screen to lay this one out as" }],
   touches: "screen", replay: "safe", confirms: true,
   says: (r: { layout?: string; kept?: string[]; picker?: boolean }, a: { name?: string }) => (r?.picker ? null : `laid out ${a.name}${r?.kept?.length ? ` · kept ${r.kept.join(", ")} in a shut dock (⇥ on the hint row)` : ""}`),
   menu: { label: "lay it out as a screen…", group: SCREEN, key: "ctrl+w r", now: ({ d }: On) => (d.spec.layouts ? null : { hide: true }) },
@@ -117,11 +121,15 @@ const asking = new WeakMap<Desk, { id: string; again: boolean }>();
 
 export const TILE_ACTIONS = actionSet<On>()("tile", {
   "layout.get": def({
-    answer: { tiles: { type: "array", about: "tiles on the screen, in groups and in the drawer" }, layers: { type: "array", about: "each desk's tree and tiles" }, tree: { type: "object", about: "the screen layout tree" } },
-    summary: "the layout as data: its revision (rev), the tile tree (each split with its id, path and shares, each tab set with its id and the tab shown) and each tile's id, kind, name, source, note, link, dock state and rect",
+    answer: { tiles: { type: "array", about: "tiles on the screen, in groups and in the drawer" }, layers: { type: "array", about: "each desk's tree and tiles" }, brief: { type: "string", about: "said when tiles are described in brief (no full=true)" }, tree: { type: "object", about: "the screen layout tree" } },
+    summary: "the layout as data: its revision (rev), the tile tree (each split with its id, path and shares, each tab set with its id and the tab shown) and each tile's id, kind, name, path, source, note, link, wires, dock state and rect, as its kind describes itself in brief; full=true adds each tile's whole description (a tree's rows, a facets tile's lists, a group's own layout)",
     touches: "nothing", replay: "safe",
-    args: {},
-    run(_, { d }) { return d.layoutAll(); },
+    args: { full: { type: "boolean", optional: true, about: "each tile's whole description too (a tree's rows, a facets tile's lists): large on a busy desk" } },
+    examples: [
+      { act: "layout.get", does: "the tiles, their names, kinds, rects and wires, each in brief" },
+      { act: "layout.get full=true", does: "the same with each tile's whole description: a tree's rows, a facets tile's lists" },
+    ],
+    run({ full }, { d }) { return d.layoutAll(!!full); },
   }),
   "layout.list": def({
     summary: "the layouts this screen can be laid out as: the built-ins and the screens people made (screen notes)",
@@ -131,9 +139,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run(_, { d }) { return d.layouts(); },
   }),
   "layout.move": def({
+    words: "move this tile beside another, into its tabs or to an edge",
     answer: { tile: { type: "string", kind: "tile", about: "the moved tile's stable id" }, name: { type: "string", about: "its displayed name" }, where: { type: "string", about: "its new placement" } },
     summary: "move tile=<tile> beside tile to=<tile> (where=left, right, up, down), into its tabs (where=tabs, at index=<n>), or along an outer edge of the whole layout (where=edge-left, edge-right, edge-down, edge-up: a full-height column or full-width row). A docked tile moved this way is undocked. into=<group> moves it into a group whole (PIE-696: a running program, its agent policy, spine and links go with it), beside=<one of the group's tiles> where=right/left/up/down/tabs of it (default the group's focused tile, right); out=true on a tile of a group (tile=<group>/<tile>) moves it back out onto the screen holding the group, beside=<a tile there> (default the group). The person's focus stays where it is",
-    keys: "drag a header (onto a group to move into it, out of a group's frame to move out); ^W m then h j k l beside, ^W t then h j k l into tabs, ^W H J K L to an edge, ^W T takes a tab out; ^W i into a group, or out of the one it's in",
+    keys: [{ keys: "drag", does: "a header (onto a group to move into it, out of a group's frame to move out)" }, { keys: "^W m then h j k l", does: "beside", says: "move this tile beside the one in that direction" }, { keys: "^W t then h j k l", does: "into tabs", says: "move this tile into the tabs of the one in that direction" }, { keys: "^W H J K L", does: "to an edge" }, { keys: "^W T", does: "takes a tab out" }, { keys: "^W i", does: "into a group, or out of the one it's in" }],
     touches: "shape", replay: "safe", confirms: true,
     says: (r, a) => {
       if (r.into) return `moved ${r.name ?? r.tile} into ${r.into}`;
@@ -160,10 +169,11 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.open": def({
-    answer: { tile: { type: "string", kind: "tile", about: "the new tile's stable id; pass it back as tile=" }, name: { type: "string", about: "its displayed name" }, kind: { type: "string", about: "the tile kind" } },
-    summary: "open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=screen (screen=<name> target=<its hub or note> part=<a container>: a screen mounted here, PIE-651), tree, reader (follows the current note; mode=held note=<id> keeps one; mode=pinned page=<name> pins [[name]]; kind=detail is a held reader), preview (source=tile:<name> or file:<path>), pty (cmd=\"nvim draft.md\", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane; or query=<a query, #tag> source=tile:<its home reader>), board, river, brief, thread, activity, who, art. name= already there delivers note= to that tile when its kind matches; a different kind names the call to use. The person's focus stays where it is",
-    keys: "^W o <kind>; ^W O <kind> as a tab; ⏎ or a double click on a view in ^W o q's picker",
-    touches: "shape", landing: true, replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind, r.name)} in ${r.n} · ${r.name ?? r.tile}`,
+    words: "open a new tile beside this one, or as a tab",
+    answer: { tile: { type: "string", kind: "tile", about: "the new tile's stable id; pass it back as tile=" }, name: { type: "string", about: "its displayed name" }, kind: { type: "string", about: "the tile kind" }, where: { type: "string", about: "where it landed: the where= asked, or float" }, why: { type: "string", about: "only when an agent's tile is too narrow to read beside to=: it floated (no tile= nor where= named) or went where asked, and this says so" } },
+    summary: `open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=screen (screen=<name> target=<its hub or note> part=<a container>: a screen mounted here, PIE-651), tree, reader (follows the current note; mode=held note=<id> keeps one; mode=pinned page=<name> pins [[name]]; kind=detail is a held reader), preview (source=tile:<name> or file:<path>), pty (cmd="nvim draft.md", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane; or query=<a query, #tag> source=tile:<its home reader>), board, river, brief, thread, activity, who, art. name= already there delivers note= to that tile when its kind matches; a different kind names the call to use. The person's focus stays where it is, in yolo too. An agent's tile that would be narrower than ${OPEN_READS.cols} columns (or shorter than ${OPEN_READS.rows} rows) floats when the call names neither a tile nor where=, and goes where asked when it names one; the answer's why says so either way`,
+    keys: [{ keys: "^W o", does: "then the key of the kind to open" }, { keys: "^W O", does: "then the key of the kind to open as a tab" }, { keys: "⏎ double-click", does: "on a view in ^W o q's picker" }],
+    touches: "shape", landing: true, replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind, r.name)} in ${r.n} · ${r.name ?? r.tile}${r.why ? ` · ${r.why}` : ""}`,
     args: {
       kind: { type: "string", kind: "tile-kind", about: "what the tile shows" },
       name: { type: "string", optional: true, about: "its name (default: its kind, numbered)" },
@@ -195,12 +205,13 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       const opening = canonSpec({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "follows" | "held" | "pinned" } : {}), ...t });
       const wrong = tileKind(opening.kind)?.check?.({ ...opening, cmd: opening.cmd === undefined ? undefined : lineWords(opening.cmd) }, opening);
       if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
-      return await d.openTile(opening, to ?? reader, whereOf(where, "tile.open", "right"), actor);
+      return await d.openTile(opening, to ?? reader, whereOf(where, "tile.open", "right"), actor, { unnamed: to === undefined && reader === undefined && where === undefined });
     },
   }),
   "tile.close": def({
+    words: "close this tile",
     summary: "close tile=<tile>: a program in it is ended. On the board a detail or a float closes, a dock's tile shuts its dock, and the lanes and the preview stay (closable off); the river's library stays (closable off). Refused while it holds an edit or a comment, and to an agent for the tile that has the person's keys",
-    keys: "^W x, or a click on the × in its top right corner; board x, esc q on a dock",
+    keys: [{ keys: "^W x", does: "close" }, { keys: "click", does: "on the × in its top right corner" }, { keys: "x", does: "on the board" }, { keys: "esc q", does: "on a dock" }],
     touches: "shape", replay: "ask", says: r => `closed ${r.name ?? r.tile}`,
     menu: {
       label: "close", group: TILE, key: "ctrl+w x",
@@ -215,8 +226,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.resize": def({
+    words: "grow or shrink this tile",
     summary: "grow (by>0) or shrink (by<0) tile=<tile> by steps along axis=row (width, default) or col (height), as its keys do; on the board tile=lanes is the lanes' row. layout.resize places a border exactly",
-    keys: "^W < > + -; board < >; drag a border",
+    keys: [{ keys: "^W < > + -", does: "resize", says: "make this tile narrower, wider, shorter or taller" }, { keys: "< >", does: "on the board" }, { keys: "drag", does: "a border" }],
     touches: "shape", replay: "safe", says: (r, a) => `${a.by > 0 ? "grew" : "shrank"} ${r.name ?? r.tile}`,
     args: { by: { type: "number", about: "steps: +1 grows it by one key press, -2 shrinks it by two" }, axis: { type: "string", optional: true, choices: ["row", "col"], about: "row (width, default) or col (height)" } },
     examples: [
@@ -229,6 +241,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.zoom": def({
+    words: "zoom a tile to fill the screen, or lift it above the drawer",
     summary: "zoom a tile to fill the screen, or lift it above the drawer with reach=column|full (a spine opens first); on=false drops it. An agent may lift another tile, never replace the person's lift",
     keys: [...W_KEYS.filter(k => k.action === "tile.zoom").map(k => wCaption(k.key)), ...HYPER_KEYS.filter(k => k.action === "tile.zoom").map(k => `✦${k.key}`), ZOOM_WHEEL.key].join(", "),
     touches: "shape", touchesWith: a => a.reach && a.reach !== "screen" ? "tile" : "shape", replay: "safe", says: (r, a) => `${r.zoomed ? a.reach && a.reach !== "screen" ? `lifted (${a.reach})` : "zoomed" : "dropped"} ${r.name ?? r.tile}`,
@@ -244,8 +257,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.float": def({
+    words: "pop this tile out as a float over everything, or put it back",
     summary: "pop tile=<tile> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or put a float back in the layout (on the board, as a detail). Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
-    keys: "^W f; board o; the frame card's float or put back row; while dragging a tile, f",
+    keys: [{ keys: "^W f", does: "float" }, { keys: "o", does: "on the board" }, { via: "the frame card's float or put back row" }, { keys: "f", does: "while dragging a tile" }],
     touches: "shape", replay: "safe", says: r => `${r.floated ? "popped out" : "put back"} ${r.name ?? r.tile}`,
     menu: { label: "float", group: TILE, key: "ctrl+w f", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float ? { label: "put back in the layout" } : { refused: n.refused("float") }; } },
     args: { on: { type: "boolean", optional: true, about: "true floats it, false puts it back; with it left out the action toggles. A tile already in that state is left as it is (a script floating every tile can't land one that floats)" } },
@@ -258,6 +272,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.link": def({
+    words: "set a wire from this tile to another",
     menu: [
       { label: "select wire", group: TILE, key: "alt+l s", args: { ask: true, verb: "select" }, now: ({ d, reader }) => ({ label: `${FRAME_GLYPHS.select} where a select lands: ${d.wireDescription(reader, "select")}` }) },
       { label: "open wire", group: TILE, key: "alt+l o", args: { ask: true, verb: "open" }, now: ({ d, reader }) => ({ label: `${FRAME_GLYPHS.open} where an open lands: ${d.wireDescription(reader, "open")}` }) },
@@ -266,7 +281,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     hintId: "link",
     hint: (a, { d }) => a.ask ? d.linkingHint() : null,
     summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there. Each verb has one destination; setting it replaces the previous wire. A group cannot send a wire: name its inner tile. No to= removes that verb's wire; remove=true removes it only if it names that target. ask=true picks on screen; ask=false dismisses the controls without changing wires.",
-    keys: "alt+l then s select; alt+l then o open; alt+l then a alt; click the tile, h j k l or 1-9 (the tile itself unlinks); ^W P then enter or space picks, x clears a wire; esc or q cancels",
+    keys: [{ keys: "alt+l then s", does: "select", says: "set the wire for what a select lands on" }, { keys: "alt+l then o", does: "open", says: "set the wire for where an open lands" }, { keys: "alt+l then a", does: "alt", says: "set the wire for where an alt-open lands" }, { keys: "click h j k l 1-9", does: "the tile itself unlinks", says: "link to the tile you pick; picking the tile itself unlinks" }, { keys: "^W P then enter or space", does: "picks", says: "link to the tile you have lit" }, { keys: "x", does: "clears a wire", says: "clear the wire you are setting" }, { keys: "esc q", does: "cancels", says: "stop choosing a tile to link to" }],
     touches: "shape", touchesWith: a => a.ask !== undefined ? "screen" : "shape", replay: "safe", says: (r, a) => r.picking !== undefined ? null : a.to ? `${r.name ?? r.tile}: ${a.verb ?? "open"} → ${a.to}` : `unlinked ${r.name ?? r.tile}'s ${a.verb ?? "open"}`,
     args: {
       ask: { type: "boolean", optional: true, conflicts: ["to", "rule", "role", "remove"], about: "true picks the target on screen; false dismisses link controls without changing wires" },
@@ -289,7 +304,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "tile.pick": def({
     summary: "choose a tile on screen for what asked (a button's empty slot): then=<action line> runs, as the person, with value=<the tile's address> once a tile is chosen. A tile whose place an address names is asked about: this tile exactly (its t-<uuid> id) or whichever tile fills its place (drawer.agent, role:<role>, <slot>@<screen>). to= makes the choice a card row makes; value= is the answer; cancel=true puts the picker away",
     person: "choosing a tile is the person's click: an agent passes the tile itself (button.slot value=<tile>) and never opens their picker",
-    keys: "a click on a tile, h j k l or 1-9, 1 or 2 for exact or role, esc cancels",
+    keys: [{ keys: "click", does: "on a tile" }, { keys: "h j k l", does: "the tile in that direction" }, { keys: "1-9", does: "the tile with that number" }, { keys: "1 2", does: "exact tile or the one filling its place, when asked" }, { keys: "esc", does: "cancels", says: "stop choosing a tile" }],
     touches: "screen", replay: "ask", says: r => (r.picked !== undefined ? `chose ${r.picked}` : null),
     args: {
       then: { type: "string", optional: true, about: "the action line that runs with the choice, value=<address> added (`button.slot note=<id> line=3 key=target`); a choice in the pick that is waiting runs that pick's" },
@@ -302,6 +317,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run({ then, prompt, to, value, cancel }, { d, reader }) { return d.pickTile(reader, { then, prompt, to, value, cancel }); },
   }),
   "tile.focus": def({
+    words: "give your keys to a tile",
     summary: "give the person's keys to tile=<tile>. Refused to an agent while the person is typing (an edit, a comment, a terminal they're in)",
     keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →), ✦h ✦j ✦k ✦l ✦1-✦9 (hyper, from an edit or a terminal tile too); esc q back home (a screen with a home: the board's lanes)",
     touches: "screen", replay: "safe", says: r => `gave the keys to ${r.name ?? r.tile}`,
@@ -315,8 +331,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.dock": def({
+    words: "dock this tile to an edge",
     summary: "dock tile=<tile> to an edge (on=true): it goes in a dock, a container on this screen that slides over the others from its edge without moving them, and stays on this screen; or undock it, back in the layout where it was (on=false); default toggles. On the board tile=tree and tile=backlinks are its outline and backlinks docks, each a whole container (the list and its preview). A tab set goes in as one; container=<id> (a split of tiles, from layout.get) goes in whole. edge=left, right, up or down: the dock slides from that outer edge of the whole layout (a tile not docked is docked there; a dock moves there). Anything moved or opened into a dock lives in it. Refused on a locked screen",
-    keys: "^W p; ^W P then edge (⏎ or a click cycles it); board T, B; a click on a header's ⇤ docked undocks it; while dragging a tile, p, or a drop on a dock's handle",
+    keys: [{ keys: "^W p", does: "dock" }, { keys: "^W P", does: "then pick the edge (⏎ or a click cycles it)" }, { keys: "T B", does: "on the board" }, { keys: "click", does: "a header's ⇤ docked undocks it" }, { keys: "p", does: "while dragging a tile" }, { keys: "drag", does: "a drop on a dock's handle" }],
     touches: "shape", replay: "safe", confirms: true, says: r => (r.changed === false ? null : r.docked ? `docked ${r.name ?? r.tile} to the ${EDGE_WORD[r.edge as Dir] ?? r.edge} edge` : `undocked ${r.name ?? r.tile}`),
     menu: { label: "dock it to an edge", group: TILE, key: "ctrl+w p", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.inDrawer ? { hide: true } : { refused: n.refused("pin"), ...(n.dock ? { label: "undock it" } : {}) }; } },
     args: { on: { type: "boolean", optional: true, about: "true docks it to an edge, false undocks it back into the layout" }, edge: { type: "string", optional: true, choices: ["left", "right", "up", "down", "other"], about: "left, right, up or down: the outer edge the dock slides from; other: the opposite side to where it is (undocked, it's moved there and stays undocked)" }, container: { type: "string", optional: true, about: "a split (s<n>) to dock whole, instead of the tile's own slot" } },
@@ -329,9 +346,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.collapse": def({
+    words: "fold this tile to a spine, or open it again",
     hint: (_a, { d, reader }) => reader !== "all" && d.tileNow(reader, USER).collapsed ? { title: "Folded tile", lines: ["A spine keeps the tile and its contents. Click its title to open it again."], keys: [{ keys: "ctrl+w c", does: "fold or open" }] } : null,
     summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. dir=v is a vertical spine (a column the title is written down, for a tile side by side with others), dir=h a horizontal one (one row with the title, for a tile stacked with others: its height goes to its neighbours); no dir takes the way its split runs. A tab set folds as one; opening a vertical spine shares the open group evenly and folds its least recently touched page below min-width (40 by default). Only a tile in a row or a column of others folds (a lane, a reader in a row), in the drawer's own layout too; a drawer tile with nothing beside it folds the drawer itself to a strip at its edge (its tiles kept as they were; putting the drawer away is drawer.away). On the board the preview and the details fold (a dock shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
-    keys: "alt+h (alt+H a horizontal spine); bare - folds and + or = opens the focused tile where it takes no text (a tile's own - + = win: the tune inspector, an image, a figure), either opens a spine, ✦- ✦= (hyper); the frame card's fold row; ^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
+    keys: [{ keys: "alt+h", does: "fold to a spine" }, { keys: "alt+H", does: "a horizontal spine" }, { keys: "-", does: "folds the focused tile where it takes no text" }, { keys: "+ =", does: "opens it again (a tile's own - + = win: the tune inspector, an image, a figure)" }, { keys: "✦- ✦=", does: "the same, on the hyper layer" }, { keys: "^W c", does: "fold or open" }, { keys: "⏎ space click", does: "on a spine opens it" }, { keys: "c", does: "on the board: folds a reader, and on a spine opens it" }, { keys: "alt+c", does: "every one" }, { via: "the frame card's fold row" }],
     // On the board, tile=all opens every spine (its own word for every one of them).
     places: ["all"],
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "folded" : "opened"} ${r.name ?? r.tile}`),
@@ -349,8 +367,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "drawer.away": def({
+    words: "put your drawer away",
     summary: "put your drawer away from tile=<a tile in it>: the drawer goes down and the keys to the screen, every tile in it as it was (host.toggle open=false); alt+a or the status bar chip pulls it up again. Folding a drawer tile is tile.collapse and never puts the drawer away",
-    keys: "Esc in the drawer (step out first, then Esc puts it away), alt+a; the drawer tile's menu",
+    keys: [{ keys: "esc", does: "in the drawer (step out first, then esc puts it away)" }, { keys: "alt+a", does: "put the drawer away" }, { via: "the drawer tile's menu" }],
     touches: "screen", host: true, replay: "safe",
     menu: { label: "put away the drawer", group: TILE, key: "esc", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.inDrawer ? null : { hide: true }; } },
     says: r => (r.changed === false ? null : "put away the drawer"),
@@ -360,8 +379,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.expand": def({
+    words: "open this tile from its spine",
     summary: "open tile=<tile> from its spine, sharing its row evenly (tile.collapse on=false); what was in it is as it was left",
-    keys: "alt+h, - + = or ⏎ space on a spine; a click on a spine; dragging a tile onto it",
+    keys: [{ keys: "alt+h", does: "open a spine" }, { keys: "- + =", does: "on a spine" }, { keys: "⏎ space", does: "on a spine" }, { keys: "click", does: "on a spine" }, { keys: "drag", does: "a tile onto it" }],
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `opened ${r.name ?? r.tile}`),
     args: {},
     run(_a, { d, reader }, actor) {
@@ -369,21 +389,24 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.travel": def({
-    summary: "back (dir=back, the default) or forward in tile=<tile>'s flow: the person's keys go to the column it was opened from, or the one back last left; it widens only if it's covered, so the text comes back where it was. The person's keys only: an agent opens beside instead (open, link.follow)",
-    keys: "river column: alt+← alt+b backspace the mouse's back button, a click on ← back (back); alt+→ alt+f the forward button, a click on forward → (forward)",
-    touches: "screen", replay: "safe", person: "back and forward in a flow move the person's keys between columns; an agent opens beside (open, link.follow) instead",
-    args: { dir: { type: "string", optional: true, choices: ["back", "forward"], about: "back or forward; default back" } },
+    words: "go back or forward in this tile: a column's flow, or the links tile's trail",
+    summary: "back (dir=back, the default) or forward in tile=<tile>: in a flow, the person's keys go to the column it was opened from, or the one back last left (it widens only if it's covered, so the text comes back where it was); any other tile that keeps its own back and forward goes to what it showed before (PIE-1426: the links tile lists the note it listed before `b` or its home changed it). The person's: an agent goes back in a reader with back and forward, or opens beside (open, link.follow)",
+    keys: [{ keys: "alt+← alt+b backspace", does: "back, in a river column or the links tile" }, { via: "the mouse's back button" }, { keys: "click", does: "on ← back (back)" }, { keys: "alt+→ alt+f", does: "forward" }, { via: "the mouse's forward button" }, { keys: "click", does: "on forward → (forward)" }],
+    touches: "screen", replay: "safe", person: "back and forward in a flow move the person's keys between columns, and the links tile's are what the person is looking at; an agent opens beside (open, link.follow) instead",
+    args: { dir: { type: "string", optional: true, choices: ["back", "forward"], about: "back or forward; default back" }, steps: { type: "number", optional: true, about: "stops at once, outside a flow (as back steps= in a reader); default 1" } },
     examples: [
       { act: "tile.travel tile=card", does: "takes the person's keys back to the column this one was opened from" },
       { act: "tile.travel dir=forward tile=card", does: "takes the keys forward to the column back last left" },
     ],
-    run({ dir }, { d, reader }, actor) {
-      return d.travelTile(reader, dir === "forward" ? 1 : -1, actor);
+    run({ dir, steps }, { d, reader }, actor) {
+      if (steps !== undefined && (!Number.isInteger(steps) || steps < 1)) throw new ActionRefused("steps is a whole number from 1");
+      return d.travelTile(reader, dir === "forward" ? 1 : -1, actor, steps ?? 1);
     },
   }),
   "tile.hold": def({
+    words: "hold this column or list where it is",
     summary: "hold tile=<tile>: an alt reader leaves the pile and stays open. For a flow or list (on=false lets it go; default toggles). A river column: its column stays full in its flow so it resists compression, the river's p; refused outside a flow and where its flow is locked. A #tag's list (PIE-855): it keeps its tag and stops being its reader's list, so the next tag opens a list of its own; its opens still land in that reader. Let go, it is the reader's list again, refused while another list is",
-    keys: "river column: p · a #tag's list: p, or the frame card's hold row",
+    keys: [{ keys: "p", does: "in a river column, or a #tag's list", says: "hold this column open in its flow, or keep a #tag's list on its tag" }, { via: "the frame card's hold row" }],
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.held ? "held" : "let go of"} ${r.name ?? r.tile}`),
     menu: {
       label: "hold it full", group: TILE, key: "p",
@@ -403,7 +426,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.drawer": def({
     summary: "your drawer (PIE-498): tile=<tile> goes into your drawer, the tabs above every screen that travel with the person across screens (on=true, the default for a tile on a screen), keeping its program, note and history: the same tile, moved, never started again; or a tile in your drawer comes out into the screen shown (on=false, the default for a tile in the drawer; on=false named from a screen brings the drawer's tab shown), beside to=<tile> (where=left, right, up, down, tabs, edge-<side>; left out, beside the tile the person has). The drawer's own first tab comes out too, as an ordinary terminal tile with its program running, and the drawer starts a new own program when it next comes up. An agent's leaves the person's keys where they are and never moves the tile they type in or have; refused where the layout keeps the tile (locked, a container that keeps its tiles, a lane)",
-    keys: "^W a (on a screen: put in your drawer; in the drawer: take out); ^W A on a screen: the drawer's tab shown comes beside your tile; drag a tile's title onto the status bar's drawer chip (a tab) or onto a side, edge or tab strip of a drawer tile (where its drop zone says); a while dragging; drag a drawer tab's title out onto the screen",
+    keys: [{ keys: "^W a", does: "on a screen: put in your drawer; in the drawer: take out" }, { keys: "^W A", does: "on a screen: the drawer's tab shown comes beside your tile" }, { keys: "drag", does: "a tile's title onto the status bar's drawer chip (a tab) or onto a side, edge or tab strip of a drawer tile (where its drop zone says)" }, { keys: "a", does: "while dragging a tile" }, { keys: "drag", does: "a drawer tab's title out onto the screen" }],
     touches: "shape", replay: "safe", confirms: true,
     says: r => (r.changed === false ? null : r.inDrawer ? `put ${r.name ?? r.tile} in your drawer${r.from ? ` from the ${r.from}` : ""}` : `took ${r.name ?? r.tile} out of your drawer into the ${r.into ?? "screen"}${r.fresh ? " · its program runs on there; your drawer starts a new one when it comes up" : ""}`),
     menu: { label: "put in your drawer", group: TILE, key: "ctrl+w a", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.inDrawer ? { label: "take out of your drawer" } : { refused: n.refused("drawer") }; } },
@@ -422,8 +445,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.widen": def({
+    words: "give this column the wide place in its flow",
     summary: "give tile=<tile>'s column the wide place in its flow (the river's shift, PIE-513): the flow is laid out around it, and the column the person was reading stays full beside it. The person's keys stay where they are; moving them between columns never moves a column. Refused outside a flow and where its flow is locked",
-    keys: "^W W; a click on a flow column's spine or header; river column: w",
+    keys: [{ keys: "^W W", does: "widen", says: "give this column the wide place in its flow" }, { keys: "click", does: "on a flow column's spine or header" }, { keys: "w", does: "in a river column" }],
     touches: "shape", replay: "safe", says: r => `widened ${r.name ?? r.tile}`,
     menu: { label: "widen", group: TILE, key: "ctrl+w W", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.flow ? { refused: n.refused("widen") } : { hide: true }; } },
     args: {},
@@ -432,6 +456,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "float.place": def({
+    words: "move or size this float",
     summary: "move or size tile=<a float> (a tile popped out over the others, tile.float): dx dy step it (columns, rows), col row put its corner there, cols rows size it. Never smaller than a float is drawn, never off the screen",
     keys: "H J K L on a float, drag its title or its ◢ corner",
     touches: "shape", replay: "safe", says: r => `moved ${r.name ?? r.tile}`,
@@ -449,9 +474,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.agent": def({
+    words: "say what an agent may do to this tile",
     hint: { title: "Agents", lines: ["Free allows changes. Edit keeps the shape. Off leaves this tile to you."], keys: [{ keys: "ctrl+w g", does: "cycle the level" }] },
     summary: "what an agent may do to tile=<tile> (PIE-639): policy=free (open notes in it, navigate, split, close, retarget it: the default), edit (edit the note it shows: patch, comment, set properties; no navigating, closing, retargeting or moving it; its own new tiles go elsewhere) or off (read it through peek; no action on it or its note); inherit takes the tile's own away, so its container's and the screen's default (layout.policy node=screen agents=edit) say again; left out, the next level. Saved with the layout, shown as a chip on the tile's frame, reported in peek, layout.get and `ep0ch where`. Enforced for agents only: the person's own keys are never limited. An agent may tighten a tile (free to edit, edit to off), never loosen one: the refusal names the person's command",
-    keys: "^W g (cycles free, edit, off); a click on the tile's agents chip, or its ⋯ menu",
+    keys: [{ keys: "^W g", does: "cycles free, edit, off" }, { keys: "click", does: "on the tile's agents chip" }, { via: "its ⋯ menu" }],
     touches: "shape", ownGate: true, replay: "safe", confirms: true,
     says: r => (r.changed === false ? null : `set ${r.name ?? r.tile} to ${AGENT_WORDS[r.agents as AgentLevel]}`),
     menu: { label: "what agents may do here", group: TILE, key: "ctrl+w g", now: ({ d, reader }) => { const a = d.agentNow(reader); return { label: a.level === "free" ? "agents: free · set edit only" : a.level === "edit" ? "agents: edit only · set hands off" : "agents: hands off · set free" }; } },
@@ -482,8 +508,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.slide": def({
+    words: "slide this tile's dock open or shut",
     summary: "slide the dock holding tile=<tile> open (open=true) or shut (open=false); default toggles. A shut dock is a handle at the end of the hint row; a tile dragged onto the handle goes into the dock. Refused when its policy says it isn't collapsible",
-    keys: "^W d; a click on its handle (⇤ ⇥ ⤒ ⤓ on the hint row); a dock slides shut when the keys go elsewhere",
+    keys: [{ keys: "^W d", does: "slide a dock" }, { keys: "click", does: "on its handle (⇤ ⇥ ⤒ ⤓ on the hint row)" }, { via: "a dock slides shut when the keys go elsewhere" }],
     touches: "shape", replay: "safe", says: r => `${r.open ? "opened" : "shut"} dock ${r.name ?? r.tile}`,
     args: { open: { type: "boolean", optional: true, about: "true opens it, false shuts it" }, container: { type: "string", optional: true, about: "the dock's id (d<n>), when it isn't the innermost one holding tile=" } },
     examples: [
@@ -516,7 +543,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.title": def({
     summary: "rename a tile: a name (letters, digits, . - _) becomes its name, what tile= and paths resolve (unique in its layer: a taken name is refused) and is the title it shows; any other text (spaces, {{this.title}}) is a title written on it, the name staying, and a tile with a title written like that keeps taking text as a title (text= clears it first). Written titles support {{this.title}}, {{this.<property>}}, {{tile.kind}} and {{tile.n}}; text= clears a written title. Without text the person gets the rename prompt. Renaming the note a tile shows is the note's own edit",
-    keys: "^W n; double click a frame title or tab; \"rename this tile\" in the tile menu",
+    keys: [{ keys: "^W n", does: "rename" }, { keys: "double-click", does: "a frame title or tab" }, { via: "\"rename this tile\" in the tile menu (\"rename this note\" beside it is note.rename)" }],
     touches: "nothing", replay: "safe",
     says: r => r.prompt ? null : `${r.name}: ${r.title}`,
     menu: { label: "rename this tile…", group: TILE, key: "ctrl+w n" },
@@ -528,9 +555,29 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     ],
     run({ text }, { d, reader }, actor) { return d.titleTile(reader, text, false, actor); },
   }),
+  "note.rename": def({
+    words: "rename the note this tile shows",
+    summary: "rename the note tile=<tile> shows (PIE-1283): text= replaces its title, the words of its first line; that line's properties, hashtags and the body stay, and it is saved at once as the actor's write, checked against the note as the service has it. Without text the person gets a prompt holding the title. tile.title renames the tile itself, never the note",
+    keys: [{ via: "\"rename this note\" in the tile menu" }],
+    touches: "nothing", replay: "ask",
+    says: r => r.prompt ? null : `renamed the note: ${r.title}`,
+    menu: { label: "rename this note…", group: TILE, key: "", now: ({ d, reader }, _t, actor) => {
+      const shown = d.tileNow(reader, actor).note;
+      return !shown ? { hide: true } : shown.editing ? { refused: "this reader is editing the note: change its title in the edit" } : null;
+    } },
+    args: {
+      text: { type: "string", optional: true, about: "the note's new title; its first line's properties and the body stay" },
+      note: { type: "string", optional: true, kind: "note", about: "the note you read the title from: refused when the tile shows another now" },
+      revision: { type: "number", optional: true, about: "the revision you read it at: refused when the note changed since" },
+    },
+    examples: [
+      { act: "note.rename tile=reader text=\"Seed swap, Saturday\"", does: "retitles the note the reader shows; [type::chirp] on its first line and its body stay" },
+    ],
+    run({ text, note, revision }, { d, reader }, actor) { return d.renameNote(reader, text, actor, { note, revision }); },
+  }),
   "tile.title.mode": def({
     summary: "toggle between the written tile title and the system title without losing the written title",
-    keys: "^W N; the frame's name/sys chip; the tile menu",
+    keys: [{ keys: "^W N", does: "switch name/sys", says: "switch the tile's title between your name for it and the system's" }, { keys: "click", does: "the frame's name/sys chip" }, { via: "the tile menu" }],
     touches: "nothing", replay: "safe",
     says: r => `title: ${r.title}`,
     menu: { label: "toggle written / system title", group: TILE, key: "ctrl+w N" },
@@ -538,6 +585,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run(_, { d, reader }, actor) { return d.titleTile(reader, undefined, true, actor); },
   }),
   "tile.menu": def({
+    words: "open this tile's menu",
     summary: "tile=<tile>'s menu (PIE-492): every action its sets offer there (the tile operations, its kind's, a reader's note actions, a board's lane actions), each with its arguments, label, group, key and, when it would be refused now, why. An agent's answers the rows (rows=) and draws nothing; the person's opens the menu over the screen, under the tile's ⋯ or at at=<col,row>, where one click, ⏎ or a row's own key runs it as theirs",
     keys: "^W .; a right-click in a tile (not where its program asked for the mouse, or on a step's box)",
     touches: "nothing", replay: "safe",
@@ -553,16 +601,23 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.info": def({
     answer: { tile: { type: "string", kind: "tile", about: "the tile's stable id" }, name: { type: "string", about: "its displayed name" }, kind: { type: "string", about: "what it shows" } },
-    summary: "one tile as data: its kind, name, rect, link, dock state; a terminal's command, file, process and screen text; a reader's note; follows= and opens=: what it follows and where its opens land, in the words ^W P says them (reader.follow, tile.hold and tile.link change them)",
+    summary: "one tile as data: its kind, name, rect, link, dock state; a terminal's command, file, process and screen text; a reader's note; follows= and opens=: what it follows and where its opens land, in the words ^W P says them (reader.follow, tile.hold and tile.link change them). With card=true (^W ,, the tile menu's row) the person's shows it in a card by the tile, with copy id and copy reference on it",
+    keys: [{ keys: "^W ,", does: "about this tile" }, { via: "the tile menu's \"about this tile\"" }],
     touches: "nothing", replay: "safe",
-    args: {},
+    menu: { label: "about this tile", group: TILE, key: "ctrl+w ,", args: { card: true } },
+    hint: ({ card }, { d, reader, standing }) => (card && standing ? d.tileInfoHint(reader) : null),
+    args: { card: { type: "boolean", optional: true, about: "the person's: show it in a card by the tile too (^W , and the menu's row do)" } },
+    examples: [
+      { act: "tile.info tile=reader", does: "answers the reader's id, kind, note, what it follows and where its opens land" },
+      { act: "tile.info tile=reader card=true", does: "the person's: the same, shown in a card by the reader with copy id and copy reference" },
+    ],
     run(_, { d, reader }) { return d.tileInfo(reader); },
   }),
   "tile.copy-ref": def({
     summary: "copy the tile's address (PIE-1297): kind=id its id (t-<uuid>, exactly this tile, kept through moves, saves and restarts), kind=ref the address of its place in the tile grammar (drawer.agent, role:<role>, <slot>@<screen>: whichever tile fills it), or its id when nothing else names it alone. The person's goes to their clipboard; an agent's is returned to it and never touches the clipboard",
-    keys: "the tile menu's \"copy id\" and \"copy reference\"",
+    keys: [{ via: "the tile menu's \"copy tile id\" and \"copy tile reference\" (its Copy group, beside the note's)" }],
     touches: "nothing", replay: "safe",
-    menu: [{ label: "copy id", group: TILE, args: { kind: "id" } }, { label: "copy reference", group: TILE, args: { kind: "ref" } }],
+    menu: [{ label: "copy tile id", group: COPY_GROUP, args: { kind: "id" } }, { label: "copy tile reference", group: COPY_GROUP, args: { kind: "ref" } }],
     args: { kind: { type: "string", optional: true, choices: ["id", "ref"], about: "id (default): the tile's t-<uuid>; ref: the address of its place, which a restarted tile answers to" } },
     examples: [{ act: "tile.copy-ref kind=ref tile=drawer.agent", does: "answers drawer.agent and the program's t-<uuid>, for a button's tile= or a script" }],
     run({ kind }, { d, reader }, actor) { return d.copyTileRef(reader, (kind ?? "id") as "id" | "ref", actor); },
@@ -585,7 +640,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "layout.gather": def({
     summary: "align open tiles left, centre or right by gathering their spines; keeps the alignment for later opens",
-    keys: "^W { align left, ^W } align right, ^W | align centre; click, enter or space in the container's policy menu",
+    keys: [{ keys: "^W {", does: "align left", says: "align the open tiles to the left" }, { keys: "^W }", does: "align right", says: "align the open tiles to the right" }, { keys: "^W |", does: "align centre", says: "align the open tiles in the centre" }, { keys: "click enter space", does: "in the container's policy menu" }],
     touches: "shape", replay: "safe", says: r => `gathered spines ${r.side}`,
     args: { side: { type: "string", choices: ["left", "right", "centre", "sides"], about: "spines left or right, centre (balanced), or sides (nearest edge)" }, node: { type: "string", optional: true, about: "row or flow container id; left out, the tile's nearest row" } },
     menu: [
@@ -606,6 +661,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run(_, { d }, actor) { return d.evenOut(actor); },
   }),
   "layout.swap": def({
+    words: "swap this tile with another",
     summary: "tile=<tile> and tile to=<tile> trade places", keys: "^W s (the next tile)",
     touches: "shape", replay: "safe", says: (r, a) => `swapped ${r.name ?? r.tile} and ${a.to}`,
     args: { to: { type: "string", kind: "tile", about: "the tile it trades places with" } },
@@ -621,6 +677,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run(_, { d, reader }) { return d.viewGet(reader); },
   }),
   "view.scrollTo": def({
+    words: "scroll this tile to a line of its note",
     summary: "scroll tile=<tile> so a note line (line=<n>, 1 the subject) or the first line with text=<words> is at the top. It moves what's in view, not the person's [ ] position, selection or keys. block=<id> checks the tile shows that note (open it there first: open id=… tile=…)",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't scroll the reader they type in", says: r => `scrolled ${r.name ?? r.tile}`,
     args: { line: { type: "number", optional: true, about: "the note line to bring to the top" }, text: { type: "string", optional: true, about: "or: the first line with these words" }, block: { type: "string", optional: true, about: "the note the tile must be showing" } },
@@ -642,6 +699,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     async run(m, { d, reader }, actor) { return await d.markBlock(reader, m, actor); },
   }),
   "block.unmark": def({
+    words: "dismiss an attention mark",
     summary: "dismiss mark n=<n> (marks.list numbers them), or every mark on block id=<id>, or (neither) the marks on what tile=<tile> shows",
     keys: "a click on a tile's ◆ label; alt+x dismisses the focused tile's",
     touches: "nothing", replay: "safe", says: () => "dismissed a mark",
@@ -666,6 +724,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run(_, { d }, actor) { return d.nextMark(actor); },
   }),
   "tab.select": def({
+    words: "show another tab of this tile's tab set",
     summary: "show tab tile=<tile> in its tab set, or step by=1 (next) / by=-1 (previous) from it. An agent's leaves the person's focus where it is",
     keys: "click a tab; alt+n alt+p; ^W ] ^W [",
     touches: "shape", replay: "safe", says: r => `showed tab ${r.name ?? r.tile}`,
@@ -681,7 +740,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.group": def({
     summary: "gather tiles into a group (PIE-651): one tile holding them laid out as a screen of their own, so a tab set's tab can hold a split. tile=<tile> alone, or node=<a container's id or key> whole (a split), takes the group's place; with=<another tile> joins it beside it (where=right, left, up, down); selected=true gathers the tiles this actor picked (tile.select), keeping their arrangement as far as a split allows, else side by side. ask=true (the keys and the menu): with tiles picked it gathers them, else in a split the person chooses this tile or the whole split. On a group (or on=false) its tiles spill back where it was. ^W e goes into a group; tile=<group>/<tile> names one of its tiles for act; layout.move into=<group> and out=true move one tile in or out. Links between a gathered tile and one outside are kept (tile.link to=<group>/<tile>, ../<tile>). A container filled from data (the board's lanes) isn't gathered: mount its screen's part instead (tile.open kind=screen part=)",
-    keys: "^W G (a group: spills it; picked tiles: gathers them; in a split: asks this tile or the whole split); a click on ■ spill on a group's header; the tile menu",
+    keys: [{ keys: "^W G", does: "a group: spills it; picked tiles: gathers them; in a split: asks this tile or the whole split" }, { keys: "click", does: "on ■ spill on a group's header" }, { via: "the tile menu" }],
     touches: "shape", replay: "ask", confirms: true,
     says: r => (r.asked ? `${r.name ?? r.tile}: this tile or the whole split?` : r.spilled ? `spilled ${r.name ?? r.tile}: ${(r.spilled as string[]).join(", ")}` : `gathered ${(r.grouped as string[] ?? []).join(", ")} into ${r.name ?? r.tile}`),
     menu: { label: "gather into a group", group: TILE, key: "ctrl+w G", args: { ask: true }, now: ({ d, reader }, _t, actor) => (d.isGroup(reader) ? { label: "spill the group back", args: { on: false } } : d.pickedBy(actor).length >= 1 ? { label: `gather the ${d.pickedBy(actor).length} picked tiles into a group` } : null) },
@@ -709,8 +768,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.into": def({
+    words: "move this tile into a group",
     summary: "move tile=<tile> into a group on this screen whole (group=<its tile>; with several groups and none named, the person picks one), or, on a tile of a group's screen, back out onto the screen holding it. A shorthand for layout.move into=<group> / out=true, which also place it (beside=, where=)",
-    keys: "^W i; the tile menu",
+    keys: [{ keys: "^W i", does: "put into a group" }, { via: "the tile menu" }],
     touches: "shape", replay: "safe", confirms: true,
     says: r => (r.asked ? `${r.name ?? r.tile}: into which group?` : `moved ${r.name ?? r.tile} ${r.out ? `out of ${r.from ?? "its group"}` : `into ${r.into}`}`),
     menu: { label: "move into a group…", group: TILE, key: "ctrl+w i", now: ({ d, reader }) => { const n = d.groupsFor(reader); return d.inGroup() ? { label: "move out of its group" } : n.length ? null : { hide: true }; } },
@@ -730,10 +790,11 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.select": def({
+    words: "pick this tile to gather into a group",
     hintId: "gather",
     hint: GATHER_HINT,
     summary: "pick tile=<tile> to gather with others into a group (on=true picks, on=false lets go; default toggles), or let go of all of this actor's picks (clear=true). A pick is the person's own or this agent's own: an agent's never touches the person's, and picking moves no focus. tile.group selected=true (^W G with tiles picked) gathers them",
-    keys: "shift+click a tile's title; ^W space; esc lets go of the person's picks; the tile menu",
+    keys: [{ keys: "shift-click", does: "a tile's title" }, { keys: "^W space", does: "pick the tile" }, { keys: "esc", does: "lets go of the person's picks" }, { via: "the tile menu" }],
     touches: "nothing", replay: "safe",
     says: r => ((r.selected as string[] | undefined)?.length ? `picked ${(r.selected as string[]).join(", ")}` : "picked nothing"),
     menu: { label: "pick for a group", group: TILE, key: "ctrl+w space", now: ({ d, reader }, _t, actor) => (d.isPicked(reader, actor) ? { label: "let go of the pick" } : null) },
@@ -749,7 +810,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.tune": def({
     summary: "open the tune inspector (PIE-673) on a tile (default the focused one): its look's spacing and list values (measure, padding, margin, list gap, zebra and dividers, surfaces, frames, edges and tone, the header's surface and rule, the note's header picture (its hero line), heading spacing, breakpoints), where each comes from (built-in, global, its kind, the screen, the page, a box), nudged live and saved to the level picked. The one on the screen turns to it, else one opens under it (beside it when too short to split)",
-    keys: "alt+y; ^W o y; the tile menu's \"tune its look\"",
+    keys: [{ keys: "alt+y", does: "tune its look" }, { keys: "^W o y", does: "open it beside the tile" }, { via: "the tile menu's \"tune its look\"" }],
     touches: "shape", replay: "ask", says: r => `· tuning ${r.tunes}`,
     menu: { label: "tune its look", group: TILE, key: "alt+y", now: ({ d, reader }) => (d.tileLook(reader ?? "") ? null : { hide: true }) },
     args: {},
@@ -758,7 +819,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   // Last, so a tile's menu lists its Tile rows first and the Screen group after them.
   "screen.mount": def({
     summary: "put this screen on the desk as a mount (PIE-651): a tile there holding it, live, that folds to a spine and pops out again (mount.out). part=<a container's key> puts that part alone (the board's lanes: part=lanes); the tile menu offers the container around the tile. A screen popped out of a mount goes back to it (as q does). Its arrangement goes with it; from then on the mount's is its own. On the desk itself: refused (tile.open kind=screen mounts a screen there)",
-    keys: "^W M (this screen); ^W I (the part around the focused tile); the tile menu's Screen rows",
+    keys: [{ keys: "^W M", does: "this screen" }, { keys: "^W I", does: "the part around the focused tile" }, { via: "the tile menu's Screen rows" }],
     touches: "screen", replay: "ask", says: r => (r.back ? `back to the mount ${r.name ?? r.tile}` : `put the ${r.screen}${r.part ? `'s ${r.part}` : ""} on the desk as ${r.name ?? r.tile}`),
     menu: { label: "put this screen on the desk", group: SCREEN, key: "ctrl+w M", now: ({ d }) => (d.mountable() ? null : { hide: true }) },
     args: { part: { type: "string", optional: true, about: "a container's key (or a tile's name) of this screen: that part alone" } },
@@ -769,8 +830,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     async run({ part }, { d }, actor) { return await d.mountOnDesk(part, actor); },
   }),
   "screen.part": def({
+    words: "put the part of this screen around this tile on the desk as a mount",
     summary: "put the part of this screen around tile=<tile> on the desk as a mount (PIE-651): its nearest container with a key (the board's lanes, readers, outline, links), as screen.mount part= does",
-    keys: "^W I; the tile menu's Screen rows",
+    keys: [{ keys: "^W I", does: "the part around the focused tile" }, { via: "the tile menu's Screen rows" }],
     touches: "screen", replay: "ask", says: r => `put the ${r.screen}'s ${r.part} on the desk as ${r.name ?? r.tile}`,
     menu: { label: "put this part on the desk", group: SCREEN, key: "ctrl+w I", now: ({ d, reader }) => { const k = d.mountable() ? d.partAround(reader) : null; return k ? { label: `put ${k} on the desk` } : { hide: true }; } },
     args: {},
@@ -781,6 +843,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "screen.save": def({
+    words: "save this screen as a screen note",
     summary: "save this screen, as it's laid out now, as a screen note named name= in the outline (PIE-565: `[type::screen]`, its spec as data, as screen.spec answers it): every door on the outline then opens it (`ep0ch --screen <name>`, screen.open, ^W r) and an agent can read it. The name is kept as typed (the note's title) and the screen is opened by it or by its slug: lowercase, spaces to -, other characters dropped (daily test: daily-test). Saving under its own name again writes the same note, checked against the revision this door read (changed since: refused, read again). A built-in screen's name is refused. The person's with no name opens the prompt",
     keys: "^W w",
     touches: "nothing", replay: "ask", confirms: true,
@@ -794,7 +857,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "layout.lock": def({
     summary: "lock the layout the keys are in, the screen or your drawer (on=true): its shape is fixed (no moves, drops, opens of new tiles, closes, resizes, docks in or out, links or layout loads) and its contents stay live (reading, editing, typing in terminals, docks sliding, tabs shown, zoom); on=false unlocks; default toggles. Saved with the layout",
-    keys: "a click on the hint row's □ lock / ▣ screen locked / ▣ drawer locked chip; ^W P then enter or space on locked; the power bar's row (its tile menu's)",
+    keys: [{ keys: "click", does: "the hint row's □ lock / ▣ screen locked / ▣ drawer locked chip" }, { keys: "^W P then ⏎ space", does: "on locked" }, { via: "the power bar's row (its tile menu's)" }],
     touches: "shape", replay: "safe", confirms: true,
     // No key (PIE-1346): alt+k, a modifier away from ctrl+k, locked layouts by accident. The row and what it says name the layout.
     says: r => (r.changed ? (r.locked ? `locked ${r.layout} · ${r.unlock}` : `unlocked ${r.layout}`) : null),
@@ -810,6 +873,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "screen.delete": def({
+    words: "delete a screen you made",
     summary: "delete the screen named name= that a person made: its screen note goes to the outline's Trash (restorable there), and it's gone from every door's screens. A built-in can't be. The person's asks first: again within 3s deletes. Trashing the note anywhere (the outliner, an agent) does the same",
     keys: "x twice on a screen you made, in the screens picker (the blank tile's o)",
     touches: "nothing", replay: "ask", confirms: true,
@@ -825,7 +889,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "layout.load": loadLayout,
   "layout.undo": def({
     summary: "take back the newest change to this screen's layout, from the one history every actor's changes go in (a move, a close, a float, a load; a script's run is one entry, a transaction): the screen is rebuilt as it was before it, tiles kept by name, the lock and the tile you type in holding. Yours takes back the newest; an agent's takes back its own newest only, and both are refused with who changed the layout since (\"undo that first\"). txn=<id> takes back that transaction",
-    keys: "ctrl+z when a reader has nothing of its own to undo and the layout changed after the last trash; the tile menu's row",
+    keys: [{ keys: "ctrl+z", does: "when a reader has nothing of its own to undo and the layout changed after the last trash" }, { via: "the tile menu's row" }],
     touches: "shape", replay: "ask", confirms: true,
     says: (r: { what: string; steps: number }) => `put the layout back · ${r.steps > 1 ? `${r.steps} steps` : r.what}`,
     menu: { label: "undo the last layout change", group: SCREEN, key: "ctrl+z", now: ({ d }: On) => (d.history.size ? null : { hide: true }) },
@@ -841,8 +905,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run: (_a, { d }: On, actor: Actor) => d.stopRuns(actor),
   }),
   "layout.txn.end": def({
+    words: "finish a layout change made in steps",
     summary: "close the layout transaction txn=<id> (txn= opens one on the first action that carries it, for any actor; a script's run is its own, closed when it ends): it stays as the settled state and says once how many changes it made, with ctrl+z to put them back. layout.undo txn=<id> takes it back whole",
-    keys: "none: a script's run ends its own; an agent passes txn=<id>",
+    keys: [{ via: "none: a script's run ends its own; an agent passes txn=<id>" }],
     touches: "nothing", replay: "safe",
     args: {},
     run: (_a, { d }: On, actor: Actor) => {
@@ -853,7 +918,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "note.trash": def({
     summary: "move the note the tile points at (a reader's note, a list's or the tree's selected row; or ref=<block id>) and the notes under it to Trash, recorded as the actor's, where note.untrash (ctrl+z) brings it back. The person's first press says what would go in a two-row choice (d again, Delete or ⏎ trashes it, any other key or esc keeps it); an agent passes confirm=<the note's id>, the same note said twice. Refused with why: a system note (the Inbox, Trash, Bookmarks), a note already in the Trash, a note with a draft open on it",
-    keys: "d then d ⏎ (either confirms), Delete then Delete ⏎ the same, a click on the tile menu's row",
+    keys: [{ keys: "d then d ⏎", does: "either confirms", says: "move the note to the Trash, after asking" }, { keys: "Delete then Delete ⏎", does: "the same", says: "move the note to the Trash, after asking" }, { via: "a click on the tile menu's row" }],
     touches: "draft", draft: "write", replay: "ask",
     says: r => `trashed “${r.title}”`,
     menu: { label: "trash this note", group: "Trash", key: "d", now: ({ d, reader }: On) => (d.subjectOf(reader).id ? null : { hide: true }) },
@@ -888,7 +953,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "note.untrash": def({
     summary: "bring back the note the actor trashed last (or id=<a Trash root's block id>), where it was, with the page names it had to change",
-    keys: "ctrl+z when the tile has nothing of its own to undo, the tile menu's row",
+    keys: [{ keys: "ctrl+z", does: "when the tile has nothing of its own to undo" }, { via: "the tile menu's row" }],
     touches: "nothing", replay: "ask",
     menu: { label: "bring back the note trashed last", group: "Trash", key: "ctrl+z", now: ({ d }: On, _t, actor) => (lastTrashed(d.ctx.board, actor) ? null : { hide: true }) },
     args: { id: { type: "string", optional: true, about: "a Trash root's block id; default the note this actor trashed last" } },

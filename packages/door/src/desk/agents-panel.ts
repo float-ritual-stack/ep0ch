@@ -54,7 +54,7 @@ export class AgentsPane implements Pane {
     this.at = Math.min(Math.max(0, this.at), rows.length - 1);
     this.view.place(this.at, rows.length, h);
     const glyph = (s: AgentSession) => {
-      const r = s.pane.status.urgent();
+      const r = s.pane?.status.urgent();
       return r ? statusMark(r) : s.state === "working" ? statusMark({ state: "working" }) : { glyph: "·", sgr: fg(C.dark) };
     };
     return {
@@ -109,7 +109,7 @@ export class AgentsPane implements Pane {
 export const AGENTS_ACTIONS = actionSet<KindHost>()("agents", {
   "agents.pick": def({
     summary: "pick a row of the agent panel (n from 1; agents.list names them)",
-    keys: "j k ↑ ↓, the wheel, a click",
+    keys: [{ keys: "j k ↑ ↓", does: "pick a row" }, { keys: "wheel", does: "pick a row" }, { keys: "click", does: "on a row" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's row (agents.list reads the rows)",
     args: { n: { type: "number", about: "its place in the list, from 1" } },
     examples: [
@@ -131,5 +131,5 @@ export const AGENTS_KIND: TileKind = {
   kind: AGENTS_KIND_NAME, about: "every agent session the door holds: program, folder, persona, what it's doing and where it's shown (PIE-737)", noun: "the agent panel",
   make: () => new AgentsPane(), actions: AGENTS_ACTIONS,
   peek: p => ({ agents: (p as AgentsPane).describe() }),
-  describe: p => ({ rows: (p as AgentsPane).describe() }),
+  describe: (p, full) => { const rows = (p as AgentsPane).describe(); return full ? { rows } : { count: rows.length }; },
 };

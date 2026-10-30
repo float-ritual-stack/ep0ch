@@ -4,7 +4,7 @@
 // an agent named `machinery-backfill`: a dry run says what it would stamp, `--apply` stamps. A note already stamped
 // is left alone, so it can be run again.
 import { parseArgs } from "node:util";
-import { MACHINE_KEY } from "@ep0ch/outline-core/machinery";
+import { MACHINE_KEY, NOTIFICATION_MACHINE } from "@ep0ch/outline-core/machinery";
 import { createOutlinerClient } from "./client";
 import { resolveClientPaths } from "./paths";
 import type { Block } from "./types";
@@ -16,15 +16,26 @@ export const BACKFILL_SHAPES: readonly { producer: string; where: string; about:
   { producer: "delivery", where: "type=delivery", about: "delivery records" },
   { producer: "intake", where: "type=prior-art", about: "intake's prior-art notes" },
   { producer: "backup", where: "type=backup-run", about: "backup runs" },
+  { producer: NOTIFICATION_MACHINE, where: "notify.key", about: "the notifications hub's fetched notifications (PIE-1427)" },
+  // The page the notifications hub pulls into, by who wrote it last (the Extensions hub and pages need none: the service
+  // writes them again, stamped, on its next reload).
+  { producer: "notify", where: "by:ext:notify AND child>=1:notify.key", about: "the page the notifications hub pulls into" },
 ];
 
-/** The views of the file-touch tree: they hold machinery, so they say so (`[machinery::show]`). */
-const VIEW_WHERE = "type=virtual-branch AND file-project-view";
+/**
+ * The views that hold machinery, so they say so (`[machinery::show]`): the file-touch tree's, and the notifications
+ * hub's boards (a lane whose query reads `notify.…`).
+ */
+const VIEW_SHAPES: readonly { producer: string; where: string }[] = [
+  { producer: "file-touch views", where: "type=virtual-branch AND file-project-view" },
+  { producer: "notification boards", where: 'type=virtual-branch AND text~"[query::notify."' },
+];
 
 const USAGE = `usage: ep0ch machinery backfill [--ws <outline>] [--apply] [--json]
   Stamps [machine::<producer>] on what tools wrote before they stamped: file touches and their folders, EchoNet's
-  nodelist, tosses, ledger and receipts, delivery records, intake's prior art, backup runs; and [machinery::show] on the
-  file-touch views. A dry run says what it would stamp; --apply stamps. A note already stamped is left alone.`;
+  nodelist, tosses, ledger and receipts, delivery records, intake's prior art, backup runs, fetched notifications, the
+  page the notifications hub pulls into; and
+  [machinery::show] on the file-touch views and the notifications boards. A dry run says what it would stamp; --apply stamps. A note already stamped is left alone.`;
 
 interface Client { request<T>(input: Record<string, unknown>, timeoutMs?: number): Promise<T> }
 
@@ -34,8 +45,9 @@ const hasKey = (block: Block, key: string) => block.properties.some(p => p.key =
 /** What a pass over an outline would stamp (or did), by producer. */
 export async function backfill(client: Client, apply: boolean): Promise<{ producer: string; stamped: number; skipped: number; atLeast?: true }[]> {
   const report: { producer: string; stamped: number; skipped: number; atLeast?: true }[] = [];
-  const questions = [...BACKFILL_SHAPES.map(s => ({ producer: s.producer, where: s.where, key: MACHINE_KEY, value: s.producer })),
-    { producer: "file-touch views", where: VIEW_WHERE, key: "machinery", value: "show" }];
+  const questions: { producer: string; where: string; key: string; value: string }[] = [
+    ...BACKFILL_SHAPES.map(s => ({ producer: s.producer, where: s.where, key: MACHINE_KEY, value: s.producer })),
+    ...VIEW_SHAPES.map(v => ({ ...v, key: "machinery", value: "show" }))];
   for (const q of questions) {
     let stamped = 0, skipped = 0, atLeast = false;
     // Pages of a thousand: the ones stamped drop out of the next ask, so it ends when nothing is left to stamp.

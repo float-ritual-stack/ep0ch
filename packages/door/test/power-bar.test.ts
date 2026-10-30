@@ -17,6 +17,7 @@ import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { Offline, SocketBoard, USER, type Actor } from "../src/socket";
 import { askInBar } from "../src/bar/ask";
+import { notePageUrl } from "../src/open";
 import { KeyDecoder, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -99,6 +100,32 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(app.person().busy).toBe(true as boolean);
     // Looking here doesn't mark what changed seen (alt+o does).
     expect(app.whatChanged.unseenIds()).toContain(notes.shed!.id);
+  });
+
+  test("a search with no hits says so on its line once the notes have answered, never notes… (PIE-1403)", async () => {
+    key(ctrlK); type("zqxvbnw");
+    await (app as any).bar.settled();
+    await Bun.sleep(60);                                   // past a frame: what the person sees is the last paint, not a fresh one
+    const line = painted.map(plain).find(l => l.includes("› zqxvbnw"))!;
+    expect(line).toContain("no matches");
+    expect(line).not.toContain("notes…");
+  });
+
+  test("at 40 columns a long query reads whole, or scrolled with a « where its start is off the line (PIE-1418)", async () => {
+    const info = (app as any).term.info, was = info.cols;
+    info.cols = 40;
+    try {
+      key(ctrlK); type("Gutter swap for the shed");
+      await (app as any).bar.settled();
+      expect(frame().find(l => l.includes("› Gutter"))).toContain("› Gutter swap for the shed");
+      type(" and the porch roof, before the frost");
+      await (app as any).bar.settled();
+      const line = frame().find(l => /› «/.test(l));
+      expect(line).toBeDefined();
+      expect(line).toContain("before the frost");
+      key({ kind: "home" });
+      expect(frame().find(l => l.includes("› Gutter"))).toMatch(/› Gutter swap for the shed.*»/);
+    } finally { key({ kind: "esc" }); key({ kind: "esc" }); info.cols = was; }
   });
 
   test("typed, every source answers under its heading; a prefix and alt+← alt+→ move between scopes; esc puts it away", async () => {
@@ -651,6 +678,99 @@ describe.skipIf(!outliner)("the power bar", () => {
     closeBar();
   });
 
+  // PIE-1297: a hit is a note, and its row menu copies the note's address as every list's menu does.
+  test("a notes hit's row menu (alt+m, a right-click on it) copies its id, reference or web link", async () => {
+    const copied: string[] = [], copy = (app as any).copy;
+    (app as any).copy = function (this: App, text: unknown, ...rest: unknown[]) { if (typeof text === "string") copied.push(text); return copy.call(this, text, ...rest); };
+    try {
+      key(ctrlK); type("/bike shed");
+      await until(() => peek().bar.rows[0]?.label === "Bike shed", "the shed found");
+      key({ kind: "alt", ch: "m" } as Key);
+      await until(() => frame().some(l => l.includes("2 copy note reference")), "the hit's menu");
+      const f = frame();
+      expect(f.join("\n")).not.toContain("copy command");
+      const y = f.findIndex(l => l.includes("copy note reference")), x = f[y]!.indexOf("copy note reference");
+      key({ kind: "mouse", action: "down", x, y, button: 0 } as Key);
+      key({ kind: "mouse", action: "up", x, y, button: 0 } as Key);
+      await until(() => copied.includes(`((${notes.shed!.id}|Bike shed))`), "the reference copied");
+      // A pick puts the menu away; the same row, by a right-click on it: its web link names the outline.
+      await until(() => !frame().some(l => l.includes("copy note reference")), "the menu put away");
+      const r = frame(), ry = r.findIndex(l => l.includes("Bike shed")), rx = r[ry]!.indexOf("Bike shed") + 1;
+      key({ kind: "mouse", action: "down", x: rx, y: ry, button: 2 } as Key);
+      await until(() => frame().some(l => l.includes("copy note web link")), "the menu by a right-click");
+      const w = frame(), wy = w.findIndex(l => l.includes("copy note web link")), wx = w[wy]!.indexOf("copy note web link");
+      key({ kind: "mouse", action: "down", x: wx, y: wy, button: 0 } as Key);
+      key({ kind: "mouse", action: "up", x: wx, y: wy, button: 0 } as Key);
+      await until(() => copied.some(t => t.endsWith(`/p/${notes.shed!.id}`)), "the web link copied");
+      // By keys: the chips read 1 2 3, and 1 is the first entry (copy note id), never a digit typed into the query; alt+1 too.
+      key({ kind: "alt", ch: "m" } as Key);
+      await until(() => frame().some(l => l.includes("1 copy note id")), "the menu again");
+      key(ch("1"));
+      await until(() => copied.includes(notes.shed!.id), "the id copied by 1");
+      expect(peek().bar.query).toBe("bike shed");
+      key({ kind: "alt", ch: "m" } as Key);
+      key({ kind: "alt", ch: "2" } as Key);
+      await until(() => copied.filter(t => t === `((${notes.shed!.id}|Bike shed))`).length === 2, "the reference copied by alt+2");
+      // Menu closed, a digit types again; and typing with it open puts it away, the digits the query's.
+      key(ch("9"));
+      expect(peek().bar.query).toBe("bike shed9");
+      key({ kind: "alt", ch: "m" } as Key);
+      key(ch("x")); key(ch("1"));
+      expect(peek().bar.query).toBe("bike shed9x1");
+      expect(frame().some(l => l.includes("copy note id"))).toBe(false);
+      // An agent names the hit by ref=.
+      expect(await app.act({ action: "note.copy-ref", args: { kind: "id", ref: notes.shed!.id }, as: "wren-agent" })).toMatchObject({ text: notes.shed!.id, clipboard: false });
+    } finally { (app as any).copy = copy; }
+  }, 20_000);
+
+  // PIE-1398: whatever note.copy-ref copies, pasted back into the bar, is that note's row, lit, and ⏎ opens it; never a
+  // search for its words, never "no action".
+  test("a pasted id, reference, line reference, ep0ch:// address or web link is its note's row, and ⏎ opens it (PIE-1398)", async () => {
+    const own = (await board.info()).outline!, machine = (await board.info()).machine!;
+    const shed = notes.shed!.id;
+    const pasted = [
+      shed, `((${shed}|zzz))`, `((${shed.slice(0, 8)}|Bike shed))`, `((${shed}^tubes|the spare inner tubes))`,
+      `ep0ch://${own}@${machine}/b/${shed}`, notePageUrl(shed, own, {}), notePageUrl(shed, undefined, {}),
+    ];
+    for (const text of pasted) {
+      for (const scope of [null, "notes"] as const) {
+        key(ctrlK);
+        if (scope) type("/");
+        key({ kind: "paste", text });
+        await until(() => peek().bar.rows[0]?.source === "notes" && !peek().bar.asking, `${text} named its note`, 3000);
+        const bar = peek().bar;
+        expect({ text, row: bar.rows[0] }).toMatchObject({ text, row: { source: "notes", label: "Bike shed", key: shed } });
+        expect(bar.selected).toBe(1);
+        expect(bar.rows.some((r: any) => r.source === "actions" && r.refused)).toBe(false);
+        closeBar();
+      }
+    }
+    // ⏎ at once after the paste, over the recent notes / listed before it: the pasted note opens, never a row kept from before.
+    desk.setCurrent(notes.garden!);
+    key(ctrlK); type("/");
+    await until(() => peek().bar.rows.length > 0 && !peek().bar.asking, "the recent notes");
+    key({ kind: "paste", text: `((${shed}|zzz))` });
+    key({ kind: "enter" });
+    await until(() => !peek().bar && [...(desk as any).panes.values()].some((p: any) => p.msg?.id === shed), "the shed opened", 5000);
+    // A reference to a note that isn't there says so on its row, instead of waiting on a search.
+    key(ctrlK); key({ kind: "paste", text: "((0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a|gone))" });
+    await until(() => peek().bar.rows[0]?.refused !== undefined, "the missing note said");
+    expect(peek().bar.rows[0].refused).toContain("no note 0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a");
+    closeBar();
+  }, 30_000);
+
+  test("while typing, the rows the search gave stay until its answer to what's typed now replaces them (PIE-1398)", async () => {
+    key(ctrlK); type("/bike");
+    await until(() => peek().bar.rows.some((r: any) => r.label === "Bike shed") && !peek().bar.asking, "the shed found");
+    type(" s");
+    // Asked again after the pause: the shed's row is still listed while notes… is out.
+    expect(peek().bar.asking).toEqual(["notes"]);
+    expect(peek().bar.rows.some((r: any) => r.label === "Bike shed")).toBe(true);
+    await until(() => !peek().bar.asking, "the new answer");
+    expect(peek().bar.rows.some((r: any) => r.label === "Bike shed")).toBe(true);
+    closeBar();
+  });
+
   test("the desk's / opens the bar in its notes scope (the one search)", async () => {
     desk.focusPane(desk.pane(desk.tileOutline().find(t => t.kind === "tree")?.name ?? desk.tileOutline()[0]!.name)!, { kind: "user" });
     key(ch("/"));
@@ -721,6 +841,8 @@ describe.skipIf(!outliner)("the power bar", () => {
     const command = await app.dispatch.press("bar.command", { op: "copy" }) as { text: string };
     const button = await app.dispatch.press("bar.command", { op: "button" }) as { text: string };
     expect(command.text).toStartWith("ep0ch act tile.title");
+    // alt+o says it copied, on the status line and in its log, not only in the toast that's gone in a moment (PIE-1428).
+    expect((app as any).message).toContain("copied as a note button");
     // The CLI copy is the same words, each shell-quoted, so pasting it into a shell runs what the button runs.
     expect(command.text).toBe(["ep0ch", "act", ...lineWords(buttonCallsOf(button.text)[0]!.act!)].map(shellWord).join(" "));
     await app.dispatch.press("bar.edit", { op: "clear" });
@@ -780,6 +902,72 @@ describe.skipIf(!outliner)("the power bar", () => {
     await running;
     expect(peek().bar.query).toBe("tile.zoom on=true");
     expect(peek().bar.runs.at(-1).line).toBe("tile.collapse tile=reader on=false");
+  });
+
+  test("a row's copy command is the line its pick runs: a tile's, a screen's; a note's row has none to copy (PIE-1405)", async () => {
+    key(ctrlK); type("%reader");
+    const n = peek().bar.rows.findIndex((r: any) => r.source === "tiles" && r.detail.startsWith("reader ·")) + 1;
+    expect(n).toBeGreaterThan(0);
+    const copied = await app.dispatch.press("bar.command", { op: "copy", n }) as { text: string };
+    expect(copied.text).toBe("ep0ch act tile.focus tile=reader");
+    // The copy runs: the line is one the door's own act takes.
+    key({ kind: "esc" }); key({ kind: "esc" });
+    desk.focusTile("tree", USER);
+    await app.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
+    expect(desk.focusedPane()).toBe(desk.pane("reader"));
+    key(ctrlK); type("@kanban");
+    await until(() => peek().bar.rows.some((r: any) => r.source === "screens"), "the screens answered");
+    expect((await app.dispatch.press("bar.command", { op: "copy" }) as { text: string }).text).toBe("ep0ch act screen.open name=K");
+    key({ kind: "esc" }); key({ kind: "esc" });
+    key(ctrlK); type("/garden");
+    await until(() => peek().bar.rows.some((r: any) => r.source === "notes"), "the notes search answered", 5000);
+    const hit = peek().bar.rows.findIndex((r: any) => r.source === "notes") + 1;
+    await expect(app.dispatch.act({ action: "bar.command", args: { op: "copy", n: hit } }, USER)).rejects.toThrow("its menu copies its reference");
+  });
+
+  test("a click lights a row and shows its preview; the next click on it runs it, as enter does (PIE-1405)", async () => {
+    key(ctrlK); type("%");
+    // The row lit when the bar opened is a first click's: one click on it previews, never runs.
+    const top = frame().findIndex(l => l.includes(peek().bar.rows[0].label));
+    const tx = frame()[top]!.indexOf(peek().bar.rows[0].label) + 1;
+    key({ kind: "mouse", action: "down", x: tx, y: top, button: 0 } as Key); key({ kind: "mouse", action: "up", x: tx, y: top, button: 0 } as Key);
+    expect(peek().bar).toBeDefined();
+    await Bun.sleep(450);
+    // A tile row other than the lit first one, and another tile in focus.
+    const rows = peek().bar.rows, n = rows.findIndex((r: any, i: number) => i > 0 && r.source === "tiles" && r.detail.split(" · ")[0] !== "reader");
+    expect(n).toBeGreaterThan(0);
+    const name = rows[n].detail.split(" · ")[0];
+    desk.focusTile("reader", USER);
+    const y = frame().findIndex(l => l.includes(rows[n].label) && l.includes(`${name} ·`)), x = frame()[y]!.indexOf(rows[n].label) + 1;
+    const click = () => { key({ kind: "mouse", action: "down", x, y, button: 0 } as Key); key({ kind: "mouse", action: "up", x, y, button: 0 } as Key); };
+    click();
+    expect(peek().bar?.selected).toBe(n + 1);
+    expect(desk.focusedPane()).toBe(desk.pane("reader"));
+    // Seconds later, not a double click: the second click on the lit row is the pick.
+    await Bun.sleep(450);
+    click();
+    expect(peek().bar).toBeUndefined();
+    expect(desk.focusedPane()).toBe(desk.pane(name));
+  });
+
+  test("at 40 columns what's pasted reads on the line, and a note that isn't here is named once (PIE-1405)", async () => {
+    const link = "https://my.ep0ch.sh/pub/o/garden/p/0b5c2d11-7e4f-4a3b-9c8d-1e2f3a4b5c6d";
+    key(ctrlK); key({ kind: "paste", text: link });
+    await (app as any).bar.settled(3000).catch(() => {});
+    const line = ((app as any).bar.draw(40, 30) as { lines: string[] }).lines.map(plain).find(l => l.includes("›"))!;
+    // The line shows the link's last cells, the whole field's worth, not ten of them.
+    expect(line).toContain(link.slice(-30));
+    key({ kind: "esc" }); key({ kind: "esc" });
+    const id = "0b5c2d11-7e4f-4a3b-9c8d-1e2f3a4b5c6d";
+    key(ctrlK); key({ kind: "paste", text: id });
+    await until(() => peek().bar.rows.some((r: any) => r.refused), "the address answered", 5000);
+    const row = peek().bar.rows.find((r: any) => r.refused);
+    expect(row.label).toBe(id);
+    expect(row.refused).not.toContain("0b5c2d11");
+    expect(row.refused).toContain("this outline");
+    // Its refusal reads whole at 40 columns, the how-to included, wrapped under the id rather than cut (PIE-1428).
+    const drawn = ((app as any).bar.draw(40, 30) as { lines: string[] }).lines.map(plain).map(l => l.replace(/^[^│]*│|│[^│]*$/g, "").trim()).join(" ").replace(/\s+/g, " ");
+    expect(drawn).toContain("opens by its ep0ch:// or web link");
   });
 
 });

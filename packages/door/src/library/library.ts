@@ -499,7 +499,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
   }),
   "library.select": def({
     summary: "select a variation: n=<from 1> or by=1/-1; text= returns matching drawn words without changing the person's selection or clipboard",
-    keys: "j k ↓ ↑, or a click on a variation; drag, double/triple click selects text", touches: "screen", touchesWith: args => args.text !== undefined ? "nothing" : "screen", replay: "safe",
+    keys: [{ keys: "j k ↓ ↑", does: "select a variation" }, { keys: "click", does: "on a variation" }, { keys: "drag", does: "select text" }, { keys: "double-click", does: "select text (a triple click too)" }], touches: "screen", touchesWith: args => args.text !== undefined ? "nothing" : "screen", replay: "safe",
     args: { text: { type: "string", optional: true, about: "words as drawn; returns them without changing the person's selection or clipboard" }, n: { type: "number", optional: true, about: "the variation, from 1" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
     examples: [
       { act: "library.select n=3 tile=library", does: "selects the third variation drawn and brings it into view" },
@@ -519,6 +519,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
   "library.copy": def({
     summary: "copy a variation's source (n=<from 1>, else the selected one): the declaring note and the text that uses it (part=use or part=note for one); the person's goes to their clipboard, an agent's comes back as the answer",
     keys: "y or a click on copy for whole source; drag release or cmd+c for selected text", touches: "nothing", replay: "safe", says: r => "text" in r ? `copied ${r.text.length} chars` : `copied the source of variation ${r.n}`,
+    personWith: a => (a.part === "selection" ? "the person's selection is theirs: an agent names the words with library.select text=" : null),
     args: { n: { type: "number", optional: true, about: "the variation, from 1" }, part: { type: "string", optional: true, about: "all (default), use, note or selection" } },
     examples: [
       { act: "library.copy n=2 tile=library", does: "gives back the declaring note and text of the second variation" },
@@ -528,7 +529,6 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
       whole("n", n);
       const p = libraryOf(pane);
       if (part === "selection") {
-        if (actor.kind === "agent") throw new ActionRefused("name the words with library.select text=; the person's selection is theirs");
         const text = p.selectedText();
         if (!text.trim()) throw new ActionRefused("nothing selected: drag over the example first");
         if (desk.ctx.copy?.(text, "the library") === false) throw new ActionRefused("the selection is more than the clipboard takes");
@@ -544,6 +544,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     },
   }),
   "library.width": def({
+    words: "draw the library at a chosen width",
     summary: `draw the variations at cols=${WIDTHS.join(", ")} columns, or all=true at every one of them one under another (without either, the next of these): the narrow fallback, a reader, a wide screen; wider than the tile is cut at its edge`,
     keys: "w, or a click on a width", touches: "screen", replay: "safe",
     args: { cols: { type: "number", optional: true, about: WIDTHS.join(", ") }, all: { type: "boolean", optional: true, about: "draw at every width" } },
@@ -565,7 +566,8 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     },
   }),
   "library.scroll": def({
-    summary: "scroll the page by=<rows> (negative up)", keys: "the wheel, pgup pgdn", touches: "screen", replay: "safe",
+    words: "scroll the page",
+    summary: "scroll the page by=<rows> (negative up)", keys: [{ keys: "wheel", does: "scroll the page" }, { keys: "pgup pgdn", does: "scroll the page" }], touches: "screen", replay: "safe",
     args: { by: { type: "number", about: "rows, negative up" } },
     examples: [
       { act: "library.scroll by=15 tile=library", does: "scrolls the page down fifteen rows" },

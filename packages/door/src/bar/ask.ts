@@ -232,8 +232,13 @@ async function fieldRows(q: BarQuestion, typed: string, host: BarHost, head: str
   const choices = (q.choices ?? []).filter(c => !words || c.toLowerCase().includes(words) || q.says?.[c]?.toLowerCase().includes(words))
     .map((c): BarRow => ({ key: `answer:${c}`, label: q.says?.[c] ?? c, ...(c === q.default ? { detail: "the default" } : {}), group: head, data: c }));
   const kinds = q.kind ? await kindRows(q, typed, host, head) : [];
-  const rows = [...choices, ...kinds.filter(k => !choices.some(c => c.key === k.key))];
-  if (q.free && typed.trim() && !rows.some(r => r.data === typed.trim())) rows.unshift({ key: `answer:${typed.trim()}`, label: typed.trim(), detail: "as typed", group: head, data: typed.trim() });
+  // A found value named exactly as typed comes first: ⏎ takes it, as it would take the typed words (PIE-1392).
+  const exact = (r: BarRow) => !!words && (r.label.toLowerCase() === words || String(r.data ?? "").toLowerCase() === words);
+  const found = kinds.filter(k => !choices.some(c => c.key === k.key));
+  const rows = [...choices, ...found.filter(exact), ...found.filter(r => !exact(r))];
+  // What's typed answers as typed, under what it found (PIE-1392): ⏎ on partial words takes the note, screen or file they
+  // match, never the words themselves; with nothing found, it's the first row.
+  if (q.free && typed.trim() && !rows.some(r => r.data === typed.trim())) rows[kinds.length ? "push" : "unshift"]({ key: `answer:${typed.trim()}`, label: typed.trim(), detail: "as typed", group: head, data: typed.trim() });
   if (!q.required && !words) rows.unshift({ key: "leave", label: "leave it out", detail: q.default !== undefined ? `the default: ${q.default}` : "not given", group: head });
   if (!rows.length) rows.push({ key: "type", label: `type the ${q.label ?? q.name}`, detail: q.type === "number" ? "a number" : "then ⏎", group: head });
   return rows;
@@ -308,9 +313,12 @@ const ASK_SOURCE: BarSource = {
     // A note: any the outline's search finds by the words typed, nearer the note in front first. The rest answer at once.
     if (q.type === "note" && q.parentsOf && typed.length < 2) return places(q.parentsOf, host, head, rows);
     if (q.type !== "note" || typed.length < 2) return rows;
-    return host.ctx.board.search(typed, 20, { near: host.near() ?? undefined }).then(found => [
-      ...rows, ...found.map(m => ({ key: `answer:${m.id}`, label: headedTitle(m), detail: q.found ?? "under this note", group: `${head} · notes`, data: m.id })),
-    ]);
+    // The notes the words find before the words themselves, as in a kind's field (PIE-1392): ⏎ takes the note.
+    return host.ctx.board.search(typed, 20, { near: host.near() ?? undefined }).then(found => {
+      const notes = found.map((m): BarRow => ({ key: `answer:${m.id}`, label: headedTitle(m), detail: q.found ?? "under this note", group: `${head} · notes`, data: m.id }));
+      const asTyped = notes.length ? rows.filter(r => r.detail === "as typed") : [];
+      return [...rows.filter(r => !asTyped.includes(r)), ...notes, ...asTyped];
+    });
   },
   preview(row) {
     if (waiting?.form) return kindPreviews.get(row.key) ?? (waiting.form.page ? { markdown: waiting.form.page } : null);

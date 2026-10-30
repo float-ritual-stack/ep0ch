@@ -119,10 +119,11 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
         await app.dispatch.act({ action: "ext.undo", tile: "notes" }, USER);
         expect([await collapsed("links"), await collapsed("preview")]).toEqual([false, false]);
       }
-      const refused = await press("Refused");
-      expect(refused.problem).toContain("Step 1");
-      expect(refused.result.rows).toBe(1);
-      expect(refused.problem).toContain("missing");
+      // Its first step names no tile here: refused before anything runs, in plain words (PIE-1418), and nothing folds.
+      const before = new Set(app.describe().messages.map(r => r.id));
+      await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Refused" } }, USER).catch(() => {});
+      expect(app.describe().messages.filter(r => !before.has(r.id)).map(r => r.message).join("\n")).toContain("Refused can't run here: no tile is called missing");
+      expect(await collapsed("links")).toBe(false);
       expect(await collapsed("links")).toBe(false);
       const partial = await press("Partial");
       expect(partial.problem).toContain("Step 3");
@@ -289,16 +290,18 @@ while (!(await read(this.id)).title.startsWith('Released')) await wait(20);
       await app.dispatch.act({ action: "edit", tile: "notes" }, USER);
       await app.dispatch.act({ action: "draft.place", tile: "notes", args: { line: 3, col: 1 } }, USER);
       const draft = (h.sc.tilesHere()!.pane("notes") as ReaderPane).surface.draft!;
-      for (const ch of "tile.collapse on=true tile=links") h.press({ kind: "char", ch });
+      // A value still being typed keeps its list open (a value typed whole closes it, PIE-1076): nothing chosen yet.
+      for (const ch of "tile.collapse on=true tile=link") h.press({ kind: "char", ch });
       await until(() => !!completionOf(draft)?.items.length && !completionOf(draft)!.loading, "the action completions");
+      expect(completionOf(draft)!.picked).toBeFalsy();
       h.press({ kind: "enter" });
-      expect(draft.text).toBe('Typing a button\n::button{label=Fold}\ntile.collapse on=true tile=links\n');
+      expect(draft.text).toBe('Typing a button\n::button{label=Fold}\ntile.collapse on=true tile=link\n');
       h.press({ kind: "char", ch: ":" }); h.press({ kind: "char", ch: ":" });
       await until(() => !completionOf(draft)?.loading, "the closing delimiter");
       expect(completionOf(draft)).toBeNull();
       h.press({ kind: "enter" });
       await app.dispatch.act({ action: "edit.save", tile: "notes" }, USER);
-      expect((await board.get(note.id))!.text).toBe('Typing a button\n::button{label=Fold}\ntile.collapse on=true tile=links\n::\n');
+      expect((await board.get(note.id))!.text).toBe('Typing a button\n::button{label=Fold}\ntile.collapse on=true tile=link\n::\n');
       await app.dispatch.act({ action: "edit.close", tile: "notes", args: { discard: true } }, USER);
     } finally {
       if ((h.sc.tilesHere()!.pane("notes") as ReaderPane).surface.draft) await app.dispatch.act({ action: "edit.close", tile: "notes", args: { discard: true } }, USER);

@@ -25,6 +25,7 @@ import type { Screen } from "../app";
 import type { Msg } from "../board";
 import type { Placement } from "../kitty";
 import { USER, type Actor, type OutlineEvent } from "../socket";
+import { NOBODY } from "../whereabouts";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { FramedScreen } from "../showcase/frame";
 import { C, fg, paint } from "../style";
@@ -133,6 +134,8 @@ export class ScreenTile implements Pane {
       s = specs().mountDesk({ ...this.mount, chain: desk.mountChain?.() ?? [], saved: this.saved, ...(this.label ? { label: this.label } : {}), ...(this.given ? { given: this.given } : {}) }, {
         onSave: () => this.desk?.keepLayout?.(),
         outward: (m, by, fresh) => this.openOut(m, by, fresh),
+        // Where the person is, as its frame sees it (the shell's answer through it): known before the frame is first drawn (PIE-1447).
+        where: () => this.framed?.ctx.person?.() ?? NOBODY,
       });
     } catch (e) { this.problem = e instanceof Error ? e.message : String(e); this.desk = desk; return; }
     this.given = null;
@@ -259,6 +262,8 @@ export class ScreenTile implements Pane {
   }
   /** Its desk's focused tile says a refusal of the person's key (Pane.nestsTiles) while that desk is shown; a followed screen or one pushed over it isn't a desk, so this frame does. */
   nestsTiles() { const d = this.inner; return !!d && this.framed?.top === d; }
+  /** A right-click on a tile of its desk is that tile's (its menu, a list's row): the desk inside opens it (PIE-1297). */
+  ownsRightClick() { return this.nestsTiles(); }
   /** Every key is its screen's now: it's in an edit, or the person went in. */
   holdsKeys() { return this.inside || !!this.framed?.top.holdsKeys?.(); }
   /** Programs run in it (a group's terminal): it holds work a new layout keeps. */
@@ -270,7 +275,7 @@ export class ScreenTile implements Pane {
     const d = this.inner;
     const what = { screen: this.screen, ...(Object.keys(this.args).length ? { args: this.args } : {}), ...(this.part ? { part: this.part } : {}), group: this.group, in: this.inside, title: this.title(), ...(this.problem ? { problem: this.problem } : {}) };
     if (!d) return { mount: what };
-    const l = d.layoutGet();
+    const l = full ? d.layoutGet() : d.layoutHead();
     return { mount: { ...what, ...(full ? { layout: l } : { rev: l.rev, focus: l.focus, tree: l.tree }) } };
   }
 }
@@ -283,7 +288,7 @@ export class ScreenTile implements Pane {
 export const MOUNT_ACTIONS = actionSet<KindHost>()("mount", {
   "mount.out": def({
     summary: "pop a mounted screen out to the full screen (the screen switch, over this one: q comes back to the mount where it was). The full screen is its own instance (its own layout, selection and scroll; the outline's cards are the same). A group has no screen of its own: refused",
-    keys: "^W u on a mount; a click on ▲ full on its header; its tile menu",
+    keys: [{ keys: "^W u", does: "on a mount" }, { keys: "click", does: "on ▲ full on its header" }, { via: "its tile menu" }],
     touches: "screen", replay: "ask", says: r => `popped out to the ${r.screen}`,
     menu: { label: "pop out to the full screen", group: "Mount", key: "ctrl+w u", now: ({ pane }) => ((pane as ScreenTile).group ? { hide: true } : null) },
     args: {},
@@ -291,7 +296,7 @@ export const MOUNT_ACTIONS = actionSet<KindHost>()("mount", {
   }),
   "mount.enter": def({
     summary: "go into a mounted screen (on=true): every key is its own, its ^W and Tab too, until ctrl+], an Esc with nothing left to close in it, or on=false. The person's only: an agent acts in a mount with tile=<mount>/<its tile>",
-    keys: "^W e on a mount; ctrl+] or esc comes out; a click on ⏎ in or ◄ out on its header",
+    keys: [{ keys: "^W e", does: "on a mount" }, { keys: "ctrl+] esc", does: "comes out", says: "come out of the mounted screen" }, { keys: "click", does: "on ⏎ in or ◄ out on its header" }],
     touches: "screen", replay: "safe", person: "going into a mount moves the person's keys; an agent names a tile in it instead: tile=<mount>/<tile>",
     menu: { label: "go in (its keys)", group: "Mount", key: "ctrl+w e", now: ({ pane }) => ((pane as ScreenTile).inside ? { label: "come out", args: { on: false } } : null) },
     args: { on: { type: "boolean", optional: true, about: "true goes in, false comes out; default toggles" } },

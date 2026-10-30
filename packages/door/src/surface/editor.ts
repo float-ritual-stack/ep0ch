@@ -48,6 +48,11 @@ export interface EditFrame {
   /** Where a new note lands (PIE-883: `→ Inbox › 2026-10-14`): a row of its own under the status, a click moves it. */
   lands?: string;
   /**
+   * Open work the new item looks like (PIE-1258, the service's `roadmap.items.similar`): a row of its own under the
+   * status, `looks like PIE-12 (doing) … [attach here] [file new]`, each a control. Never a block: ctrl+s files it new.
+   */
+  twin?: string;
+  /**
    * The keys are on another tile (PIE-812): the draft is left open as it was, its text drawn dim and without its cursor
    * or selection, so the tile that has the keys is the one that looks like it.
    */
@@ -75,10 +80,21 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   // Where a new note lands, under the status: the whole row is its control.
   // The destination gives way first, so [move ▸] is always there to see.
   const lands = f.lands ? (() => { const mv = "  [move ▸]", room = Math.max(1, w - mv.length), at = drawEllipsized(f.lands, room), t = `${at}${mv}`; controls.push({ row: 1 + f.status.length, from: 0, to: Math.min(w, width(t)), action: "lands" }); return [fg(C.lcyan) + pad(t, w) + RESET]; })() : [];
+  const twin = f.twin ? (() => {
+    const at = "[attach here]", nw = "[file new]", row = 1 + f.status.length + lands.length;
+    // One row where the offer fits whole beside its controls; else the offer on its own row, its Work ID first, and the
+    // controls whole under it (PIE-1439: at 40 columns the cut took the ticket it would attach to).
+    const one = width(f.twin) + at.length + nw.length + 3 <= w;
+    const said = one ? f.twin : drawEllipsized(f.twin, Math.max(1, w)), crow = one ? row : row + 1, x0 = one ? width(said) + 2 : 0;
+    controls.push({ row: crow, from: x0, to: x0 + at.length, action: "attach" }, { row: crow, from: x0 + at.length + 1, to: x0 + at.length + 1 + nw.length, action: "file-new" });
+    const ctl = fg(C.lcyan) + at + " " + nw + RESET;
+    return one ? [fg(C.yellow) + said + "  " + ctl] : [fg(C.yellow) + said + RESET, ctl];
+  })() : [];
   const top = [
     fg(C.yellow) + pad(`» ${f.title}`, tw) + ctls.map(c => " " + fg(C.lcyan) + c.text).join("") + RESET,
     ...f.status,
     ...lands,
+    ...twin,
     ...(f.by ? [fg(C.lmagenta) + pad(f.by, w) + RESET] : []),
     ...(f.context ?? []),
     rule(w),
@@ -177,7 +193,7 @@ export function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>,
  * action); on the copy control it runs the host's `copy` (`draft.copy`, to the person's clipboard); on the text it
  * puts the cursor there (`extend`: a drag, selecting from where it was). All are actions. False when the click wasn't on any.
  */
-export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void; lands?: () => void; follow?: (to?: LinkTarget) => void }, mods = 0, preview = true): boolean {
+export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void; lands?: () => void; attach?: () => void; fileNew?: () => void; follow?: (to?: LinkTarget) => void }, mods = 0, preview = true): boolean {
   const f = d.frame;
   if (!f) return false;
   const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
@@ -195,6 +211,8 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   if (ctl?.action === "copy") { on?.copy?.(); return true; }
   if (ctl?.action === "place") { on?.place?.(); return true; }
   if (ctl?.action === "lands") { on?.lands?.(); return true; }
+  if (ctl?.action === "attach") { on?.attach?.(); return true; }
+  if (ctl?.action === "file-new") { on?.fileNew?.(); return true; }
   if (ctl) { void DRAFT_ACTIONS.run("draft.preview", {}, d, actor); return true; }
   // A press starts in the text (a click beside a box drawn over the note is the note's); a drag goes on wherever it is.
   if (!extend && (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols)) return false;
@@ -209,7 +227,7 @@ export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload
   if (pop) return `${popupHint(pop)} · ctrl+s ${o.save}`;
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
   const last = d.undos.at(-1);
-  const undo = last ? ` · ctrl+z undo${last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}` : "";
+  const undo = last ? ` · ctrl+z undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}` : "";
   return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${o.follow && d.linkAtCursor() ? " · ctrl+l open link" : ""}${undo}${o.place ? ` · ctrl+o ${o.place}` : ""}${o.move ? " · ctrl+g move" : ""}${d.redos.length ? " · ctrl+y redo" : ""}${d.selection() ? " · alt+c copy" : ""} · ctrl+x ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
 }
 

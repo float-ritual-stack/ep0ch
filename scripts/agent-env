@@ -64,6 +64,15 @@ mkdir -p "${EP0CH_AGENT_TMP:-/tmp}"
 private_dir "$tmpbase"
 if [ "$mode" = clean ]; then
   bun "$here/scripts/fake-ssh-check.ts" --clean "$dir" "$tmp"
+  # A shared launcher must never point into a folder about to go (Oct 29: ~/.local/bin/claude led into sweep-a's XDG
+  # data, and every new claude on float-2 failed once it was removed). Refuse, naming the link and the fix.
+  for link in "$HOME"/.local/bin/*; do
+    [ -L "$link" ] || continue
+    case "$(readlink -f -- "$link" 2>/dev/null)" in "$dir"/*|"$tmp"/*)
+      echo "agent-env: $link points into $dir; repoint it first (claude: ln -sfn ~/.local/share/claude/versions/<version> $link), then --clean again" >&2
+      exit 2;;
+    esac
+  done
   rm -rf -- "$dir" "$tmp"
   echo "agent-env: removed $dir and $tmp"
   exit 0
@@ -82,7 +91,10 @@ settings=(EP0CH_STATE="$dir/state" EP0CH_CONTROL="$dir/control.sock" EP0CH_OUTLI
   AWS_SHARED_CREDENTIALS_FILE="$dir/xdg/config/aws-credentials" AWS_CONFIG_FILE="$dir/xdg/config/aws-config"
   # with-secrets groups (~/.config/secrets): an empty folder of its own, so a scratch host never reads a real key
   # (ranked search reads typesafe's and would call the paid API).
-  WITH_SECRETS_DIR="$dir/secrets")
+  WITH_SECRETS_DIR="$dir/secrets"
+  # Claude Code's updater installs into $XDG_DATA_HOME and repoints the shared ~/.local/bin/claude: inside here that
+  # would leave the person's launcher pointing into this folder (Oct 29). A claude started in here never updates.
+  DISABLE_AUTOUPDATER=1)
 
 if [ "$mode" = print ]; then
   for v in $(env | sed -n 's/^\(EP0CH_[A-Za-z0-9_]*\)=.*/\1/p'); do echo "unset $v"; done

@@ -19,6 +19,7 @@ import { ActionRefused, actionSet, def } from "../surface/actions";
 import { diffRows } from "../unsent";
 import { readState, writeState } from "../state";
 import { authorName, type Actor, type Change, type OutlineEvent, type SocketBoard } from "../socket";
+import type { BlockRevisionEntry, BlockRevisions } from "@ep0ch/outline-core/protocol";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
 import type { RowPress } from "../scroll";
@@ -210,11 +211,37 @@ export async function changeDiff(board: Pick<SocketBoard, "get" | "revisions" | 
   const list = await board.revisions(r.blockId);
   const after = r.revision ?? list.revision;
   const earlier = list.revisions.find(x => x.revision < after);
-  const text = async (rev: number) => rev === list.revision ? (await board.get(r.blockId))?.text ?? "" : (await board.revisionText(r.blockId, rev)).text;
-  if (r.created && !earlier) return (await text(after)).split("\n").map(l => `+ ${l}`);
+  if (r.created && !earlier) return (await textAt(board, list, after)).split("\n").map(l => `+ ${l}`);
   if (!earlier) return ["(no earlier text is kept for this note)"];
-  return diffRows(await text(earlier.revision), await text(after));
+  return (await revisionDiff(board, r.blockId, earlier.revision, after, list)).rows;
 }
+
+/** A revision's text: the note's own when it's the current one, else the service's kept text (block.revisions). */
+async function textAt(board: Pick<SocketBoard, "get" | "revisionText">, list: BlockRevisions, rev: number): Promise<string> {
+  // The note now only while it is still that revision: a save since the list was read is read by its number.
+  const now = rev === list.revision ? await board.get(list.blockId) : null;
+  return now && now.revision === rev ? now.text : (await board.revisionText(list.blockId, rev)).text;
+}
+
+/** Two of a note's revisions compared: `from`'s text against `to`'s, as diff rows (`-` only in `from`, `+` only in `to`). */
+export interface RevisionDiff { from: BlockRevisionEntry; to: BlockRevisionEntry; rows: string[]; current: number; list: BlockRevisions }
+
+/**
+ * Revision `from` against `to` (PIE-1433), or, left out, against the next revision kept after it; the newest is compared
+ * with itself (nothing after it). What-changed's `d` and the reader's revision compare share it: one diff.
+ */
+export async function revisionDiff(board: Pick<SocketBoard, "get" | "revisions" | "revisionText">, blockId: string, from: number, to?: number, list?: BlockRevisions): Promise<RevisionDiff> {
+  list ??= await board.revisions(blockId);
+  const entry = (n: number) => list!.revisions.find(x => x.revision === n);
+  const a = entry(from);
+  if (!a) throw new ActionRefused(`revision ${from} isn't kept for this note (kept: ${list.revisions.map(x => x.revision).join(", ") || "none"})`);
+  const b = to !== undefined ? entry(to) : [...list.revisions].reverse().find(x => x.revision > from) ?? a;
+  if (!b) throw new ActionRefused(`revision ${to} isn't kept for this note (kept: ${list.revisions.map(x => x.revision).join(", ")})`);
+  return { from: a, to: b, rows: diffRows(await textAt(board, list, a.revision), await textAt(board, list, b.revision)), current: list.revision, list };
+}
+
+/** A diff row's ink: `+` added, `-` taken out, the rest as it was. The what-changed list and the reader's revision compare draw with it. */
+export const diffInk = (row: string) => (row.startsWith("+") ? fg(C.lgreen) : row.startsWith("-") ? fg(C.lred) : fg(C.grey));
 
 const MAX_DIFF = 40;
 
@@ -281,10 +308,7 @@ export class WhatChangedPane implements Pane {
       const who = `${authorName(r.who)}${tag && !r.who.startsWith(tag) ? ` (${tag})` : ""}`;
       if (n === this.at) lines.push({ row: n, text: selectedRow(` ${mark} ${title} · ${who} · ${r.kind}  ${age}`, w, focused) });
       else lines.push({ row: n, text: pad(` ${isNew ? fg(C.yellow) + mark : dim(mark)} ${fg(C.lcyan)}${title}${fg(C.dark)} · ${r.agent ? fg(C.lmagenta) : fg(C.grey)}${who}${fg(C.dark)} · ${fg(C.grey)}${r.kind}  ${dim(age)}`, w) + RESET });
-      for (const d of this.diffs.get(this.keyOf(r)) ?? []) {
-        const sgr = d.startsWith("+") ? fg(C.lgreen) : d.startsWith("-") ? fg(C.lred) : fg(C.grey);
-        lines.push({ row: n, text: pad(`    ${sgr}${d}`, w) + RESET });
-      }
+      for (const d of this.diffs.get(this.keyOf(r)) ?? []) lines.push({ row: n, text: pad(`    ${diffInk(d)}${d}`, w) + RESET });
     });
     const first = lines.findIndex(l => l.row === this.at), last = lines.findLastIndex(l => l.row === this.at);
     this.view.place(first, lines.length, h, [first, last]);
@@ -354,7 +378,7 @@ const GROUP = "What changed";
 export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
   "changes.pick": def({
     summary: "pick a row of the what-changed list (n from 1, or id=<the note's id>)",
-    keys: "j k ↑ ↓, the wheel, a click",
+    keys: [{ keys: "j k ↑ ↓", does: "pick a row" }, { keys: "wheel", does: "pick a row" }, { keys: "click", does: "on a row" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's row (peek lists the rows)",
     args: which,
     examples: [
@@ -426,5 +450,5 @@ export const WHAT_CHANGED_KIND: TileKind = {
   kind: WHAT_CHANGED_KIND_NAME, previews: true, opensOnScreen: true, about: "the notes others changed since you last looked: who, when, what (from the service's change feed)", noun: "the what-changed list",
   make: () => new WhatChangedPane(), actions: WHAT_CHANGED_ACTIONS,
   peek: p => ({ whatChanged: (p as WhatChangedPane).describe() }),
-  describe: p => ({ rows: (p as WhatChangedPane).describe() }),
+  describe: (p, full) => { const rows = (p as WhatChangedPane).describe(); return full ? { rows } : { count: rows.length }; },
 };

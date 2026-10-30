@@ -1,5 +1,8 @@
 #!/usr/bin/env bun
 import { RECORD_USAGE } from "./record-cli";
+import { REVIEW_USAGE } from "./review-cli";
+import { WORK_USAGE } from "./work-cli";
+import { SEARCH_USAGE } from "./search-cli";
 // ep0ch-door: a BBS door into a pi-herdr-outliner outline, over its socket.
 import { join } from "node:path";
 import { SocketBoard } from "./socket";
@@ -14,7 +17,7 @@ import { whereCommand } from "./where";
 import { connectTarget, guardDoor, homeBase, openDoor, writeLastCall, type Door } from "./door";
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
 import { placeOf } from "./session/place";
-import { forwardTo, remoteDoor, remoteOf } from "./machine";
+import { carryDoor, forwardTo, remoteDoor, remoteOf, sshDoorArgv, sshDoorOf } from "./machine";
 import { findCommand, NOTES_USAGE, revisionsCommand, showCommand } from "./notes-cli";
 import { EXPORT_USAGE } from "./export";
 import { LIBRARY_USAGE } from "./library/cli";
@@ -73,10 +76,17 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    the outline; none is this machine (--here says so outright, over
                                    EP0CH_MACHINE and the .ep0ch's machine). The door keeps an ssh forward to that
                                    machine's outline host (~/outlines/.remote/<ssh-name>.sock), shared by
-                                   every client here and started again when it drops. EP0CH_SOCKET names
+                                   every client here and started again when it drops; a command says
+                                   "<ssh-name> via ssh" when it starts the forward (EP0CH_VERBOSE=1: every
+                                   time). EP0CH_SOCKET names
                                    a host's socket outright
   ep0ch --showcase [--reset]       every shared door part, live, on its own seeded outline of made-up notes
                                    (the same as ep0ch try --showcase); --reset reseeds it
+  ep0ch door [<ssh-name>] [<outline>]
+                                   ssh -t to the ssh door (ssh ep0ch: the login whose command is the door),
+                                   <ssh-name> default ep0ch, then this terminal back clean however it ends:
+                                   a dropped link too (mouse, the alternate screen and paste turned off), with
+                                   the command that reattaches. ssh's keepalives end a dead link in a minute
   ep0ch --remote <ssh-name> [door flags]
                                    this terminal on the door session running on that machine (ssh -t
                                    <ssh-name> ep0ch [door flags]), like herdr --remote; an outline that
@@ -140,6 +150,9 @@ ${BACKUP_USAGE}
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
 ${NOTES_USAGE}
 ${RECORD_USAGE}
+${REVIEW_USAGE}
+${WORK_USAGE}
+${SEARCH_USAGE}
 ${NEW_USAGE}
 ${VIEW_USAGE}
   ep0ch artifact put <file-or-folder> [--name <name>] [--machine <ssh-name>]
@@ -175,7 +188,7 @@ ${DOCS_USAGE}
                                    set, grant and revoke are the person's (PIE-887; ep0ch keys with no word says more)
   ep0ch machinery backfill [--ws <name>] [--apply] [--json]
                                    stamp [machine::<producer>] on what tools wrote before they stamped (file
-                                   touches, EchoNet's logs and receipts, deliveries, prior art, backup runs): a dry
+                                   touches, EchoNet's logs and receipts, deliveries, prior art, backup runs, fetched notifications): a dry
                                    run says how many; --apply stamps them (PIE-867)
   ep0ch route <note> | --all [--dry-run] [--ws <name>] [--json]
                                    route a note (an id, ((id)), [[page]] or Work ID), or every note, by the
@@ -188,10 +201,11 @@ ${DOCS_USAGE}
                                    names. A folder deleted and made again in the same place needs nothing
   ep0ch clients [--ws <name>] [--machine <ssh-name>]
                                    who is connected to the service, every role (observers too)
-  ep0ch peek [<section>] [--json] [--xray]
+  ep0ch peek [<section>] [--json] [--xray] [--full]
                                    what the door shows now: by default the compact text (where, the person, speed,
                                    and the screen as text, a few KB); --json one JSON object and nothing else (the
-                                   whole state, and the screen as "text"); a <section> (speed, person, layout, …) just that part
+                                   whole state, and the screen as "text"); a <section> (speed, person, layout, …) just that part;
+                                   the layout is in brief, as layout.get gives it: --full has each tile's whole description
   ep0ch actions | snap <png> | open <id|ep0ch://outline@machine/b/id|file:/path> [--json] | act <action> [key=value ...]
                                    drive a running door; EP0CH_CONTROL names which one, else the one on
                                    this folder's outline, else the only one running. open <id> is
@@ -214,6 +228,13 @@ ${AGENT_USAGE}
 const words = checkWords(args);
 if (words && "help" in words) { console.log(usageFor(USAGE, words.help)); process.exit(0); }
 if (words) { console.error(`ep0ch: ${words.error}`); process.exit(2); }
+// ep0ch door [<ssh-name>] [<outline>]: the ssh door's login (ssh ep0ch), carried here, and this terminal given back clean
+// however ssh ends, a dropped link included (PIE-1429, src/machine.ts).
+if (args[0] === "door") {
+  const d = sshDoorOf(args.slice(1));
+  if ("error" in d) { console.error(`ep0ch: ${d.error}`); process.exit(2); }
+  process.exit(await carryDoor(d.machine, sshDoorArgv(d.machine, d.outline), d.again));
+}
 // --remote <machine>: the door runs there; this terminal only carries it (src/machine.ts).
 // An outline the machine doesn't have is never made there without --create (PIE-545): nameRemoteOutline asks it first,
 // and the home base here offers the choices; the one on this machine opens a door here instead.
@@ -279,6 +300,9 @@ if (tryArgs) {
   process.exit(await run.exited);
 }
 if (args[0] === "record") process.exit(await (await import("./record-cli")).recordCommand(args));
+if (args[0] === "review") process.exit(await (await import("./review-cli")).reviewCommand(args));
+if (args[0] === "work") process.exit(await (await import("./work-cli")).workCommand(args));
+if (args[0] === "search") process.exit(await (await import("./search-cli")).searchCommand(args));
 if (args[0] === "find") process.exit(await findCommand(args));
 if (args[0] === "show") process.exit(await showCommand(args));
 if (args[0] === "revisions") process.exit(await revisionsCommand(args));

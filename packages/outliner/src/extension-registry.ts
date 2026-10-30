@@ -26,6 +26,8 @@ import {
   manifestSources,
 } from "./extension-manifest";
 import { userExtensionsDirectory, userExtensionsFolderInUse } from "./resource-extensions";
+import { BuiltInCopies, type CopyState } from "./extension-update";
+export { overrideWords } from "./extension-update";
 
 /**
  * The extensions an outline's service has, derived from folders (wave B of
@@ -78,6 +80,7 @@ export function extensionRoots(workspaceRoot: string | undefined): ExtensionRoot
 }
 
 export type ExtensionState = "active" | "failed" | "disabled" | "shadowed";
+
 
 /** One handler as clients see it. */
 export interface ExtensionHandlerEntry {
@@ -169,6 +172,13 @@ export interface ExtensionEntry {
   readonly held?: number;
   /** Its settings (PIE-1343): config.json's path on this host, each field its configSchema declares and its state. Added by the service; absent when it declares none. */
   readonly settings?: import("@ep0ch/outline-core/protocol").ExtensionSettings;
+  /**
+   * A copy of one of the repo's built-ins (PIE-1283): the built-in's folder, and whether this copy is current, behind it
+   * (stale) or changed here (forked). This copy is what runs: the built-in is never loaded in place.
+   */
+  readonly builtIn?: { readonly directory: string; readonly state: CopyState };
+  /** A script an extension ships (its manifest's `scripts`): the extension's id. Lists fold it under that extension. */
+  readonly partOf?: string;
 }
 
 export interface ExtensionsListResult {
@@ -230,6 +240,8 @@ interface Slot {
   /** The version served: the one just read, or the last good one when this read failed. */
   readonly serving?: LoadedExtension;
   readonly loadedAt?: string;
+  readonly builtIn?: ExtensionEntry["builtIn"];
+  readonly partOf?: string;
 }
 
 const QUIET_MS = 300;
@@ -281,6 +293,7 @@ export class ExtensionRegistry {
   private again = false;
   private signature = "";
   private watching = false;
+  private readonly copies = new BuiltInCopies(BUILT_IN_EXTENSIONS);
   generation = 0;
 
   constructor(private readonly options: ExtensionRegistryOptions) {}
@@ -362,8 +375,18 @@ export class ExtensionRegistry {
     // Script sources come first (the outline's own before an extension's); only extensions that serve as active supply scripts.
     const active = folderSlots.flatMap(slot => slot.state === "active" && slot.serving ? [slot.serving] : []);
     const slots: Slot[] = [];
-    for (const source of await this.options.sources?.(active) ?? []) slots.push(this.sourceSlot(source, now));
-    slots.push(...folderSlots);
+    // A script an extension's folder ships is part of that extension (PIE-1283): lists fold it under it.
+    const shipper = new Map(folderSlots.filter(slot => slot.state !== "shadowed").map(slot => [slot.directory, slot.id]));
+    for (const source of await this.options.sources?.(active) ?? []) {
+      const slot = this.sourceSlot(source, now);
+      const partOf = slot.script?.file ? shipper.get(slot.directory) : undefined;
+      slots.push(partOf ? { ...slot, partOf } : slot);
+    }
+    // A copy of a repo built-in says so, with its state (PIE-1283): the one copy check, extension-update.ts's.
+    slots.push(...folderSlots.map((slot) => {
+      const builtIn = slot.state === "shadowed" ? null : this.copies.of(slot.directory, slot.id);
+      return builtIn ? { ...slot, builtIn } : slot;
+    }));
     // A folder that is gone takes its last good copy with it.
     const present = new Set(slots.map((slot) => `${slot.id}\0${slot.directory}`));
     for (const key of [...this.lastGood.keys()]) if (!present.has(key)) this.lastGood.delete(key);
@@ -401,8 +424,8 @@ export class ExtensionRegistry {
       const conflict = conflicts.get(slot.id);
       return conflict ? { ...slot, error: slot.error ? `${slot.error}; ${conflict}` : conflict } : slot;
     });
-    // Its words too: a script note retitled (its summary, PIE-1284) is news to clients though its code isn't.
-    const signature = JSON.stringify(resolved.map((slot) => [slot.id, slot.directory, slot.state, slot.error ?? "", slot.serving?.stamp ?? "", slot.serving?.description ?? ""]));
+    // Its words too: a script note retitled (its summary, PIE-1284) is news to clients though its code isn't; and a copy's state against its built-in (PIE-1283).
+    const signature = JSON.stringify(resolved.map((slot) => [slot.id, slot.directory, slot.state, slot.error ?? "", slot.serving?.stamp ?? "", slot.serving?.description ?? "", slot.builtIn?.state ?? ""]));
     this.slots = resolved;
     this.bound = bound;
     this.boundAgents = agents;
@@ -549,6 +572,8 @@ export class ExtensionRegistry {
         state: slot.state,
         ...(slot.error ? { error: slot.error } : {}),
         ...(slot.loadedAt ? { loadedAt: slot.loadedAt } : {}),
+        ...(slot.builtIn ? { builtIn: slot.builtIn } : {}),
+        ...(slot.partOf ? { partOf: slot.partOf } : {}),
         ...(script ? { script: { keys: script.keys ?? [], blockId: script.blockId, line: script.line, file: script.file, code: script.code } } : {}),
         ...(serving && extension.manifest.scripts?.length ? { scripts: extension.manifest.scripts } : {}),
         runsCode: !!extension?.script || !!extension?.command || !!extension?.manifest.tiles?.length,
@@ -570,10 +595,16 @@ export class ExtensionRegistry {
         completion: serving ? this.completionOf(extension) : [],
       };
     });
+    // A shipped script's problem (a refused @name, a file that won't load) is said on its extension's row too: lists
+    // fold the script under it (PIE-1283), so its own row isn't there to say it.
+    const folded = extensions.map((entry) => {
+      const said = extensions.filter((child) => child.partOf === entry.id && child.error).map((child) => `script ${child.name ?? child.id}: ${child.error}`);
+      return said.length ? { ...entry, error: [entry.error, ...said].filter(Boolean).join("; ") } : entry;
+    });
     return {
       generation: this.generation,
       roots: this.options.roots.map((root) => ({ ...root, exists: existsSync(root.path) })),
-      extensions,
+      extensions: folded,
       resourceProviders: resourceProviderEntries(this.serving().filter((extension) =>
         (extension.manifest.handlers ?? []).some((handler) => handler.kind === "resource" && this.bound.get(handler.key)?.extension === extension))),
       tileKinds: extensions.flatMap((entry) => entry.tiles),

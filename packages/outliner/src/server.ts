@@ -27,10 +27,13 @@ import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { readNewNoteIntent } from "./note-placement";
 import { DRAFT_HOLDER_TIMEOUT_MS, DraftHolds, type DraftHold, type DraftHolderAnswer } from "./draft-patch";
 import { DraftPatchRouter, type DraftHolderAsk } from "./draft-patch-router";
+import { proposalOutcomes } from "./proposal-outcomes";
 import type { ChangeAttribution } from "./change-feed";
 import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
 import {rankSearchWithJev} from './search-ranking';
+import { deepCandidates } from './search-deep';
+import { keepSearchPick, readSearchPicked, readSearchPicks, SEARCH_PICKS_METADATA_KEY, SEARCH_TALLY_MS, SearchTallies, type SearchTally } from './search-records';
 import { blockDisplayTitle } from "./references";
 import { previewPropertyParse } from "./properties";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -56,6 +59,9 @@ import { placeOutput } from "./place";
 import { quoteInto, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate, type TemplateStampResult } from "./template-stamp";
 import { keepSuggestion, readKeep } from "./jev-suggestions";
+import type { RecordCache } from "./records";
+import { parseWorkId } from "@ep0ch/outline-core/work-ids";
+import { attachText, findTwins, recordTwin, tallyTwins, twinRefusal, writerName } from "./work-twins";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSyncs } from "./extension-sync";
 import { resourceProviderEntries } from "./extension-registry";
@@ -97,7 +103,7 @@ import {
   TUI_RESOURCE_PRESENTATION_CONTEXT,
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
-import { actionOf, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
+import { actionOf, thisTurn, WHOLE_OUTLINE_READS, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { isWatchable, QueryWatches, type WatchConnection } from "./query-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -137,6 +143,7 @@ import {
   type OutlinerChange,
   type OutlinerChangeKind,
   type MutationProvenance,
+  type VisibleBlockCollection,
   type OutlinerNavigationDispatch,
   type InternResourceReceipt,
   type OutlinerNavigationIntent,
@@ -167,7 +174,7 @@ import {
   type RenderedNote,
 } from "./types";
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
-import { ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
+import { fileStorage, ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
 import { dialsIn, localMachineAliases, localMachineName } from "./machine-name";
 import { ECHONET_MAIL_ACTIONS, putPacket, readBulletin, takePackets } from "./echonet-mail";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
@@ -305,7 +312,7 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
  */
 const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "outputs.place", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch"]);
 const EXTENSION_READS: ReadonlySet<string> = new Set([
-  "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
+  "children", "blocks.read", "blocks.context", "block.revisions", "proposals.outcomes", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "fragments.at", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
   "properties.preview", "properties.catalog", "components.schemas", "components.usage", "headings.styles", "callouts.types", "styles.list",
   "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address", "site.answer", "site.sources", "template.use", "template.props",
@@ -366,7 +373,10 @@ export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "p
  * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
  * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
  */
-const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "artifacts.show", "artifacts.list", "artifacts.versions", "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list"]);
+const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "artifacts.show", "artifacts.list", "artifacts.versions", "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list",
+  // A snapshot is a read (PIE-1091): made from the copy, downloaded once from this machine's web client, listed and
+  // revoked here; and what its pages here have in front of them. Starting a share stays the outline's own machine's.
+  "outline.snapshot", "shares.snapshot.take", "shares.snapshot.finish", "shares.list", "shares.revoke", "reader.report", "reader.view"]);
 
 export class OutlinerServer {
   private readonly mentions: MentionRepository;
@@ -380,9 +390,11 @@ export class OutlinerServer {
   /** The live drafts doors hold (PIE-501), and the requests to them waiting for an answer. */
   private readonly draftHolds = new DraftHolds();
   /** Short-lived public links (share-sessions.ts), kept in the outline's metadata. */
-  private readonly shares = new ShareSessions({ read: () => this.store.readMetadata(SHARES_METADATA_KEY), write: (value) => this.store.writeMetadata(SHARES_METADATA_KEY, value) });
+  private readonly shares: ShareSessions;
   /** What each reader of the web client has in front of them (presence, in memory). */
-  private readonly readers = new ReaderPresence();
+  private readonly readers: ReaderPresence;
+  /** A read-only copy of another machine's outline: its address on the web client, and where its shares are kept. */
+  private readonly copy?: { address: string; state: string };
   private readonly snapshots: OutlineSnapshots;
   /** `shares.start` calls waiting for their tunnel's report (`shares.tunnel`), by share id. */
   private readonly tunnelWaits = new Map<string, () => void>();
@@ -441,6 +453,33 @@ export class OutlinerServer {
   /** The host's outlines folder, when hosted: this machine's name is read from it. */
   private readonly outlinesFolder?: string;
   private readonly turns = new Turns();
+  /**
+   * The service asking itself: a job's own reads and writes (Jev's records, a search's tally, a script's calls, the
+   * in-process publisher, a write's structure check). Each request waits its turn on the loop as a client's does
+   * (Turns), so a job of many requests never holds the loop between them: a ping or a note read goes in between
+   * (PIE-1413: a backfill's keep ran ~40 of them in one go, half a second each on pie). The one way the service asks
+   * itself something that takes a turn; `handle` stays for answers that must be synchronous (a watch's evaluation,
+   * the draft router's guard).
+   */
+  private readonly own = {
+    request: async <T>(input: RequestInput | ({ action: string } & Record<string, unknown>)): Promise<T> => {
+      // A request's own reads and writes go as its asker's (a backfill's keep as the backfill's); a timer's as `own`.
+      const key = turnOwner.getStore() ?? "own";
+      await this.turns.next(input.action, key);
+      const started = performance.now();
+      const sameTurn = thisTurn();
+      const pending = this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
+      let ms = performance.now() - started;
+      const response = await pending;
+      // What it held the loop for (all of it when it never waited outside the loop): charged to whose it is, and named
+      // in a stall.
+      if (sameTurn()) ms = performance.now() - started;
+      this.turns.charge(key, ms, input.action);
+      noteWork(`${input.action} (own)`, ms);
+      if (!response.ok) throw new Error(response.error);
+      return response.result as T;
+    },
+  };
   /** Watched questions (ADR 0004): each connection's, evaluated again after changes (src/query-watches.ts). */
   readonly watches: QueryWatches;
 
@@ -459,17 +498,28 @@ export class OutlinerServer {
       /** The clock an extension's calls are told (`context.now`; tests pin a date-seeded extension's answer). */
       extensionNow?: () => number;
       /** Providers a store's own remote-entity client serves without an extension folder (a test's fixture client). */
-      resourceProviders?: readonly ResourceProviderEntry[] } = {},
+      resourceProviders?: readonly ResourceProviderEntry[];
+      /**
+       * A read-only copy of another machine's outline (outline-mirror.ts, PIE-1091): its address on this machine's web
+       * client (`float-hub@laptop`, the path a snapshot link names) and the folder beside the mirror its snapshot
+       * sessions, files and readers are kept in, shared by every process that serves the copy and every generation.
+       */
+      copy?: { address: string; state: string } } = {},
   ) {
     this.fixtureProviders = options.resourceProviders ?? [];
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
-    this.snapshots = new OutlineSnapshots(store, this.shares, join(this.stateDirectory, "snapshots"));
     this.readOnly = options.readOnly === true;
+    if (options.copy) this.copy = options.copy;
+    this.shares = new ShareSessions(this.copy ? fileStorage(join(this.copy.state, "shares.json")) : { read: () => this.store.readMetadata(SHARES_METADATA_KEY), write: (value) => this.store.writeMetadata(SHARES_METADATA_KEY, value) });
+    this.readers = new ReaderPresence(Date.now, this.copy ? fileStorage(join(this.copy.state, "readers.json")) : undefined);
+    this.snapshots = new OutlineSnapshots(store, this.shares, join(this.copy?.state ?? this.stateDirectory, "snapshots"), !this.readOnly);
     this.outlinesFolder = options.outlinesFolder;
     this.watches = new QueryWatches({
       answer: request => this.handle(request as unknown as OutlinerRequest),
       sequence: () => this.store.sequence,
-      timed: ms => noteWork("queries.changed", ms),
+      timed: ms => { noteWork("queries.changed", ms); this.turns.charge("watches", ms, "blocks.query"); },
+      // A pass waits its turn a watch at a time, behind interactive requests (PIE-1413).
+      turn: action => this.turns.next(action, "watches"),
     });
     this.workflows = new WorkflowManager(store);
     this.mentions = new MentionRepository(store,store.workspaceRoot,folder => this.folderOpensThisOutline(folder));
@@ -587,11 +637,7 @@ export class OutlinerServer {
     });
     this.scriptRuns = new ScriptRuns(store, this.extensionRegistry, this.extensionCalls.writes, {
       requireCompatibleService: async () => undefined,
-      request: async <T>(input: RequestInput): Promise<T> => {
-        const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
-        if (!response.ok) throw new Error(response.error);
-        return response.result as T;
-      },
+      request: <T>(input: RequestInput): Promise<T> => this.own.request<T>(input),
     }, changes => this.publishChanges(undefined, changes), run => this.draftPatches.scriptInverse(run), (clientId, action, args, actor, signal, meta) => {
       // The door that asked, else the only door here; none or several is refused with which there are (PIE-957).
       const doors = [...this.subscribers.values()].filter(c => c.app === "door").map(c => c.clientId);
@@ -814,8 +860,9 @@ export class OutlinerServer {
     this.stopping = false;
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
     this.hosted = true;
-    // A read-only copy runs nothing of its own: no agents answer its `@name` lines, and no extension fetches.
-    if (this.readOnly) return;
+    // A read-only copy runs nothing of its own: no agents answer its `@name` lines, and no extension fetches. Its
+    // snapshot links still end on time.
+    if (this.readOnly) { if (this.copy) this.snapshots.start(); return; }
     // The host opens each outline here, not through start(): requests a restart cut off, and `@name` lines
     // from before agent requests, are seen to the same way, once per outline.
     this.snapshots.start();
@@ -869,6 +916,7 @@ export class OutlinerServer {
   async close(): Promise<void> {
     this.artifactStore?.close();
     this.stopping = true;
+    if (this.searchTallyTimer) { clearTimeout(this.searchTallyTimer); this.searchTallyTimer = null; }
     for (const waiting of this.holderAnswers.values()) { clearTimeout(waiting.timer); waiting.reject(new Error("the service is stopping")); }
     this.holderAnswers.clear();
     this.watches.stop();
@@ -1457,6 +1505,57 @@ export class OutlinerServer {
 
   /** The `suggestions.keep` in progress (PIE-1251): the next waits for it. */
   private suggestionKeeps: Promise<void> = Promise.resolve();
+  /** What the records' writer looked up (records.ts RecordCache): the Records page and templates, kept across keeps. */
+  private recordCache: RecordCache = {};
+  /**
+   * A ranked search (or one Jev couldn't answer) counted on the day's `jev-run` (search-records.ts), after the answer
+   * has gone: one at a time, on the same turn as Jev's other records, so the day's run is made once.
+   */
+  /**
+   * The deep pass (search-deep.ts): asked when the ranked search isn't sure (or found nothing by its words), its finds
+   * added to the text's candidates and the whole ranked again, so they're scored and said as any hit is. Never throws.
+   */
+  private async deepen(query: string, ranked: GotoSearchCollection, note: { note?: { title: string; path: string } }): Promise<GotoSearchCollection> {
+    const found = await this.deepFinds(query, ranked.semantic, ranked.matches[0]?.exact, new Set(ranked.matches.map(m => m.block.id)));
+    if (!("ids" in found)) return { ...ranked, semantic: { ...ranked.semantic, deep: found } };
+    const added = this.store.searchMatches(found.ids, query), deep = { ...found.deep, found: added.length };
+    if (!added.length) return { ...ranked, semantic: { ...ranked.semantic, deep } };
+    // Jev's finds first: the "is it among these?" Noul reads the first candidates, and these are the ones it hasn't seen.
+    const again = await rankSearchWithJev(query, { ...ranked, matches: [...added, ...ranked.matches.map(({ score: _s, ...m }) => m)] }, { promptDirectory: this.promptDirectory, ...note });
+    return { ...again, semantic: { ...again.semantic, deep } };
+  }
+
+  /**
+   * The one deep pass (search-deep.ts) both searches take, `/`'s notes and `[[`'s pages (`where`): asked when the ranked
+   * search isn't sure, the ids Jev found that the words didn't (`have`), or why it wasn't asked. Counted on the day's run.
+   */
+  private async deepFinds(query: string, semantic: GotoSearchCollection["semantic"], exact: boolean | undefined, have: ReadonlySet<string>, where?: (b: Block) => boolean): Promise<{ ids: string[]; deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> } | NonNullable<GotoSearchCollection["semantic"]["deep"]>> {
+    if (query.trim().length < 3 || exact || semantic.verdict === "strong") return { status: "skipped" };
+    const found = await deepCandidates(this.store.searchPool(), query, { ...(where ? { where } : {}), jev: { promptDirectory: this.promptDirectory } });
+    if ("unavailable" in found) return { status: "unavailable", message: found.unavailable };
+    if (found.reading) this.tallySearch({ status: "ranked", model: found.reading.model, promptRevisions: found.reading.prompt, candidateCount: found.windows, ...(found.reading.usage ? { inputTokens: found.reading.usage.input, outputTokens: found.reading.usage.output } : {}) });
+    const ids = found.candidates.map(c => c.id).filter(id => !have.has(id));
+    return { ids, deep: { status: "found", windows: found.windows, found: ids.length, elapsedMs: found.elapsedMs, ...(found.reading?.usage ? { inputTokens: found.reading.usage.input } : {}) } };
+  }
+
+  private readonly searchTallies = new SearchTallies();
+  private searchTallyTimer: ReturnType<typeof setTimeout> | null = null;
+  private tallySearch(semantic: GotoSearchCollection["semantic"]): void {
+    if (this.readOnly || semantic.status === "lexical" || /busy|not configured/i.test(semantic.message ?? "")) return;
+    const tally: SearchTally = semantic.status === "ranked"
+      ? { kind: "ranked", sure: semantic.verdict ? { verdict: semantic.verdict, said: semantic.said ?? "" } : undefined, reading: { model: semantic.model ?? "unknown", prompt: semantic.promptRevisions ?? [], questions: (semantic.candidateCount ?? 0) + 1, ...(semantic.inputTokens !== undefined ? { usage: { input: semantic.inputTokens, output: semantic.outputTokens ?? 0 } } : {}) } }
+      : { kind: "unavailable" };
+    const own = this.own;
+    this.searchTallies.count(tally);
+    if (this.searchTallyTimer) return;
+    const wait = Number(process.env.OUTLINER_SEARCH_TALLY_MS ?? SEARCH_TALLY_MS);
+    this.searchTallyTimer = setTimeout(() => {
+      this.searchTallyTimer = null;
+      if (this.stopping) return;
+      this.suggestionKeeps = this.suggestionKeeps.then(() => this.searchTallies.flush(own), () => undefined);
+    }, Number.isFinite(wait) ? wait : SEARCH_TALLY_MS);
+    this.searchTallyTimer.unref?.();
+  }
 
   /**
    * Every component's schema (`components.schemas`, PIE-618): the built-ins with the outline's own styles and types among
@@ -2037,11 +2136,7 @@ export class OutlinerServer {
       const block = this.store.require(request.blockId);
       const section = replaceSectionText(block.text, request.replaceSection.heading, request.replaceSection.body, block.id);
       if (request.mutation.author === "agent" && request.allowStructural !== true) {
-        await refuseDroppedStructure({ request: async <T>(input: RequestInput): Promise<T> => {
-          const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
-          if (!response.ok) throw new Error(response.error);
-          return response.result as T;
-        } }, block, section.text);
+        await refuseDroppedStructure(this.own, block, section.text);
       }
       const { replaceSection, allowStructural, ...update } = request;
       // A save that landed during the structure check is not a no-op: the update below refuses the stale revision.
@@ -2122,7 +2217,12 @@ export class OutlinerServer {
         if (!selected) throw new Error("This block has no authored script; add [script::name] and a closed js or ts fence");
         const extension = this.extensionRegistry.extension(selected.expectedId);
         if (!extension) throw new Error(`Script ${nameOf(selected)}: ${this.extensionRegistry.list().extensions.find(e => e.id === selected.expectedId)?.error ?? "not runnable"}`);
-        const asked: ExtensionActRequest = { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(typeof request.door === "string" ? { clientId: request.door } : {}) };
+        const slots = request.slots;
+        if (slots !== undefined && (typeof slots !== "object" || slots === null || Array.isArray(slots) || Object.values(slots).some(v => typeof v !== "string"))) {
+          throw new Error("scripts.run's slots are { name: \"value\" }: each value one line of text");
+        }
+        const about = request.this === undefined ? undefined : this.store.requireActive(String(request.this)).id;
+        const asked: ExtensionActRequest = { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(about ? { blockId: about } : {}), ...(slots && Object.keys(slots).length ? { args: slots } : {}), ...(typeof request.door === "string" ? { clientId: request.door } : {}) };
         const result = await this.scriptRuns.answered(this.scriptRuns.start(extension, asked), asked);
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
@@ -2177,10 +2277,25 @@ export class OutlinerServer {
         if (request.query?.trim() && this.activeGotoRankings < 2) {
           this.activeGotoRankings++;
           try {
-            const candidates = ranked.addresses.map(address => ({ address, title: address.title.slice(0, 250), path: address.address, snippet: (this.store.get(address.blockId)?.text ?? "").slice(0, 1000), exact: address.exact }));
-            const reordered = await rankSearchWithJev(request.query, { matches: candidates, completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...(ranked.context ? { note: { title: ranked.context.title, path: ranked.context.path } } : {}) });
+            const candidate = (address: (typeof ranked.addresses)[number]) => ({ address, title: address.title.slice(0, 250), path: address.address, snippet: (this.store.get(address.blockId)?.text ?? "").slice(0, 1000), exact: address.exact });
+            const note = ranked.context ? { note: { title: ranked.context.title, path: ranked.context.path } } : {};
+            let reordered = await rankSearchWithJev(request.query, { matches: ranked.addresses.map(candidate), completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
+            // `[[` by meaning (PIE-1409): when no page its words found is sure (or none was), Jev reads every page, as
+            // `//` reads every note, and its finds are ranked with the rest.
+            if (reordered.semantic.status === "ranked" || !ranked.addresses.length) {
+              const paged = this.store.pagedBlockIds();
+              const found = await this.deepFinds(request.query, reordered.semantic, ranked.addresses[0]?.exact, new Set(ranked.addresses.map(a => a.blockId)), b => paged.has(b.id));
+              const added = "ids" in found ? this.store.pageAddressesFor(found.ids) : [];
+              if (added.length) {
+                const limit = request.limit ?? ranked.addresses.length, all = [...added.map(candidate), ...ranked.addresses.map(candidate)];
+                const again = await rankSearchWithJev(request.query, { matches: all, completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
+                // Still the request's limit: the finds take the places of the weakest.
+                reordered = { ...again, matches: again.matches.slice(0, limit), completeness: all.length > limit ? { kind: "truncated", limit } : ranked.completeness, semantic: { ...again.semantic, deep: { ...(found as { deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> }).deep, found: added.length } } };
+              } else reordered = { ...reordered, semantic: { ...reordered.semantic, deep: "ids" in found ? { ...found.deep, found: 0 } : found } };
+            }
             // A model answer cannot resurrect an address renamed or deleted while it ranked.
-            result = { addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return address; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context };
+            result = { addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return { ...address, ...(match.score !== undefined ? { score: match.score } : {}) }; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context };
+            this.tallySearch(reordered.semantic);
           } finally { this.activeGotoRankings--; }
         } else if (request.query?.trim()) {
           result.semantic = { status: "unavailable", message: "Jev busy; showing text matches" };
@@ -2194,12 +2309,18 @@ export class OutlinerServer {
     if (request.action === "tree.search") {
       try {
         if (request.semantic !== undefined && typeof request.semantic !== "boolean") throw new Error("semantic must be a boolean");
+        if (request.deep !== undefined && (typeof request.deep !== "boolean" || (request.deep && !request.semantic))) throw new Error("deep is a boolean, and asks for semantic: true too");
         if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive integer");
         let result = this.store.searchTree(request.query, request.contextBlockId, parseMachineryMode(request.machinery), request.limit);
         if (request.semantic && this.activeGotoRankings < 2) {
           this.activeGotoRankings++;
-          try { result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...(result.context ? { note: { title: result.context.title, path: result.context.path } } : {}) }); }
-          finally { this.activeGotoRankings--; }
+          const note = result.context ? { note: { title: result.context.title, path: result.context.path } } : {};
+          try {
+            result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...note });
+            // Deep (PIE-1200): when the text's candidates hold no sure answer, Jev reads the notes themselves.
+            if (request.deep === true) result = await this.deepen(request.query, result, note);
+          } finally { this.activeGotoRankings--; }
+          this.tallySearch(result.semantic);
           // A model answer cannot resurrect a deleted or edited candidate.
           result.matches = result.matches.filter(match => {
             const current = this.store.get(match.block.id);
@@ -2234,11 +2355,7 @@ export class OutlinerServer {
           if (t.quote !== undefined && t.quote !== '"' && t.quote !== "'") throw new Error(`target.quote must be " or '`);
           if (request.near !== undefined && typeof request.near !== "string") throw new Error("near must be a block id");
           if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive whole number");
-          const own = { request: async <T>(action: string, input: Record<string, unknown>): Promise<T> => {
-            const response = await this.handleAsync({ id: crypto.randomUUID(), action, ...input } as OutlinerRequest);
-            if (!response.ok) throw new Error(response.error);
-            return response.result as T;
-          } };
+          const own = { request: <T>(action: string, input: Record<string, unknown>): Promise<T> => this.own.request<T>({ action, ...input } as RequestInput) };
           const listed = this.extensionRegistry.list().completionSources;
           result = await completionRows(own, request, listed, (source, ask, signal) => this.extensionCalls.complete({
             extension: source.extension, source: source.id, query: ask.query,
@@ -2252,19 +2369,84 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
+    if (request.action === "roadmap.items.similar" || request.action === "roadmap.items.attach" || (request.action === "roadmap.items.create" && (request.author === "agent" || request.input?.new !== undefined))) {
+      // Twins at filing (PIE-1258, work-twins.ts): code finds open items like the new one, Jev reads them, code decides.
+      // An agent's create with twins is refused with the two calls; a person's never is (the door shows a hint).
+      try {
+        const own = this.own;
+        const jev = { promptDirectory: this.promptDirectory };
+        if (request.action === "roadmap.items.similar") {
+          const input = request.input;
+          if (!input || typeof input.title !== "string" || !input.title.trim()) throw new Error("roadmap.items.similar needs input: { title, body? }");
+          if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 10)) throw new Error("limit must be a whole number from 1 to 10");
+          const found = await findTwins(own, { title: input.title, ...(typeof input.body === "string" ? { body: input.body } : {}) }, { ...jev, ...(request.limit ? { limit: request.limit } : {}) });
+          // The person's check (the door asks it on ctrl+s): an offer when it found one, the tokens either way.
+          if (found.twins.length) await recordTwin(own, found, { title: input.title, outcome: "offered" });
+          else await tallyTwins(own, found);
+          const { reading, ...answer } = found;
+          return { id: request.id, ok: true, result: { ...answer, ...(reading?.usage ? { tokens: reading.usage.input } : {}) }, sequence: this.store.sequence };
+        }
+        if (this.readOnly) throw new Error("This outline is read-only.");
+        if (request.action === "roadmap.items.attach") {
+          const input = request.input;
+          if (!input || typeof input.item !== "string" || typeof input.title !== "string" || !input.title.trim()) throw new Error("roadmap.items.attach needs input: { item: <Work ID or block id>, title, body?, sourceBlockId? }");
+          const item = (parseWorkId(input.item.trim()) ? (await own.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=roadmap-item work-id=${input.item.trim()}`, limit: 1 } })).blocks[0] : this.store.get(input.item.trim()))
+            ?? (() => { throw new Error(`no roadmap item ${input.item}: attach names an open item by its Work ID (PIE-12) or block id`); })();
+          if (!item.properties.some(p => p.key === "type" && p.value === "roadmap-item")) throw new Error(`${input.item} isn't a roadmap item: attach names open work by its Work ID (PIE-12)`);
+          const stage = item.properties.find(p => p.key === "work-stage")?.value;
+          if (stage === "done" || stage === "superseded") throw new Error(`${input.item} is ${stage}: attach adds to open work, never reopens it; file it with new: true and say what it follows`);
+          const mutation = { author: request.author ?? "user", ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}) } as MutationProvenance;
+          let updated: Block | undefined;
+          for (let attempt = 0; attempt < 2 && !updated; attempt++) {
+            const now = this.store.require(item.id);
+            try { updated = await own.request<Block>({ action: "update", blockId: now.id, text: attachText(now.text, input, writerName(request.author, request.provenance)), expectedRevision: now.revision, mutation }); }
+            catch (error) { if (attempt) throw error; }
+          }
+          const workId = item.properties.find(p => p.key === "work-id")?.value ?? item.id;
+          await recordTwin(own, { candidates: [], twins: [workId], jev: "not asked: attached" }, { title: input.title, outcome: "attached", item: workId, ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}), twin: workId });
+          return { id: request.id, ok: true, result: { attached: workId, block: updated! }, sequence: this.store.sequence };
+        }
+        const { new: fileAnyway, ...input } = request.input;
+        const answer = await findTwins(own, { title: input.title, ...(input.body ? { body: input.body } : {}) }, jev);
+        const actorId = request.provenance?.actorId;
+        if (answer.twins.length && !fileAnyway && request.author === "agent") {
+          await recordTwin(own, answer, { title: input.title, outcome: "offered", ...(actorId ? { actorId } : {}) });
+          throw new Error(twinRefusal(answer, input.title));
+        }
+        if (!answer.twins.length) await tallyTwins(own, answer);
+        const beside = fileAnyway ? answer.twins : [];
+        const filed = beside.length ? { ...input, relatedTo: [...new Set([...(input.relatedTo ?? []), ...answer.candidates.filter(c => beside.includes(c.workId)).map(c => c.id)])], body: `${input.body?.trim() ? `${input.body.trim()}\n\n` : ""}Filed beside ${beside.map(w => `[[${w}]]`).join(", ")}: open work that looked like the same, filed anyway.` } : input;
+        const response = this.handle({ ...request, input: filed }, subscribedClient);
+        if (response.ok && beside.length) await recordTwin(own, answer, { title: input.title, outcome: "filed-anyway", item: (response.result as RoadmapItemCreateReceipt).workId, ...(actorId ? { actorId } : {}) });
+        return response;
+      } catch (error) {
+        if (isSqliteBusy(error)) throw error;
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
+    if (request.action === "search.picks") {
+      return { id: request.id, ok: true, result: { picks: readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)) }, sequence: this.store.sequence };
+    }
+    if (request.action === "search.picked") {
+      // PIE-1197: the row a person opened from a search, with the words, kept for the search eval's labels.
+      try {
+        if (this.readOnly) throw new Error("This outline is read-only.");
+        const pick = readSearchPicked(request as unknown as Record<string, unknown>);
+        const picks = keepSearchPick(readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)), pick);
+        this.store.writeMetadata(SEARCH_PICKS_METADATA_KEY, JSON.stringify(picks));
+        return { id: request.id, ok: true, result: { kept: picks.length }, sequence: this.store.sequence };
+      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+    }
     if (request.action === "suggestions.keep") {
       // PIE-1251: the records of what Jev said are made here, in this process, so a writer that exits after one request
       // (the Claude mod's CLI) leaves them as complete as one that waits. The records are Jev's own writes.
       try {
         if (this.readOnly) throw new Error("This outline is read-only.");
         const keep = readKeep(request.keep);
-        const own = { request: async <T>(input: RequestInput): Promise<T> => {
-          const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
-          if (!response.ok) throw new Error(response.error);
-          return response.result as T;
-        } };
+        const own = this.own;
         // One at a time: the day's run is found, made and counted by each, and two at once would make it twice.
-        const turn = this.suggestionKeeps.then(() => keepSuggestion(own, keep, this.componentSchemas().schemas));
+        // The Records page and templates are looked up once and kept (records.ts writeRecord looks again when one is gone).
+        const turn = this.suggestionKeeps.then(() => keepSuggestion(own, keep, this.componentSchemas().schemas, this.recordCache));
         this.suggestionKeeps = turn.then(() => undefined, () => undefined);
         const settled = await turn;
         return { id: request.id, ok: true, result: { settled }, sequence: this.store.sequence };
@@ -2670,6 +2852,8 @@ export class OutlinerServer {
         case "devices.add":
         case "devices.list":
         case "devices.revoke":
+        case "devices.shortcut.put":
+        case "devices.shortcut.get":
         case "web.sessions.start":
         case "web.sessions.resolve":
         case "web.sessions.list":
@@ -3205,8 +3389,11 @@ export class OutlinerServer {
         case "get":
           result = this.store.require(request.blockId);
           break;
+        case "proposals.outcomes":
+          result = proposalOutcomes(this.store, request);
+          break;
         case "block.revisions":
-          result = request.revision === undefined ? this.store.revisions(request.blockId) : this.store.revisionText(request.blockId, request.revision);
+          result = request.revision !== undefined ? this.store.revisionText(request.blockId, request.revision) : request.latest ? this.store.revisions(request.blockId, true) : this.store.revisions(request.blockId);
           break;
         case "create":
           result = this.store.create(
@@ -3722,8 +3909,13 @@ export class OutlinerServer {
           throw new Error("Artifact requests require asynchronous dispatch.");
         case "suggestions.keep":
           throw new Error("suggestions.keep requires asynchronous dispatch.");
+        case "roadmap.items.similar":
+        case "roadmap.items.attach":
+          throw new Error(`${request.action} requires asynchronous dispatch.`);
         case "completion.rows":
         case "completion.picked":
+        case "search.picked":
+        case "search.picks":
         case "quote":
           throw new Error(`${action} requires asynchronous dispatch.`);
         default: {
@@ -4282,13 +4474,7 @@ export class OutlinerServer {
    * extension sends.
    */
   private inServicePublisher(): Publisher {
-    const client: PublishClient = {
-      request: async <T>(input: RequestInput): Promise<T> => {
-        const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
-        if (!response.ok) throw new Error(response.error);
-        return response.result as T;
-      },
-    };
+    const client: PublishClient = { request: <T>(input: RequestInput): Promise<T> => this.own.request<T>(input) };
     return Publisher.inService(client, this.publisherAddress());
   }
 
@@ -4303,8 +4489,8 @@ export class OutlinerServer {
         const address = this.publisherAddress();
         const root = address.url ? new URL(address.url).pathname.replace(/\/o\/[^/]+\/?$/, "").replace(/\/+$/, "") : "/pub";
         const publicAddress = this.publisherAddress(true);
-        const name = this.outline?.name ?? basename(this.store.database.filename, ".sqlite");
-        const origin = request.webUrl ? `${new URL(request.webUrl).origin}${root}/o/${encodeURIComponent(name)}`
+        const name = this.copy?.address ?? this.outline?.name ?? basename(this.store.database.filename, ".sqlite");
+        const origin = request.webUrl ? `${new URL(request.webUrl).origin}${root}/o/${encodeURIComponent(name).replace("%40", "@")}`
           : publicAddress.publicUrl ? publicAddress.tailnetUrl ?? publicAddress.url ?? new URL(publicAddress.publicUrl).origin
           : this.snapshotAddress?.() ?? address.tailnetUrl ?? address.url;
         const result = await this.snapshots.create(request, origin);
@@ -4661,15 +4847,16 @@ export class OutlinerServer {
     return { group, values };
   }
 
-  private async respond(socket: Socket, line: string, received = performance.now()): Promise<void> {
-    const response = this.respondNow(socket, line, received);
+  private async respond(socket: Socket, line: string, received = performance.now(), key: TurnKey = socket): Promise<void> {
+    const response = this.respondNow(socket, line, received, key);
     this.responses.add(response);
     try { await response; }
     finally { this.responses.delete(response); }
   }
 
-  private async respondNow(socket: Socket, line: string, received: number): Promise<void> {
+  private async respondNow(socket: Socket, line: string, received: number, key: TurnKey): Promise<void> {
     const started = performance.now();
+    const sameTurn = thisTurn();
     let request: OutlinerRequest | undefined;
     let response: OutlinerResponse;
     let attribution: ChangeAttribution | undefined;
@@ -4717,10 +4904,11 @@ export class OutlinerServer {
         kind: requestChangeKind(current.action),
         collect: true,
       });
-      const pending = this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient, socket));
-      // What ran before the handler first waited held the loop; the waits after it didn't.
+      const pending = this.store.changes.run(attribution, () => turnOwner.run(key, () => this.handleAsync(current, subscribedClient, socket)));
+      // What ran before the handler first waited held the loop; the waits after it didn't, unless they were all in this turn.
       loopMs = performance.now() - started;
       response = await pending;
+      if (sameTurn()) loopMs = performance.now() - started;
       if (grant && response.ok && String(current.action) === "mcp.access.status") (response.result as McpAccessStatus).granted = this.grantedLevel(grant);
     } catch (error) {
       const problem = queryRequestProblem(error);
@@ -4749,7 +4937,10 @@ export class OutlinerServer {
       // The changes are durable in the feed; subscribers recover them with changes.since.
       process.stderr.write(`outliner: live event publication failed: ${error instanceof Error ? error.message : String(error)}\n`);
     }
-    if (loopWatched()) this.timeRequest(request, received, started, answered, loopMs ?? answered - started, performance.now() - answered);
+    const publishMs = performance.now() - answered;
+    // Who asked is charged what its request held the loop for (Turns): the next turn goes to someone who used it less.
+    this.turns.charge(key, (loopMs ?? answered - started) + publishMs, request?.action);
+    if (loopWatched()) this.timeRequest(request, received, started, answered, loopMs ?? answered - started, publishMs);
   }
 
   /** The host's per-request timing (loop-watch.ts): a request that took long is logged, and named in a stall. */
@@ -4813,8 +5004,18 @@ export class OutlinerServer {
           // Each request waits its turn on the loop (Turns): a burst of whole-outline reads never holds it. One that waits
           // for a script run's answer (PIE-1264) lets the next go once the run has started: the run's own calls into the
           // door that asked (`scripts.answer`, and what its action then reads) come back over this connection.
-          requestQueue = requestQueue.then(() => this.turns.next(actionOf(line))).then(() => new Promise<void>(release =>
-            void queueRelease.run(release, () => this.respond(socket, line, received)).finally(release)));
+          const key = turnKeyOf(line, socket), action = actionOf(line);
+          // A connection that closed has nobody to answer: what it left queued is dropped, never run (PIE-1413).
+          const answer = () => socket.destroyed ? undefined : this.respond(socket, line, received, key);
+          if (WHOLE_OUTLINE_READS.has(String(action))) {
+            // A whole-outline read starts after what the connection sent before it (so it sees those writes), and nothing
+            // waits for it: a door's 86 lane reads never hold its note read, its save or its draft behind them (PIE-1413).
+            const after = requestQueue;
+            void after.then(() => socket.destroyed ? undefined : this.turns.next(action, key).then(answer));
+          } else {
+            requestQueue = requestQueue.then(() => socket.destroyed ? undefined : this.turns.next(action, key)).then(() => new Promise<void>(release =>
+              void queueRelease.run(release, async () => answer()).finally(release)));
+          }
         }
         newline = buffer.indexOf("\n");
       }

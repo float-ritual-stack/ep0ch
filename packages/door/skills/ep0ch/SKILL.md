@@ -40,6 +40,7 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
     ep0ch peek                       compact: the person, speed and the screen as text (a few KB)
     ep0ch peek --json                the whole state and the screen as one JSON object, nothing else: `| jq .person`
     ep0ch peek speed                 one part of the state (speed, person, layout, drawer, …), as JSON
+    ep0ch peek layout --full         the layout with each tile whole (peek gives it in brief, as layout.get)
     ep0ch actions                    what the current screen can do, with arguments and keys
     ep0ch actions --doc <action>     one action's page: its keys, one or two real act lines, its arguments
     ep0ch act <action> [key=value…] [--as <agent-id>]
@@ -186,6 +187,9 @@ yourself (path 1): `/exit`, then `claude --continue`.
 - Your `select.copy` (and `copy`, `draft.copy`) returns the text to you and never touches the person's
   clipboard. Their mouse selection is copied when they let go (copy on select; `EP0CH_COPY_ON_SELECT=0`
   turns it off), and their `y` or cmd+c copies too.
+- Every tile keeps its own back and forward (PIE-1426): a reader's is `back`/`forward` (a preview's too: each pick,
+  open or selection wired to it is a stop), the links tile's is the person's `tile.travel` (alt+←: the notes it
+  listed before `b`). An agent's `back` is refused on the reader the person has the keys in.
 - Writes carry the revision they read; a changed note is refused, never overwritten. Read again and retry.
 - Drafts are never discarded: a refused save keeps the text; unsaved text is copied to disk on exit.
 - An agent never moves the reader the person has: `link.follow`, `element.open`, `up`, `back`, `props.follow`,
@@ -269,7 +273,10 @@ yourself (path 1): `/exit`, then `claude --continue`.
   line of only `[page::x]` is titled `x` on save, so `text="[page::2026-09-30]"` gives `2026-09-30 [page::2026-09-30]`.
 - **Search:** `search query=<words>` answers the service's ranked hits (as Goto, `/` and `((` rank them, from the desk's current note); nothing
   on screen moves. `ep0ch find <words>` is the same without a door.
-- **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,
+- **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`; each tile in brief, `full=true` for
+  its whole description: a tree's rows, a facets tile's lists), `tile.open` (never takes the person's keys, in yolo
+  too; naming neither a tile nor `where=`, one that would be too narrow beside the person's tile floats; its answer's
+  `why` says when it's narrow), `layout.move`,
   `block.mark reason=…` to ask for the person's attention. Pass `expected=<rev>` when you name by place.
   `tile.preview tile=<reader>` (`where=right|down|left|up`) opens a reader beside it where its opens land, linked in
   one step: then `link.follow tile=<reader> n=…` lands there and the reader keeps its note. Called again it answers
@@ -304,7 +311,13 @@ yourself (path 1): `/exit`, then `claude --continue`.
   looked, from the change feed. `changes.list` reads the rows (id, title, who, kind, when, seen), `changes.open` opens the
   list in their drawer behind the tab shown, `changes.go` and `changes.diff` act on a row. Marking it seen
   (`changes.seen`, and the person's own open of the list) is theirs; yours is refused and your open never clears it.
-- **The power bar** (PIE-656): the person's `ctrl+k` palette (alt+← alt+→ change scope, tab completes the line). `bar.open query=… scope=tiles|notes|actions|recent|screens`
+- **The keys window** (PIE-492): what a key does and where, and the person's keymap. `keys.open filter=<words>` opens it
+  (a `keys` tile beside the focused one on a screen of tiles, else a screen over theirs; waits as `screen.open` does); in it, `keys.find text=tile.close tile=keys` answers every binding of
+  those words with its scope, layer, what it takes the key from (`takesFrom`), what gets it first (`takenBy`) and whether
+  it can move; `keys.tab tab=unbound tile=keys` lists the actions no key reaches (`rows`). `keys.rebind id=<act line> key=<its key now> to=<new key> tile=keys` saves a rebind in
+  `keybindings.json` (said on screen; `keys.unbind`, `keys.reset id=`, `keys.undo`). Only when the person asks: it's
+  their keyboard.
+- **The power bar** (PIE-656): the person's `ctrl+k` palette (alt+← alt+→ change scope, tab completes the line; past an action's name it lists the arguments and values in place, the same rows a note's `/` line and a `::button` step get: PIE-1076). `bar.open query=… scope=tiles|notes|actions|recent|screens`
   answers what it lists (every tile on every screen and in the drawer with its depth in the tree, notes from the one
   search, actions with their keys, what changed, screens, an extension's rows) and opens nothing; `bar.pick n=… query=…`
   picks as you, through the row's own path and its rules (a tile on a screen not shown is refused). While the person's

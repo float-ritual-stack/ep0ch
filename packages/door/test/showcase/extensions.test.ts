@@ -57,7 +57,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   test("extension pages: the Extensions hub and the notifications hub's page with its demo boards, live; one installed and removed through act and the power bar's extensions scope", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
-    await until(() => screen().includes("## Installed") && screen().includes("Notifications hub") && screen().includes("A deterministic fetcher"), "the hub and notify's page", 10_000)
+    await until(() => screen().includes("## Installed") && screen().includes("Notifications hub") && screen().includes("Your GitHub notifications"), "the hub and notify's page", 10_000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     const listed = await board.listExtensions(true);
     const title = (m: { text: string }) => m.text.split("\n")[0];
@@ -83,6 +83,9 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     const done = await app.act({ action: "extensions.install", args: { id: "horoscope" }, as: "test-agent" }) as { page?: string };
     expect(title((await board.get(done.page!))!)).toBe("Horoscope [ext.page::horoscope] [page::ext-horoscope]");
     await until(() => !!extensionNamed("horoscope"), "the door bound horoscope", 5000);
+    // The status line says it by name, never a script id (PIE-1399).
+    await until(() => app.describe().messages.some(m => /extensions: .*Horoscope added/.test(m.message)), "the install said", 5000);
+    expect(app.describe().messages.filter(m => m.message.startsWith("extensions:")).map(m => m.message).join("\n")).not.toMatch(/script-[0-9a-f]{6}/);
     await expect(app.act({ action: "extensions.uninstall", args: { id: "horoscope" }, as: "test-agent" })).rejects.toThrow(/demo/);
     await app.act({ action: "extensions.uninstall", args: { id: "horoscope", demo: "keep" }, as: "test-agent" });
     expect((await board.listExtensions(true)).pages?.horoscope).toBeUndefined();
@@ -93,12 +96,16 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     const rows = await app.act({ action: "bar.open", args: { scope: "&" }, as: "test-agent" }) as { rows: { label: string; detail?: string; group?: string; chip?: string }[] };
     const groups = [...new Set(rows.rows.map(r => r.group).filter(Boolean))] as string[];
     const KIND = /^installed · (rules|components|scripts|programs|sources|agents|tiles|records|actions) · \d+$/;
-    // Each kind's group sits under installed and says its count; settings counts too; then what the repo has that isn't.
+    // Each kind's group sits under installed and says its count; then what the repo has that isn't. Settings aren't a
+    // second list of the installed ones: an extension's row says them only when they need you, its preview in words.
     expect(groups.filter(g => KIND.test(g)).length).toBeGreaterThan(1);
-    expect(groups.find(g => g.startsWith("settings"))).toMatch(/^settings · \d+$/);
+    expect(groups.filter(g => g.startsWith("settings")).every(g => /^settings that need you · \d+$/.test(g))).toBe(true);
+    for (const r of rows.rows) expect(r.detail ?? "").not.toMatch(/default settings|settings set|default: /);
     expect(groups.findIndex(g => g.startsWith("not installed"))).toBeGreaterThan(groups.findIndex(g => KIND.test(g)));
     expect(rows.rows.find(r => r.label === "Extensions")?.detail).toMatch(/\d+ of \d+ installed/);
     const listed = rows.rows.filter(r => KIND.test(r.group ?? "") || /^(settings|not installed) · /.test(r.group ?? ""));
+    // A plain install (the built-in's files, unchanged) reads as installed, never as an override (PIE-1399).
+    for (const r of listed) expect(r.detail ?? "").not.toContain("overrides the built-in (the same files)");
     // No ids, versions or paths on a row, settings' included: those are the preview's.
     for (const r of listed) expect(r.detail ?? "").not.toMatch(/ v\d|\/|script-[0-9a-f]{6}/);
     // Each row's words are its own (its manifest's summary, its note's first line, what it adds): never empty, never one phrase for every script.
@@ -174,6 +181,9 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => screen().includes("book *"), "the reading log's labelled form", 3000);
     expect(screen()).not.toContain("[form-field::");
     expect(screen()).toContain("(*) slow");
+    // Each note names its button and says where an entry lands (PIE-1442).
+    for (const said of ["Log it", "Report it", "Add it", "lands under this note", "lands under [[Repair list]]", "a line added to this note"]) expect(screen()).toContain(said);
+    expect(screen()).not.toContain("Fill in the form │");
     const click = (text: string, offset = 1) => {
       const rows = screen().split("\n"), right = rows.find(row => row.includes("2 Shed repairs"))!.indexOf("2 Shed repairs");
       const y = rows.findIndex(row => row.includes(text) && row.indexOf(text) < right);
@@ -215,14 +225,18 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => screen().includes("(*) slow"), "clicked slow radio");
     click("( ) gripping");
     await until(() => screen().includes("(*) gripping"), "clicked gripping radio");
-    click("Fill in the form │");
+    click("Log it │");
     const reading = seeded.notes.formReading.id;
     await untilAsync(async () => (await board.children(reading)).some(m => m.text === "Piranesi [book::Piranesi] [pages::272] [mood::gripping]"), "the clicked form's child").catch(async e => { throw new Error(`${e.message}\n${JSON.stringify(await board.children(reading))}\n${screen()}`); });
+    // Submitted, the form clears for the next entry (PIE-1445): a second click can't write the same book twice.
+    const bookRow = () => screen().split("\n").find(row => row.includes("│ book *")) ?? "";
+    await until(() => !bookRow().includes("Piranesi") && !screen().includes("(*) gripping"), "the form cleared after its submit").catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    expect(screen()).toContain("(*) slow");
     await app.act({ action: "form.set", tile: "reader", args: { field: "book", value: "The Dispossessed" }, as: "user" });
     await app.act({ action: "form.set", tile: "reader", args: { field: "pages", value: "341" }, as: "user" });
     await app.act({ action: "form.submit", tile: "reader", as: "user" });
     expect((await board.children(reading)).map(m => m.text)).toContain("The Dispossessed [book::The Dispossessed] [pages::341] [mood::slow]");
-    expect(screen()).toContain("Piranesi");
+    expect(bookRow()).not.toContain("Dispossessed");             // the act's submit cleared it too
     press({ kind: "esc" });
     await app.dispatch.act({ action: "edit", tile: "reader" }, USER);
     expect(screen()).toContain("[form-field::book text required]");
@@ -266,7 +280,9 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     const rows = screen().split("\n"), y = rows.findIndex(row => row.includes("│ book *"));
     const start = rows[y]!.indexOf("│", rows[y]!.indexOf("book *")) + 1;
     const shown = rows[y]!.slice(start, rows[y]!.indexOf("│", start)).trimEnd();
-    const from = answer.indexOf(shown.slice(0, 8));
+    // A box scrolled sideways starts with « (PIE-1418): the answer's text is drawn from the cell after it.
+    const lead = shown.startsWith("«") ? 1 : 0;
+    const from = answer.indexOf(shown.slice(lead, lead + 8)) - lead;
     expect(from).toBeGreaterThanOrEqual(0);
     const x = start + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y });
@@ -398,7 +414,14 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     // The repairs note asks for other fields; an agent gives them at once and is never asked, its default filled in.
     await expect(app.act({ action: "ext.form.fill", args: { block: repairs.id, with: JSON.stringify({ part: "roof" }) }, as: "test-agent" })).rejects.toThrow(/needs what=.*with=/);
     await app.act({ action: "ext.form.fill", args: { block: repairs.id, with: JSON.stringify({ part: "roof", what: "a slipped tile over the bench" }) }, as: "test-agent" });
-    expect(await kids(repairs.id)).toEqual(["a slipped tile over the bench [part::roof] [what::a slipped tile over the bench] [urgent::no]"]);
+    // The repairs note says its reports land under [[Repair list]] (PIE-1442): none under the form.
+    expect(await kids(repairs.id)).toEqual([]);
+    expect(await kids(seeded.notes.formRepairList.id)).toEqual(["a slipped tile over the bench [part::roof] [what::a slipped tile over the bench] [urgent::no]"]);
+    // The watering log adds a line to itself, from its [form-line::…].
+    const watering = seeded.notes.formWatering;
+    await app.act({ action: "ext.form.fill", args: { block: watering.id, with: JSON.stringify({ bed: "leeks", litres: "4" }) }, as: "test-agent" });
+    expect((await board.get(watering.id))!.text.split("\n").slice(-2)).toEqual(["- beans: 6 l", "- leeks: 4 l"]);
+    expect(await kids(watering.id)).toEqual([]);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
@@ -584,23 +607,23 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 
-  test("extension settings (PIE-1343): tidy's row says its default; ext.tidy.settings writes config.json and the row says set; ⏎ on the settings row opens the form filled in; intake installed, a value its schema refuses is refused, set, and uninstalled with its config", async () => {
+  test("extension settings (PIE-1343): tidy's settings row says its defaults; ext.tidy.settings writes config.json and the row says set; ⏎ on the settings row opens the form filled in; intake installed, a value its schema refuses is refused, set, and uninstalled with its config", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "ext-settings" }, as: "test-agent" })).toMatchObject({ key: "ext-settings" });
-    await until(() => screen().includes("Bare @tidy"), "tidy's page", 10_000)
+    await until(() => screen().includes("Agents can't set each other off"), "tidy's page", 10_000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     const rowOf = async (query: string) => (await app.act({ action: "bar.open", args: { scope: "&", query }, as: "test-agent" }) as { rows: { label: string; detail: string }[] }).rows;
     // Its default is said from its schema; the file is the one on the host, in the preview, not on the row (PIE-1284).
     await app.act({ action: "ext.tidy.settings", args: { answer: "" }, as: "test-agent" });
     const before = (await rowOf("settings tidy")).find(r => r.label === "settings Tidy")!;
-    expect(before.detail).toBe('default: claude -p --model haiku --tools ""');
+    expect(before.detail).toBe("its defaults");
     const file = extensionNamed("tidy")!.settings!.file;
     expect(file).toEndWith("/tidy/config.json");
     // An agent sets it by name; the file says so and the row moves to set.
     await app.act({ action: "ext.tidy.settings", args: { answer: "claude -p --model sonnet" }, as: "test-agent" });
     expect(JSON.parse(readFileSync(file, "utf8")).config.answer).toEqual(["claude", "-p", "--model", "sonnet"]);
     await until(() => extensionNamed("tidy")?.settings?.state === "set", "the door read tidy's settings again", 5000);
-    expect((await rowOf("settings tidy")).find(r => r.label === "settings Tidy")!.detail).toStartWith("settings set");
+    expect((await rowOf("settings tidy")).find(r => r.label === "settings Tidy")!.detail).toBe("set");
     // The person's ⏎ on the settings row opens the action form, its field filled with what's set.
     const asked = () => { const b = app.bar; return b && !b.ended() && b.scope === "ask" ? b.items.map(i => `${i.row.group} = ${i.row.label}`).join("\n") : ""; };
     await app.dispatch.press("bar.open", { scope: "&", query: "settings tidy" });

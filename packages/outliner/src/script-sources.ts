@@ -105,7 +105,9 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
       configRaw: "{}", scriptName: name, script, stamp: scriptStamp(script),
     });
   };
-  for (const id of draft ? [draft.blockId] : store.blocksContaining("", -1)) {
+  // Only a note that says `script` (its `[script::…]`, in any case, or a fence's `script=`) can hold one: the rest are never
+  // read, so a reload is a moment however big the outline (PIE-1413: every note's fences, ~0.5 s on pie, on the loop).
+  for (const id of draft ? [draft.blockId] : store.blocksContaining("script", -1, 0, true)) {
     const saved = store.get(id)!;
     const block = draft ? { ...saved, text: draft.text, properties: parsePropertyRecords(draft.text).filter(p => p.scope === "block") } : saved;
     const lines = block.text.split("\n");

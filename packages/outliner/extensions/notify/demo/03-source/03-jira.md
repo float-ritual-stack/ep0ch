@@ -1,1 +1,1 @@
-Jira [type::virtual-branch] [query::notify.source=jira] [sort::notify.received] [direction::desc]
+Jira [type::virtual-branch] [query::notify.source=jira] [machinery::show] [sort::notify.received] [direction::desc]

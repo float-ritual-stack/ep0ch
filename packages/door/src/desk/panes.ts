@@ -1,3 +1,4 @@
+import { holdsEdit } from "../whereabouts";
 import type { LineField } from "../surface/line";
 import type { ModeKey } from "../surface/modes";
 import { outlineBoards, type NoteAddress } from "./outline-boards";
@@ -21,7 +22,7 @@ import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
-import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList, type Trail, type TrailStop } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, ago, wrap } from "../text";
@@ -36,6 +37,8 @@ export interface PaneView { frame?: Rect; headerBand?: { row: number; rows: numb
 
 export interface DeskApi {
   ctx: Ctx;
+  /** The screen this desk is (the Desk itself): what a reader's edit lists its actions for (PIE-1439). */
+  screen?(): import("../app").Screen;
   /** The look (PIE-673) the desk resolved for tile `p` as it drew it last: its spacing, list density and where each comes from. */
   lookOf?(p: Pane): Look | undefined;
   /** What the tune inspector sees of tile `name`: its look, kind, title, content width, and in a reader the `::box` its `[ ]` is in. */
@@ -49,6 +52,8 @@ export interface DeskApi {
    * glides, PIE-958). A terminal keeps the size its program has then; it is told the one it ends at, once.
    */
   holdsSize?(p: Pane): boolean;
+  /** Whether tile `p` is in the frame drawn lately; undefined while nothing has been drawn (a headless desk). */
+  shows?(p: Pane): boolean | undefined;
   current: Msg | null;
   /** `link`, `fresh`, `agent`: how a reader opened it (OpenHow, PIE-441), for where it goes. */
   setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false } & OpenHow): void;
@@ -60,14 +65,18 @@ export interface DeskApi {
   /** The layout permits closing this tile, including the container that keeps it. */
   canClose?(p: Pane): boolean;
   holdReader?(pane: ReaderPane, actor: Actor): void;
-  /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it is newer. */
+  /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it has nothing of its own. */
   layoutUndoSeq?(): number | undefined;
+  /** Bring back the note the person trashed last on `board` (note.untrash), for a reader's ctrl+z; false for another outline's board. */
+  untrash?(board: object): boolean;
   /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
   summaryKeys?(m: Msg): readonly string[] | null;
   /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
   startSession?(pane: ReaderPane, kind: SessionKind, opener?: Key): void;
   /** The tile named `name` on this screen. */
   paneNamed?(name: string): Pane | undefined;
+  /** The person's new note (a quote, PIE-1184) opened to write in where their new notes open, lit as arrived: its reader. */
+  writeFrom?(from: ReaderPane, m: Msg): Promise<{ tile: string; pane: ReaderPane } | null>;
   /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended). */
   dismiss?(p: Pane): void;
   /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
@@ -78,8 +87,13 @@ export interface DeskApi {
   listPreviewTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   hasEditPreviewTile?(r: ReaderPane): boolean;
   editPreviewTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
+  /** Tile `p`'s attachment `attachment` (a facets tile's Matches, PIE-1443) in a tile of its own beside it (`on`), or that tile closed. */
+  attachedTile?(p: Pane, attachment: "matches", on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
+  hasAttachedTile?(p: Pane, attachment: "matches"): boolean;
   hasSourcesTile?(r: ReaderPane): boolean;
   sourcesTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
+  /** Reader `r`'s trail in a tile beside it (PIE-1425), or the one already open with the keys back in it; null when the layout can't place one. */
+  trailTile?(r: ReaderPane): Promise<unknown>;
   composerTile?(r: ReaderPane, on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Reader `r`'s comment tile is open. */
   hasComposerTile?(r: ReaderPane): boolean;
@@ -111,6 +125,8 @@ export interface DeskApi {
   tileShowing?(name: string): Msg | null;
   /** A selection moved in `from`: the previews following it and its link show `m`; the current note stays. */
   showFrom?(from: Pane, m: Msg, by?: Actor): void;
+  /** Whether the previews tile `from`'s selection goes to all show nothing yet (a list given the keys fills only those, PIE-1426). */
+  previewsEmpty?(from: Pane): boolean;
   /**
    * Run an action as `by`, in tile `tile` (or the action's own default): the person's as their key does, an agent's as
    * its `act` does, a refusal said either way. A tile kind's code reaches another action (the brief steps to a day) by it.
@@ -124,7 +140,7 @@ export interface DeskApi {
   /** The tile `p`'s opens land in (its link, or its container's opens-into), if any. */
   linked?(p: Pane): Pane | undefined;
   /** The actor rule for a step that moves the person's screen on the way (an open that steps the brief): why not, or null. */
-  ruleFor?(touches: "tile" | "screen", actor: Actor): string | null;
+  ruleFor?(touches: "tile" | "screen", actor: Actor, at?: { tile?: string; label?: string; way?: string; host?: true; action?: string }): string | null;
   /** The keys to tile `p`, as `tile.focus` gives them; an agent's never moves them. */
   focusPane?(p: Pane, actor: Actor): void;
   /** The person's keys are held here right now (typing, a picker, a ^W chord): a screen's own key waits. */
@@ -143,6 +159,8 @@ export interface DeskApi {
   askFollow?(p: ReaderPane): void;
   /** Where back (-1) or forward (1) from tile `p`'s column of a flow goes: that column's tile's title, or null. */
   travelPeek?(p: Pane, dir: -1 | 1): string | null;
+  /** Every column back and forward from tile `p`'s along its flow's trail, nearest first (PIE-208), or null outside a flow. */
+  travelTrail?(p: Pane): { back: TrailStop[]; forward: TrailStop[] } | null;
   /** Run an action as `by` in tile `p` through the screen's dispatcher, its refusal thrown (what an agent's `act` does). */
   within?(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown>;
   /** The person's key running a screen action in tile `p` (a refusal said, as any key's). */
@@ -167,7 +185,7 @@ export interface DeskApi {
    * The person's backlinks (`b`): tile `p` lists the backlinks of `m` (else of the note the reader they read through
    * shows), following the reader that shows it; its dock slides open and their keys go to it.
    */
-  aimBacklinks?(p: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null, given?: ReaderPane, actor?: Actor): Promise<void>;
+  aimBacklinks?(p: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void>; showSelected?(desk: DeskApi, actor: Actor): void }, m: Msg | null, given?: ReaderPane, actor?: Actor): Promise<void>;
   /**
    * The links of reader `r`'s note (`b`, the note action `links`): the screen's links tile aims at it, or, on a
    * screen without one, a links tile opens below the reader with a preview following it. The person's keys go to
@@ -207,6 +225,18 @@ export interface Pane {
   hint(): string;
   /** The note the tile points at (a reader's note, a list's or the tree's selected row): what `note.trash` takes by default. Null: none. */
   subject?(): string | null;
+  /**
+   * The note it points at for copying its address (`note.copy-ref`), with its outline when that's another's (a links
+   * tile on another outline's note, an EchoNet area's messages). Left out: `subject`, in this door's outline.
+   */
+  noteAt?(): { id: string; address?: import("./outline-boards").NoteAddress } | null;
+  /**
+   * Its back and forward (PIE-1426): what it showed before, whichever tile or key changed it. A reader's is its surface's
+   * stacks (PIE-453); the links tile's, the notes it listed. `tile.travel` walks it, the trail lists it.
+   */
+  readonly trail?: TileTrail;
+  /** The scope its keys run in now (`?` opens the keys window on `in:<it>`, PIE-1425); left out, its kind's action set's. */
+  keysScope?(): string;
   /** `typing`: the person is typing in it (a terminal shows its cursor then). */
   render(w: number, h: number, focused: boolean, desk: DeskApi, typing?: boolean): PaneView;
   /** Return true when the pane used the key. */
@@ -241,6 +271,8 @@ export interface Pane {
   mouse?(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean;
   /** A right-click at x, y is its own (a program that asked for the mouse, a reader's step box): the tile's menu doesn't open there. */
   ownsRightClick?(x: number, y: number): boolean;
+  /** A right-click at x, y, before its menu opens: what's under it becomes the selection and nothing runs (a reader's button); null when nothing there is. */
+  pointAt?(x: number, y: number, desk: DeskApi): Promise<unknown> | null;
   /** The tile it follows selected `m` (a preview): it shows it. */
   follow?(m: Msg | null, desk: DeskApi): void;
   /** The terminal tile it follows is on file `path` now (nvim changed buffer). */
@@ -324,16 +356,41 @@ export type FollowMode = "follows" | "held" | "pinned";
  * A reader is a note surface (src/surface/note.ts) hosted in a pane: the surface shows, edits and
  * comments on the note; the reader adds pinning and tells the desk or board when a link is followed.
  */
+/**
+ * A tile's own back and forward (Pane.trail): what it shows now and the stops each way, nearest first (the trail tile and
+ * the trail list draw it, `trailRows`), and a walk of `steps` stops. Null when it went, else why not.
+ */
+export interface TileTrail {
+  stops(): Trail;
+  go(dir: -1 | 1, steps: number, desk: DeskApi, actor: Actor): Promise<string | null>;
+}
+
 export class ReaderPane implements Pane {
   readonly kind: TileKindName = "reader";
   readonly measured = true;
   protected readonly ownSurface = new NoteSurface();
   get surface() { return this.ownSurface; }
+  /**
+   * Its back and forward are its surface's (PIE-453), the same the trail lists; a walk is the reader's own `back` or
+   * `forward` action (its unsent-comment ask, its agent rules and its say-so stay theirs).
+   */
+  readonly trail: TileTrail = {
+    stops: () => this.surface.trailOf(),
+    go: async (dir, steps, desk, actor) => {
+      const run = desk.within ?? desk.perform;
+      if (!run) return "this screen can't run the reader's back";
+      await run.call(desk, dir < 0 ? "back" : "forward", { steps }, actor, this);
+      return null;
+    },
+  };
   gutterCols = 0;
   innerFrame?: Rect;
   heroBounds?: { col: number; row: number; cols: number };
-  /** The margin's side column, when the note has cards (ADR 0004 contract 6): the measure keeps room for it. */
-  beside() { return this.surface.marginBeside() + (this.surface.previewPoint() ? 72 : 0); }
+  /**
+   * The margin's side column, when the note has cards (ADR 0004 contract 6): the measure keeps room for it; and the
+   * split beside the note for a list's children or a revision compare (PIE-1433), so a wide tile puts it beside the text.
+   */
+  beside() { return this.surface.marginBeside() + (this.surface.previewPoint() || this.surface.revisionMode ? 72 : 0); }
   private held = false;
   /**
    * `follows`: this reader has a mode (PIE-705): it follows the view's current note, is held on the note it shows, or is
@@ -391,7 +448,7 @@ export class ReaderPane implements Pane {
    */
   async setMode(mode: FollowMode | undefined, desk: DeskApi, page?: string): Promise<{ mode: FollowMode; page?: string; held: boolean }> {
     if (!this.follows) throw new ActionRefused("this reader keeps its own way of showing a note; it has no mode to switch");
-    if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
+    if (this.editing) throw new ActionRefused(holdsEdit("the reader"));
     const next = mode ?? (this.followMode === "follows" && !desk.followSource?.(this) ? "held" : "follows");
     const gen = ++this.modeGen;
     // A mode chosen is the reader's own way again: a tile it followed (reader.follow source=<tile>) lets go of it, once
@@ -402,7 +459,7 @@ export class ReaderPane implements Pane {
       if (!name) throw new ActionRefused(`${this.msg ? "that note has no page to pin to" : "nothing to pin yet"} · name one: act reader.mode mode=pinned page=<name>`);
       const r = await this.context(desk).board.resolvePage(name);
       if (r.status !== "resolved" || !r.block) throw new ActionRefused(`no page ${name} in this outline to pin to`);
-      if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
+      if (this.editing) throw new ActionRefused(holdsEdit("the reader"));
       if (gen !== this.modeGen) throw new ActionRefused("the reader's mode changed again while the page was looked up; nothing was pinned");
       letGo();
       this.held = this.follows; this.pinPage = name; this.pageNote = r.block.id;
@@ -442,6 +499,8 @@ export class ReaderPane implements Pane {
     return this.msg ? ["detail", st].filter(Boolean).join(" · ") : "detail · empty";
   }
   hint() { return this.surface.hint(this.follows ? (this.holding ? "p follow · " : "p hold · ") : ""); }
+  /** A reader's keys are its note's (NOTE_ACTIONS). */
+  keysScope(): string { return NOTE_ACTIONS.scope; }
   /**
    * The frame and policy panel share the words for the reader's state.
    */
@@ -490,6 +549,7 @@ export class ReaderPane implements Pane {
       heroBounds: this.heroBounds,
       innerFrame: this.innerFrame,
       ctx: this.context(desk),
+      screen: () => desk.screen?.(),
       contextFor: m => {
         this.noteAddress = m?.address;
         this.outlineCtx = m?.address ? outlineBoards(desk.ctx).peek(m.address) : undefined;
@@ -503,8 +563,11 @@ export class ReaderPane implements Pane {
       enterMode: () => desk.enterSession?.(pane),
       redraw: () => desk.redraw(),
       ...(desk.historyLanded ? { historyLanded: (by: Actor) => desk.historyLanded!(this, by) } : {}),
+      // The trail (PIE-208) opens as a list over the screen this reader is on.
+      ...(desk.overlay ? { overlay: (p: ListPicker<any, any>) => desk.overlay!(p) } : {}),
       ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
       ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),
+      ...(desk.untrash ? { untrash: (board: object) => desk.untrash!(board) } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): a held reader with no
       // link replaces its own note and moves nothing else; a following one moves the current note; alt+⏎ opens beside.
       navigate: (m, how) => { m.address ??= this.noteAddress; desk.setCurrent(m, { reveal: true, from: this, ...how }); },
@@ -521,11 +584,16 @@ export class ReaderPane implements Pane {
       // Its look (PIE-673), as the desk resolved it for this tile: margin, list density, heading spacing.
       get look() { return desk.lookOf?.(pane); },
       startSession: desk.startSession ? (kind, opener) => desk.startSession!(this, kind, opener) : undefined,
+      ...(desk.writeFrom ? { writeNew: async (m: Msg) => {
+        const at = await desk.writeFrom!(this, m);
+        return at ? { tile: at.tile, surface: at.pane.surface } : null;
+      } } : {}),
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
       ...(desk.answerTile ? { answerTile: (ask: string, actor: Actor, fold?: string) => desk.answerTile!(this, ask, actor, fold) } : {}),
       hasWiredPreview: () => !!desk.hasWiredPreview?.(this),
       ...(desk.listPreviewTile ? { hasListPreviewTile: () => !!desk.hasListPreviewTile?.(this), listPreviewTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.listPreviewTile!(this, on, side) } : {}),
       ...(desk.editPreviewTile ? { hasEditPreviewTile: () => !!desk.hasEditPreviewTile?.(this), editPreviewTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.editPreviewTile!(this, on, side) } : {}),
+      ...(desk.trailTile ? { trailTile: () => desk.trailTile!(this) } : {}),
       ...(desk.sourcesTile ? { hasSourcesTile: () => !!desk.hasSourcesTile?.(this), sourcesTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.sourcesTile!(this, on, side) } : {}),
       ...(desk.composerTile ? { composerTile: (on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down") => desk.composerTile!(this, on, keys, side), hasComposerTile: () => !!desk.hasComposerTile?.(this) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
@@ -557,8 +625,22 @@ export class ReaderPane implements Pane {
   refresh(m: Msg) { this.surface.refresh(m); }
   /** Read its note again (NoteSurface.reread: one read at a time, a draft only marked). */
   reread(desk: DeskApi) { this.surface.reread(this.host(desk)); }
+  /**
+   * Why it won't take note `m` now: it holds an edit or a comment on another (PIE-761). The one answer (PIE-1294): every
+   * screen that shows a note in a reader asks this, or `showOr`, and says these words; null when it would.
+   */
+  keepsOff(m: Msg | null, label = this.detailLabel() ?? "the reader"): string | null {
+    return this.editing && m?.id !== this.msg?.id ? holdsEdit(label) : null;
+  }
+  /** Show `m`, or say why not (`keepsOff`). */
+  showOr(m: Msg | null, desk: DeskApi, label?: string): string | null {
+    const no = this.keepsOff(m, label);
+    if (no) return no;
+    this.show(m, desk);
+    return null;
+  }
   show(m: Msg | null, desk: DeskApi) {
-    if (this.editing && m?.id !== this.msg?.id) return false;
+    if (this.keepsOff(m)) return false;
     const host = this.host(desk);
     const shown = this.surface.show(m, { ...host, ctx: host.contextFor!(m) });
     // The history a saved layout brought (PIE-643) is taken up with the note it was saved on (`wantNote`).
@@ -685,6 +767,7 @@ export class ReaderPane implements Pane {
    * above (with `open` as there); a drag selects text instead, and never copies it.
    */
   ownsRightClick(x: number, y: number): boolean { return this.surface.ownsRightClick(x, y); }
+  pointAt(x: number, y: number, desk: DeskApi): Promise<unknown> | null { return this.surface.pointAt(x, y, this.host(desk)); }
   press(x: number, y: number, desk: DeskApi, shift = false, keepCursor = false) { this.surface.press(x, y, this.host(desk), shift, keepCursor); }
   drag(x: number, y: number, desk: DeskApi) { this.surface.drag(x, y, this.host(desk)); }
   release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void, focusing = false): boolean {
@@ -882,7 +965,7 @@ export class ArtPane implements Pane {
 export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi; standing: boolean }>()("activity", {
   "activity.pick": def({
     summary: "pick a row of the activity tile (last callers, live): n from 1, else the selected one; open=true makes its note the current one, as ⏎ does. An agent's pick answers the row and moves nothing of the person's",
-    keys: "j k ↑ ↓ click wheel, ⏎ (open)",
+    keys: [{ keys: "j k ↑ ↓", does: "a row" }, { keys: "click wheel", does: "a row" }, { keys: "⏎", does: "open", says: "open the picked row of the activity tile" }],
     touches: "nothing", replay: "safe", says: r => (r.opened ? `opened ${String(r.title)}` : null),
     args: { n: { type: "number", optional: true, about: "the row, from 1" }, open: { type: "boolean", optional: true, about: "make its note the current one, as ⏎ does" } },
     examples: [
@@ -913,7 +996,7 @@ const DETACH_WHERE = ["left", "right", "up", "down", "tabs", "edge-left", "edge-
 export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("reader", {
   "element.detach": def({
     summary: "detach a part of the reader's note (PIE-1247): the figure, callout, list item or paragraph at line= (from 1; default the current element, else the top row read), or anchor=, becomes a block of its own under the .detached page that embeds it (!((note^anchor)), its anchor written if it had none) and opens in a tile of its own with no header, where= beside this reader (or to=<tile>). From then on it's an ordinary note: it outlives this tile, and the part's note lists it among its backlinks by the anchor",
-    keys: "alt+D in a reader; alt+drag a part out of the reader onto a tile's side, its header or the screen's edge",
+    keys: [{ keys: "alt+D", does: "in a reader" }, { keys: "alt-drag", does: "a part out of the reader onto a tile's side, its header or the screen's edge" }],
     touches: "screen", replay: "ask",
     menu: { label: "detach this part", group: "Reader", key: "alt+D", now: ({ pane }) => (!pane.msg ? { refused: "nothing in that reader to detach" } : null) },
     args: {
@@ -940,7 +1023,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
   }),
   "element.quote": def({
     summary: "put a part of the reader's note into another note (PIE-1247), as the alt+drag's drop does: the part at line= (from 1; default the current element) or anchor= goes into=<note> (an id, ((id)) or [[page]]) after its line at= (from 1; a part there, a figure or a callout, after the whole of it), as a reference (!((note^anchor)) for a figure or callout, ((note^anchor)) for a list item or paragraph; its anchor written if it had none) or, copy=true, its own lines (a figure with its query, which then answers for the note it's in). Through draft.patch: an edit open there takes it in place",
-    keys: "alt+drag a part onto another reader's note, then choose reference or copy",
+    keys: [{ keys: "alt-drag", does: "a part onto another reader's note, then choose reference or copy" }],
     touches: "draft", draft: "write", replay: "ask",
     args: {
       into: { type: "string", optional: false, kind: "note", about: "the note it goes into: an id or ((id))" },
@@ -980,7 +1063,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     summary: "what a reader (tile=<its name>) follows: source=current (the current note, as it changes), source=<tile> (a tile with a selection: the tree, a links tile, another reader; a link with the preview role, alt+l's, saved with the layout) or source=none (held on its note). Left out, opens the policy panel: Shows changes between shows the current note and stays put; a lock pins it to a page",
     keys: "P or a click on the state chip opens the policy panel",
     touches: "tile", replay: "safe", way: "an agent sets what a reader follows when the person isn't in it", says: r => (r.asked ? null : r.source === "current" ? "set the reader: shows the current note" : r.source === "none" ? "set the reader: stays put" : `set the reader to show ${r.source}'s selection`),
-    menu: { label: "shows…", group: "Reader", key: "P", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : null) },
+    menu: { label: "shows…", group: "Reader", key: "P", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: holdsEdit("the reader") } : null) },
     args: { source: { type: "string", optional: true, kind: "tile", choices: ["current", "none"], about: "current, none, or a tile's name (a tree, a links tile, a reader); left out, the policy panel (the person's)" } },
     examples: [
       { act: "reader.follow tile=reader source=tree", does: "the reader shows whatever the tree's selection is on" },
@@ -998,7 +1081,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
         return { source };
       }
       if (!desk.followFrom) throw new ActionRefused("this screen has no tiles to follow");
-      if (pane.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
+      if (pane.editing) throw new ActionRefused(holdsEdit("the reader"));
       // Checked before anything changes: a refused source leaves the reader as it was.
       const why = desk.followRefusal?.(pane, source, actor);
       if (why) throw new ActionRefused(why);
@@ -1009,9 +1092,9 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
   }),
   "reader.mode": def({
     summary: "set how a reader (tile=<its name>, any reader, a detail too) shows notes: mode=follows (the current note, as it changes), held (the note it shows; the current note doesn't move it) or pinned (a page's note, shown again each time it starts; page=<name>, left out the page the shown note has); left out, p's toggle: follows to held, anything else back to following. Said on screen when an agent does it",
-    keys: "p; P then enter or space on Shows changes the state, or click its row; the page lock pins it",
+    keys: [{ keys: "p", does: "pick the mode" }, { keys: "P then ⏎ space", does: "on Shows changes the state" }, { keys: "click", does: "its row" }, { via: "the page lock pins it" }],
     touches: "tile", replay: "safe", way: "an agent sets a reader's mode when the person isn't in it", says: r => `${r.mode === "follows" ? "set the reader: shows the current note" : r.mode === "pinned" ? `locked the reader: stays put on [[${r.page}]]` : "set the reader: stays put"}`,
-    menu: { label: "stays put on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : pane.followMode !== "follows" ? { label: "shows the current note" } : null) },
+    menu: { label: "stays put on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: holdsEdit("the reader") } : pane.followMode !== "follows" ? { label: "shows the current note" } : null) },
     args: {
       mode: { type: "string", optional: true, choices: FOLLOW_MODES, about: "follows, held or pinned; left out, the other of follows and held" },
       page: { type: "string", optional: true, implies: [{ mode: "pinned" }], about: "mode=pinned: the page's name (`[[name]]`); left out, the shown note's own page" },

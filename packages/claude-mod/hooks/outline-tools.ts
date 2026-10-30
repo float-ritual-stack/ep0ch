@@ -128,14 +128,16 @@ export const DOOR_TOOLS: readonly DoorToolDefinition[] = [
     description:
       'What the door shows the person now (ep0ch peek): by default the compact text, a few lines of state (where, ' +
       'the person, the door\'s speed) and the screen as text, a few KB. `full: true` is the whole structured state as ' +
-      'well (ep0ch peek --json: layout, drawer, tiles, hundreds of KB); `section` is one top-level part of it ' +
-      '(speed, person, layout, drawer, state, …). Only reads.',
+      'well (ep0ch peek --json: layout, drawer, state, tens of KB); `section` is one top-level part of it ' +
+      '(speed, person, layout, drawer, state, …). Each tile is in brief, as layout.get gives it; `tiles: "full"` has ' +
+      'each whole (ep0ch peek --full: its lists, hundreds of KB). Only reads.',
     inputSchema: {
       type: 'object',
       properties: {
         full: { type: 'boolean', description: 'The whole structured state and the screen text, not the compact text.' },
         section: { type: 'string', description: 'One part of the state, e.g. speed, person, layout, drawer, state, text.' },
         xray: { type: 'boolean', description: 'Include every visible tile controls as hint-card rows (the whole state, as full).' },
+        tiles: { type: 'string', enum: ['brief', 'full'], description: 'Each tile in the layout and state: in brief (the default, as layout.get) or whole (its lists too).' },
       },
       additionalProperties: false,
     },
@@ -221,12 +223,14 @@ export type PeekCall = { argv: string[]; reads: 'text' | 'section' | 'full' }
 export function peekArgv(input: Json): PeekCall | string {
   const section = typeof input.section === 'string' ? input.section.trim() : ''
   if (section && !/^[A-Za-z][A-Za-z0-9_-]*$/.test(section)) return 'section is the name of one part of the state: speed, person, layout, drawer, state, text.'
+  // Each tile whole (`--full`), not in brief: what the JSON says, so not with the compact text.
+  const whole = input.tiles === 'full' ? ['--full'] : []
   if (section) {
     if (input.full === true || input.xray === true) return 'section is one part of the state; full and xray are the whole of it: give one or the other.'
-    return { argv: ['ep0ch', 'peek', section], reads: section === 'text' ? 'text' : 'section' }
+    return { argv: ['ep0ch', 'peek', section, ...(section === 'text' ? [] : whole)], reads: section === 'text' ? 'text' : 'section' }
   }
-  const full = input.full === true || input.xray === true
-  return { argv: ['ep0ch', 'peek', ...(full ? ['--json'] : []), ...(input.xray === true ? ['--xray'] : [])], reads: full ? 'full' : 'text' }
+  const full = input.full === true || input.xray === true || whole.length > 0
+  return { argv: ['ep0ch', 'peek', ...(full ? ['--json'] : []), ...(input.xray === true ? ['--xray'] : []), ...whole], reads: full ? 'full' : 'text' }
 }
 
 /**
@@ -323,7 +327,8 @@ export function droppedNote(tool: ToolWithSchema, dropped: readonly string[]): s
 }
 
 /** What a plugin tool event carries besides the tool's arguments. */
-const EVENT_KEYS = ['tool', 'tool_use_id', 'toolUseId', 'type', 'hook_event_name', 'session_id', 'cwd', 'agentId', 'agent_id', 'agentType', 'agent_type'] as const
+/** The keys an event carries beside a tool's own arguments (the envelope), never the tool's input. */
+export const EVENT_KEYS = ['tool', 'tool_use_id', 'toolUseId', 'type', 'hook_event_name', 'session_id', 'cwd', 'agentId', 'agent_id', 'agentType', 'agent_type'] as const
 
 /** `show`: opens a note for the person (the mod's own handler, hooks/register.ts). */
 export const SHOW_TOOL: ToolWithSchema & { description: string } = {

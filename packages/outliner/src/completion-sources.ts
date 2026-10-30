@@ -13,7 +13,7 @@ import { pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompleti
 import { pickKey, sourceAnswers, triggerOf, VALUE_TRIGGERS, type Picks, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
 import { FRAGMENT_ID_SOURCE, qualifiedReference, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
-import type { CompletionRowsRequest, CompletionRowsResult, CompletionSourceAnswer, ExtensionCompletionSource } from "@ep0ch/outline-core/protocol";
+import type { CompletionRowsRequest, CompletionRowsResult, CompletionSourceAnswer, ExtensionCompletionSource, SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { axisValues, keyCandidates, sweep, valueCandidates, variation, yamlKeyCandidates, yamlScalar, attributeScalar, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { querySuggestions } from "@ep0ch/outline-core/query-suggestions";
@@ -33,8 +33,13 @@ export const PICKS_METADATA_KEY = "completion.picks";
 /** The service's own reads, as the sources ask them. */
 export interface CompletionService { request<T>(action: string, input: Record<string, unknown>): Promise<T> }
 
-interface Search { matches: { block: { id: string }; title: string; subtitle?: string; path: string; snippet: string; reason?: "linked" | "near" | "yours" }[]; completeness: { kind: string; limit?: number | null }; semantic?: { status: string; message?: string } }
-interface Pages { outlines?: string[]; addresses: PageAddressMatch[]; completeness: { kind: string; limit?: number | null }; semantic?: { status: string; message?: string } }
+type Semantic = { status: string; message?: string } & Partial<SearchCertainty>;
+interface Search { matches: { block: { id: string }; title: string; subtitle?: string; path: string; snippet: string; score?: number; reason?: "linked" | "near" | "yours" }[]; completeness: { kind: string; limit?: number | null }; semantic?: Semantic }
+interface Pages { outlines?: string[]; addresses: PageAddressMatch[]; completeness: { kind: string; limit?: number | null }; semantic?: Semantic }
+/** How sure a ranked list is, as the service decided it (search-ranking.ts), for the list to say. */
+const sureOf = (semantic: Semantic | undefined): { sure?: SearchCertainty } => semantic?.status === "ranked" && semantic.verdict ? { sure: { verdict: semantic.verdict, said: semantic.said ?? "", ...(semantic.label ? { label: semantic.label } : {}), ...(semantic.exists !== undefined ? { exists: semantic.exists } : {}), ...(semantic.top !== undefined ? { top: semantic.top } : {}) } } : {};
+/** A ranked row's Score, beside what the row already says. */
+const scored = (detail: string | undefined, score: number | undefined) => [detail, score !== undefined ? `${score.toFixed(1)}/3` : ""].filter(Boolean).join(" · ") || undefined;
 interface Fragment { blockId: string; title: string; revision: number; kind: string; label: string; lineIndex: number; fragmentId?: string; anchor?: { fragmentId: string; line: string } }
 interface Fragments { items: Fragment[]; completeness: { kind: string; limit?: number | null } }
 interface Wire { id: string; text: string; title?: string }
@@ -103,7 +108,8 @@ const pages: ServiceSource = {
     const rows: SourceRow[] = (r.outlines ?? []).map(name => ({ label: `${name}:`, insert: `[[${name}:`, kind: "outline", docs: `the outline ${name}: its pages next` }));
     for (const a of r.addresses) {
       const { label, insertion } = pageAddressCompletion(a, ask.query, ask.prefix);
-      rows.push({ label, insert: insertion, ...(a.subtitle ? { detail: a.subtitle } : {}), blockId: a.blockId, address: a.address, kind: a.kind, filter: a.address });
+      const detail = scored(a.subtitle, a.score);
+      rows.push({ label, insert: insertion, ...(detail ? { detail } : {}), blockId: a.blockId, address: a.address, kind: a.kind, filter: a.address });
     }
     const made = qualifiedReference(ask.query).outline ? null : newPageRow(ask.query, r.addresses, ask.prefix);
     if (made) rows.push(made);
@@ -111,7 +117,7 @@ const pages: ServiceSource = {
       rows, ...(r.completeness.kind === "truncated" ? { truncated: r.completeness.limit ?? COMPLETION_LIMIT } : {}),
       ...(made && rows.length === 1 ? { partial: `no page is named ${made.newPage} yet · ↓ then ⏎ makes it` } : {}),
       empty: "no matching named addresses; [[target|label]] labels a target, ((...)) searches blocks",
-      ...(r.semantic?.status === "ranked" ? { jev: "ranked" as const } : {}), ...(notConfigured(r.semantic) ? { jevOff: true } : {}),
+      ...(r.semantic?.status === "ranked" ? { jev: "ranked" as const } : {}), ...sureOf(r.semantic), ...(notConfigured(r.semantic) ? { jevOff: true } : {}),
     };
   },
 };
@@ -180,7 +186,7 @@ const blocks: ServiceSource = {
     ]);
     const notes: SourceRow[] = r.matches.map(m => ({
       label: m.title, blockId: m.block.id, kind: "block", insert: `((${m.block.id}))`,
-      ...(m.subtitle || m.reason ? { detail: [m.subtitle, m.reason ? REASON[m.reason] : ""].filter(Boolean).join(" · ") } : {}),
+      ...(m.subtitle || m.reason || m.score !== undefined ? { detail: scored([m.subtitle, m.reason ? REASON[m.reason] : ""].filter(Boolean).join(" · "), m.score) } : {}),
       docs: [m.path, hitSnippet(m.title, m.snippet)].filter(Boolean).join(" » "),
     }));
     const top = notes.slice(0, ANCHORED_NOTES).map(n => n.blockId!);
@@ -201,7 +207,7 @@ const blocks: ServiceSource = {
     }
     return {
       rows, truncated: r.completeness.kind === "truncated" ? r.completeness.limit ?? r.matches.length : null, empty: "no matching blocks",
-      ...(r.semantic?.status === "ranked" ? { jev: "ranked" as const } : {}), ...(notConfigured(r.semantic) ? { jevOff: true } : {}),
+      ...(r.semantic?.status === "ranked" ? { jev: "ranked" as const } : {}), ...sureOf(r.semantic), ...(notConfigured(r.semantic) ? { jevOff: true } : {}),
     };
   },
 };
@@ -398,6 +404,9 @@ async function scopedKeys(schema: ComponentSchema, ask: Asked, svc: CompletionSe
   return [...new Set(parsePropertyRecords(text ?? "").map(p => p.key))];
 }
 
+/** Whether a prop's values are found in the outline (propValues' searches) rather than the schema's own choices. */
+const foundValues = (prop: PropSchema) => prop.complete === "query" || prop.type === "property" || prop.type.startsWith("property:") || prop.type === "script" || prop.type === "ref";
+
 /** The values a prop can take, by its type: what the outline has (keys, values, notes, scripts, queries), else the schema's. */
 async function propValues(schema: ComponentSchema, prop: PropSchema, ask: Asked, svc: CompletionService): Promise<{ label: string; value: string; detail?: string }[]> {
   const q = ask.query;
@@ -438,11 +447,14 @@ const attributes: ServiceSource = {
     const prop = props.find(p => p.key === ask.key);
     if (!prop) return { rows: [] };
     const values = await propValues(schema, prop, ask, svc);
+    // A glimpse after the label shows how a value looks (a density, a tone); a value found in the outline (a query, a key,
+    // a note, a script) changes what is drawn, not how, so its row is its words alone (PIE-1392).
+    const looks = !foundValues(prop);
     return { rows: values.map((v): SourceRow => {
       const docs = v.detail ?? prop.meaning;
       if (ask.kind === "yaml-value") {
         const made = variation(schema, { [prop.key]: v.value }, prop.key);
-        return { label: v.label, kind: "value", docs, insert: yamlScalar(v.value), example: { use: made.use, ...(made.note ? { note: made.note } : {}), inline: true } };
+        return { label: v.label, kind: "value", docs, insert: yamlScalar(v.value), example: { use: made.use, ...(made.note ? { note: made.note } : {}), ...(looks ? { inline: true } : {}) } };
       }
       return { label: v.label, kind: "value", docs, insert: attributeScalar(v.value, ask.quote) };
     }) };

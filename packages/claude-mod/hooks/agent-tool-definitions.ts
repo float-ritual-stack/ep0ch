@@ -11,7 +11,7 @@ import type { ToolArgsSpec, ToolSchema } from './tool-args'
 export type AgentToolOperation =
   | "artifact-deploy"
   | "read" | "find" | "resolve" | "site" | "edit" | "create" | "comment" | "reply" | "edit-comment" | "resolve-thread"
-  | "proposal-apply" | "proposal-dismiss" | "proposal-resolve" | "changes" | "patch" | "set-property" | "assign-id" | "move" | "trash" | "restore" | "view-order";
+  | "proposal-apply" | "proposal-dismiss" | "proposal-resolve" | "proposals" | "script-run" | "changes" | "patch" | "set-property" | "assign-id" | "move" | "trash" | "restore" | "view-order";
 
 /**
  * How a surface names the block a tool acts on, filled into a description's `{note}` and `{parent}`: the mod says
@@ -70,8 +70,9 @@ const WRITE_RULES =
   "and a paragraph is at most three sentences; a number a query can count goes in a live figure, never in prose. A question for Evan " +
   "goes first as one `- [ ]` line, and the note gets `[needs::sysop: the decision]`. A fragment of an idea still forming is " +
   "`[type::chirp]`; a request is only something ready to work on. Before you finish, check: no paragraph over three sentences, no count typed " +
-  "in prose. The answer measures what you wrote and the rows each live figure returned: every `warnings` entry that starts " +
-  "\"fix before you call this done\" (a figure suggestion and a figure with 0 rows too) is yours to fix, and `next` says how to check it.";
+  "in prose; one point per bullet; headings over a note past a screen. The answer reviews what you wrote: `review.verdict` is ship or " +
+  "fix, each finding says where and the smallest fix, many with a ready `patch` to pass to outline_patch as written; every `warnings` " +
+  "entry that starts \"fix before you call this done\" is yours to fix, and `next` says how to look at the note as drawn before you say done.";
 
 /** The same for a margin comment: no title, nothing to mark, the same wall rule and the same answer. */
 const COMMENT_RULES =
@@ -84,6 +85,9 @@ const COMMENT_RULES =
  * gateway with `_meta` `anthropic/alwaysLoad`); the rest wait behind tool search.
  */
 export const UP_FRONT_TOOLS: readonly string[] = ["list_outlines", "outline_find", "outline_query", "outline_read", "outline_components", "outline_edit", "outline_create", "outline_patch"];
+
+/** Evan's reading width, a desk tile's (write-shape's readingWidth): what outline_read's view is drawn at when none is asked. */
+export const READING_WIDTH = 44;
 
 const REF: ToolSchema = {
   type: "string",
@@ -127,12 +131,19 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "how it was found (`route`), and the notes it came from (`deps`); `text` stays what the author wrote. Read before you " +
       "edit: outline_edit and outline_patch need the revision this returns. A Resource (`resource:<id>`, or a " +
       "`[file::path]` token) reads as its stored text with the comment threads that are open on it: read a file " +
-      "that has threads before you rewrite it.",
-    properties: { ref: REF, depth: { type: "integer", minimum: 0, maximum: 6 }, limit: { type: "integer", minimum: 0, maximum: 500 } },
+      "that has threads before you rewrite it. `view: true` adds `view`: the note as the door draws it (its live figures, " +
+      "views and components answered, at `width` columns, " + READING_WIDTH + " when left out: Evan's reading width), as `ep0ch show` prints it: what to look at " +
+      "before saying a write is done.",
+    properties: {
+      ref: REF, depth: { type: "integer", minimum: 0, maximum: 6 }, limit: { type: "integer", minimum: 0, maximum: 500 },
+      view: { type: "boolean", description: "Also the note as drawn (`view`, lines of text), as ep0ch show prints it" },
+      width: { type: "integer", minimum: 30, maximum: 200, description: `With view: the columns it is drawn at (${READING_WIDTH} when left out)` },
+    },
     required: ["ref"],
     command(input) {
       if (!nonEmpty(input.ref)) return "Give the ref: a block id, ((id)), [[page]] or Work ID.";
-      return { operation: "read", input: inputOf(input, ["ref", "depth", "limit"]) };
+      if (input.width !== undefined && input.view !== true) return "width is the drawing's: give it with view: true.";
+      return { operation: "read", input: inputOf(input, ["ref", "depth", "limit", "view", "width"]) };
     },
   },
   {
@@ -145,6 +156,9 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "grammar (`type=roadmap-item AND work-stage=doing`), or a saved view. text, property, hasKey, query and under " +
       "combine; view stands alone. propertyScope says which chips property, hasKey and query read: the note's own (block, the default), or `all` for a " +
       "`[needs::…]` on any line, each row then naming its `matches` (key, value, line, and task: an open `- [ ]` is todo, a ticked one no longer matches). " +
+      "Text alone is a search, ranked as ep0ch find ranks it (Jev over the text matches, at most 30): each row its `score` (0 to 3), " +
+      "and `search` says how sure it is: verdict strong (\"sure\"), weak (\"not sure\" over a top Jev scores as a match, else \"no strong match\": the closest named, not claimed) or none (\"no strong match\": nothing here answers it), " +
+      "with `exists` (Jev's \"is it among these?\", 0 to 1). With anything else, text is a filter (every word, any order). " +
       "Returns rows (id, title, revision, parentId, created, updated); read one with outline_read.",
     properties: {
       text: { type: "string" },
@@ -155,7 +169,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       under: { type: "string", description: "Only blocks under this one (a ref)" },
       limit: { type: "integer", minimum: 1, maximum: 200 },
       propertyScope: { type: "string", enum: ["block", "line", "inline", "all"], description: "Which chips property, hasKey and query read: block (the note's own, the default) or all (any line too)" },
-      machinery: { type: "string", enum: ["hide", "only", "show"], description: "Notes tools wrote for their own bookkeeping (file touches, tosses, deliveries): left out unless this is show or only" },
+      machinery: { type: "string", enum: ["hide", "only", "show"], description: "Notes tools wrote for themselves, stamped [machine::…] (fetched notifications, file touches, tosses, deliveries): left out unless this is show or only (only with machine=notification: just the notifications). A recent-activity query (updated >= -1d) says how many it left out in machineryOmitted" },
     },
     required: [],
     command(input) {
@@ -394,6 +408,57 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     },
   },
   {
+    name: "outline_proposals",
+    operation: "proposals",
+    example: { since: "2026-03-01T09:00:00Z" },
+    writes: false,
+    description:
+      "What became of your proposals: each edit of yours that was proposed instead of applied, and every change since: " +
+      "`stale` (the note changed under it: re-read and send it again), `applied`, `dismissed` or `resolved`, oldest first, " +
+      "each once, with the note (`note`, `title`), the proposal's id, who made it so (`by`) and why (`reason`). `actor` " +
+      "is whose: yours when left out; a persona (loki) covers every client it writes through. Pass the answer's `cursor` " +
+      "as `since` next time; `complete: false` says more came after it.",
+    properties: {
+      since: { type: "string", description: "An ISO time, or the cursor an earlier call returned; the last week when left out" },
+      actor: { type: "string", description: "Whose proposals: an actor id, or a persona such as loki; yours when left out" },
+      limit: { type: "integer", minimum: 1, maximum: 200 },
+    },
+    required: [],
+    command(input) {
+      if (input.since !== undefined && !nonEmpty(input.since)) return "since is an ISO time (2026-03-01T09:00:00Z) or a cursor an earlier call returned.";
+      return { operation: "proposals", input: inputOf(input, ["since", "actor", "limit"]) };
+    },
+  },
+  {
+    name: "script_run",
+    operation: "script-run",
+    example: { ref: `((${NOTE}))`, this: "PIE-123", slots: { week: "42" } },
+    writes: true,
+    target: "ref",
+    description:
+      "Run the script block {note} and answer with what it said: its last word (message), its state (done, failed, " +
+      "stopped, or running when it outlasted the 3 s wait: then script.stop ends it and scripts.ended brings its end) and, " +
+      "when it returned more than a line, answer. `this` is the note the run is about (a ref), what a press in that note " +
+      "gives the script as `this`; `slots` are the values a button's slots would carry (`{ week: \"42\" }`), the script's " +
+      "`props`: with both, a run here is the person's press. Documents and explicit output are kept as run notes; " +
+      "[results::keep] requests a full run record. Its writes use the outline's MCP access: proposals at propose, applied at full.",
+    properties: {
+      ref: REF,
+      this: { type: "string", description: "The note the run is about, as a press in it would give: its id, ((id)), [[page]] or Work ID" },
+      slots: { type: "object", description: "The slots' values, { name: \"value\" } (each one line): the script's props, as a button's line would fill them" },
+    },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref)) return "Give the ref of the script block: its id or ((id)).";
+      if (input.this !== undefined && !nonEmpty(input.this)) return "this is a ref: the note the run is about.";
+      if (input.slots !== undefined) {
+        if (typeof input.slots !== "object" || input.slots === null || Array.isArray(input.slots)) return "slots is an object: { name: \"value\" }.";
+        if (Object.values(input.slots as Record<string, unknown>).some(v => typeof v !== "string" || v.includes("\n"))) return "Each slot's value is one line of text: { week: \"42\" }.";
+      }
+      return { operation: "script-run", input: inputOf(input, ["ref", "this", "slots"]) };
+    },
+  },
+  {
     name: "outline_patch",
     operation: "patch",
     example: { ref: "PIE-123", revision: 3, patches: [{ observed: "Borlotti", replacement: "Borlotti only" }] },
@@ -620,6 +685,8 @@ export const AGENT_TOOL_SURFACES: Readonly<Record<string, Readonly<Record<AgentT
   outline_resolve_thread: { mod: true, gateway: true },
   view_order: { mod: true, gateway: "not yet on the gateway (PIE-720)" },
   outline_changes: { mod: true, gateway: "not yet on the gateway (PIE-720, PIE-689)" },
+  outline_proposals: { mod: true, gateway: true },
+  script_run: { mod: true, gateway: true },
   outline_patch: { mod: true, gateway: true },
   outline_proposal_apply: { mod: true, gateway: true },
   outline_proposal_dismiss: { mod: true, gateway: true },

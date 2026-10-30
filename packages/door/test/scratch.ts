@@ -208,6 +208,8 @@ export class Scratch {
     for (const d of ["outlines", "config", "door"]) mkdirSync(join(this.root, d), { recursive: true, mode: 0o700 });
     holding()?.add(this);
   }
+  /** Its service runs (started, not stopped): one a test file leaves running is named between files (test/preload.ts). */
+  get running() { return !!this.proc; }
   /** The outlines folder the host serves. */
   get outlines() { return join(this.root, "outlines"); }
   /** The outline's own folder (`<outlines>/<name>/`): the root its relative file links resolve against. */
@@ -216,6 +218,9 @@ export class Scratch {
   get env(): Record<string, string> { return { EP0CH_OUTLINES: this.outlines, EP0CH_WS: this.name, XDG_CONFIG_HOME: join(this.root, "config") }; }
   /** The service's process id, while it runs. */
   get pid() { return this.proc?.pid; }
+
+  /** Set before start: what the host's environment adds (a fake Jev: OUTLINER_FIGURE_FIT, TYPESAFE_API_KEY, OUTLINER_JEV_ENDPOINT). */
+  hostEnv: Record<string, string> = {};
 
   /** Starts the host (its default outline is this one, so a board that names none reads it) and makes the outline. */
   async start(): Promise<string> {
@@ -226,6 +231,7 @@ export class Scratch {
     // No Jev key: a scratch host answers searches with text matches only, never a paid call.
     for (const k of [...HERDR_VARS, ...NO_JEV, ...OWN_FOLDERS, "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
     env.TZ = TEST_ZONE;
+    Object.assign(env, this.hostEnv);
     this.proc = watchHost(Bun.spawn(["bun", "src/host-main.ts"], { cwd: outliner!, env, stdout: "ignore", stderr: hostLog(this.root) }), this.root, () => this.proc);
     const path = join(this.outlines, ".host", "host.sock");
     const { hostRequest, SocketBoard } = await import("../src/socket");
@@ -292,6 +298,8 @@ export class ScratchHost {
     for (const d of ["outlines", "config", "door", "folders", "home"]) mkdirSync(join(this.root, d), { recursive: true });
     holding()?.add(this);
   }
+  /** As `Scratch.running`. */
+  get running() { return !!this.proc; }
   get outlines() { return join(this.root, "outlines"); }
   get config() { return join(this.root, "config"); }
   get sock() { return join(this.outlines, ".host", "host.sock"); }

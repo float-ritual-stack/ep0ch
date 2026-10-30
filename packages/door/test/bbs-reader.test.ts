@@ -197,6 +197,24 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(top()).toBe(r);
   }, 20_000);
 
+  // PIE-1297: a message read outside a desk copies its address as a desk's reader does (the power bar's actions run it there).
+  test("note.copy-ref: the message's reference, web link and a line's reference; the person's to the clipboard", async () => {
+    await open();
+    const act = (args: Record<string, unknown>, as?: string) => (as ? app.act({ action: "note.copy-ref", args, as }) : app.dispatch.act({ action: "note.copy-ref", args }, { kind: "user" } as any)) as Promise<any>;
+    expect(await act({ kind: "ref" }, AS)).toMatchObject({ text: `((${n.first.id}|Committee meeting))`, clipboard: false });
+    expect((await act({ kind: "link" }, AS)).text).toMatch(new RegExp(`/pub/o/[^/]+/p/${n.first.id}$`));
+    const line = n.first.text.split("\n").indexOf("## Agenda") + 1;
+    const anchored = await act({ kind: "line", line }, AS);
+    expect(anchored.text).toBe(`((${n.first.id}^${anchored.anchor}|Agenda))`);
+    // Another note by ref=, and the person's goes to the clipboard.
+    written.length = 0;
+    expect(await act({ kind: "id", ref: n.kettle.id })).toMatchObject({ text: n.kettle.id, clipboard: true });
+    expect(written.join("")).toContain(Buffer.from(n.kettle.id).toString("base64"));
+    // The main menu has no note of its own: ref= still copies.
+    while (stack() > 1) app.pop();
+    expect(await act({ kind: "ref", ref: n.second.id }, AS)).toMatchObject({ text: `((${n.second.id}|Seed swap))` });
+  });
+
   test("editing: e opens the edit control, typed q and n are text, ctrl+s saves to the outline", async () => {
     const r = await open(1);
     key(char("e"));
@@ -290,5 +308,55 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     key({ kind: "enter" });
     expect(top()).toBeInstanceOf(MessageReader);
     await until(() => !!top().surface.msg, "the message in the surface");
+  }, 20_000);
+
+  test("n and p leave a trail: alt+← goes back to the message before, and n goes on from there (PIE-1418)", async () => {
+    const r = await open(0);
+    key(char("n"));
+    await shows("Seed swap");
+    expect(r.surface.describeHistory().back.map((s: any) => s.title)).toEqual(["Committee meeting"]);
+    key({ kind: "alt-left" });
+    await shows("Bring the kettle");
+    expect(r.surface.msg?.id).toBe(n.first.id);
+    key(char("n"));                                                  // on from where back landed: the second again
+    await shows("Seed swap");
+    expect(r.surface.msg?.id).toBe(n.second.id);
+  }, 20_000);
+
+  test("alt+T, as its footer says, lists the trail over the reader; a pick goes back there and Esc closes it (PIE-1428)", async () => {
+    const r = await open(0);
+    key(char("n"));
+    await shows("Seed swap");
+    expect(text()).toContain("alt+T trail");
+    key({ kind: "alt", ch: "T" });
+    await until(() => text().includes("trail · where this reader has been"), "the trail over the reader");
+    key({ kind: "esc" });
+    await until(() => !text().includes("trail · where this reader has been"), "Esc closes it");
+    expect(r.surface.msg?.id).toBe(n.second.id);
+    key({ kind: "alt", ch: "T" });
+    await until(() => text().includes("trail · where this reader has been"), "the trail again");
+    key({ kind: "down" }); key({ kind: "enter" });
+    await shows("Bring the kettle");
+    expect(r.surface.msg?.id).toBe(n.first.id);
+  }, 20_000);
+
+  test("a link followed into the next reader is on its trail: alt+T lists where it came from, a pick goes back there (PIE-1431)", async () => {
+    // As `act open` puts a reader over a screen with no open of its own: a reader on one note.
+    while (stack() > 1) app.pop();
+    const r = new MessageReader([n.first], 0);
+    app.push(r);
+    await shows("Bring the kettle");
+    stepTo(r, "the kettle");
+    key({ kind: "enter" });
+    await until(() => top() !== r && top() instanceof MessageReader, "the linked note in the next reader");
+    await shows("Subj: Descale the kettle");
+    // An agent reads the same trail, and nothing opens over the person's screen.
+    expect(await app.act({ action: "trail", as: AS })).toMatchObject({ here: { id: n.kettle.id }, back: [{ id: n.first.id, title: "Committee meeting" }], forward: [], shown: false });
+    key({ kind: "alt", ch: "T" });
+    await until(() => text().includes("trail · where this reader has been"), "the trail over the reader");
+    expect(text()).toContain("← Committee meeting · 1 back");
+    key({ kind: "down" }); key({ kind: "enter" });
+    await until(() => top() === r, "back to the reader it came from");
+    expect(r.surface.msg?.id).toBe(n.first.id);
   }, 20_000);
 });
