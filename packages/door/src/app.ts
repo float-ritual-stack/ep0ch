@@ -48,7 +48,7 @@ import { resourceChanged } from "./projection";
 import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, scriptInstallWords, connectScriptActions, scriptPressMessage } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
-import { outlineChanged } from "./refs";
+import { outlineChanged, referenceWords } from "./refs";
 import { componentsChanged } from "./component-schemas";
 import { doorNest } from "./nest";
 import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme";
@@ -1808,7 +1808,7 @@ export class App implements Ctx {
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
     const bar = this.statusBar(s, cols);
     // What the bar cuts short (a refusal at 40 columns) is said whole just above it while it's up (PIE-1428).
-    if (this.messageCut && this.message) lines = withWhole(lines, this.message, cols, this.messageWarning);
+    if (this.messageCut && this.message) lines = withWhole(lines, referenceWords(this.message), cols, this.messageWarning);
     lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(lines, cols, Date.now());
@@ -1907,7 +1907,8 @@ export class App implements Ctx {
     const left = statusText(leftItems), right = statusText(rightItems);
     // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.
     const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
-    const message = this.message || this.linkLabel;
+    // A labelled reference in a message reads as its label, as in a reader (the log keeps it whole).
+    const message = referenceWords(this.message) || this.linkLabel;
     const middle = message ? ` ${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
     const room = Math.max(0, cols - width(right) - 3);
     const displaced = !!middle && width(left + middle) > room;
