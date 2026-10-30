@@ -29,6 +29,9 @@ import { ATTACHED_PLACES, AttachedTile, attachedPlaceOf, attachedRect, drawAttac
 import type { AttachedOwner, Attachment } from "./attached-tile";
 import { drawCalendar } from "../figures/days";
 import { chipsOf, matchGroups, matchRows, MORE, type MatchGroup } from "./facets-matches";
+
+/** A step past every row: End and G (the list clamps it to its last row). */
+const PAST_END = 1e9;
 import { bucketWhere, dayBound, dayOfClause } from "@ep0ch/outline-core/date-buckets";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
@@ -573,10 +576,13 @@ export class FacetsPane implements Pane, AttachedOwner {
   attachedKey(_a: Attachment, k: Key, desk: DeskApi): boolean {
     if (this.list.typing && k.kind !== "mouse") return this.filterKey(k, desk);
     if (ch(k) === "/") { this.listHost(desk).type(this.listHost(desk).lists()[0]!); return true; }
-    const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
+    // Every list's keys (PIE-1457): Home and g to the first note, End and G to the last; space opens, as it does on a
+    // note in the facets tile's own Matches.
+    const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8
+      : k.kind === "home" || c === "g" ? -PAST_END : k.kind === "end" || c === "G" ? PAST_END : 0;
     const run = (name: string, args: Record<string, unknown> = {}) => { void desk.press?.(this, FACETS_ACTIONS, name, args); return true; };
     if (by) return run("facets.match", { by });
-    if (k.kind === "enter") return run("facets.open");
+    if (k.kind === "enter" || c === " ") return run("facets.open");
     if (k.kind === "alt-enter") return run("facets.open", { fresh: true });
     if (k.kind === "char" && k.ctrl && k.ch === "o") return run("facets.place");
     if (c === "*") return run("facets.pin");
@@ -684,7 +690,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   key(k: Key, desk: DeskApi): boolean {
     if (this.draft !== null && k.kind !== "mouse") return this.draftKey(k, desk);
     const n = this.rows().length, c = ch(k), row = this.current();
-    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
+    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : k.kind === "home" || c === "g" ? -PAST_END : k.kind === "end" || c === "G" ? PAST_END : 0;
     if (by) { if (n) this.act(desk, "facets.pick", { by }); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "o") { this.act(desk, "facets.place"); return true; }
     if (k.kind === "enter" || c === " ") {
@@ -790,7 +796,7 @@ const pathy = (p: FacetsPane, key: string, path: string) => p.hasBelow(key, path
 export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   "facets.pick": def({
     summary: "move the cursor in the facets tile (tile=<its name>): n (from 1), or by=<rows> from where it is",
-    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "pick a row" }, { keys: "wheel", does: "pick a row" }],
+    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "pick a row" }, { keys: "home g end G", does: "the first or last row" }, { keys: "wheel", does: "pick a row" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's cursor (facets.list reads the rows, facets.set picks a value by name)",
     args: { n: { type: "number", optional: true, about: "the row, from 1" }, by: { type: "number", optional: true, about: "rows on from the cursor (negative: up)" }, part: { type: "string", optional: true, about: "keys or matches; left out, both" } },
     examples: [
@@ -803,18 +809,25 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("facets.pick takes n or by");
       if (part !== undefined && part !== "keys" && part !== "matches") throw new ActionRefused("part is keys or matches");
       if (part === "matches" && p.place === "tile") throw new ActionRefused("Matches is in a tile of its own: facets.match picks there (id=, by=)");
-      const walk = rows.flatMap((r, i) => part === undefined || (r.kind === "note" || r.kind === "more") === (part === "matches") ? [i] : []);
-      if (!walk.length) throw new ActionRefused(`no ${part} rows are listed`);
-      const at = walk.indexOf(p.at);
-      const i = by !== undefined ? walk[clamp((at < 0 ? (by > 0 ? -1 : walk.length) : at) + Math.trunc(by), 0, walk.length - 1)]! : n! - 1;
-      if (!(i >= 0 && i < rows.length)) throw new ActionRefused(`the tile has ${rows.length} rows; n is 1-${rows.length}`);
-      p.at = i;
-      const row = rows[i];
-      if (row?.kind === "note") desk.showFrom?.(p.source(), row.note, actor);
-      // Reaching a group's "more" row reads the rest of the group: scrolling on goes on into it.
-      if (row?.kind === "more") return p.readGroup(desk, row.group).then(r => ({ n: i + 1, ...r }));
-      desk.redraw();
-      return { n: i + 1 };
+      const go = (rows: ReturnType<FacetsPane["rows"]>): unknown => {
+        const walk = rows.flatMap((r, i) => part === undefined || (r.kind === "note" || r.kind === "more") === (part === "matches") ? [i] : []);
+        if (!walk.length) throw new ActionRefused(`no ${part} rows are listed`);
+        const at = walk.indexOf(p.at);
+        const i = by !== undefined ? walk[clamp((at < 0 ? (by > 0 ? -1 : walk.length) : at) + Math.trunc(by), 0, walk.length - 1)]! : n! - 1;
+        if (!(i >= 0 && i < rows.length)) throw new ActionRefused(`the tile has ${rows.length} rows; n is 1-${rows.length}`);
+        p.at = i;
+        const row = rows[i];
+        if (row?.kind === "note") desk.showFrom?.(p.source(), row.note, actor);
+        // Reaching a group's "more" row reads the rest of the group: scrolling on goes on into it, and End on to the last
+        // row (PIE-1457), while a read brings rows.
+        if (row?.kind === "more") return p.readGroup(desk, row.group).then(r => {
+          const now = p.rows();
+          return by !== undefined && by >= PAST_END && now.length > rows.length ? go(now) : { n: i + 1, ...r };
+        });
+        desk.redraw();
+        return { n: i + 1 };
+      };
+      return go(rows);
     },
   }),
   "facets.set": def({
@@ -879,7 +892,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.open": def({
     summary: "open a note the selection leaves, as ⏎ does in a list (the desk's open rule: the tile's link, or its container's): n (its row, from 1), id, or the row the cursor is on; fresh opens a new detail beside",
-    keys: [{ keys: "⏎", does: "on a note" }, { keys: "double-click", does: "a note" }, { keys: "alt+⏎", does: "fresh", says: "open the selected note in a new detail beside" }],
+    keys: [{ keys: "⏎ space", does: "on a note" }, { keys: "double-click", does: "a note" }, { keys: "alt+⏎", does: "fresh", says: "open the selected note in a new detail beside" }],
     touches: "nothing", replay: "safe", says: r => `opened "${String(r.title)}"`,
     args: {
       n: { type: "number", optional: true, about: "its row, from 1" },
@@ -1017,20 +1030,29 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.match": def({
     summary: "pick a note in Matches (the notes the selection leaves): id, or by=<notes> from the one picked; it previews where the tile's selection goes (its Matches tile's wires, while Matches is in one). An agent's pick is its own, drawn in its tint: the person's stays",
-    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "in Matches' own tile", says: "pick the next or previous note in Matches' own tile" }, { keys: "click wheel", does: "on Matches", says: "pick a note in Matches by clicking or scrolling it" }],
+    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "in Matches' own tile", says: "pick the next or previous note in Matches' own tile" }, { keys: "home g end G", does: "in Matches' own tile", says: "pick the first or last note in Matches' own tile" }, { keys: "click wheel", does: "on Matches", says: "pick a note in Matches by clicking or scrolling it" }],
     touches: "nothing", replay: "safe", says: r => `picked "${String(r.title)}"`,
     args: { id: { type: "string", optional: true, about: "a note's block id (or its first 8+ characters)" }, by: { type: "number", optional: true, about: "notes on from the one picked (negative: up)" } },
     examples: [{ act: "facets.match by=1 tile=facets", does: "picks the next note in Matches; a reader wired to it shows it" }],
     run({ id, by }, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane, who = standing ? PERSON : actorKey(actor);
       if ((id === undefined) === (by === undefined)) throw new ActionRefused("facets.match takes id or by");
-      const row = id !== undefined ? p.list.pick(who, p.noteFor({ id }).id) : p.list.step(who, by!) ?? p.list.picked(who);
-      if (row?.id.startsWith(MORE)) return p.readGroup(desk, row.id.slice(MORE.length));
-      const m = row?.source;
-      if (!m) throw new ActionRefused("Matches lists no note yet");
-      if (standing) { const at = p.rows().findIndex(r => r.kind === "note" && r.note.id === m.id); if (at >= 0) p.at = at; desk.showFrom?.(p.source(), m, actor); }
-      desk.redraw();
-      return { id: m.id, title: subject(m) };
+      const go = (): unknown => {
+        const had = p.list.pickable(who).length;
+        const row = id !== undefined ? p.list.pick(who, p.noteFor({ id }).id) : p.list.step(who, by!) ?? p.list.picked(who);
+        // End (a step past every row, PAST_END) reads a group's rest on the way and lands on the last note (PIE-1457),
+        // while a read brings rows (notes sharing one time can page the same rows again).
+        if (row?.id.startsWith(MORE)) {
+          const read = p.readGroup(desk, row.id.slice(MORE.length));
+          return by !== undefined && by >= PAST_END ? read.then(r => (p.list.pickable(who).length > had ? go() : r)) : read;
+        }
+        const m = row?.source;
+        if (!m) throw new ActionRefused("Matches lists no note yet");
+        if (standing) { const at = p.rows().findIndex(r => r.kind === "note" && r.note.id === m.id); if (at >= 0) p.at = at; desk.showFrom?.(p.source(), m, actor); }
+        desk.redraw();
+        return { id: m.id, title: subject(m) };
+      };
+      return go();
     },
   }),
   "facets.more": def({

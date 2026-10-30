@@ -3850,6 +3850,7 @@ export class OutlinerServer {
             request.expectedRevision,
             request.operations,
             request.mutation,
+            request.keepUpdated === true,
           );
           break;
         case "activity.recent":

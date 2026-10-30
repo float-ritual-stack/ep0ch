@@ -94,7 +94,7 @@ export function drawActivity(p: Props, w: number, link?: RowLink): string[] {
         ? `${field} >= ${isoOf(day)} ${field} < ${isoOf(day + 1)}`
         : `${field} = ${isoOf(day)}`;
       const cell = (s ? fg(s >= 3 ? ACCENT : INK) : fg(DIM)) + SHADES[s];
-      line += (link ? link(query, cell, undefined, query) : cell) + " ";
+      line += (link ? link(query, cell, undefined, query, undefined, true) : cell) + " ";
     }
     out.push(line + RESET);
   }
@@ -139,7 +139,7 @@ export function drawCalendar(p: Props, w: number, link?: RowLink): string[] {
     // a reader lists it, or the screen's facets tile takes it as its day.
     // Only a live calendar's days stand for notes: a calendar of marks written by hand isn't a query.
     const field = typeof p.date === "string" && p.date.trim() ? p.date.trim() : null, bound = dayBound(year, month, d);
-    const dayNum = link && field ? link("", num, undefined, `${field} >= ${bound} ${field} <= ${bound}`) : num;
+    const dayNum = link && field ? link("", num, undefined, `${field} >= ${bound} ${field} <= ${bound}`, undefined, true) : num;
     line += isToday ? fg(HI) + "[" + ink + dayNum + UNBOLD + fg(HI) + "]" : " " + ink + dayNum + UNBOLD + (m && p.dots ? fg(ACCENT) + "·" : " ");
     if ((lead + d) % 7 === 0 || d === days) { out.push(line + RESET); line = ""; }
   }

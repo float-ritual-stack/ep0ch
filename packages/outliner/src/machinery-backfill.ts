@@ -2,7 +2,8 @@
 // Producers stamp their records from now on; this brings the ones already in an outline into the same rule, so a list
 // that hides machinery hides them too. It asks the running service (`blocks.query`, `properties.patch`) and writes as
 // an agent named `machinery-backfill`: a dry run says what it would stamp, `--apply` stamps. A note already stamped
-// is left alone, so it can be run again.
+// is left alone, so it can be run again. A stamp keeps the note's updated date (`keepUpdated`, PIE-1457): stamping old
+// boards and views must not make them news in Today or any list sorted by updated.
 import { parseArgs } from "node:util";
 import { MACHINE_KEY, NOTIFICATION_MACHINE } from "@ep0ch/outline-core/machinery";
 import { createOutlinerClient } from "./client";
@@ -36,7 +37,8 @@ const USAGE = `usage: ep0ch machinery backfill [--ws <outline>] [--apply] [--jso
   Stamps [machine::<producer>] on what tools wrote before they stamped: file touches and their folders, EchoNet's
   nodelist, tosses, ledger and receipts, delivery records, intake's prior art, backup runs, peer messages, fetched notifications, the
   page the notifications hub pulls into; and
-  [machinery::show] on the file-touch views and the notifications boards. A dry run says what it would stamp; --apply stamps. A note already stamped is left alone.`;
+  [machinery::show] on the file-touch views and the notifications boards. A dry run says what it would stamp; --apply stamps,
+  keeping each note's updated date. A note already stamped is left alone.`;
 
 interface Client { request<T>(input: Record<string, unknown>, timeoutMs?: number): Promise<T> }
 
@@ -61,7 +63,7 @@ export async function backfill(client: Client, apply: boolean): Promise<{ produc
       let progressed = 0;
       for (const block of todo) {
         try {
-          await client.request({ action: "properties.patch", blockId: block.id, expectedRevision: block.revision, operations: [{ op: "append", key: q.key, value: q.value }], mutation: MUTATION });
+          await client.request({ action: "properties.patch", blockId: block.id, expectedRevision: block.revision, operations: [{ op: "append", key: q.key, value: q.value }], mutation: MUTATION, keepUpdated: true });
           stamped++; progressed++;
         } catch { skipped++; }
       }
@@ -86,6 +88,7 @@ export async function runMachineryCommand(args: readonly string[], env: NodeJS.P
     if (values.json) console.log(JSON.stringify({ applied: values.apply === true, report }));
     else {
       for (const r of report) console.log(`${r.producer}: ${values.apply ? "stamped" : "would stamp"} ${r.atLeast ? "at least " : ""}${r.stamped}${r.skipped ? `, ${r.skipped} changed meanwhile or refused: run it again` : ""}`);
+      if (values.apply) console.log("Each stamped note kept its updated date, so none shows as changed by the stamp.");
       if (!values.apply) console.log("A dry run. To stamp them: ep0ch machinery backfill" + (values.ws ? ` --ws ${values.ws}` : "") + " --apply");
     }
     return 0;

@@ -23,6 +23,8 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
   const tile = () => pane("facets");
   const groups = () => (tile().matches?.groups ?? []).map((g: any) => `${g.label}:${g.notes.map((n: any) => n.title).join(",")}`);
   let seed: string, trellis: string, view: string;
+  let key: (k: Key) => void = () => {};
+  const click = (x: number, y: number) => { key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y }); };
 
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
@@ -33,7 +35,7 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     seed = await make("Seed order [plot::beds] #garden\nForty packets of sugar snap.");
     await make("Shed roof [plot::shed]\nA quote for the felt.");
     view = await make("Bed notes [type::virtual-branch] [query::plot=beds]");
-    const term = { info: { cols: 177, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(_: (k: Key) => void) {}, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols: 177, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: (k: Key) => void) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
     app.push(new MainMenu());
@@ -86,6 +88,7 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     expect(today().notes.length).toBe(205);
     // A note written meanwhile (agents write all day) keeps the group read and the pick (this agent's own) where they were.
     const tilePane = () => D().panes.get([...D().panes].find(([, x]: any) => x.kind === "facets")![0]);
+    const ids0 = () => today().notes.find((n: any) => n.title === "Seedling 0")?.id;
     const picked = today().notes[150].id;
     await act("facets.match", { id: picked });
     expect(tilePane().list.picked(AS)?.id).toBe(picked);
@@ -94,11 +97,34 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     expect(today()).toMatchObject({ count: 206, more: 0 });
     expect(today().notes.length).toBe(206);
     expect(tilePane().list.picked(AS)?.id).toBe(picked);
+    // End reads the rest of a group on the way to its last note (PIE-1457): a fresh pick from the top, with a more row below.
+    await act("facets.query", { text: "tray=bulk updated >= -7d" });
+    await until(() => today()?.more === 6, "a fresh first page");
+    expect(await act("facets.match", { by: 1e9 })).toMatchObject({ title: "Seedling 0" });
+    expect(today()).toMatchObject({ more: 0 });
+    // The same from the facets tile's own Matches (the person's End there).
+    await act("facets.query", { text: "tray=bulk updated >= -6d" });
+    await until(() => today()?.more === 6, "another fresh first page");
+    await D().dispatch.act({ action: "facets.pick", tile: "facets", args: { by: 1e9, part: "matches" } }, USER);
+    const at = tilePane().rows()[tilePane().at];
+    expect(at?.kind === "note" && at.note.id).toBe(ids0());
+    expect(today()).toMatchObject({ more: 0 });
     // Matches answers the lists' actions in its own tile too.
     await act("facets.place", { place: "tile" });
     await until(() => !!D().describe().panes.find((p: any) => p.kind === "matches"), "the matches tile");
     const m = D().describe().panes.find((p: any) => p.kind === "matches");
     expect(await act("list.blocks", {}, m.name)).toMatchObject({ lists: [{ title: "Matches" }] });
+    // The person's keys in it are every list's (PIE-1457): Home and g to the first note, End and G to the last; space opens.
+    await D().dispatch.act({ action: "tile.focus", tile: m.name }, USER);
+    const mine = () => tilePane().list.picked("you")?.id;
+    const ids = today().notes.map((n: any) => n.id);
+    for (const [k, to] of [[{ kind: "end" }, ids.at(-1)], [{ kind: "home" }, ids[0]], [{ kind: "char", ch: "G" }, ids.at(-1)], [{ kind: "char", ch: "g" }, ids[0]]] as const) {
+      key(k as Key);
+      await until(() => mine() === to, `${JSON.stringify(k)} picks ${to}`);
+    }
+    key({ kind: "char", ch: " " });
+    await until(() => (app as any).message.includes("opened in"), "space opens the picked note");
+    await D().dispatch.act({ action: "tile.focus", tile: "1" }, USER);
     await act("facets.place", { place: "inline" });
   }, 60_000);
 
@@ -162,5 +188,24 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     await screen.openQuery(reader, `updated >= "${words}" updated <= "${words}"`, USER);
     expect(facets().day).toBe(day);
     expect(screen.layoutGet().tiles.some((t: any) => t.kind === "query")).toBe(false);
+    // The person's single click on a day of a live calendar in the reader lands there (PIE-1457: it only selected).
+    const mine = (action: string, args: Record<string, unknown>, tile: string) => screen.dispatch.act({ action, args, tile }, USER);
+    await mine("facets.day", { day: "" }, "facets");
+    await until(() => !facets().day, "the day dropped");
+    const cal = (await board.request<any>("create", { parentId: null, text: "Garden month\n::graph-calendar\n---\nquery: plot=beds\ndate: updated\n---\n::", author: "agent" })).id;
+    await mine("tile.focus", {}, "reader");
+    await mine("open", { id: cal }, "reader");
+    await until(() => reader.msg?.id === cal && !reader.msg.partial, "the calendar note in the reader");
+    const r = screen.layoutGet().tiles.find((t: any) => t.name === "reader").rect;
+    const today = `[${String(d.getDate()).padStart(2)}]`;
+    const at = () => {
+      const lines = (screen.render(D().ctx).lines as string[]).map(l => l.replace(/\x1b\[[\d;]*m|\x1b\]8;;[^\x1b]*\x1b\\\\/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, ""));
+      for (let y = r.row; y < r.row + r.rows; y++) { const x = (lines[y] ?? "").indexOf(today, r.col); if (x >= r.col && x < r.col + r.cols) return { x: x + 1, y }; }
+      return null;
+    };
+    await until(() => !!at(), "today drawn in the calendar");
+    const p = at()!;
+    click(p.x, p.y);
+    await until(() => facets().day === day, "one click on the day sets the facets tile's day", 5000);
   }, 20_000);
 });
