@@ -352,6 +352,7 @@ test("a query-fed workbench presents one saved view and follows matches, source 
   expect(source?.query.params).toEqual(expect.arrayContaining([
     { key: "where", value: "type=workbench-test" }, { key: "group", value: "stage" }, { key: "sort", value: "due asc" },
   ]));
+  expect(source?.query.text).toBe("type=workbench-test");
   expect(source?.result).toMatchObject({ rows: 1, columns: ["id", "title"], table: [[first.id, "Plant herbs"]] });
   expect(source?.result.propertyNames).toEqual(expect.arrayContaining(["type", "stage", "due"]));
   const limited = await client.request<SiteAnswer>({ action: "site.answer", blockId: board.id, sources: true, hidden: [first.id] });

@@ -83,7 +83,7 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
     out.push({
       key: String(line), kind: expr ? "expr" : "handler", name: expr ? "::=" : p.propertyKey, line, endLine: line,
       ...(p.output?.ranAt ? { readAt: p.output.ranAt } : {}), live: p.extension.effects === "read",
-      query: queried ? { params: questionParams, text: JSON.stringify(queried.question, null, 2), editable: false } : { params, text: written, editable: !expr },
+      query: queried ? { params: questionParams, text: queried.question.where ?? "", editable: false } : { params, text: written, editable: !expr },
       transform: expr ? { kind: "expression", label: "one-line script", text: argument } : { kind: t.kind, label: t.label, ...(t.block ? { block: t.block } : {}), ...(t.text !== undefined ? { text: t.text } : {}) },
       result: queried ? blocksResult(visibleRows) : resultOf(markdown),
       ...(p.status !== "ready" && p.status !== "stale" ? { problem: p.reason ?? String(p.status) } : queried && visibleRows.length < queryRows.length ? { problem: "some query rows are not shared here" } : {}),
