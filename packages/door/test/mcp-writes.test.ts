@@ -155,7 +155,8 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect((await board.get(target!.id))!.text).toBe(target!.text);
     const proposal = (await board.children(target!.id)).find(n => prop(n, "type") === "draft-proposal");
     expect(proposal!.text).toContain("Broad beans");
-    expect(String(proposal!.author)).toContain("script:seed-suggestion");
+    // The agent that asked wrote it, the script its how (PIE-1462).
+    expect(String(proposal!.author)).toContain("chat.example.test");
   });
 
   test("an MCP script can comment, reply, edit its reply and resolve the thread", async () => {

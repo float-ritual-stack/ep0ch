@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { droppedStructure } from "../src/draft-patch";
-import { moveBlock, changesSince, READ_CHILDREN_MAX_CHARS, shortDiff } from "../src/agent-tools";
+import { runAgentOperation, moveBlock, changesSince, READ_CHILDREN_MAX_CHARS, shortDiff } from "../src/agent-tools";
 import { scratchOutline } from "./scratch-outline";
 import { OutlinerClient, type RequestInput } from "../src/client";
 import { OutlinerServer } from "../src/server";
@@ -1140,4 +1140,13 @@ test("a read says who last wrote the note, not who made it: the person's tick on
   expect(read.text).toContain("- [x] allow this once");
   expect(read.author).toBe("user");
   expect(read.actorId).toBeUndefined();
+});
+
+test("a person's script reorders a view: the user-writer rule (no actor id) holds for view-order too (PIE-1462)", async () => {
+  const { store, socket } = await setup();
+  const view = store.create("Plot queue [type::virtual-branch] [query::queue=plot]");
+  const jobs = ["Dig the bed", "Sow the leeks"].map(t => store.create(`${t} [queue::plot]`));
+  const client = new OutlinerClient(socket);
+  const order = await runAgentOperation(client, "view-order", { view: view.id, ids: [jobs[1]!.id] }, { actorId: "", author: "user", sessionId: "run-1" }) as { order: { title: string }[] };
+  expect(order.order.map(o => o.title)).toEqual(["Sow the leeks", "Dig the bed"]);
 });

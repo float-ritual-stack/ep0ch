@@ -22,7 +22,7 @@ async function lab() {
   };
   /** One `lens-set` as a press would run it: the action script on the row's note, answered when the run ends. */
   const set = async (args: Record<string, string>) => {
-    const run = await h.client.request<{ undo: string }>({ action: "extensions.act", extension: "script:lens-set", extensionAction: "run", args, clientId: "lens-reader" });
+    const run = await h.client.request<{ undo: string }>({ action: "extensions.act", extension: "script:lens-set", extensionAction: "run", args, clientId: "lens-reader", mutation: { author: "user" } });
     return await until(`lens-set ${JSON.stringify(args)}`, () => ended.get(run.undo));
   };
   const chips = (id: string) => Object.fromEntries(h.store.require(id).properties.map(p => [p.key, p.value]));
@@ -65,7 +65,8 @@ test("a pressed cell steps the property through its choices (then its values, th
     expect(stepped.reason).toBe("done");
     expect(stepped.message).toBe("Fix the gate latch: stage todo → doing");
     expect(chips(gate.id).stage).toBe("doing");
-    expect(store.require(gate.id).author).toBe("agent");
+    // The door declares the presser (`mutation`): the cell's write is theirs, the script its how (PIE-1462).
+    expect(store.revisions(gate.id).revisions.find(r => r.revision === 2)).toMatchObject({ author: "user" });
     await until("the table redrawn", () => h2(store, jobs.id).some(o => o?.includes("| Fix the gate latch | doing | Ada |")));
     // Without choices: every value the key has in the outline, in order, then unset.
     const shed = byTitle("Paint the shed");

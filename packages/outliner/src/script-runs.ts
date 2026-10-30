@@ -262,6 +262,14 @@ export class ScriptRuns {
     const undo = this.writes.beginRun(`script:${extension.name}`);
     const actor: MutationProvenance = { author: "agent", actorId: `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
     const requestedBy = request.requestedBy ?? { author: "user" as const };
+    // Whose writes the run's notes record (PIE-1462): a run somebody asked for (a press, `act`, the CLI) writes as them, the
+    // script as how (`taskId`); a run nobody asked for (a trigger, a schedule, a background run) writes as the script. The one
+    // place that decides it, so no script is recorded as an agent when a person pressed it. `actor` stays the script's: it is
+    // who the run's door actions and its log are, and what the change feed's `trigger:script:` loop guards read.
+    const asked = request.requestedBy && !request.trigger && !request.background && request.requestedBy.author !== "system" ? request.requestedBy : undefined;
+    const writer: MutationProvenance = asked
+      ? { author: asked.author, ...(asked.author === "agent" && asked.actorId ? { actorId: asked.actorId } : {}), sessionId: undo, taskId: actor.taskId }
+      : actor;
     // A press (PIE-957): the note that holds the button, and who wrote it last, so the run records both who asked and whose button it was.
     const buttonBlock = request.button ? this.store.get(request.button.block) : undefined;
     const button = request.button && buttonBlock ? { block: buttonBlock.id, author: buttonBlock.actorId ?? buttonBlock.author } : null;
@@ -280,14 +288,14 @@ export class ScriptRuns {
     const changed = new Map<string, ChangeWord>();
     const captured = <T>(work: () => T): T => {
       const before = new Map<string, Block>();
-      const attribution = this.store.changes.attribution({ action: `script:${extension.name}`, actor, requestedBy, collect: true });
+      const attribution = this.store.changes.attribution({ action: `script:${extension.name}`, actor: writer, requestedBy, collect: true });
       const finish = () => {
         const changes = this.store.changes.committed(attribution);
         for (const c of changes) {
           // Only the run's own writes, and an extension's it asked for (`act`): a write another writer made meanwhile under
           // the same capture (Jev's review records and its suggestions page, made the first time a create is reviewed) is
           // not the run's (PIE-1436).
-          if (c.actor?.actorId && c.actor.actorId !== actor.actorId && c.requestedBy?.actorId !== actor.actorId) continue;
+          if (c.actor?.actorId && c.actor.actorId !== actor.actorId && c.actor.actorId !== writer.actorId && c.requestedBy?.actorId !== actor.actorId) continue;
           const how = CHANGED[c.kind];
           if (c.blockId && how && (RANK.indexOf(how) > RANK.indexOf(changed.get(c.blockId) ?? "edited") || !changed.has(c.blockId))) changed.set(c.blockId, how);
         }
@@ -314,7 +322,7 @@ export class ScriptRuns {
     const title = source.blockId ? firstLineWithoutPropertyTokens(this.store.get(source.blockId)?.text ?? "")?.trim() : undefined;
     let message = `${title || extension.name} done`;
     // Its words are the run's to change as it goes: the answer (`answered`) is what stands when it ends.
-    const result: { -readonly [K in keyof ExtensionActResult]: ExtensionActResult[K] } = { extension: extension.id, action: "run", message: `${extension.name} working`, state: "running", written, undo, undoOn: request.blockId ?? source.blockId, writtenAs: actor.actorId ?? actor.author };
+    const result: { -readonly [K in keyof ExtensionActResult]: ExtensionActResult[K] } = { extension: extension.id, action: "run", message: `${extension.name} working`, state: "running", written, undo, undoOn: request.blockId ?? source.blockId, writtenAs: asked ? (asked.author === "user" ? "you" : asked.actorId) : actor.actorId ?? actor.author };
     let returned: string | undefined;
     const update = () => captured(() => {
       if (!log) return;
@@ -385,14 +393,14 @@ export class ScriptRuns {
       });
       if (!plan.ok && plan.kind === "refused") throw new Error(plan.reason);
       const result = await client.request<{ outcome: string; reason?: string; proposalId?: string }>({
-        action: "draft.patch", blockId: site.thisId, revision: draft.revision, patches: plan.spans, mutation: actor, current: true,
+        action: "draft.patch", blockId: site.thisId, revision: draft.revision, patches: plan.spans, mutation: writer, current: true,
         ...(plan.mark ? { mark: { text: plan.mark } } : {}), ...(plan.ok && (!request.mcpAccess || request.mcpAccess === "full") ? {} : { propose: true as const }),
       });
       const said = plan.ok ? plan.summary : plan.reason;
       lines.push(`\nplace: ${result.outcome === "applied" ? said : `proposed instead: ${result.reason ?? said}`}`);
       return { outcome: result.outcome, ...(plan.anchor ? { anchor: plan.anchor } : {}), ...(plan.ok ? { created: plan.created } : {}), message: result.outcome === "applied" ? said : (plan.ok ? (result.reason ?? said) : plan.reason), ...(result.proposalId ? { proposalId: result.proposalId } : {}) };
     };
-    const api = hostApi(client, { ...actor, actorId: actor.actorId ?? actor.author }, {
+    const api = hostApi(client, { ...writer, actorId: writer.actorId ?? "" }, {
       onStep: step,
       ...(site.thisId ? { thisId: site.thisId } : {}),
       ...(site.resolve ? { resolve: (path: string) => site.resolve!(path) } : {}),
