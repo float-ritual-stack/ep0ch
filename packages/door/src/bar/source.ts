@@ -36,6 +36,11 @@ export interface BarRow {
   group?: string;
   /** What's typed names this row outright (an action line with its arguments): the main list puts its source first, so ⏎ picks it. */
   exact?: true;
+  /**
+   * Its pick sends what the person typed (an ask line, PIE-1437): the line stays as typed while it runs, the bar closes
+   * when it's done, and a refusal keeps the line to fix, its reason under "this session". What's typed always lands.
+   */
+  holds?: true;
   /** The note it stands for (a notes hit), in another outline when `outline` says: its row menu copies its address (note.copy-ref). */
   note?: { id: string; outline?: string };
   data?: unknown;

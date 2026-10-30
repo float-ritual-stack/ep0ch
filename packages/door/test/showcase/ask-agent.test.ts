@@ -53,8 +53,31 @@ describe("showcase: ask an agent (PIE-1437)", () => {
     expect(body).toStartWith("@wren looking at [[Raised beds plan]] can you pop it into %rota");
     expect(body).toContain("- %rota: the tile rota in the door");
     await until(() => said.some(t => t.startsWith("· asked @wren on Potting bench rota")), "said where the person looks", 8000);
+    // Sent: the bar is put away, the line kept under "this session" with what it did.
+    await until(() => !bar(), "the bar put away", 8000);
+    const sent = (h.app as any).barRuns.at(-1);
+    expect(sent.refused).toBe(false);
+    expect(sent.line).toStartWith("@wren looking at");
+    expect(sent.answer).toContain("asked @wren");
     h.app.flash = flash;
   }, 60_000);
+
+  test("a refused ask keeps its line in the bar, editable, with why (no note in front)", async () => {
+    // Out of the stage: the section list has the keys, so no note is in front of the person.
+    for (let i = 0; i < 3 && (bar() || (h.app as any).noteInFront() !== null); i++) { press({ kind: "esc" }); await Bun.sleep(100); }
+    await until(() => !bar() && (h.app as any).noteInFront() === null, "no note in front", 8000);
+    press({ kind: "char", ch: "k", ctrl: true });
+    await until(() => !!bar(), "the power bar", 4000);
+    type("@wren sort these");
+    await until(() => bar().describe().rows?.[0]?.label === "ask @wren", "the ask row first", 8000);
+    press({ kind: "enter" });
+    await until(() => (h.app as any).barRuns?.some((r: { refused: boolean }) => r.refused), "the refusal said", 8000);
+    expect(bar()).toBeTruthy();
+    expect(bar().query).toBe("@wren sort these");
+    expect((h.app as any).barRuns.at(-1).answer).toContain("the ask goes as a comment on a note");
+    press({ kind: "esc" }); press({ kind: "esc" });
+    await until(() => !bar(), "the bar put away", 4000);
+  }, 30_000);
 
   test("an agent asks through act, attributed, on a note it names", async () => {
     const out = await h.app.act({ action: "agent.ask", args: { to: "wren", text: "sort the rota", note: rota().id }, as: "test-agent" }) as { note: string; thread: string };

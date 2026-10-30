@@ -107,7 +107,7 @@ export const askedWords = (a: Asked) => `· asked @${a.to} on ${a.title} · a co
 
 /** The row a typed ask line is: ⏎ (or a click) sends it. */
 function askRow(a: { to: string; text: string }): BarRow {
-  return { key: `ask:${a.to}`, label: `ask @${a.to}`, detail: a.text.length > 60 ? `${a.text.slice(0, 59)}…` : a.text, exact: true, data: a };
+  return { key: `ask:${a.to}`, label: `ask @${a.to}`, detail: a.text.length > 60 ? `${a.text.slice(0, 59)}…` : a.text, exact: true, holds: true, data: a };
 }
 
 /**
@@ -140,6 +140,7 @@ export const AGENTS: BarSource = {
       if (how.actor.kind === "agent") throw new ActionRefused(`what should @${a.to} do? agent.ask to=${a.to} text="…"`);
       return host.dispatch.as(how.actor, { action: "bar.open", args: { query: `@${a.to} ` } });
     }
-    return host.dispatch.as(how.actor, { action: "agent.ask", args: { to: a.to, text: a.text } });
+    // `act`, not a press: a refusal comes back to the bar, which keeps the line to fix (a press says it and answers null).
+    return host.dispatch.act({ action: "agent.ask", args: { to: a.to, text: a.text } }, how.actor);
   },
 };

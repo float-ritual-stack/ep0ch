@@ -718,7 +718,7 @@ export class PowerBar {
   keepsRun(n: number): boolean {
     const it = this.items[n - 1];
     if (!it) return false;
-    if (it.source.id === "runs") return true;
+    if (it.source.id === "runs" || it.row.holds) return true;
     if (it.source.id !== "actions") return false;
     const d = it.row.data as { action: string; form?: boolean };
     // Only a typed act line stays with its answer; a picked action row runs and closes, as it always has.
@@ -741,11 +741,14 @@ export class PowerBar {
     const it = this.items[n - 1];
     if (!it) throw new Error(this.items.length ? `pick 1 to ${this.items.length}` : "the bar lists nothing to pick");
     this.picker.sel = n - 1;
-    const keep = actor.kind === "user" && this.keepsRun(n), line = keep ? this.commandLine(n) : "";
-    if (keep) { this.input.splice(0, this.query.length, line); this.refresh(); }
+    const keep = actor.kind === "user" && this.keepsRun(n), holds = keep && !!it.row.holds;
+    const line = holds ? this.query : keep ? this.commandLine(n) : "";
+    if (keep && !holds) { this.input.splice(0, this.query.length, line); this.refresh(); }
     try {
       const result = await it.source.pick(it.row, this.host, { alt, actor }) ?? null;
-      if (keep) this.recordRun(line, result, false);
+      // A held line is sent: the bar's done with it (an answer of its own said what happened).
+      if (holds) { this.host.runs.push({ line, answer: runAnswer(this.commandLine(n), result), refused: false }); if (this.host.runs.length > 8) this.host.runs.shift(); void this.host.dispatch.press("bar.close"); }
+      else if (keep) this.recordRun(line, result, false);
       return { picked: rowFacts(it, n), result };
     } catch (e) {
       if (keep) this.recordRun(line, e instanceof Error ? e.message : String(e), true);

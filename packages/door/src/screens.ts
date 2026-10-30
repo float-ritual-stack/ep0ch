@@ -522,7 +522,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "status.log": def({
     summary: "open the session's message log: every status, warning, refusal and error, with time and the action and tile; / searches, enter returns to its note or tile, q or esc comes back; pressed again (a click on the status line, alt+M) it closes",
-    keys: "alt+M; click the status line, or the message said whole above it (its \"… more alt+M\" when it's longer than four rows)",
+    keys: [{ keys: "alt+M", does: "on every screen" }, { keys: "click", does: "on the status line, or on the message said whole above it (its \"… more alt+M\" when it's longer than four rows)" }],
     touches: "screen", host: true, replay: "safe",
     args: {},
     run(_, { ctx }) {
