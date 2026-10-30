@@ -340,7 +340,7 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:52` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:876` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:879` |
 | `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:449` |
 
 ## Effects, access and attribution
@@ -371,7 +371,7 @@ examples lean on:
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4751` |
 | `viaYolo` | `packages/outliner/src/server.ts:4781` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:499` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:504` |
 
 ## Lifecycle
 
@@ -407,7 +407,7 @@ examples lean on:
 | `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:258` |
 | `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:272` |
 | `stopRun` | `packages/outliner/src/script-runs.ts:226` |
-| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:351` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:356` |
 | `scripts.stop` | `packages/outliner/src/server.ts:2199` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2563` |
 

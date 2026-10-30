@@ -333,8 +333,13 @@ export class ScriptRuns {
     let effects: string[] = [], actionAnswer: unknown, sequenceAct = sequence !== undefined;
     // What the presser hears when a step stops the sequence, in their words (PIE-1418); Sources keeps each step's spelling.
     let stoppedSaid: string | undefined;
+    // Writes that became proposals as comments (a create, a move or a trash at propose access): the thread and its note.
+    const commented: { id: string; note: string }[] = [];
     const step = (s: HostStep) => {
       if (trace && s.phase === "done" && s.writes) effects.push(`${s.tool}: ${JSON.stringify(s.result)}`);
+      const proposal = s.phase === "done" ? s.result as { outcome?: string; uri?: string; detail?: { thread?: string } } | undefined : undefined;
+      const on = proposal?.outcome === "proposed" && proposal.detail?.thread ? /^\(\(([^)|]+)/.exec(proposal.uri ?? "")?.[1] : undefined;
+      if (on) commented.push({ id: proposal!.detail!.thread!, note: on });
       if (s.phase === "start") return;
       lines.push(`\n${s.seq}. ${s.tool}: ${s.phase === "done" ? JSON.stringify(s.result) : s.error}`);
       // A tight host-call loop must not flood readers and delay the person's save behind progress events.
@@ -519,12 +524,16 @@ export class ScriptRuns {
             return [{ id, title: blockDisplayTitle(b) || id.slice(0, 8), change }];
           });
           if (notes.length) result.changed = notes;
-          // The edits that became proposals (propose access, or a note open in a draft): each beside the note it is for.
-          const proposed = [...changed].flatMap(([id, change]) => {
+          // The writes that became proposals (propose access, or a note open in a draft): an edit's proposal beside its
+          // note, and a create's, a move's or a trash's comment on it (its thread), each with the note it is for.
+          const beside = [...changed].flatMap(([id, change]) => {
             const b = this.store.get(id);
             if (change !== "created" || !b || b.effectiveDeletedRootId || b.properties.find(p => p.key === "type")?.value !== DRAFT_PROPOSAL_TYPE) return [];
-            const note = b.parentId ? this.store.get(b.parentId) : undefined;
-            return [{ id, note: b.parentId ?? "", title: note ? blockDisplayTitle(note) : "" }];
+            return [{ id, note: b.parentId ?? "" }];
+          });
+          const proposed = [...beside, ...commented.filter(c => !beside.some(b => b.id === c.id))].map(({ id, note }) => {
+            const on = note ? this.store.get(note) : undefined;
+            return { id, note, title: on ? blockDisplayTitle(on) : "" };
           });
           if (proposed.length) result.proposed = proposed;
           if (returned !== undefined && returned !== result.message) result.answer = returned;

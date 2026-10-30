@@ -123,6 +123,11 @@ test("script-run lists the notes it made, never a tool's bookkeeping; creates at
   expect(offered.proposed).toHaveLength(1);
   expect(offered.proposed![0]).toMatchObject({ note: pots.id, title: "Clay pots" });
   expect(store.require(offered.proposed![0]!.id).text).toContain("[type::draft-proposal]");
+  // A new note under one, at propose access, is a comment on it: named too.
+  const sow = create("Sow under [script::sow-under] [effects::write]\n```js\nawait tools.outline_create({ parent: this.id, text: 'Sow the beans' });\nreturn 'asked';\n```");
+  await extensionOf("sow-under");
+  const asked = await runAgentOperation(client, "script-run", { ref: sow.id, this: pots.id }, { actorId: WREN.actorId }) as { proposed?: { id: string; note: string; title: string }[] };
+  expect(asked.proposed).toEqual([expect.objectContaining({ note: pots.id, title: "Clay pots" })]);
   // A new top-level note has no note to be proposed on: refused with what to do.
   const again = await runAgentOperation(client, "script-run", { ref: script.id, this: shed.id }, { actorId: WREN.actorId }) as { message: string };
   expect(again.message).toContain("A new top-level note can't be proposed");

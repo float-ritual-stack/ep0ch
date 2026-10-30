@@ -13,7 +13,7 @@ are its record. The outliner's entries from then are kept below, under
 ### An agent's answers read right, round two: script runs, asks from the bar (PIE-1436)
 
 - **A script run lists only what it changed:** `changed` leaves out what another writer made meanwhile (Jev's review records and suggestions page, the first time a create is reviewed) and any `[machine::…]` bookkeeping.
-- **A script run says what became a proposal:** at propose access (or with the note open in a draft), the answer's `proposed` lists each proposal with the note it is beside and that note's title.
+- **A script run says what became a proposal:** at propose access (or with the note open in a draft), the answer's `proposed` lists each proposal (an edit's, or the comment a create, a move or a trash became) with its note and that note's title.
 - **A script can create at the top level:** `tools.outline_create({ parent: "root" })` works as the tool and the CLI do; at propose access it is refused with why (a proposal needs a note) and what to do.
 - **A bare `@` in the power bar lights an agent:** the agents come first and the preview is an agent's, never another source's row.
 - **The ask's preview says where it will land, or why it can't:** it reads the same answer ⏎ does, so "can't be sent yet" and the reason show before you press it.
