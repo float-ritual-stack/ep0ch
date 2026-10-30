@@ -276,7 +276,7 @@ export const unlockHow = (self: LayoutSelf = SCREEN_SELF): string => {
   const chip = lockChipText(self).trim();
   // A refusal names a control the person can see (PIE-1455): one under the drawer or a lifted tile is reached past it.
   if (self.chip && self.covered === "drawer") return `alt+a puts your drawer away, then a click on ${chip} unlocks it (or ^W P with the keys in ${self.name})`;
-  if (self.chip && self.covered === "lift") return `the power bar's "unlock ${self.name}" unlocks it (its ${chip} chip is under the lifted tile)`;
+  if (self.chip && self.covered === "lift") return `✦a (agent.lift) drops the lifted tile, then a click on ${chip} unlocks it`;
   return self.chip ? `a click on ${chip} (or ^W P) unlocks it` : `^W P in it, or the power bar's "unlock ${self.name}", unlocks it`;
 };
 

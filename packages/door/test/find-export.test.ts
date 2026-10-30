@@ -190,6 +190,28 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     }
   }, 30_000);
 
+  // PIE-1460: a note a tool stamped [machine::…] is left out of a query, said with this command's flag, which finds it.
+  test("find --machinery: hidden by default and said as the flag; show finds it under --query and --under; a view keeps its own", async () => {
+    const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
+    const make = (text: string, parentId: string | null = null) => board.request<{ id: string }>("create", { parentId, text, author: "agent" });
+    const shelf = await make("Potting shelf");
+    const tally = await make("Tray count, written by a tool [type::tally] [machine::tray-counter]", shelf.id);
+    try {
+      const hidden = await run(["find", "--query", "type=tally", "--ids"], env);
+      expect(hidden.out.trim()).toBe("");
+      expect(plain(hidden.err)).toContain("--machinery show");
+      expect((await run(["find", "--query", "type=tally", "--machinery", "show", "--ids"], env)).out.trim()).toBe(`((${tally.id}))`);
+      expect((await run(["find", "--under", shelf.id, "--machinery", "only", "--ids"], env)).out.trim()).toBe(`((${tally.id}))`);
+      expect(plain((await run(["find", "--view", ids.view!, "--machinery", "show"], env)).err)).toContain("[machinery::]");
+      expect(plain((await run(["find", "--machinery", "show"], env)).err)).toContain("--machinery says what a --query or --under holds");
+      expect(plain((await run(["find", "--query", "type=tally", "--machinery", "all"], env)).err)).toContain("--machinery is hide, only, show");
+    } finally {
+      await board.request("delete", { blockId: tally.id }).catch(() => {});
+      await board.request("delete", { blockId: shelf.id }).catch(() => {});
+      board.close();
+    }
+  }, 30_000);
+
   test("find --json: block records, built by the service", async () => {
     const [r] = JSON.parse((await run(["find", "--query", "tag=spring", "--json"], env)).out) as BlockRecord[];
     expect(r).toMatchObject({ id: ids.order, title: "Seed order for the plot", parent: ids.plot, children: [ids.ask], properties: [{ key: "type", values: ["errand"] }, { key: "ctx", values: ["2026-03-09 @ 09:27:29 AM"] }, { key: "tag", values: ["seeds", "spring"] }, { key: "when", values: ["before Friday"] }], tasks: [{ status: "todo", text: "order the beans" }] });

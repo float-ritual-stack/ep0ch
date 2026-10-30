@@ -76,7 +76,7 @@ export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --
                                    - [x] step's chips no longer match); each note then says the line it
                                    matched on, and --json gives each record its matches. A view says its
                                    own with [property-scope::all].
-                                   --machinery says what --query holds of the notes tools stamp
+                                   --machinery says what --query or --under holds of the notes tools stamp
                                    [machine::…] (peer messages, tosses, fetched notifications): hide (the
                                    default, said on stderr with how many), only, or show.
                                    --ids prints ((id)) a line, for $(…) (ep0ch show $(ep0ch find --ids …));
@@ -277,7 +277,8 @@ export function selectionOf(args: string[]): { selection: Omit<Selection, "ids" 
     else sel.dates.push(`${DATE_CLAUSES[f]} ${v.trim()}`);
   }
   if (sel.direction && !sel.sort) return { error: `--direction orders a --sort: --sort due --direction ${sel.direction}` };
-  if (sel.machinery && !sel.query && !sel.dates.length) return { error: `--machinery says what a --query holds; give one: ep0ch find --query "<expression>" --machinery ${sel.machinery}` };
+  if (sel.machinery && sel.view) return { error: `a view holds the machinery its own [machinery::] says; --machinery goes with --query or --under (ep0ch show ${sel.view} --source shows the view's)` };
+  if (sel.machinery && !sel.query && !sel.dates.length && !sel.under && !sel.sort) return { error: `--machinery says what a --query or --under holds; give one: ep0ch find --query "<expression>" --machinery ${sel.machinery}` };
   if (sel.propertyScope && !sel.query && !sel.dates.length && !sel.view) return { error: `--property-scope says which chips a --query reads; give one: ep0ch find --query needs --property-scope ${sel.propertyScope}` };
   return { selection: sel, rest: without(args, SELECT_FLAGS, []) };
 }

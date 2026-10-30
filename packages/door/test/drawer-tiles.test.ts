@@ -1333,14 +1333,17 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(d.app.drawer.open).toBe(false);
       expect(shown.some(l => l.includes("▣ screen locked") && !l.includes("locked the screen") && !l.includes("refused"))).toBe(true);
       expect(await refusal()).toContain("a click on ▣ screen locked (or ^W P) unlocks it");
-      // The drawer's agent lifted over the whole screen: its row shows the drawer's lock, so the screen's is reached by the bar.
-      await d.app.dispatch.press("agent.lift", { reach: "full", drawer: true });
+      // The drawer's agent lifted over the whole screen: its row shows the drawer's lock, so the lift is dropped first.
+      await d.app.dispatch.press("agent.lift", {});
       await until(() => !!d.app.drawer.made?.liftedDesk, "the drawer's agent lifted");
       d.paint();
       const lifted = await refusal();
       expect(lifted).not.toContain("a click on ▣ screen locked (or ^W P)");
-      expect(lifted).toContain(`the power bar's "unlock the screen" unlocks it`);
-      await d.app.dispatch.press("agent.lift", { on: false });
+      expect(lifted).toContain("✦a (agent.lift) drops the lifted tile, then a click on ▣ screen locked unlocks it");
+      // As it says: agent.lift again drops it (✦a is its key), and the screen's chip is drawn again.
+      await d.app.dispatch.press("agent.lift", {});
+      await until(() => !d.app.drawer.made?.liftedDesk, "the lift dropped by agent.lift");
+      expect(d.paint().some(l => l.includes("▣ screen locked") && !l.includes("refused") && !l.includes("locked the screen"))).toBe(true);
     } finally { d.app.quit(); }
   });
 
@@ -1776,7 +1779,8 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     d.app.quit();
     const file = join(outlineState(), "drawer-tiles.json");
     const saved = JSON.parse(readFileSync(file, "utf8"));
-    saved.root = { t: "split", dir: "row", weights: [0.4, 0.3, 0.3], kids: [saved.root, { t: "leaf", kind: "drawer.own", name: "own" }, { t: "tabs", active: 0, tabs: [{ t: "leaf", kind: "dock.own", name: "older" }] }] };
+    // replies wired its opens into the old tile: that wire goes with it.
+    saved.root = { t: "split", dir: "row", weights: [0.4, 0.3, 0.3], kids: [{ ...saved.root, wires: [{ verb: "open", to: "own" }] }, { t: "leaf", kind: "drawer.own", name: "own" }, { t: "tabs", active: 0, tabs: [{ t: "leaf", kind: "dock.own", name: "older" }] }] };
     writeFileSync(file, JSON.stringify(saved));
     const e = await door();
     try {
@@ -1795,6 +1799,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(after).not.toContain("drawer.own");
       expect(after).not.toContain("dock.own");
       expect(after).toContain("replies");
+      expect(after).not.toContain('"to":"own"');
     } finally { e.app.quit(); }
     // The next door has nothing left to say.
     const f = await door();

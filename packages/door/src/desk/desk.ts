@@ -1068,7 +1068,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const auto = (kind: string) => autoName({ names }, kind);
     if (!reuse) this.panes.clear();
     // Tiles of a retired built-in kind (RETIRED_KINDS): made with the rest, then left out below.
-    const retired: number[] = [];
+    const retired: number[] = [], retiredRefs = new Set<string>();
     const tileOf = (saved: TileSpec) => {
       // A saved `detail` is a reader that starts held (PIE-705); a kind nobody registers here is made as a tile that says so (src/desk/tiles.ts makeTile).
       const l = canonSpec(saved);
@@ -1121,7 +1121,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // This tile's own look (PIE-675), as its spec kept it: string values only.
       const ownLook = l.look && typeof l.look === "object" ? Object.fromEntries(Object.entries(l.look).filter(([, v]) => typeof v === "string")) as Record<string, string> : null;
       if (ownLook && Object.keys(ownLook).length) this.panes.get(id)!.instanceLook = ownLook;
-      if (RETIRED_KINDS[kind]) retired.push(id);
+      if (RETIRED_KINDS[kind]) { retired.push(id); for (const r of [l.id, l.name, this.tileId(id)]) if (r) retiredRefs.add(r); }
       return id;
     };
     const root = reviveTree(spec.root, tileOf);
@@ -1143,7 +1143,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       fresh.splice(0, fresh.length, ...fresh.filter(x => x !== id));
       openers.splice(0, openers.length, ...openers.filter(([x]) => x !== id));
       wantSources.splice(0, wantSources.length, ...wantSources.filter(([x]) => x !== id));
-      wantWires.splice(0, wantWires.length, ...wantWires.filter(w => w.from !== id));
+      // A wire into it goes with it (the layout's saved id, its name or the id it was given here name it).
+      wantWires.splice(0, wantWires.length, ...wantWires.filter(w => w.from !== id && !retiredRefs.has(w.to)));
+      wantSources.splice(0, wantSources.length, ...wantSources.filter(([, src]) => !retiredRefs.has(src)));
       for (const [k, v] of slots) if (v === id) slots.delete(k);
     }
     floats.splice(0, floats.length, ...floats.filter(f => !retired.includes(f.id)));
