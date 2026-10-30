@@ -269,7 +269,7 @@ function wKeyRows(desk: Desk, q: string, host: BarHost): BarRow[] {
  * The screen the person's keys are in (PIE-1346, the App's keysScreen): its focused tile's menu and its ^W keys are the
  * actions scope's, and a row runs there, so "unlock your drawer" is the drawer's when the keys are in it.
  */
-const keysScreen = (host: BarHost) => host.ctx.keysScreen?.() ?? host.screens().at(-1);
+const keysScreen = (host: BarHost) => host.here ?? host.ctx.keysScreen?.() ?? host.screens().at(-1);
 const keysDispatch = (host: BarHost) => keysScreen(host)?.dispatch;
 
 const ACTIONS: BarSource = {

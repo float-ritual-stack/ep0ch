@@ -19,6 +19,28 @@ are its record. The outliner's entries from then are kept below, under
 - **The `&` list is one row per extension:** a row says its settings only when they need you (needs setup, failing), with a settings row for just those; every preview says them in words, and `settings <id>` typed finds any form.
 - **A recording gets a real name:** unnamed, it's named after what it did (`recorded-note-open-oct29-151402`, titled "Recorded: note.open, …"), never `recording-<timestamp>`.
 - **Run:** `ep0ch install --apply`; pages are written again on the next reload. A recording saved before keeps its old name: rename its note.
+### What the new screens say is true at every width (PIE-1439)
+
+- **The keys window:** in the river, x, h, w and I no longer say a main-menu letter takes them first; a key says
+  "taken by" only where both keys work, and Conflicts agrees. `in:river` lists the ^W chords too.
+- **At 40 columns:** rows that read alike once cut keep the word that differs (`… left`, `… right`), and the hint row
+  keeps esc.
+- **A failed run:** the status line says a note's label, never a raw `((id|label))`; the message log keeps it whole.
+- **The power bar:** an argument's list keeps off the docs beside it; a note's edit lists its tile's actions first
+  from the start, as ctrl+k and / do.
+- **The twin row at 40 columns:** the offer gets a row of its own with its Work ID, the controls whole under it.
+- **outline_snapshot of a copy:** `asOf` is the copy's newest change, and the headline says it; `snapshotAt` is when
+  the snapshot was made.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+### One place decides where your key goes (PIE-1438)
+
+- **Whatever is in front of you gets the key:** the power bar, a status-bar menu, the message log, a tile menu or a
+  float takes Esc, and nothing reaches the terminal under it. The door now asks one answer (where you are) for this,
+  so a new overlay can't let a key leak to the program behind it; `ep0ch peek`'s `person` names that layer too.
+### Shares' Start a public link works again
+
+- **The site's own forms post:** pages behind sign-in were sent with `Referrer-Policy: no-referrer`, under which a browser sends `Origin: null` on a form POST, so the site's own check refused Shares' "Start a public link" ("A change comes from this site's own pages"). They now say `same-origin`: no link leaving the site carries a referrer, as before, and the site's own forms post.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (it restarts the publishers).
 
 ### Open a note as it was at a revision, beside how it is now (PIE-1433)
 

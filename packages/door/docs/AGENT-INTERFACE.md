@@ -182,6 +182,10 @@ Top-level layout metadata describes the screen, regardless of the focused layer.
 same report as top-level `layout`. `Whereabouts.address` names the tile under the
 person's keys, descending into mounts and the drawer; omitted `tile=` uses that
 focused tile. A group's frame and menu address the group itself.
+`peek`'s `person` (the whereabouts) also says who takes the person's next key (PIE-1438): `over` is the door's own
+layer open over everything (`bar`, `probe`, or `menu` for a status-bar menu over the drawer), and `program` (`{ over }`)
+means a terminal has their keys, with `over: true` when something open above it takes them first. Both are left out
+when they don't apply.
 
 | Action | Gives |
 |---|---|
