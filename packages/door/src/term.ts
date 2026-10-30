@@ -171,6 +171,8 @@ export interface TileJob {
   stop(): void;
   dismiss(): void;
 }
+/** What hears a tile program's exit code (null: its tile closed first); true keeps its tile on screen with what it said. */
+export type TileExit = (code: number | null) => boolean | void;
 export interface TileProgram { retain?: boolean; actor?: import("./socket").Actor; output?: (data: Uint8Array) => void; ready?: (job: TileJob) => void; cmd: string[]; name: string; cwd?: string; file?: string; own?: Record<string, string | null>; shows?: string; wide?: boolean }
 
 /** `argv` with this process's terminal as its stdio, `banner` printed first: its exit code. */
