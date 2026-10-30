@@ -780,7 +780,7 @@ interface Choice { id: string; label: string; key: string }
 interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
 /** A note at a revision, beside how it is now (PIE-1433): the compare's view, its header's controls and where it was drawn. */
-type RevisionMode = ReaderMode<SurfaceHost> & { blockId: string; view: RevisionView; controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[]; body: number; rect: { x: number; y: number; w: number; h: number } };
+type RevisionMode = ReaderMode<SurfaceHost> & { blockId: string; view: RevisionView; want?: number; controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[]; body: number; rect: { x: number; y: number; w: number; h: number } };
 type ReplyLinksMode = ReaderMode<SurfaceHost> & { controls: { from: number; to: number; action: (typeof REPLIES_CONTROLS)[number] }[]; dragFrom?: { block: Msg; y: number }; truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[]; drawnItems: number[] };
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; reply?: Msg; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
@@ -1148,9 +1148,10 @@ export class NoteSurface {
   /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
   get session(): CommentSession | null { return (this.modes.get("comment") as CommentMode | null)?.session ?? null; }
   set session(s: CommentSession | null) {
-    if (s) { this.modes.push(this.commentMode(s)); return; }
+    if (s) { this.modes.push(this.commentMode(s)); this.revisionKeys(false); return; }
     const cs = this.session;
     this.modes.drop("comment");
+    this.revisionKeys(true);
     if (this.modes.get("grip")?.of === cs) this.modes.drop("grip");
     if (this.sourcesMode) this.modes.focus(this.sourcesMode, true);
     if (this.placementMenu?.target === "comment") this.modes.drop("placement");
@@ -1500,14 +1501,15 @@ export class NoteSurface {
       return { lines: [pad(title + (mode.truncated ? " · cut short" : ""), cols), ...shown.map(r => r.text)] };
     });
     // A revision compare (PIE-1433): beside the note as THREAD is (the attached surface's split), the note as it is now beside it.
-    // A comment being written is drawn instead, wherever it sits: its keys are its own meanwhile.
+    // A comment being written stays where it is on the note's side (a split one as a popup there), the keys its own
+    // until a click in the compare (revisionKeys).
     const rv = this.revisionMode;
-    if (rv && rv.blockId === this.msg?.id && !this.session) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
+    if (rv && rv.blockId === this.msg?.id) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
       rv.rect = { x: col, y: row, w: cols, h: rows };
       const d = drawRevision(rv.view, cols, rows);
       rv.controls = d.controls; rv.body = d.body;
       return { lines: d.lines };
-    });
+    }, undefined, (cols, rows) => this.renderReading(cols, rows, host, this.session?.place === "tile" ? null : this.composing(host)));
     const sm = this.sourcesMode;
     if (sm?.place === "inline") return this.renderComment(w, h, host);
     if (sm && sm.place !== "tile") {
@@ -3422,6 +3424,9 @@ export class NoteSurface {
 
   closeReplyLinks() { this.modes.drop("replies"); }
   closeRevision() { this.modes.drop("revision"); }
+  /** The compare takes its keys (on), or leaves them to a comment being written: it opens without them over one. */
+  private revisionKeys(on: boolean) { const rv = this.revisionMode; if (rv) this.modes.focus(rv, on); }
+  private revisionAsked = 0;
 
   /**
    * Open (or move) the revision compare (PIE-1433): revision `revision` of this note (left out: the one before the
@@ -3429,11 +3434,14 @@ export class NoteSurface {
    */
   async openRevision(host: SurfaceHost, revision: number | undefined, against: RevisionAgainst, passage?: string): Promise<RevisionView> {
     const m = this.requireNote();
+    const asked = ++this.revisionAsked;
     const diff = await compareAt(host.ctx.board, m.id, revision, against);
     const view: RevisionView = { diff, against, top: 0, opening: openingRow(diff.rows, passage), ...(passage ? { passage } : {}) };
     if (this.msg?.id !== m.id) throw new ActionRefused("the reader moved to another note while the revision was read; open it again");
     const had = this.revisionMode;
-    if (had && had.blockId === m.id) { had.view = view; host.redraw(); return view; }
+    // Only the last asked lands: two ← read in one chunk both ask, and the first answer to arrive may be the older ask's.
+    if (asked !== this.revisionAsked) return had?.view ?? view;
+    if (had && had.blockId === m.id) { had.view = view; delete had.want; host.redraw(); return view; }
     const run = (action: string, args: Record<string, unknown> = {}) => { void this.runKey(action as Parameters<NoteSurface["runKey"]>[0], args, host); };
     const mode: RevisionMode = {
       // It takes only its own keys (REVISION_KEYS): the desk's still work, and Esc closes it once its tile has the keys.
@@ -3444,8 +3452,10 @@ export class NoteSurface {
       click: (x, y) => {
         y += this.drawn?.heroRows ?? 0;
         const r = mode.rect;
-        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
-        if (y === r.y + mode.body - 1) { const c = mode.controls.find(hit => x - r.x >= hit.from && x - r.x < hit.to); if (c) run(c.action); }
+        // A click outside it while a comment is being written gives the comment its keys back; one in it, the compare.
+        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) { if (this.session) this.modes.focus(mode, false); return undefined; }
+        this.modes.focus(mode, true);
+        if (y === r.y) { const c = mode.controls.find(hit => x - r.x >= hit.from && x - r.x < hit.to); if (c) run(c.action); }
         return true;
       },
       wheel: (dir, _host, at) => {
@@ -3464,6 +3474,7 @@ export class NoteSurface {
       },
     };
     this.modes.push(mode);
+    if (this.session) this.modes.focus(mode, false);
     host.redraw();
     return view;
   }
@@ -10477,10 +10488,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "in the revision compare, the revision before the one shown (still against the next, or now)", keys: modeActionKeys(ATTACHED_KEYS, "revision.older"),
     touches: "tile", replay: "safe", args: {},
     async run(_, { surface, host }) {
-      const v = surface.revisionMode?.view;
-      if (!v) throw new ActionRefused("open the revision compare first (revision.compare)");
-      const older = v.diff.list.revisions.find(r => r.revision < v.diff.from.revision);
-      if (!older) throw new ActionRefused(`revision ${v.diff.from.revision} is the oldest kept for this note`);
+      const mode = surface.revisionMode, v = mode?.view;
+      if (!mode || !v) throw new ActionRefused("open the revision compare first (revision.compare)");
+      // From the revision asked last, not the one drawn: a second ← before the first's answer steps again.
+      const from = mode.want ?? v.diff.from.revision;
+      const older = v.diff.list.revisions.find(r => r.revision < from);
+      if (!older) throw new ActionRefused(`revision ${from} is the oldest kept for this note`);
+      mode.want = older.revision;
       return revisionFacts(await surface.openRevision(host, older.revision, v.against));
     },
   }),
@@ -10488,10 +10502,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "in the revision compare, the revision after the one shown", keys: modeActionKeys(ATTACHED_KEYS, "revision.newer"),
     touches: "tile", replay: "safe", args: {},
     async run(_, { surface, host }) {
-      const v = surface.revisionMode?.view;
-      if (!v) throw new ActionRefused("open the revision compare first (revision.compare)");
-      const newer = [...v.diff.list.revisions].reverse().find(r => r.revision > v.diff.from.revision && r.revision < v.diff.current);
-      if (!newer) throw new ActionRefused(`revision ${v.diff.from.revision} is the last before the note now`);
+      const mode = surface.revisionMode, v = mode?.view;
+      if (!mode || !v) throw new ActionRefused("open the revision compare first (revision.compare)");
+      const from = mode.want ?? v.diff.from.revision;
+      const newer = [...v.diff.list.revisions].reverse().find(r => r.revision > from && r.revision < v.diff.current);
+      if (!newer) throw new ActionRefused(`revision ${from} is the last before the note now`);
+      mode.want = newer.revision;
       return revisionFacts(await surface.openRevision(host, newer.revision, v.against));
     },
   }),

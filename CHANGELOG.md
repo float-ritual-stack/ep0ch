@@ -10,12 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A revision compare opened with a comment half-written shows both (PIE-1433)
+
+- **Both draw:** the compare sits beside the note (below it when narrow) and the comment you were writing stays where you left it; a split comment shows as a popup on the note's side. Before, the comment drew and the compare was hidden while its keys were live.
+- **The comment keeps the keys:** ← and → still move the comment's cursor; a click in the compare gives it the keys (Esc closes it), a click back on the note returns them.
+- **The controls row stays put:** `[« older] [newer »] [against now] [esc back]` is the compare's top row, so a second click lands where the first did at 44 columns, however the title wraps.
+- **Two ← in one go step twice:** each step goes from the revision asked last, and only the last answer is drawn.
+- **Run:** `ep0ch install --apply`.
+
 ### @tidy and @margin answer with the Claude mod installed
 
 - **A one-shot Claude starts clean:** `claude -p --tools ""` (tidy's answer command) and `--bare` exit 0 with the ep0ch mod loaded; it no longer fails with "session.start hook skipped: threw … \"show\" refused".
 - **The mod stays out of it:** no tools, no `ep0ch` calls, no context, no status line and no Recent Mentions entry for its answer, so the call keeps its whole deadline.
 - **Even with MCP servers connected:** the session's refusal of the mod's first tool decides it, not whether any tool is listed.
 - **Run:** `ep0ch install --apply` on each machine (the laptop too).
+
 ### A form names its button and where each entry lands (PIE-1442)
 
 - **The button says your words:** `[form-submit::Log it]` on a form's note, and the door draws Log it where it drew Fill in the form.
