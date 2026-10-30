@@ -1441,17 +1441,16 @@ export class ExtensionCalls {
     const { into } = settings;
     let landing: Record<string, unknown> = { kind: into.kind, blockId: block!.id, title: titleWords(block!.text) };
     if (into.kind === "inline") landing = { ...landing, revision: block!.revision, text: block!.text };
-    else if (into.kind === "page") {
-      const found = this.store.resolvePageAddress(into.address);
-      if (found.status !== "resolved" || !found.block) {
-        const near = this.store.rankPageAddresses(into.address, 1).addresses[0];
-        throw new Error(`${action.name}: the note's entries land under [[${into.address}]], and there is no page [[${into.address}]]${found.status === "deleted" ? " (it is in the Trash)" : ""}${near ? `; did you mean [[${near.address}]]?` : ""} Fix [form-into::…], or make the page first`);
+    else if (into.kind !== "child") {
+      // A [[page]] or a ((block)), found as every reference is (an id's first characters, a Work ID, Trash, a did-you-mean).
+      const ref = into.kind === "page" ? `[[${into.address}]]` : `((${into.id}))`;
+      const found = this.store.lookupBlockRef(ref, "note");
+      if (found.kind !== "found") {
+        const why = found.kind === "trashed" ? "it is in the Trash" : found.kind === "ambiguous" ? found.message : `there is no ${into.kind === "page" ? "page" : "note"} ${ref}`;
+        const mean = found.kind === "missing" && found.didYouMean ? `; did you mean ${found.didYouMean}?` : "";
+        throw new Error(`${action.name}: the note's entries land under ${ref}, and ${why}${mean || "."} Fix [form-into::…]${into.kind === "page" ? ", or make the page first" : ""}`);
       }
-      landing = { kind: "page", blockId: found.block.id, title: into.address };
-    } else if (into.kind === "block") {
-      const target = this.store.get(into.id);
-      if (!target || target.effectiveDeletedRootId) throw new Error(`${action.name}: the note's entries land under ((${into.id})), and that note is gone or in the Trash; fix [form-into::…]`);
-      landing = { kind: "block", blockId: target.id, title: titleWords(target.text) };
+      landing = { kind: into.kind, blockId: found.block.id, title: into.kind === "page" ? into.address : titleWords(found.block.text) };
     }
     return { fields, form: { ...(settings.submit ? { submit: settings.submit } : {}), into: landing, ...(settings.line !== undefined ? { line: settings.line } : {}) } };
   }

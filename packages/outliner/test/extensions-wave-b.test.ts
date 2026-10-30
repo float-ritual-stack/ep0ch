@@ -606,6 +606,11 @@ test("a form says where each entry lands: under it, under a page, or as a line i
   expect(live(paged.id)).toEqual([]);
   expect(live(shelf.id)).toEqual(["Tide [book::Tide] [pages::12]"]);
 
+  // A block named by its id's first characters, as the door draws it.
+  const short = await create(`Short form [form-into::((${shelf.id.slice(0, 8)}))]\n${fields}`);
+  await fill(short.id, { book: "Fern" });
+  expect(live(shelf.id)).toEqual(["Tide [book::Tide] [pages::12]", "Fern [book::Fern]"]);
+
   const inline = await create(`Pages read [form-into::inline] [form-line::{book}: {pages} pages]\n${fields}\nSo far:`);
   await fill(inline.id, { book: "Lantern", pages: "40" });
   await fill(inline.id, { book: "Fern" });
@@ -621,5 +626,5 @@ test("a form says where each entry lands: under it, under a page, or as a line i
   const word = await create(`Word log [form-into::inlne]\n${fields}`);
   expect(store.get(word.id)!.text).toContain("[form-into::inlne]");
   await expect(fill(word.id, { book: "Moss" })).rejects.toThrow(/did you mean inline\?/);
-  expect([...live(typo.id), ...live(word.id), ...live(shelf.id).slice(1)]).toEqual([]);
+  expect([...live(typo.id), ...live(word.id), ...live(shelf.id).slice(2)]).toEqual([]);
 });
