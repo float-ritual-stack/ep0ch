@@ -8,7 +8,7 @@ export interface CodeFence { char: "`" | "~"; length: number; indent: number; in
 
 /** Script fence settings, shared by the loader, reader and completion. */
 export const SCRIPT_FENCE = {
-  languages: ["js", "javascript", "ts", "typescript", "actions"],
+  languages: ["js", "javascript", "ts", "typescript", "tsx", "jsx", "actions"],
   settings: [
     { key: "script", meaning: "Names a script in this note; a button uses of=<name>" },
     { key: "effects", meaning: "write permits writes and door actions; read is the default" },
