@@ -5436,7 +5436,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const to = this.placeFrom(id, verb === "alt").route;
     if (to && "across" in to) {
       const p = this.storedPane(to.across), target = p ? this.plainPath(this.pathTo(p)) : to.across;
-      return to.rule === "beside" ? `beside ${target}` : to.rule === "tab" ? `tab of ${target}` : to.rule === "first-unheld" ? "first unheld reader" : target;
+      return to.rule === "beside" ? `beside ${target}` : to.rule === "tab" ? `tab of ${target}` : to.rule === "first-unheld" ? "first reader not pinned" : target;
     }
     if (to && "to" in to) return this.nameOf(to.to);
     if (to && "beside" in to) return `beside ${this.nameOf(to.beside)}`;

@@ -124,7 +124,7 @@ describe("one operation, one transaction", () => {
     expect(s.wires).toEqual([{ from: 1, verb: "select", to: 4 }, { from: 1, verb: "open", to: 2 }]);
     extra = {};
   });
-  test("alt rules resolve through landing, with a screen default and a first unheld reader", () => {
+  test("alt rules resolve through landing, with a screen default and the first reader not pinned (first-unheld)", () => {
     let s = ok(fresh(), { op: "link", tile: 1, to: 2 }).state;
     expect(placement(s, { from: 1, fresh: true, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ beside: 2 });
     for (const rule of ["tab", "beside", "tile"] as const) {
@@ -133,7 +133,7 @@ describe("one operation, one transaction", () => {
     }
     s = ok(s, { op: "link", tile: 1, verb: "alt" }).state;
     s = ok(s, { op: "policy", set: { altOpens: "first-unheld" }, clear: [] }).state;
-    extra = { 2: { held: true }, 3: { notes: true } };
+    extra = { 2: { pinned: true }, 3: { notes: true } };
     try { expect(placement(s, { from: 1, fresh: true, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ to: 3 }); }
     finally { extra = {}; }
   });

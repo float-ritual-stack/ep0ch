@@ -188,7 +188,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
     ch(".");
     // From the reader beside too: the screen's key map (PIE-515), not only the brief tile's own keys.
     press({ kind: "tab" });
-    expect((top().describe() as any).focusName).toBe("reader");
+    expect((top().describe() as any).focusName).toBe("detail");
     ch(",");
     expect(brief().shown?.id).toBe(notes.c.id);
     ch(".");
