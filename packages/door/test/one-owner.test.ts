@@ -113,7 +113,7 @@ const FAMILIES: Family[] = [
     // never by a check of its own in the router.
     pattern: /\.(?:rawKeys|holdsKeys)\?\.\(|\.programKeys\(|\.rawInput(?:\?\.)?\(|\boverDrawer\(/g,
     allowed: {
-      "app.ts": { n: 11, why: "the owner: person() and its feeders (overDrawer, programUnder); the raw sink hands bytes to the layer person() named (the drawer's or the screen's rawInput); the router's door keys read the top screen's own answer once; a gesture's next press (heldAfter)" },
+      "app.ts": { n: 11, why: "the owner: keyLayers (person() carries it) and its feeders (overDrawer, programUnder); the raw sink hands bytes to the layer it named (the drawer's or the screen's rawInput); the router's door keys (alt+v, ctrl+n, ^K…) read the top screen's own answer once, after the layer is decided; a gesture's next press (heldAfter)" },
       "whereabouts.ts": { n: 2, why: "screenKeys: a screen without tiles says whether it holds the keys, the answer person() starts from" },
       "desk/desk.ts": { n: 1, why: "programKeys' own walk into the group the person went into" },
       "drawer.ts": { n: 5, why: "the drawer's own key handling inside its layer (its tab's terminal, Esc putting it away when the screen under it isn't using the key, ctrl+]'s second press): person() already gave it the key" },
@@ -123,6 +123,16 @@ const FAMILIES: Family[] = [
       "brief/brief.ts": { n: 1, why: "the brief's , and . inside its own key handling, once the desk has the key" },
       "echonet/screen.ts": { n: 1, why: "EchoNet's message keys inside its own key handling, once the desk has the key" },
       "showcase/showcase.ts": { n: 2, why: "the showcase's stage says whether its framed screen holds the keys (its own answer, read by person())" },
+    },
+  },
+  {
+    question: "is one of the door's own layers open over everything (the key probe, a status-bar menu over the drawer) (PIE-1438)",
+    // The checks #1062 and #1071 added in the router one overlay at a time. They are read in App.keyLayers alone (with
+    // the power bar, which too many places open and close to count here); the router branches on its `over`.
+    pattern: /\bthis\.probing\b|\boverDrawer\(|\bprogramUnder\(/g,
+    allowed: {
+      "app.ts": { n: 7, why: "the owner, keyLayers (probing, overDrawer, programUnder) and their definitions; probeKeys sets and toggles it" },
+      "term.ts": { n: 9, why: "the terminal's own capability probe at start (Kitty, size, colours), another thing named probing" },
     },
   },
 ];

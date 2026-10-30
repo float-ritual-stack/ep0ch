@@ -55,6 +55,8 @@ export interface Whereabouts extends ScreenKeys {
 
 /** The door's own layers over every screen (Whereabouts.over), top first. */
 export type DoorLayer = "bar" | "probe" | "menu";
+/** Who takes the person's next key, as App.keyLayers works it out: the door's own layer and the program under it. */
+export type KeyLayers = Pick<Whereabouts, "over" | "program">;
 
 /** The host layer's agent tile, as `typingIn` names it while the person types in the drawer. */
 export const HOST_AGENT = "drawer.agent";
@@ -112,14 +114,14 @@ export function whereabouts(o: {
   loggedOn: boolean;
   idle: number;
   /** The door's own layer open over everything, if any. */
-  over?: DoorLayer | null;
+  over?: DoorLayer;
   /** A program has their keys, and whether something is open over it (Whereabouts.program). */
-  program?: { over: boolean } | null;
+  program?: { over: boolean };
 }): Whereabouts {
   const k = o.keys ?? { focus: null, typingIn: null, busy: false };
   const away = !o.loggedOn ? `the door is at the ${o.screen ?? "logon"}; the person hasn't logged on`
     : o.suspended ? `the person is in the door's ${o.suspended} (the door waits under it)` : null;
-  const layers = { ...(o.over ? { over: o.over } : {}), ...(o.program ? { program: { over: o.program.over || !!o.over } } : {}) };
+  const layers = { ...(o.over ? { over: o.over } : {}), ...(o.program ? { program: o.program } : {}) };
   if (o.inHost) return { address: o.hostAddress, focus: k.focus, typingIn: o.hostTile ?? HOST_AGENT, busy: true, why: `the person is typing in ${hostTyping(o.hostTile)}`, keys: "host", ...layers, screen: o.screen, idle: o.idle, away };
   const why = k.busy ? (k.why ?? `the person is typing on the ${o.screen ?? "screen"}`) : undefined;
   return { address: k.address, focus: k.focus, typingIn: k.typingIn, busy: k.busy || !!o.suspended, ...(k.busy && k.navHold && !o.suspended ? { navHold: true as const } : {}), ...(why ? { why } : o.suspended ? { why: away! } : {}), keys: "screen", ...layers, screen: o.screen, idle: o.idle, away };

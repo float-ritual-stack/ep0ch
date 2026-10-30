@@ -260,7 +260,7 @@ describe.skipIf(!outliner)("one owner decides where a key goes: the walk at 177x
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
   beforeEach(() => {
-    for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_CWD", "EP0CH_HERDR_BIN"]) saved[k] = process.env[k];
+    for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_CWD"]) saved[k] = process.env[k];
     state = mkdtempSync(join(tmpdir(), "ep0ch-esc-walk-"));
     process.env.EP0CH_STATE = state;
     process.env.EP0CH_DAILY_AGENT = "cat";

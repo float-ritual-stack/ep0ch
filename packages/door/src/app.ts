@@ -30,7 +30,7 @@ import { tileMenu } from "./desk/tile-menu";
 import type { Reveal } from "./reveal";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { lineCompletionHooks } from "./surface/line-hooks";
-import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
+import { AgentPointers, screenKeys, whereabouts, type KeyLayers, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
 import { NEW_NOTE_ACTIONS } from "./new-note";
 import { TEMPLATE_ACTIONS } from "./template-stamp";
@@ -648,10 +648,10 @@ export class App implements Ctx {
     term.onKey(k => this.key(k));
     term.onBatch?.(run => this.batched(run));
     // Raw input (Term keeps mouse and ctrl+]): only while a program has the person's keys with nothing over it, as their
-    // whereabouts say (PIE-1438), then the layer it's in takes it: the drawer's tab, or the screen's terminal tile.
+    // whereabouts say (keyLayers, PIE-1438), then the layer it's in takes it: the drawer's tab, or the screen's terminal tile.
     (term as { rawSink?: unknown }).rawSink = () => {
-      const w = this.person();
-      const sink = !w.program || w.program.over ? null : w.keys === "host" ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
+      const { program } = this.keyLayers();
+      const sink = !program || program.over ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
       return sink ? (bytes: string) => {
         if (this.escSpent(bytes)) return;
         this.drawer.desks().map(d => d.liftedDesk).find(Boolean)?.dropLiftElsewhere();
@@ -1274,14 +1274,11 @@ export class App implements Ctx {
    * Where the person is (PIE-514): the top screen's own answer (its `keys`; else whether it holds their keys), the host
    * layer's drawer they may be typing in, the shell or editor the door is suspended under, and how long they've been idle.
    * It is also who takes their next key (PIE-1438): the door's own layer over everything (`over`), the drawer or the
-   * screen (`keys`), and a program under them (`program`). The raw sink, the key router and Esc's hold ask it; nothing
-   * else decides it (test/one-owner.test.ts).
+   * screen (`keys`), and a program under them (`program`), as keyLayers works them out.
    */
   person(): Whereabouts {
     const s = this.stack.at(-1);
-    // The power bar is above the key probe: the probe takes keys, not clicks, so a click can open the bar over it.
-    const over = this.bar ? "bar" as const : this.probing ? "probe" as const : this.overDrawer() ? "menu" as const : null;
-    const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.entered, hostAddress: this.drawer.made?.keys().address, hostTile: ((t: string | null) => (t ? `drawer:${t}` : null))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor(), over, program: this.programUnder() });
+    const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.entered, hostAddress: this.drawer.made?.keys().address, hostTile: ((t: string | null) => (t ? `drawer:${t}` : null))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor(), ...this.keyLayers() });
     const w: Whereabouts = this.agentsYolo ? { ...w0, yolo: true } : w0;
     // The power bar holds their keys while it's open.
     // (A hold on navigation alone, the showcase's, doesn't count as busy here: a real hold replaces it.)
@@ -1408,13 +1405,13 @@ export class App implements Ctx {
     // An Esc the door reads while the person types in a program: one for something over it (the bar, a menu) is spent
     // there; one right after it is that one again, never the program's (PIE-1431). A screen that hands its terminal decoded
     // keys (the showcase's stage) meets it here; raw bytes meet it in the raw sink (escSpent).
-    const program = k.kind === "esc" ? this.person().program : undefined;
+    const layers = this.keyLayers(), program = k.kind === "esc" ? layers.program : undefined;
     if (program) {
       if (!program.over && this.heldEsc()) return;
       if (program.over) this.escSpentAt = this.now();
     }
     // The key typed, by its one name, while it's handled: an action it no longer runs (the person's keymap moved it) says so.
-    try { asTyped(k.kind === "mouse" || k.kind === "paste" ? null : keyName(k), () => this.route(k)); }
+    try { asTyped(k.kind === "mouse" || k.kind === "paste" ? null : keyName(k), () => this.route(k, layers)); }
     finally {
       // A chord waiting for its next key, a menu or picker open: the next press continues this gesture (refuse).
       if (pressOf(k) !== null) this.heldAfter = !!this.stack.at(-1)?.holdsKeys?.();
@@ -1428,9 +1425,8 @@ export class App implements Ctx {
 
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private xrayLeader = false;
-  private route(k: Key) {
-    // Which layer takes it, the door's own over everything first, is the person's whereabouts' answer (PIE-1438).
-    const w = this.person();
+  /** `w`: which layer takes it, the door's own over everything first: the person's whereabouts' answer (keyLayers, PIE-1438). */
+  private route(k: Key, w: KeyLayers) {
     if (k.kind === "alt" && k.ch === "?") { void this.dispatch.press("text.reveal"); return; }
     if (k.kind === "mouse" && isHover(k)) void this.dispatch.press("text.hover", { x: k.x, y: k.y });
     else if (k.kind === "mouse") this.overflow.clear();
@@ -1459,8 +1455,8 @@ export class App implements Ctx {
       if (confirms(armed, k)) { armed.run(k); return; }
     }
     // The power bar (PIE-656), while it's open, takes every key and click: esc or a click outside puts it away.
-    if (w.over === "bar" && this.bar) {
-      if (!this.bar.ended()) this.bar.key(k, this);
+    if (w.over === "bar") {
+      if (!this.bar!.ended()) this.bar!.key(k, this);
       if (this.bar?.ended()) { this.bar.close(); this.bar = null; this.redraw(); }
       return;
     }
@@ -1572,21 +1568,32 @@ export class App implements Ctx {
     return !!top && top !== this.drawer.made && top.overlaid() && [...this.statusMenus.values()].some(m => !m.ended());
   }
   /**
+   * Who takes the person's next key (PIE-1438), the part of their whereabouts the raw sink, the router and Esc's hold read
+   * on every key (person() carries it too): the door's own layer over everything, top first (the power bar, above the
+   * key probe since the probe takes keys and not clicks, then a status-bar menu over the drawer), and the program under
+   * it all. Nothing else decides it (test/one-owner.test.ts).
+   */
+  private keyLayers(): KeyLayers {
+    const over = this.bar ? "bar" as const : this.probing ? "probe" as const : this.overDrawer() ? "menu" as const : undefined, program = this.programUnder(!!over);
+    return { ...(over ? { over } : {}), ...(program ? { program } : {}) };
+  }
+  /**
    * The program that has the person's keys under whatever is open (person()'s `program`, PIE-1431): a terminal tile's or
    * the drawer's agent's, and whether something is open over it that an Esc closes first. What can be over it is one
    * list, layer by layer from the top: the door's own (person()'s `over`: the key probe, the power bar, a menu the bar
    * opened over the screen), a screen pushed over the desk or the drawer (the message log, a picker) and a menu or picker
    * on the desk or a group in it. A new overlay is over the program by being one of these, never by a list of kinds.
+   * `door`: one of the door's own layers is open.
    */
-  private programUnder(): { over: boolean } | null {
+  private programUnder(door: boolean): { over: boolean } | null {
     // The drawer's tab, shown, or hidden by a screen pushed over it that has no drawer (the message log); a screen of
     // tiles that has no drawer (a desk with host=none) has the keys itself.
     if (this.drawer.keysIn && (this.drawer.entered || this.stack.length > 1 && !tilesOf(this.stack.at(-1)))) {
       const p = this.drawer.desk?.programKeys();
-      return p?.typing ? { over: !this.drawer.entered || p.over } : null;
+      return p?.typing ? { over: door || !this.drawer.entered || p.over } : null;
     }
     for (let i = this.stack.length - 1; i >= 0; i--) {
-      const s = this.stack[i]!, d = tilesOf(s), above = i < this.stack.length - 1;
+      const s = this.stack[i]!, d = tilesOf(s), above = door || i < this.stack.length - 1;
       if (!d) { if (s.rawKeys?.()) return { over: above }; continue; }
       const p = d.programKeys();
       // A screen that frames a desk (the showcase's stage) says whether the keys are in it at all.

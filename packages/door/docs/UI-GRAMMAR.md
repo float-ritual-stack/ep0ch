@@ -198,7 +198,7 @@ Waiting-on-you's terminal rows select before Enter takes the keys to that termin
   one grammar everywhere, and whether an agent may is read from each action's declared `touches` against one
   whereabouts query, not decided screen by screen.
 - **One owner for where a key goes (PIE-1438).** The person's whereabouts say which layer takes the next key: the
-  door's own over everything (`over`: the key probe, the power bar, a status-bar menu over the drawer), the drawer or the
+  door's own over everything (`over`, top first: the power bar, the key probe, a status-bar menu over the drawer), the drawer or the
   screen (`keys`), and a program under them (`program`, with whether something is open over it). The raw sink, the key
   router and Esc's hold read that answer; a new overlay is over a program by being a layer it reads (a screen pushed, an
   overlay on a desk), never by a check in the router. `test/one-owner.test.ts` fails on a new decider.
