@@ -60,7 +60,7 @@ async function surface() {
 const kids = (await q("parent:this")).blocks;
 return {
   tools: Object.keys(tools), builders: Object.keys(view),
-  kinds: Object.fromEntries(["q", "read", "resolve", "act", "wait", "text", "console", "exit", "now", "stop", "fetch"].map(n => [n, typeof globalThis[n]])),
+  kinds: Object.fromEntries(["q", "read", "resolve", "act", "wait", "text", "console", "exit", "now", "stop", "fetch", "sh"].map(n => [n, typeof globalThis[n]])),
   caller, props, childrenOfThis: this.children, row: Object.keys(kids[0] ?? {}).sort(),
 };
 \`\`\``);
@@ -79,7 +79,7 @@ test("the tools and view builders the page lists are the ones a script sees", as
 });
 
 test("the functions the page lists exist, and the globals it says are absent are", async () => {
-  expect((await surface()).kinds).toMatchObject({ q: "function", read: "function", resolve: "function", act: "function", wait: "function", text: "function", console: "object", exit: "function", now: "undefined", stop: "undefined", fetch: "undefined" });
+  expect((await surface()).kinds).toMatchObject({ q: "function", read: "function", resolve: "function", act: "function", wait: "function", text: "function", console: "object", exit: "function", now: "undefined", stop: "undefined", fetch: "function", sh: "function" });
 });
 
 test("the traps: this has no children, a q row has no properties, caller and props are empty off a line", async () => {

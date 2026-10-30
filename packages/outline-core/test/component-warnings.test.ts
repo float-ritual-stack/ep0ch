@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { blockNameOf, componentReading } from "../src/component-warnings";
 import { BUILTIN_COMPONENT_SCHEMAS, mergeComponentSchemas, type ComponentSchema } from "../src/component-schema";
+import { schemaOfScript } from "../src/script-component";
 
 const read = (...lines: string[]) => componentReading(lines.join("\n"), BUILTIN_COMPONENT_SCHEMAS);
 const STAT = ["::graph-stat", "---", "title: the beds", "items: [{ value: \"4\", label: raised }, { value: \"2\", label: bags }]", "---", "::"];
@@ -96,5 +97,45 @@ describe("what isn't warned", () => {
     expect(read("Garden", "::graph-table", "---", "query: type=bed", "density: compact # tighter", "---", "::").warnings).toEqual([]);
     expect(read("Garden", "::graph-table", "---", "query: type=bed", "density: \"cozy\"", "---", "::").warnings).toEqual([]);
     expect(read("Garden", "::graph-table", "---", "query: type=bed", "density: \"{{props.density}}\"", "---", "::").warnings).toEqual([]);
+  });
+});
+
+// Note components: a render script's note is a component (script-component.ts), its `::name{…}` call read off its line.
+describe("a note component's call", () => {
+  const BOARD = schemaOfScript({
+    name: "board", title: "Errand board", intro: "Lanes of what a query holds, one card per note.", blockId: "b0a7d000",
+    fields: ["where query required", "group property default=status", "size choice small|large"],
+    example: `::board{where="type=errand" group=status}`,
+  }).schema!;
+  const { schemas } = mergeComponentSchemas({ extensions: [{ id: "script-board", components: [BOARD], origin: BOARD.origin }] });
+  const reading = (...lines: string[]) => componentReading(lines.join("\n"), schemas);
+
+  test("a call that reads is confirmed, with nothing to say", () => {
+    expect(reading("Errands", `::board{where="type=errand" group=owner}`)).toEqual({ components: ["board"], warnings: [] });
+  });
+
+  test("an attribute it doesn't take: the one it may mean, or the ones it takes", () => {
+    expect(reading("Errands", `::board{where="type=errand" grup=owner}`).warnings).toEqual(["the ::board on line 2 doesn't take grup: did you mean group?"]);
+    expect(reading("Errands", `::board{where="type=errand" colour=red}`).warnings).toEqual(["the ::board on line 2 doesn't take colour: it takes where, group, size"]);
+  });
+
+  test("a required prop left out is named, with the demo's value; one with a default is not", () => {
+    expect(reading("Errands", `::board{group=owner}`).warnings).toEqual([`the ::board on line 2 needs where, like where="type=errand"`]);
+    expect(reading("Errands", `::board{where="type=errand"}`).warnings).toEqual([]);
+  });
+
+  test("a value outside what its prop takes is checked; a {{ }} is the Site's to fill", () => {
+    expect(reading("Errands", `::board{where="type=errand" size=huge}`).warnings).toEqual([`the ::board on line 2: size "huge" is one of small, large`]);
+    expect(reading("Errands", `::board{where="type=errand" group="not a key"}`).warnings).toEqual([`the ::board on line 2: group "not a key" is a property's name`]);
+    expect(reading("Errands", `::board{where="{{this.query}}" size="{{this.size}}"}`).warnings).toEqual([]);
+  });
+
+  test("a call in a code fence or a property literal is code shown, not a call", () => {
+    expect(reading("Errands", "```", `::board{grup=owner}`, "```").warnings).toEqual([]);
+  });
+
+  test("an extension's or a built-in's components are left to the figure pass: the graph YAML warnings are unchanged", () => {
+    expect(componentReading(["Plot", "::graph-stat", "---", "titel: the beds", "---", "::", `::board{where="type=errand"}`].join("\n"), schemas).warnings)
+      .toEqual(["the ::graph-stat on line 2 doesn't take titel: did you mean title?"]);
   });
 });

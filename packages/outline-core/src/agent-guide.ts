@@ -2,7 +2,9 @@
 // a few house lines, then every component the outline has, one line each, grouped by the group each schema names for
 // itself and marked live when it takes a query. Built from the merged schemas (`components.schemas`: the built-ins, the
 // outline's own styles and types, each extension's), so a new component, or an extension's, appears here with nothing
-// written again. The MCP gateway's `instructions`, `ep0ch library --guide` and the Claude mod's context block read it.
+// written again. A render script's (a note component, origin `note:((id))`) is listed under "from notes", whatever group
+// it names, so an agent sees which parts are the outline's own code and where each is written.
+// The MCP gateway's `instructions`, `ep0ch library --guide` and the Claude mod's context block read it.
 // Pure: no I/O.
 
 import { componentGist, componentIsLive, type ComponentSchema } from "./component-schema";
@@ -36,16 +38,21 @@ export interface GuideOptions {
   index?: "lines" | "names";
 }
 
-/** The components by the `group` each names for itself, in the order the groups first appear. */
+/** The group the guide lists note components under: the notes that hold their scripts. */
+export const FROM_NOTES_GROUP = "from notes";
+const fromNote = (s: ComponentSchema) => !!s.origin?.startsWith("note:");
+
+/** The components by the `group` each names for itself, in the order the groups first appear; a note's last, under "from notes". */
 function byGroup(schemas: readonly ComponentSchema[]): [string, ComponentSchema[]][] {
   const groups = new Map<string, ComponentSchema[]>();
-  for (const s of schemas) groups.set(s.group, [...(groups.get(s.group) ?? []), s]);
-  return [...groups];
+  for (const s of schemas.filter(s => !fromNote(s))) groups.set(s.group, [...(groups.get(s.group) ?? []), s]);
+  const notes = schemas.filter(fromNote);
+  return notes.length ? [...groups, [FROM_NOTES_GROUP, notes]] : [...groups];
 }
 
 const originOf = (s: ComponentSchema) => (s.origin && s.origin !== "built-in" ? ` (${s.origin})` : "");
 
-/** The components grouped, each `- id: gist`, ` · live` when it reads a query, its origin when an extension's. */
+/** The components grouped, each `- id: gist`, ` · live` when it reads a query, its origin when an extension's or a note's. */
 export function componentIndex(schemas: readonly ComponentSchema[]): string {
   return byGroup(schemas).map(([group, members]) => [
     `### ${group}`,
@@ -53,7 +60,7 @@ export function componentIndex(schemas: readonly ComponentSchema[]): string {
   ].join("\n")).join("\n");
 }
 
-/** Each group's ids on one line, `(live)` after one that reads a query, an extension's origin after its id. */
+/** Each group's ids on one line, `(live)` after one that reads a query, an extension's or a note's origin after its id. */
 export function componentNames(schemas: readonly ComponentSchema[]): string {
   return byGroup(schemas).map(([group, members]) =>
     `- ${group}: ${members.map(s => `${s.id}${componentIsLive(s) ? " (live)" : ""}${originOf(s)}`).join(", ")}`).join("\n");
@@ -61,8 +68,9 @@ export function componentNames(schemas: readonly ComponentSchema[]): string {
 
 /** The guide: the house lines, the surface's tool lines, then the component index. */
 export function agentGuide(schemas: readonly ComponentSchema[], options: GuideOptions = {}): string {
-  const extensions = schemas.filter(s => s.origin && s.origin !== "built-in").length;
-  const counted = `${schemas.length} component${schemas.length === 1 ? "" : "s"}${extensions ? `, ${extensions} from extensions` : ""}`;
+  const notes = schemas.filter(fromNote).length;
+  const extensions = schemas.filter(s => s.origin && s.origin !== "built-in").length - notes;
+  const counted = `${schemas.length} component${schemas.length === 1 ? "" : "s"}${extensions ? `, ${extensions} from extensions` : ""}${notes ? `, ${notes} from notes` : ""}`;
   return [
     "# What an ep0ch outline can hold",
     "",

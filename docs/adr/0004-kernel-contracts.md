@@ -505,9 +505,10 @@ Each of these was asked for. None has the evidence yet. Each says what would mak
 
 - **Two tiers.** Presets, saved views and rule notes are the no-code tier. Handlers with questions, sources and
   passage actions are the code tier. Every contract has a built-in and an extension on it.
-- **Agent code trusted by hash (PIE-601).** A `func::` block compiles into the same manifest, so it can declare a
-  question, a source or a passage action, and none runs until the person trusts that exact text. Presets are data and
-  need no trust.
+- **Code runs as its caller (PIE-601).** A script note compiles into the same manifest, so it can declare a
+  component, a source or an action. There is no exact-text gate: it runs as whoever caused it, every write attributed
+  (`script:<name>`, with `requestedBy`) and undoable as one. Outside agents are bounded only by the outline's MCP
+  access level ([ADR 0005](0005-agents-act-nodes-mail.md)). Presets are data.
 - **Blockdown is canonical; render never rewrites it.** Answers, presets and expansions are computed on read. `insert`
   enters only the person's draft. Passage writes go through `draft.patch`.
 - **One view spec, many renderers.** `list` is a primitive; each client draws it with its own renderer.

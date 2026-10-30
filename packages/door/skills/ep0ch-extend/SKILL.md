@@ -54,7 +54,7 @@ Start local and blunt. Promote on the second real use, as a rewrite if needed. A
 | a look or a badge on matching notes | a rule (`match` + `decorate`), no code if it can | extensions: *Rules* |
 | something that reacts when a note changes | a rule's `on` trigger | extensions: *`on`: change triggers* |
 | `key:: value` lines that fetch or draw | a handler (data, output, component) | extensions: *Handler lines*, *Kind 1–3* |
-| a new figure or widget in notes | a component (kind 3) with a schema | extensions: *Kind 3*, *Component schemas* |
+| a new figure or widget in notes | a render script note called as `::name{k=v}` (below); a folder component (kind 3) only for disk or network | scripts: *A render script is a component*; extensions: *Kind 3* |
 | rows in the power bar | a bar source (`sources[]` with a `prefix`) | extensions: *Bar sources* |
 | rows where a person types (`[[`, `[issue::`, `@`…): a tracker's issues, a glossary | a completion source (`sources[]` with `triggers`; no new sigils) | extensions: *Completion sources*; example `extensions/issues` |
 | `@name` in a note gets an answer | an agent | extensions: *Agents in the note* |
@@ -62,6 +62,23 @@ Start local and blunt. Promote on the second real use, as a rewrite if needed. A
 | every hour, sync an outside API | a program with a schedule, a connection, writes, a secret | extensions: *Extensions as programs*, *Worked example: sync…* |
 
 Not in the table: read the extensions reference's *Not yet* section. If it's listed there, say so and stop: that's a ticket.
+
+## A component from a note (agent recipe)
+
+1. **Find:** the session guide lists the outline's own components under "from notes", `- board: … (note:((id)))`.
+2. **Read its props:** `outline_components {components:["board"]}` gives each prop (type, required, default) and an example line.
+3. **Use:** write the example line in a note, `::board{where="type=errand" group=status}`. The write's warnings name an
+   attr it doesn't take (with a did-you-mean) and a required prop left out: fix them in the same turn.
+4. **Check:** `outline_read {view:true, width:100}` shows what it draws; a failure reads `board failed: …`.
+5. **Author:** a note `Name [script::x] [mode::render] [form-field::where query required]`, a line of gist, a demo
+   line `::x{where="…"}`, then a `tsx` fence that returns tags (`<row>`, `<card title=…/>`). Use `query({where, group,
+   facets})` for rows with their properties; `import { Lane } from "ui-kit"` reads a `[mode::module]` note.
+6. **Fix load problems:** the write's receipt names a tsx syntax error by line, an unknown import or a taken name.
+   Once it loads, `outline_components` lists it within seconds.
+7. **Graduate a `::=` line:** `script_run` the `keep` extension's script with `name=x` on the note: the line becomes
+   `::x{}` and the expression a component note, one undo.
+8. **Probe data first:** `script_run` on `return await query({ where: "type=errand", facets: true })` shows the keys
+   and values a prop can take.
 
 ## Writing it
 
