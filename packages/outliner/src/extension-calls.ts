@@ -898,7 +898,7 @@ export class ExtensionCalls {
   private context(block: Block, line: number | undefined) { return blockCallContext(this.store, block, line, this.now); }
 
   /** Bind a manifest question to this line using outline-core's one placeholder grammar. */
-  private queryInput(block: Block, call: HandlerCall, template: NonNullable<ExtensionHandler["query"]>): { answer: VisibleBlockCollection; hash: string } {
+  private queryInput(block: Block, call: HandlerCall, template: NonNullable<ExtensionHandler["query"]>): { answer: VisibleBlockCollection; hash: string; question: BlockSearchQuery } {
     const fill = (value: string): string => {
       let prepared = "", at = 0;
       for (const span of interpolationSpans(value, { fences: "template" })) {
@@ -939,7 +939,7 @@ export class ExtensionCalls {
     const answer = { ...queried, blocks: queried.blocks.map(row => ({ ...row, title: textRecord(row).title })) };
     this.queryInputs.add(key);
     const { generation: _generation, sequence: _sequence, ...content } = answer as VisibleBlockCollection & { sequence?: number };
-    return { answer, hash: createHash("sha256").update(JSON.stringify(content)).digest("hex").slice(0, 32) };
+    return { answer, hash: createHash("sha256").update(JSON.stringify(content)).digest("hex").slice(0, 32), question };
   }
 
   private async run(block: Block, call: HandlerCall, extension: LoadedExtension): Promise<void> {
@@ -957,7 +957,7 @@ export class ExtensionCalls {
     let reads: { id: string; revision: number | null }[] | undefined;
     let queries: { query: string; limit: number; ids: string[] }[] | undefined;
     let untracked = false;
-    let queried: { answer: VisibleBlockCollection; hash: string } | undefined;
+    let queried: { answer: VisibleBlockCollection; hash: string; question: BlockSearchQuery } | undefined;
     try {
       const template = extension.manifest.handlers?.find(handler => handler.key === call.handlerKey)?.query;
       queried = template ? this.queryInput(block, call, template) : undefined;
@@ -984,7 +984,14 @@ export class ExtensionCalls {
       }
       // A script's output is what its code read: the notes (and their revisions), the queries (and their rows), the code itself.
       const request2 = extension.script ? { ...base.request, reads: reads ?? [], queries: queries ?? [], stamp: extension.stamp, ...(untracked ? { untracked: true } : {}) } : { ...base.request, ...(queried ? { queryHash: queried.hash } : {}) };
-      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: request2, result });
+      // Keep the service's question and row identities with the last good result. Sources describes the answer that
+      // actually drew this component, even if a later attempted run fails and the old output stays on screen.
+      const saved = queried ? { ...(result as object), querySource: {
+        question: queried.question,
+        blocks: queried.answer.blocks.map(row => ({ id: row.id, title: textRecord(row).title, properties: row.properties.map(property => ({ key: property.key })) })),
+        completeness: queried.answer.completeness,
+      } } : result;
+      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: request2, result: saved });
       // A note it read changes the line's output: its change comes back here (`inputChanged`).
       for (const read of reads ?? []) this.watching(read.id, block.id);
       if (queries?.length) this.watchQueries(block.id);
@@ -1151,7 +1158,7 @@ export class ExtensionCalls {
           : "not run yet";
       return { ...base, ...fetching, status: "not-run", reason: state?.running ? `${extension?.name ?? call.extensionId} is running` : waiting };
     }
-    const result = row.result as { markdown?: string; title?: string } & Partial<ComponentOutput>;
+    const result = row.result as { markdown?: string; title?: string; querySource?: NonNullable<ResourceProjection["output"]>["query"] } & Partial<ComponentOutput>;
     const markdown = call.kind === "component"
       ? renderComponent(result as ComponentOutput, "markdown").body
       : result.markdown ?? "";
@@ -1160,6 +1167,7 @@ export class ExtensionCalls {
       ranAt: row.ranAt!,
       ...(result.title ? { title: cleanExtensionText(result.title) } : {}),
       ...(scriptReads(row.request) ? { reads: scriptReads(row.request) } : {}),
+      ...(result.querySource ? { query: result.querySource } : {}),
       ...(call.kind === "component" || result.view ? { component: { data: result.data ?? null, view: result.view, ...(result.placement ? { placement: result.placement } : {}) } } : {}),
       ...(storedInputs(row) !== this.inputs(block, call.line) ? { inputsChanged: true as const } : {}),
       ...(extension && row.extensionVersion !== extension.version ? { versionChanged: true as const } : {}),

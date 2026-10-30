@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { openScreen } from "../../src/desk/screen-specs";
 import { Desk } from "../../src/desk/desk";
 import { ReaderPane } from "../../src/desk/panes";
+import { itemsOf } from "../../src/surface/sources";
 import { App } from "../../src/app";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
@@ -46,6 +47,20 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect((await output())!.data.blocks.map(row => row.id)).not.toContain(chore.id);
     expect((await output())!.view.children.some(child => child.title?.startsWith("Table"))).toBe(true);
     await board.update(chore.id, chore.text, (await board.get(chore.id))!.revision!, { kind: "agent", id: "test-agent" });
+    await untilAsync(async () => (await output())?.data.blocks.length === before.length, "the restored row in the workbench");
+    screen();
+    const stage = S().stages.get(S().sel).top as Desk;
+    const pane = stage.pane("reader") as ReaderPane;
+    await stage.dispatch.press("sources.open", {}, "reader");
+    await until(() => !!pane.surface.sourcesMode?.panel.answer?.sources.some(source => source.name === "workbench"), "workbench in Sources");
+    const panel = pane.surface.sourcesMode!.panel;
+    const sourceIndex = panel.answer!.sources.findIndex(source => source.name === "workbench");
+    await stage.dispatch.press("sources.enter", { n: sourceIndex + 1 }, "reader");
+    const source = panel.answer!.sources[sourceIndex]!;
+    const target = before.find(id => id !== chore.id)!;
+    const resultIndex = itemsOf(source, panel.folds).findIndex(item => item.kind === "result" && item.block === target);
+    expect(resultIndex).toBeGreaterThanOrEqual(0);
+    expect(await stage.dispatch.press("sources.enter", { n: resultIndex + 1 }, "reader")).toMatchObject({ opened: target });
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 

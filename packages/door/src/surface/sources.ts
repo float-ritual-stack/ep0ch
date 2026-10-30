@@ -57,7 +57,8 @@ export function itemsOf(s: SourceEntry, folds: Record<SourcesFold, boolean>): Pa
   out.push({ kind: "fold", fold: "result" });
   if (folds.result) {
     const rows = s.result.table ?? s.result.text.split("\n").filter(Boolean).map(x => [x]);
-    rows.forEach((r, row) => out.push({ kind: "result", row, ...(s.kind === "figure" && r[0] ? { block: r[0] } : {}) }));
+    const blockColumn = s.result.columns?.indexOf("id") ?? -1;
+    rows.forEach((r, row) => out.push({ kind: "result", row, ...(blockColumn >= 0 && r[blockColumn] ? { block: r[blockColumn] } : {}) }));
     out.push({ kind: "copy", part: "result" }, { kind: "download", format: "csv" }, { kind: "download", format: "json" });
   }
   return out;
