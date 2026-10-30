@@ -547,7 +547,7 @@ export class ReaderPane implements Pane, AttachedOwner {
   // previews. The tile lends its room; the session, the inspector and the preview stay this reader's.
 
   /** The host a list preview's tile works through: its edit session is this reader's, so the keys come back here. */
-  private listHost(desk: DeskApi): SurfaceHost {
+  private listPreviewHost(desk: DeskApi): SurfaceHost {
     const host = this.host(desk);
     return { ...host, attachment: "list-preview", enterMode: () => { desk.focusPane?.(this, USER); host.enterMode?.(); } };
   }
@@ -564,14 +564,14 @@ export class ReaderPane implements Pane, AttachedOwner {
       if (!this.surface.editPreviewKey(k, { ...this.host(desk), attachment: "edit-preview" })) void desk.perform?.("tile.focus", {}, USER, this);
       return true;
     }
-    if (a === "list-preview") return this.surface.key(k, this.listHost(desk));
+    if (a === "list-preview") return this.surface.key(k, this.listPreviewHost(desk));
     if (this.surface.sourcesMode) this.surface.attachedKeys(a);
     return (a === "sources" ? !!this.surface.sourcesMode : !!this.surface.session) && this.surface.key(k, this.host(desk));
   }
   attachedMouse(a: Attachment, k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {
     if (a === "matches") return false;
     if (a === "comment") return this.surface.composerPointer(k, x, y, this.host(desk));
-    const host = a === "list-preview" ? this.listHost(desk) : { ...this.host(desk), attachment: a };
+    const host = a === "list-preview" ? this.listPreviewHost(desk) : { ...this.host(desk), attachment: a };
     if (k.action === "wheel-up" || k.action === "wheel-down") { this.surface.wheel(k.action === "wheel-down" ? 1 : -1, host, { x, y }); return true; }
     if (k.action === "down") this.surface.press(x, y, host);
     if (k.action === "drag") this.surface.drag(x, y, host);
