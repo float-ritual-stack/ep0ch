@@ -81,7 +81,11 @@ const STATUS_BUTTON_ACTIONS = actionSet<{ surface: NoteSurface; host: SurfaceHos
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
 
-export interface Frame { lines: string[]; placements?: Placement[] }
+export interface Frame {
+  lines: string[]; placements?: Placement[];
+  /** Rows at the frame's bottom that are the screen's own chrome (a desk's hint row: its chips, dock handles, ▣ lock): a message said whole sits above them, never over them (PIE-1456). */
+  chrome?: number;
+}
 
 /**
  * The terminal App reads keys from and draws on: the door's own (Term, drawn through a Painter), a test's fake, or a
@@ -617,8 +621,8 @@ export class App implements Ctx {
   private statusBoxes: StatusHit[] = [];
   /** The status bar's message didn't fit its row as last drawn: it's said whole above the bar (withWhole). */
   private messageCut = false;
-  /** How many rows above the bar that whole message takes as last drawn: a click on them opens the message log. */
-  private wholeRows = 0;
+  /** Where that whole message was last drawn, its top row and how many: a click on them opens the message log. */
+  private whole = { top: 0, rows: 0 };
   /** The status-bar groups' menus the person opened, by the group's path: a nested group's opens beside its parent's. */
   private readonly statusMenus = new Map<string, ListPicker<MenuRow, unknown>>();
   /** What the narrow bar put in its `+N` chip, in the bar's order (`status.bar.menu overflow=true` lists them). */
@@ -1469,7 +1473,7 @@ export class App implements Ctx {
       return;
     }
     // The message said whole above the bar (withWhole): a click on it opens the message log, where it reads whole (PIE-1453).
-    if (k.kind === "mouse" && k.action === "down" && this.wholeRows && k.y < this.term.info.rows - 1 && k.y >= this.term.info.rows - 1 - this.wholeRows) {
+    if (k.kind === "mouse" && k.action === "down" && k.y >= this.whole.top && k.y < this.whole.top + this.whole.rows) {
       void this.dispatch.press("status.log");
       return;
     }
@@ -1789,6 +1793,8 @@ export class App implements Ctx {
     nextFrame();
     const frame = withRowLimit(lookFor(this, { screen: s.title }, cols).values["rows.lines"], () => s.render(this));
     let lines = frame.lines.slice(0, rows - 1);
+    // Where the screen's own chrome starts (a desk's hint row, PIE-1456): a frame drawn shorter (beside a drawer) ends higher.
+    let chromeAt = lines.length - Math.min(frame.chrome ?? 0, lines.length);
     while (lines.length < rows - 1) lines.push("");
     let placements = this.graphics ? [...(frame.placements ?? [])] : [];
     // The layers over the screen's tiles, bottom first (layerOrder, PIE-1221): the drawer and the screen's floats in the
@@ -1810,6 +1816,8 @@ export class App implements Ctx {
         if (!this.drawer.shown) { this.drawer.rect = null; this.drawer.made?.shownAs(false); continue; }
         const d = this.drawer.render(cols, rows, s.title);
         lines = overlay(lines, d);
+        // Laid over the screen's chrome, the drawer's own bottom rows are there instead: none of the screen's is left to keep clear.
+        if (d.rect.row < chromeAt) chromeAt = lines.length;
         // Images under the drawer would show through it; the drawer's tiles' own are drawn in it.
         // One running down under it is cut short at its edge (a spine's long title, PIE-794), not dropped whole.
         placements = [...uncover(placements, { col: 0, row: d.rect.row, cols, rows: rows - d.rect.row }), ...(this.graphics ? d.placements : [])];
@@ -1832,6 +1840,7 @@ export class App implements Ctx {
         lines.forEach((line, row) => canvas.text(0, row, line, cols));
         const lift = lifted.paintLift(canvas, { col: 0, row: 0, cols, rows: rows - 1 });
         lines = lift.lines;
+        chromeAt = lines.length - Math.min(lift.chrome ?? 0, lines.length);
         placements = [...uncover(placements, lift.covered), ...(lift.placements ?? [])];
       }
     }
@@ -1846,8 +1855,11 @@ export class App implements Ctx {
     // What the bar cuts short (a refusal at 40 columns) is said whole just above it while it's up (PIE-1428).
     // Longer than its four rows, it ends "… more alt+M"; a click on it (or alt+M) opens the message log, which has it whole (PIE-1453).
     const whole = this.messageCut && this.message ? referenceWords(this.message) : "";
-    if (whole) lines = withWhole(lines, whole, cols, this.messageWarning);
-    this.wholeRows = whole ? Math.min(4, wrap(printable(whole, " "), Math.max(1, cols - 2)).length) : 0;
+    // Above the screen's own bottom chrome (a desk's hint row, PIE-1456): the ▣ a refusal says to click stays there to click.
+    const at = Math.max(1, Math.min(chromeAt, lines.length));
+    if (whole) lines = [...withWhole(lines.slice(0, at), whole, cols, this.messageWarning), ...lines.slice(at)];
+    const said = whole ? Math.min(4, wrap(printable(whole, " "), Math.max(1, cols - 2)).length, at) : 0;
+    this.whole = { top: at - said, rows: said };
     lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(lines, cols, Date.now());

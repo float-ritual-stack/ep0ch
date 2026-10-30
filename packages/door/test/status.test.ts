@@ -520,8 +520,9 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     try {
       const said = `2 notes are titled Bird list, in ((${inbox.id}|in Inbox)) and in a garden note, but none is a page: add [page::Bird list] to one, or name the page this form writes into with [form-into::…]; did you mean [[Bird lists]]?`;
       app.flash(said, 60_000, { kind: "refusal" });
-      await until(() => { app.flush(); return / more alt\+M$/.test(visible(painted.at(-2) ?? "").trimEnd()); }, "… more at the end of the fourth row");
-      const band = painted.slice(-5, -1).map(l => visible(l));
+      // Above the desk's hint row (PIE-1456): the bar is the last row, the hint row the one above it.
+      await until(() => { app.flush(); return / more alt\+M$/.test(visible(painted.at(-3) ?? "").trimEnd()); }, "… more at the end of the fourth row");
+      const band = painted.slice(-6, -2).map(l => visible(l));
       expect(band.join(" ")).toContain("in Inbox");
       expect(band.join(" ")).not.toContain(inbox.id);
       const ran: string[] = [];
@@ -546,6 +547,38 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       press({ kind: "mouse", action: "down", button: 0, x: col + 1, y: row });
       await until(() => app.screens().every(s => s.title !== "message log"), "the label opened its note, the log closed");
     } finally { size.cols = 220; app.flash(""); await board.trash(inbox.id, USER); }
+  });
+
+  test("a refusal said whole sits above the desk's hint row: its ▣ screen locked unlocks on a click, at 44 and 160 columns, with a tile lifted and with the drawer beside (PIE-1456)", async () => {
+    const said = "an agent (a-probe) · tile.close refused: the screen is locked: closing replies is refused · a click on ▣ screen locked (or ^W P) unlocks it";
+    const desk = () => app.screens().at(-1) as any;
+    const as = (action: string, args: Record<string, unknown> = {}, tile?: string) => app.act({ action, args, ...(tile ? { tile } : {}), as: "a-probe" });
+    const unlocksByClick = async (where: string) => {
+      await as("layout.lock", { on: true }, desk().layoutGet().tiles[0].name);
+      app.flash(said, 60_000, { kind: "refusal" });
+      await until(() => { app.flush(); return painted.some(l => visible(l).includes("closing replies")); }, `the refusal said whole, ${where}`);
+      // The hint row keeps its chip under the message (its ▣ is ◙ in some video modes), and a click on it is the chip's.
+      const rows = painted.slice(0, -1).map(l => visible(l)), y = rows.findLastIndex(l => l.includes("screen locked"));
+      expect(rows.findIndex(l => l.includes("unlocks it")), where).toBeLessThan(y);
+      const ran: string[] = [];
+      const stop = traceActions(a => ran.push(a.name));
+      try {
+        press({ kind: "mouse", action: "down", button: 0, x: rows[y]!.indexOf("screen locked"), y });
+        await until(() => ran.includes("layout.lock"), `the chip pressed, ${where}`);
+        expect(ran, where).not.toContain("status.log");
+      } finally { stop(); }
+      expect(desk().layoutGet().locked, where).toBe(false);
+      app.flash("");
+    };
+    try {
+      for (const cols of [44, 160]) { size.cols = cols; await unlocksByClick(`at ${cols} columns`); }
+      await as("tile.zoom", { reach: "column" }, desk().layoutGet().tiles[0].name);
+      try { await unlocksByClick("with a tile lifted"); } finally { await as("tile.zoom", { on: false }, desk().layoutGet().tiles[0].name); }
+      await as("layout.policy", { node: "screen", host: "beside" });
+      await app.dispatch.act({ action: "host.toggle" }, USER);
+      expect(app.drawer.mode).toBe("beside");
+      try { await unlocksByClick("with the drawer beside"); } finally { await as("layout.policy", { node: "screen", clear: "host" }); }
+    } finally { size.cols = 220; app.flash(""); }
   });
 
   test("a message beside it never hides ^K: a click on it opens the power bar at 177 and 44 columns (PIE-1449)", async () => {

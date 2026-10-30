@@ -68,7 +68,7 @@ export class FramedScreen {
     this.open();
     const f = this.top.render(this.ctx);
     const lines = f.lines.slice(0, this.h);
-    return { lines, placements: (f.placements ?? []).map(p => ({ ...p, key: `${tag}:${p.key}` })) };
+    return { lines, placements: (f.placements ?? []).map(p => ({ ...p, key: `${tag}:${p.key}` })), ...(f.lines.length <= this.h && f.chrome ? { chrome: f.chrome } : {}) };
   }
 
   /** A key, with mouse positions already relative to the rectangle. */
