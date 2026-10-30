@@ -1,3 +1,4 @@
+import { noteExcerpt } from "@ep0ch/outline-core/excerpt";
 import { blockDisplayTitle } from "./references";
 import {
   BLOCK_READ_FIELDS,
@@ -75,6 +76,9 @@ export function projectBlock(
         break;
       case "text":
         projected.text = block.text;
+        break;
+      case "excerpt":
+        projected.excerpt = noteExcerpt(block.text);
         break;
     }
   }

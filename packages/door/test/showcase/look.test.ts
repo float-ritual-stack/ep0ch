@@ -190,7 +190,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     const drawn = () => pane.render(70, 14, false, stage).lines.map(plain);
     expect(drawn()[0]).toMatch(/1 of \d+ notes/);
     expect(drawn().join("\n")).toContain(before.notes[0].title);
-    const divider = () => drawn().findIndex((l: string) => l.includes("Matches [less]"));
+    const divider = () => drawn().findIndex((l: string) => l.includes("── Matches") && l.includes("[less]"));
     const was = divider();
     await act("facets.resize", { share: 0.7 });
     expect(divider()).toBeLessThan(was);

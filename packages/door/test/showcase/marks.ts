@@ -184,6 +184,8 @@ export const marks: Record<string, string[]> = {
   hyper: ["Allotment notebook", "a terminal tile: with the layer on", "reach the door"],
   // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
   "facets": ["#frost-jobs", "uses▾", "facets"],
+  // The navigator (PIE-1443): the facets on #frost-jobs, its Matches in a tile with the pinned note first, a reader.
+  "navigator": ["☼ views", "▾ Pinned", "Lag the standpipe", "« "],
   "rich-edit": ["Seed inventory", "Beans", "Packets"],
   asks: ["Keep writing while the answer arrives"],
   neat: ["A neat workbench", "[neat]"],

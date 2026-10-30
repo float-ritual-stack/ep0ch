@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The navigator: browse by property, see the notes by day, read one beside (PIE-1443)
+
+- **One screen:** `ep0ch --screen navigator` (any outline; `--screen navigator '#tag'` starts on a query) puts the facets tree, its Matches and a reader side by side; at 44 columns the others fold to spines and ⏎ brings the reader forward.
+- **Matches by day:** the notes the selection leaves, grouped Today, Yesterday, Previous 7 days, Previous 30 days, then by month; each row its line of preview and its tags.
+- **Pinned first:** `*` pins or unpins a note (`[pinned::true]`); pinned notes head the list.
+- **Tag a row:** `t` asks for a tag or any property in the power bar, keys and values from the outline.
+- **Shortcuts and a calendar:** saved views sit at the top of the tree, a click sets the selection; a click on a day narrows to the notes changed that day (`d` today, `,` `.` step).
+- **Matches goes where you want it:** ctrl+o or its ⧉ chip puts it inline, split, floating, in a popup or in a tile of its own, as Sources and comments are.
+- **For other clients:** `blocks.query` takes `group=updated:recent` (any date key), and `blocks.read`/`blocks.query` answer an `excerpt` field.
+- **Days are the host's:** `created:day` / `updated:day` (and week, month, year) now bucket a note's own time by the host's wall clock, as property dates and `today` already did; on a UTC host (float-2) nothing changes, on the laptop an evening's edit stays that day.
+- **Run:** `ep0ch install --apply` on float-2 and the laptop (a PROTOCOL bump: the host and every door together).
+
 ### An agent gets the same answers inside a group as on the desk; peek is light (PIE-1447)
 
 - **Yolo and idle reach a group's tiles:** an agent acting in a group before it was first drawn saw no yolo and no idle, so a rule reading them held it back there and not on the desk. A group's tiles now read the person's whereabouts through their frame from the start.
@@ -27,6 +39,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Wide enough to read:** an agent's `tile.open` that names neither a tile nor `where=` and would land under 28 columns (or 6 rows) beside your tile goes below it when that reads, else floats; one that names a place goes there. An agent moving or floating a tile doesn't take your keys in yolo either. Either way its answer (and the status line) says it was narrow. Your own opens split where you ask.
 - **`layout.get` in brief:** each tile as its kind describes itself in a line (a facets tile's selection and counts, a query tile without its cards); `full=true` gives today's whole answer. An eight-tile desk answered 336 KB.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### A revision compare opened with a comment half-written shows both (PIE-1433)
 
 - **Both draw:** the compare sits beside the note (below it when narrow) and the comment you were writing stays where you left it; a split comment shows as a popup on the note's side. Before, the comment drew and the compare was hidden while its keys were live.

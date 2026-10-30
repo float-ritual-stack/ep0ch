@@ -2475,8 +2475,10 @@ Property filters and catalogs default to `block` scope, so body examples and lin
 `blocks.query` answers a question, the same everywhere (a `::links` block's `query`, a `::graph-*` figure's YAML,
 `outliner_query`), and the service does all of it: no client narrows, groups, sorts or counts rows itself.
 
-- `group`: a property name, or a date bucket: `<property>:day|week|month|year` (`due:week`, read by outline-core
-  `dates.ts` however the date is written; a span goes in its first day's bucket), `created:…` or `updated:…`. The
+- `group`: a property name, or a date bucket: `<property>:day|week|month|year|recent` (`due:week`, read by outline-core
+  `dates.ts` however the date is written; a span goes in its first day's bucket), `created:…` or `updated:…`.
+  `recent` buckets relative to now on the host's wall clock (as `today` in a query): Today, Yesterday, Previous 7 days,
+  Previous 30 days, then each month (`2026-09`), newest first (PIE-1443). The
   answer's `groups` are `{ value, count, ids }`: `count` over every match, `ids` the returned rows in it. A property
   with several values puts a row in each of their groups; matches without it (or, for a date bucket, without a date
   in it) are the `null` group, last. Groups follow the property's value order (`work-stage` in the workboard's stage
@@ -2506,8 +2508,10 @@ List views should not fetch full documents to show titles and metadata.
 order, reduced to `fields`: `id` (always), `parent` (`parentId`, `position`),
 `title` (first content line without property tokens), `properties` (block
 scope), `revision`, `timestamps` (`createdAt`, `updatedAt`), `author` (with any
-actor/session/task provenance), `hasChildren` and opt-in `text`. Omitting
-`fields` returns everything except `text`. Every other id appears once in
+actor/session/task provenance), `hasChildren`, opt-in `text` and opt-in
+`excerpt` (the words after the title as one line, outline-core `noteExcerpt`:
+a list row's preview, PIE-1443). Omitting `fields` returns everything except
+`text` and `excerpt`. Every other id appears once in
 `unavailable` as `missing` or `trashed` (with its `deletedRootId`); one absent
 id never fails the batch. Duplicate ids collapse to their first occurrence.
 `blocks.query` accepts the same optional `fields` and then returns
