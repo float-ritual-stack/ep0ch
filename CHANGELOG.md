@@ -12,7 +12,7 @@ are its record. The outliner's entries from then are kept below, under
 
 ### Opens into your readers never crush the other columns (PIE-1207, round two)
 
-- **A kept spine leaves every column readable:** a second open into a reader no list feeds keeps the first note as a spine beside that reader, never inside the links and activity column; when a spine would leave any tile under 28×6, the open replaces and says "… is a step back (alt←): no room for a spine".
+- **A kept spine leaves every column readable:** a second open into a reader no list feeds keeps the first note as a spine beside that reader, never inside the links and activity column; when a spine would leave any tile under 28×6, the open replaces and says "no room for a spine · alt← returns <the old note>".
 - **A pinned reader is never halved while a reader sits idle:** an open aimed at a pinned reader goes to the reader opened beside it, else an idle unpinned reader on the screen (no list feeds it, an empty one first), and only then splits.
 - **The hint row names the tile:** `pinned · opens → reader2 · p unpins`, readable at 44 columns (`beside it` when a new reader will be opened).
 - **Docs say wires:** UI-GRAMMAR, AGENT-INTERFACE and the door README no longer mention a current note or a following reader.

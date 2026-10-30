@@ -88,7 +88,7 @@ describe.skipIf(!outliner)("opens into the desk's readers keep every column read
     } else {
       // No room for a spine: the open replaced, said with it, the old note a step back.
       expect(spine).toBeUndefined();
-      expect(message()).toContain("Bike shed is a step back (alt←): no room for a spine");
+      expect(message()).toContain("no room for a spine · alt← returns Bike shed");
       await mine("tile.focus", {}, "reader2");
       await mine("back", {}, "reader2");
       await until(() => pane("reader2").msg?.id === notes.shed.id, "back to the note it showed");

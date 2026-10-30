@@ -2192,7 +2192,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (plan.reveal) this.revealElsewhere(m, landed, request.from);
     // No room for a spine (PIE-1207): the note it showed is a step back, said with the open.
-    this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : plan.noSpine && prior ? `${subject(prior)} is a step back (alt←): no room for a spine` : undefined);
+    this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : plan.noSpine && prior ? `no room for a spine · alt← returns ${subject(prior)}` : undefined);
     // The idle reader a pinned one's open went to takes the next one aimed there too, as a reader opened beside it does.
     if (dest.kind === "swap" && plan.besideOf !== undefined) this.besides.set(plan.besideOf, dest.tile);
     this.save(); this.redraw();
