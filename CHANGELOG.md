@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### No hidden current note: wires decide every open, and `p` pins a reader (PIE-1207)
+
+- **An open lands where a wire, your own target or the screen's rule puts it:** the desk's invisible "current note", and readers that silently followed it, are gone. With no wire, an open goes to the first reader that isn't pinned; with none, it says so (alt+l wires one).
+- **A list shows its pick by its select wire:** the desk's outline, the waiting list and a list in a saved screen show what they select in the reader they're wired to (`select → reader` on the frame); nothing else moves.
+- **`p` pins a reader:** ▣ pinned, it keeps its note, every open aimed at it (a wire, `tile=`, its own link) lands in a reader beside it (the same one next time), and its hint row says where. A click on its □ pin chip does the same; `reader.pin [on=] [page=<name>]` pins it as an agent, said on screen. It comes back pinned after a restart, on its note or its page.
+- **Saved screens load as they were:** a reader that followed the old current note loads on the note it showed, and the screen's first list (the outline, a links list) is wired to it once, said on the status line; `^W w` keeps it.
+- **Changed:** `reader.mode` is `reader.pin` (the old name answers with the new call), `tile.open mode=` takes `pinned` (`held` is every reader now), the open rule `current` is `reader`, and `peek` no longer has a `current` field: each tile's `showing` says what's where.
+- **Try it:** `ep0ch --showcase`, section "reader-pins".
+- **Run:** `ep0ch install --apply` (door only; no PROTOCOL or schema change).
+
 ### Every message reads whole and tells the truth (PIE-1453, PIE-1450)
 
 - **A long refusal at 44 columns says "… more":** the four rows said above the status bar end "… more alt+M" when the message is longer; a click on them (or alt+M) opens the message log, which draws it whole.
