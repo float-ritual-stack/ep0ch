@@ -13,7 +13,7 @@ are its record. The outliner's entries from then are kept below, under
 ### A revision compare opened with a comment half-written shows both (PIE-1433)
 
 - **Both draw:** the compare sits beside the note (below it when narrow) and the comment you were writing stays where you left it; a split comment shows as a popup on the note's side. Before, the comment drew and the compare was hidden while its keys were live.
-- **The comment keeps the keys:** ← and → still move the comment's cursor; a click in the compare gives it the keys (Esc closes it), a click back on the note returns them.
+- **The comment keeps the keys:** ← and → still move the comment's cursor; a click in the compare gives it the keys (Esc closes it), a click in the comment returns them (`revision.focus` for agents and keys).
 - **The controls row stays put:** `[« older] [newer »] [against now] [esc back]` is the compare's top row, so a second click lands where the first did at 44 columns, however the title wraps.
 - **Two ← in one go step twice:** each step goes from the revision asked last, and only the last answer is drawn.
 - **Run:** `ep0ch install --apply`.

@@ -77,8 +77,7 @@ describe.skipIf(!outliner)("showcase: at a revision (PIE-1433)", () => {
     await until(() => h.screen().includes("REVISION 3 → 4"), "the compare at 3", 8000);
     stage().focusOn("note");
     h.press({ kind: "left" } as never); h.press({ kind: "left" } as never);
-    await until(() => h.screen().includes("REVISION 1 → 2"), "two steps older", 8000);
-    await Bun.sleep(300);
+    await until(() => h.screen().includes("REVISION 1 → 2") && note().revisionMode?.want === undefined, "two steps older, nothing still asked", 8000);
     expect(note().revisionMode.describe()).toMatchObject({ revision: 1, to: 2 });
     await stage().dispatch.act({ action: "revision.close", tile: "note" }, USER);
   }, 60_000);
@@ -100,9 +99,24 @@ describe.skipIf(!outliner)("showcase: at a revision (PIE-1433)", () => {
     h.ch("x");
     expect(note().session.composer.text).toBe("half a thoughxt");
     expect(note().revisionMode.describe()).toMatchObject({ revision: 1 });
-    // A click in the compare gives it the keys; esc closes it, the comment still where it was.
-    const shown = h.screen().split("\n"), ty = shown.findIndex(l => l.includes("REVISION 1 → 2")), tx = shown[ty]!.indexOf("REVISION");
-    h.press({ kind: "mouse", action: "down", button: 0, x: tx + 2, y: ty + 4 } as never); h.press({ kind: "mouse", action: "up", button: 0, x: tx + 2, y: ty + 4 } as never);
+    expect(stage().describe().focusName === "note" && note().modes.top()?.name).toBe("comment");
+    // Split, the comment is a popup on the note's side, the compare still beside it.
+    await stage().dispatch.act({ action: "comment.place", args: { place: "split" }, tile: "note" }, USER);
+    await until(() => h.screen().includes("REVISION 1 → 2") && h.screen().includes("half a thoughxt"), "both drawn with the comment split", 8000);
+    await stage().dispatch.act({ action: "comment.place", args: { place: "inline" }, tile: "note" }, USER);
+    // A click in the compare gives it the keys, a click on the note gives them back; esc in the compare closes it,
+    // the comment still where it was.
+    const click = (x: number, y: number) => { h.press({ kind: "mouse", action: "down", button: 0, x, y } as never); h.press({ kind: "mouse", action: "up", button: 0, x, y } as never); };
+    const keysIn = () => note().modes.top()?.name;
+    let shown = h.screen().split("\n"), ty = shown.findIndex(l => l.includes("REVISION 1 → 2")), tx = shown[ty]!.indexOf("REVISION");
+    click(tx + 2, ty + 4);
+    await until(() => keysIn() === "revision", "the compare has the keys", 8000);
+    shown = h.screen().split("\n");
+    const ny = shown.findIndex(l => l.includes("half a thoughxt"));
+    click(shown[ny]!.indexOf("half a thoughxt") + 2, ny);
+    await until(() => keysIn() === "comment", "the comment has the keys back", 8000);
+    click(tx + 2, ty + 4);
+    await until(() => keysIn() === "revision", "the compare has the keys again", 8000);
     h.press({ kind: "esc" } as never);
     await until(() => !note().revisionMode, "esc closed the compare", 8000);
     expect(note().session?.composer?.text).toBe("half a thoughxt");
