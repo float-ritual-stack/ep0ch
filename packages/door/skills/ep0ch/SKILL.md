@@ -40,6 +40,7 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
     ep0ch peek                       compact: the person, speed and the screen as text (a few KB)
     ep0ch peek --json                the whole state and the screen as one JSON object, nothing else: `| jq .person`
     ep0ch peek speed                 one part of the state (speed, person, layout, drawer, …), as JSON
+    ep0ch peek layout --full         the layout with each tile whole (peek gives it in brief, as layout.get)
     ep0ch actions                    what the current screen can do, with arguments and keys
     ep0ch actions --doc <action>     one action's page: its keys, one or two real act lines, its arguments
     ep0ch act <action> [key=value…] [--as <agent-id>]

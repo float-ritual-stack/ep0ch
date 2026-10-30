@@ -297,6 +297,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * (`Pane.openedFrom`, which `^` follows too: one record of who opened a tile).
    */
   private keysBack = new Set<number>();
+  /**
+   * The floats the person opened while typing in a terminal tile's program (PIE-1445): closing one gives the keys back to
+   * that program, as they were, not only to its tile.
+   */
+  private typingBack = new Set<number>();
   /** The tile on this desk that opened tile `id` (its `Pane.openedFrom`), if it is still here. */
   private openerOf(id: number): number | undefined {
     const up = this.panes.has(id) ? tileRegistry.openerOf(this.panes.get(id)!) : undefined;
@@ -2100,7 +2105,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.put(made);
     }
     const merging = plan.merge !== undefined ? this.panes.get(plan.merge) : undefined;
+    const had = this.focus;
     this.commit(r);
+    // A new float the person's open put their keys in (a new note's, a detail's) gives them back where they were when it
+    // closes, a terminal's program included (PIE-1445): the tile they had is its opener.
+    if (made && by.kind === "user" && this.isFloat(id) && this.focus === id && had !== id && this.panes.has(had)) {
+      this.openedBy(id, had);
+      if (this.ptyIn && this.ptyIn === this.panes.get(had)) this.typingBack.add(id);
+    }
     if (made) {
       if (rec) { rec.count = number!; rec.ids.push(id); }
       this.startTile(id);
@@ -3294,7 +3306,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   noteGone(p: Pane, _id: string) {
     const id = this.idOf(p);
     if (id === undefined || !madeFor(p)) return;
+    // The person's own new note: their keys go back where they were when it opened, as closing it with ^W x gives them.
+    const back = this.keysBackAfter(id, USER);
     this.closeId(id);
+    if (!this.panes.has(id)) back();
     this.save(); this.redraw();
   }
 
@@ -3428,6 +3443,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { focus: r.name };
   }
 
+  /**
+   * Screen.enterTiles: the person's keys come to this desk from outside it (a frame's stage gone into, a lift let go): the
+   * edit of theirs open on the focused reader has them, as a key here would give them (PIE-1445: the one-completer stage's
+   * edit opened as the section showed, and its list waited for a second /).
+   */
+  enterTiles() { this.reenter(); this.redraw(); }
   /** The keys are back on a reader holding the person's own edit or comment, left open when they went elsewhere: they're in it again, as it was (PIE-785, PIE-812). */
   private reenter() {
     const back = this.focusedReader();
@@ -3475,8 +3496,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "is" : "are"} running in a tile · quitting ends ${r.length === 1 ? "it" : "them"} · again within 3s quits` : null;
   }
 
-  describe(): Record<string, unknown> {
-    const order = this.all();
+  describe(o: { full?: boolean } = {}): Record<string, unknown> {
+    const order = this.all(), full = o.full ?? true;
     const brief = (m: Msg | null | undefined) => (m ? { id: m.id, title: subject(m), workId: prop(m, "work-id") ?? prop(m, "ticket") } : {});
     // What its tiles' kinds say about the screen (the welcome's notes, the brief's day) beside the tiles.
     const peeks = Object.assign({}, ...order.map(id => { const p = this.panes.get(id)!; return kindOf(p)?.peek?.(p, this) ?? {}; }), ...[...this.models.values()].map(m => m.peek?.() ?? {}));
@@ -3501,7 +3522,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // Every reader holding a note, as its surface says it, and whether it's folded (with comments since).
       collapsedReaders: this.namedReaders().filter(r => this.collapsed.has(r.id)).map(r => r.name),
       readers: this.namedReaders().filter(r => r.pane.msg).map(r => { const c = this.collapsed.get(r.id); return { name: r.name, focused: r.id === this.focus, ...r.pane.describe(), ...(c ? { collapsed: true, ...(c.by ? { collapsedBy: c.by } : {}), newComments: r.pane.newComments() } : { collapsed: false }) }; }),
-      panes: order.map((id, i) => this.tileView(id, i + 1)),
+      panes: order.map((id, i) => this.tileView(id, i + 1, undefined, full)),
     };
   }
 
@@ -5928,22 +5949,35 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const kind = this.panes.get(t.id)!.kind;
     // `pane`: its number on screen as it closed (pane.close's older answer, as tile.resize and tile.zoom give it).
     const n = String(this.numberOf(t.id));
-    const into = this.openedInto(t.id), had = this.focus === t.id;
+    const into = this.openedInto(t.id), had = this.focus === t.id, back = this.keysBackAfter(t.id, actor);
     this.commit(r);
-    const opener = this.keysBack.has(t.id) ? this.openerOf(t.id) : undefined;
-    this.keysBack.delete(t.id);
     this.dropTile(t.id);
     // The person's tile opened into a container (the board's detail) closed: their keys go to the top float, else the
     // tile opens land in there now, else home.
     if (into !== undefined && had && this.dispatch.standing(actor)) {
       const next = this.floats.at(-1)?.id ?? this.activeIn(into);
       if (next !== undefined) this.keysTo(next, actor); else this.goHome();
-    }
-    // A program's tile beside a reader (ctrl+e, ctrl+t) the person closed: their keys go back to that reader.
-    const from = opener;
-    if (from !== undefined && had && this.dispatch.standing(actor) && this.panes.has(from)) this.keysTo(from, actor);
+    // A program's tile beside a reader (ctrl+e, ctrl+t), or a float opened from a tile, the person closed: their keys go
+    // back to that tile.
+    } else back();
     this.save(); this.redraw();
     return { ...answer, pane: n, kind };
+  }
+
+  /**
+   * Before tile `id` closes: where the person's keys go once it's gone, run then. A tile that gives them back to its opener
+   * (`keysBack`: a program's tile beside its reader, a float they opened) gives them back when it had them; a float opened
+   * while they typed in a terminal's program puts them back in that program (PIE-1445), so the next key, Esc too, is its.
+   */
+  private keysBackAfter(id: number, actor: Actor): () => void {
+    const opener = this.keysBack.has(id) ? this.openerOf(id) : undefined, typing = this.typingBack.has(id), had = this.focus === id;
+    return () => {
+      this.keysBack.delete(id);
+      if (opener === undefined || !had || !this.dispatch.standing(actor) || !this.panes.has(opener)) return;
+      this.keysTo(opener, actor);
+      const p = this.panes.get(opener);
+      if (typing && p instanceof PtyPane && p.running && this.focus === opener) { this.ptyIn = p; this.chord = null; }
+    };
   }
 
   /** `closeTile` on a new note's tile holding its edit (PIE-591): the edit left or closed, then the tile closed. */
@@ -6958,6 +6992,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const set of this.selected.values()) set.delete(id);
     for (const [k, v] of [...this.lastIn]) if (v === id) this.lastIn.delete(k);
     // (keysBack is the closer's to read: a program's tile closed gives the keys back to its reader; takeOut clears it.)
+    this.typingBack.delete(id);
     this.panes.delete(id); this.unregistered.delete(id); this.sourced.delete(id); this.movedIn.delete(id);
     for (const r of this.opened.values()) { r.ids = r.ids.filter(i => i !== id); if (r.active === id) r.active = null; }
   }

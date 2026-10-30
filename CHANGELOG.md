@@ -22,6 +22,17 @@ are its record. The outliner's entries from then are kept below, under
 - **Days are the host's:** `created:day` / `updated:day` (and week, month, year) now bucket a note's own time by the host's wall clock, as property dates and `today` already did; on a UTC host (float-2) nothing changes, on the laptop an evening's edit stays that day.
 - **Run:** `ep0ch install --apply` on float-2 and the laptop (a PROTOCOL bump: the host and every door together).
 
+### An agent gets the same answers inside a group as on the desk; peek is light (PIE-1447)
+
+- **Yolo and idle reach a group's tiles:** an agent acting in a group before it was first drawn saw no yolo and no idle, so a rule reading them held it back there and not on the desk. A group's tiles now read the person's whereabouts through their frame from the start.
+- **`peek` gives the layout in brief,** as `layout.get` does: each tile as its kind describes itself briefly. `ep0ch peek layout --full` (or `full=true`) has each tile whole. door_peek's screen text is unchanged.
+
+### Closing a float puts you back where you were typing; a form clears after its submit (PIE-1445)
+
+- **Back in your terminal:** a float you open while typing in a terminal tile (a new note from the power bar, ctrl+n) gives your keys back to that terminal when it closes (^W x, or Esc on an empty new note). The next key, Esc too, is its program's; it used to land on tile 1, and Esc then put the drawer away.
+- **A form clears after a submit that lands:** its fields go back to their defaults for the next entry, so a second click no longer writes the same entry twice. A refused submit keeps what you typed.
+- **A form pointing at a note that isn't a page says so:** `[form-into::[[Reading log]]]` where a note is titled Reading log with no `[page::]` names that note and says to add `[page::Reading log]` or write `[form-into::((id))]`.
+- **The one-completer demo's list shows at the first ⏎:** going into a showcase stage puts you in the edit open there, so the actions list is drawn under the `/` at once.
 ### An agent's tile opens beside you, readable, and never takes your keys (PIE-1444)
 
 - **Your focus stays, in yolo too:** an agent's `tile.open` (and any open it makes) leaves your keys on your tile, on the desk, in a group and while you type in the drawer. Yolo still lets an agent move your keys on purpose (`tile.focus`, the drawer); an open no longer does it on the way.
