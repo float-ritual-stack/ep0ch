@@ -120,8 +120,11 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     try {
       const text = "The watering schedule needs attention. " + "Keep the entire message. ".repeat(25) + "END OF MESSAGE";
       app.flash(text);
-      click(1, app.t.rows - 1);
-      await Bun.sleep(50);
+      // A click on the message where the bar draws it: ^K keeps its place at the bar's left while a message is up (PIE-1449).
+      const bar = () => { (app as any).paint(); return (h.painted.at(-1) ?? "").replace(/\x1b\[[\d;]*[A-Za-z]/g, ""); };
+      await until(() => bar().includes("The watering schedule"), "the message on the status bar");
+      click(bar().indexOf("The watering schedule") + 2, app.t.rows - 1);
+      await until(() => app.screens().at(-1)?.title === "message log", "the message log open");
       const read = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
       expect(read.rows.some(r => r.title === text)).toBe(true);
       await app.dispatch.act({ action: "status.filter", args: { text: "watering schedule" } }, USER);

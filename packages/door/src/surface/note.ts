@@ -3637,6 +3637,9 @@ export class NoteSurface {
   dispose() {
     this.endPreviewDraft();
     this.drafting?.dispose();
+    // A comment read an event asked for (onEvent) doesn't go out for a reader that's gone.
+    if (this.commentTimer) clearTimeout(this.commentTimer);
+    this.commentTimer = null;
   }
 
   /**

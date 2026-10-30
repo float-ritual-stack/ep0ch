@@ -18,10 +18,13 @@ afterAll(() => { server.close(); rmSync(dir, { recursive: true, force: true }); 
 test("settle waits for a read through hostRequest (the home base's hostLive), not only SocketBoard's", async () => {
   const w = watchHosts();
   let answered = false;
+  // Counted as it's asked, before anything else can run: the count is the process's, and a timer another test file left
+  // (a reader's comment read, a lane's refresh) can ask the host while this one waits (a 75-file run did).
+  const asked = w.asked();
   void hostRequest(sock, "outlines.list").then(() => { answered = true; });
+  expect(w.asked() - asked).toBe(1);
   await w.settle();
   expect(answered).toBe(true);
-  expect(w.asked()).toBe(1);
 });
 
 test("settle waits for what else the screen says it's still asking for (the power bar's sources)", async () => {

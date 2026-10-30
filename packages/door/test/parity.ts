@@ -65,7 +65,7 @@ export const PROBE_KEYS: Key[] = [
  */
 const ageless = (l: string) => l.replace(/(\x1b\[[\d;?]*[A-Za-z])|(?<![\d.:])\d+[smhd](?![A-Za-z0-9])/g, (m, esc) => esc ?? "#age");
 
-interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string; /** The power bar's rows as drawn over the screen, when it's open ("" when it isn't). */ bar?: string; /** The hint row as drawn (checkHint), when the screen was drawn for this look. */ hint?: string }
+interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string; /** The power bar's rows as drawn over the screen, when it's open ("" when it isn't). */ bar?: string; /** The hint row as drawn (checkHint), when the screen was drawn for this look. */ hint?: string; /** A program (a terminal tile's, the drawer's agent) has the keys with nothing of the door's open over it (person()'s `program`). */ inProgram?: boolean }
 interface Finding { screen: string; keys: string; problem: string }
 
 /**
@@ -243,7 +243,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     let about = "";
     try { about = JSON.stringify(top?.describe?.() ?? null); } catch { about = "?"; }
     // The power bar open holds the keys too (they type its query): the door doesn't count it busy, but the walk's an input state.
-    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy || !!A().bar, video: app.video, drawer: dock(), hint, bar: barRows() };
+    const w = app.person();
+    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: w.busy || !!A().bar, inProgram: !!w.program && !w.program.over, video: app.video, drawer: dock(), hint, bar: barRows() };
   };
   /**
    * The drawer over the screen: up or put away, the person in it or not, its height. Its rows are the
@@ -551,7 +552,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         if (opened && !barProbed(!!base.bar) && !shared(k, runs) && !reached(k, runs, after)) states.push(k);
         continue;
       }
-      if (after.holds && after.top === base.top) { if (log && k.kind !== "mouse") require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} holds, no action\n`); if (k.kind !== "mouse") states.push(k); continue; }
+      // A key typed into a program that had the keys, and still has them, is the program's (its terminal echoed it), not an input
+      // state of the door's: probing each such key's second keys was 101 states and 890 builds of "drawer: pulled up" (PIE-1441).
+      if (after.holds && after.top === base.top) { const typed = !!base.inProgram && !!after.inProgram; if (log && k.kind !== "mouse") require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} holds, no action${typed ? ", typed into the program" : ""}\n`); if (k.kind !== "mouse" && !typed) states.push(k); continue; }
       const changed = await bare(label, make, setup, k);
       if (!changed) continue;
       findings.push({ screen: label, keys: named(k), problem: `${after.top !== base.top || after.depth !== base.depth ? "moved the screen stack without an action" : "changed the screen without an action"} (${changed})` });
