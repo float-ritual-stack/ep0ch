@@ -271,7 +271,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   person, unfocused) and never takes the person's focus. The person's `ctrl+n` floats a new note each time (PIE-591). `page.create address=<name>` makes the page a missing
   `[[name]]` points at (`name [page::name]`, in the Inbox); `link.follow` on a missing page never makes one. A first
   line of only `[page::x]` is titled `x` on save, so `text="[page::2026-09-30]"` gives `2026-09-30 [page::2026-09-30]`.
-- **Search:** `search query=<words>` answers the service's ranked hits (as Goto, `/` and `((` rank them, from the desk's current note); nothing
+- **Search:** `search query=<words>` answers the service's ranked hits (as Goto, `/` and `((` rank them, from the note in front of the person); nothing
   on screen moves. `ep0ch find <words>` is the same without a door.
 - **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`; each tile in brief, `full=true` for
   its whole description: a tree's rows, a facets tile's lists), `tile.open` (never takes the person's keys, in yolo
