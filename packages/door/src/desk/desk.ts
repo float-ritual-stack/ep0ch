@@ -3440,6 +3440,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { focus: r.name };
   }
 
+  /**
+   * Screen.enterTiles: the person's keys come to this desk from outside it (a frame's stage gone into, a lift let go): the
+   * edit of theirs open on the focused reader has them, as a key here would give them (PIE-1445: the one-completer stage's
+   * edit opened as the section showed, and its list waited for a second /).
+   */
+  enterTiles() { this.reenter(); this.redraw(); }
   /** The keys are back on a reader holding the person's own edit or comment, left open when they went elsewhere: they're in it again, as it was (PIE-785, PIE-812). */
   private reenter() {
     const back = this.focusedReader();

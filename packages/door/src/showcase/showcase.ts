@@ -1711,6 +1711,7 @@ export class Showcase implements Screen {
   pick(i: number, enter = false) {
     this.sel = Math.max(0, Math.min(SECTIONS.length - 1, i));
     this.focus = enter && this.notes ? "stage" : "index";
+    if (this.focus === "stage") this.stage(this.sel)?.top.enterTiles?.();
     this.ctx.redraw();
   }
 
