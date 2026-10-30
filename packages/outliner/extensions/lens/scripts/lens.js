@@ -41,7 +41,9 @@ if (!query && one("view")) {
   if (!one("sort")) { const s = saved.properties.find(p => p.key === "sort")?.values[0]; if (s) slots.sort = [s]; }
 }
 if (!query) return bad("lens", 'needs query="…" (the views\' grammar, {{this.page}} and this allowed) or view="[[a saved view]]"');
-const limit = Math.max(1, Math.min(200, Number(one("limit")) || 200));
+// A table holds at most 200 rows, and a footer (sum=, avg=) is one of them.
+const cap = list("sum").length || list("avg").length ? 199 : 200;
+const limit = Math.max(1, Math.min(cap, Number(one("limit")) || cap));
 let found;
 try { found = await q(query, { limit, properties: true, ...(one("under") ? { under: one("under") } : {}) }); }
 catch (e) { return bad("lens", `query="${query}": ${e.message}`); }
@@ -67,7 +69,12 @@ const num = v => { const n = Number(v); return v !== "" && v !== undefined && Nu
 const coerce = r => keysSeen.map(k => { const vs = r.props[k]; return vs === undefined ? undefined : vs.length === 1 ? num(vs[0]) : vs.map(num); });
 const rowApi = r => ({ ...r, n: k => Number(r.props[k]?.[0] ?? 0), list: k => r.props[k] ?? [], get: k => r.props[k]?.[0] });
 const valueOf = (r, col) => {
-  if (col in compiled) { try { return compiled[col](...coerce(r), rowApi(r)); } catch (e) { return { error: e.message }; } }
+  if (col in compiled) {
+    // A row missing a property gives NaN (`qty * price` with no qty); a division by zero gives Infinity. Neither is a
+    // value: the cell is empty, and the footer and the sort leave it out.
+    try { const out = compiled[col](...coerce(r), rowApi(r)); return typeof out === "number" && !Number.isFinite(out) ? "" : out; }
+    catch (e) { return { error: e.message }; }
+  }
   if (col === "title") return r.title;
   if (col === "created" || col === "updated") return (r[col] ?? "").slice(0, 10);
   if (col === "id") return r.id.slice(0, 8);

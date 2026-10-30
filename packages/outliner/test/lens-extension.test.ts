@@ -92,10 +92,17 @@ test("the line's words are checked, and uninstalling keeps the notes", async () 
     // A reserved word as a key ([default::…]) doesn't stop the computed column compiling; a value shows as written.
     create("Zip [type::crate] [qty::2] [price::1.50] [default::yes] [zip::02134]");
     create("Zap [type::crate] [qty::3] [price::2]");
+    // A row without qty computes NaN: an empty cell, left out of the sum (not "NaN" in both).
+    create("Zop [type::crate] [price::4]");
     const crates = create('Crates\nlens:: query="type=crate" columns=title,zip,price,cost cost="qty * price" sum=cost sort=title');
     const drawnCrates = await drawn(crates.id, "| Σ |");
     expect(drawnCrates).toContain("| Zip | 02134 | 1.50 | 3 |");
+    expect(drawnCrates).toContain("| Zop |  | 4 |  |");
     expect(drawnCrates).toContain("| Σ |  |  | 9 |");
+    expect(drawnCrates).not.toContain("NaN");
+    // The saved view by its page, as the lab's prose says.
+    const byPage = create('By page\nlens:: view="[[meetings]]" columns=title');
+    expect(await drawn(byPage.id, "Standup")).toContain("Planning");
     // A typo in an expression is said once, not once per row.
     const typo = create('Typo\nlens:: query="type=crate" columns=title,cost cost="qty * prise"');
     const said = await drawn(typo.id, "prise");

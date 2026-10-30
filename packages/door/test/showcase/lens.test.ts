@@ -14,16 +14,20 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
   const h = useShowcaseScreen();
 
   /** Presses a square the note's lens drew, in the reader holding it, once it's there; waits for the run's answer. */
-  const press = async (tile: string, label: string, expected: RegExp, actor: Actor = USER) => {
-    const { app } = h;
-    const before = new Set(app.describe().messages.map(row => row.id));
+  /** Presses the cell once the reader has drawn it (the table redraws after the service's projection does). */
+  const pressDrawn = async (tile: string, label: string, actor: Actor) => {
     for (const end = Date.now() + 15_000; ;) {
-      try { await app.dispatch.act({ action: "button.press", tile, args: { label } }, actor); break; }
+      try { await h.app.dispatch.act({ action: "button.press", tile, args: { label } }, actor); return; }
       catch (error) {
         if (Date.now() > end) throw new Error(`the lens's ${label} cell never drew: ${error}; screen:\n${h.screen()}`);
         await Bun.sleep(100);
       }
     }
+  };
+  const press = async (tile: string, label: string, expected: RegExp, actor: Actor = USER) => {
+    const { app } = h;
+    const before = new Set(app.describe().messages.map(row => row.id));
+    await pressDrawn(tile, label, actor);
     const answer = () => app.describe().messages.find(row => !before.has(row.id) && expected.test(row.message));
     await until(() => !!answer(), `${label}'s answer`, 15_000).catch(error => { throw new Error(`${error.message}; last messages: ${JSON.stringify(app.describe().messages.slice(-3))}`); });
     return answer()!.message;
@@ -62,7 +66,7 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
     expect(await chip(hose.id, "stage")).toBeUndefined();
     await drawn(jobs.id, "| Mend the hose | · | Sam |");
     // An agent presses the same cell, attributed to it, and lands on the first choice.
-    await app.dispatch.act({ action: "button.press", tile: reader.tile, args: { label: "·" } }, AGENT);
+    await pressDrawn(reader.tile, "·", AGENT);
     for (const end = Date.now() + 15_000; (await chip(hose.id, "stage")) !== "todo";) { if (Date.now() > end) throw new Error("the agent's press never landed"); await Bun.sleep(100); }
     // Written by the lens's script, not as the person: the door says who.
     expect((await board.get(hose.id))!.author).toBe("ext:lens");
