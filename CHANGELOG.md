@@ -26,6 +26,15 @@ are its record. The outliner's entries from then are kept below, under
 - **Pressed, asked, run: written as whoever asked:** a lens status cell, a `::button` or any script run you start now saves its writes as you (`ep0ch revisions` reads "by you · via script"), and ctrl+z takes the press back; an agent's `act` or `script_run` of the same line is recorded as that agent, by its own actor id. A run nobody asked for (a rule, a schedule) still writes as `script:<name>`. The change feed keeps the script in its `action` and who asked in `requestedBy`.
 - **Run:** `ep0ch install --apply`.
 
+### One `lens::` line in any note draws a live, editable table of what a query holds (PIE-1461, Datacore spike)
+
+- **A lens line:** `lens:: query="type=meeting when={{this.page}}" columns=title,who,status edit=status sort=when` in a note draws the query's rows as a table, relative to that note: `{{this.page}}` and `under:this` read the note the line sits in, so one line pasted into every daily note shows that day's rows. `columns=` picks property columns, a `name="expr"` adds a computed one (`cost="qty * price"`), `sum=` adds a footer, `group=` draws a box per value, `view=[[Open jobs]]` reads a saved view.
+- **Cells press and open:** an `edit=` column's cells step the row's property on a click, Enter or an agent's `act` (`choices-stage="todo|doing|done"` sets the order), the table redraws, and ctrl+z takes it back; title cells open the note. A row missing the property draws an empty cell, and a footer fits under the row cap.
+- **The power bar knows the slots:** "Run lens" offers `columns`, `edit`, `sort`, `group` and `sum` with the outline's own property keys.
+- **One kit:** `&lens` in the power bar installs the lens and its lab (demo notes under Extensions); uninstalling says so on the Lens page. Shared parts extended for it: `outline_find` and a script's `q()` return each row's properties on request, and a `view.table` cell may be `{ text, act?, link?, tone? }`, drawn per cell by the door and read as text on the web and in CSV.
+- **Showcase:** the "lens" section in the kitchen sink.
+- **Run:** `ep0ch install --apply`.
+
 ### A saved view reads as a table, cards and a list: the collection workbench (Datacore spike)
 
 - **Collection workbench extension:** put `workbench::` in a saved view note and its `[query::]`, `[group::]`, `[sort::]` and `[columns::]` draw as a linked table, cards and a filterable list with previews; editing the view or any matching note updates it live, and every row opens its note. Install it from the extensions screen; uninstalling leaves the view and its notes.
