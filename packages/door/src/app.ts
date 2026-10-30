@@ -35,7 +35,7 @@ import { SHELL_ACTIONS } from "./screens";
 import { NEW_NOTE_ACTIONS } from "./new-note";
 import { TEMPLATE_ACTIONS } from "./template-stamp";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
-import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
+import { bg, BOLD, C, chip, fg, headOf, pad, RESET, splitVisible, tailFrom, UNBOLD, width } from "./style";
 import { isBarKey } from "./shell-keys";
 import { printable, withRowLimit, wrap } from "./text";
 import { SpeedMeter } from "./speed";
@@ -45,7 +45,7 @@ import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, scriptInstallWords, connectScriptActions, scriptPressMessage } from "./extensions";
+import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged, referenceWords } from "./refs";
@@ -615,6 +615,8 @@ export class App implements Ctx {
   private statusBoxes: StatusHit[] = [];
   /** The status bar's message didn't fit its row as last drawn: it's said whole above the bar (withWhole). */
   private messageCut = false;
+  /** How many rows above the bar that whole message takes as last drawn: a click on them opens the message log. */
+  private wholeRows = 0;
   /** The status-bar groups' menus the person opened, by the group's path: a nested group's opens beside its parent's. */
   private readonly statusMenus = new Map<string, ListPicker<MenuRow, unknown>>();
   /** What the narrow bar put in its `+N` chip, in the bar's order (`status.bar.menu overflow=true` lists them). */
@@ -1303,7 +1305,7 @@ export class App implements Ctx {
     const who = agentLabel(actor);
     return messageContext.run({ action: req.action, ...(req.tile ? { tile: req.tile } : {}) }, async () => {
       try {
-        if (!this.dispatch.takes(req, actor)) throw new ActionRefused(GONE_ACTIONS[req.action] ?? scriptInstallWords(req.action) ?? this.dispatch.unknownAction(req.action));
+        if (!this.dispatch.takes(req, actor)) throw new ActionRefused(GONE_ACTIONS[req.action] ?? this.dispatch.unknownAction(req.action));
         this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
         const r = await this.dispatch.act(req, actor);
         this.redraw();
@@ -1462,6 +1464,11 @@ export class App implements Ctx {
     if (w.over === "bar") {
       if (!this.bar!.ended()) this.bar!.key(k, this);
       if (this.bar?.ended()) { this.bar.close(); this.bar = null; this.redraw(); }
+      return;
+    }
+    // The message said whole above the bar (withWhole): a click on it opens the message log, where it reads whole (PIE-1453).
+    if (k.kind === "mouse" && k.action === "down" && this.wholeRows && k.y < this.term.info.rows - 1 && k.y >= this.term.info.rows - 1 - this.wholeRows) {
+      void this.dispatch.press("status.log");
       return;
     }
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1 && k.action === "down") {
@@ -1822,7 +1829,10 @@ export class App implements Ctx {
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
     const bar = this.statusBar(s, cols);
     // What the bar cuts short (a refusal at 40 columns) is said whole just above it while it's up (PIE-1428).
-    if (this.messageCut && this.message) lines = withWhole(lines, referenceWords(this.message), cols, this.messageWarning);
+    // Longer than its four rows, it ends "… more alt+M"; a click on it (or alt+M) opens the message log, which has it whole (PIE-1453).
+    const whole = this.messageCut && this.message ? referenceWords(this.message) : "";
+    if (whole) lines = withWhole(lines, whole, cols, this.messageWarning);
+    this.wholeRows = whole ? Math.min(4, wrap(printable(whole, " "), Math.max(1, cols - 2)).length) : 0;
     lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(lines, cols, Date.now());
@@ -1977,9 +1987,18 @@ export function withToast(lines: string[], text: string, cols: number, ok = true
   return out;
 }
 
-/** A message the status bar cut short, wrapped whole over the rows just above it (at most four), in the bar's ink. */
+/** What withWhole puts at the end of its last row when the message is longer than its rows (PIE-1453): a click or alt+M reads it whole. */
+export const WHOLE_MORE = "… more alt+M";
+/**
+ * A message the status bar cut short, wrapped whole over the rows just above it (at most four), in the bar's ink. One
+ * longer than that ends its fourth row with WHOLE_MORE: the message log (status.log) draws it whole.
+ */
 export function withWhole(lines: string[], text: string, cols: number, warning = false): string[] {
-  const rows = wrap(printable(text, " "), Math.max(1, cols - 2)).slice(0, 4), out = [...lines];
+  const room = Math.max(1, cols - 2), all = wrap(printable(text, " "), room), rows = all.slice(0, 4), out = [...lines];
+  if (all.length > rows.length) {
+    const more = ` ${WHOLE_MORE}`, last = rows.length - 1;
+    rows[last] = splitVisible(rows[last]!, Math.max(0, room - width(more)))[0].trimEnd() + more;
+  }
   rows.forEach((r, i) => { const at = out.length - rows.length + i; if (at >= 0) out[at] = STATUS_INK + fg(warning ? C.yellow : C.lcyan) + pad(` ${r}`, cols) + RESET; });
   return out;
 }

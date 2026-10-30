@@ -8276,12 +8276,17 @@ function savedScreen(x: unknown, spec: ScreenSpec): SavedDesk | null {
  * threads (a comment or a reply on it), or an edit of its note that can move a quoted passage (PIE-399: only what a
  * change can touch is refreshed). Without a change record (a reset), anything may have.
  */
-function readerHears(r: ReaderPane, e: OutlineEvent): boolean {
+export function readerHears(r: Pick<ReaderPane, "msg" | "comments">, e: OutlineEvent): boolean {
   const c = e.change, m = r.msg;
   if (!c) return true;
   if (!m) return false;
   const id = c.blockId;
   if (c.kind === "annotate") return m.id === c.parentId || (r.comments ?? []).some(t => t.id === c.parentId || t.id === id || t.replies.some(x => x.id === id));
+  // An extension's agent answers a thread by writing its reply block (`@margin`'s "working" line, its edits each
+  // minute, the answer that replaces it): a plain create or edit under the thread, with no `annotate` record (PIE-1452).
+  const inThread = (x: string | null | undefined) => !!x && (r.comments ?? []).some(t => t.id === x || t.replies.some(y => y.id === x));
+  if (c.kind === "create") return m.id === c.parentId || inThread(c.parentId);
+  if (c.kind === "edit" && inThread(id)) return true;
   return !!id && m.id === id && c.kind === "edit";
 }
 

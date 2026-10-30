@@ -115,7 +115,7 @@ import { composerBody, composerBox, placeBox, type ComposerBox } from "./compose
 import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedTileHost, type AttachedSide, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
-import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, scriptInstallWords, threadAgents } from "../extensions";
+import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, installWords, threadAgents } from "../extensions";
 import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
@@ -4970,7 +4970,7 @@ export class NoteSurface {
       if (!d.takes(d.requestIn(req, messageContext.getStore()?.tile))) {
         const { listed, scripts } = await this.scriptsNamed(action, p.block || this.msg?.id, p.line, host);
         if (!scripts.length) {
-          throw new ActionRefused(scriptInstallWords(action, listed.available) ?? d.unknownAction(action));
+          throw new ActionRefused(installWords(action, listed.available) ?? d.unknownAction(action));
         }
         if (scripts[0]!.state === "failed") throw new ActionRefused(scripts[0]!.error!);
         if (scripts.length > 1) host.ctx.flash(scripts[0]!.description ?? "");

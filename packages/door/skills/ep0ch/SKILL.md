@@ -276,7 +276,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
 - **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`; each tile in brief, `full=true` for
   its whole description: a tree's rows, a facets tile's lists), `tile.open` (never takes the person's keys, in yolo
   too; naming neither a tile nor `where=`, one that would be too narrow beside the person's tile floats; its answer's
-  `why` says when it's narrow), `layout.move`,
+  `why` says when it's narrow, and where it went: "…, and it went right of r1, as asked" for a place you named), `layout.move`,
   `block.mark reason=…` to ask for the person's attention. Pass `expected=<rev>` when you name by place.
   `tile.preview tile=<reader>` (`where=right|down|left|up`) opens a reader beside it where its opens land, linked in
   one step: then `link.follow tile=<reader> n=…` lands there and the reader keeps its note. Called again it answers

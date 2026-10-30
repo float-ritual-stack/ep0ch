@@ -1521,11 +1521,15 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "message-log", need: "read a message after its status flash has gone", part: "App.flash appends to the session's StatusLog; the BBS list actions and RowView show every wrapped line, LineField and the shared search matcher search it", files: "src/status-log.ts, src/app.ts, src/screens.ts",
-    aside: "Click the status line or press alt+M from any screen. / searches whole messages, actions and tiles; r refreshes the rows; enter goes to the note or tile, PgUp/PgDn or the wheel reads a long message, q comes back. ep0ch log prints the session file; --follow tails it; peek includes the last 500 messages. Error stacks stay in the file.",
-    stage(_n, show) {
+    key: "message-log", need: "read a message after its status flash has gone", part: "App.flash appends to the session's StatusLog; the BBS list actions and RowView show every wrapped line, its words drawn by the reader's inline renderer (presentLinks: a labelled reference by its label, a click opens it), LineField and the shared search matcher search it; withWhole says a cut message above the bar", files: "src/status-log.ts, src/app.ts, src/screens.ts",
+    aside: "Click the status line or press alt+M from any screen. / searches whole messages, actions and tiles; r refreshes the rows; enter goes to the note or tile, PgUp/PgDn or the wheel reads a long message, q comes back. A note a message names reads by its label, as a reader draws it, and a click on it opens the note (status.link n=1). At 44 columns a message too long for the four rows above the bar ends … more alt+M: a click on it opens this log. ep0ch log prints the session file; --follow tails it; peek includes the last 500 messages. Error stacks stay in the file.",
+    stage(n, show) {
       const list = new StatusMessages();
-      show(ctx => { ctx.flash("The garden gate needs attention; this message stays in the log after its flash ends."); list.enter(ctx); list.reload(); });
+      show(ctx => {
+        ctx.flash("The garden gate needs attention; this message stays in the log after its flash ends.");
+        ctx.flash(`Nothing was filed: ((${n.shed!.id}|the shed note)) is no page; add [page::Shed] to it, or name another with [form-into::…]`, 4000, { kind: "refusal" });
+        list.enter(ctx); list.reload();
+      });
       return list;
     },
   },
