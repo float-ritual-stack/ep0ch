@@ -102,7 +102,10 @@ found" with what was checked.
 - **The code works,** with tests a person would notice failing. Don't add tests for counts.
 - **Docs and skills updated** in the same PR: READMEs and their tables, the door's UI-GRAMMAR, the outliner's
   README or extension docs, AGENTS.md when a rule changed, the skills under `packages/*/skills` and
-  `packages/outliner/pi-extension/skills` that describe the behaviour, and the CHANGELOG.
+  `packages/outliner/pi-extension/skills` that describe the behaviour.
+- **A CHANGELOG entry** under `## [Unreleased]` for anything a person or agent will notice: a `###` heading in plain
+  words with the ticket id, one bold-led bullet per change, and a `- **Run:**` line last. Check it before you report
+  ready: on Oct 29 the freshness sweep found five merged PRs without one.
 - **A user-visible feature gets a kitchen-sink section** (`packages/door/src/showcase/`) with its test in
   `packages/door/test/showcase/`, or the PR says why it can't be shown there.
 - **Validated by driving the app yourself:** a real pane in your own tmux for the door (the recipe is in
