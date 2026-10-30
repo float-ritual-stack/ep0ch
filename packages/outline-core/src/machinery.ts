@@ -1,6 +1,6 @@
 // Machinery (PIE-867): what a tool writes for its own bookkeeping, as against what a person or an agent chose to say.
 // A producer stamps its records with one property, `[machine::<producer>]` (`file-touch`, `echonet`, `delivery`,
-// `intake`, `backup`, `notification` for what the notifications hub fetched); the key is the same for all of them, so
+// `intake`, `backup`, `peer-log` for the mod's copies of messages between sessions, `notification` for what the notifications hub fetched); the key is the same for all of them, so
 // no client lists types and a new producer joins by writing it (properties are open). Proofs, patch notes, tickets and carried comments are not stamped: someone chose
 // those words, and a carried comment keeps its source's author.
 //

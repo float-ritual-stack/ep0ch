@@ -16,6 +16,7 @@ export const BACKFILL_SHAPES: readonly { producer: string; where: string; about:
   { producer: "delivery", where: "type=delivery", about: "delivery records" },
   { producer: "intake", where: "type=prior-art", about: "intake's prior-art notes" },
   { producer: "backup", where: "type=backup-run", about: "backup runs" },
+  { producer: "peer-log", where: "type=peer-message", about: "the messages between Claude sessions the mod copies under [[peer-messages]] (PIE-1448)" },
   { producer: NOTIFICATION_MACHINE, where: "notify.key", about: "the notifications hub's fetched notifications (PIE-1427)" },
   // The page the notifications hub pulls into, by who wrote it last (the Extensions hub and pages need none: the service
   // writes them again, stamped, on its next reload).
@@ -33,7 +34,7 @@ const VIEW_SHAPES: readonly { producer: string; where: string }[] = [
 
 const USAGE = `usage: ep0ch machinery backfill [--ws <outline>] [--apply] [--json]
   Stamps [machine::<producer>] on what tools wrote before they stamped: file touches and their folders, EchoNet's
-  nodelist, tosses, ledger and receipts, delivery records, intake's prior art, backup runs, fetched notifications, the
+  nodelist, tosses, ledger and receipts, delivery records, intake's prior art, backup runs, peer messages, fetched notifications, the
   page the notifications hub pulls into; and
   [machinery::show] on the file-touch views and the notifications boards. A dry run says what it would stamp; --apply stamps. A note already stamped is left alone.`;
 

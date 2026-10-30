@@ -19,10 +19,14 @@ export function stampOf(ms: number): string {
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`
 }
 
-/** One message as a note: its first line says which way, with whom and when; the text under it, cut past 4000 characters. */
+/**
+ * One message as a note: its first line says which way, with whom and when; the text under it, cut past 4000 characters.
+ * Stamped `[machine::peer-log]` (outline-core machinery.ts): a copy the mod keeps, so a list of what people and agents
+ * chose to write (the navigator's Today) leaves it out unless it asks for machinery (PIE-1448).
+ */
 export function entryOf(direction: 'to' | 'from', peer: string, ms: number, body: string): string {
   const cut = body.length > MAX_CHARS ? `${body.slice(0, MAX_CHARS)}\n… cut at ${MAX_CHARS} characters` : body
-  return `${direction === 'to' ? '→ to' : '← from'} ${peer} · ${stampOf(ms)} [type::peer-message] [peer::${peer}]\n\n${cut}`
+  return `${direction === 'to' ? '→ to' : '← from'} ${peer} · ${stampOf(ms)} [type::peer-message] [peer::${peer}] [machine::peer-log]\n\n${cut}`
 }
 
 export const findPageArgv = (): string[] => ['ep0ch', 'find', '--query', `page = "${PEER_PAGE}"`, '--ids']

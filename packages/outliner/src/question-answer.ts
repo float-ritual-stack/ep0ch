@@ -4,6 +4,8 @@
 // match's values.
 import { QUESTION_FACET_CAP, type QuestionFacet, type QuestionGroup } from "@ep0ch/outline-core/protocol";
 import { readBound, readDate, readDateBound, readNumber, valueHolds, fromWallClock, wallClock } from "@ep0ch/outline-core/dates";
+import { RECENT_BUCKETS, recentBucket } from "@ep0ch/outline-core/date-buckets";
+export { RECENT_BUCKETS, recentBucket };
 import { dateGroupOf, expressionPropertyKeys, sortPropertyKey, valueOrder, type DateUnit } from "./block-query";
 import type { Block, NormalizedBlockSearchQuery, QueryExpression } from "./types";
 
@@ -11,26 +13,6 @@ import type { Block, NormalizedBlockSearchQuery, QueryExpression } from "./types
 export type ValuesOf = (block: Block, key: string) => string[];
 
 const pad = (n: number) => String(n).padStart(2, "0");
-
-/** The relative buckets, in the order a list shows them (newest first); a month after them is `YYYY-MM`. */
-export const RECENT_BUCKETS = ["Later", "Today", "Yesterday", "Previous 7 days", "Previous 30 days"] as const;
-
-/**
- * The relative bucket an ISO time falls in, by this machine's wall clock (as `today` in a query): Today, Yesterday,
- * Previous 7 days, Previous 30 days, then its month (`2026-09`); a time after today is Later.
- */
-export function recentBucket(iso: string, now = Date.now()): string | null {
-  const at = new Date(iso);
-  if (!Number.isFinite(at.getTime())) return null;
-  const day = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
-  const ago = Math.round((day(new Date(now)) - day(at)) / 86_400_000);
-  if (ago < 0) return "Later";
-  if (ago === 0) return "Today";
-  if (ago === 1) return "Yesterday";
-  if (ago <= 7) return "Previous 7 days";
-  if (ago <= 30) return "Previous 30 days";
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}`;
-}
 
 /** The bucket an ISO time falls in: `2026-10-09`, `2026-W41` (ISO week), `2026-10` or `2026`, in UTC; `recent`: recentBucket. */
 export function dateBucket(iso: string, unit: DateUnit, now = Date.now()): string | null {

@@ -133,10 +133,11 @@ export function drawCalendar(p: Props, w: number, link?: RowLink): string[] {
     const isToday = first + d - 1 === now, m = marked.get(d);
     const num = String(d).padStart(2);
     const ink = m ? (m.muted ? fg(INK) : fg(ACCENT) + BOLD) : fg(INK);
-    line += isToday ? fg(HI) + "[" + ink + num + UNBOLD + fg(HI) + "]" : " " + ink + num + UNBOLD + " ";
+    // `dots`: a marked day says so with a dot after it, not only its ink (the navigator's days with notes, PIE-1448).
+    line += isToday ? fg(HI) + "[" + ink + num + UNBOLD + fg(HI) + "]" : " " + ink + num + UNBOLD + (m && p.dots ? fg(ACCENT) + "·" : " ");
     if ((lead + d) % 7 === 0 || d === days) { out.push(line + RESET); line = ""; }
   }
-  if (marks.length) {
+  if (marks.length && !p.dots) {
     out.push("");
     for (const m of [...marks].sort((a, b) => a.day - b.day)) {
       const label = rowLinks(link, m.block, rowLines(m.label, Math.max(6, w - 5)));

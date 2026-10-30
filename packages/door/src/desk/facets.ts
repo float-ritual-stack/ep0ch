@@ -20,13 +20,15 @@ import { ago, rowLines } from "../text";
 import { RowView, wheelRows, clamp, type RowPress } from "../scroll";
 import { LineField } from "../surface/line";
 import { askInBar } from "../bar/ask";
+import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { findBoards } from "./query";
 import { prop, propValues } from "../props";
 import { ListView, PERSON, actorKey, type ListViewRow } from "../surface/list-view";
 import type { ListHost } from "../surface/list-actions";
 import { ATTACHED_PLACES, AttachedTile, attachedPlaceOf, attachedRect, drawAttachedFloat, nextPlace, type AttachedPlace, type AttachedSide } from "../surface/attached";
 import { drawCalendar } from "../figures/days";
-import { chipsOf, matchGroups, matchRows, type MatchGroup } from "./facets-matches";
+import { chipsOf, matchGroups, matchRows, MORE, type MatchGroup } from "./facets-matches";
+import { bucketWhere } from "@ep0ch/outline-core/date-buckets";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
 
@@ -47,7 +49,9 @@ type Row =
   | { kind: "day"; day: string }
   | { kind: "views"; count: number; open: boolean }
   | { kind: "view"; view: Msg }
-  | { kind: "note"; note: Msg };
+  | { kind: "views-more"; count: number }
+  | { kind: "note"; note: Msg }
+  | { kind: "more"; group: string };
 
 const HINT = "j k pick · ⏎ or click includes a value, again excludes it, again drops it · + − 0 · e edit the query · v save as a view · s sort · z zero · x clear · ctrl+o moves Matches · * pin · t tag · d today";
 /** What the Matches list shows of a row unless the tile says (`show=`): its tags. Any key goes (properties are open). */
@@ -60,6 +64,8 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 /** The rows the calendar takes at the foot of the tree: a month heading, the weekdays and up to six weeks. */
 const CAL_ROWS = 8, CAL_COLS = 28;
+/** Saved views listed before a "▸ more views" row. */
+const VIEWS_SHOWN = 8;
 const USES = 5, LAST = 5;
 const SAFE_VALUE = /^[\w./@*-]+$/u;
 
@@ -135,6 +141,14 @@ export class FacetsPane implements Pane {
   calendar = true;
   private pinned: Msg[] = [];
   private views: Msg[] = [];
+  /** A group's notes read past the first page (PIE-1448), by its label; read again with the selection. */
+  private extra = new Map<string, Msg[]>();
+  /** The titles of the notes Matches' rows live under, by id: where a note lives, said on its row. */
+  private homes = new Map<string, string>();
+  /** The page whose links pin notes (PIE-1448): pinning writes there, never in the note pinned. */
+  pins = "pins";
+  /** The pins page's id, once it exists. */
+  private pinsPage: string | null = null;
   private dayCounts = new Map<string, number>();
   private groupsKept: MatchGroup[] = [];
 
@@ -148,6 +162,16 @@ export class FacetsPane implements Pane {
 
   /** The selection as the query the service is asked: the picks, then the calendar's day. */
   query(): string { const q = selectionQuery(this.clauses, this.raw); return [this.day && /\bOR\b/.test(q) ? `(${q})` : q, this.day ? dayClause(this.day) : ""].filter(Boolean).join(" "); }
+  /** A saved view whose query is `q`, written the same (blanks aside). */
+  viewWithQuery(q: string): Msg | undefined { const t = (x: string) => x.replace(/\s+/g, " ").trim(); return this.views.find(v => t(prop(v, "query") ?? "") === t(q)); }
+  /** The note most of the outline's saved views live under: where a new one goes unless it's told. */
+  viewsHome(): string | null {
+    const n = new Map<string, number>();
+    for (const v of this.views) if (v.parentId) n.set(v.parentId, (n.get(v.parentId) ?? 0) + 1);
+    return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  }
+  /** A note's title, when this tile has read it (a view's hub, a row's home). */
+  homeName(id: string): string | undefined { return this.homes.get(id); }
   /** A saved view the tile lists as a shortcut, by id. */
   viewNamed(id: string): Msg | undefined { return this.views.find(v => v.id === id || (id.length >= 8 && v.id.startsWith(id))); }
   /** The pane whose wires a pick and an open go through: the Matches tile while there is one, else this. */
@@ -180,14 +204,16 @@ export class FacetsPane implements Pane {
   async load(desk: DeskApi): Promise<boolean> {
     const n = ++this.asked, board = desk.ctx.board, q = this.query();
     try {
-      const pinQ = `${this.pin}=true`, within = q ? (/\bOR\b/.test(q) ? `(${q}) ${pinQ}` : `${q} ${pinQ}`) : pinQ;
+      // Pinned: the notes the pins page links to, and any that carry the pin key itself.
+      if (!this.pinsPage) { const r = await board.resolvePage(this.pins).catch(() => null); this.pinsPage = r?.status === "resolved" && r.block ? r.block.id : null; }
+      const pinQ = this.pinsPage ? `(${this.pin}=true OR linkedfrom:${this.pinsPage})` : `${this.pin}=true`, within = q ? (/\bOR\b/.test(q) ? `(${q}) ${pinQ}` : `${q} ${pinQ}`) : pinQ;
       const { year, month } = this.month, from = `${year}-${String(month).padStart(2, "0")}-01`, to = isoDay(new Date(year, month, 0));
       const plain = selectionQuery(this.clauses, this.raw), monthQ = [plain && /\bOR\b/.test(plain) ? `(${plain})` : plain, `updated >= "${dayWords(from)}" updated <= "${dayWords(to)}"`].filter(Boolean).join(" ");
       const [now, all, pinned, views, days] = await Promise.all([
         board.facetList(q, 200, { group: this.group, sort: "updated desc", excerpt: true }),
         q ? board.facetList("", 0) : null,
         board.facetList(within, 50, { facets: false, sort: "updated desc", excerpt: true }).catch(() => null),
-        this.open.has("views") || !this.views.length ? board.facetList("type=virtual-branch query", 200, { facets: false, sort: "title" }).catch(() => null) : null,
+        this.open.has("views") || !this.views.length ? board.facetList("type=virtual-branch query", 200, { facets: false, sort: "updated desc" }).catch(() => null) : null,
         this.calendar ? board.facetList(monthQ, 1, { facets: false, group: "updated:day" }).catch(() => null) : null,
       ]);
       if (n !== this.asked) return true;
@@ -195,6 +221,8 @@ export class FacetsPane implements Pane {
       this.answer = now; this.all = all ?? now; this.error = null;
       this.pinned = pinned?.notes ?? [];
       if (views) this.views = views.notes;
+      this.extra.clear();
+      await this.readHomes(desk, [...now.notes, ...this.pinned, ...this.views]);
       this.dayCounts = new Map((days?.groups ?? []).flatMap(g => (g.value ? [[g.value, g.count] as [string, number]] : [])));
       this.setRows();
       // The cursor stays on the row it was on (by what it is), not its place.
@@ -252,9 +280,35 @@ export class FacetsPane implements Pane {
   /** Matches' rows from the answers: the service's groups, Pinned first, each note a card. */
   private setRows() {
     const a = this.answer;
-    this.groupsKept = a ? matchGroups(a.notes, a.groups, this.pinned, a.matched) : [];
-    this.list.set(matchRows(this.groupsKept, this.show, this.pin));
+    this.groupsKept = a ? matchGroups(a.notes, a.groups, this.pinned, a.matched, this.extra) : [];
+    this.list.set(matchRows(this.groupsKept, this.show, this.pin, m => (m.parentId ? this.homes.get(m.parentId) : undefined)));
     this.rowsKept = null;
+  }
+  /** The titles of the notes `notes` live under, read in one ask (only those not known yet). */
+  private async readHomes(desk: DeskApi, notes: readonly Msg[]) {
+    const want = [...new Set(notes.flatMap(m => (m.parentId && !this.homes.has(m.parentId) ? [m.parentId] : [])))];
+    if (!want.length) return;
+    try { for (const h of await desk.ctx.board.readMany(want)) this.homes.set(h.id, subject(h)); } catch { /* a row says nothing of its home */ }
+  }
+  /**
+   * Read the rest of group `label` (its "▸ more" row, PIE-1448): the selection ANDed with the clause that holds just that
+   * group (outline-core `bucketWhere`), the service answering it as it answers the first page. The cursor goes to its
+   * first note not shown before.
+   */
+  async readGroup(desk: DeskApi, label: string): Promise<{ group: string; notes: number }> {
+    const g = this.groupsKept.find(x => x.label === label);
+    if (!g) throw new ActionRefused(`Matches has no group ${label}`);
+    const clause = bucketWhere(this.group, g.value);
+    if (!clause) throw new ActionRefused(`${label} can't be asked for by itself`);
+    const q = this.query(), was = new Set(g.notes.map(m => m.id));
+    const got = await desk.ctx.board.facetList([q && /\bOR\b/.test(q) ? `(${q})` : q, clause].filter(Boolean).join(" "), 1000, { facets: false, sort: "updated desc", excerpt: true });
+    await this.readHomes(desk, got.notes);
+    this.extra.set(label, got.notes);
+    this.setRows();
+    const first = got.notes.find(m => !was.has(m.id));
+    if (first) { this.list.setPick(PERSON, first.id); const at = this.rows().findIndex(r => r.kind === "note" && r.note.id === first.id); if (at >= 0) this.at = at; }
+    desk.redraw();
+    return { group: label, notes: got.notes.length };
   }
   /** The notes Matches lists, in the order drawn (Pinned first). */
   notes(): Msg[] { return this.list.pickable(PERSON).flatMap(r => (r.source ? [r.source] : [])); }
@@ -277,7 +331,12 @@ export class FacetsPane implements Pane {
     // Saved views are shortcuts: a pick sets the selection to the view's query.
     if (this.views.length) {
       rows.push({ kind: "views", count: this.views.length, open: this.open.has("views") });
-      if (this.open.has("views")) for (const view of this.views) rows.push({ kind: "view", view });
+      // The ones changed last first, a few at a time: an outline's views run to dozens (PIE-1448), the facets stay in sight.
+      const all = this.open.has("views:all"), shown = all ? this.views : this.views.slice(0, VIEWS_SHOWN);
+      if (this.open.has("views")) {
+        for (const view of shown) rows.push({ kind: "view", view });
+        if (!all && this.views.length > shown.length) rows.push({ kind: "views-more", count: this.views.length - shown.length });
+      }
     }
     const here = new Map(answer.facets.map(f => [f.key, f]));
     const listed = this.zero && this.all ? this.all.facets.map(f => f.key) : answer.facets.map(f => f.key);
@@ -300,7 +359,7 @@ export class FacetsPane implements Pane {
       walk(this.tree([...(f?.values ?? []), ...gone]), new Set(gone.map(g => g.value)));
     }
     // In a tile of its own, Matches walks there; here the cursor goes on into it.
-    if (this.place !== "tile") for (const note of this.notes()) rows.push({ kind: "note", note });
+    if (this.place !== "tile") for (const r of this.list.pickable(PERSON)) rows.push(r.source ? { kind: "note", note: r.source } : { kind: "more", group: r.group ?? "" });
     return rows;
   }
   current(): Row | undefined { return this.rows()[this.at]; }
@@ -327,7 +386,7 @@ export class FacetsPane implements Pane {
     throw new ActionRefused("the cursor isn't on a note (the notes the selection leaves are listed in Matches)");
   }
   private rowKey(r: Row | undefined) {
-    return !r ? null : r.kind === "clause" ? `c:${r.clause.key}=${r.clause.value}` : r.kind === "facet" ? `f:${r.key}` : r.kind === "value" ? `v:${r.key}=${r.node.path}` : r.kind === "day" ? "d" : r.kind === "views" ? "views" : r.kind === "view" ? `w:${r.view.id}` : `n:${r.note.id}`;
+    return !r ? null : r.kind === "clause" ? `c:${r.clause.key}=${r.clause.value}` : r.kind === "facet" ? `f:${r.key}` : r.kind === "value" ? `v:${r.key}=${r.node.path}` : r.kind === "day" ? "d" : r.kind === "views" ? "views" : r.kind === "view" ? `w:${r.view.id}` : r.kind === "views-more" ? "w+" : r.kind === "more" ? `m:${r.group}` : `n:${r.note.id}`;
   }
   /** Run `change`, which reorders rows, and keep the cursor on the row it was on. */
   keeping(change: () => void) {
@@ -349,7 +408,8 @@ export class FacetsPane implements Pane {
     const a = this.answer, visible = this.list.visible();
     const d = this.list.draw({ cols, focused, selection: true, room, filterLine: false,
       empty: !a ? " loading…" : this.query() ? " No matching notes." : " No notes yet." });
-    const notes = d.rowAt.map(i => (i === null ? null : visible[i]?.source?.id ?? null));
+    // Each line's row: a note's id, or a group's "more" row (MORE + its label); headings and spacing are null.
+    const notes = d.rowAt.map(i => (i === null ? null : visible[i]?.source?.id ?? (visible[i]?.id.startsWith(MORE) ? visible[i]!.id : null)));
     return { lines: d.lines.map(l => pad(l, cols)), notes };
   }
 
@@ -362,6 +422,7 @@ export class FacetsPane implements Pane {
     this.width = w;
     const cur = rows[this.at];
     if (cur?.kind === "note") this.list.setPick(PERSON, cur.note.id);
+    else if (cur?.kind === "more") this.list.setPick(PERSON, `${MORE}${cur.group}`);
     if (desk) this.attached.sync(this, this.attachedHost(desk));
     const lines: string[] = [];
     this.lineRows = []; this.hits = []; this.cal = null;
@@ -386,7 +447,7 @@ export class FacetsPane implements Pane {
     const calRoom = this.calendar && treeRoom >= CAL_ROWS + 6 && treeW >= CAL_COLS - 4 ? CAL_ROWS : 0;
     const keyRoom = treeRoom - calRoom;
     const tree: { text: string; row: number }[] = [];
-    rows.forEach((r, i) => { if (r.kind !== "note") for (const text of this.line(r, i === this.at, focused, treeW)) tree.push({ text, row: i }); });
+    rows.forEach((r, i) => { if (r.kind !== "note" && r.kind !== "more") for (const text of this.line(r, i === this.at, focused, treeW)) tree.push({ text, row: i }); });
     if (!tree.length) tree.push({ text: fg(C.dark) + " No properties." + RESET, row: -1 });
     const first = tree.findIndex(l => l.row === this.at), last = tree.findLastIndex(l => l.row === this.at);
     this.view.place(first < 0 ? null : first, tree.length, keyRoom, first < 0 ? null : [first, last]);
@@ -403,11 +464,11 @@ export class FacetsPane implements Pane {
     else if (this.place === "tile") add(" · in its own tile");
     push(pad(bar, w) + RESET);
     if (inline) {
-      const m = this.matchLines(w, noteRoom, focused && cur?.kind === "note");
-      m.lines.forEach((l, i) => { const id = m.notes[i]; if (id) this.hits.push({ y: lines.length, x0: 0, x1: w, note: id }); push(l, id ? rows.findIndex(r => r.kind === "note" && r.note.id === id) : -1); });
+      const m = this.matchLines(w, noteRoom, focused && (cur?.kind === "note" || cur?.kind === "more"));
+      m.lines.forEach((l, i) => { const id = m.notes[i]; if (id) this.hits.push({ y: lines.length, x0: 0, x1: w, note: id }); push(l, id ? rows.findIndex(r => (r.kind === "note" && r.note.id === id) || (r.kind === "more" && `${MORE}${r.group}` === id)) : -1); });
     }
     if (split) {
-      const m = this.matchLines(listW, h - top, focused && cur?.kind === "note");
+      const m = this.matchLines(listW, h - top, focused && (cur?.kind === "note" || cur?.kind === "more"));
       for (let i = 0; i < h - top; i++) {
         const y = top + i, id = m.notes[i] ?? null;
         lines[y] = pad(lines[y] ?? "", treeW) + fg(C.dark) + "│" + RESET + (m.lines[i] ?? " ".repeat(listW));
@@ -417,7 +478,7 @@ export class FacetsPane implements Pane {
     let out = lines.slice(0, h);
     if (this.place === "floating" || this.place === "popup") {
       const rect = attachedRect(this.place, w, h, { min: { cols: 30, rows: 8 }, from: top });
-      const m = this.matchLines(rect.cols - 2, rect.rows - 2, focused && cur?.kind === "note");
+      const m = this.matchLines(rect.cols - 2, rect.rows - 2, focused && (cur?.kind === "note" || cur?.kind === "more"));
       m.notes.forEach((id, i) => { if (id) this.hits.push({ y: rect.row + 1 + i, x0: rect.col + 1, x1: rect.col + rect.cols - 1, note: id }); });
       out = drawAttachedFloat(out, w, h, rect, `matches ${count} · ${this.placeChip()}`, focused, undefined,
         (canvas, dx, dy) => m.lines.forEach((l, i) => canvas.text(rect.col + 1 + dx, rect.row + 1 + i + dy, l, rect.cols - 2)), false);
@@ -431,7 +492,7 @@ export class FacetsPane implements Pane {
   private calendarLines(w: number, rows: number, y: number): string[] {
     const { year, month } = this.month, mm = String(month).padStart(2, "0");
     const marks = [...this.dayCounts].filter(([d]) => d.startsWith(`${year}-${mm}-`)).map(([date, n]) => ({ date, label: String(n) }));
-    const grid = drawCalendar({ year, month, today: this.day ?? isoDay(new Date()), weekStartsOn: "mon", marks }, Math.max(CAL_COLS, w));
+    const grid = drawCalendar({ year, month, today: this.day ?? isoDay(new Date()), weekStartsOn: "mon", marks, dots: true }, Math.max(CAL_COLS, w));
     const end = grid.indexOf("");
     const weeks = grid.slice(1, end < 0 ? undefined : end);
     const head = ` « ${grid[0]!.trim()} » `;
@@ -491,6 +552,7 @@ export class FacetsPane implements Pane {
   }
   /** A click on a note in Matches: select it (it previews), a second click or alt-click opens it. */
   private pressNote(id: string, k: Extract<Key, { kind: "mouse" }>, desk: DeskApi, press?: RowPress) {
+    if (id.startsWith(MORE)) { void desk.press?.(this, FACETS_ACTIONS, "facets.more", { group: id.slice(MORE.length) }); return; }
     const i = this.list.pickable(PERSON).findIndex(r => r.id === id);
     const g = this.list.press(Math.max(0, i), press ?? { mods: k.mods ?? 0, button: k.button });
     void desk.press?.(this, FACETS_ACTIONS, "facets.match", { id });
@@ -505,7 +567,10 @@ export class FacetsPane implements Pane {
     if (r.kind === "note") return style(` ${subject(r.note)} · ${ago(r.note.updatedAt)}`, fg(C.grey));
     if (r.kind === "day") return style(` + ${r.day} · the calendar's day`, fg(C.lgreen));
     if (r.kind === "views") return style(` ${r.open ? "▾" : "▸"} ☼ views  ${r.count}`, fg(C.yellow));
-    if (r.kind === "view") return style(`   ${subject(r.view)}`, fg(C.grey));
+    // A view's hub says which one it is: "Closed this week" five times are five weeks' boards.
+    if (r.kind === "view") { const hub = r.view.parentId ? this.homes.get(r.view.parentId) : undefined; return style(`   ${subject(r.view)}${hub ? fg(C.dark) + ` · ${hub}` : ""}`, fg(C.grey)); }
+    if (r.kind === "views-more") return style(`   ▸ ${r.count} more views`, fg(C.dark));
+    if (r.kind === "more") return style(` ▸ more in ${r.group}`, fg(C.dark));
     if (r.kind === "clause") return style(` ${r.clause.mode === "include" ? "+" : "−"} ${clauseText({ ...r.clause, mode: "include" })}`, r.clause.mode === "include" ? fg(C.lgreen) : fg(C.lred));
     if (r.kind === "facet") {
       const state = this.clauses.find(c => c.key === r.key && c.value === undefined)?.mode;
@@ -550,8 +615,10 @@ export class FacetsPane implements Pane {
     if (k.kind === "char" && k.ctrl && k.ch === "o") { this.act(desk, "facets.place"); return true; }
     if (k.kind === "enter" || c === " ") {
       if (row?.kind === "note") this.act(desk, "facets.open");
+      else if (row?.kind === "more") this.act(desk, "facets.more", { group: row.group });
       else if (row?.kind === "day") this.act(desk, "facets.day", { day: "" });
       else if (row?.kind === "views") this.act(desk, "facets.fold", { key: "views" });
+      else if (row?.kind === "views-more") this.act(desk, "facets.fold", { key: "views:all" });
       else if (row?.kind === "view") this.act(desk, "facets.view", { id: row.view.id });
       else if (row?.kind === "facet") this.act(desk, "facets.fold");
       else if (row?.kind === "clause") this.act(desk, "facets.set", { key: row.clause.key, value: row.clause.value, mode: row.clause.mode === "include" ? "exclude" : "off" });
@@ -561,7 +628,7 @@ export class FacetsPane implements Pane {
     if (k.kind === "alt-enter") { if (row?.kind === "note") this.act(desk, "facets.open", { fresh: true }); return true; }
     if (c === "+" || c === "=") { this.act(desk, "facets.set", { mode: "include" }); return true; }
     if (c === "-") { this.act(desk, "facets.set", { mode: "exclude" }); return true; }
-    if (c === "0" || k.kind === "backspace") { this.act(desk, "facets.set", { mode: "off" }); return true; }
+    if (c === "0" || k.kind === "backspace") { if (row?.kind === "day") this.act(desk, "facets.day", { day: "" }); else this.act(desk, "facets.set", { mode: "off" }); return true; }
     if (c === "e") { this.draft = new LineField(this.query(), false, { complete: false }); desk.redraw(); return true; }
     if (c === "[" || c === "]") { this.act(desk, "facets.resize", { by: c === "[" ? -0.1 : 0.1 }); return true; }
     if (c === "v") { this.act(desk, "facets.save"); return true; }
@@ -611,6 +678,7 @@ export class FacetsPane implements Pane {
     if (r?.kind === "value") this.act(desk, "facets.set", { n: at.row + 1, ...((k.mods ?? 0) & (1 | 4) ? { mode: "exclude" } : {}) });
     else if (r?.kind === "day") this.act(desk, "facets.day", { day: "" });
     else if (r?.kind === "views") this.act(desk, "facets.fold", { key: "views" });
+    else if (r?.kind === "views-more") this.act(desk, "facets.fold", { key: "views:all" });
     else if (r?.kind === "view") this.act(desk, "facets.view", { id: r.view.id });
     else if (r?.kind === "facet") {
       if (x >= 3 && x <= 5) this.act(desk, "facets.set", { key: r.key, mode: "include" });
@@ -629,10 +697,10 @@ export class FacetsPane implements Pane {
       facets: rows.flatMap(r => (r.kind === "facet" ? [{ key: r.key, notes: r.count, open: r.open, values: rows.filter((v): v is Extract<Row, { kind: "value" }> => v.kind === "value" && v.key === r.key).map(v => ({ value: v.node.path, uses: v.node.value?.count ?? null, last: v.node.value?.last ? new Date(v.node.value.last).toISOString() : null, ...(v.state ? { state: v.state } : {}), ...(v.zero ? { zero: true } : {}) })) }] : [])),
       notes: this.notes().map(m => ({ id: m.id, title: subject(m) })), ...(this.error ? { error: this.error } : {}), ...(this.draft ? { typing: this.draft.text } : {}),
       ...(this.day ? { day: this.day } : {}), month: `${this.month.year}-${String(this.month.month).padStart(2, "0")}`,
-      views: this.views.map(v => ({ id: v.id, title: subject(v), query: prop(v, "query") ?? "" })),
+      views: this.views.map(v => ({ id: v.id, title: subject(v), query: prop(v, "query") ?? "", ...(v.parentId && this.homes.has(v.parentId) ? { hub: this.homes.get(v.parentId) } : {}) })),
       matches: {
         place: this.place, group: this.group, pin: this.pin, show: this.show, ...(this.list.picked(PERSON) ? { selected: this.list.picked(PERSON)!.id } : {}),
-        groups: this.groupsKept.map(g => ({ label: g.label, count: g.count, notes: g.notes.map(m => ({ id: m.id, title: subject(m), excerpt: m.excerpt ?? "", chips: chipsOf(m, this.show.filter(k => k !== this.pin)), updated: new Date(m.updatedAt).toISOString() })) })),
+        groups: this.groupsKept.map(g => ({ label: g.label, count: g.count, more: g.more, notes: g.notes.map(m => ({ id: m.id, title: subject(m), excerpt: m.excerpt ?? "", chips: chipsOf(m, this.show.filter(k => k !== this.pin)), updated: new Date(m.updatedAt).toISOString(), ...(m.parentId && this.homes.has(m.parentId) ? { home: this.homes.get(m.parentId) } : {}) })) })),
       },
     };
   }
@@ -661,7 +729,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("facets.pick takes n or by");
       if (part !== undefined && part !== "keys" && part !== "matches") throw new ActionRefused("part is keys or matches");
       if (part === "matches" && p.place === "tile") throw new ActionRefused("Matches is in a tile of its own: facets.match picks there (id=, by=)");
-      const walk = rows.flatMap((r, i) => part === undefined || (r.kind === "note") === (part === "matches") ? [i] : []);
+      const walk = rows.flatMap((r, i) => part === undefined || (r.kind === "note" || r.kind === "more") === (part === "matches") ? [i] : []);
       if (!walk.length) throw new ActionRefused(`no ${part} rows are listed`);
       const at = walk.indexOf(p.at);
       const i = by !== undefined ? walk[clamp((at < 0 ? (by > 0 ? -1 : walk.length) : at) + Math.trunc(by), 0, walk.length - 1)]! : n! - 1;
@@ -669,6 +737,8 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       p.at = i;
       const row = rows[i];
       if (row?.kind === "note") desk.showFrom?.(p.source(), row.note, actor);
+      // Reaching a group's "more" row reads the rest of the group: scrolling on goes on into it.
+      if (row?.kind === "more") return p.readGroup(desk, row.group).then(r => ({ n: i + 1, ...r }));
       desk.redraw();
       return { n: i + 1 };
     },
@@ -716,7 +786,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     },
   }),
   "facets.fold": def({
-    summary: "open a facet to its values or fold it: key= (a tag is `tag`; `views` for the saved views, the shortcuts at the top), n (its row), or the row the cursor is on",
+    summary: "open a facet to its values or fold it: key= (a tag is `tag`; `views` for the saved views, the shortcuts at the top; `views:all` lists every one of them, not the 8 changed last), n (its row), or the row the cursor is on",
     keys: "⏎ or a click on a facet", touches: "tile", while: "typing", replay: "safe", way: "an agent folds by key=",
     args: { key: { type: "string", optional: true, about: "the property" }, n: { type: "number", optional: true, about: "its row, from 1" } },
     examples: [
@@ -724,9 +794,10 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     ],
     run({ key, n }, { pane, desk }) {
       const p = pane as FacetsPane, rows = p.rows();
-      const row = key !== undefined ? rows.find(r => (r.kind === "facet" && r.key === bare(key).toLowerCase()) || (r.kind === "views" && key === "views")) : n !== undefined ? rows[n - 1] : p.current();
-      if (!row || (row.kind !== "facet" && row.kind !== "views")) throw new ActionRefused(key !== undefined ? `no facet ${key} is listed · facets.list names them` : "the cursor isn't on a facet");
-      const name = row.kind === "views" ? "views" : row.key;
+      const row = key !== undefined ? rows.find(r => (r.kind === "facet" && r.key === bare(key).toLowerCase()) || (r.kind === "views" && key === "views") || (r.kind === "views-more" && key === "views:all")) : n !== undefined ? rows[n - 1] : p.current();
+      if (key === "views:all" && !row && p.open.has("views:all")) { p.keeping(() => p.open.delete("views:all")); desk.redraw(); return { key, open: false }; }
+      if (!row || (row.kind !== "facet" && row.kind !== "views" && row.kind !== "views-more")) throw new ActionRefused(key !== undefined ? `no facet ${key} is listed · facets.list names them` : "the cursor isn't on a facet");
+      const name = row.kind === "views" ? "views" : row.kind === "views-more" ? "views:all" : row.key;
       p.keeping(() => { p.open.has(name) ? p.open.delete(name) : p.open.add(name); });
       desk.keepLayout?.(); desk.redraw();
       return { key: name, open: p.open.has(name) };
@@ -776,22 +847,33 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     },
   }),
   "facets.save": def({
-    summary: "save the selection as a view: a block `[type::virtual-branch] [query::<the query>]` under a hub (parent=<block id>; left out, the newest board hub, else the top level), named name= (left out, the query)",
+    summary: "save the selection as a view: a block `[type::virtual-branch] [query::<the query>]` under a hub (parent=<block id>; left out, the note most of the outline's views live under, else the newest board hub, else the top level), named name=. The person is asked the name and the hub in the power bar (PIE-1448); a selection already saved as a view is refused with that view's name (facets.view opens it)",
     keys: "v", touches: "nothing", replay: "ask", says: r => `saved view "${String(r.title)}"`,
-    args: { name: { type: "string", optional: true, about: "the view's name" }, parent: { type: "string", optional: true, about: "the hub's block id" } },
+    args: { name: { type: "string", optional: true, about: "the view's name" }, parent: { type: "string", optional: true, kind: "note", about: "the hub's block id" } },
     examples: [
-      { act: "facets.save name=\"Garden beds\" tile=facets", does: "saves the selection as a view named Garden beds under the newest board hub" },
+      { act: "facets.save name=\"Garden beds\" tile=facets", does: "saves the selection as a view named Garden beds under the note most views live under" },
       { act: "facets.save name=\"Shed to-do\" parent=2b7f5e90-1c34-4a86-8d5e-9f0a3c7b1d62 tile=facets", does: "saves the selection as a view under that hub block" },
     ],
     async run({ name, parent }, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane, q = p.query();
       if (!q) throw new ActionRefused("nothing is selected: pick a value or type a query first, then save it as a view");
+      const same = p.viewWithQuery(q);
+      if (same) throw new ActionRefused(`this selection is already the view "${subject(same)}" · facets.view id=${same.id.slice(0, 8)} opens it`);
       const board = desk.ctx.board;
-      const hub = parent ?? (await findBoards(board))[0]?.hub.id ?? null;
-      const label = (name?.trim() || q).replace(/[\[\]\n]/g, " ").slice(0, 60);
-      const made = await board.createBlock(hub, `${label} [type::virtual-branch] [query::${q}]`, actor);
-      desk.ctx.flash(`saved "${label}" as a view${hub ? " on its hub" : ""}`);
-      return { id: made.id, title: label, parent: hub, query: q };
+      const home = p.viewsHome() ?? (await findBoards(board))[0]?.hub.id ?? null;
+      const save = async (label: string, hub: string | null) => {
+        const title = (label.trim() || q).replace(/[\[\]\n]/g, " ").slice(0, 60);
+        const made = await board.createBlock(hub, `${title} [type::virtual-branch] [query::${q}]`, actor);
+        desk.ctx.flash(`saved "${title}" as a view${hub ? ` under ${p.homeName(hub) ?? "its hub"}` : ""}`);
+        await p.refresh(desk);
+        return { id: made.id, title, parent: hub, query: q };
+      };
+      if (name !== undefined || !standing) return save(name ?? "", parent ?? home);
+      // The person names it and says where it goes, in the power bar: the hub the views already share first.
+      return askInBar(desk.ctx as never, "Save the selection as a view", [
+        { name: "name", label: "name", type: "text", free: true, required: true, value: "", description: `what the view is called (its query: ${q})` },
+        { name: "parent", label: "under", type: "note", required: false, ...(home ? { choices: [home], says: { [home]: p.homeName(home) ?? home } } : {}), description: "the note it goes under: the hub most views share, or any note found by its words" },
+      ], parent ? { parent } : {}, actor, answers => save(answers.name ?? "", answers.parent || home));
     },
   }),
   "facets.sort": def({
@@ -866,12 +948,21 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const p = pane as FacetsPane, who = standing ? PERSON : actorKey(actor);
       if ((id === undefined) === (by === undefined)) throw new ActionRefused("facets.match takes id or by");
       const row = id !== undefined ? p.list.pick(who, p.noteFor({ id }).id) : p.list.step(who, by!) ?? p.list.picked(who);
+      if (row?.id.startsWith(MORE)) return p.readGroup(desk, row.id.slice(MORE.length));
       const m = row?.source;
       if (!m) throw new ActionRefused("Matches lists no note yet");
       if (standing) { const at = p.rows().findIndex(r => r.kind === "note" && r.note.id === m.id); if (at >= 0) p.at = at; desk.showFrom?.(p.source(), m, actor); }
       desk.redraw();
       return { id: m.id, title: subject(m) };
     },
+  }),
+  "facets.more": def({
+    summary: "read the rest of a group of Matches (PIE-1448: its first page holds 200 notes; a group past it shows a ▸ more row): group= its heading (Today, Yesterday, Previous 7 days, a month such as October 2026). The service answers the selection with the clause that holds just that group",
+    keys: [{ keys: "⏎", does: "on a group's more row", says: "read the rest of that group" }, { keys: "click", does: "a group's more row", says: "read the rest of that group by clicking its more row" }, { keys: "j", does: "onto a group's more row", says: "walking onto a more row reads the rest of its group" }],
+    touches: "tile", replay: "safe", says: r => `read ${String(r.notes)} notes of ${String(r.group)}`,
+    args: { group: { type: "string", about: "the group's heading, as Matches shows it" } },
+    examples: [{ act: "facets.more group=\"September 2026\" tile=facets", does: "reads every note of September 2026 the selection leaves" }],
+    run({ group }, { pane, desk }) { return (pane as FacetsPane).readGroup(desk, group); },
   }),
   "facets.place": def({
     summary: "put Matches somewhere else (PIE-1443, as a reader's Sources and comments): inline under the facets, split beside them, floating, popup, or tile (a tile of its own beside this one, wired as any list: its select and open wires say where a pick previews and ⏎ opens); left out, the next place round. side= puts its tile on that side",
@@ -889,19 +980,26 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     },
   }),
   "facets.pin": def({
-    summary: "pin a note Matches lists, or unpin it: it carries `[<pin>::true]` (the tile's pin key, `pinned` unless the tile says) and comes first, under Pinned. id, n (its row), or the picked note; on=true|false, else the other way round. Written to the note, attributed",
+    summary: "pin a note Matches lists, or unpin it: pinned notes come first, under Pinned. A pin is a link on the tile's pins page (`[[pins]]`, made the first time; PIE-1448): the note pinned is never edited, as Notebook Navigator's pins don't touch the file. A note pinned by its own `[<pin>::true]` (written by hand) is unpinned by taking that property off. id, n (its row), or the picked note; on=true|false, else the other way round. Attributed",
     keys: "* on a note", touches: "nothing", replay: "ask", says: r => `${r.pinned ? "pinned" : "unpinned"} "${String(r.title)}"`,
     args: { id: { type: "string", optional: true, about: "a note's block id" }, n: { type: "number", optional: true, about: "its row, from 1" }, on: { type: "boolean", optional: true, about: "pin (true) or unpin (false)" } },
-    examples: [{ act: "facets.pin id=7d9a1f40 tile=facets", does: "pins that note: it moves to the top of Matches" }],
+    examples: [{ act: "facets.pin id=7d9a1f40 tile=facets", does: "pins that note: it moves to the top of Matches, and only the pins page changes" }],
     async run({ id, n, on }, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane, m = p.noteFor({ id, n }, standing ? PERSON : actorKey(actor)), board = desk.ctx.board;
-      const { revision, tokens } = await board.propertyTokens(m.id, p.pin);
-      const pinned = tokens.some(t => t.value.trim().toLowerCase() === "true");
-      const want = on ?? !pinned;
-      if (want !== pinned || tokens.length) {
-        const ops = want ? (pinned ? [] : [...tokens.map(t => ({ op: "remove" as const, ordinal: t.ordinal })), { op: "append" as const, key: p.pin, value: "true" }]) : tokens.map(t => ({ op: "remove" as const, ordinal: t.ordinal }));
-        if (ops.length) await board.patchProperties(m.id, revision, ops, actor);
+      const page = await board.resolvePage(p.pins);
+      const pins = page.status === "resolved" && page.block ? await board.get(page.block.id) : null;
+      const linked = !!pins && pins.text.includes(m.id);
+      const own = await board.propertyTokens(m.id, p.pin);
+      const byProperty = own.tokens.filter(t => t.value.trim().toLowerCase() === "true");
+      const pinned = linked || byProperty.length > 0, want = on ?? !pinned;
+      if (want && !pinned) {
+        const line = `- ${blockRefText(m.id, subject(m).replace(/[|()\]\[]/g, " ").slice(0, 60))}`;
+        if (pins) await board.update(pins.id, `${pins.text.replace(/\s+$/, "")}\n${line}`, pins.revision!, actor);
+        else await board.createBlock(null, `Pins [page::${p.pins}]\nThe notes the navigator pins, one link a line: a pin never edits its note.\n\n${line}`, actor);
       }
+      if (!want && linked) await board.update(pins!.id, pins!.text.split("\n").filter(l => !l.includes(m.id)).join("\n"), pins!.revision!, actor);
+      // Pinned by hand in the note itself: unpinning takes the property off (the one case that edits it).
+      if (!want && byProperty.length) await board.patchProperties(m.id, own.revision, byProperty.map(t => ({ op: "remove" as const, ordinal: t.ordinal })), actor);
       await p.refresh(desk);
       return { id: m.id, title: subject(m), pinned: want };
     },
@@ -939,7 +1037,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.day": def({
     summary: "narrow the selection to the notes changed on a day (the calendar's pick): day=YYYY-MM-DD, or by=<days> from the one picked; day= empty drops it. Matches and the facets follow. Days are the service's (as `updated >= YYYY-MM-DD` reads)",
-    keys: [{ keys: "click", does: "a day on the calendar", says: "narrow to the notes changed on the day clicked" }, { keys: "d", does: "today", says: "narrow to the notes changed today" }, { keys: ", .", does: "the day before, the day after", says: "step the picked day back or forward" }, { keys: "⏎", does: "on the day's pick, drops it", says: "drop the day from the selection" }],
+    keys: [{ keys: "click", does: "a day on the calendar", says: "narrow to the notes changed on the day clicked" }, { keys: "d", does: "today", says: "narrow to the notes changed today" }, { keys: ", .", does: "the day before, the day after", says: "step the picked day back or forward" }, { keys: "⏎ 0 backspace", does: "on the day's pick, drops it", says: "drop the day from the selection" }],
     touches: "tile", replay: "safe", says: r => (r.day ? `the notes of ${String(r.day)}` : "every day"),
     args: { day: { type: "string", optional: true, about: "YYYY-MM-DD; empty drops the day" }, by: { type: "number", optional: true, about: "days on from the picked one" } },
     examples: [
