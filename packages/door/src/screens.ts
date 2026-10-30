@@ -22,7 +22,8 @@ import { artBlock, cloneGrid, locate, stamp } from "./art-view";
 import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Msg } from "./board";
 import { artNamed, loadArt, members, PACK_DIR, packs, type Member } from "./packs";
-import { C, center, chip, fg, pad, paint, RESET, selectedRow, width } from "./style";
+import { balanceStyles, C, center, chip, extractLinks, fg, pad, paint, RESET, selectedRow, styleMarks, visible, width } from "./style";
+import { pageOf, presentLinks, type LinkTarget } from "./refs";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ARM_MS, editArmMs, useEditArm } from "./arm";
 import { hyperOn, useHyper } from "./hyper";
@@ -520,7 +521,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "status.log": def({
     summary: "open the session's message log: every status, warning, refusal and error, with time and the action and tile; / searches, enter returns to its note or tile, q or esc comes back; pressed again (a click on the status line, alt+M) it closes",
-    keys: "alt+M; click the status line",
+    keys: "alt+M; click the status line, or the message said whole above it (its \"… more alt+M\" when it's longer than four rows)",
     touches: "screen", host: true, replay: "safe",
     args: {},
     run(_, { ctx }) {
@@ -1307,6 +1308,17 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
     examples: [{ act: "status.scroll by=10", does: "reads ten rows further down" }],
     run({ by }, { list, ctx }) { list.scroll(by); ctx.redraw(); return { scrolled: by }; },
   }),
+  "status.link": def({
+    summary: "open a note a message in the log names: its labelled references and [[pages]] are drawn as the reader draws them, by their labels, and open where opens land",
+    keys: [{ keys: "click", does: "on a link in a message" }],
+    touches: "screen", replay: "safe",
+    args: {
+      n: { type: "number", optional: true, about: "which link of the message, from 1; default the first" },
+      row: { type: "number", optional: true, about: "which message, from 1 as listed; default the selected one" },
+    },
+    examples: [{ act: "status.link n=1", does: "opens the first note the selected message names" }],
+    run({ n, row }, { list, ctx }, actor) { return list.openLink((row ?? list.sel + 1) - 1, (n ?? 1) - 1, ctx, actor); },
+  }),
 });
 
 export class StatusMessages extends BbsList {
@@ -1338,9 +1350,37 @@ export class StatusMessages extends BbsList {
     } catch (e) { ctx.push(this); throw e; }
   }
   scroll(by: number) { this.view.scroll(by); }
+  /** The links each message names, as the reader's inline renderer drew them (presentLinks), by message. */
+  private links = new Map<string, LinkTarget[]>();
+  /** Where each drawn link is on screen, for a click. */
+  private linkBoxes: { row: number; from: number; to: number; i: number; n: number }[] = [];
+  private source(ctx: Ctx) { return ctx.board ? { board: ctx.board, redraw: () => ctx.redraw() } : null; }
+  /** Message `i`'s words drawn as a reader draws them (`((id|in Inbox))` reads "in Inbox"), its links collected. */
+  private drawn(r: StatusMessage, ctx: Ctx): string {
+    const sink: LinkTarget[] = [];
+    const text = presentLinks(r.message, false, this.source(ctx), r.message, sink);
+    this.links.set(r.id, sink);
+    return text;
+  }
+  async openLink(i: number, n: number, ctx: Ctx, actor: Actor) {
+    const r = this.rows()[i];
+    if (!r) throw new ActionRefused(`there is no message ${i + 1}`);
+    if (!this.links.has(r.id)) this.drawn(r, ctx);
+    const links = this.links.get(r.id)!, to = links[n];
+    if (!to) throw new ActionRefused(links.length ? `there is no link ${n + 1}; the message names ${links.length}` : "this message names no note");
+    const id = to.block ?? (to.page !== undefined ? pageOf(to.page, this.source(ctx))?.block?.id : undefined);
+    if (!id) throw new ActionRefused(to.page !== undefined ? `no note is called ${to.page}` : `${to.label ?? to.url ?? "that link"} isn't a note`);
+    ctx.pop();
+    try { return await ctx.dispatch!.act({ action: "open", args: { id, ...(to.fragment ? { fragment: to.fragment } : {}) } }, actor); }
+    catch (e) { ctx.push(this); throw e; }
+  }
   override key(k: Key, ctx: Ctx) {
     this.ctx = ctx;
     if (this.searching && k.kind === "mouse" && this.query.mouse(k)) { ctx.redraw(); return; }
+    if (!this.searching && k.kind === "mouse" && k.action === "down" && k.button === 0) {
+      const hit = this.linkBoxes.find(b => b.row === k.y && k.x >= b.from && k.x < b.to);
+      if (hit) { void this.dispatch.press("status.link", { row: hit.i + 1, n: hit.n + 1 }); return; }
+    }
     if (this.searching && k.kind !== "mouse") {
       if (k.kind === "enter" || k.kind === "esc") void this.dispatch.press("status.filter", { editing: false });
       else if (this.query.take(k)) { this.resetScroll(); ctx.redraw(); }
@@ -1363,12 +1403,21 @@ export class StatusMessages extends BbsList {
     const rows = this.rows();
     const lines = [pad(fg(C.white) + "Message log" + RESET, w), this.searching ? "/ " + this.query.show(w - 2) : `Search: ${this.query.text || "all messages"} (${rows.length})`];
     this.query.drawnAt(2, 1, w - 2);
-    const drawn = rows.flatMap((r, i) => `${new Date(r.time).toTimeString().slice(0, 8)} ${r.kind}${r.action ? " | " + r.action : ""}${r.tile ? " | " + r.tile : ""}\n${r.message}`.split("\n").flatMap(line => rowLines(line, w, Infinity)).map(text => ({ text, i })));
+    // Each message as a reader draws its words (PIE-1453): a labelled reference by its label, a link that a click opens.
+    const drawn = rows.flatMap((r, i) => [
+      `${new Date(r.time).toTimeString().slice(0, 8)} ${r.kind}${r.action ? " | " + r.action : ""}${r.tile ? " | " + r.tile : ""}`,
+      ...balanceStyles(this.drawn(r, ctx).split("\n").flatMap(line => rowLines(line, w, Infinity))),
+    ].map(text => ({ text, i })));
     const first = drawn.findIndex(r => r.i === this.sel), last = drawn.findLastIndex(r => r.i === this.sel);
     const top = this.view.place(this.sel, drawn.length, Math.max(1, h - lines.length - 1), [first, last]);
+    this.linkBoxes = [];
     for (const r of drawn.slice(top, top + h - lines.length - 1)) {
       this.ptr.row(lines.length, r.i, w);
-      lines.push(r.i === this.sel ? selectedRow(r.text, w) : r.text);
+      const { lines: [plain], ranges } = extractLinks([styleMarks(r.text)]);
+      // The lit row is drawn behind its bar, one cell in unless it starts with a space (selectedRow).
+      const shift = r.i === this.sel && !visible(plain!).startsWith(" ") ? 1 : 0;
+      for (const g of ranges) this.linkBoxes.push({ row: lines.length, from: g.from + shift, to: g.to + shift, i: r.i, n: g.n });
+      lines.push(r.i === this.sel ? selectedRow(visible(plain!), w) : plain! + RESET);
     }
     while (lines.length < h - 1) lines.push("");
     lines.push(hotLine(this.ptr, lines.length, w, ["|08/ search, enter return, PgUp/PgDn scroll, ", ["r reload", char("r")], ", q back"]));

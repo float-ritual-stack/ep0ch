@@ -142,6 +142,24 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     } finally { if (app.screens().at(-1)?.title === "message log") app.pop(); }
   });
 
+  test("a message in the log names a note by its label, as a reader does, and status.link opens it (PIE-1453)", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "message-log" } }, USER);
+    await until(() => screen().includes("the shed note"), "the refusal drawn with its label");
+    expect(screen()).not.toContain(`((${seeded.notes.shed!.id}|`);
+    // From the log over a desk (alt+M): the label opens its note there, where opens land.
+    const desk = openScreen("desk") as Desk;
+    app.push(desk);
+    try {
+      await app.dispatch.act({ action: "status.log" }, USER);
+      const read = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
+      const row = read.rows.findIndex(r => r.title.includes("the shed note")) + 1;
+      expect(row).toBeGreaterThan(0);
+      const opened = await app.dispatch.act({ action: "status.link", args: { row, n: 1 } }, USER) as { id: string };
+      expect(opened.id).toBe(seeded.notes.shed!.id);
+      expect(app.screens().at(-1)).toBe(desk);
+    } finally { while (app.screens().at(-1) !== desk && app.screens().includes(desk)) app.pop(); app.pop(); desk.dispose(); }
+  });
+
   test("launch buttons run by click and enter from the desk, drawer and Welcome", async () => {
     const note = await board.createBlock(null, 'Launch pad [welcome::1115]\n::button{label="Desk" act="layout.load name=daily"}\n::button{label="Waiting on me" act="host.waiting"}\n::button{label="Board" act="screen.open name=board"}');
     const base = app.screens().length;

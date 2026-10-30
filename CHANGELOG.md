@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Every message reads whole and tells the truth (PIE-1453, PIE-1450)
+
+- **A long refusal at 44 columns says "… more":** the four rows said above the status bar end "… more alt+M" when the message is longer; a click on them (or alt+M) opens the message log, which draws it whole.
+- **A form's refusal reads whole in the form:** wrapped under its button, what to do and the did-you-mean included, never cut at one row.
+- **The message log draws links as a reader does:** `((id|in Inbox))` reads "in Inbox" and `[[page]]` its name; a click on one opens the note (`status.link row=<n> n=<link>` for an agent).
+- **A missing extension says its name:** Enter on a form with Form not installed says "ext.form.fill is Form's, which isn't installed", with its "install Form" row in the power bar's extensions (ctrl+k then &) and `ep0ch act extensions.install id=form`. Every unknown action that an uninstalled extension would answer says so, wherever it's refused.
+- **An agent's narrow open says where it went:** `tile.open … tile=r1 where=right` landing under 28×6 says "…, and it went right of r1, as asked", not "naming neither tile= nor where=".
+- **Try it:** `ep0ch --showcase`, section "message-log".
+- **Run:** `ep0ch install --apply` (door only; no PROTOCOL or schema change).
+
 ### A repo on an artifact line shows its deployment and deploys on save (PIE-1060)
 
 - **The card is the repo:** `[artifact::https://github.com/ep0ch-artifacts/plastik-loop]` (or `github.com/…`, or `ep0ch-artifacts/plastik-loop`) on a line draws a repo card, not "can't read …/https:/github.com/…" and "isn't an artifact".
