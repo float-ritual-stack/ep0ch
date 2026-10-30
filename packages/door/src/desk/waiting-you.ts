@@ -314,5 +314,5 @@ export const WAITING_YOU_KIND: TileKind = {
   kind: WAITING_YOU_KIND_NAME, previews: true, opensOnScreen: true, about: "decisions, proposals, calls, held requests and programs waiting on you", noun: "the waiting-on-you list",
   make: () => new WaitingYouPane(), actions: WAITING_YOU_ACTIONS,
   peek: p => ({ waitingOnYou: (p as WaitingYouPane).describe() }),
-  describe: p => ({ rows: (p as WaitingYouPane).describe() }),
+  describe: (p, full) => { const rows = (p as WaitingYouPane).describe(); return full ? { rows } : { count: rows.length }; },
 };
