@@ -25,6 +25,7 @@ export const marks: Record<string, string[]> = {
   // A note's edit open with a / line, the actions that apply here asked for at it (PIE-1076).
   "one-completer": ["Seed tray jobs", "editing · Seed tray jobs"],
   twins: ["Fix the back gate latch", "Queued"],
+  "at-revision": ["Jev's suggestions", "Each finding, newest first", "Roof on"],
   "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],
   "search-sure": ["Search evals", "EVERY RUN, NEWEST FIRST", "Cases by source"],
   // Four readers on one note, each writing a comment in another place (PIE-770).

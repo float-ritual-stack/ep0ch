@@ -169,6 +169,8 @@ export const SUGGESTIONS_PAGE = [
   "machinery: show",
   "columns: [note, said, passage, rubric, patch, writer]",
   "link: note",
+  // A row opens the note at the revision the review read, beside how it is now (PIE-1433).
+  "at: revision",
   "sort: created",
   "direction: desc",
   "limit: 30",
@@ -183,6 +185,7 @@ export const SUGGESTIONS_PAGE = [
   "machinery: show",
   "columns: [note, writer, revision, created]",
   "link: note",
+  "at: revision",
   "sort: created",
   "direction: desc",
   "limit: 30",
@@ -254,8 +257,9 @@ export const REVIEW_RECORDS_RULE =
 
 /**
  * An existing suggestions page with what a later version added and it lacks (PIE-1388): the quiet writes' section, with
- * when each was written. Only added, never rewritten, so a page shaped by hand keeps its order and words; a page that
- * has it is returned as it is.
+ * when each was written, and (PIE-1433) `at: revision` on the review tables, so a row opens the note at the revision the
+ * review read. Only added, never rewritten, so a page shaped by hand keeps its order and words; a page that has it is
+ * returned as it is.
  */
 export function upgradeSuggestionsPage(text: string): string {
   let lines = text.split("\n");
@@ -265,7 +269,19 @@ export function upgradeSuggestionsPage(text: string): string {
     const before = lines.findIndex(l => l.trim() === "## What the writer did");
     lines = before < 0 ? [...lines, "", ...quiet.slice(0, -1)] : [...lines.slice(0, before), ...quiet, ...lines.slice(before)];
   }
-  return lines.join("\n");
+  // A review table's `link: note` gets `at: revision` after it, unless its figure says `at:` already.
+  let query = "", out: string[] = [];
+  lines.forEach((l, i) => {
+    if (l.startsWith("query: ")) query = l;
+    if (l.trim() === "::") query = "";
+    out.push(l);
+    if (l.trim() === "link: note" && /type=review-(finding|quiet)\b/.test(query)) {
+      // Anywhere in the figure's properties, before or after `link:`: an `at:` written already is kept as it is.
+      const from = lines.slice(0, i).findLastIndex(x => x.trim() === "---"), end = lines.indexOf("---", i);
+      if (!lines.slice(from + 1, end < 0 ? undefined : end).some(x => x.startsWith("at:"))) out.push("at: revision");
+    }
+  });
+  return out.join("\n");
 }
 
 async function suggestionsPage(client: SuggestionClient): Promise<void> {
