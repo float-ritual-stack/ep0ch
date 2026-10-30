@@ -185,14 +185,15 @@ export function colourBody(line: string, literal = false): string {
 /**
  * A line's inline parts coloured, in `base` between them: properties, `[[page links]]`, code spans, links presentLinks
  * marked, emphasis. No heading, quote or list mark: what a component's row draws through (PIE-864), and colourBody's
- * own. A code span ends in grey whatever the base (the reader finds a span by that, to copy it).
+ * own. A code span ends in grey whatever the base (the reader finds a span by that, to copy it). `wholeIds`: a written
+ * `((id))` keeps its whole id (the message log's fixes are copied as written, PIE-1455).
  */
-export function colourInline(line: string, base: number = C.grey, literal = false): string {
+export function colourInline(line: string, base: number = C.grey, literal = false, wholeIds = false): string {
   // Property tokens first, on the plain line: their values hold links and brackets the escapes below would confuse.
   if (!literal) line = replacePropertyTokens(line, t => `${fg(C.dark)}[${fg(C.brown)}${t.key}${fg(C.dark)}::${fg(C.yellow)}${t.value}${fg(C.dark)}]${fg(base)}`);
   const back = fg(C.grey) + (base === C.grey ? "" : fg(base));
   return styleMarks(fg(base) + colourPageLinks(line, base)
-    .replace(/\(\(([0-9a-f-]{8}[0-9a-f-]*)\)\)/g, (_, id: string) => `${fg(C.cyan)}((${drawEllipsized(id, 9)}))${fg(base)}`)
+    .replace(/\(\(([0-9a-f-]{8}[0-9a-f-]*)\)\)/g, (_, id: string) => `${fg(C.cyan)}((${wholeIds ? id : drawEllipsized(id, 9)}))${fg(base)}`)
     .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${back}`))
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.
     .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE009/g, fgRgb(theme().external)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(base))

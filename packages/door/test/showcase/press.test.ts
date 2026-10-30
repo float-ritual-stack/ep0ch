@@ -14,7 +14,7 @@ import { Dispatcher } from "../../src/surface/dispatch";
 import { actionSet, def, traceActions } from "../../src/surface/actions";
 import { startControl } from "../../src/control";
 import { Mirror } from "../../src/mirror";
-import { Conferences } from "../../src/screens";
+import { Conferences, StatusMessages } from "../../src/screens";
 import { openScreen } from "../../src/desk/screen-specs";
 import { ReaderPane } from "../../src/desk/panes";
 import { Desk } from "../../src/desk/desk";
@@ -192,6 +192,23 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
       await app.dispatch.act({ action: "list.select", args: { n: plain } }, USER);
       await expect(app.dispatch.act({ action: "status.element", args: { by: 1 } }, USER)).rejects.toThrow("names no note");
     } finally { while (app.screens().includes(desk) && app.screens().at(-1) !== desk) app.pop(); app.pop(); desk.dispose(); }
+  });
+
+  test("a message log fix keeps a whole id, and ] scrolls a tall message to the link it lights (PIE-1455)", async () => {
+    const shed = seeded.notes.shed!.id;
+    app.flash(`Tall: ((${shed}|first shed))\n` + "A line of the garden log.\n".repeat(80) + `((${shed}|LAST SHED))`, 4000, { kind: "refusal" });
+    app.flash(`Fix it: write [form-into::((${shed}))] on the note`, 4000, { kind: "refusal" });
+    const log = new StatusMessages(app.messages);
+    app.push(log);
+    try {
+      const top = () => log.render(app).lines.join("\n");
+      expect(top().replace(/\x1b\[[\d;]*[A-Za-z]/g, "")).toContain(`[form-into::((${shed}))]`);
+      const read = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
+      await app.dispatch.act({ action: "list.select", args: { n: read.rows.findIndex(r => r.title.startsWith("Tall:")) + 1 } }, USER);
+      expect(top()).not.toContain("LAST SHED");
+      ch("]"); ch("]");
+      expect(top()).toContain("\x1b[4mLAST SHED");
+    } finally { app.pop(); }
   });
 
   test("/ in a links tile with nothing listed says so and takes no keys (PIE-1459)", async () => {

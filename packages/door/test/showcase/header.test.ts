@@ -135,5 +135,8 @@ describe.skipIf(!outliner)("the showcase screen: a note with no header (PIE-1319
     // The section's own tile under them shows the seeded one the same way.
     expect(tiles.find((t: any) => t.name === "embed").label).toBe(named);
     expect((desk.pane("embed") as any).spine().title).toBe(named);
+    // Its title-only header says the same name.
+    await app.act({ action: "tile.header", args: { mode: "title" }, tile: "right", as: "test-agent" });
+    await until(() => pair().right[0]!.startsWith(named), "the title-only header naming the embedded note", 8000);
   }, 60_000);
 });

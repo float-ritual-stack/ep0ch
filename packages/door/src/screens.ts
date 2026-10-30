@@ -1401,6 +1401,8 @@ export class StatusMessages extends BbsList {
     const next = "n" in to ? to.n : now < 0 ? (to.by > 0 ? 0 : count - 1) : (now + to.by + count) % count;
     if (next >= count) throw new ActionRefused(`there is no link ${next + 1}; the message names ${count}`);
     this.lit = next; this.litOf = r.id;
+    // A link below a tall message's fold scrolls into view, as the reader's [ ] does.
+    this.view.reveal();
     return { link: next + 1, of: count };
   }
   async openLink(i: number, n: number, ctx: Ctx, actor: Actor) {
@@ -1457,17 +1459,19 @@ export class StatusMessages extends BbsList {
       ...balanceStyles(this.drawn(r, ctx).split("\n").flatMap(line => rowLines(line, w - 1, Infinity))),
     ].map(text => ({ text, i })));
     const first = drawn.findIndex(r => r.i === this.sel), last = drawn.findLastIndex(r => r.i === this.sel);
-    const top = this.view.place(this.sel, drawn.length, Math.max(1, h - lines.length - 1), [first, last]);
+    // The lit link's row is what must show (a tall message's link past the fold), else the whole message as it fits.
+    const lit = this.litLink(), litRow = lit < 0 ? -1 : drawn.findIndex(r => r.i === this.sel && extractLinks([r.text]).ranges.some(g => g.n === lit));
+    const top = this.view.place(this.sel, drawn.length, Math.max(1, h - lines.length - 1), litRow >= 0 ? [litRow, litRow] : [first, last]);
     this.linkBoxes = [];
     for (const r of drawn.slice(top, top + h - lines.length - 1)) {
       this.ptr.row(lines.length, r.i, w);
       // Its link marks in a reader's colours (colourInline), then each link's cells for a click.
-      const { lines: [plain], ranges } = extractLinks([colourInline(r.text, C.grey, true)]);
+      const { lines: [plain], ranges } = extractLinks([colourInline(r.text, C.grey, true, true)]);
       // The lit row is drawn behind its bar, one cell in unless it starts with a space (selectedRow).
       const shift = r.i === this.sel && !visible(plain!).startsWith(" ") ? 1 : 0;
       for (const g of ranges) this.linkBoxes.push({ row: lines.length, from: g.from + shift, to: g.to + shift, i: r.i, n: g.n });
-      const lit = r.i === this.sel ? ranges.find(g => g.n === this.litLink()) : undefined;
-      lines.push(r.i === this.sel ? selectedRow(lit ? litCells(visible(plain!), lit.from, lit.to) : visible(plain!), w) : plain! + RESET);
+      const on = r.i === this.sel ? ranges.find(g => g.n === lit) : undefined;
+      lines.push(r.i === this.sel ? selectedRow(on ? litCells(visible(plain!), on.from, on.to) : visible(plain!), w) : plain! + RESET);
     }
     while (lines.length < h - 1) lines.push("");
     lines.push(hotLine(this.ptr, lines.length, w, [this.litLink() >= 0 ? "|08[ ] link, enter opens it, " : "|08/ search, [ ] link, enter return, PgUp/PgDn scroll, ", ["r reload", char("r")], ", q back"]));

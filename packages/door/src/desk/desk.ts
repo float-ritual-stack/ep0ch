@@ -6278,7 +6278,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (moved) { this.entered.clear(); this.panes.get(t.id)?.focused?.(this, actor); }
     // Its border cut the note's title (PIE-815): the whole title in the status line, as the person arrives.
     const p = this.panes.get(t.id);
-    if (moved && this.dispatch.standing(actor) && this.cutTitles.has(t.id) && p instanceof ReaderPane && p.msg) this.ctx.flash(headedTitle(p.msg));
+    if (moved && this.dispatch.standing(actor) && this.cutTitles.has(t.id) && p instanceof ReaderPane && p.msg) this.ctx.flash(headedTitle(p.msg, p.surface.src));
     // The person's keys back on an edit or comment of theirs left open there: they're in it again (PIE-785, PIE-812).
     if (moved && this.dispatch.standing(actor)) this.reenter();
     this.save(); this.redraw();
