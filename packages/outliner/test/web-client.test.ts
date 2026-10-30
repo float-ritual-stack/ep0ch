@@ -716,6 +716,26 @@ test("a ::graph-check row on a page (PIE-864): its words drawn as the note's, it
   expect((await write({ page: plan.id, action: "step", status: "todo", block: chore.id, evidence: "x", live: { note: survey.id, figure: Number(live.figure), revision: store.get(survey.id)!.revision, from: "done" } })).status).toBe(404);
 });
 
+test("a link in a figure's cell is a real link on the page (PIE-1334): table and compare cells hold [[page]] and ((short id|label)), drawn by their label", async () => {
+  const short = survey.id.slice(0, 8);
+  const note = store.create(["Asks this week", `In prose: ((${swap.id.slice(0, 8)}|the swap)).`, "",
+    "::graph-table", "---", "title: Asks", "headers: [Ask, Now]", "rows:",
+    `  - ["[[Field Notes]] tidy", "open"]`, `  - ["((${short}|the moth count)) again", "**done**, see \`trap.md\`"]`, "---", "::", "",
+    "::graph-compare", "---", "columns: [Now, After]", "---", `- counted by: ((${swap.id.slice(0, 8)}|the swap)) | [[Field Notes]]`, "::"].join("\n"), null, "user");
+  const html = await page(`/pub/p/${note.id}`);
+  const tables = html.slice(html.indexOf("<table"));
+  // Each cell's link is an anchor with its label, never its markup; the cell's emphasis and code too.
+  expect(tables).not.toMatch(/\[\[|\(\(/);
+  // A short id resolves as the service resolves it, in prose as in a cell; the moth survey is named only in the
+  // table's YAML rows, so a figure's cells are read for references by themselves.
+  expect(html).toMatch(new RegExp(`In prose: <a [^>]*href="/pub/p/${swap.id}[^"]*"[^>]*>the swap</a>`));
+  expect(tables).toMatch(/<td[^>]*><a [^>]*href="\/pub\/p\/Field%20Notes[^"]*"[^>]*>Field Notes<\/a> tidy<\/td>/);
+  expect(tables).toMatch(new RegExp(`<td[^>]*><a [^>]*href="/pub/p/${survey.id}[^"]*"[^>]*>the moth count</a> again</td>`));
+  expect(tables).toContain("<strong>done</strong>, see <code>trap.md</code>");
+  // The compare's cells: the reference and the page link split at the row's `|`, not at the reference's own.
+  expect(tables).toMatch(new RegExp(`<td><a [^>]*href="/pub/p/${swap.id}[^"]*"[^>]*>the swap</a></td><td><a [^>]*href="/pub/p/Field%20Notes`));
+});
+
 test("a page marks the clicked live figure when two figures list the same row (PIE-864)", async () => {
   const chore = store.create("Wash the pot [type::shared-chore] [stage::todo] [review::todo]", null, "user");
   const plan = store.create(['Pot plan', '', '::graph-check', '---', 'query: "type=shared-chore"', 'done: "stage=done"', '---', '::', '',

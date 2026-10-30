@@ -23,11 +23,30 @@ are its record. The outliner's entries from then are kept below, under
 - **List keys:** Matches answers `list.pick`, `list.step`, `list.open`, `list.filter`; `/` filters it.
 - **Run:** `ep0ch install --apply`, then `ep0ch machinery backfill --apply` once per outline (pie, float-hub) to stamp the peer messages already there.
 
+### A link in a figure's cell reads and clicks like a link in prose (PIE-1334)
+
+- **Table and compare cells draw their links:** a `[[page]]`, `((id|label))` or `((outline:id|label))` in a `::graph-table` or `::graph-compare` cell shows its label, not its markup; `[ ]` stops on it, ⏎ or a click follows it where the tile's wires say, and `act elements` lists it. Bold and code spans in a cell draw as in prose. Check, decision and timeline rows already did; every figure now goes through the same inline renderer.
+- **Columns are measured as drawn:** a cell's width is its label's, so a long id no longer widens its column; under 48 columns a table's cards keep their links too.
+- **A link's own `|` stays in the link:** `- shelter: ((0a1b2c3d|the greenhouse)) | [[Shed roof]]` is two cells, and a `: ` or ` — ` inside a link's label no longer splits a row's label or side note.
+- **A short-id reference follows:** `((0a1b2c3d|label))`, in prose or a cell, opens its note by ⏎ or a click (it used to say "nothing answers at 0a1b2c3d").
+- **On the published page:** every body cell is drawn as the note's prose is, so its links are real links; a reference written by its short id (`((0a1b2c3d|label))`) now links on the page, in prose as in a cell, as the service resolves it.
+- **Try it:** `ep0ch --showcase`, section "figure-cells".
+- **Run:** `ep0ch install --apply` (GRAMMAR 15; an older renderer warns once and keeps working).
+
+### ctrl+t opens television beside the edit again
+
+- **It loads:** tv 0.15.9 crashed the moment the door ran it (its fullscreen mode asks where the cursor is on its stdout, which the door sends to a file), and the door pasted the query it printed into the draft. The door now runs `tv --inline`, which asks on the terminal and fills the tile.
+- **It's seen:** with the drawer up over the desk, the picker opened under it, keys and all; the drawer is put away now, as going to a tile on the screen puts it away (alt+a brings it back).
+- **A failure says why:** a picker that exits with an error puts nothing in, whatever it printed; the edit says which code and why, and its tile stays with what it said until the x on its title closes it (the keys are back in the edit, so `^W x` there would act on the reader).
+- **Handovers:** a session handed over while the picker had the keys gives them back to the edit, without "tile.focus in pick: no tile pick".
+- **Run:** `ep0ch install --apply`. `EP0CH_PICKER=tv` set by hand needs `--inline` too.
+
 ### Refusals and the status line read in words; Esc in a new note's float does what you mean (PIE-1449)
 
 - **Enter, then Esc, in a new note's float closes it:** a new note holding only line breaks or spaces is nothing written, so Esc closes the float and the note goes to the trash, said once. It used to say "dropped 1 stray character" and stay open.
 - **A form's page refusal says where the note is, not its id:** "a note is titled Bird list, but it isn't a page"; two by that title are told apart by where each sits ("at the top, and in Garden"). Its did-you-mean names only pages about the same words, typos included, never one that shares a single word.
 - **^K stays on the status bar while a message is up:** the message takes the room beside it, so a click on ^K still opens the power bar.
+
 ### A delivery follows its PR when GitHub moves it to main (PIE-1440)
 
 - **Stacked PRs close:** a PR first opened into another branch and retargeted to main by GitHub is the same delivery: `work deliver PIE-n --pr N` (and the merge hook) update its base and merged state, so the ticket can close.

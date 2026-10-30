@@ -43,7 +43,8 @@ describe("what a picker printed, as it goes in", () => {
   });
 
   test("the picker and its channel: tv and ep0ch unless configured; an empty channel is none", () => {
-    expect([pickerOf({}), channelOf({})]).toEqual(["tv", "ep0ch"]);
+    // tv inline: its fullscreen mode asks the cursor's place on stdout, which is the door's file, and crashes (tv 0.15.9).
+    expect([pickerOf({}), channelOf({})]).toEqual(["tv --inline", "ep0ch"]);
     expect([pickerOf({ EP0CH_PICKER: "fzf -m" }), channelOf({ EP0CH_PICK_CHANNEL: "" })]).toEqual(["fzf -m", ""]);
   });
 
@@ -95,11 +96,23 @@ describe("pickInto: the terminal handed over, the choice put in", () => {
   test("nothing chosen, or a picker that isn't there: nothing goes in, and the draft says so", async () => {
     const d = draft("as it was", 2);
     expect(await withEnv({ EP0CH_PICKER: "true" }, () => pickInto(stepAside(), d, OUTLINE))).toEqual({ nothing: "nothing chosen in true ep0ch" });
-    // tv exits 1 for esc and for a channel it doesn't have (the extension not installed): both said.
-    expect(await withEnv({ EP0CH_PICKER: "false" }, () => pickInto(stepAside(), d, OUTLINE))).toEqual({ nothing: expect.stringContaining('or it has no "ep0ch" channel') });
+    // tv exits 1 for a crash and for a channel it doesn't have (the extension not installed), fzf for no match: all said.
+    expect(await withEnv({ EP0CH_PICKER: "false" }, () => pickInto(stepAside(), d, OUTLINE))).toEqual({ nothing: expect.stringContaining('exited 1 (an error, no "ep0ch" channel') });
     const gone = await withEnv({ EP0CH_PICKER: "no-such-picker-here 2>/dev/null" }, () => pickInto(stepAside(), d, OUTLINE));
     expect(gone).toEqual({ nothing: expect.stringContaining("exited 127: not found") });
     expect([d.text, d.dirty]).toEqual(["as it was", false]);
+  });
+
+  test("a picker that fails puts nothing in, whatever it printed (tv's crash wrote a cursor query to its stdout)", async () => {
+    const d = draft("as it was", 2);
+    const r = await withEnv({ EP0CH_PICKER: `sh -c 'printf "\\033[6n"; exit 1' sh` }, () => pickInto(stepAside(), d, OUTLINE));
+    expect(r).toEqual({ nothing: expect.stringContaining("exited 1") });
+    expect([d.text, d.dirty]).toEqual(["as it was", false]);
+  });
+
+  test("terminal escapes a picker printed are never a choice", () => {
+    expect(pickedText("\x1b[6n")).toBe("");
+    expect(pickedText("\x1b[1m((a1))\x1b[0m\n")).toBe("((a1))");
   });
 
   test("a draft that closed while the picker was open gets nothing; the choice is handed back to be said", async () => {
@@ -113,13 +126,13 @@ describe("pickInto: the terminal handed over, the choice put in", () => {
 
 describe("pickInto on a screen with tiles: the picker beside the note", () => {
   /** A screen's `inTile`: the program runs (here as a plain child, its stdout to the file as sh sends it) and `done` hears its code. */
-  const tiles = (seen: { name?: string; shows?: string; env?: Record<string, string | null> }[], log: string[] = []) => ({
+  const tiles = (seen: { name?: string; shows?: string; env?: Record<string, string | null> }[], log: string[] = [], kept: boolean[] = []) => ({
     ...stepAside(log),
-    inTile(p: { cmd: string[]; name: string; shows?: string; own?: Record<string, string | null> }, done: (code: number | null) => void) {
+    inTile(p: { cmd: string[]; name: string; shows?: string; own?: Record<string, string | null> }, done: (code: number | null) => boolean | void) {
       seen.push({ name: p.name, shows: p.shows, env: p.own });
       const env: Record<string, string> = { ...process.env } as Record<string, string>;
       for (const [k, v] of Object.entries(p.own ?? {})) { if (v === null) delete env[k]; else env[k] = v; }
-      void runProgram(p.cmd, { env }).then(done);
+      void runProgram(p.cmd, { env }).then(code => { kept.push(done(code) === true); });
       return true;
     },
   });
@@ -139,6 +152,15 @@ describe("pickInto on a screen with tiles: the picker beside the note", () => {
     // Done: the next ctrl+t opens a picker again.
     await withEnv({ EP0CH_PICKER: "true" }, () => pickInto(tiles(seen), d, OUTLINE));
     expect(seen.length).toBe(2);
+  });
+
+  test("a picker that fails beside the note keeps its tile, so what it said stays on screen; one that closes cleanly goes", async () => {
+    const d = draft("as it was", 2), kept: boolean[] = [];
+    const r = await withEnv({ EP0CH_PICKER: "sh -c 'exit 1' sh" }, () => pickInto(tiles([], [], kept), d, OUTLINE));
+    expect(r).toEqual({ nothing: "sh -c 'exit 1' sh ep0ch exited 1; nothing inserted · what it said is in its tile: the x on its title closes it" });
+    await withEnv({ EP0CH_PICKER: "true" }, () => pickInto(tiles([], [], kept), d, OUTLINE));
+    expect(kept).toEqual([true, false]);
+    expect(d.text).toBe("as it was");
   });
 
   test("a tile that fails to open throws, and leaves the draft free for the next ctrl+t", async () => {

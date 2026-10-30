@@ -14,7 +14,7 @@ import { drawEllipsized, C, fg, pad, RESET, visible, width, type LinkRange } fro
 import { inWindow, type Placement } from "../kitty";
 import type { LinkTarget } from "../refs";
 import { rule, words } from "../text";
-import { ownTerminal, type Handover, type TileProgram, type Key } from "../term";
+import { ownTerminal, type Handover, type TileExit, type TileProgram, type Key } from "../term";
 import { agentLabel } from "./actions";
 import { popupHint, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
 
@@ -253,7 +253,7 @@ export function writtenBy(d: Draft, verb: "save" | "send"): string | null {
   return `${names.join(" and ")} typed this · ${verb === "save" ? `saved as whoever saves it, naming ${all}` : `sent as the agent's, naming ${all}`}`;
 }
 
-export interface Suspender { suspend(run: (terminal: Handover) => Promise<unknown>, what?: string): Promise<void>; inTile?(p: TileProgram, done: (code: number | null) => void): boolean }
+export interface Suspender { suspend(run: (terminal: Handover) => Promise<unknown>, what?: string): Promise<void>; inTile?(p: TileProgram, done: TileExit): boolean }
 
 /**
  * Ctrl+E: the draft goes to $VISUAL/$EDITOR in a temp file and comes back, replacing the draft's text.

@@ -70,5 +70,14 @@ export interface RowInline {
  */
 export function inlineRows(text: string, w: number, ink: number, inline?: RowInline, linked = false, lines?: number): string[] {
   if (!inline) return rowLines(text, w, lines).map(l => fg(ink) + l + RESET);
-  return rowLines(colourInline(inline.present(text, linked), ink), w, lines);
+  return rowLines(presentRow(text, ink, inline, linked), w, lines);
+}
+
+/**
+ * A row's or a cell's words as one drawn string in `ink`, through the reader's inline pipeline (`inline`), unwrapped:
+ * what `inlineRows` wraps, for a kind that measures its columns first (a table's cells, a compare's, PIE-1334). Its
+ * width is what it draws (`width` skips the link tags and colours), not the markup written.
+ */
+export function presentRow(text: string, ink: number, inline?: RowInline, linked = false): string {
+  return inline ? colourInline(inline.present(text, linked), ink) : fg(ink) + text;
 }
