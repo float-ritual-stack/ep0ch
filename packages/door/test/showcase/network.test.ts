@@ -123,6 +123,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     expect(tile("reader").pinned).toBeUndefined();
     expect(tile("tree").wires).toContainEqual({ verb: "select", to: tile("reader").tile });
     // The tree's pick shows in the reader alone: no hidden current note moves the pinned ones.
+    await until(() => (tile("tree")?.rows?.length ?? 0) > 1 || ((stage().pane("tree") as any)?.list().length ?? 0) > 1, "the tree's rows", 5000);
     await app.act({ action: "tree.pick", tile: "tree", args: { n: 2 }, as: "test-agent" });
     await Bun.sleep(200);                                        // the tree's pick settles (its 90ms read)
     expect(tile("detail").showing.id).toBe(seeded.notes.shed.id);

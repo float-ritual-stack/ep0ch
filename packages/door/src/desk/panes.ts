@@ -1061,7 +1061,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
   }),
   "reader.pin": def({
     summary: "pin a reader (tile=<its name>, any reader the person owns) or let it go (PIE-1207): pinned, it keeps the note it shows (page=<name>: that page's note, shown again each time it starts), every open aimed at it lands in a reader beside it, and it comes back pinned after a restart; on=true|false, left out p's toggle. Said on screen when an agent does it",
-    keys: [{ keys: "p", does: "pin or unpin" }, { keys: "click", does: "the pin chip on its frame" }],
+    keys: [{ keys: "p", does: "pin or unpin" }, { keys: "P then ⏎ space", does: "on Pin pins or unpins it" }, { keys: "click", does: "the pin chip on its frame" }],
     touches: "tile", replay: "safe", way: "an agent pins a reader when the person isn't in it", says: r => (r.pinned ? `pinned the reader${r.page ? ` on [[${r.page}]]` : ""}` : "unpinned the reader: opens land in it again"),
     menu: { label: "pin it", group: "Reader", key: "p", now: ({ pane }) => (!pane.pinnable ? { hide: true } : pane.editing ? { refused: holdsEdit("the reader") } : pane.pinned ? { label: "unpin it" } : null) },
     args: {

@@ -126,7 +126,9 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     const s = await twoReaders();
     try {
       await app.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "seed-reader", name: "seeds" } }, USER);
-      await app.dispatch.act({ action: "open", tile: "seeds", args: { id: s.testing.id } }, USER);
+      // A note only the seeds reader shows: an open into it keeps it as a spine (a layout step the refusal must undo).
+      const accepted = await board.createBlock(null, "Accepted seed\nRunner beans.");
+      await app.dispatch.act({ action: "open", tile: "seeds", args: { id: accepted.id } }, USER);
       await app.dispatch.act({ action: "tile.focus", tile: "briefing" }, USER);
       const before = s.d.layoutAll();
       const note = await board.createBlock(null, "Refused seed\nKeep the desk as it was.");

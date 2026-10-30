@@ -249,7 +249,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(shows("detail")).toBe(seeded.notes.frost.id);
     await pick({ n: job, open: true });
     await until(() => shows("detail") === lag, "⏎: the detail holds it", 5000);
-    expect(tiles().find(t => t.name === "detail").mode).toBe("held");
+    expect(tiles().find(t => t.name === "detail").pinned).toBeUndefined();
     // Start elsewhere so a fresh open that does nothing cannot pass.
     await person("back");
     await until(() => shows("detail") === seeded.notes.frost.id, "frost before the fresh open");

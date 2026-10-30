@@ -249,8 +249,8 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await until(() => (d.pane(tree) as any).list().length > 1, "the tree's rows");
     // The person's selection, on a row that is a note.
     for (let n = 1; !d.pane(tree).subject?.() && n < 8; n++) await act("tree.pick", { n }, tree);
-    // The pick opens its note, and the tree reveals the note it opened: wait for the selection to settle.
-    await until(() => !!d.pane(tree).subject?.() && (d.layoutGet().tiles as any[]).some(t => t.showing?.id === d.pane(tree).subject!()), "the pick shown and the tree's selection on it");
+    // The stage opens on the notebook and reveals it in the tree: wait for the selection to settle there.
+    await until(() => d.pane(tree).subject?.() === seeded.notes.notebook.id, "the tree's selection on the notebook");
     const notebook = d.pane(tree).subject!()!;
     const title = subject((await board.get(notebook))!);
     expect(await act("note.copy-ref", { kind: "ref" }, tree, AGENT)).toMatchObject({ id: notebook, text: `((${notebook}|${title}))`, clipboard: false });
