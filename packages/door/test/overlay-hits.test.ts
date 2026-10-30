@@ -143,8 +143,8 @@ describe.skipIf(!outliner)("in a door, the pointer over the power bar reads only
           if (reading) expect({ x, y, reads: `${reading.x}:${reading.y}`, own: ownAt.includes(`${reading.x}:${reading.y}`) }).toEqual({ x, y, reads: `${reading.x}:${reading.y}`, own: true });
           // Outside the bar, nothing moves while the pointer is on it.
           for (let r = 0; r < rows - 1; r++) {
-            // A running clock ("· 0s", "· 1s") may tick between the two paints; that's time, not the pointer.
-            const outside = (l: string) => (r < row || r >= row + h ? l : visible(l).slice(0, col) + visible(l).slice(col + w)).replace(/ *\b\d+(?:ms|s|m)\b/g, " #");
+            // A running clock ("· 0s", "· 1s", "90s" to "2m": a cell narrower) may tick between the two paints; that's time, not the pointer.
+            const outside = (l: string) => (r < row || r >= row + h ? l : visible(l).slice(0, col) + visible(l).slice(col + w)).replace(/ *\b\d+(?:ms|s|m)\b */g, " # ");
             if (outside(frame[r]!) !== outside(still[r]!)) expect({ x, y, r, frame: frame[r] }).toEqual({ x, y, r, frame: still[r] });
           }
         }
