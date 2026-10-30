@@ -1448,6 +1448,9 @@ export class ExtensionCalls {
       if (found.kind !== "found") {
         const why = found.kind === "trashed" ? "it is in the Trash" : found.kind === "ambiguous" ? found.message : `there is no ${into.kind === "page" ? "page" : "note"} ${ref}`;
         const mean = found.kind === "missing" && found.didYouMean ? `; did you mean ${found.didYouMean}?` : "";
+        // A note titled as the page (PIE-1445): it is there, and the two ways to point at it are said.
+        const titled = found.kind === "missing" ? found.titled : undefined;
+        if (titled) throw new Error(`${action.name}: the note's entries land under ${ref}, and ${titled.said}, or write [form-into::((${titled.ids[0]!.slice(0, 8)}))]`);
         throw new Error(`${action.name}: the note's entries land under ${ref}, and ${why}${mean || "."} Fix [form-into::…]${into.kind === "page" ? ", or make the page first" : ""}`);
       }
       landing = { kind: into.kind, blockId: found.block.id, title: into.kind === "page" ? into.address : titleWords(found.block.text) };

@@ -72,6 +72,8 @@ export class NoteForm {
     d.splice(0, d.text.length, value, {}, actor);
     this.clearWarning(actor);
   }
+  /** After a submit that landed (PIE-1445): this actor's answers back to the defaults and the first field, ready for the next entry. */
+  reset(actor: Actor) { this.answers.delete(partyOf(actor)); this.clearWarning(actor); if (actor.kind === "user") this.focus = 0; }
   clearWarning(actor: Actor) { this.warnings.delete(partyOf(actor)); }
   warning(actor: Actor, text: string) { this.warnings.set(partyOf(actor), text); }
   check(actor: Actor) {

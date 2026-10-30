@@ -297,6 +297,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * (`Pane.openedFrom`, which `^` follows too: one record of who opened a tile).
    */
   private keysBack = new Set<number>();
+  /**
+   * The floats the person opened while typing in a terminal tile's program (PIE-1445): closing one gives the keys back to
+   * that program, as they were, not only to its tile.
+   */
+  private typingBack = new Set<number>();
   /** The tile on this desk that opened tile `id` (its `Pane.openedFrom`), if it is still here. */
   private openerOf(id: number): number | undefined {
     const up = this.panes.has(id) ? tileRegistry.openerOf(this.panes.get(id)!) : undefined;
@@ -849,6 +854,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const [id, pane] of this.panes) if (id !== r.focus && pane instanceof ScreenTile && pane.inner) {
         for (const desk of pane.inner.descend()) if (desk.lifted) desk.dropLift(by.actor);
       }
+    }
+    // A float the person's open put their keys in (a new note's, a detail's) gives them back where they were when it closes,
+    // a terminal's program included (PIE-1445): the tile they had, recorded as its opener.
+    if (by?.op === "open" && by.actor.kind === "user" && previousFocus !== r.focus && this.isFloat(r.focus) && this.panes.has(previousFocus)) {
+      this.openedBy(r.focus, previousFocus);
+      if (this.ptyIn && this.ptyIn === this.panes.get(previousFocus)) this.typingBack.add(r.focus);
     }
     this.noteFocus(by?.op === "focus" || by?.op === "tab");
     // A tile folded or opened is told (it keeps what it holds exactly).
@@ -3292,7 +3303,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   noteGone(p: Pane, _id: string) {
     const id = this.idOf(p);
     if (id === undefined || !madeFor(p)) return;
+    // The person's own new note: their keys go back where they were when it opened, as closing it with ^W x gives them.
+    const back = this.keysBackAfter(id, USER);
     this.closeId(id);
+    if (!this.panes.has(id)) back();
     this.save(); this.redraw();
   }
 
@@ -5923,10 +5937,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const kind = this.panes.get(t.id)!.kind;
     // `pane`: its number on screen as it closed (pane.close's older answer, as tile.resize and tile.zoom give it).
     const n = String(this.numberOf(t.id));
-    const into = this.openedInto(t.id), had = this.focus === t.id;
+    const into = this.openedInto(t.id), had = this.focus === t.id, back = this.keysBackAfter(t.id, actor);
     this.commit(r);
-    const opener = this.keysBack.has(t.id) ? this.openerOf(t.id) : undefined;
-    this.keysBack.delete(t.id);
     this.dropTile(t.id);
     // The person's tile opened into a container (the board's detail) closed: their keys go to the top float, else the
     // tile opens land in there now, else home.
@@ -5935,10 +5947,25 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (next !== undefined) this.keysTo(next, actor); else this.goHome();
     }
     // A program's tile beside a reader (ctrl+e, ctrl+t) the person closed: their keys go back to that reader.
-    const from = opener;
-    if (from !== undefined && had && this.dispatch.standing(actor) && this.panes.has(from)) this.keysTo(from, actor);
+    back();
     this.save(); this.redraw();
     return { ...answer, pane: n, kind };
+  }
+
+  /**
+   * Before tile `id` closes: where the person's keys go once it's gone, run then. A tile that gives them back to its opener
+   * (`keysBack`: a program's tile beside its reader, a float they opened) gives them back when it had them; a float opened
+   * while they typed in a terminal's program puts them back in that program (PIE-1445), so the next key, Esc too, is its.
+   */
+  private keysBackAfter(id: number, actor: Actor): () => void {
+    const opener = this.keysBack.has(id) ? this.openerOf(id) : undefined, typing = this.typingBack.has(id), had = this.focus === id;
+    return () => {
+      this.keysBack.delete(id);
+      if (opener === undefined || !had || !this.dispatch.standing(actor) || !this.panes.has(opener)) return;
+      this.keysTo(opener, actor);
+      const p = this.panes.get(opener);
+      if (typing && p instanceof PtyPane && p.running && this.focus === opener) this.ptyIn = p;
+    };
   }
 
   /** `closeTile` on a new note's tile holding its edit (PIE-591): the edit left or closed, then the tile closed. */
@@ -6939,6 +6966,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const set of this.selected.values()) set.delete(id);
     for (const [k, v] of [...this.lastIn]) if (v === id) this.lastIn.delete(k);
     // (keysBack is the closer's to read: a program's tile closed gives the keys back to its reader; takeOut clears it.)
+    this.typingBack.delete(id);
     this.panes.delete(id); this.unregistered.delete(id); this.sourced.delete(id); this.movedIn.delete(id);
     for (const r of this.opened.values()) { r.ids = r.ids.filter(i => i !== id); if (r.active === id) r.active = null; }
   }

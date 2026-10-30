@@ -10140,7 +10140,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       f.busy = true;
       try {
         const result = await host.ctx.dispatch!.act({ action: "ext.form.fill", args: { block: f.block, with: JSON.stringify(f.values(actor)) } }, actor);
-        f.clearWarning(actor);
+        // It landed: the form clears for the next entry, so a second press can't write the same one again (a refusal keeps it).
+        f.reset(actor);
         return result;
       } catch (error) { f.warning(actor, error instanceof Error ? error.message : String(error)); throw error; }
       finally { f.busy = false; host.redraw(); }

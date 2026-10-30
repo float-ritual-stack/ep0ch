@@ -623,6 +623,11 @@ test("a form says where each entry lands: under it, under a page, or as a line i
   // A page nobody has yet, or a target it can't read: saved as written, and the fill refuses with what it may have meant, writing nothing.
   const typo = await create(`Typo log [form-into::[[Shelff]]]\n${fields}`);
   await expect(fill(typo.id, { book: "Moss" })).rejects.toThrow(/no page \[\[Shelff\]\].*did you mean \[\[Shelf\]\]\?/);
+  // A note titled as the page but with no [page::…] (PIE-1445): the refusal names it and says the two ways to point at it.
+  const titled = await create("Bird list\nwrens, finches");
+  const birds = await create(`Bird form [form-into::[[Bird list]]]\n${fields}`);
+  await expect(fill(birds.id, { book: "Moss" })).rejects.toThrow(`a note is titled Bird list (((${titled.id.slice(0, 8)}))), but it isn't a page: add [page::Bird list] to it, or write [form-into::((${titled.id.slice(0, 8)}))]`);
+  expect(live(titled.id)).toEqual([]);
   const word = await create(`Word log [form-into::inlne]\n${fields}`);
   expect(store.get(word.id)!.text).toContain("[form-into::inlne]");
   await expect(fill(word.id, { book: "Moss" })).rejects.toThrow(/did you mean inline\?/);

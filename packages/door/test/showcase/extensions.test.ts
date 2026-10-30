@@ -228,11 +228,15 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     click("Log it │");
     const reading = seeded.notes.formReading.id;
     await untilAsync(async () => (await board.children(reading)).some(m => m.text === "Piranesi [book::Piranesi] [pages::272] [mood::gripping]"), "the clicked form's child").catch(async e => { throw new Error(`${e.message}\n${JSON.stringify(await board.children(reading))}\n${screen()}`); });
+    // Submitted, the form clears for the next entry (PIE-1445): a second click can't write the same book twice.
+    const bookRow = () => screen().split("\n").find(row => row.includes("│ book *")) ?? "";
+    await until(() => !bookRow().includes("Piranesi") && !screen().includes("(*) gripping"), "the form cleared after its submit").catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    expect(screen()).toContain("(*) slow");
     await app.act({ action: "form.set", tile: "reader", args: { field: "book", value: "The Dispossessed" }, as: "user" });
     await app.act({ action: "form.set", tile: "reader", args: { field: "pages", value: "341" }, as: "user" });
     await app.act({ action: "form.submit", tile: "reader", as: "user" });
     expect((await board.children(reading)).map(m => m.text)).toContain("The Dispossessed [book::The Dispossessed] [pages::341] [mood::slow]");
-    expect(screen()).toContain("Piranesi");
+    expect(bookRow()).not.toContain("Dispossessed");             // the act's submit cleared it too
     press({ kind: "esc" });
     await app.dispatch.act({ action: "edit", tile: "reader" }, USER);
     expect(screen()).toContain("[form-field::book text required]");
