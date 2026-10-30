@@ -61,7 +61,7 @@ import { completeAt, SEARCH_STYLE, searchForm, searchNotes, searchResultsHtml, s
 import { ANNOTATION_TYPE, extractAnnotationBody, isAnnotationBlock } from "./annotations";
 import { RECENT_REPLIES_QUERY, UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
-import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, referencesToResolve } from "@ep0ch/outline-core/link-syntax";
 import { MAX_BLOCK_READ_IDS } from "./block-projection";
 import { codeLineSet, stripFragmentAnchors } from "./fragments";
 import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING, type TransclusionNode, type TransclusionRead } from "./transclusions";
@@ -1967,7 +1967,7 @@ export class Publisher {
     const known = new Set(index.entries.map((entry) => entry.blockId));
     const embedded = embeds ? Object.values(embeds.read.blocks).map((block) => block.text) : [];
     const ids = [...new Set([
-      ...[...texts, ...embedded].flatMap((text) => [...blockReferenceOccurrences(text)].map((occurrence) => referenceTarget(index, occurrence.blockId))),
+      ...[...texts, ...embedded].flatMap((text) => referencesToResolve(text).map((occurrence) => referenceTarget(index, occurrence.blockId))),
       ...pages.values(),
     ])].filter((id) => !known.has(id)).slice(0, MAX_BLOCK_READ_IDS);
     if (!ids.length) return index;
@@ -2326,7 +2326,7 @@ export class Publisher {
    */
   private async withShortReferences(index: PublishedIndex, texts: readonly string[]): Promise<PublishedIndex> {
     const known = new Map(index.refs ?? []);
-    const short = [...new Set(texts.flatMap((text) => blockReferenceOccurrences(text).filter((ref) => !ref.outline && !BLOCK_ID_PATTERN.test(ref.blockId)).map((ref) => ref.blockId)))]
+    const short = [...new Set(texts.flatMap((text) => referencesToResolve(text).filter((ref) => !ref.outline && !BLOCK_ID_PATTERN.test(ref.blockId)).map((ref) => ref.blockId)))]
       .filter((id) => !known.has(id)).slice(0, MAX_BLOCK_READ_IDS);
     if (!short.length) return index;
     try {
@@ -2444,7 +2444,7 @@ export class Publisher {
     const embedded = embeds ? Object.values(embeds.read.blocks).map((block) => block.text) : [];
     index = await this.withShortReferences(index, [...texts, ...embedded]);
     const targets = new Set([
-      ...[...texts, ...embedded].flatMap((text) => [...blockReferenceOccurrences(text)].map((occurrence) => referenceTarget(index, occurrence.blockId))),
+      ...[...texts, ...embedded].flatMap((text) => referencesToResolve(text).map((occurrence) => referenceTarget(index, occurrence.blockId))),
       ...pages.values(),
     ].filter((id) => published.has(id)));
     if (!targets.size) return index;

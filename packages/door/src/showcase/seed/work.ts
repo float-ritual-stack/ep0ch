@@ -294,7 +294,8 @@ export function figureCellsText(greenhouse: string, testPlan: string): string {
   const g = `((${greenhouse.slice(0, 8)}|the greenhouse))`, plan = `((${testPlan}|door test plan))`;
   return [
     SEED.figureCells,
-    `In prose: ${g}, [[Shed roof build log]] and ((plotnet:0a1b2c3d|the society's gate log)).`,
+    // The greenhouse is named only in cells (its short id), never in prose: a cell's references are found by themselves.
+    "In prose: [[Shed roof build log]] and ((plotnet:0a1b2c3d|the society's gate log)).",
     "",
     ...fig("table", ["title: Asks with no reply", "headers: [Ask, From, Now]", "rows:",
       `  - ["[[Shed roof build log]] felt or slate?", "Ana", "answered"]`,

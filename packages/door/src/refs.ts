@@ -18,7 +18,7 @@ import type { DocImage, ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { resourceProviderKeys } from "./resource-providers";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
-import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText, referencesToResolve } from "@ep0ch/outline-core/link-syntax";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, pairValues, problemWords, readerWords } from "@ep0ch/outline-core/site-values";
@@ -97,7 +97,8 @@ const BLOCK_ID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 function refsOf(text: string): { text: string; ids: string[] } {
   const refs = new Set<string>(), ids = new Set<string>();
   let rest = "", at = 0;
-  for (const r of blockReferenceOccurrences(text)) {
+  // A figure's cells name notes too (PIE-1334): found as prose's are, code still left out.
+  for (const r of referencesToResolve(text)) {
     refs.add(`((${refKey(r.blockId, r.fragmentId, r.outline)}))`); ids.add(r.blockId);
     rest += text.slice(at, r.start) + " "; at = r.end;
   }
@@ -120,7 +121,8 @@ export function referencesIn(text: string, src: Source | null | undefined): Map<
     const asked = blockReferenceOccurrences(refs.text);
     if (asked.length === answers.length) asked.forEach((q, k) => { const key = refKey(q.blockId, q.fragmentId, q.outline); if (!byKey.has(key)) byKey.set(key, answers[k]!); });
     return byKey;
-  }, c => changedSince(c.at, refs.ids))?.value ?? null;
+    // Asked again when a note it names changes: a short id's change is told by the whole id it resolved to (PIE-1334).
+  }, c => changedSince(c.at, c.value ? [...refs.ids, ...[...c.value.values()].map(r => r.blockId)] : refs.ids))?.value ?? null;
 }
 
 type CommentSubject = { kind: "block"; blockId: string } | { kind: "resource"; resourceId: string };

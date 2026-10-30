@@ -514,13 +514,14 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     const els = async () => { screen(); return ((await app.act({ action: "elements", tile: "figure cells", as: "test-agent" })) as any).elements as { n: number; kind: string; label: string; current?: boolean }[]; };
     const links = (await els()).filter(e => e.kind === "link");
     // Each is an element wherever it's written: the prose line, the table, the compare, the decision, the timeline.
-    expect(links.filter(e => e.label.includes("the greenhouse")).length).toBe(4);
+    // The greenhouse is only in cells (the table, the compare, the timeline), by its short id.
+    expect(links.filter(e => e.label.includes("the greenhouse")).length).toBe(3);
     expect(links.filter(e => e.label.includes("door test plan")).length).toBe(3);
     expect(links.filter(e => e.label.includes("Shed roof build log")).length).toBe(5);
     expect(links.filter(e => e.label.includes("gate log")).length).toBe(2);
     // An agent follows the table's ((short id|label)) cell: the greenhouse opens, said as the agent's, the person's
     // reader left where it is.
-    const greenhouse = links.filter(e => e.label.includes("the greenhouse"))[1]!;
+    const greenhouse = links.filter(e => e.label.includes("the greenhouse"))[0]!;
     expect(await app.act({ action: "element.open", tile: "figure cells", args: { n: greenhouse.n }, as: "test-agent" })).toMatchObject({ kind: "link" });
     await until(() => screen().includes("an agent (test-agent) opened the greenhouse"), "the agent's open, said", 5000);
     expect(screen()).toContain("ASKS WITH NO REPLY");
