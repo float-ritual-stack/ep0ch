@@ -201,6 +201,7 @@ export const marks: Record<string, string[]> = {
   "button-sequences": ["One button, two tiles", "Fold the bottom", "Sugar"],
   "pick-a-tile": ["Pick a tile instead of typing its id", "pop it", "misread"],
   "scripts-in-place": ["Scripts in place", "beds-table"],
+  "note-component": ["A note component", "Bean packet"],
   press: ["Noughts and crosses", "ttt-board"],
   "status-bar": ["Your buttons on the status bar", "[Collapse]"],
   buttons: ["Buttons that look like buttons", "[▤ Fold all]", "╭", "⟳ Sync now"],

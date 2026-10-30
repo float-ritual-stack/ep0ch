@@ -140,6 +140,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTar
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
+import { callSplice, COMPONENTS_PAGE, makeComponent } from "./component-new";
 import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
@@ -5019,7 +5020,10 @@ export class NoteSurface {
         }
         if (scripts[0]!.state === "failed") throw new ActionRefused(scripts[0]!.error!);
         if (scripts.length > 1) host.ctx.flash(scripts[0]!.description ?? "");
-        action = scripts[0]!.actions.find(a => a.id === "run")!.name;
+        const run = scripts[0]!.actions.find(a => a.id === "run");
+        // A `[mode::module]` note is only imported: it has nothing to press.
+        if (!run) throw new ActionRefused(`${action} is a module (imported by other scripts); it has no run`);
+        action = run.name;
       }
       // An extension's action acts on a note: the one this press is written in, unless the line names another.
       if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block || this.msg?.id;
@@ -11014,6 +11018,31 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const page = address ?? surface.selectedPage();
       if (!page) throw new ActionRefused("name the page: address=<its name>, or select a [[page]] link first");
       return surface.createPage(page, host, actor, standing);
+    },
+  }),
+  "component.new": def({
+    summary: "make a note component (a render script) named name=: its starter note `Name [script::name] [mode::render]` with a where= prop and a tsx fence that lists the notes its where holds, written under [[components]] (under= another page; made when missing), and ::name{} put at the draft's cursor (on a line of its own); the person's opens the note beside. Completion's `+ new component ::name` row runs the same. Both writes are attributed",
+    keys: [{ via: "completion's `+ new component ::name` row, ⏎ or tab on it" }],
+    touches: "draft", draft: "type", replay: "ask",
+    says: out => (out?.said ? `· ${out.said}` : null),
+    args: {
+      name: { type: "string", about: "the component's name, what ::name{} calls: lowercase letters, digits and -, starting with a letter" },
+      under: { type: "string", optional: true, kind: "page", default: "components", about: "the page its note is written under" },
+    },
+    examples: [
+      { act: "component.new name=stale", does: "writes Stale [script::stale] [mode::render] under [[components]] and puts ::stale{} at the draft's cursor" },
+    ],
+    async run({ name, under }, { surface, host, standing }, actor) {
+      const d = surface.writingDraft;
+      if (!d) throw new ActionRefused("open an edit first: component.new puts ::name{} at its cursor");
+      if (d.busy) throw new ActionRefused("the save is still landing");
+      const made = await makeComponent(host.ctx.board, name, actor, under ?? COMPONENTS_PAGE);
+      const at = callSplice(d.lines[d.row] ?? "", name);
+      d.splice(at.start, at.end, at.text, {}, actor);
+      surface.noteAgent(actor, `made component ::${name}`, d);
+      if (standing && actor.kind === "user") host.navigate(made.note, { fresh: true });
+      host.redraw();
+      return { id: made.note.id, page: made.page.id, said: made.said };
     },
   }),
   "link.select": def({

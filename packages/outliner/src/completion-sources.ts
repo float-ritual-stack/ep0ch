@@ -13,12 +13,13 @@ import { pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompleti
 import { pickKey, sourceAnswers, triggerOf, VALUE_TRIGGERS, type Picks, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
 import { FRAGMENT_ID_SOURCE, qualifiedReference, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
-import type { CompletionRowsRequest, CompletionRowsResult, CompletionSourceAnswer, ExtensionCompletionSource, SearchCertainty } from "@ep0ch/outline-core/protocol";
+import type { CompletionRowsRequest, CompletionRowsResult, CompletionSourceAnswer, ExtensionCompletionSource, QuestionFacet, SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { axisValues, keyCandidates, sweep, valueCandidates, variation, yamlKeyCandidates, yamlScalar, attributeScalar, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { querySuggestions } from "@ep0ch/outline-core/query-suggestions";
 import type { PropsSpec } from "@ep0ch/outline-core/site";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
+import { propSchemaOfField } from "@ep0ch/outline-core/script-component";
 import { calloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { matchesSearchText, rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
@@ -290,7 +291,7 @@ const components: ServiceSource = {
       : all.sort((a, b) => (recent[b.id] ?? 0) - (recent[a.id] ?? 0));
     const groupOf = (c: typeof all[number]) => `${c.schema.group}${recent[c.id] !== undefined ? " · used" : ""}`;
     const groups = [...new Set(ordered.map(groupOf))];
-    const rows = groups.flatMap(group => ordered.filter(c => groupOf(c) === group).map(({ id, schema: original }) => {
+    const rows: SourceRow[] = groups.flatMap(group => ordered.filter(c => groupOf(c) === group).map(({ id, schema: original }): SourceRow => {
       const schema = contextualSchema(original, keys), seen = new Set<string>();
       const swept = schema.sweep.flatMap(axis => sweep(schema, axis).flatMap(v => {
         if (seen.has(v.use)) return [];
@@ -302,11 +303,30 @@ const components: ServiceSource = {
         const text = `::${id}{${p.key}=""}`;
         return { label: p.key, detail: p.type, docs: p.meaning, kind: "property", insert: { snippet: text, select: { start: text.length - 2, end: text.length - 2 } } };
       });
-      return { ...variationRow(schema, variation(schema, {}), titleOf(schema)), id, group, filter: id, variations: [...swept, ...args] };
+      const definition = noteOf(original);
+      return { ...variationRow(schema, variation(schema, {}), titleOf(schema)), id, group, filter: id, ...(definition ? { definition } : {}), variations: [...swept, ...args] };
     }));
+    const made = newComponentRow(q, all.map(c => c.id));
+    if (made) rows.push(made);
     return { rows };
   },
 };
+
+/** The note a note component's script is in (its origin `note:((id))`): `g` on its row opens it beside. */
+const noteOf = (schema: ComponentSchema) => /^note:\(\(([^()\s]+)\)\)$/.exec(schema.origin ?? "")?.[1];
+
+/**
+ * `::stale` naming no component yet: a last row offers it new, its starter note written under [[components]], the call
+ * inserted and the note opened beside, in one choice (`component.new`). Only for a name a component can have.
+ */
+function newComponentRow(query: string, have: readonly string[]): SourceRow | null {
+  const name = query.trim();
+  if (!/^[a-z][a-z0-9-]*$/.test(name) || have.includes(name)) return null;
+  return {
+    label: `+ new component ::${name}`, filter: name, insert: `::${name}{}`, kind: "new", newComponent: name, fallback: true,
+    docs: `writes a render script note [script::${name}] [mode::render] under [[components]], puts ::${name}{} here and opens the note beside: what its fence returns draws under every ::${name}{} line`,
+  };
+}
 
 /** A schema's key or value as a row: where it goes and what it means; a value draws what it makes. */
 function candidateRow(schemas: readonly ComponentSchema[], c: PropertyCandidate, ask: Asked, kind: string): SourceRow {
@@ -385,10 +405,7 @@ async function componentProps(schema: ComponentSchema, ask: Asked, svc: Completi
   const producer = schema.propsFrom ? ask.attrs?.find(a => a.key === schema.propsFrom)?.value : undefined;
   // A template still being named (`::use{of="Templ`) has no props yet: the schema's own still answer.
   const spec: PropsSpec = producer ? await svc.request<{ spec: PropsSpec }>("template.props", { of: producer }).then(r => r.spec, (): PropsSpec => ({})) : {};
-  return [...schema.props, ...Object.entries(spec).map(([key, p]): PropSchema => ({ key, where: "line",
-    type: p.kind === "property" || p.kind.startsWith("property:") ? p.kind as PropSchema["type"] : p.kind === "note" ? "ref" : p.kind === "choice" ? "enum" : "text",
-    meaning: `a prop of ${producer}`, values: p.choices?.map(value => ({ value, meaning: value })),
-  }))];
+  return [...schema.props, ...Object.entries(spec).map(([key, p]) => propSchemaOfField({ name: key, type: p.kind, options: p.choices, required: p.required, default: p.default }, `a prop of ${producer}`))];
 }
 
 /**
@@ -404,6 +421,21 @@ async function scopedKeys(schema: ComponentSchema, ask: Asked, svc: CompletionSe
   return [...new Set(parsePropertyRecords(text ?? "").map(p => p.key))];
 }
 
+/**
+ * The keys a call's `where=` rows carry (`::board{where="type=errand" group=`), most carried first: one `blocks.query`
+ * with every key's facet, asked from the note being written (`this`). Null when the call has no where or it can't be
+ * read, so the note's own keys answer instead.
+ */
+async function whereKeys(ask: Asked, svc: CompletionService): Promise<(({ key: string; count: number })[] & { matched: number }) | null> {
+  const where = ask.attrs?.find(a => a.key === "where")?.value.trim();
+  if (!where) return null;
+  const near = ask.draft?.blockId ?? ask.near;
+  const r = await svc.request<{ blocks: unknown[]; facets?: QuestionFacet[]; completeness: { kind: string; matched?: number } }>("blocks.query", { query: { where, facets: true, limit: 1, ...(near ? { this: near } : {}) } }).catch(() => null);
+  if (!r?.facets?.length) return null;
+  const keys = r.facets.filter(f => f.count > 0).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)).map(f => ({ key: f.key, count: f.count }));
+  return Object.assign(keys, { matched: r.completeness.kind === "truncated" ? r.completeness.matched ?? keys[0]?.count ?? 0 : r.blocks.length });
+}
+
 /** Whether a prop's values are found in the outline (propValues' searches) rather than the schema's own choices. */
 const foundValues = (prop: PropSchema) => prop.complete === "query" || prop.type === "property" || prop.type.startsWith("property:") || prop.type === "script" || prop.type === "ref";
 
@@ -412,6 +444,8 @@ async function propValues(schema: ComponentSchema, prop: PropSchema, ask: Asked,
   const q = ask.query;
   if (prop.complete === "query") return (await querySuggestions(q, (key, prefix) => catalogOf(svc, key ? { key } : {}, prefix))).map(r => ({ label: r.value, value: r.value, detail: r.detail }));
   if (prop.type === "property") {
+    const faceted = await whereKeys(ask, svc);
+    if (faceted) return faceted.filter(f => f.key.startsWith(q)).map(f => ({ label: f.key, value: f.key, detail: `${f.count} of the ${notes(faceted.matched)} where= holds carry it` }));
     const keys = await scopedKeys(schema, ask, svc);
     return (keys.length ? keys : axisValues(prop)).filter(key => key.startsWith(q)).map(key => ({ label: key, value: key }));
   }

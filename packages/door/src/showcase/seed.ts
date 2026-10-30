@@ -1,5 +1,6 @@
 import { BUTTON_LOOKS, BUTTON_SEQUENCES } from "./seed/button-sequences";
 import { PICK_A_TILE } from "./seed/pick-a-tile";
+import { NOTE_COMPONENT, NOTE_COMPONENT_SCRIPT } from "./seed/note-component";
 // The showcase outline (PIE-439): a fictional household's notes that exercise every shared door part.
 // Written through the service API (create, work-ids.configure, roadmap.items.create, properties.patch,
 // annotations.*), never into SQLite, so seeding runs the same write paths the door does and keeps
@@ -260,6 +261,9 @@ if (request.input.request === "describe the beds") {
     "A ::= line is the same in one line, with this, props, q, read and resolve:",
     "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
   ].join("\n"));
+  // A note component (a render script called ::packet-shelf{…}): both under the scripts, so the root's list keeps its length.
+  await make(notes.scripts.id, NOTE_COMPONENT_SCRIPT);
+  notes.noteComponent = await make(notes.scripts.id, NOTE_COMPONENT);
   const publicSeeds = await make(notes.root.id, "Showcase seeds [type::virtual-branch] [query::showcase-seed] [publish::public]");
   await make(notes.root.id, "Bean packet [showcase-seed::yes] [publish::public]");
   await make(notes.root.id, "Pea packet [showcase-seed::yes] [publish::never]");
@@ -882,6 +886,9 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
   // The buttons section's note sits under the sequences' (PIE-1287).
   const looks = notes.buttonSequences && byTitle(await board.children(notes.buttonSequences.id)).get(SEED.buttons);
   if (looks) notes.buttons = (await board.get(looks.id)) ?? looks;
+  // The note component's host sits under the scripts' note, beside its script.
+  const component = notes.scripts && byTitle(await board.children(notes.scripts.id)).get(SEED.noteComponent);
+  if (component) notes.noteComponent = (await board.get(component.id)) ?? component;
   // The routing section's shelf, tin and recipe sit under its note (PIE-1010).
   if (notes.routing) {
     const under = byTitle(await board.children(notes.routing.id));

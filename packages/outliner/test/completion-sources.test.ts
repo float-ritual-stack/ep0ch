@@ -143,3 +143,41 @@ test("(( with a short id offers the note it names first, its title as the label 
   expect(list1[0]).toMatchObject({ label: "Compost turning", kind: "block", blockId: note.id });
   expect(insertText(list1[0]!.insert)).toBe(`((${note.id}))`);
 });
+
+// Note components (WP4): a render script's note completes under `::` like any component, `g` opens its note, a name no
+// component has offers to make one, and its props complete from what its call's where= holds.
+const BOARD = "Errand board [script::board] [mode::render] [form-field::where query required] [form-field::group property default=status]\nLanes of what a query holds.\n\n::board{where=\"type=errand\" group=status}\n\n```js\nreturn 1;\n```";
+
+test(":: lists a render script's note as a component whose g opens its note; a new name offers + new component last", async () => {
+  const { create, list, rows } = await setup();
+  const board = await create(BOARD);
+  await list(true);
+  const found = merged(await rows("component", "bo"), "bo");
+  expect(found.find(r => r.component === "board")).toMatchObject({ definition: board.id, group: expect.stringMatching(/^this outline's/) });
+  // Writing ::board itself names a component: nothing is offered new.
+  expect(merged(await rows("component", "board"), "board").some(r => r.newComponent)).toBe(false);
+  const fresh = merged(await rows("component", "zz-stale"), "zz-stale");
+  expect(fresh.at(-1)).toMatchObject({ label: "+ new component ::zz-stale", newComponent: "zz-stale", kind: "new" });
+  expect(insertText(fresh.at(-1)!.insert)).toBe("::zz-stale{}");
+  // A name no component can have (an upper-case letter) is never offered.
+  expect(merged(await rows("component", "Zz"), "Zz").some(r => r.newComponent)).toBe(false);
+});
+
+test("group= offers the keys where='s rows carry, most carried first; where=\" completes the query grammar", async () => {
+  const { create, list, rows } = await setup();
+  await create(BOARD);
+  await create("Fix the shed door [type::errand] [status::open] [owner::sam]");
+  await create("Buy compost [type::errand] [status::doing] [owner::ida]");
+  await create("Return ladder [type::errand] [status::done]");
+  await create("Not an errand [type::note] [mood::calm]");
+  await list(true);
+  const attrs = [{ key: "where", value: "type=errand" }];
+  const group = merged(await rows("attribute-value", "", { component: "board", key: "group", attrs }), "");
+  expect(group.map(r => r.label)).toEqual(["status", "type", "owner"]);
+  expect(group[0]!.docs).toBe("3 of the 3 notes where= holds carry it");
+  expect(merged(await rows("attribute-value", "o", { component: "board", key: "group", attrs }), "o").map(r => r.label)).toEqual(["owner"]);
+  // A where= nothing answers: the note's own keys, as before.
+  const where = merged(await rows("attribute-value", "typ", { component: "board", key: "where", attrs: [] }), "typ");
+  expect(where.length).toBeGreaterThan(0);
+  expect(where.some(r => r.label.startsWith("type"))).toBe(true);
+});
