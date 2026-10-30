@@ -66,7 +66,7 @@ async function setup(options: { install?: string[]; userInstall?: string[]; now?
   const create = (text: string, parentId?: string, by?: { author: "user" | "agent"; actorId?: string }) =>
     client.request<Block>({ action: "create", text, ...(parentId ? { parentId } : {}),
       ...(by ? { author: by.author, ...(by.actorId ? { provenance: { actorId: by.actorId } } : {}) } : {}) });
-  const list = (reload = false) => client.request<ExtensionsListResult>({ action: "extensions.list", ...(reload ? { reload: true } : {}) });
+  const list = (reload = false) => client.request<ExtensionsListResult & { pages?: Record<string, string> }>({ action: "extensions.list", ...(reload ? { reload: true } : {}) });
   const projections = async (blockId: string) =>
     (await client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId })).projections;
   const projection = (blockId: string, kind: string, ready: (projection: ResourceProjection) => boolean = (p) => p.status === "ready") =>
@@ -320,6 +320,47 @@ test("fancy-horror (rich component): data plus a primitive view, rendered to eve
   expect(omens.filter((omen) => omen.warded).map((omen) => `Warded off ${omen.omen}`)).toEqual([warded.message]);
   const changes = store.changes.since(0, 1000);
   expect(changes.kind === "changes" && changes.changes.some((change) => change.action === "ext.fancy-horror.ward" && change.actor?.actorId === "ext:fancy-horror")).toBe(true);
+});
+
+test("a query-fed workbench presents one saved view and follows matches, source edits and question edits", async () => {
+  const { client, create, projection, projections, list, store } = await setup({ install: ["workbench"] });
+  const page = (await list()).pages?.workbench;
+  expect(page && store.children(page).map(child => child.text.split("\n", 1)[0])).toEqual([
+    expect.stringContaining("Seed workbench"), expect.stringContaining("Plant the peas"),
+    expect.stringContaining("Repair the gate"), expect.stringContaining("Label the trays"),
+  ]);
+  const first = await create("Plant herbs [type::workbench-test] [stage::ready] [due::2026-11-03]");
+  const board = await create("Seed workbench [type::virtual-branch] [query::type=workbench-test] [group::stage] [sort::due] [direction::asc] [columns::stage,due]\nworkbench::");
+  const defaults = await create("Default workbench [type::virtual-branch] [query::type=workbench-test]\nworkbench::");
+  const defaultProjection = await until("default workbench answer", async () => (await projections(defaults.id)).find(p => p.kind === "component" && (p.status === "ready" || p.status === "unavailable")));
+  expect(defaultProjection.status).toBe("ready");
+  const read = async () => (await projections(board.id))[0]?.output?.component as {
+    data: { blocks: { id: string; properties: { key: string; value: string }[] }[]; groups: { value: string; count: number }[]; columns: string[] };
+    view: { type: string; children: { type: string; title?: string; children?: { type: string; rows?: { id: string; do: { open: string } }[]; links?: string[] }[] }[] };
+  } | undefined;
+  await projection(board.id, "component");
+  const initial = await read();
+  expect(initial?.data.blocks.map(row => row.id)).toEqual([first.id]);
+  expect(initial?.data.columns).toEqual(["stage", "due"]);
+  expect(initial?.view.children.find(node => node.title?.startsWith("Table"))?.children?.[0]?.links).toEqual([first.id]);
+  expect((initial?.view.children.find(node => node.title?.startsWith("Table"))?.children?.[0] as { rows?: (string | number)[][] })?.rows?.[0]?.[0]).toBe("Plant herbs");
+  expect(initial?.view.children.find(node => node.title?.startsWith("List"))?.children?.[0]?.rows?.[0]?.do.open).toBe(first.id);
+
+  const second = await create("Label trays [type::workbench-test] [stage::doing] [due::2026-11-02]", undefined, { author: "agent", actorId: "test-gardener" });
+  await until("the new match in the watched question", async () => (await read())?.data.blocks.length === 2);
+  expect((await read())?.data.blocks.map(row => row.id)).toEqual([second.id, first.id]);
+  expect((await read())?.data.groups.map(group => group.value)).toEqual(["doing", "ready"]);
+
+  const changed = await client.request<Block>({ action: "update", blockId: second.id, expectedRevision: second.revision,
+    text: "Label trays [type::workbench-test] [stage::ready] [due::2026-11-02]", mutation: { author: "agent", actorId: "test-gardener" } });
+  await until("the edited field in the live answer", async () => (await read())?.data.blocks.find(row => row.id === changed.id)?.properties.some(p => p.key === "stage" && p.value === "ready"));
+  expect((await read())?.data.groups.map(group => group.value)).toEqual(["ready"]);
+
+  await client.request({ action: "update", blockId: board.id, expectedRevision: board.revision,
+    text: "Seed workbench [type::virtual-branch] [query::type=workbench-test stage=doing] [group::stage] [sort::due] [direction::asc] [columns::stage,due]\nworkbench::",
+    mutation: PERSON });
+  await until("the edited question in the component", async () => (await read())?.data.blocks.length === 0);
+  expect((await read())?.view.children.find(node => node.title?.startsWith("List"))?.children?.[0]?.rows).toEqual([]);
 });
 
 test("an action's writes may land outside the block it acts on (PIE-754), apply together or not at all, and a read-only action can't write", async () => {

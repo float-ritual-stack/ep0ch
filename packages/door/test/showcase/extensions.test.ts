@@ -33,6 +33,22 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+  test("the collection workbench showcase opens one live saved view through shared table, cards and list", async () => {
+    expect(await app.act({ action: "section", args: { name: "workbench" }, as: "test-agent" })).toMatchObject({ key: "workbench" });
+    await until(() => screen().includes("Garden collection workbench") && screen().includes("Table") && screen().includes("Cards") && screen().includes("List"), "the workbench's three presentations", 10_000);
+    const note = seeded.notes.workbench!;
+    const output = async () => (await board.readResourceProjections(note.id)).projections.find(p => p.kind === "component")?.output?.component as { data: { blocks: { id: string }[] }; view: { children: { title?: string }[] } } | undefined;
+    await untilAsync(async () => (await output())?.data.blocks.length === 5, "the five chores in the workbench");
+    const before = (await output())!.data.blocks.map(row => row.id);
+    const chore = (await board.children(seeded.notes.chores!.id))[0]!;
+    await board.update(chore.id, chore.text.replace("[type::chore]", "[type::other]"), chore.revision!, { kind: "agent", id: "test-agent" });
+    await untilAsync(async () => (await output())?.data.blocks.length === before.length - 1, "an agent's source edit in the live answer");
+    expect((await output())!.data.blocks.map(row => row.id)).not.toContain(chore.id);
+    expect((await output())!.view.children.some(child => child.title?.startsWith("Table"))).toBe(true);
+    await board.update(chore.id, chore.text, (await board.get(chore.id))!.revision!, { kind: "agent", id: "test-agent" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
 
   test("extensions as programs (PIE-754): almanac's schedule is listed; its action, through act with no block, writes a dated note under the Almanac page as ext:almanac, once a day", async () => {
     (app as any).lastInput = 0;
