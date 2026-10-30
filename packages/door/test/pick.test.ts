@@ -96,8 +96,8 @@ describe("pickInto: the terminal handed over, the choice put in", () => {
   test("nothing chosen, or a picker that isn't there: nothing goes in, and the draft says so", async () => {
     const d = draft("as it was", 2);
     expect(await withEnv({ EP0CH_PICKER: "true" }, () => pickInto(stepAside(), d, OUTLINE))).toEqual({ nothing: "nothing chosen in true ep0ch" });
-    // tv exits 1 for esc and for a channel it doesn't have (the extension not installed): both said.
-    expect(await withEnv({ EP0CH_PICKER: "false" }, () => pickInto(stepAside(), d, OUTLINE))).toEqual({ nothing: expect.stringContaining('or it has no "ep0ch" channel') });
+    // tv exits 1 for a crash and for a channel it doesn't have (the extension not installed), fzf for no match: all said.
+    expect(await withEnv({ EP0CH_PICKER: "false" }, () => pickInto(stepAside(), d, OUTLINE))).toEqual({ nothing: expect.stringContaining('exited 1 (an error, no "ep0ch" channel') });
     const gone = await withEnv({ EP0CH_PICKER: "no-such-picker-here 2>/dev/null" }, () => pickInto(stepAside(), d, OUTLINE));
     expect(gone).toEqual({ nothing: expect.stringContaining("exited 127: not found") });
     expect([d.text, d.dirty]).toEqual(["as it was", false]);

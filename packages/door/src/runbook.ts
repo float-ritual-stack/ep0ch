@@ -9,9 +9,9 @@ import { prop } from "./props";
 import type { ExtOn } from "./extensions";
 import type { Actor } from "./socket";
 import { ActionRefused, actionSet, asActor, def } from "./surface/actions";
-import type { TileJob, TileProgram } from "./term";
+import type { TileExit, TileJob, TileProgram } from "./term";
 
-type Context = ExtOn["ctx"] & { inTile?(p: TileProgram, done: import("./term").TileExit): boolean };
+type Context = ExtOn["ctx"] & { inTile?(p: TileProgram, done: TileExit): boolean };
 interface Run { key: string; ctx: Context; actor: Actor; step: RunbookStep; record: string; at: string; cwd: string; state: RunbookStatus; secrets: string[]; writes: Promise<void>; job?: TileJob }
 const runs = new Map<string, Run>();
 let closing = false;

@@ -297,8 +297,6 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     await until(() => D().panes.get(idOf("middle")).msg?.id === notes.shed.id, "the shed in the middle reader");
     await mine("edit", {}, "middle");
     D().focus = idOf("middle");
-    const f = join(scratch.root, "door", "pick.txt");
-    writeFileSync(f, "");
     let code: number | null | undefined;
     expect(D().inTile({ cmd: ["sh", "-c", "sleep 0.3; exit 1"], name: "pick" }, (c: number | null) => { code = c; return true; })).toBe(true);
     render();
@@ -311,6 +309,8 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     // What it said stays on screen; the keys are back in the edit.
     expect(tile("pick")).toBeDefined();
     expect(D().nameOf(D().focus)).toBe("middle");
+    // Kept to be read: ⏎ on it doesn't start a picker nobody is waiting on.
+    expect(() => D().panes.get(idOf("pick")).restart()).toThrow(/ended/);
     D().closeId(idOf("pick"));
     await mine("edit.cancel", {}, "middle").catch(() => {});
   });
