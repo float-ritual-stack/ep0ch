@@ -63,4 +63,65 @@ describe.skipIf(!outliner)("showcase: at a revision (PIE-1433)", () => {
     await stage().dispatch.act({ action: "revision.close", tile: "note" }, USER);
     expect(surface("note").revisionMode).toBeNull();
   }, 90_000);
+
+  test("two ← in one chunk step twice", async () => {
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const note = () => stage().pane("note").surface;
+    const id = h.seeded.notes.writeReview.id;
+    for (const line of ["Gutters cleared.", "Ladder put away."]) {
+      const m = (await h.board.get(id))!;
+      await h.board.update(id, `${m.text}\n${line}`, m.revision!, USER);
+    }
+    await until(() => (note().msg?.revision ?? 0) >= 4, "the note at revision 4", 8000);
+    await stage().dispatch.act({ action: "revision.compare", args: { revision: 3 }, tile: "note" }, USER);
+    await until(() => h.screen().includes("REVISION 3 → 4"), "the compare at 3", 8000);
+    stage().focusOn("note");
+    h.press({ kind: "left" } as never); h.press({ kind: "left" } as never);
+    await until(() => h.screen().includes("REVISION 1 → 2") && note().revisionMode?.want === undefined, "two steps older, nothing still asked", 8000);
+    expect(note().revisionMode.describe()).toMatchObject({ revision: 1, to: 2 });
+    await stage().dispatch.act({ action: "revision.close", tile: "note" }, USER);
+  }, 60_000);
+  test("a comment half-written keeps its place while the compare draws beside it; ← stays the comment's", async () => {
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const note = () => stage().pane("note").surface;
+    await stage().dispatch.act({ action: "comment.note", tile: "note" }, USER);
+    await until(() => note().session?.mode === "compose" && !!note().session.composer, "the comment open", 8000);
+    stage().focusOn("note");
+    for (const c of "half a thought") h.ch(c);
+    await until(() => note().session.composer.text === "half a thought", "typed into the comment", 8000);
+
+    // The compare opens on the note with the comment open: both draw, nothing refused or hidden.
+    await stage().dispatch.act({ action: "revision.compare", args: { revision: 1 }, tile: "note" }, USER);
+    await until(() => h.screen().includes("REVISION 1 → 2"), "the compare drawn beside the comment", 8000);
+    expect(h.screen()).toContain("half a thought");
+    // The keys stay with the comment: ← moves its cursor, not the compare.
+    h.press({ kind: "left" } as never);
+    h.ch("x");
+    expect(note().session.composer.text).toBe("half a thoughxt");
+    expect(note().revisionMode.describe()).toMatchObject({ revision: 1 });
+    expect(stage().describe().focusName === "note" && note().modes.top()?.name).toBe("comment");
+    // Split, the comment is a popup on the note's side, the compare still beside it.
+    await stage().dispatch.act({ action: "comment.place", args: { place: "split" }, tile: "note" }, USER);
+    await until(() => h.screen().includes("REVISION 1 → 2") && h.screen().includes("half a thoughxt"), "both drawn with the comment split", 8000);
+    await stage().dispatch.act({ action: "comment.place", args: { place: "inline" }, tile: "note" }, USER);
+    // A click in the compare gives it the keys, a click on the note gives them back; esc in the compare closes it,
+    // the comment still where it was.
+    const click = (x: number, y: number) => { h.press({ kind: "mouse", action: "down", button: 0, x, y } as never); h.press({ kind: "mouse", action: "up", button: 0, x, y } as never); };
+    const keysIn = () => note().modes.top()?.name;
+    let shown = h.screen().split("\n"), ty = shown.findIndex(l => l.includes("REVISION 1 → 2")), tx = shown[ty]!.indexOf("REVISION");
+    click(tx + 2, ty + 4);
+    await until(() => keysIn() === "revision", "the compare has the keys", 8000);
+    shown = h.screen().split("\n");
+    const ny = shown.findIndex(l => l.includes("half a thoughxt"));
+    click(shown[ny]!.indexOf("half a thoughxt") + 2, ny);
+    await until(() => keysIn() === "comment", "the comment has the keys back", 8000);
+    click(tx + 2, ty + 4);
+    await until(() => keysIn() === "revision", "the compare has the keys again", 8000);
+    h.press({ kind: "esc" } as never);
+    await until(() => !note().revisionMode, "esc closed the compare", 8000);
+    expect(note().session?.composer?.text).toBe("half a thoughxt");
+    expect(h.screen()).toContain("half a thoughxt");
+    for (let i = 0; i < 3 && note().session; i++) h.press({ kind: "esc" } as never);
+  }, 60_000);
+
 });
