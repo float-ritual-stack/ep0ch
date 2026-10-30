@@ -92,7 +92,7 @@ export interface WhereDeps {
 }
 
 /** `peek` on a control socket; null when nothing answers in `timeoutMs`. Reads only. */
-export const peekDoor = (path: string, timeoutMs = 2000): Promise<any | null> => ask(path, { cmd: "peek" }, timeoutMs).then(r => (r?.ok ? r.result : null));
+export const peekDoor = (path: string, timeoutMs = 2000): Promise<any | null> => ask(path, { cmd: "peek", full: true }, timeoutMs).then(r => (r?.ok ? r.result : null));
 
 /** Each process's parent: read from /proc on Linux; where there's no /proc (macOS, the BSDs), `ps` lists them all once. */
 function parents(): (pid: number) => number | null {
