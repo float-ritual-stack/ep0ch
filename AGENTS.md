@@ -45,7 +45,10 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   whether it really used them.
 - **No MVP to validate the idea.** Every idea here has been prototyped, often many times (about 400 Vercel projects
   alone, from mid-2025): read pie's [[prototypes-before-ep0ch]] (`ep0ch show --ws pie 0be35f1c-2b63-4d40-8b0f-c60c1655a423`)
-  for prior art. Design the end state and build it in slices of that architecture; never propose the smallest proof first.
+  for prior art. Design the end state and build the whole experience in one go; never propose the smallest proof first.
+- **The experience is the unit.** A brief, a branch, a PR and a close are one sentence of what Evan will open and
+  do, end to end ("Evan opens X and can do Y"), with every ticket and every missing part that sentence needs.
+  Records, protocol and tests are how, not when it's done. A lone ticket is for a bug in something shipped.
 - **Is it the next `neat`?** When the person asks for a behaviour, first try it as a script or an extension on the parts
   that exist, written plainly (`neat`, the layout script that became a built-in, is the worked example: gurgle's
   "neat: the button that wouldn't bend"). If it works, it's done. If a step fails, the failures are the tickets: fix the
@@ -68,11 +71,10 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   search, editor or presence view; a second place to read notes is fine). If none fits, say in the PR why not.
   A second place that *decides* the same question (who acts, which tile, where an open lands) is a **hydra**: name it
   in review and fold it into the one owner ([CONTRIBUTING.md](CONTRIBUTING.md#5-recurring-gotchas)).
-  A feature ticket carries a **Parts it uses** table (need → the part that's there) ending in a **New (glue only)**
-  row naming the new code; the review holds the diff to that row. A New row that names a new primitive means stop
-  and design it first (PIE-1139 is the example). A gap found in a shared part is approved as an **Extended** row
-  (what changes in that part, and the PROTOCOL bump if any). The ticket also says **how a person finds it** where they
-  are (a completion, a chip, a hint row, a menu entry, a worked example): most of what's missing is that, not code.
+  When the experience needs a part that doesn't exist yet, build it in the same PR as a shared part, named where the
+  next change will find it (the reuse map, Source boundaries); a missing primitive is work, not a stop sign. The
+  ticket says **how a person finds it** where they are (a completion, a chip, a hint row, a menu entry, a worked
+  example): most of what's missing is that, not code.
   A ticket that changes what's on screen also carries a **Sketch**: the screen as it should look, drawn with the wiretext
   MCP (`render_wireframe` into a `text` fence, `create_wireframe` for an editable wiretext.app link on a `[web::…]` line),
   with made-up rows. The builder matches it and the review compares the snapshot with it. A mockup only: the door draws
@@ -82,8 +84,7 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   producer's own description, the records it returns), never a label or column list written again in the inspector. The
   implementation is what's displayed, so nothing has to be kept in sync by memory (Evan, Oct 21: "building dev tools for
   my notes, accidentally"). A switch over kinds that writes literal descriptions is a finding (PIE-1152).
-- **A user-visible feature gets a kitchen-sink demo** (`ep0ch --showcase`) in the same PR, which is also its
-  end-to-end test, or the PR says why not (details in the door's rules).
+- **A user-visible feature gets a kitchen-sink demo** ([the door's rules](.claude/rules/door.md#demo-it-in-the-kitchen-sink)).
 - **Anything distributed through the extensions screen is installed and uninstalled before it's done** (an extension,
   a bundled script, a kit, a built-in one too): on a fresh scratch outline, install it the way a person does (the
   power bar's install row, by click and through `act`), use it once, uninstall it, and see what's left say so. Running
@@ -92,8 +93,8 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   catalog) and follow its live-documentation workflow before choosing primitives or writing API calls. Without it,
   start at the [TypeSafe documentation index](https://docs.typesafe.ai/llms.txt) and read the current API/SDK and
   cookbook pages; report unavailable sources rather than inventing their contracts.
-- **Before changing runtime behaviour or calling it done,** follow [Verification](CONTRIBUTING.md#verification) (for
-  the outliner, with its real-application evidence) and the [review checklist](CONTRIBUTING.md#review-checklist).
+- **Before calling it done,** follow [Verification](CONTRIBUTING.md#verification) and the
+  [review checklist](CONTRIBUTING.md#review-checklist).
 
 ## The workboard
 
@@ -214,20 +215,14 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
   install` hard-links), never there. It moves only through `ep0ch install --apply` (which backs up the outlines,
   fast-forwards it and hands everything to the new code together), run only when the person (or the agent they made
   the deployer) asks: a merged protocol bump with the host not restarted makes every client refuse it.
-- **One test gate, sized to the change** (Evan, Oct 25: two full gates per PR cost ~$500 of CI in a month and choked
-  float-box). A PR merges on `bun run check` plus the test files it touches and their neighbours, run focused; never
-  GitHub CI per PR (it runs by hand and weekly on main), never a whole suite per PR. Whole suites (a whole package,
-  `--each`, parity) run once a night on main through `scripts/box-test` (float-box, or `--on boxd`), and what goes
-  red there is a ticket, not a rerun. A protocol, schema or cross-package change still runs its packages' suites
-  once before merging. A focused run on float-2 is
-  `scripts/agent-env <name> --test -- timeout 900 bun test <files>` (two slots, capped, cleaned up, first for the OOM
-  killer). Never `--parallel` on float-2 (several agents testing at once froze it). Run in the foreground, or poll
-  your own background run until it exits (its notification may never reach you). **Judge a run by its exit code,**
-  never by grepping coloured output. **`box-test` enforces its own limits on float-box** (PIE-998), for every tool: one
-  run per worktree (a second is refused with the running pid and the command that stops it; `--replace` stops the old
-  one), at most `EP0CH_BOX_SLOTS` (default 2) runs at once (the rest wait, and say so), every run killed whole on every
-  exit, and orphans of finished runs swept first. A whole-suite `bun test` typed directly on float-box or float-2 is
-  refused by the Claude mod (`.claude/skills/ep0ch-repo`) and the Codex hook (`.codex/`), naming `scripts/box-test`.
+- **One test gate, the builder's: `bun run check` plus the test files it touched and their neighbours,** run
+  focused (Evan, Oct 25: two full gates per PR cost ~$500 of CI in a month and choked float-box). That's the whole
+  gate, protocol, schema and cross-package changes included. Whole suites (a whole package, `--each`, parity) run
+  through `scripts/box-test` on loki's merge batch and nightly on main, never per PR, and what goes red there is a
+  ticket, not a rerun. GitHub CI runs by hand and weekly on main only. A focused run on float-2 is
+  `scripts/agent-env <name> --test -- timeout 900 bun test <files>` (two slots, capped). Never `--parallel` on
+  float-2 (several agents testing at once froze it). Run in the foreground, or poll your own background run until it
+  exits (its notification may never reach you). **Judge a run by its exit code,** never by grepping coloured output.
 - **Never kill what you didn't start.** No `pkill` or `pkill -f <pattern>`, no `kill` of a pid or process group you
   didn't launch. Stop your own by its pid (or `scripts/agent-env <name> --clean`), after checking `pstree`.
 - **Scratch files are yours alone.** A session's tmp folder is shared: write PR bodies and scratch files in a private
@@ -245,34 +240,31 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
 
 - **Fixtures are made up:** notes, names and ids in tests, snapshots and docs. No private details from a real outline,
   and no machine-specific paths.
-- **One coherent PR per change, and closely related tickets share one** (Evan, Oct 25: nine small PRs in a day each
-  cost a CodeRabbit pass). Small tickets in the same area go to one builder and one PR that names them all; not a
-  PR per small ticket, and not a giant PR either. A feature split across agents branches each slice from the feature
-  branch (`<feature>/<slice>`) and opens its PR into it (CodeRabbit skips PRs that don't target main; review slices
-  with `/code-review`), then one PR goes from the feature branch to main. Don't commit `bun.lock` churn; commit it
-  only when dependencies change.
+- **One PR per experience** (Evan, Oct 25: nine small PRs in a day each cost a CodeRabbit pass): one builder, one
+  branch from origin/main, one PR into main that names every ticket it carries. Don't commit `bun.lock` churn; commit
+  it only when dependencies change.
 - **Tag what matters:** a landed note for a change in performance, infrastructure, cost, an incident or the
   architecture carries `[notable::<kind>]` (pie's "Notable changes" view lists them).
-- **Rebase on the way in, hand the sha on the way out.** Rebase before the final test run. Set `PROTOCOL` to main's
-  value plus one at the final rebase, right before merging, never earlier (when several PRs bump it, the deployer
-  orders their merges). A protocol or schema bump says in the PR exactly what to run on each machine, with real
-  values.
-- **A second opinion before merging:** pipe the diff to Codex
-  (`{ echo "<what to look for>"; git diff origin/main...HEAD; } | codex exec -c model='"gpt-6-astra"' --skip-git-repo-check -`;
-  its sandbox can't read the repo on float-2). Ask it for each finding's concrete failure, its likelihood here and the
-  fix's cost, and fix only the ones that can happen; a theoretical one gets a line in the PR, not code.
-  CodeRabbit and Greptile review PRs on their own: never tag them or ask
-  for a re-review. After a merge, check for a bot review that landed late and follow up in a new PR.
-- **Merge with `gh pr merge <n> --merge`** (a merge commit, not a squash: each commit and its `Claude-Session:` trailer stay in history, so it's clear which session shipped what; Evan, Oct 16; `git log --first-parent main` reads like the squashed history), and check `gh pr view <n> --json state` says `MERGED`. Never
-  `-d`/`--delete-branch` (it deletes the local branch and its worktree, which can be another agent's), and never
-  delete a merged branch by hand: GitHub deletes it and retargets stacked PRs. After merging, tell the deployer the
-  merge sha.
+- **PROTOCOL at the final rebase.** Set `PROTOCOL` to main's value plus one right before merging, never earlier
+  (when several PRs bump it, loki orders their merges). A protocol or schema bump says in the PR exactly what to run
+  on each machine, with real values.
+- **One review per PR, the cheapest that catches the likely failure.** A PR into main gets CodeRabbit by itself; that
+  is its review, with nothing stacked on top. When CodeRabbit can't see it (capped, or a `[skip review]` code PR),
+  one Codex pass instead (`{ echo "<what to look for>"; git diff origin/main...HEAD; } | codex exec -c
+  model='"gpt-6-astra"' --skip-git-repo-check -`), asking each finding's concrete failure, its likelihood here and
+  the fix's cost; fix only what can happen. A docs-only PR carries `[skip review]` and gets none. Never tag a bot or
+  ask for a re-review; a late bot finding after merge is a follow-up PR.
+- **Builders open the PR and hand loki its number and sha; loki merges,** in batches
+  ([the loki skill](.claude/skills/loki/SKILL.md)), with `gh pr merge <n> --merge` (a merge commit, not a squash:
+  each commit and its `Claude-Session:` trailer stay in history; Evan, Oct 16), and checks `gh pr view <n> --json
+  state` says `MERGED`. Never `-d`/`--delete-branch` (it deletes the local branch and its worktree, which can be
+  another agent's), and never delete a merged branch by hand.
 
 ## Agents and skills here
 
 Run Codex builders with `scripts/builder <PIE-n> [--model <model>] -- <brief file>`; before running one or writing work records, read [Records](docs/agents/records.md) for report placement and append-only facts.
 
-`.claude/agents/` holds the agent definitions a brief starts from: `ep0ch-builder` (a ticket or wave slice end to
+`.claude/agents/` holds the agent definitions a brief starts from: `ep0ch-builder` (one experience end to
 end), `ep0ch-verifier` (reproduce an old ticket, then close it with evidence or fix it test-first, leaving the close
 to the deployer), and the read-only `ep0ch-recon` and `ep0ch-auditor` (one findings note in an outline, `path:line`
 citations). For any bug or failing test the one debugging skill is `diagnosing-bugs` (`.agents/skills/`): a
