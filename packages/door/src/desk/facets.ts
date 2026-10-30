@@ -427,14 +427,14 @@ export class FacetsPane implements Pane {
     return { lines: out };
   }
 
-  /** The calendar at the foot of the tree (`rows` high from line `y`): ‹ the month ›, days with notes in the selection lit, the picked day bracketed. */
+  /** The calendar at the foot of the tree (`rows` high from line `y`): « the month », days with notes in the selection lit, the picked day bracketed. */
   private calendarLines(w: number, rows: number, y: number): string[] {
     const { year, month } = this.month, mm = String(month).padStart(2, "0");
     const marks = [...this.dayCounts].filter(([d]) => d.startsWith(`${year}-${mm}-`)).map(([date, n]) => ({ date, label: String(n) }));
     const grid = drawCalendar({ year, month, today: this.day ?? isoDay(new Date()), weekStartsOn: "mon", marks }, Math.max(CAL_COLS, w));
     const end = grid.indexOf("");
     const weeks = grid.slice(1, end < 0 ? undefined : end);
-    const head = ` ‹ ${grid[0]!.trim()} › `;
+    const head = ` « ${grid[0]!.trim()} » `;
     this.hits.push({ y, x0: 1, x1: 2, act: ["facets.month", { by: -1 }] });
     const nextX = 1 + 2 + width(grid[0]!.trim()) + 1;
     this.hits.push({ y, x0: nextX, x1: nextX + 1, act: ["facets.month", { by: 1 }] });
@@ -504,7 +504,7 @@ export class FacetsPane implements Pane {
     const room = Math.max(4, w - 3 - (USES + 1 + LAST));
     if (r.kind === "note") return style(` ${subject(r.note)} · ${ago(r.note.updatedAt)}`, fg(C.grey));
     if (r.kind === "day") return style(` + ${r.day} · the calendar's day`, fg(C.lgreen));
-    if (r.kind === "views") return style(` ${r.open ? "▾" : "▸"} ★ views  ${r.count}`, fg(C.yellow));
+    if (r.kind === "views") return style(` ${r.open ? "▾" : "▸"} ☼ views  ${r.count}`, fg(C.yellow));
     if (r.kind === "view") return style(`   ${subject(r.view)}`, fg(C.grey));
     if (r.kind === "clause") return style(` ${r.clause.mode === "include" ? "+" : "−"} ${clauseText({ ...r.clause, mode: "include" })}`, r.clause.mode === "include" ? fg(C.lgreen) : fg(C.lred));
     if (r.kind === "facet") {
@@ -858,7 +858,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.match": def({
     summary: "pick a note in Matches (the notes the selection leaves): id, or by=<notes> from the one picked; it previews where the tile's selection goes (its Matches tile's wires, while Matches is in one). An agent's pick is its own, drawn in its tint: the person's stays",
-    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "in Matches' own tile" }, { keys: "click wheel", does: "on Matches" }],
+    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "in Matches' own tile", says: "pick the next or previous note in Matches' own tile" }, { keys: "click wheel", does: "on Matches", says: "pick a note in Matches by clicking or scrolling it" }],
     touches: "nothing", replay: "safe", says: r => `picked "${String(r.title)}"`,
     args: { id: { type: "string", optional: true, about: "a note's block id (or its first 8+ characters)" }, by: { type: "number", optional: true, about: "notes on from the one picked (negative: up)" } },
     examples: [{ act: "facets.match by=1 tile=facets", does: "picks the next note in Matches; a reader wired to it shows it" }],
@@ -875,7 +875,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.place": def({
     summary: "put Matches somewhere else (PIE-1443, as a reader's Sources and comments): inline under the facets, split beside them, floating, popup, or tile (a tile of its own beside this one, wired as any list: its select and open wires say where a pick previews and ⏎ opens); left out, the next place round. side= puts its tile on that side",
-    keys: [{ keys: "ctrl+o", does: "next place" }, { keys: "click", does: "the ⧉ chip on the Matches line" }],
+    keys: [{ keys: "ctrl+o", does: "next place", says: "move Matches to its next place: inline, floating, split, popup, tile" }, { keys: "click", does: "the ⧉ chip on the Matches line", says: "move Matches by clicking the ⧉ chip on its line" }],
     touches: "tile", replay: "safe", says: r => `Matches ${String(r.place)}`,
     args: { place: { type: "string", optional: true, choices: ATTACHED_PLACES, about: "inline, floating, split, popup or tile" }, side: { type: "string", optional: true, choices: ["left", "right", "up", "down"], about: "with place=tile: which side of the facets tile" } },
     examples: [
@@ -939,7 +939,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.day": def({
     summary: "narrow the selection to the notes changed on a day (the calendar's pick): day=YYYY-MM-DD, or by=<days> from the one picked; day= empty drops it. Matches and the facets follow. Days are the service's (as `updated >= YYYY-MM-DD` reads)",
-    keys: [{ keys: "click", does: "a day on the calendar" }, { keys: "d", does: "today" }, { keys: ", .", does: "the day before, the day after" }, { keys: "⏎ on the day's pick", does: "drops it" }],
+    keys: [{ keys: "click", does: "a day on the calendar", says: "narrow to the notes changed on the day clicked" }, { keys: "d", does: "today", says: "narrow to the notes changed today" }, { keys: ", .", does: "the day before, the day after", says: "step the picked day back or forward" }, { keys: "⏎ on the day's pick", does: "drops it", says: "drop the day from the selection" }],
     touches: "tile", replay: "safe", says: r => (r.day ? `the notes of ${String(r.day)}` : "every day"),
     args: { day: { type: "string", optional: true, about: "YYYY-MM-DD; empty drops the day" }, by: { type: "number", optional: true, about: "days on from the picked one" } },
     examples: [
@@ -966,8 +966,8 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     },
   }),
   "facets.month": def({
-    summary: "show another month on the calendar: by=<months> (‹ is -1, › is 1); each day lit has notes the selection leaves",
-    keys: "click ‹ or › on the calendar", touches: "tile", replay: "safe",
+    summary: "show another month on the calendar: by=<months> (« is -1, » is 1); each day lit has notes the selection leaves",
+    keys: "click « or » on the calendar", touches: "tile", replay: "safe",
     args: { by: { type: "number", about: "months on (negative: back)" } },
     examples: [{ act: "facets.month by=-1 tile=facets", does: "shows last month" }],
     async run({ by }, { pane, desk }) {
