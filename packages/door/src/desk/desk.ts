@@ -855,12 +855,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         for (const desk of pane.inner.descend()) if (desk.lifted) desk.dropLift(by.actor);
       }
     }
-    // A float the person's open put their keys in (a new note's, a detail's) gives them back where they were when it closes,
-    // a terminal's program included (PIE-1445): the tile they had, recorded as its opener.
-    if (by?.op === "open" && by.actor.kind === "user" && previousFocus !== r.focus && this.isFloat(r.focus) && this.panes.has(previousFocus)) {
-      this.openedBy(r.focus, previousFocus);
-      if (this.ptyIn && this.ptyIn === this.panes.get(previousFocus)) this.typingBack.add(r.focus);
-    }
     this.noteFocus(by?.op === "focus" || by?.op === "tab");
     // A tile folded or opened is told (it keeps what it holds exactly).
     for (const id of new Set([...was.keys(), ...r.state.collapsed.keys()])) if (was.has(id) !== r.state.collapsed.has(id)) this.panes.get(id)?.folded?.(r.state.collapsed.has(id));
@@ -2109,7 +2103,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.put(made);
     }
     const merging = plan.merge !== undefined ? this.panes.get(plan.merge) : undefined;
+    const had = this.focus;
     this.commit(r);
+    // A new float the person's open put their keys in (a new note's, a detail's) gives them back where they were when it
+    // closes, a terminal's program included (PIE-1445): the tile they had is its opener.
+    if (made && by.kind === "user" && this.isFloat(id) && this.focus === id && had !== id && this.panes.has(had)) {
+      this.openedBy(id, had);
+      if (this.ptyIn && this.ptyIn === this.panes.get(had)) this.typingBack.add(id);
+    }
     if (made) {
       if (rec) { rec.count = number!; rec.ids.push(id); }
       this.startTile(id);
@@ -5951,9 +5952,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (into !== undefined && had && this.dispatch.standing(actor)) {
       const next = this.floats.at(-1)?.id ?? this.activeIn(into);
       if (next !== undefined) this.keysTo(next, actor); else this.goHome();
-    }
-    // A program's tile beside a reader (ctrl+e, ctrl+t) the person closed: their keys go back to that reader.
-    back();
+    // A program's tile beside a reader (ctrl+e, ctrl+t), or a float opened from a tile, the person closed: their keys go
+    // back to that tile.
+    } else back();
     this.save(); this.redraw();
     return { ...answer, pane: n, kind };
   }
@@ -5970,7 +5971,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (opener === undefined || !had || !this.dispatch.standing(actor) || !this.panes.has(opener)) return;
       this.keysTo(opener, actor);
       const p = this.panes.get(opener);
-      if (typing && p instanceof PtyPane && p.running && this.focus === opener) this.ptyIn = p;
+      if (typing && p instanceof PtyPane && p.running && this.focus === opener) { this.ptyIn = p; this.chord = null; }
     };
   }
 
