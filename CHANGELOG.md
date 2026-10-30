@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An agent gets the same answers inside a group as on the desk; peek is light (PIE-1447)
+
+- **Yolo and idle reach a group's tiles:** an agent acting in a group before it was first drawn saw no yolo and no idle, so a rule reading them held it back there and not on the desk. A group's tiles now read the person's whereabouts through their frame from the start.
+- **`peek` gives the layout in brief,** as `layout.get` does: each tile as its kind describes itself briefly. `ep0ch peek layout --full` (or `full=true`) has each tile whole. door_peek's screen text is unchanged.
+
 ### Closing a float puts you back where you were typing; a form clears after its submit (PIE-1445)
 
 - **Back in your terminal:** a float you open while typing in a terminal tile (a new note from the power bar, ctrl+n) gives your keys back to that terminal when it closes (^W x, or Esc on an empty new note). The next key, Esc too, is its program's; it used to land on tile 1, and Esc then put the drawer away.

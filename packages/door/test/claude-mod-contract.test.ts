@@ -444,6 +444,12 @@ describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302
       expect(lines.stdout).toBe(whole.text.join("\n") + "\n");
       expect(JSON.parse((await run(["ep0ch", "peek", "text", "--json"], { env })).stdout)).toEqual(whole.text);
       expect(JSON.parse((await run(["ep0ch", "peek", "--json", "speed"], { env })).stdout)).toEqual(JSON.parse(speed.stdout));
+      // The layout is in brief, as layout.get gives it; --full (or full=true) has each tile whole (PIE-1447).
+      expect(whole.layout.brief).toContain("full=true");
+      const fullLayout = JSON.parse((await run(["ep0ch", "peek", "layout", "--full"], { env })).stdout);
+      expect(fullLayout.brief).toBeUndefined();
+      expect(fullLayout.tiles.map((t: any) => t.tile)).toEqual(whole.layout.tiles.map((t: any) => t.tile));
+      expect(JSON.parse((await run(["ep0ch", "peek", "layout", "full=true"], { env })).stdout).brief).toBeUndefined();
       // The default is text a few KB long, not the state.
       const compact = await run(["ep0ch", "peek"], { env });
       expect(compact.exitCode).toBe(0);
@@ -463,6 +469,9 @@ describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302
       expect(typeof full.text).toBe("string");
       expect(peekOf(speed.stdout, "section")).toEqual({ section: JSON.parse(speed.stdout) });
       expect(peekArgv({ section: "speed", full: true })).toContain("one part of the state");
+      // Each tile whole is its own ask (PIE-1447): `full` stays the whole state, each tile still in brief.
+      expect(peekArgv({ section: "layout", tiles: "full" })).toEqual({ argv: ["ep0ch", "peek", "layout", "--full"], reads: "section" });
+      expect(peekArgv({ tiles: "full" })).toEqual({ argv: ["ep0ch", "peek", "--json", "--full"], reads: "full" });
       // A name every object has is no section.
       const proto = await run(["ep0ch", "peek", "constructor"], { env });
       expect(proto.exitCode).toBe(1);

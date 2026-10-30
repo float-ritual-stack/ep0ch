@@ -134,7 +134,7 @@ function frameCtx(f: FramedScreen): Ctx {
     armed: () => o().armed?.() ?? null,
     disarm: () => o().disarm?.(),
     // Where the person is, as seen from inside the frame: its screen has their focus only while the frame has it.
-    person: () => within(o().person?.() ?? NOBODY, f.focused(), screenKeys(f.top)),
+    person: () => within(o()?.person?.() ?? NOBODY, f.focused(), screenKeys(f.top)),
   };
   // The door's dispatcher (the power bar asking for what an action needs): the outer door's, over every screen.
   return Object.defineProperty(ctx, "dispatch", { get: () => (o() as { dispatch?: unknown }).dispatch, enumerable: true });

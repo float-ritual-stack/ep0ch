@@ -710,7 +710,7 @@ agent's `outline_comment`). The thread is stored in the outline, beside the file
 When Claude runs in a door tile (`EP0CH_CONTROL` set), it also gets
 `door_where`, `door_peek`, `door_act { action, args?, tile? }` and
 `door_open { ref }`. `door_peek` is the compact text by default (a few KB: where, the person, the door's speed, the screen as text);
-`full: true` adds the whole structured state (`ep0ch peek --json`) and `section: "speed"` is one part of it. They run `ep0ch where --json`, `ep0ch peek` and
+`full: true` adds the whole structured state (`ep0ch peek --json`) and `section: "speed"` is one part of it; each tile is in brief, as `layout.get` gives it, and `tiles: "full"` has each whole (`--full`). They run `ep0ch where --json`, `ep0ch peek` and
 `ep0ch act …` on that socket; `door_open` is the same open as a click or `show`
 ([Where a note opens](#where-a-note-opens)). Without
 `EP0CH_CONTROL` they are not offered, and a call is refused.
