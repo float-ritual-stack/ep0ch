@@ -5208,6 +5208,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** DeskApi.escaped: Esc found nothing left to close in a tile's own screen (a screen tile): the desk's next step, or nothing. */
   escaped() { if (!this.closeStep(true)) nothingToClose(this.ctx, this.floatCloseWord() ?? undefined); }
+  /** DeskApi.screen: this desk, the screen a reader's edit lists its actions for (PIE-1439). */
+  screen(): Screen { return this; }
 
   /** Every desk consults the screen's one pending wire, including the drawer. */
   linkingFrom(): Pane | null { const p = this.linking; return p ? p.desk.panes.get(p.from) ?? null : null; }

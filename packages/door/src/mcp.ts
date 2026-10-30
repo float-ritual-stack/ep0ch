@@ -950,7 +950,7 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
       // change was 23:16 is as of 23:16); the snapshot's own time is its own field, snapshotAt.
       if (!target.home) return toolText({ ...snapshot, said: how });
       const { asOf: snapshotAt, ...made } = snapshot;
-      return toolText({ ...made, ...copyFields(target), snapshotAt, said: `${copyLine(target, "A snapshot of")} ${how}` });
+      return toolText({ ...copyFields(target), ...made, asOf: target.served.asOf, snapshotAt, said: `${copyLine(target, "A snapshot of")} ${how}` });
     }
     if (name === "reader_view") {
       const seen = await readerView(board);

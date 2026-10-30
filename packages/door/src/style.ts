@@ -279,6 +279,8 @@ export function ellipsizeApart(s: string, w: number, others: readonly string[]):
   // The words every look-alike shares with `s` from its start: the rest is what tells them apart.
   const shared = alike.length ? Math.min(...alike.map(o => { const ow = o.split(" "); let n = 0; while (n < words.length && ow[n] === words[n]) n++; return n; })) : words.length - 1;
   const rest = words.slice(shared).join(" ");
+  // A look-alike that only adds words to `s`: nothing of `s` tells them apart, so it is cut as ever.
+  if (!rest) return cut;
   if (width(rest) + 2 > w) return "…" + ellipsize(rest, w - 1);
   return ellipsize(words.slice(0, shared).join(" "), w - width(rest) - 1).replace(/…?$/, "…") + " " + rest;
 }

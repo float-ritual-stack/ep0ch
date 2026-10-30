@@ -136,9 +136,10 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
         seen.add(key);
         const gone = entry && !entry.keys.includes(key);
         if (gone) continue;
-        // A row that names its screen (`on`: the menu's letters) is that screen's own key, in its layer.
+        // A row that names its place (`on`) is that place's own key: a screen's (the menu's letters) in its layer, a tile
+        // kind's (the tune inspector's) in the tile layer.
         const on = row.on;
-        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope: on ?? scope, layer: on ? SCOPE_LAYER[on] ?? "screen" : SCOPE_LAYER[scope] ?? "tile", does: row.says ?? whole(aboutOf(def), row.does, capOf(key)), about: aboutOf(def), from: "action", ...(row.says ? { said: true as const } : {}), rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
+        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope: on ?? scope, layer: on ? SCOPE_LAYER[on] ?? "tile" : SCOPE_LAYER[scope] ?? "tile", does: row.says ?? whole(aboutOf(def), row.does, capOf(key)), about: aboutOf(def), from: "action", ...(row.says ? { said: true as const } : {}), rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
       }
     }
     // A key the keymap gives the whole action that it didn't declare.
@@ -261,7 +262,8 @@ export function rebindEffects(b: Binding, key: string, all: readonly Binding[]):
   if (GESTURES.has(name)) return { takes: [], under: [], over: [], problem: "a mouse gesture isn't a key: clicks stay where they are" };
   if (b.key && b.key.startsWith("ctrl+w ") !== name.startsWith("ctrl+w ")) return { takes: [], under: [], over: [], problem: b.key.startsWith("ctrl+w ") ? `${b.cap} is a ^W key: press ^W, then the key` : "a ^W chord goes to a ^W key; this one is a key of its own" };
   if (b.key.startsWith("hyper+") !== name.startsWith("hyper+")) return { takes: [], under: [], over: [], problem: "a hyper chord goes to a hyper chord: hold ⌃⌥⇧⌘ and press the key" };
-  const there = all.filter(x => x.key === name && x.id !== b.id);
+  // Only where both can work (PIE-1439): another screen's own key loses nothing, as the rows say.
+  const there = all.filter(x => x.key === name && x.id !== b.id && together(x, b));
   // A key given to an action with none is pressed through the App's keymap layer, over the screens' own.
   const at = LAYERS.indexOf(!b.key || b.layer === "yours" ? "yours" : b.layer);
   // A key given to an action with none takes it only from your other keymap entries (setKeys moves those); a built-in
