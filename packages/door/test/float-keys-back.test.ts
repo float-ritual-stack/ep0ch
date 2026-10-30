@@ -59,14 +59,18 @@ describe.skipIf(!outliner)("closing a float gives the keys back to the terminal 
     const chip = (id: string) => { paint(); const h = A.statusBoxes.find((b: any) => b.item.id === id); if (!h) throw new Error(`no ${id} chip`); return h.from as number; };
     /** A new note from the power bar, opened by a click on its chip, as Evan does while typing: its float has his keys. */
     const floatFromBar = async (on: Desk = desk) => {
-      await feed(click(chip("power"), rows - 1));
+      // Its chip when the status bar has room for it; at 44 columns it is in the +N menu, and its click runs bar.open.
+      paint();
+      if (A.statusBoxes.some((b: any) => b.item.id === "power")) await feed(click(chip("power"), rows - 1));
+      else await app.dispatch.press("bar.open");
       await until(() => !!A.bar, "the power bar opens");
       await feed(">note.new");
       await A.bar.settled();
       paint();
       const row = A.bar.describe().rows.find((r: any) => r.source === "actions" && r.key === "note.new");
       expect(row).toBeDefined();
-      await app.dispatch.press("bar.pick", { n: row.n });     // what ⏎ on its row runs: its form, every argument optional
+      await app.dispatch.press("bar.pick", { n: row.n });     // what ⏎ on its row runs: note.new's form in the bar
+      // Every argument of note.new is optional: ⏎ through its fields runs it (a few presses, however many it asks).
       for (let i = 0; i < 6 && !floats(on).length; i++) { await feed("\r"); await sleep(150); }
       await until(() => !A.bar && floats(on).length > 0, "the new note's float opens");
       return floats(on).at(-1)!;
@@ -74,8 +78,8 @@ describe.skipIf(!outliner)("closing a float gives the keys back to the terminal 
     return { app, desk, A, floats, feed, paint, kettle, agent, shown, floatFromBar, quit: () => { app.quit(); kettle()?.kill(); agent()?.kill(); } };
   }
 
-  test("typing in a terminal tile on the desk: the float closes and the keys are kettle's again", async () => {
-    const d = await door();
+  for (const [cols, rows] of [[177, 60], [44, 30]] as const) test(`typing in a terminal tile on the desk at ${cols}x${rows}: the float closes and the keys are kettle's again`, async () => {
+    const d = await door(cols, rows);
     try {
       await d.desk.dispatch.press("tile.enter", {}, "kettle");
       expect(d.desk.rawKeys()).toBe(true);
