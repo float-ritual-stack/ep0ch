@@ -770,7 +770,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return {
       deliberate: p?.deliberate, clearsOnClose: p?.clearsOnClose?.(), history: p instanceof ReaderPane,
       ...this.kindFacts(id),
-      ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), pinned: p instanceof ReaderPane && p.pinned, available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? (!!k?.previews && !(p instanceof ReaderPane))), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.pinnable && !this.layout.altReaders.has(id),
+      ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), pinned: p instanceof ReaderPane && p.pinned, available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? (!!k?.previews && !(p instanceof ReaderPane))), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.pinnable && !this.layout.altReaders.has(id) && this.layout.wires.some(w => w.to === id && w.from !== id && w.verb === "open"),
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
       ...(k?.follower ? { follower: true } : {}),
@@ -1909,8 +1909,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /**
    * A reader a saved layout had following the hidden current note (PIE-1207: gone) loads on the note it showed; the
-   * screen's first list (a tree, a links list) is wired to it, select and open, unless something already selects into
-   * it. Said once, as the screen first opens; the screen saves itself wired.
+   * screen's first list (a tree, a links list) is wired to show its selection there, unless something already selects
+   * into it (its opens still land in the first reader not pinned). Said once, as the screen first opens; it saves wired.
    */
   private wireFollowers() {
     const said: string[] = [];
@@ -1924,7 +1924,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (list === undefined) { said.push(`${name} keeps its note (alt+l wires a list to it)`); continue; }
       try {
         this.apply({ op: "link", tile: list, to: id, verb: "select" }, USER);
-        if (!this.layout.wires.some(w => w.from === list && w.verb === "open")) this.apply({ op: "link", tile: list, to: id, verb: "open" }, USER);
         said.push(`${this.nameOf(list)} → ${name}`);
       } catch { said.push(`${name} keeps its note (the screen is locked: alt+l wires a list to it)`); }
     }

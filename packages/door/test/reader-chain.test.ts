@@ -203,7 +203,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
       const nine = showing("reader9");
       await goInList("hens");
       await until(() => showing("reader10") === id("hens"), "reader10 on hens");
-      expect(showing("reader9")).toBe(id("hens"));
+      expect(showing("reader9")).toBe(nine);                // no hidden current note moves it (PIE-1207)
       await dact("tile.link", { to: "@chain/reader9" }, "what-changed");
       await goInList("beans");
       await until(() => showing("reader9") === id("beans"), "reader9 on beans");

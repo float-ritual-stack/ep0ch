@@ -12,7 +12,7 @@ import { Desk } from "../src/desk/desk";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, showIn, until } from "./scratch";
 
 describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () => {
   const scratch = new Scratch();
@@ -59,7 +59,7 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
 
   test("a followed link opens in the next column; the person's keys go there, an agent's follow leaves them", async () => {
     expect(flow()).toBeTruthy();
-    await mine("open", { id: notes.trip.id }, "c1");
+    showIn(desk, (await board.get(notes.trip.id))!, "c1");
     await until(() => tile("c1")?.showing?.id === notes.trip.id, "the trip in c1");
     await follow("c1");
     await until(() => columns().length === 2, "a second column");

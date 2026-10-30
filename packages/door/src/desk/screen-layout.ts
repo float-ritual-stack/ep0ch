@@ -118,7 +118,7 @@ export interface TileFacts {
   notes?: boolean;
   /** This tile keeps a NoteSurface reading trail that can receive another reader's history. */
   history?: boolean;
-  /** A reader the person owns (pinned or not): an unwired open into it keeps its old note as a spine. */
+  /** A reader the person owns that another tile's open wire feeds (PIE-1207: wires, not a mode): an unwired open into it keeps its old note as a spine. */
   held?: boolean;
   /** Made explicitly with split or tile.open; moves keep this fact on the tile. */
   deliberate?: boolean;

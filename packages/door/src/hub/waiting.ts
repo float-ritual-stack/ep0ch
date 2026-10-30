@@ -209,10 +209,10 @@ export const WAITING_KIND: TileKind = {
   peek: p => { const w = p as WaitingPane; return { picked: w.at >= 0 ? w.at + 1 : null, waiting: w.items ? w.describe() : null, problem: w.problem || undefined }; },
 };
 
-/** Waiting on others: the list beside a reader, wired to show what it picks and open what ⏎ opens. */
+/** Waiting on others: the list beside a reader, wired to show what it picks (⏎ takes the keys there). */
 export function waitingSpec(): ScreenSpec {
   return {
     name: "waiting", title: "waiting on others",
-    layout: { focus: "waiting", root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "waiting", name: "waiting", wires: [{ verb: "select", to: "reader" }, { verb: "open", to: "reader" }] }, b: { t: "leaf", kind: "reader", name: "reader" } } },
+    layout: { focus: "waiting", root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "waiting", name: "waiting", wires: [{ verb: "select", to: "reader" }] }, b: { t: "leaf", kind: "reader", name: "reader" } } },
   };
 }

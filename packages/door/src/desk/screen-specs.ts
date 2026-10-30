@@ -61,7 +61,7 @@ export function registerBuiltinScreens(): void {
   }), "query");
   // The BBS menu's W and L: the who and activity tiles as screens (the activity's ⏎ shows its note in the reader).
   add("who", () => ({ name: "who", title: "who's online", layout: { focus: "who", root: { t: "leaf", kind: "who", name: "who" } } }));
-  add("lastcall", () => ({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity", wires: [{ verb: "open", to: "reader" }] }, { t: "leaf", kind: "reader", name: "reader" }] } } }));
+  add("lastcall", () => ({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "reader", name: "reader" }] } } }));
 }
 registerBuiltinScreens();
 

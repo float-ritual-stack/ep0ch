@@ -212,7 +212,6 @@ describe.skipIf(!outliner)("a reader's pin, against a scratch outline", () => {
     expect(message()).toContain("following the current note is gone");
     expect(message()).toContain("tree → reader");
     expect(at("tree").wires).toContainEqual({ verb: "select", to: at("reader").tile });
-    expect(at("tree").wires).toContainEqual({ verb: "open", to: at("reader").tile });
     app.pop();
     O.dispose();
   });
