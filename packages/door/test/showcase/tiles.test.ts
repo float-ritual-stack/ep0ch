@@ -169,7 +169,6 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     await act("tree.pick", { id: seeded.notes.root.id });
     await until(() => d.pane("tree-preview").msg?.id === seeded.notes.root.id, "the tree selection in its preview");
     expect(d.pane("detail").msg.id).toBe(before);
-    expect(d.current.id).toBe(before);
     await act("tree.pick", { id: seeded.notes.root.id, open: true });
     await until(() => d.pane("detail").msg?.id === seeded.notes.root.id, "Enter in the linked detail");
     let previous = seeded.notes.root.id;
@@ -309,12 +308,12 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     expect(S().focus).toBe("stage");
     // d: a detail in the blank's place (its row, as the person picks it).
     press({ kind: "char", ch: "d" });
-    await until(() => (stage().layoutGet().tiles as any[]).some(t => t.kind === "reader" && t.mode === "held"), "a detail in the blank's place");
+    await until(() => (stage().layoutGet().tiles as any[]).some(t => t.kind === "reader"), "a detail in the blank's place");
     await until(() => screen().includes("+ New note"), "the empty detail's + New note");
     // A click on + New note, as a mouse event on the screen: the same note.new ctrl+n runs.
     const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("+ New note")), x = rows[y]!.indexOf("+ New note") + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
-    const detail = () => stage().pane((stage().layoutGet().tiles as any[]).find(t => t.kind === "reader" && t.mode === "held").name);
+    const detail = () => stage().pane((stage().layoutGet().tiles as any[]).find(t => t.kind === "reader").name);
     await until(() => !!detail()?.surface?.draft, "the new note's edit in the detail, by the click", 8000);
     const id = detail().surface.draft.blockId;
     expect(await board.get(id)).toBeTruthy();

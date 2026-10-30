@@ -1920,7 +1920,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       p.wasFollowing = false;
       const name = this.nameOf(id);
       if (this.layout.wires.some(w => w.to === id && w.verb === "select")) { said.push(`${name} keeps its note`); continue; }
-      const list = this.all().find(i => { const q = this.panes.get(i)!, k = kindOf(q); return i !== id && !!k?.previews && (k.lists?.(q) ?? !(q instanceof ReaderPane)); });
+      const list = this.all().find(i => i !== id && this.isList(this.panes.get(i)));
       if (list === undefined) { said.push(`${name} keeps its note (alt+l wires a list to it)`); continue; }
       try {
         this.apply({ op: "link", tile: list, to: id, verb: "select" }, USER);
@@ -2056,11 +2056,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * reader, whose note an open replaces; any other reader the person owns keeps its old note as a spine.
    */
   private listFed(id: number): boolean {
-    return this.layout.wires.some(w => {
-      if (w.to !== id || w.verb !== "select" || w.from === id) return false;
-      const q = this.panes.get(w.from), k = kindOf(q);
-      return !!q && !!k?.previews && (k.lists?.(q) ?? !(q instanceof ReaderPane));
-    });
+    return this.layout.wires.some(w => w.to === id && w.verb === "select" && w.from !== id && this.isList(this.panes.get(w.from)));
+  }
+  /** Tile `q` is a list with a selection (a tree, a links tile, a lane), not a reader that selects inline rows. */
+  private isList(q: Pane | undefined): boolean {
+    const k = kindOf(q);
+    return !!q && !!k?.previews && (k.lists?.(q) ?? !(q instanceof ReaderPane));
   }
 
   /** DeskApi.opensShow: the note shown where tile `from`'s opens land (placement's answer), or null. */

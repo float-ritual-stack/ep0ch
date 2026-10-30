@@ -717,7 +717,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     await until(() => tiles().find(t => t.name === pinned.name)?.showing?.id === seeded.notes.notebook.id, "the pinned page");
     await stage().dispatch.act({ action: "open", tile: source, args: { id: seeded.notes.shed.id } }, USER);
     await stage().dispatch.act({ action: "back", tile: source, args: {} }, USER);
-    expect(tiles().find(t => t.name === pinned.name)?.mode).toBe("pinned");
+    expect(tiles().find(t => t.name === pinned.name)?.pinned).toBe(true);
     expect(tiles().find(t => t.name === source)?.showing?.id).toBe(seeded.notes.notebook.id);
     await stage().dispatch.act({ action: "tile.close", tile: pinned.name, args: {} }, USER);
     await stage().dispatch.act({ action: "layout.policy", tile: source, args: { closable: false } }, USER);
