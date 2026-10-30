@@ -341,7 +341,7 @@ examples lean on:
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:52` |
 | `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:870` |
-| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:444` |
+| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:449` |
 
 ## Effects, access and attribution
 
