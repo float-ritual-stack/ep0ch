@@ -532,7 +532,7 @@ export class BacklinksPane implements Pane {
       else if (c === "related") { o.showRelated = !o.showRelated; said = o.showRelated ? "showing this note and its descendants" : "hiding this note and its descendants"; }
       // With nothing listed (no note aimed at, the answer not in, a problem) the filter would draw nowhere and take the
       // next key unseen (PIE-1459): say so instead, and keep the keys the tile's.
-      else if (c === "filter" && (!this.target || !this.data || this.problem)) said = `nothing to filter: ${!this.target ? `this tile lists the links of what ${this.source} shows, and it shows no note` : this.problem ? this.problem : "the links are still being read"}`;
+      else if (c === "filter" && (!this.target || !this.data || this.problem)) said = `nothing to filter: ${!this.target ? `this tile lists the links of what ${this.sourceLabel()} shows, and it shows no note` : this.problem ? this.problem : "the links are still being read"}`;
       else if (c === "filter") { if (!this.draft) { this.list.setFilter(PERSON, o.filter); this.list.startTyping(filterLine); } said = ""; }   // plain words over rows already listed
       else if (c === "groups") said = "";   // the groups' list is backlinks.groups's (it needs the screen)
     });

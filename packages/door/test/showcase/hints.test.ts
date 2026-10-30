@@ -253,6 +253,9 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     const d = h.S().stages.get(h.S().sel).top as Desk;
     const title = "Greenhouse planting notes with the complete watering instructions and the seed order for next spring";
     await d.dispatch.press("tile.title", { text: title }, "source");
+    // A written title heads the tile's reader whole (PIE-1248); with no header there, the frame is the only place it's
+    // clipped, which is what this reads.
+    await d.dispatch.press("tile.header", { mode: "none" }, "source");
     const painted = () => h.painted.map(visible).join("\n");
     h.screen(); h.app.redraw();
     await until(() => painted().includes("Greenhouse planting"), "the clipped title");
@@ -279,6 +282,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     expect(d.layoutGet().focus).toBe(focus);
     expect((d as unknown as { overlays: { top(): unknown } }).overlays.top()).toBeFalsy();
     await d.dispatch.press("tile.title", { text: "Garden notes" }, "source");
+    await d.dispatch.press("tile.header", { mode: "note" }, "source");
   }, 40_000);
 
 });

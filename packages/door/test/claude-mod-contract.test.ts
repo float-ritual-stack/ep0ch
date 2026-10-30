@@ -63,10 +63,15 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     const { entryOf, entryArgv } = await mod("peer-log.ts");
     const made = await run(entryArgv(note, entryOf("from", "gardener", Date.now(), "Bring seeds."), "test-agent"), { env });
     expect(made.exitCode).toBe(0);
-    const found = await run(["ep0ch", "find", "--query", "type=peer-message peer=gardener", "--ids"], { env });
+    // A peer message is machinery (PIE-1448): a query leaves it out and says how to ask for it, as this command's flag.
+    const hidden = await run(["ep0ch", "find", "--query", "type=peer-message peer=gardener", "--ids"], { env });
+    expect(hidden.exitCode).toBe(0);
+    expect(hidden.stdout).not.toMatch(/\(\([0-9a-f-]+\)\)/);
+    expect(hidden.stderr).toContain("--machinery show");
+    const found = await run(["ep0ch", "find", "--query", "type=peer-message peer=gardener", "--machinery", "show", "--ids"], { env });
     expect(found.exitCode).toBe(0);
     expect(found.stdout).toMatch(/\(\([0-9a-f-]+\)\)/);
-    const excluded = await run(["ep0ch", "find", "--query", "peer=gardener NOT type=peer-message", "--ids"], { env });
+    const excluded = await run(["ep0ch", "find", "--query", "peer=gardener NOT type=peer-message", "--machinery", "show", "--ids"], { env });
     expect(excluded.exitCode).toBe(0);
     expect(excluded.stdout).not.toMatch(/\(\([0-9a-f-]+\)\)/);
   });

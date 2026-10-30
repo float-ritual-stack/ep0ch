@@ -68,7 +68,7 @@ import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term"
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
-  neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
+  neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
   shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
@@ -98,7 +98,7 @@ import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNam
 import { W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { effective as withKeymap, movedInTable } from "../surface/keymap";
 import { panelFoot, panelLines, panelPauseMs, tileKeys, type PanelGroup } from "./key-panel";
-import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
+import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, RETIRED_KINDS, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 import { prop } from "../props";
 
 /**
@@ -322,6 +322,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * as it was, and the tile is made again when the kind comes (`kindsChanged`).
    */
   private unregistered = new Map<number, TileSpec>();
+  /** Retired kinds a layout loaded here named (RETIRED_KINDS), each tile left out: said once as the screen shows (retiredSaid). */
+  private dropped: string[] = [];
   /** The docks sliding over the layout as last drawn, each with its tiles (for the mouse). */
   private slid: PlacedDock<number>[] = [];
   /** The lock chip at the end of the hint row, as last drawn. */
@@ -1065,6 +1067,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const folded = new Map<number, Fold>(), agentsOf = new Map<number, AgentLevel>();
     const auto = (kind: string) => autoName({ names }, kind);
     if (!reuse) this.panes.clear();
+    // Tiles of a retired built-in kind (RETIRED_KINDS): made with the rest, then left out below.
+    const retired: number[] = [], retiredRefs = new Set<string>();
     const tileOf = (saved: TileSpec) => {
       // A saved `detail` is a reader that starts held (PIE-705); a kind nobody registers here is made as a tile that says so (src/desk/tiles.ts makeTile).
       const l = canonSpec(saved);
@@ -1117,6 +1121,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // This tile's own look (PIE-675), as its spec kept it: string values only.
       const ownLook = l.look && typeof l.look === "object" ? Object.fromEntries(Object.entries(l.look).filter(([, v]) => typeof v === "string")) as Record<string, string> : null;
       if (ownLook && Object.keys(ownLook).length) this.panes.get(id)!.instanceLook = ownLook;
+      if (RETIRED_KINDS[kind]) { retired.push(id); for (const r of [l.id, l.name, this.tileId(id)]) if (r) retiredRefs.add(r); }
       return id;
     };
     const root = reviveTree(spec.root, tileOf);
@@ -1126,6 +1131,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // (An opener outside a layout that is only loaded again is some other tile of the saved arrangement: it is no one's here.)
     for (const [id, saved] of openers) tileRegistry.setOpener(this.panes.get(id)!, references.get(saved) ?? (restore ? saved : undefined));
     let tree = root;
+    // A retired kind's tile (an older door's drawer.own) is left out, never drawn as "isn't available here": its place
+    // closes as a close does, and the screen says once what went (retiredSaid), then saves without it (PIE-1455).
+    for (const id of retired) {
+      tree = removeLeaf(tree, id) ?? { t: "tabs", ids: [], active: 0 };
+      const p = this.panes.get(id)!;
+      this.dropped.push(p.kind);
+      p.dispose?.(); tileRegistry.release(p); this.panes.delete(id); this.unregistered.delete(id);
+      for (const m of [names, folded, agentsOf]) m.delete(id);
+      altReaders.delete(id); used.delete(id);
+      fresh.splice(0, fresh.length, ...fresh.filter(x => x !== id));
+      openers.splice(0, openers.length, ...openers.filter(([x]) => x !== id));
+      wantSources.splice(0, wantSources.length, ...wantSources.filter(([x]) => x !== id));
+      // A wire into it goes with it (the layout's saved id, its name or the id it was given here name it).
+      wantWires.splice(0, wantWires.length, ...wantWires.filter(w => w.from !== id && !retiredRefs.has(w.to)));
+      wantSources.splice(0, wantSources.length, ...wantSources.filter(([, src]) => !retiredRefs.has(src)));
+      for (const [k, v] of slots) if (v === id) slots.delete(k);
+    }
+    floats.splice(0, floats.length, ...floats.filter(f => !retired.includes(f.id)));
     // What the new layout has no place for: kept when it holds work (in one shut dock on the right), else closed.
     const kept: number[] = [];
     if (reuse) for (const [id, p] of old) {
@@ -1180,7 +1203,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const f = typeof spec.focus === "string" ? [...names].find(([id, n]) => this.tileId(id) === (references.get(String(spec.focus)) ?? spec.focus) || n === spec.focus)?.[0] : ids[typeof spec.focus === "number" ? spec.focus : 0];
     this.focus = f !== undefined && ids.includes(f) ? f : ids[0]!;
     this.keysTo(this.focus);
-    if (this.ctx) { this.claimIds(); this.wireFollowers(); for (const id of fresh) this.startTile(id); }
+    if (this.ctx) { this.claimIds(); this.wireFollowers(); this.retiredSaid(); for (const id of fresh) this.startTile(id); }
     this.settled = this.snapshotShape();
   }
   /** The keys on tile `id`, as the person's own: shown in its tab set (nothing else moves). */
@@ -1648,6 +1671,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (again) return;
     this.claimIds();
     this.wireFollowers();
+    this.retiredSaid();
     for (const id of this.all()) this.startTile(id, this.movedIn.has(id));
     this.allModels();
     void this.fillColumns();
@@ -1937,6 +1961,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (!said.length) return;
     this.ctx.flash(`following the current note is gone (PIE-1207) · ${said.join(" · ")}`, 8000);
+    this.save();
+  }
+
+  /** What a loaded layout left out (RETIRED_KINDS): said once, with what took each kind's place, and saved without it. */
+  private retiredSaid() {
+    if (!this.dropped.length) return;
+    const kinds = [...new Set(this.dropped)], n = this.dropped.length;
+    this.dropped = [];
+    this.ctx.flash(`${this.title}: ${n === 1 ? "a tile" : `${n} tiles`} of a retired kind left out (${kinds.map(k => `${k}: ${RETIRED_KINDS[k]}`).join(" · ")})`, 8000);
     this.save();
   }
 
@@ -6348,7 +6381,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   layoutSelf(): LayoutSelf {
     const outer = this.holder?.desk();
     if (outer) return { name: `group ${outer.nameOfPane(this.holder!.tile) || "?"}` };
-    return this.ctx?.hostLayer?.isDrawer(this) ? { name: "your drawer", chip: "drawer" } : SCREEN_SELF;
+    const host = this.ctx?.hostLayer;
+    if (host?.isDrawer(this)) return { name: "your drawer", chip: "drawer" };
+    // Its chip is on the hint row: what of the drawer lies over that row now, its refusals say how past (PIE-1455).
+    const covered = this.hintRow >= 0 ? host?.liesOver?.(this.hintRow) ?? null : null;
+    return covered ? { ...SCREEN_SELF, covered } : SCREEN_SELF;
   }
 
   /**

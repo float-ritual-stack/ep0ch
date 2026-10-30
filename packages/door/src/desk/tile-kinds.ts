@@ -209,6 +209,15 @@ export function unregisterTileKind(kind: TileKindName, why?: string): boolean {
 }
 /** The entries of kinds that went away: a tile of one still running asks its kind's hooks (holds work, when it's free). */
 const wentAway = new Map<TileKindName, TileKind>();
+/**
+ * Built-in kinds the door no longer has, and what took their place (PIE-1455): a saved layout's tile of one is left out as
+ * the layout loads, said once, and the layout saves without it. An extension's kind that isn't here waits for its
+ * extension instead (UnavailableTile).
+ */
+export const RETIRED_KINDS: Readonly<Record<string, string>> = {
+  "drawer.own": "the drawer's agent is a tab of its own since PIE-1331 (alt+a)",
+  "dock.own": "the drawer's agent is a tab of its own since PIE-1331 (alt+a)",
+};
 /** Why there's no kind by that name: it went (and why), or nothing here registers it (and why not). */
 export function missingKind(kind: TileKindName): string {
   return gone.get(kind) ?? "nothing here registers it (an extension's kind: the extension isn't loaded yet, or isn't installed for this outline)";

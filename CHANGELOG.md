@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The door stands on its own: old drawer tiles go quietly, messages name what's there, door tests pass alone (PIE-1455, PIE-1460)
+
+- **An old drawer tile is left out, said once:** a saved layout naming a retired built-in kind (`drawer.own`, `dock.own`, from before the drawer's agent became a tab) loads without it, says so once in the message log with what replaced it, and saves without it; nothing reads "isn't available here". The one-off `drawer-words.ts` migration script and its test are gone.
+- **"nothing to filter" names the tile:** a links tile with no note to list names its source by its name ("what activity shows"), never its id.
+- **`]` in the message log lights a link that leads somewhere:** the first stop steps past a `[[page]]` nobody has written yet; when every link of a message leads nowhere, the hint row says why ("no note is [[…]] yet").
+- **A lock refusal names a chip you can see:** with your drawer open over the screen, a refusal from the locked screen says "alt+a puts your drawer away, then a click on ▣ screen locked"; with a drawer tile lifted over the screen, "✦a (agent.lift) drops the lifted tile" first.
+- **`ep0ch find --machinery hide|only|show`:** a `--query` or `--under` that left out machinery notes (peer messages, tosses, fetched notifications) says `--machinery show` on stderr, and the flag finds them; a `--view` keeps its own `[machinery::]`.
+- **`%name` in the power bar puts that tile first:** a field typed whole (a tile's name) ranks before a row listed earlier that only mentions it.
+- **The river keeps a spine again:** a flow's peeks give a cell to a kept spine as the flow lays out any new column; the readable-tiles check no longer refused every spine in a crowded river.
+- **Every door test passes alone:** power-bar, flow, showcase/hints and claude-mod-contract were red alone (and the flow, hints and mod ones red in any order): two door fixes above, a test that matched a label also drawn behind the bar, and one that read a reader's header the written title now heads (PIE-1248).
+
 ### A saved view reads as a table, cards and a list: the collection workbench (Datacore spike)
 
 - **Collection workbench extension:** put `workbench::` in a saved view note and its `[query::]`, `[group::]`, `[sort::]` and `[columns::]` draw as a linked table, cards and a filterable list with previews; editing the view or any matching note updates it live, and every row opens its note. Install it from the extensions screen; uninstalling leaves the view and its notes.

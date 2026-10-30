@@ -113,6 +113,8 @@ export interface HostLayer {
   isDrawer(d: unknown): boolean;
   /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. */
   desks(): Desk[];
+  /** What of the drawer lies over row `row` of the screen now (PIE-1455): the drawer open over it, a drawer tile lifted over the whole screen, or nothing. */
+  liesOver?(row: number): "drawer" | "lift" | null;
   /**
    * What `tile=` names across layers, asked first by every screen host's dispatcher (PIE-1285), a desk or not: a tile's
    * id, `drawer.agent`, an `@screen/tile` path, a program's told id (`program`). Never a screen's own names. The drawer's

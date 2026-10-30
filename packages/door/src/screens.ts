@@ -1310,7 +1310,7 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
     run({ by }, { list, ctx }) { list.scroll(by); ctx.redraw(); return { scrolled: by }; },
   }),
   "status.element": def({
-    summary: "put the [ ] position on a link in the selected message, as a reader's [ ] steps through a note's elements: by=1 / by=-1 the next or previous link, n= the nth, n=0 lets go; ⏎ then opens it (status.link)",
+    summary: "put the [ ] position on a link in the selected message, as a reader's [ ] steps through a note's elements: by=1 / by=-1 the next or previous link, n= the nth, n=0 lets go; ⏎ then opens it (status.link). The first stop is the first link that leads somewhere (a [[page]] not written yet is stepped past); with none, the first, and the answer's missing and the hint row say why",
     keys: [{ keys: "[ ]", does: "the previous or next link in the selected message" }],
     touches: "screen", replay: "safe",
     args: {
@@ -1337,6 +1337,11 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
     run({ n, row }, { list, ctx }, actor) { return list.openLink((row ?? list.sel + 1) - 1, (n ?? 1) - 1, ctx, actor); },
   }),
 });
+
+/** Why a lit link in the log leads nowhere: the service found nothing at its address (PIE-1455). */
+function missingWords(to: LinkTarget): string {
+  return to.page !== undefined ? `no note is [[${to.page}]] yet` : `nothing answers at ${to.label ?? to.block ?? "that link"}`;
+}
 
 export class StatusMessages extends BbsList {
   readonly title = "message log";
@@ -1391,19 +1396,22 @@ export class StatusMessages extends BbsList {
     return r && r.id === this.litOf ? this.lit : -1;
   }
   /** Steps the [ ] position through the selected message's links, wrapping as the reader's does; `n` -1 lets go. */
-  stepLink(to: { n: number } | { by: 1 | -1 }, ctx: Ctx): { link: number | null; of: number } {
+  stepLink(to: { n: number } | { by: 1 | -1 }, ctx: Ctx): { link: number | null; of: number; missing?: string } {
     const r = this.rows()[this.sel];
     if (!r) throw new ActionRefused("the message log is empty");
     if (!this.links.has(r.id)) this.drawn(r, ctx);
-    const count = this.links.get(r.id)!.length, now = this.litLink();
+    const links = this.links.get(r.id)!, count = links.length, now = this.litLink();
     if ("n" in to && to.n < 0) { this.lit = -1; this.litOf = null; return { link: null, of: count }; }
     if (!count) throw new ActionRefused("this message names no note");
-    const next = "n" in to ? to.n : now < 0 ? (to.by > 0 ? 0 : count - 1) : (now + to.by + count) % count;
+    // The first stop is the first link that leads somewhere (a page not written yet is stepped past); with none, the
+    // first, and the hint row says why it leads nowhere (PIE-1455).
+    const leads = links.map((l, i) => (l.missing ? -1 : i)).filter(i => i >= 0);
+    const next = "n" in to ? to.n : now >= 0 ? (now + to.by + count) % count : to.by > 0 ? leads[0] ?? 0 : leads.at(-1) ?? count - 1;
     if (next >= count) throw new ActionRefused(`there is no link ${next + 1}; the message names ${count}`);
     this.lit = next; this.litOf = r.id;
     // A link below a tall message's fold scrolls into view, as the reader's [ ] does.
     this.view.reveal();
-    return { link: next + 1, of: count };
+    return { link: next + 1, of: count, ...(links[next]?.missing ? { missing: missingWords(links[next]!) } : {}) };
   }
   async openLink(i: number, n: number, ctx: Ctx, actor: Actor) {
     const r = this.rows()[i];
@@ -1474,7 +1482,8 @@ export class StatusMessages extends BbsList {
       lines.push(r.i === this.sel ? selectedRow(on ? litCells(visible(plain!), on.from, on.to) : visible(plain!), w) : plain! + RESET);
     }
     while (lines.length < h - 1) lines.push("");
-    lines.push(hotLine(this.ptr, lines.length, w, [this.litLink() >= 0 ? "|08[ ] link, enter opens it, " : "|08/ search, [ ] link, enter return, PgUp/PgDn scroll, ", ["r reload", char("r")], ", q back"]));
+    const litTo = lit >= 0 ? this.links.get(rows[this.sel]?.id ?? "")?.[lit] : undefined;
+    lines.push(hotLine(this.ptr, lines.length, w, [litTo?.missing ? `|08[ ] link, ${missingWords(litTo)}, ` : lit >= 0 ? "|08[ ] link, enter opens it, " : "|08/ search, [ ] link, enter return, PgUp/PgDn scroll, ", ["r reload", char("r")], ", q back"]));
     return { lines };
   }
   override readonly dispatch = new Dispatcher({ title: "message log", ctx: () => this.ctx }, [

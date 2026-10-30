@@ -873,6 +873,11 @@ export class AgentDrawer {
   agentId(): string | null { const a = this.agentPane(); return a ? tileRegistry.idOf(a.pane) : null; }
   /** The drawer is drawn now: pulled up, on a screen that lets the host layer appear. */
   get shown(): boolean { return this.open && this.active && this.mode !== "none"; }
+  liesOver(row: number): "drawer" | "lift" | null {
+    if (this.d?.liftedDesk) return "lift";
+    const r = this.rect;
+    return this.shown && r && row >= r.row && row < r.row + r.rows ? "drawer" : null;
+  }
   /** Drawn beside the screen (the screen shorter), not over it: the rows it takes from the screen, else 0. */
   besideRows(rows: number, cols: number): number {
     if (!this.shown || this.mode !== "beside") return 0;

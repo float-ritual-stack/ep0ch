@@ -93,7 +93,8 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     await act("facets.match", { id: picked });
     expect(tilePane().list.picked(AS)?.id).toBe(picked);
     await board.request<any>("create", { parentId: null, text: "Seedling late [tray::bulk]", author: "agent" });
-    await until(() => tile().matched === 206, "the new note counted");
+    // The tile's count and its group's are two reads of the change: wait for both (box-test --each, under load, caught the group a read behind).
+    await until(() => tile().matched === 206 && today().count === 206, "the new note counted");
     expect(today()).toMatchObject({ count: 206, more: 0 });
     expect(today().notes.length).toBe(206);
     expect(tilePane().list.picked(AS)?.id).toBe(picked);

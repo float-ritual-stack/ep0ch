@@ -15,7 +15,7 @@
 // without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep. `--site` prints
 // the text and the service's whole `site.answer` for its `{{ }}` (PIE-533 S2), as a JSON line a program reads.
-import type { MachineryLeftOut, MachineryMode } from "@ep0ch/outline-core/machinery";
+import { MACHINERY_MODES, type MachineryLeftOut, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
@@ -46,7 +46,7 @@ import { recordJson } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 
 export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
-  ep0ch find [<words>…] [--query "<expression>" [--property-scope block|line|inline|all]] [--view <id>] [--under <id>]
+  ep0ch find [<words>…] [--query "<expression>" [--property-scope block|line|inline|all] [--machinery hide|only|show]] [--view <id>] [--under <id>]
              [--sort <key> [--direction asc|desc]] [--updated-after|--updated-before|--created-after|--created-before <date>]
              [--ids | --lines | --json]
                                    notes: with words, the service's ranked search, tree.search (the ranker
@@ -76,6 +76,9 @@ export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --
                                    - [x] step's chips no longer match); each note then says the line it
                                    matched on, and --json gives each record its matches. A view says its
                                    own with [property-scope::all].
+                                   --machinery says what --query or --under holds of the notes tools stamp
+                                   [machine::…] (peer messages, tosses, fetched notifications): hide (the
+                                   default, said on stderr with how many), only, or show.
                                    --ids prints ((id)) a line, for $(…) (ep0ch show $(ep0ch find --ids …));
                                    --lines one per line, id<TAB>title<TAB>path<TAB>uri, for a picker; with --tree,
                                    then <TAB>depth<TAB>glyphs<TAB>about (├─ │ └─; about: work-id · stage · type);
@@ -242,7 +245,7 @@ export interface Out { out: (s: string) => void; err: (s: string) => void; colum
 export interface Selection { ids: string[]; query?: string; view?: string; under?: string; sort?: string; direction?: string; words: string[]; dates: string[]; /** Which chips the query reads (PIE-1277): block (the default), line, inline or all. */ propertyScope?: string; /** What a query holds of the notes tools stamped `[machine::…]` (PIE-867): the service's hide when left out. */ machinery?: MachineryMode; /** Ask the service to count what hide left out, by producer (PIE-1427). */ countMachinery?: boolean }
 
 /** The flags that select notes and take a value, and the query clause each date flag writes. */
-export const SELECT_FLAGS = ["--query", "--view", "--under", "--sort", "--direction", "--property-scope", "--updated-after", "--updated-before", "--created-after", "--created-before"];
+export const SELECT_FLAGS = ["--query", "--view", "--under", "--sort", "--direction", "--property-scope", "--machinery", "--updated-after", "--updated-before", "--created-after", "--created-before"];
 const PROPERTY_SCOPES: readonly string[] = PROPERTY_QUERY_SCOPES;
 const DATE_CLAUSES: Record<string, string> = {
   "--updated-after": "updated >", "--updated-before": "updated <", "--created-after": "created >", "--created-before": "created <",
@@ -265,10 +268,17 @@ export function selectionOf(args: string[]): { selection: Omit<Selection, "ids" 
       if (!PROPERTY_SCOPES.includes(v.trim().toLowerCase())) return { error: `--property-scope is ${PROPERTY_SCOPES.join(", ")}, not ${v}: all reads a [key::value] on any line too` };
       sel.propertyScope = v.trim().toLowerCase();
     }
+    else if (f === "--machinery") {
+      const mode = v.trim().toLowerCase();
+      if (!(MACHINERY_MODES as readonly string[]).includes(mode)) return { error: `--machinery is ${MACHINERY_MODES.join(", ")}, not ${v}: show holds the notes tools stamp [machine::…] with the rest` };
+      sel.machinery = mode as MachineryMode;
+    }
     else if (/\s/.test(v.trim())) return { error: `${f} takes one date or time (2026-03-01, -7d, today, 2026-03-01T09:00Z), not ${v}` };
     else sel.dates.push(`${DATE_CLAUSES[f]} ${v.trim()}`);
   }
   if (sel.direction && !sel.sort) return { error: `--direction orders a --sort: --sort due --direction ${sel.direction}` };
+  if (sel.machinery && sel.view) return { error: `a view holds the machinery its own [machinery::] says; --machinery goes with --query or --under (ep0ch show ${sel.view} --source shows the view's)` };
+  if (sel.machinery && !sel.query && !sel.dates.length && !sel.under && !sel.sort) return { error: `--machinery says what a --query or --under holds; give one: ep0ch find --query "<expression>" --machinery ${sel.machinery}` };
   if (sel.propertyScope && !sel.query && !sel.dates.length && !sel.view) return { error: `--property-scope says which chips a --query reads; give one: ep0ch find --query needs --property-scope ${sel.propertyScope}` };
   return { selection: sel, rest: without(args, SELECT_FLAGS, []) };
 }
@@ -410,7 +420,8 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
       const picked = await selectNotes(board, { ids: [], ...sel, words });
       if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 1; }
       if (picked.truncated) io.err(`ep0ch: only ${picked.truncated}; narrow it (another clause, --under <id>)`);
-      if (picked.hint) io.err(`ep0ch: ${picked.hint}`);
+      // The service says its own words (`machinery=show`, a view's and the MCP tools'); here they're this command's flag.
+      if (picked.hint) io.err(`ep0ch: ${picked.hint.replace(/\bmachinery=(\w+)/g, "--machinery $1")}`);
       if (idsOut) { for (const id of picked.ids) io.out(`((${id}))`); return 0; }
       if (json) return await printRecords(board, picked.ids, io, picked.matches);
       const index = await board.index(), by = new Map(index.map(b => [b.id, b])), pathOf = pathsOf(index);
