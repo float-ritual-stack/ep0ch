@@ -1603,8 +1603,9 @@ export async function proposalOutcomesOf(client: AgentToolsClient, input: { sinc
   const persona = parseActor(whose).persona;
   if (!session) return { ...page, said: `no proposals by ${persona ?? whose} changed ${since}: an edit that applied is no proposal, and each change of one is told once (pass since to look further back)` };
   const others = (await ask(false, 50)).outcomes.length;
-  const left = others ? `; ${others >= 50 ? "50 or more" : others} proposal ${others === 1 ? "change" : "changes"} by ${whose} from other sessions are left out (actor="${whose}" lists them)` : "";
-  return { ...page, said: `none from this session: ${whose} writes with no persona, so only this session's proposals are its own${left}. A persona (agent = "<name>" in the folder's .ep0ch, or EP0CH_AGENT) hears every session's` };
+  const count = others >= 50 ? "50 or more changes" : others === 1 ? "1 change" : `${others} changes`;
+  const left = others ? `; ${count} to proposals by ${whose} from other sessions ${others === 1 ? "is" : "are"} left out (actor="${whose}" lists them)` : "";
+  return { ...page, said: `none from this session: ${whose} writes with no persona, so only this session's proposals are its own${left}. With a persona (agent = "<name>" in the folder's .ep0ch, or EP0CH_AGENT), a session hears the proposals of every session writing as it` };
 }
 
 /**

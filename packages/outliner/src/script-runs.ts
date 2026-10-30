@@ -1,7 +1,7 @@
 import { DRAFT_PROPOSAL_TYPE } from "./draft-patch";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
-import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
+import { DEFAULT_MACHINERY, isMachinery } from "@ep0ch/outline-core/machinery";
 import { rebaseSpans, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { createPatch } from "diff";
 import { buttonCallAt, type ButtonCall } from "@ep0ch/outline-core/button-call";
@@ -18,6 +18,7 @@ import { hostApi, type HostApi, type HostStep } from "./host-api";
 import { runScript, type ScriptSiteGlobals } from "./script-runtime";
 import { PRIMITIVE_TYPES, renderComponent, validateComponent, type ComponentOutput, type Primitive } from "./component-primitives";
 import { textRecord } from "./block-records";
+import { blockDisplayTitle } from "./references";
 import { visibleMatches } from "./site-producers";
 import { bind, answerSite } from "./site-answer";
 import { scriptFence } from "./script-sources";
@@ -506,14 +507,22 @@ export class ScriptRuns {
           result.message = failure !== undefined ? stoppedSaid ?? `${failure || "Script failed"} · check the script and run it again`
             : reason === "done" ? message : "Script stopped; run it again when ready";
           result.state = reason;
-          // Notes only: never its own log, a proposal or comment it wrote (at propose access a write is one), nor a note
-          // it made and trashed again in the same run.
+          // Notes only: never its own log, a proposal or comment it wrote (at propose access a write is one), a tool's
+          // bookkeeping ([machine::…], a figure-fit record a create leaves), nor a note it made and trashed again in the same run.
           const notes = [...changed].flatMap(([id, change]) => {
             const b = this.store.get(id), type = b?.properties.find(p => p.key === "type")?.value;
-            if (!b || id === log?.id || NOT_NOTES.has(type ?? "") || (change === "created" && b.effectiveDeletedRootId)) return [];
+            if (!b || id === log?.id || NOT_NOTES.has(type ?? "") || isMachinery(b.properties) || (change === "created" && b.effectiveDeletedRootId)) return [];
             return [{ id, title: firstLineWithoutPropertyTokens(b.text)?.trim() || id.slice(0, 8), change }];
           });
           if (notes.length) result.changed = notes;
+          // The edits that became proposals (propose access, or a note open in a draft): each beside the note it is for.
+          const proposed = [...changed].flatMap(([id, change]) => {
+            const b = this.store.get(id);
+            if (change !== "created" || !b || b.effectiveDeletedRootId || b.properties.find(p => p.key === "type")?.value !== DRAFT_PROPOSAL_TYPE) return [];
+            const note = b.parentId ? this.store.get(b.parentId) : undefined;
+            return [{ id, note: b.parentId ?? "", title: note ? blockDisplayTitle(note) : "" }];
+          });
+          if (proposed.length) result.proposed = proposed;
           if (returned !== undefined && returned !== result.message) result.answer = returned;
           if (trace && failure) { trace.problem = failure; trace.result.text += `\n${failure}`; }
           this.ended?.({ run: undo, reason, ...(sequence ? { sequence: true } : {}), message: result.message, written, requestedBy, undo: (sequence !== undefined || reason === "done") && undoAvailable,

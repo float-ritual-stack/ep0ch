@@ -453,7 +453,8 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "gives the script as `this`; `slots` are the values a button's slots would carry (`{ week: \"42\" }`), the script's " +
       "`props`: with both, a run here is the person's press. Documents and explicit output are kept as run notes; " +
       "[results::keep] requests a full run record; `written` lists those, and `changed` the notes the run itself changed " +
-      "(id, title, and created, edited, moved, trashed or restored). Its writes use the outline's MCP access: proposals at propose, applied at full.",
+      "(id, title, and created, edited, moved, trashed or restored), and `proposed` the edits that became proposals " +
+      "instead (the proposal's id, the note it is beside and its title). Its writes use the outline's MCP access: proposals at propose, applied at full.",
     properties: {
       ref: REF,
       this: { type: "string", description: "The note the run is about, as a press in it would give: its id, ((id)), [[page]] or Work ID" },

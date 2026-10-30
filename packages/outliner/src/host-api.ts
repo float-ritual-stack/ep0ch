@@ -151,7 +151,8 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
           const subject = mark.originalTarget.representation.subject;
           if (subject.kind !== "block") throw new WorkToolRefusal("MCP script replies need a note's thread");
           blockId = subject.blockId;
-        } else blockId = (await resolveRef(client, String(ref))).id;
+        } else if (definition.name === "outline_create" && String(ref).trim() === "root") blockId = "root"; // the top level, as the tool and the CLI take it
+        else blockId = (await resolveRef(client, String(ref))).id;
         const outcome = await applyWrite({
           request: (action, args) => client.request({ action, ...args } as Parameters<AgentToolsClient["request"]>[0]),
           info: () => client.requireCompatibleService(),
