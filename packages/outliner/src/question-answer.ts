@@ -14,7 +14,7 @@ export type ValuesOf = (block: Block, key: string) => string[];
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** The bucket an ISO time falls in: `2026-10-09`, `2026-W41` (ISO week), `2026-10` or `2026`, in UTC; `recent`: recentBucket. */
+/** The bucket an ISO time falls in: `2026-10-09`, `2026-W41` (ISO week), `2026-10` or `2026`, read off the ISO as written (questionGroups hands it a block's time on this machine's wall clock); `recent`: recentBucket. */
 export function dateBucket(iso: string, unit: DateUnit, now = Date.now()): string | null {
   if (unit === "recent") return recentBucket(iso, now);
   const at = new Date(iso);

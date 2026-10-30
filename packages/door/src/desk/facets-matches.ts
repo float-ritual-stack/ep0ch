@@ -40,7 +40,7 @@ export const MORE = "\u0000more:";
  * each holding the returned notes its ids name and those read for it since (`extra`, by group label), and how many are
  * still to read. A pinned note isn't listed a second time under its day; ungrouped, one group of them all.
  */
-export function matchGroups(notes: readonly Msg[], groups: readonly QuestionGroup[] | undefined, pinned: readonly Msg[], matched: number, extra: ReadonlyMap<string, readonly Msg[]> = new Map()): MatchGroup[] {
+export function matchGroups(notes: readonly Msg[], groups: readonly QuestionGroup[] | undefined, pinned: readonly Msg[], matched: number, extra: ReadonlyMap<string, readonly Msg[]> = new Map(), extraMore: ReadonlyMap<string, boolean> = new Map()): MatchGroup[] {
   const pins = new Set(pinned.map(m => m.id));
   const byId = new Map(notes.map(m => [m.id, m]));
   const out: MatchGroup[] = pinned.length ? [{ value: PINNED, label: PINNED, count: pinned.length, notes: [...pinned], more: 0 }] : [];
@@ -51,7 +51,8 @@ export function matchGroups(notes: readonly Msg[], groups: readonly QuestionGrou
     const mine = read ? read.filter(m => !pins.has(m.id)) : g.ids.flatMap(id => (pins.has(id) ? [] : byId.has(id) ? [byId.get(id)!] : []));
     // Its count leaves out the pinned notes it holds, which are counted under Pinned.
     const count = g.count - g.ids.filter(id => pins.has(id)).length;
-    if (count > 0) out.push({ value: g.value, label, count, notes: mine, more: read ? 0 : Math.max(0, count - mine.length) });
+    // Read in full, a group has no more; read a page at a time past 1,000, it keeps its more row until the last page.
+    if (count > 0) out.push({ value: g.value, label, count, notes: mine, more: read && !extraMore.get(label) ? 0 : Math.max(0, count - mine.length) });
   }
   return out;
 }

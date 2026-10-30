@@ -73,7 +73,8 @@ describe("a group's notes, asked for by its own clause (PIE-1448)", () => {
     try {
       const now = new Date(); now.setHours(12, 0, 0, 0);
       const ago = (days: number, hour = 10) => { const d = new Date(now); d.setDate(d.getDate() - days); d.setHours(hour); return d.toISOString(); };
-      const times = [0, 1, 3, 6, 9, 25, 40, 70, 400].map(n => ago(n));
+      // Near midnight too, where a UTC day and the wall clock's part ways.
+      const times = [...[0, 1, 3, 6, 9, 25, 40, 70, 400].map(n => ago(n)), ago(2, 0), ago(3, 23), ago(45, 0), ago(45, 23)];
       const made = times.map((t, i) => { const b = store.create(`Note ${i} [plot::${i % 2 ? "beds" : "shed"}]`); store.database.query("UPDATE blocks SET updated_at = ? WHERE id = ?").run(t, b.id); return b.id; });
       for (const group of ["updated:recent", "updated:day", "updated:week", "updated:month", "plot"]) {
         const groups = store.queryBlocks({ where: "plot", group, limit: 1000 }).groups!;

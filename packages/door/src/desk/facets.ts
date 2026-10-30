@@ -150,6 +150,8 @@ export class FacetsPane implements Pane, AttachedOwner {
   private views: Msg[] = [];
   /** A group's notes read past the first page (PIE-1448), by its label; read again with the selection. */
   private extra = new Map<string, Msg[]>();
+  /** The groups whose last page read was full: their more row stays. */
+  private extraMore = new Map<string, boolean>();
   /** The titles of the notes Matches' rows live under, by id: where a note lives, said on its row. */
   private homes = new Map<string, string>();
   /** The page whose links pin notes (PIE-1448): pinning writes there, never in the note pinned. */
@@ -228,7 +230,7 @@ export class FacetsPane implements Pane, AttachedOwner {
       this.answer = now; this.all = all ?? now; this.error = null;
       this.pinned = pinned?.notes ?? [];
       if (views) this.views = views.notes;
-      this.extra.clear();
+      this.extra.clear(); this.extraMore.clear();
       await this.readHomes(desk, [...now.notes, ...this.pinned, ...this.views]);
       this.dayCounts = new Map((days?.groups ?? []).flatMap(g => (g.value ? [[g.value, g.count] as [string, number]] : [])));
       this.setRows();
@@ -287,7 +289,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   /** Matches' rows from the answers: the service's groups, Pinned first, each note a card. */
   private setRows() {
     const a = this.answer;
-    this.groupsKept = a ? matchGroups(a.notes, a.groups, this.pinned, a.matched, this.extra) : [];
+    this.groupsKept = a ? matchGroups(a.notes, a.groups, this.pinned, a.matched, this.extra, this.extraMore) : [];
     this.list.set(matchRows(this.groupsKept, this.show, this.pin, m => (m.parentId ? this.homes.get(m.parentId) : undefined)));
     this.rowsKept = null;
   }
@@ -307,15 +309,21 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (!g) throw new ActionRefused(`Matches has no group ${label}`);
     const clause = bucketWhere(this.group, g.value);
     if (!clause) throw new ActionRefused(`${label} can't be asked for by itself`);
-    const q = this.query(), was = new Set(g.notes.map(m => m.id));
-    const got = await desk.ctx.board.facetList([q && /\bOR\b/.test(q) ? `(${q})` : q, clause].filter(Boolean).join(" "), 1000, { facets: false, sort: "updated desc", excerpt: true });
+    // A page at a time, older than the last one read (a group past 1,000 notes keeps its more row); an answer that lands
+    // after the selection changed is dropped, never put under the new selection's group.
+    const asked = this.asked, q = this.query(), had = this.extra.get(label), was = new Set(g.notes.map(m => m.id));
+    const older = had?.length ? ` updated < ${new Date(had[had.length - 1]!.updatedAt).toISOString()}` : "";
+    const got = await desk.ctx.board.facetList([q && /\bOR\b/.test(q) ? `(${q})` : q, clause].filter(Boolean).join(" ") + older, 1000, { facets: false, sort: "updated desc", excerpt: true });
     await this.readHomes(desk, got.notes);
-    this.extra.set(label, got.notes);
+    if (asked !== this.asked) return { group: label, notes: 0 };
+    const all = [...(had ?? []), ...got.notes];
+    this.extra.set(label, all);
+    this.extraMore.set(label, got.truncated);
     this.setRows();
     const first = got.notes.find(m => !was.has(m.id));
     if (first) { this.list.setPick(PERSON, first.id); const at = this.rows().findIndex(r => r.kind === "note" && r.note.id === first.id); if (at >= 0) this.at = at; }
     desk.redraw();
-    return { group: label, notes: got.notes.length };
+    return { group: label, notes: all.length };
   }
   /** The notes Matches lists, in the order drawn (Pinned first). */
   notes(): Msg[] { return this.list.pickable(PERSON).flatMap(r => (r.source ? [r.source] : [])); }
