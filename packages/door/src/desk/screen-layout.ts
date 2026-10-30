@@ -209,8 +209,8 @@ export type At<I = number> = Place<I>
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */
 export type Op<I = number> =
   | { op: "open"; placement: PlacementRequest<I>; tile: I; name?: string; kind?: string }
-  /** `fits`: an open that named no place (an agent's `tile.open` with neither tile= nor where=): too narrow to read beside its target, it floats (PIE-1444). */
-  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; deliberate?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[]; fits?: boolean }
+  /** `unnamed`: an open that named no place (an agent's `tile.open` with neither tile= nor where=): too narrow to read beside its target, it floats (PIE-1444). */
+  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; deliberate?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[]; unnamed?: boolean }
   | { op: "close"; tile: I; gone?: boolean }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
   | { op: "replace"; tile: I; with: I; kind: string; name?: string; link?: I; verb?: WireVerb; selectFrom?: I[] }
@@ -1197,12 +1197,15 @@ class Step<I> {
     let name = op.name;
     if (name !== undefined && named(this.d, name) !== undefined) { if (op.loose) name = undefined; else refuse(`there's already a tile named ${name}`); }
     const label = name ?? `a new ${op.kind} tile`;
-    // An agent's tile too narrow to read beside its target (PIE-1444: 11 columns between five readers) floats when it named
-    // no place (no tile, no where=), and is said when it did: a place it asked for is where it goes.
-    const narrow = this.takesKeys ? null : this.tooNarrow(op.at);
-    // (Beside the tile the person types in, the typing guard answers instead: a float would cover their edit.)
-    const floats = !!narrow && !!op.fits && !(op.at.kind === "split" && this.ctx.protectTyping && op.at.target === this.ctx.person.typingIn);
-    const at: At<I> = floats ? { kind: "float" } : op.at;
+    // An agent's tile too narrow to read beside its target (PIE-1444: 11 columns between five readers): naming no place
+    // (no tile, no where=), it goes below when that reads (`splitAxis`'s other side), else it floats; a place it named is
+    // where it goes, said. (Beside the tile the person types in, the typing guard answers instead: a float would cover it.)
+    const wide = this.takesKeys ? null : this.tooNarrow(op.at, op.tile);
+    const below: At<I> | null = wide && op.unnamed && op.at.kind === "split" && (op.at.dir === "left" || op.at.dir === "right") ? { ...op.at, dir: "down" } : null;
+    const roomBelow = below !== null && this.tooNarrow(below, op.tile) === null;
+    const narrow = roomBelow ? null : wide;
+    const floats = !!narrow && !!op.unnamed && !(op.at.kind === "split" && this.ctx.protectTyping && op.at.target === this.ctx.person.typingIn);
+    const at: At<I> = floats ? { kind: "float" } : roomBelow ? below! : op.at;
     this.into(op.kind, label, at);
     this.d.names.set(op.tile, name ?? autoName(this.d, op.kind));
     if (op.alt) this.d.altReaders.add(op.tile);
@@ -1233,20 +1236,19 @@ class Step<I> {
     // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
     if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
     for (const from of op.selectFrom ?? []) this.linkTo(from, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, "select");
-    this.d.answer = { tile: this.d.names.get(op.tile), ...(!automatic ? { deliberate: op.deliberate ?? true } : {}), ...(op.link !== undefined ? { link: this.name(op.link) } : {}), ...(narrow ? { why: `${narrow}, ${floats ? "so it floats (layout.move tile=<it> to=<a tile> places it)" : "as asked (naming neither tile= nor where=, it floats)"}` } : {}) };
+    this.d.answer = { tile: this.d.names.get(op.tile), ...(!automatic ? { deliberate: op.deliberate ?? true } : {}), ...(op.link !== undefined ? { link: this.name(op.link) } : {}), ...(narrow ? { why: `${narrow}, ${floats ? "so it floats (layout.move tile=<it> to=<a tile> places it)" : "as asked (naming neither tile= nor where=, it floats)"}` } : roomBelow ? { why: `${wide}, so it went below it`, where: "down" } : {}) };
   }
   /**
-   * How a new tile at `at` would be too narrow (or short) to read, or null: its share of the tile it splits is under
+   * How a new tile `id` at `at` would be too narrow (or short) to read, or null: as drawn after the split, under
    * OPEN_READS. Only a split is measured; a tab, an edge, a container or a flow column has its own room.
    */
-  private tooNarrow(at: At<I>): string | null {
-    if (at.kind !== "split") return null;
-    const r = rects({ ...this.d, zoom: null }, this.ctx.area).get(at.target);
-    if (!r) return null;
-    const share = at.weight ?? 0.5, across = at.dir === "left" || at.dir === "right";
-    const cols = across ? Math.floor(r.cols * share) : r.cols, rows = across ? r.rows : Math.floor(r.rows * share);
-    if (cols >= OPEN_READS.cols && rows >= OPEN_READS.rows) return null;
-    return `beside ${this.name(at.target)} it is ${cols}×${rows}, under the ${OPEN_READS.cols}×${OPEN_READS.rows} a tile reads at`;
+  private tooNarrow(at: At<I>, id: I): string | null {
+    if (at.kind !== "split" || !has(this.d.tree, at.target)) return null;
+    // Measured as it would be drawn: the split made on a copy of the tree, borders and all.
+    const tree = normalise(besideSlot(clone(this.d.tree), at.target, leaf(id), at.dir, at.weight ?? 0.5, !!at.pair));
+    const r = rects({ ...this.d, tree, zoom: null }, this.ctx.area).get(id);
+    if (!r || r.cols >= OPEN_READS.cols && r.rows >= OPEN_READS.rows) return null;
+    return `beside ${this.name(at.target)} it is ${r.cols}×${r.rows}, under the ${OPEN_READS.cols}×${OPEN_READS.rows} a tile reads at`;
   }
   /** The person's open found the column already open: back from there returns to where they opened it from. */
   private reach(id: I, from: I, keys = true) {
@@ -1460,7 +1462,7 @@ class Step<I> {
     if (this.isFloat(src)) {
       this.d.floats = this.d.floats.filter(f => f.id !== src);
       this.putAt(src, to);
-      if (!this.agent) this.d.focus = src;
+      if (this.takesKeys) this.d.focus = src;
       return;
     }
     const next = move(this.d.tree, src, to);
@@ -1476,7 +1478,7 @@ class Step<I> {
     // An agent's move into the tabs the person has open leaves their tab shown.
     if (this.agent && wasShown.includes(this.d.focus) && !shown(this.d.tree).includes(this.d.focus)) activate(this.d.tree, this.d.focus);
     this.d.zoom = null;
-    if (!this.agent) this.d.focus = src;
+    if (this.takesKeys) this.d.focus = src;
   }
 
   private swap(a: I, b: I) {
@@ -1516,7 +1518,7 @@ class Step<I> {
     this.d.tree = normalise(remove(this.d.tree, id)!);
     this.d.collapsed.delete(id);
     this.d.floats.push({ id, rect: this.onScreen(this.newFloatRect()) });
-    if (!this.agent) this.d.focus = id;
+    if (this.takesKeys) this.d.focus = id;
     this.d.zoom = null;
     this.d.answer = { floated: true };
   }

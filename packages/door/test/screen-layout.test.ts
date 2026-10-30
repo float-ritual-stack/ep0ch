@@ -373,7 +373,7 @@ describe("agents never take the person's place (C3, C4)", () => {
     const split = run(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 1, dir: "right" } });
     expect(split.ok ? "opened" : split.refused).toMatch(/^the person is typing in r1; an agent doesn't resize it/);
     // Naming no place (PIE-1444) changes nothing here: a float would cover their edit, so the typing guard answers.
-    const unnamed = run(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 1, dir: "right" }, fits: true });
+    const unnamed = run(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 1, dir: "right" }, unnamed: true });
     expect(unnamed.ok ? "opened" : unnamed.refused).toMatch(/^the person is typing in r1; an agent doesn't resize it/);
     // Beside another tile it opens, and r1 is as it was.
     const beside = run(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 3, dir: "right" } });

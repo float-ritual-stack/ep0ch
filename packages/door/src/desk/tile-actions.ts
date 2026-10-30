@@ -205,7 +205,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       const opening = canonSpec({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "follows" | "held" | "pinned" } : {}), ...t });
       const wrong = tileKind(opening.kind)?.check?.({ ...opening, cmd: opening.cmd === undefined ? undefined : lineWords(opening.cmd) }, opening);
       if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
-      return await d.openTile(opening, to ?? reader, whereOf(where, "tile.open", "right"), actor, { fits: to === undefined && reader === undefined && where === undefined });
+      return await d.openTile(opening, to ?? reader, whereOf(where, "tile.open", "right"), actor, { unnamed: to === undefined && reader === undefined && where === undefined });
     },
   }),
   "tile.close": def({

@@ -5637,7 +5637,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * `tile.open`: a new tile beside (or in the tabs of) tile `at`. `link`: the tile whose opens land in it, linked in the
    * same layout step (tile.preview); `keys: false` leaves the person's keys where they are.
    */
-  async openTile(given: NewTile, at: string | undefined, where: Where, actor: Actor, also: { link?: number; verb?: WireVerb; keys?: false; fits?: boolean } = {}): Promise<TileDone> {
+  async openTile(given: NewTile, at: string | undefined, where: Where, actor: Actor, also: { link?: number; verb?: WireVerb; keys?: false; unnamed?: boolean } = {}): Promise<TileDone> {
     const t = canonSpec(given);
     if (t.outline) await outlineBoards(this.ctx).on({ outline: t.outline, machine: t.machine });
     const k = kindOf({ kind: t.kind } as Pane);
@@ -5659,7 +5659,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return { ...this.tileAnswer(existing), kind: t.kind };
     }
     // From a float (a new note's, PIE-591) naming no tile: beside the tile under it, where esc in it goes back to.
-    const under = at === undefined && this.isFloat(this.focus) ? this.grounded() : undefined;
+    const under = at === undefined && this.isFloat(this.focus) ? this.besideFocus() : undefined;
     const empty = !this.all().length;
     const base = empty ? { id: this.focus, name: "home" } : this.tile(under !== undefined ? this.nameOf(under) : at);
     let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...(t.state ? { state: t.state } : {}), ...this.mountFields(t) };
@@ -5685,7 +5685,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.save(); this.redraw();
     // Too narrow to read beside base (an agent's open, PIE-1444): it floated, or went where asked, and the answer says so.
     const why = typeof r.answer.why === "string" ? r.answer.why : undefined;
-    return { ...this.tileAnswer(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where: this.isFloat(id) && !empty ? "float" : where, ...(why ? { why } : {}), ...(also.link !== undefined ? { from: this.tileId(also.link), fromName: this.nameOf(also.link) } : {}) };
+    return { ...this.tileAnswer(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where: this.isFloat(id) && !empty ? "float" : typeof r.answer.where === "string" ? r.answer.where : where, ...(why ? { why } : {}), ...(also.link !== undefined ? { from: this.tileId(also.link), fromName: this.nameOf(also.link) } : {}) };
   }
 
   // ── mounts and groups (PIE-651) ──
@@ -6015,6 +6015,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The last tile the keys were in that isn't a float: where an open from a float lands beside. */
   private lastGrounded: number | undefined;
   private notedFocus: number | undefined;
+  /** Where an open from the person's focus goes beside: their tile, or from a float the tile under it (tile.open, inTile). */
+  private besideFocus(): number | undefined { return this.isFloat(this.focus) ? this.grounded() : this.focus; }
   private grounded(): number | undefined {
     const g = this.lastGrounded;
     return g !== undefined && this.panes.has(g) && !this.isFloat(g) && visible(this.root).includes(g) ? g : this.tabStops().find(id => !this.isFloat(id));
@@ -6629,12 +6631,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const layers = root.relatives().map(d => { const rects = host?.isDrawer(d.top()) && host.folded ? new Map<number, Rect>() : d.rectsNow(); return { screen: d.spec.name, focus: d.panes.has(d.focus) ? d.tileId(d.focus) : null, zoom: d.zoom !== null ? d.tileId(d.zoom) : null, drawer: !!this.ctx?.hostLayer?.isDrawer(d.top()), ...(host?.isDrawer(d.top()) ? { rect: host.drawnRect() } : {}),
       tree: describeLayout(d.layout, id => d.nameOf(id), id => d.tileId(id)),
       tiles: d.all().map(id => ({ ...d.tileView(id, undefined, rects, full), path: root.pathTo(d.panes.get(id)!) })) }; });
-    const { tiles: _own, ...top } = root.layoutGet(full);
-    return { ...top, ...(full ? {} : { brief: "each tile as its kind describes itself in brief; full=true gives their whole descriptions" }), layers, tiles: layers.flatMap(l => l.tiles) };
+    return { ...root.layoutHead(), ...(full ? {} : { brief: "each tile as its kind describes itself in brief; full=true gives their whole descriptions" }), layers, tiles: layers.flatMap(l => l.tiles) };
   }
+  /** The layout as data; `full` says how much each tile says (a kind's brief description, or its whole). */
   layoutGet(full = true) {
     const rects = this.rectsNow();
-    return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ ...this.tileAnswer(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id, undefined, rects, full)) };
+    return { ...this.layoutHead(), tiles: this.all().map(id => this.tileView(id, undefined, rects, full)) };
+  }
+  /** layoutGet without its tiles: for a caller that has its own (layoutAll's layers, a mount in brief). */
+  layoutHead() {
+    return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ ...this.tileAnswer(f.id), rect: this.floatRect(f) })) };
   }
 
   /**
@@ -6675,7 +6681,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // program that wants width (a picker's list) when beside would leave it narrower than tall (`splitAxis`, the layout's
     // one rule). A tile not placed yet splits beside.
     // From a float (an agent's open that had no room, PIE-1444): beside the tile under it, as tile.open does.
-    const beside = this.isFloat(at) ? this.grounded() ?? at : at;
+    const beside = this.besideFocus() ?? at;
     const r0 = this.placed.rects.get(beside);
     const dir = p.wide && r0 && splitAxis(r0, true) === "col" ? "down" : "right";
     const where: At<number> = this.inFlow(beside) ? { kind: "next", from: beside } : { kind: "split", target: beside, dir };
