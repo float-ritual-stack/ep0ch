@@ -9,7 +9,7 @@ import { App } from "../src/app";
 import { openScreen } from "../src/desk/screen-specs";
 import { wKey, wRows } from "../src/desk/wkeys";
 import { SocketBoard, USER } from "../src/socket";
-import { visible } from "../src/style";
+import { fitHint, visible } from "../src/style";
 import { bindings, conflicts, fightOf, rebindEffects, unbound, type Binding } from "../src/surface/key-catalog";
 import { allActionSets } from "../src/surface/actions";
 import { declaredOf, effective, keymapEntries, keymapProblem, resetKeys, keymapPath, moved, asTyped, parse, reloadKeymap, setKeys, undoKeymap } from "../src/surface/keymap";
@@ -385,6 +385,24 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
       await until(() => tiles() === before, "esc closed it");
     } finally { cols = 177; rows = 60; lines(); }
   });
+
+  test("at 44 and 40 columns rows that differ in their last words keep them, and the hint row keeps esc (PIE-1439)", async () => {
+    await import("../src/river/column");
+    await shell("keys.open", {});
+    await until(() => focusedKind() === "keys", "the window");
+    try {
+      const p = keysPane();
+      p.filter = "in:river tile.focus"; p.at = 0;
+      for (const w of [44, 40]) {
+        const l = (p.render(w, 30, true, desk()).lines.map(visible) as string[]).join("\n");
+        expect(l, `left at ${w}`).toMatch(/…\s*left/);
+        expect(l, `right at ${w}`).toMatch(/…\s*right/);
+        expect(fitHint(p.hint(), w - 4).text, `the hint row at ${w}`).toContain("esc");
+      }
+      p.filter = "";
+    } finally { key({ kind: "esc" }); }
+    await until(() => focusedKind() !== "keys", "closed");
+  });
 });
 
 test("? on a river column opens on the river's keys, its h l x p among them; in an edit, the note's (PIE-1425)", async () => {
@@ -398,4 +416,28 @@ test("? on a river column opens on the river's keys, its h l x p among them; in 
   expect(shown.some(b => b.action === "column.move")).toBe(true);
   expect(bindings().filter(b => matches(b, "in:status")).every(b => b.scope === "status")).toBe(true);
   expect(shown.some(b => b.scope === "note")).toBe(false);
+});
+
+test("in the river, what takes a key first is what the river runs: nothing the main menu's letters say; ^W chords are listed in:river (PIE-1439)", async () => {
+  await import("../src/river/column");
+  const { matches } = await import("../src/desk/keys-window");
+  const { shadowsOf } = await import("../src/surface/key-catalog");
+  const all = bindings();
+  const river = all.filter(b => matches(b, "in:river"));
+  // x, h, w and I in a river column are its own: a menu letter works only on the main menu, so it takes none of them.
+  for (const key of ["x", "h", "w", "l", "I"]) {
+    const b = river.find(r => r.key === key);
+    expect(b, `the river's ${key}`).toBeDefined();
+    expect(shadowsOf(b!, all).over.map(o => `${o.id} (${o.scope})`), `what takes ${key} first`).toEqual([]);
+  }
+  // The menu's letters say where they work: the menu.
+  const letter = all.find(b => b.action === "screen.open" && b.key === "x")!;
+  expect(letter.scope).toBe("menu");
+  expect(matches(letter, "in:menu")).toBe(true);
+  // A key that truly works on every screen still says what it takes: alt+v over a tile's own alt+v, if any, is the App's.
+  expect(all.find(b => b.action === "video.cycle" && b.key === "alt+v")!.layer).toBe("every screen");
+  // The ^W chords work in a river, a screen of tiles: in:river lists them.
+  expect(river.some(b => b.key === "ctrl+w x" && b.action === "tile.close")).toBe(true);
+  // Conflicts agree: no fight is found where no "taken by" is said.
+  expect(conflicts(all)).toEqual([]);
 });

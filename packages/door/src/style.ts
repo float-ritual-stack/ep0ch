@@ -263,6 +263,27 @@ export function pad(s: string, w: number): string {
 
 /** `s` cut to `w` cells, ending in `…`, when it's wider; never padded, never through a wide or joined glyph. */
 export const ellipsize = (s: string, w: number): string => width(s) <= w ? s : w < 1 ? "" : headOf(s, w - 1) + "…";
+/**
+ * `s` cut to `w` cells as `ellipsize` cuts it, unless that reads the same as one of `others` cut alike, though the two
+ * differ (PIE-1439: "give your keys to the column …" for left and right), or the cut falls in its last word: then the
+ * words before are cut first, so the word that differs is kept (`give your keys… left`). Plain text, as `ellipsize` takes.
+ */
+export function ellipsizeApart(s: string, w: number, others: readonly string[]): string {
+  const cut = ellipsize(s, w);
+  if (cut === s) return cut;
+  const alike = others.filter(o => o !== s && ellipsize(o, w) === cut);
+  const words = s.split(" ");
+  // Only the last word cut (`the tile to the rig…`): that word is the one a neighbour differs by, so it stays.
+  const lastCut = words.length > 1 && cut.length - 1 > s.lastIndexOf(" ");
+  if (!alike.length && !lastCut) return cut;
+  // The words every look-alike shares with `s` from its start: the rest is what tells them apart.
+  const shared = alike.length ? Math.min(...alike.map(o => { const ow = o.split(" "); let n = 0; while (n < words.length && ow[n] === words[n]) n++; return n; })) : words.length - 1;
+  const rest = words.slice(shared).join(" ");
+  // A look-alike that only adds words to `s`: nothing of `s` tells them apart, so it is cut as ever.
+  if (!rest) return cut;
+  if (width(rest) + 2 > w) return "…" + ellipsize(rest, w - 1);
+  return ellipsize(words.slice(0, shared).join(" "), w - width(rest) - 1).replace(/…?$/, "…") + " " + rest;
+}
 /** Drawing only: keep the hidden value for Canvas and the composed frame's reveal. */
 export function drawEllipsized(s: string, w: number): string {
   const drawn = ellipsize(s, w);

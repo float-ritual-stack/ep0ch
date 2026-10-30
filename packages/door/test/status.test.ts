@@ -137,6 +137,15 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     app.flash("");
   });
 
+  test("a message naming a note by a labelled reference says its label, not the raw ((id|label)) (PIE-1439)", () => {
+    app.flash("couldn't run it: ((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34|Seed order)) changed since you read it");
+    const line = bar();
+    expect(line).toContain("couldn't run it: Seed order changed since you read it");
+    expect(line).not.toContain("((");
+    // The message log keeps it as said, the reference whole, so it still finds the note.
+    expect(app.messages.rows.at(-1)?.message).toContain("((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34|Seed order))");
+  });
+
   test("a clipped clickable flash leaves the clock outside its hyperlink", async () => {
     const url = "https://example.test/" + "garden/".repeat(30);
     for (const cols of [80, 50]) {
@@ -207,7 +216,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
             await force();
             click("REC stop");
             await until(() => !app.recording.active, "the recording chip stops recording");
-            await until(() => app.messages.rows.some(m => m.message.startsWith("Saved recording-")), "the recording is saved");
+            await until(() => app.messages.rows.some(m => m.message.startsWith("Saved recorded-")), "the recording is saved");
           }
           if (app.drawer.open) await app.dispatch.act({ action: "host.toggle" }, USER);
           while (app.screens().length > 1) app.pop();

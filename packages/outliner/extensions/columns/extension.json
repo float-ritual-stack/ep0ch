@@ -3,7 +3,7 @@
   "id": "columns",
   "version": 3,
   "name": "Columns",
-  "description": "Rich component: the notes under a line are sections drawn side by side, stacked when the reader is narrow.",
+  "description": "Notes laid out side by side as columns, stacked when the screen is narrow.",
   "run": ["bun", "columns.ts"],
   "handlers": [
     {

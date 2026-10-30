@@ -3,7 +3,7 @@
   "id": "jira",
   "version": 2,
   "name": "Jira",
-  "description": "Write a ticket key and jira:: and the Jira ticket is in the outline: its status, assignee, type, priority and labels as properties, read again when stale.",
+  "description": "A Jira ticket's status, assignee and priority on the note that names it, kept fresh.",
   "run": ["bun", "jira.ts"],
   "configSchema": {
     "type": "object",

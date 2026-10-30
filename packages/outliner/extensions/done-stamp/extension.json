@@ -3,7 +3,7 @@
   "id": "done-stamp",
   "version": 1,
   "name": "Done stamp",
-  "description": "A rule that runs: when a block's status becomes done it gets [done-at::<date>]; when it stops being done the stamp goes.",
+  "description": "Stamps the date on a note when its status becomes done, and takes it off if it reopens.",
   "run": ["bun", "done-stamp.ts"],
   "actions": [
     { "id": "stamp", "label": "Stamp the date it was done", "on": "block", "effects": "write" },

@@ -216,6 +216,20 @@ describe("the mouse: the wheel scrolls, a click places the cursor", () => {
     const past = d.posAt(40, 0);                                // past a row's end: the end of that row
     expect(d.lines[0]!.slice(0, past.col)).toBe("- one two");
   });
+  test("a twin offer at 40 columns keeps its Work ID and both controls whole, each a click where it's drawn (PIE-1439)", () => {
+    const twin = "looks like HOME-12 (queued) Fix the back gate latch · the title matches";
+    for (const w of [177, 40, 32]) {
+      const d = at_end("Fix the back gate latch bolt");
+      const lines = renderEditor(d, { title: "new card in Queued", status: [], twin, preview: () => ({ lines: [], links: [], source: [] }) }, w, 12).map(l => cellsOf(l).join(""));
+      const all = lines.join("\n");
+      expect(all, `at ${w}`).toContain("HOME-12");
+      for (const [action, text] of [["attach", "[attach here]"], ["file-new", "[file new]"]] as const) {
+        const c = d.frame!.controls.find(x => x.action === action)!;
+        expect(lines[c.row]!.slice(c.from, c.to), `${action} at ${w}`).toBe(text);
+      }
+      expect(Math.max(...lines.map(l => l.trimEnd().length)), `fits ${w}`).toBeLessThanOrEqual(w);
+    }
+  });
   test("the edit frame says where the text is and where its preview control is", () => {
     const d = at_end("- a");
     const lines = renderEditor(d, { title: "comment · Lantern", status: ["ok"], preview: t => ({ lines: [`preview of ${t}`], links: [], source: [0] }) }, 60, 12);

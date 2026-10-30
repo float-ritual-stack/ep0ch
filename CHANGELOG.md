@@ -18,6 +18,37 @@ are its record. The outliner's entries from then are kept below, under
 - **Said under the button:** "each entry lands under this note", "under [[Repair list]]" or "is a line added to this note".
 - **A typo saves and says so:** `[form-into::inlne]` or a page nobody has is warned on with a did-you-mean; the fill refuses and writes nothing.
 - **Run:** `ep0ch install --apply` (GRAMMAR 14: an older door draws Fill in the form and keeps working); the form extension is version 2.
+### Extension pages and the power bar's extensions say what each one does for you
+
+- **Every extension's page leads with what it does for you:** where to look, then what you do, as short lines; setup, how it works and the builder's guide sit lower. All 24 bundled pages rewritten, notify first.
+- **One line each, in plain words:** every extension's description (the hub, its page, the `&` list, the install preview) says what you get, not what kind of part it is.
+- **A page can't ship as a wall:** a test runs the write review's code rubric (walls, stacked bullets, long titles, prose alone) over every bundled page as the host writes it.
+- **Settings on a page:** one line per setting with its default, under a lead saying where to change them.
+- **The `&` list is one row per extension:** a row says its settings only when they need you (needs setup, failing), with a settings row for just those; every preview says them in words, and `settings <id>` typed finds any form.
+- **A recording gets a real name:** unnamed, it's named after what it did (`recorded-note-open-oct29-151402`, titled "Recorded: note.open, …"), never `recording-<timestamp>`.
+- **Run:** `ep0ch install --apply`; pages are written again on the next reload. A recording saved before keeps its old name: rename its note.
+### What the new screens say is true at every width (PIE-1439)
+
+- **The keys window:** in the river, x, h, w and I no longer say a main-menu letter takes them first; a key says
+  "taken by" only where both keys work, and Conflicts agrees. `in:river` lists the ^W chords too.
+- **At 40 columns:** rows that read alike once cut keep the word that differs (`… left`, `… right`), and the hint row
+  keeps esc.
+- **A failed run:** the status line says a note's label, never a raw `((id|label))`; the message log keeps it whole.
+- **The power bar:** an argument's list keeps off the docs beside it; a note's edit lists its tile's actions first
+  from the start, as ctrl+k and / do.
+- **The twin row at 40 columns:** the offer gets a row of its own with its Work ID, the controls whole under it.
+- **outline_snapshot of a copy:** `asOf` is the copy's newest change, and the headline says it; `snapshotAt` is when
+  the snapshot was made.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+### One place decides where your key goes (PIE-1438)
+
+- **Whatever is in front of you gets the key:** the power bar, a status-bar menu, the message log, a tile menu or a
+  float takes Esc, and nothing reaches the terminal under it. The door now asks one answer (where you are) for this,
+  so a new overlay can't let a key leak to the program behind it; `ep0ch peek`'s `person` names that layer too.
+### Shares' Start a public link works again
+
+- **The site's own forms post:** pages behind sign-in were sent with `Referrer-Policy: no-referrer`, under which a browser sends `Origin: null` on a form POST, so the site's own check refused Shares' "Start a public link" ("A change comes from this site's own pages"). They now say `same-origin`: no link leaving the site carries a referrer, as before, and the site's own forms post.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (it restarts the publishers).
 
 ### Open a note as it was at a revision, beside how it is now (PIE-1433)
 

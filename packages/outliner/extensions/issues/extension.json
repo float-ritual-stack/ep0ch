@@ -3,10 +3,10 @@
   "id": "issues",
   "version": 1,
   "name": "Issues",
-  "description": "A completion source: a tracker's open issues offered under [[ and [issue::, ranked with the outline's own pages.",
+  "description": "Your tracker's open issues, offered as you type a link.",
   "run": ["bun", "issues.ts"],
   "sources": [
     { "id": "issues", "title": "issues", "triggers": ["[[", "key::"], "keys": ["issue"],
-      "description": "open issues by number or title: [[ or [issue:: then a word; ⏎ writes [issue::#12]" }
+      "description": "open issues by number or title; enter writes [issue::#12]" }
   ]
 }

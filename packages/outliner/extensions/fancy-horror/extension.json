@@ -3,7 +3,7 @@
   "id": "fancy-horror",
   "version": 1,
   "name": "Fancy Horror",
-  "description": "Rich component: a sign's weekly dread, drawn from the shared primitives, with omens you ward off.",
+  "description": "A sign's weekly dread, with omens you can ward off.",
   "run": ["bun", "fancy-horror.ts"],
   "handlers": [
     {

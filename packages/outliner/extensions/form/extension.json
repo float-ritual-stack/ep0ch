@@ -3,7 +3,7 @@
   "id": "form",
   "version": 2,
   "name": "Form",
-  "description": "A form written in the note it's used on: [form-field::…] chips say its fields, and one action asks for them and writes an entry under the note with its answers as properties.",
+  "description": "A form in a note: one action asks its questions and files your answers as an entry under it.",
   "run": ["bun", "form.ts"],
   "actions": [
     { "id": "fill", "label": "Fill in the form", "on": "block", "effects": "write", "fieldsFrom": "block",

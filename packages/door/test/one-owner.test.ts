@@ -1,7 +1,8 @@
 // One owner for each decision about the person and the agents (PIE-1294, CONTRIBUTING §5 "A hydra"): who may act
 // (`actorRule`, through the dispatcher and `Dispatcher.rule`), whether a reader takes another note (`holdsEdit`,
 // ReaderPane.keepsOff, placement()), who a write is recorded as (`recorded` in socket.ts), whether yolo is on
-// (App.person's whereabouts) and who stands as the person (`standsAsPerson`). This test reads the door's source and
+// (App.person's whereabouts), who stands as the person (`standsAsPerson`) and who takes the person's next key (App.person's
+// `over`, `keys` and `program`, PIE-1438). This test reads the door's source and
 // fails when a file decides one of these itself: a new copy is folded into its owner, or, when it truly is another
 // question, it gets a row here with its stance. A count that went down is lowered here too, so the table stays true.
 import { describe, expect, test } from "bun:test";
@@ -101,6 +102,37 @@ const FAMILIES: Family[] = [
       "desk/backlinks-pane.ts": { n: 1, why: "asks the owner" },
       "hub/welcome.ts": { n: 1, why: "asks the owner: whether the person's pick empties the preview" },
       "drawer.ts": { n: 1, why: "agent.restart asks the owner who its own typing window holds back" },
+    },
+  },
+  {
+    question: "who takes the person's key now: the door's own layer, the drawer, the screen, a program under them (PIE-1438)",
+    // Asking a screen, a desk or the drawer whether it has the keys or a program does (`?.rawKeys?.()`, `?.holdsKeys?.()`,
+    // `programKeys()`, `rawInput()`), or whether the bar's menu is over the drawer. Before, the raw sink, the router and
+    // Esc's hold each asked their own (#1062, #1071 fixed one overlay at a time); now App.person answers and they read it.
+    // A new overlay or screen is over a program by being a layer person() reads (a screen pushed, an overlay on a desk),
+    // never by a check of its own in the router.
+    pattern: /\.(?:rawKeys|holdsKeys)\?\.\(|\.programKeys\(|\.rawInput(?:\?\.)?\(|\boverDrawer\(/g,
+    allowed: {
+      "app.ts": { n: 11, why: "the owner: keyLayers (person() carries it) and its feeders (overDrawer, programUnder); the raw sink hands bytes to the layer it named (the drawer's or the screen's rawInput); the router's door keys (alt+v, ctrl+n, ^K…) read the top screen's own answer once, after the layer is decided; a gesture's next press (heldAfter)" },
+      "whereabouts.ts": { n: 2, why: "screenKeys: a screen without tiles says whether it holds the keys, the answer person() starts from" },
+      "desk/desk.ts": { n: 1, why: "programKeys' own walk into the group the person went into" },
+      "drawer.ts": { n: 5, why: "the drawer's own key handling inside its layer (its tab's terminal, Esc putting it away when the screen under it isn't using the key, ctrl+]'s second press): person() already gave it the key" },
+      "desk/screen-tile.ts": { n: 2, why: "a tile framing a screen asks that screen, inside the desk's own key handling" },
+      "desk/lanes.ts": { n: 2, why: "whether to move focus for the person (lanes), not where a key goes" },
+      "hub/welcome.ts": { n: 1, why: "whether to move focus for the person (the welcome preview), not where a key goes" },
+      "brief/brief.ts": { n: 1, why: "the brief's , and . inside its own key handling, once the desk has the key" },
+      "echonet/screen.ts": { n: 1, why: "EchoNet's message keys inside its own key handling, once the desk has the key" },
+      "showcase/showcase.ts": { n: 2, why: "the showcase's stage says whether its framed screen holds the keys (its own answer, read by person())" },
+    },
+  },
+  {
+    question: "is one of the door's own layers open over everything (the key probe, a status-bar menu over the drawer) (PIE-1438)",
+    // The checks #1062 and #1071 added in the router one overlay at a time. They are read in App.keyLayers alone (with
+    // the power bar, which too many places open and close to count here); the router branches on its `over`.
+    pattern: /\bthis\.probing\b|\boverDrawer\(|\bprogramUnder\(/g,
+    allowed: {
+      "app.ts": { n: 7, why: "the owner, keyLayers (probing, overDrawer, programUnder) and their definitions; probeKeys sets and toggles it" },
+      "term.ts": { n: 9, why: "the terminal's own capability probe at start (Kitty, size, colours), another thing named probing" },
     },
   },
 ];

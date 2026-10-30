@@ -1,28 +1,37 @@
 # Structure
 
-Three things you do to notes by hand, as actions: **extract** a passage into its own child block, **sort a list**
-inside a block, **sort a block's children**. All are the extension's own writes (`ext:structure`), so every surface
-shows who wrote them. Every saying in the demo is made up.
+Tidy-ups you'd do by hand, as actions: pull a passage into its own note, sort a list, sort a note's children.
 
-| Action | Acts on | Does |
-|---|---|---|
-| `extract` (`x`) | a passage | The passage becomes a new last child of the note and is replaced in place by `!((child))`. A whole list item (with its sub-items) becomes a child titled by the item, and the note keeps its bullet: `- !((child))`. An anchor at the end of an extracted line (`^s5`) goes with it, and every link to it points at the child (`move-anchor`). |
-| `sort-selection` (`s`) | a passage | Sorts the list items the selection touches, each with its sub-items. |
-| `sort-list` (`l`) | a block | Sorts the block's first list (`list=2`: the second). |
-| `sort-blocks` (`o`) | a block | Sorts the block's child blocks. |
+## What you do
 
-**How to say what to sort by.** The sorts declare their arguments: `by` (`title`, the default, `created` for children,
-or any property the items or children have) and `order` (`asc` or `desc`). Run by key or from the power bar, the door
-asks for them, offering the keys the rows actually have; an agent says them, `act ext.structure.sort-list block=<id>
-by=price order=desc` (`ep0ch ext act structure sort-list --block <id> --arg by=price --arg order=desc`). A note can
-say its own default, `[sort-by::price] [sort-order::desc]`, and the service fills it in. Numbers sort as numbers,
-words without regard to case, an item without the property goes last. A property nobody has is refused with the
-nearest keys that exist.
+- **Extract (`x`):** select a passage; it becomes a new last child of the note, and `!((child))` takes its place.
+  - A whole list item with its sub-items becomes a child titled by the item; the note keeps `- !((child))`.
+  - An anchor at the end of an extracted line (`^s5`) goes with it, and every link to it follows.
+- **Sort a selection (`s`):** sorts the list items the selection touches, each with its sub-items.
+- **Sort a list (`l`):** sorts the block's first list (`list=2` for the second).
+- **Sort the children (`o`):** sorts the block's child blocks.
+- **Undo:** `ctrl+z` in the reader, or `ep0ch ext undo <id>`, takes the whole step back.
 
-**Each action is one step.** Extract makes the child and rewrites the note in one write group (the child named `child`
-and linked as `!((child))`): both land or neither does, and `ctrl+z` in the reader (or `ep0ch ext undo <id>`) takes both
-back. If the person has the note open in a draft, the pair waits as one proposal beside the note. Sort blocks is one
-`order` write: the children in their new order, refused if a child came or went meanwhile. Mind that a child that is
-also embedded in its parent shows twice.
+## Saying what to sort by
 
-Install: `outliner ext add structure`. Remove: `outliner ext remove structure`.
+- **`by`:** `title` (the default), `created` for children, or any property the items or children have.
+- **`order`:** `asc` or `desc`.
+- **In the door,** running by key or from the power bar asks for both, offering the keys the rows actually have.
+- **From a shell:** `ep0ch ext act structure sort-list --block <id> --arg by=price --arg order=desc`.
+- **A note's own default:** write `[sort-by::price] [sort-order::desc]` on it.
+- **How it compares:** numbers as numbers, words without regard to case, an item without the property last.
+- **A property nobody has** is refused, with the nearest keys that exist.
+
+## Good to know
+
+- **Each action is one step.** Extract writes the child and the rewritten note as one group: both land or neither.
+- **An open draft waits.** If you have the note open in a draft, the pair waits as one proposal beside the note.
+- **Sort children is one write.** It's refused if a child came or went meanwhile.
+- **A child embedded in its parent** shows twice.
+- **Who wrote it:** every write is `ext:structure`, so every surface says so.
+
+## Setup
+
+- **Install:** `outliner ext add structure`.
+- **Remove:** `outliner ext remove structure`.
+- **The demo:** every saying in it is made up.

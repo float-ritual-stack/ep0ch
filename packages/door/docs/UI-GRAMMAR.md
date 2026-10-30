@@ -198,6 +198,11 @@ Waiting-on-you's terminal rows select before Enter takes the keys to that termin
 - **One dispatcher per screen host (PIE-514).** Keys, clicks and `act` all run actions through it; `tile=` has
   one grammar everywhere, and whether an agent may is read from each action's declared `touches` against one
   whereabouts query, not decided screen by screen.
+- **One owner for where a key goes (PIE-1438).** The person's whereabouts say which layer takes the next key: the
+  door's own over everything (`over`, top first: the power bar, the key probe, a status-bar menu over the drawer), the drawer or the
+  screen (`keys`), and a program under them (`program`, with whether something is open over it). The raw sink, the key
+  router and Esc's hold read that answer; a new overlay is over a program by being a layer it reads (a screen pushed, an
+  overlay on a desk), never by a check in the router. `test/one-owner.test.ts` fails on a new decider.
 - **Agents can arrange the desk and the board.** Note actions are shared everywhere, and the `tile.*`
   actions (open, close, resize, zoom, float, pin, collapse) are shared by the desk
   and the board. The river has
@@ -431,7 +436,7 @@ book-spines section runs all of it.
 | dispatcher | One per screen host: reads `tile=`, finds the action's set, checks `expected=` and the actor rule, runs it, says refusals and `says` | `Dispatcher` in `src/surface/dispatch.ts` | none |
 | touches | What an action declares it reaches (`nothing`, `tile`, `shape`, `draft`, `screen`), with `replay` (`safe`, `ask`): the one actor rule reads it | `ActionDef.touches`, `actorRule` | none |
 | repaints | Whether a run changed what's shown: left out, an action touching `nothing` changed nothing and every other did; `true`, `false` or a function of its answer. The person's press repaints once for it, never twice | `ActionDef.repaints`, `asPerson` | none |
-| whereabouts | Where the person is: the screen, the tile with their focus, the tile they type in, busy, idle, away; the shell's one answer | `App.person()`, `src/whereabouts.ts` | none |
+| whereabouts | Where the person is: the screen, the tile with their focus, the tile they type in, busy, idle, away, and who takes their next key (the door's own layer over everything, the drawer or the screen, a program under them: PIE-1438); the shell's one answer | `App.person()`, `src/whereabouts.ts` | none |
 | provenance | "an agent (id) · …" on screen and in writes | `asActor` `act:88` | provenance |
 | control socket | `peek`, `snap`, `open`, `actions`, `act` | `src/control.ts` | UI commands |
 | presence | Who is attached and what they read | `scr:355`, `pan:411` | client registry |
@@ -1214,8 +1219,9 @@ desk's, until `^W e` goes in: then every key is the mount's, its `^W` too, and `
   `river` unless an edit is open), else its kind's action set's; the keys screen is for a screen without tiles (`ep0ch --screen keys`, a BBS list). `⏎` (or a second click
   on the selected row) is `keys.run`: the binding's action, pressed as the person in the tile the window opened beside;
   one needing arguments the binding doesn't give opens its form in the power bar (`bar.form op=open`). `esc` and `q`
-  close it. The catalog's bindings filtered as typed (`in:<scope>` is a scope
-  exactly, or a set a table says it is part of, `KeyTable.within`: `in:river` holds the river column's tables), each row one sentence: the action's
+  close it. The catalog's bindings filtered as typed (`in:<scope>` is where a binding works, the catalog's `worksIn`: a
+  scope exactly, a set a table says it is part of, `KeyTable.within`: `in:river` holds the river column's tables, and
+  the ^W chords on a screen of tiles), each row one sentence: the action's
   `words`, then where or when, or the row's own `says` (`TableRow.says`, `KeyRow.says`) where its hint word alone would
   be a fragment (`test/key-rows.test.ts` refuses a `, <word>` tail and an act argument), each with its layer, what it takes its key from and what takes it first, and whether a terminal tile's
   program still gets it. `r` records the new key (^W then a key for a ^W binding), says what it would take before ⏎
@@ -1223,7 +1229,11 @@ desk's, until `^W e` goes in: then every key is the mount's, its `^W` too, and `
 - **Conflicts are real fights only** (PIE-1425), by the order a key is looked up: two rows of one key table on one key
   whose kinds meet (`only`/`unless`: the table is read first to last, so the second never runs), and one key in two
   entries of the keymap file (the App presses the last). An action set's own keys are one key, one meaning at a time
-  (its code picks by state: esc clears the bar, then closes it), and a key in two layers is a shadow said on each row.
+  (its code picks by state: esc clears the bar, then closes it), and a key in two layers is a shadow said on each row,
+  only where both work (PIE-1439): a key row that is one screen's own says so (`KeyRow.on`: the main menu's letters
+  are `on: "menu"`), two screens' own keys never meet, a screen without tiles has no tile, mode or ^W keys, and a
+  screen's spec keys come before a tile's (`Desk.boundKey`), so the river's `x` is its own. At 40 columns rows that
+  read alike once cut keep the word that tells them apart (`ellipsizeApart`), and the hint row says esc early.
   A row of an action's keys reads as a whole sentence: the action's words, then the row's where or when.
 - **Unbound** (the fourth tab): every action of every action set that no binding reaches (`unbound` in the catalog,
   read from `allActionSets`, never a list), by layer and scope; its `r` is the same rebind, through the App's keymap

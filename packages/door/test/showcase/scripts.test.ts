@@ -279,13 +279,15 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await until(() => !app.recording.active, "the click stopped recording");
     let saved: any;
     await untilAsync(async () => {
-      const hit = (await board.queryNotes("script", 100)).notes.find(n => n.text.startsWith("recording-"));
+      const hit = (await board.queryNotes("script", 100)).notes.find(n => n.text.startsWith("Recorded: "));
       saved = hit ? await board.get(hit.id) : undefined;
       return !!saved;
     }, "the recording saved");
+    // Named after what it did, never by its own timestamp alone (a row reading "recording-1792… · recording-1792…").
+    expect(saved.text.split("\n")[0]).toMatch(/^Recorded: \S/);
     expect(saved.text).toContain(body.replaceAll('"', '\\"').replaceAll("\\ path", "\\\\ path"));
-    await until(() => !!extensionList()?.extensions.find(e => e.name?.startsWith("recording-")), "the multiline recording loaded");
-    const extension = extensionList()!.extensions.find(e => e.name?.startsWith("recording-"))!;
+    await until(() => !!extensionList()?.extensions.find(e => e.name?.startsWith("recorded-")), "the multiline recording loaded");
+    const extension = extensionList()!.extensions.find(e => e.name?.startsWith("recorded-"))!;
     await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER);
     await until(() => (app as any).message.includes("done · ctrl+z"), "the multiline comment replayed");
     await app.dispatch.act({ action: "comment.close", tile: "notes" }, USER);

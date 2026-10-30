@@ -89,6 +89,8 @@ export class PowerBar {
   private readonly docsGesture = new Gesture();
   private docsSelection: Selection | null = null;
   private docsRect: Rect | null = null;
+  /** Where the lit row's preview (its docs) was drawn last, docs or not: the line's completion list keeps off it (PIE-1439). */
+  private previewRect: Rect | null = null;
   private docsLines: string[] = [];
   private docsDoc: ReturnType<typeof draftPreviewDoc> | null = null;
   private docsRows() {
@@ -486,7 +488,7 @@ export class PowerBar {
       rect, title: " power bar ",
       foot: this.docsMode ? "docs: arrows / page keys select · y or cmd+c copy · enter example · esc returns to line" : scoped?.foot?.() ?? "esc clear/close · ↑↓ pick · ⏎ run · ⇥ complete · alt+o copy · alt+y button · alt+i insert · alt+m menu · alt+v docs",
       head, ...(tail.length ? { tail } : {}),
-      preview, previewPlaced: (rect: Rect | null) => { this.docsRect = this.docsLines.length ? rect : null; },
+      preview, previewPlaced: (rect: Rect | null) => { this.previewRect = rect; this.docsRect = this.docsLines.length ? rect : null; },
     };
   }
 
@@ -586,9 +588,11 @@ export class PowerBar {
     const c = completerOf(this.input), pop = c && completionOf(this.input);
     if (c) c.drawn = null;
     if (!c || !pop || this.scope === "ask" || this.compact()) return;
-    const word = this.query.slice(0, this.input.cursor).lastIndexOf(" ") + 1;
-    const pw = Math.min(r.cols - 2, Math.max(28, Math.min(72, r.cols - 6)));
-    const x = Math.max(1, Math.min(3 + Math.min(width(this.query.slice(0, word)), this.fieldW - 1), r.cols - 1 - pw)), y = 3;
+    const word = this.query.slice(0, this.input.cursor).lastIndexOf(" ") + 1, y = 3;
+    // Beside the docs, never over them: the list keeps to the rows' column where that holds one (28 cells at least).
+    const pv = this.previewRect, beside = pv && pv.col > 30 && pv.row + pv.rows > y ? pv.col - 1 : r.cols - 1;
+    const pw = Math.min(beside - 1, Math.max(28, Math.min(72, r.cols - 6)));
+    const x = Math.max(1, Math.min(3 + Math.min(width(this.query.slice(0, word)), this.fieldW - 1), beside - pw));
     const rows: (number | null)[] = [];
     const lines = renderCompletion(pop, pw, Math.max(3, Math.min(COMPLETION_ROWS, r.rows - y - 1)), rows, 0, values);
     lines.forEach((l, i) => canvas.text(x, y + i, l, pw));

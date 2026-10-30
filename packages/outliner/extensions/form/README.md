@@ -1,8 +1,6 @@
 # Form
 
-A form written in the note it's used on (PIE-828). The note says its fields, one chip per field; one action, **Fill in
-the form**, asks for them and writes an entry under the note, each answer a property on it. A reading log, a bug
-report and a sprint check each write their own fields and share the one action.
+A form written in the note it's used on: one action asks for its fields and writes your answers as an entry under the note.
 
 ```text
 Reading log
@@ -10,20 +8,17 @@ Reading log
   └─ The Lantern Shed [book::The Lantern Shed] [pages::212] [mood::gripping]   ← written by ext:form
 ```
 
-- **A field** is `[form-field::<name> <type> [<options>] [required] [default=<value>]]`. The type is `text`, `number`,
-  `choice` (its options after it, split by `|`: `good|meh|rough`), `property` (a property's name), `note` (a note, found
-  by its words) or `tag` (a `#tag`). `required` asks
-  until it has an answer; `default=` is lit first.
-- **Checked by the service,** as an action's declared arguments are: a choice among its options, a number a number, a
-  required one present. A chip it can't read (`[form-field::mood choise good|meh]`) is saved as written and said on the
-  save, with what it may have meant (`did you mean choice?`); the action refuses with the same words.
-- **In the door:** the power bar (`ctrl+k`, type `fill`, ⏎ or a click on the row) runs it on the note in front of you,
-  then asks for each field in turn: a choice's options as rows (its default first), a text or number typed, one that
-  isn't `required` left empty. An agent gives them at once and is never asked:
-  `ep0ch act ext.form.fill block=<id> with='{"book":"Moss","pages":"90"}'`
-  (`ep0ch ext act form fill --block <id> --arg book=Moss --arg pages=90`).
-- **Change the form where it's used:** edit the note's chips, and the next run asks the new fields. The action is told
-  them too (`input.fields`, in the note's order), so it knows which answers are the note's.
+## What you do
+
+- **Fill it in:** `ctrl+k`, type `fill`, then Enter or click the row.
+  - It runs on the note in front of you and asks for each field in turn.
+  - A choice's options are rows, default first.
+  - Text or a number is typed; a field that isn't `required` can be left empty.
+- **Write a form:** put one `[form-field::…]` chip per field on the note.
+- **Change it:** edit the note's chips; the next run asks the new fields.
+- **As an agent:** give the answers at once and never be asked.
+  - `ep0ch act ext.form.fill block=<id> with='{"book":"Moss","pages":"90"}'`
+  - Or `ep0ch ext act form fill --block <id> --arg book=Moss --arg pages=90`.
 
 ## Where it lands and what the button says
 
@@ -40,5 +35,30 @@ Pages read [form-submit::Add it] [form-into::inline] [form-line::- {book}: {page
 - The Lantern Shed: 212 pages        ← added by Add it
 ```
 
-How an action asks for a note's fields: `"fieldsFrom": "block"` in `extension.json` (the contract's
-[declared arguments](../../docs/extensions/README.md)). Install: `outliner ext add form`.
+## Fields
+
+- **Shape:** `[form-field::<name> <type> [<options>] [required] [default=<value>]]`.
+- **`text`, `number`:** typed.
+- **`choice`:** its options after it, split by `|`: `good|meh|rough`.
+- **`property`:** a property's name.
+- **`note`:** a note, found by its words.
+- **`tag`:** a `#tag`.
+- **`required`:** asks until it has an answer.
+- **`default=`:** lit first.
+
+## Good to know
+
+- **The service checks answers** as it does an action's declared arguments.
+  - A choice is among its options, a number is a number, a required one is present.
+- **A chip it can't read** is saved as written and said on the save, with what it may have meant.
+  - For example `[form-field::mood choise good|meh]` says `did you mean choice?`, and the action refuses with the same words.
+
+## Setup
+
+- **Install:** `ep0ch ext add form`.
+
+## How it works
+
+- **One action,** **Fill in the form**, shared by every form: a reading log, a bug report and a sprint check each write their own fields (PIE-828).
+- **Fields come from the note:** `"fieldsFrom": "block"` in `extension.json` (the contract's [declared arguments](../../docs/extensions/README.md)).
+- **The action is told them too** (`input.fields`, in the note's order), so it knows which answers are the note's.
