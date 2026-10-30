@@ -25,7 +25,12 @@ describe("showcase: one completer (PIE-1076)", () => {
     await until(() => marks["one-completer"]!.every(m => screen().includes(m)), "the one-completer section", 8000);
     press({ kind: "enter" });
     // The stage opened the edit and asked for the actions here: a / line under the cursor's, its list open.
-    await listed("the actions here", labels => labels.length > 3);
+    const first = await listed("the actions here", labels => labels.length > 3);
+    // The note's tile's own actions first, as ctrl+k and / list them, though the keys came in after the list was asked
+    // for (PIE-1439): never the door's host.* first.
+    expect(first.items[0]!.kind).toBe("action");
+    expect(first.items.slice(0, 3).map(i => i.detail ?? i.label).join(" ")).not.toContain("host.");
+    expect(first.items.map(i => i.detail ?? "").some(d => d.includes("tile.close"))).toBe(true);
     type("sort list");
     let p = await listed("sort-list by its words", labels => labels[0] === "Sort the list in this block");
     // What the host binds (block=, with=) is never offered; ⏎ takes the action and lists its arguments next.
@@ -59,6 +64,11 @@ describe("showcase: one completer (PIE-1076)", () => {
     press({ kind: "tab" });
     await until(() => bar().query === "tile.zoom tile=" && !!line()?.items.some(i => i.label === "jobs"), "this screen's tiles", 8000);
     expect(line()!.items.every(i => i.kind === "value")).toBe(true);
+    // The list keeps off the docs beside the rows (PIE-1439): drawn left of them, never over their words.
+    bar().draw(120, 60);
+    const drawn = (await import("../../src/surface/completer")).completerOf(bar().input)!.drawn!, docs = bar().previewRect, at = bar().rect;
+    expect(docs).toBeTruthy();
+    expect(drawn.col + drawn.cols).toBeLessThanOrEqual(at.col + docs.col);
     // ⏎ takes the lit tile; esc closes a list and leaves the line.
     press({ kind: "enter" });
     await until(() => /^tile\.zoom tile=\S+$/.test(bar().query), "a tile chosen", 8000);

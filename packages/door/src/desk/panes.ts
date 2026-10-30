@@ -541,6 +541,8 @@ export class ReaderPane implements Pane {
       heroBounds: this.heroBounds,
       innerFrame: this.innerFrame,
       ctx: this.context(desk),
+      // The desk itself, when it is a screen (a test's stand-in isn't).
+      screen: () => ("dispatch" in desk && typeof (desk as { key?: unknown }).key === "function" ? desk as unknown as import("../app").Screen : undefined),
       contextFor: m => {
         this.noteAddress = m?.address;
         this.outlineCtx = m?.address ? outlineBoards(desk.ctx).peek(m.address) : undefined;
