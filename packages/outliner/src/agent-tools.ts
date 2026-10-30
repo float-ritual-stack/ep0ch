@@ -970,7 +970,7 @@ export async function viewOrder(
   // The service resolves the view and each ref, and refuses what isn't a view, isn't in it or is sorted.
   let order: VirtualBranchOrder;
   if (refs.length) {
-    if (!actor?.actorId.trim()) throw new WorkToolRefusal("view order writes: pass --actor <agent id>");
+    if (!actor || (!actor.actorId.trim() && actor.author !== "user")) throw new WorkToolRefusal("view order writes: pass --actor <agent id>");
     await client.requireCompatibleService();
     order = await client.request<VirtualBranchOrder>({ action: "virtual.occurrences.move", input: { view: input.view, blocks: refs }, mutation: mutationOf(actor) });
   } else {
