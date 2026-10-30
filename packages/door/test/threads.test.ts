@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { boardScreen } from "./board-view";
-import { Desk } from "../src/desk/desk";
+import { Desk, readerHears } from "../src/desk/desk";
 import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
@@ -347,4 +347,22 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     expect(P().surface.expanded.size).toBe(0);
     expect(P().surface.describe().comments!.threads.map(x => x.expanded)).toEqual([false, false]);
   }, 30_000);
+});
+
+// PIE-1452: an extension's agent answers a thread by writing its reply block, which the service records as a plain
+// create and edit under the thread (not an `annotate`), so the open reader must hear those too: "⋯ working", its
+// rewrites each minute and the answer that replaces it show without reopening the note.
+describe("a reader hears an extension's answer in its thread, without a service (PIE-1452)", () => {
+  const note = { id: "5eed0000-1111-4222-8333-666666666666", text: "Shed jobs\nOil the chain.", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] };
+  const thread = { id: "c0ffee00-1111-4222-8333-666666660000", author: "sam", body: "@margin write the plan", quote: "", at: 0, open: true, lifecycle: "open" as const, start: null, end: null, replies: [{ id: "c0ffee00-1111-4222-8333-66666666aaaa", author: "ext:marginalia", body: "⋯ working", at: 0 }] };
+  const reader = { msg: note, comments: [thread] } as never;
+  const change = (kind: string, blockId: string, parentId?: string) => ({ domain: "content", action: "ext.marginalia.agent.margin", sequence: 1, change: { kind, blockId, ...(parentId ? { parentId } : {}), actor: { author: "agent", actorId: "ext:marginalia" } } }) as never;
+
+  test("the working reply being made, rewritten and replaced reaches the reader; another note's blocks do not", () => {
+    expect(readerHears(reader, change("create", "new-reply", thread.id))).toBe(true);
+    expect(readerHears(reader, change("edit", thread.replies[0]!.id))).toBe(true);
+    expect(readerHears(reader, change("edit", thread.id))).toBe(true);
+    expect(readerHears(reader, change("create", "elsewhere", "another-note"))).toBe(false);
+    expect(readerHears(reader, change("edit", "another-note-reply"))).toBe(false);
+  });
 });
