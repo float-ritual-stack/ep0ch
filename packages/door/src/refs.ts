@@ -20,6 +20,7 @@ import { resourceProviderKeys } from "./resource-providers";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
 import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText, referencesToResolve } from "@ep0ch/outline-core/link-syntax";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
+import { propertyTokenMatches } from "@ep0ch/outline-core/property-grammar";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, pairValues, problemWords, readerWords } from "@ep0ch/outline-core/site-values";
 import type { SiteAnswer, SiteLink, SiteValue } from "@ep0ch/outline-core/site";
@@ -402,7 +403,7 @@ export function referenceWords(text: string): string {
  * Each is an element: ⏎ or a click shows the line the value is written on. Without `site`, or while the answer is on its
  * way, a placeholder stays as typed. `draft`: the text is the note's unsaved one.
  */
-export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = [], site?: { block: string; draft?: boolean; call?: SiteCall }): string {
+export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = [], site?: { block: string; draft?: boolean; call?: SiteCall }, literal: { properties?: boolean } = {}): string {
   embeds = expandsEmbeds(embeds);
   // `noteText`: the whole note `text` was cut from, so it shares that note's one references answer.
   const resolved = referencesIn(noteText, src) ?? new Map<string, ReferenceResolution>();
@@ -464,7 +465,8 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     lineStart += line.length + 1;
     if (typed[i]! >= 0) return line;
     // Each link where outline-core's scan finds it, spliced in by its offsets; code spans keep their text.
-    const code = codeSpanRanges(line);
+    // `literal.properties`: a `[key::value]` is kept as written too (PIE-1455): a message's fix reads as what to type.
+    const code = literal.properties ? [...codeSpanRanges(line), ...propertyTokenMatches(line)] : codeSpanRanges(line);
     const spans: { start: number; end: number; draw: () => string }[] = [];
     for (const p of pairs) if (p.start >= from && p.end <= from + line.length) {
       spans.push({ start: p.start - from, end: p.end - from, draw: () => drawValue(line.slice(p.start - from, p.end - from), p.value!, site!.block) });

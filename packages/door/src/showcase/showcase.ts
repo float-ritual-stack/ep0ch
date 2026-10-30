@@ -1247,13 +1247,14 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "tile-header", need: "give a tile the header it needs: the whole header, the title alone, or none, and a title of your own over the note's",
-    part: "the tile's own header (PIE-1248): tile.header (^W b, the tile menu's header row, act) sets full, title (one line) or none on a reader tile, saved with the layout and over the note's `[header::…]`; mode=note gives it back to the note; a note that is only embeds starts with none. One answer for which rows are drawn (headerShown, beside headerOmits); tile.title's written title heads the reader, its frame and its spine (displayTitle)",
+    part: "the tile's own header (PIE-1248): tile.header (^W b, the tile menu's header row, act) sets full, title (one line) or none on a reader tile, saved with the layout and over the note's `[header::…]`; mode=note gives it back to the note; a note that is only embeds starts with none. One answer for which rows are drawn (headerShown, beside headerOmits); tile.title's written title heads the reader, its frame and its spine (displayTitle); an embed-only note is named by the note it embeds (board.ts subject/headedTitle with the reader's source, PIE-1458)",
     files: "src/surface/note.ts (headerShown, embedOnly, headerBlock), src/desk/desk.ts (headerTile, headerNow, writtenTitle), src/desk/tile-actions.ts (tile.header), src/desk/tiles.ts (TileSpec.header), src/desk/wkeys.ts",
-    aside: "two readers on the allotment notebook: ^W b (or the tile menu's header row) steps one through full, title only and none; none starts the note on its first row and the frame names it · ^W n and a title with spaces (Beds this spring) writes it on the tile: its header, frame and spine say it, the note keeps its own · mode=note gives the note its say back ([header::none] on a dashboard is the note's) · with no byline the tile menu still has comment on the whole note, comments, properties and sources · it is saved with the layout: in a group, in the drawer, after a restart · act: tile.header mode=none tile=right, tile.title text=\"Beds this spring\" tile=left",
+    aside: "two readers on the allotment notebook: ^W b (or the tile menu's header row) steps one through full, title only and none; none starts the note on its first row and the frame names it · ^W n and a title with spaces (Beds this spring) writes it on the tile: its header, frame and spine say it, the note keeps its own · mode=note gives the note its say back ([header::none] on a dashboard is the note's) · with no byline the tile menu still has comment on the whole note, comments, properties and sources · it is saved with the layout: in a group, in the drawer, after a restart · the tile under them holds a note that is only an embed: it starts with no header, and its frame, tab and spine name the note it embeds (Plot at a glance · embed), never its markup · act: tile.header mode=none tile=right, tile.title text=\"Beds this spring\" tile=left",
     stage(n, show) {
-      const left = new ReaderPane(true), right = new ReaderPane(true);
-      return deskOf({ title: "showcase · tile header", panes: [left, right], names: ["left", "right"],
-        layout: ([a, b]) => row(0.5, a!, b!) }, show, [[left, n.notebook], [right, n.notebook]]);
+      const left = new ReaderPane(true), right = new ReaderPane(true), embed = new ReaderPane(true);
+      // Under them, a note that is only the dashboard's embed (PIE-1458): its frame and spine name the dashboard, "· embed" quiet.
+      return deskOf({ title: "showcase · tile header", panes: [left, right, embed], names: ["left", "right", "embed"],
+        layout: ([a, b, c]) => pair("row", 0.5, leaf(a!), pair("col", 0.6, leaf(b!), leaf(c!))) }, show, [[left, n.notebook], [right, n.notebook], [embed, n.dashboardEmbed]]);
     },
   },
   {
@@ -1546,12 +1547,13 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "message-log", need: "read a message after its status flash has gone", part: "App.flash appends to the session's StatusLog; the BBS list actions and RowView show every wrapped line, its words drawn by the reader's inline renderer (presentLinks: a labelled reference by its label, a click opens it), LineField and the shared search matcher search it; withWhole says a cut message above the bar", files: "src/status-log.ts, src/app.ts, src/screens.ts",
-    aside: "Click the status line or press alt+M from any screen. / searches whole messages, actions and tiles; r refreshes the rows; enter goes to the note or tile, PgUp/PgDn or the wheel reads a long message, q comes back. A note a message names reads by its label, as a reader draws it, and a click on it opens the note (status.link n=1). At 44 columns a message too long for the four rows above the bar ends … more alt+M: a click on it opens this log. ep0ch log prints the session file; --follow tails it; peek includes the last 500 messages. Error stacks stay in the file.",
+    aside: "Click the status line or press alt+M from any screen. / searches whole messages, actions and tiles; r refreshes the rows; enter goes to the note or tile, PgUp/PgDn or the wheel reads a long message, q comes back. A note a message names reads by its label, as a reader draws it, and a click on it opens the note (status.link n=1); ] lights the selected message's next link and enter opens it, as a reader's element keys do (status.element by=1). A fix in a message reads exactly as it's written: a [key::value] and a code span are never drawn as titles. At 44 columns a message too long for the four rows above the bar ends … more alt+M: a click on it opens this log. ep0ch log prints the session file; --follow tails it; peek includes the last 500 messages. Error stacks stay in the file.",
     stage(n, show) {
       const list = new StatusMessages();
       show(ctx => {
         ctx.flash("The garden gate needs attention; this message stays in the log after its flash ends.");
-        ctx.flash(`Nothing was filed: ((${n.shed!.id}|the shed note)) is no page; add [page::Shed] to it, or name another with [form-into::…]`, 4000, { kind: "refusal" });
+        // The fix stays as written (PIE-1455): its `[form-into::((…))]` is what to type, never drawn as a title.
+        ctx.flash(`Nothing was filed: ((${n.shed!.id}|the shed note)) is no page; add [page::Shed] to it, or write [form-into::((${n.shed!.id.slice(0, 8)}))]`, 4000, { kind: "refusal" });
         list.enter(ctx); list.reload();
       });
       return list;
@@ -2151,8 +2153,8 @@ export class ServicePane implements Pane {
     const tryIt = async (k: string, f: () => Promise<string>) => { try { say(k, await f()); } catch (e) { say(k, `${fg(C.lred)}${e instanceof Error ? e.message : String(e)}`); } };
     say("protocol (ping)", b.protocol === null ? "not asked yet" : `protocol ${b.protocol}`);
     out.push("");
-    if (n.gardenView) await tryIt(`views.read ((${SEED.gardenView}))`, async () => { const r = await b.readSavedView(n.gardenView!.id); return `${r.status} · ${r.blocks.length} block(s): ${r.blocks.map(subject).join(", ")}`; });
-    if (n.hub) await tryIt(`blocks.read (${SEED.hub}'s lanes)`, async () => { const kids = await b.children(n.hub!.id); const r = await b.readMany(kids.map(k => k.id), ["title", "properties"]); return r.map(subject).join(", "); });
+    if (n.gardenView) await tryIt(`views.read ((${SEED.gardenView}))`, async () => { const r = await b.readSavedView(n.gardenView!.id); return `${r.status} · ${r.blocks.length} block(s): ${r.blocks.map(m => subject(m)).join(", ")}`; });
+    if (n.hub) await tryIt(`blocks.read (${SEED.hub}'s lanes)`, async () => { const kids = await b.children(n.hub!.id); const r = await b.readMany(kids.map(k => k.id), ["title", "properties"]); return r.map(m => subject(m)).join(", "); });
     if (n.hub) await tryIt(`views.planWrite (a new card, first lane)`, async () => {
       const lane = (await b.children(n.hub!.id))[0];
       const p = lane ? await b.planCreate(lane.id) : null;

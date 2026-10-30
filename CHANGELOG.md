@@ -14,6 +14,13 @@ are its record. The outliner's entries from then are kept below, under
 
 - **The ▣ stays clickable under a message:** a status message the bar cuts short is said whole above it, and on a desk it now sits above the hint row instead of over it (with a tile lifted, beside the drawer and in the showcase too), so its chips, dock handles and ▣ screen locked stay drawn and clickable at any width; a click on ▣ right after a refusal that says to click it unlocks (a click on the message still opens the log).
 - **containers.test passes alone:** it had been red alone since PIE-1453 made a click on the whole message open the log; "green in a whole run" was an older commit, not file order.
+
+### Names read right: a fix in the message log, a message's links by keys, an embed-only note's name (PIE-1455, PIE-1458, PIE-1459)
+
+- **A fix reads as written:** a message's `[key::value]` and code spans stay literal in the message log, so `[form-into::((cad3a58b))]` reads as what to type, not the note's title.
+- **Links by keys:** in the message log, `[` and `]` light a link in the selected message and Enter opens it (`status.element by=1`, then `status.link`); a click still opens one.
+- **An embed-only note is named by its embed:** a note that is only `!((id))` or `![[page]]` shows the embedded note's title in its frame, tab and spine, with a quiet `· embed` after it, never its raw markup.
+- **`/` never swallows a key:** in a links tile that lists nothing yet (no note aimed at, still reading), `/` says there's nothing to filter and leaves the keys alone; aimed at a note nothing links to, it draws the filter you type into.
 - **Run:** `ep0ch install --apply`.
 
 ### Desk and navigator polish: spines, list keys, calendar days, backfill dates (PIE-1457)

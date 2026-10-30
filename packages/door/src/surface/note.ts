@@ -1468,7 +1468,7 @@ export class NoteSurface {
     this.takeReveal(m, host);
     host.ctx.board.ancestors(m.id).then(a => {
       if (this.msg?.id !== m.id) return;
-      this.crumbs = a.map(subject).join(" › ") || "top level"; host.redraw();
+      this.crumbs = a.map(m => subject(m)).join(" › ") || "top level"; host.redraw();
     }, () => {});
     return true;
   }
@@ -1848,7 +1848,7 @@ export class NoteSurface {
     // The one name (board's headedTitle); its two parts colour it, the ID in the accent.
     // A title written on the tile (tile.title) heads it in place of the note's, as its frame and spine say it.
     const written = this.printed ? undefined : host?.tileTitle;
-    const named = written ? { workId: null } : workIdTitle(subject(m), prop(m, "work-id")), focused = host?.focused !== false, title = written ?? headedTitle(m);
+    const named = written ? { workId: null } : workIdTitle(subject(m, src), prop(m, "work-id")), focused = host?.focused !== false, title = written ?? headedTitle(m, src);
     // In the theme's heading colour (PIE-809): the theme caps white near the body text's grey, so a white title read as
     // body; the note's top heading is drawn as its headings are.
     const ink = (focused ? fg(C.yellow) : fgRgb(theme().palette[C.yellow]!.map(c => Math.round(c * TITLE_UNFOCUSED)) as unknown as Rgb)) + BOLD;
@@ -3727,7 +3727,7 @@ export class NoteSurface {
     const m = this.msg;
     if (!m) return this.crumbs;
     const a = await host.ctx.board.ancestors(m.id);
-    if (this.msg?.id === m.id) { this.crumbs = a.map(subject).join(" › ") || "top level"; host.redraw(); }
+    if (this.msg?.id === m.id) { this.crumbs = a.map(m => subject(m)).join(" › ") || "top level"; host.redraw(); }
     return this.crumbs;
   }
   /** Whether the note shown is a new one being written (`note.new`). */

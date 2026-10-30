@@ -14,7 +14,7 @@ import { Dispatcher } from "../../src/surface/dispatch";
 import { actionSet, def, traceActions } from "../../src/surface/actions";
 import { startControl } from "../../src/control";
 import { Mirror } from "../../src/mirror";
-import { Conferences } from "../../src/screens";
+import { Conferences, StatusMessages } from "../../src/screens";
 import { openScreen } from "../../src/desk/screen-specs";
 import { ReaderPane } from "../../src/desk/panes";
 import { Desk } from "../../src/desk/desk";
@@ -159,6 +159,78 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
       expect(opened.id).toBe(seeded.notes.shed!.id);
       expect(app.screens().at(-1)).toBe(desk);
     } finally { while (app.screens().at(-1) !== desk && app.screens().includes(desk)) app.pop(); app.pop(); desk.dispose(); }
+  });
+
+  test("a fix in a message reads as written, and [ ] then enter opens a message's link by keys (PIE-1455)", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "message-log" } }, USER);
+    const shed = seeded.notes.shed!.id;
+    await until(() => screen().includes("the shed note"), "the refusal drawn with its label");
+    // The fix is what to type: the property and its reference as written, never the note's title.
+    expect(screen()).toContain(`[form-into::((${shed.slice(0, 8)}))]`);
+    expect(screen()).toContain("[page::Shed]");
+    const desk = openScreen("desk") as Desk;
+    app.push(desk);
+    try {
+      press({ kind: "alt", ch: "M" });
+      expect(app.screens().at(-1)?.title).toBe("message log");
+      const read = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
+      const row = read.rows.findIndex(r => r.title.includes("form-into")) + 1;
+      expect(row).toBeGreaterThan(0);
+      await app.dispatch.act({ action: "list.select", args: { n: row } }, USER);
+      ch("]");
+      const log = app.screens().at(-1)!, top = () => log.render(app).lines.join("\n");
+      await until(() => top().includes("enter opens it"), "the link lit by ]");
+      // Lit in the reader's way: underlined in the accent.
+      expect(top()).toContain("\x1b[4mthe shed note");
+      press({ kind: "enter" });
+      await until(() => app.screens().at(-1) === desk, "back on the desk");
+      await until(() => [...(desk as any).panes.values()].some((p: any) => p.msg?.id === shed), "the shed note opened from the log by keys");
+      // ] on a message that names no note says so, and enter still goes back to its note or tile.
+      press({ kind: "alt", ch: "M" });
+      const rows = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
+      const plain = rows.rows.findIndex(r => r.title.includes("garden gate needs attention")) + 1;
+      await app.dispatch.act({ action: "list.select", args: { n: plain } }, USER);
+      await expect(app.dispatch.act({ action: "status.element", args: { by: 1 } }, USER)).rejects.toThrow("names no note");
+    } finally { while (app.screens().includes(desk) && app.screens().at(-1) !== desk) app.pop(); app.pop(); desk.dispose(); }
+  });
+
+  test("a message log fix keeps a whole id, and ] scrolls a tall message to the link it lights (PIE-1455)", async () => {
+    const shed = seeded.notes.shed!.id;
+    app.flash(`Tall: ((${shed}|first shed))\n` + "A line of the garden log.\n".repeat(80) + `((${shed}|LAST SHED))`, 4000, { kind: "refusal" });
+    app.flash(`Fix it: write [form-into::((${shed}))] on the note`, 4000, { kind: "refusal" });
+    const log = new StatusMessages(app.messages);
+    app.push(log);
+    try {
+      const top = () => log.render(app).lines.join("\n");
+      expect(top().replace(/\x1b\[[\d;]*[A-Za-z]/g, "")).toContain(`[form-into::((${shed}))]`);
+      const read = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
+      await app.dispatch.act({ action: "list.select", args: { n: read.rows.findIndex(r => r.title.startsWith("Tall:")) + 1 } }, USER);
+      expect(top()).not.toContain("LAST SHED");
+      ch("]"); ch("]");
+      expect(top()).toContain("\x1b[4mLAST SHED");
+    } finally { app.pop(); }
+  });
+
+  test("/ in a links tile with nothing listed says so and takes no keys (PIE-1459)", async () => {
+    const d = new Desk({ name: "empty-links", title: "empty links", layout: { focus: "links", root: { t: "leaf", kind: "backlinks", name: "links" } } });
+    app.push(d);
+    try {
+      await d.dispatch.act({ action: "tile.focus", tile: "links" }, USER);
+      const before = app.messages.rows.length;
+      ch("/");
+      await until(() => app.messages.rows.length > before, "a word on why / does nothing");
+      expect(app.messages.rows.at(-1)!.message).toContain("nothing to filter");
+      // The next key is the tile's again, not a filter's nobody can see.
+      expect((d.pane("links") as any).draft).toBe(null);
+      // Aimed at a note nothing links to, / draws the filter it types into.
+      const lone = await board.createBlock(seeded.notes.root.id, "A lone seed tray", USER);
+      await d.dispatch.act({ action: "backlinks", tile: "links", args: { id: lone.id } }, USER);
+      const pane = d.pane("links") as any, drawn = () => pane.render(60, 10, true, d).lines.map((l: string) => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "")).join("\n");
+      await until(() => !drawn().includes("asking the service"), "the empty links read");
+      ch("/"); ch("q");
+      expect(drawn()).toContain("Filter: q");
+      press({ kind: "esc" });
+    } finally { app.pop(); d.dispose(); }
   });
 
   test("a message's link opens where the reader's would: another outline's note there, a page not yet read (PIE-1453)", async () => {

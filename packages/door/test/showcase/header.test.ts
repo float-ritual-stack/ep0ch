@@ -8,6 +8,7 @@ import type { Showcase } from "../../src/showcase/showcase";
 import type { SocketBoard } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
+import { C, fg } from "../../src/style";
 
 /** The dashboard's first figure's title, as its frame draws it. */
 const FIGURE = "THE HOUSE THIS WEEK";
@@ -122,5 +123,20 @@ describe.skipIf(!outliner)("the showcase screen: a note with no header (PIE-1319
     expect(pair().right.slice(0, 4).join("\n")).not.toContain("[comment]");
     const view = (await app.act({ action: "layout.get", as: "test-agent" }) as any).tiles.find((t: any) => t.name === "right");
     expect(view.tileHeader).toEqual({ own: "note", shown: "none" });
+    // Its frame, tab and spine name the note it embeds (PIE-1458), "embed" quiet after it; never its raw markup.
+    const named = `${SEED.dashboard} · embed`;
+    await until(() => pair().frame.includes(named), "the embedded note's name on the right frame", 8000);
+    expect(pair().frame).not.toContain("not expanded");
+    expect(pair().frame).not.toContain("!");
+    expect(sc.render(app).lines.join("\n")).toContain(fg(C.dark) + " · embed");
+    const tiles = (await app.act({ action: "layout.get", as: "test-agent" }) as any).tiles;
+    expect(tiles.find((t: any) => t.name === "right").label).toBe(named);
+    expect((desk.pane("right") as any).spine().title).toBe(named);
+    // The section's own tile under them shows the seeded one the same way.
+    expect(tiles.find((t: any) => t.name === "embed").label).toBe(named);
+    expect((desk.pane("embed") as any).spine().title).toBe(named);
+    // Its title-only header says the same name.
+    await app.act({ action: "tile.header", args: { mode: "title" }, tile: "right", as: "test-agent" });
+    await until(() => pair().right[0]!.startsWith(named), "the title-only header naming the embedded note", 8000);
   }, 60_000);
 });

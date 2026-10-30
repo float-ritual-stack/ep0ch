@@ -42,6 +42,8 @@ export const SEED = {
   images: "Pictures of the plot",
   hero: "An evening on the plot",
   dashboard: "Plot at a glance",
+  /** A note that is only the dashboard's embed (PIE-1458): no words of its own, so the seed finds it by its embed. */
+  dashboardEmbed: "!((Plot at a glance))",
   artifacts: "Toys on the desk",
   gallery: "Seed packet gallery",
   machineryPeople: "Written by people",
