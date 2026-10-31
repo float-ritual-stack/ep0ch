@@ -1,0 +1,9 @@
+{
+  "gate": "Does the request name or imply a filter on this key? A known value used as a topic ('about trellises', when trellises is a tag), its prefix, or a negated value ('not trellises') is a filter. For key by, 'mine', 'my notes', 'by me' mean user; a named actor means that actor. Answer no for unrelated keys and for a request no candidate can express.",
+  "pick": "Which candidate value expresses the requested filter, whether included or excluded? Prefer values in the selection when both fit. Prefixes and typos can name a value. For key by, mine or by me means user. Choose none if no value expresses the request; never substitute a vaguely related value.",
+  "negate": "Does the person want to exclude the matching value of this key?",
+  "words": "Which span expresses this key's constraint? Choose the entire matching span when offered, including a partial multiword value. For by, mine or my means user.",
+  "date": "Which computed date window does the request ask for? Choose none when no date filter is wanted.",
+  "dateGate": "Does the request constrain when the notes were updated?",
+  "text": "Does the person explicitly ask to search for this span as literal note text instead of the matching candidate property value? A topic that names a known tag or other value normally uses that filter, including 'about X' and 'not X'; answer no then. Answer yes for 'text containing X', 'the words X', or an explicit body-text search. Dates and writers are not body-text searches."
+}

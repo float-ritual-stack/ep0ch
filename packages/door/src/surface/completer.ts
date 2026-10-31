@@ -57,16 +57,18 @@ import { argKind } from "../bar/arg-kinds";
 import { Gesture, Selection, rowsOf, paintRange, selectText, SELECT_BG } from "./selection";
 import { visible, width as cells, ellipsize } from "../style";
 import { JEV_PAUSE_MS, SearchSchedule, SearchTurn, TYPING_PAUSE_MS } from "../search-schedule";
+import { QUERY_WORDS_PAUSE_MS, type QueryWords } from "@ep0ch/outline-core/query-words";
 
 /** At most this many candidates per lookup, as in the outliner. */
 export const COMPLETION_LIMIT = 20;
 /** Services that said Jev isn't configured there: not asked again this run (each ask is a round trip, and when configured, paid). */
 export const jevOff = new WeakSet<object>();
+const queryUnavailableSaid = new WeakSet<object>();
 /** Room for the list and a small reader-rendered example beneath it. */
 export const COMPLETION_ROWS = 14;
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "followPage" | "listExtensions"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked" | "searchPicked" | "createBlock">>;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "followPage" | "listExtensions"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked" | "searchPicked" | "createBlock" | "querySuggest">>;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineField` (a property's value, a filter). The completer
@@ -82,6 +84,7 @@ export interface CompletionField {
   note: string;
   /** What a line completes: a draft has none of this and completes text. */
   readonly complete?: LineCompletion;
+  completed?(item: CompletionItem): void;
   splice(start: number, end: number, text: string, lines?: Record<number, string>, by?: Actor, selection?: { start: number; end: number }): void;
 }
 
@@ -103,6 +106,7 @@ export interface CompletionItem extends Omit<SourceRow, "insert"> {
 }
 
 export interface CompletionLookup {
+  queryWords?: boolean;
   items: CompletionItem[];
   /** The service cut the list at this many. */
   truncated: number | null;
@@ -286,7 +290,7 @@ async function serviceRows(board: CompletionBoard, target: CompletionTarget, own
   if (!asksService(board, target)) return { answers: [], picks: {} };
   const { start: _s, end: _e, ...asked } = target;
   return board.completionRows!({
-    target: asked,
+    target: asked, zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     ...(opts.near ? { near: opts.near } : {}), ...(own ? { draft: own } : {}), ...(opts.limit ? { limit: opts.limit } : {}),
     ...(opts.offset ? { offset: opts.offset } : {}), ...(opts.semantic ? { semantic: true } : {}),
   }, opts.signal).catch((e: Error) => ({ answers: [], picks: {}, failed: `lookup failed: ${e.message}` }));
@@ -317,7 +321,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
     : [partial && `partial search: ${partial}`, empty, problems].filter(Boolean).join(" · ");
   const heading = all.map(a => a.heading).find(Boolean);
   return {
-    items, truncated, message, ...(all.some(a => a.jev === "ranked") ? { jev: "ranked" as const } : {}), ...(all.some(a => a.jevOff) ? { jevOff: true } : {}),
+    items, truncated, message, queryWords: all.some(a => a.queryWords), ...(all.some(a => a.jev === "ranked") ? { jev: "ranked" as const } : {}), ...(all.some(a => a.jevOff) ? { jevOff: true } : {}),
     ...(all.find(a => a.sure)?.sure ? { sure: all.find(a => a.sure)!.sure! } : {}),
     // Only a token the service answers has picks kept for it (a fence's settings, a button's steps don't: nothing reads them).
     ...(heading ? { heading } : {}), ...(triggerOf(target.kind) ? { pickKey: pickKey({ trigger: triggerOf(target.kind), kind: target.kind, key: target.key }) } : {}),
@@ -444,6 +448,7 @@ export class Completer {
   private readonly search = new SearchSchedule(TYPING_PAUSE_MS);
   private previewGesture = new Gesture();
   private accepting = false;
+  private acceptedQuery?: { suggestion: QueryWords; text: string };
   private loadingMore = false;
   private limit = COMPLETION_LIMIT;
   /** The order `::` first listed the components in, kept for this draft. */
@@ -453,10 +458,17 @@ export class Completer {
   /** The token the cursor is in, if any: in a filter's words its key or value; in a property's field its value (a `[[` there first). */
   target(): CompletionTarget | null {
     const f = this.d, line = f.lines[f.row] ?? "", c = f.complete;
+    if (c && c.grammar === "query") return { kind: "query", start: 0, end: line.length, query: line.slice(0, f.col), where: c.where };
     if (c && c.grammar === "filter") { const t = filterTargetAtCursor(line, f.col); return t && { ...t, words: true }; }
     // An act line (the power bar's): past an action's name, the whole line through the cursor is one button step.
     // An ask line (`@loki …`, PIE-1437): its agent's name, then each `[[`, `((` and `%` by its own sigil.
-    if (c && c.grammar === "act") { const host = this.barHost(); return host && actLineArgs(line.slice(0, f.col), host) ? { kind: "button-step", start: 0, end: wordEnd(line, f.col), query: line.slice(0, f.col) } : askTargetAt(line, f.col); }
+    if (c && (c.grammar === "act" || c.grammar === "act-query")) {
+      const host = this.barHost();
+      if (host && actLineArgs(line.slice(0, f.col), host)) return { kind: "button-step", start: 0, end: wordEnd(line, f.col), query: line.slice(0, f.col) };
+      const ask = askTargetAt(line, f.col);
+      if (ask || c.grammar === "act" || line.startsWith("@") || line.startsWith("outline:")) return ask;
+      return { kind: "query", start: 0, end: line.length, query: line.slice(0, f.col), where: c.where };
+    }
     // `/` at a line's start in a note's own edit: the actions that apply here, then their arguments (PIE-1076). Past a
     // real action's name the line is its arguments' even where a value starts `[[` (the sigil's rows, quoted for act).
     const here = !c && this.own() ? actionHereAt(line, f.col, f.lines, f.row) : null, host = this.barHost();
@@ -484,6 +496,7 @@ export class Completer {
     this.search.cancel();
     this.previewGesture.cancel();
     if (!this.state) return;
+    if (!this.accepting) this.recordIgnored();
     this.state = null;
     this.parent = null;
     this.preview?.surface.dispose();
@@ -492,6 +505,10 @@ export class Completer {
   }
 
   private near(): string | undefined { return nearOf(this.d, this.own()); }
+  private recordIgnored(): void {
+    const suggestion = this.state?.items.find(i => i.querySuggestion)?.querySuggestion;
+    if (suggestion) void this.board.querySuggest?.({ text: suggestion.input, outcome: "ignored", suggestion }).catch(e => { this.d.note = String(e); });
+  }
 
   /**
    * After a pause, ask the service again with Jev re-ordering the same candidates. The answer is used only if
@@ -500,12 +517,13 @@ export class Completer {
    */
   private askJev(turn: SearchTurn, target: CompletionTarget): void {
     const fragment = target.kind === "block" && parseFragmentCompletionQuery(target.query);
-    if (target.kind !== "page" && target.kind !== "block" || fragment || target.query.trim().length < 3 || jevOff.has(this.board)) return;
+    const words = !!this.state?.queryWords;
+    if (!words && (target.kind !== "page" && target.kind !== "block" || fragment || target.query.trim().length < 3 || jevOff.has(this.board))) return;
     // Jev re-orders the service's candidates (up to 30 for ((): one beyond the 20 shown can come into view.
-    turn.after(JEV_PAUSE_MS, async () => {
+    turn.after(words ? QUERY_WORDS_PAUSE_MS - TYPING_PAUSE_MS : JEV_PAUSE_MS, async () => {
       const s = this.state;
       // One row is nothing to re-order, except `[[` naming no page yet: Jev reads the pages by meaning (PIE-1409).
-      if (!s || !this.current(turn) || s.loading || (s.items.length < 2 && !(target.kind === "page" && s.items[0]?.newPage)) || this.accepting || this.d.busy) return;
+      if (!s || !this.current(turn) || s.loading || (!words && s.items.length < 2 && !(target.kind === "page" && s.items[0]?.newPage)) || this.accepting || this.d.busy) return;
       const index = s.index, chosen = s.items[index]?.insertion;
       s.jev = "asking";
       this.redraw();
@@ -522,7 +540,11 @@ export class Completer {
         // unless Jev is sure of its top find: the sure answer takes the cursor (PIE-1409: Tab Tab made a page, not the link).
         const follow = now.moved || (!!now.items[index]?.newPage && r.sure?.verdict !== "strong");
         const at = follow ? r.items.findIndex(i => i.insertion === chosen) : 0;
-        if (at < 0 || !r.items.length) { now.jev = undefined; this.redraw(); return; }
+        if (words && r.message) {
+          if (!queryUnavailableSaid.has(this.board)) { this.d.note = r.message; queryUnavailableSaid.add(this.board); }
+          else r.message = "";
+        }
+        if (at < 0 || !r.items.length) { now.jev = undefined; now.message = r.message; this.redraw(); return; }
         this.state = { ...r, target, picked: now.picked, moved: now.moved, line: now.line, index: at, loading: false, at: now.at };
         this.redraw();
         void this.enrich(turn);
@@ -544,6 +566,12 @@ export class Completer {
     this.limit = COMPLETION_LIMIT;
     // A re-ask of the same query keeps the pick; a changed query picks its best match.
     const same = this.state?.target.kind === target.kind && this.state.target.query === target.query;
+    if (!same) this.recordIgnored();
+    if (this.acceptedQuery && this.acceptedQuery.text !== this.d.text) {
+      const { suggestion } = this.acceptedQuery;
+      this.acceptedQuery = undefined;
+      void this.board.querySuggest?.({ text: suggestion.input, outcome: "edited", suggestion, acceptedWhere: target.query }).catch(e => { this.d.note = String(e); });
+    }
     const picked = explicit || (same && this.state?.picked);
     const turn = this.search.begin(), was = same ? this.state?.items[this.state.index]?.insertion : undefined;
     this.state = { target, picked, line: this.d.complete !== undefined, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: "finding references...", loading: true, at: this.here() };
@@ -571,7 +599,7 @@ export class Completer {
         r.items = [...r.items].sort((a, b) => (first(a)?.i ?? Infinity) - (first(b)?.i ?? Infinity)).map(i => first(i) ? { ...i, group: first(i)!.group } : i);
       }
       // A `[` that starts no property the schemas know (a Markdown link's text, say) opens nothing.
-      if (!r.items.length && target.kind !== "page" && target.kind !== "block" && target.kind !== "file" && target.kind !== "callout") { this.dismiss(); return; }
+      if (!r.items.length && !r.queryWords && target.kind !== "query" && target.kind !== "page" && target.kind !== "block" && target.kind !== "file" && target.kind !== "callout") { this.dismiss(); return; }
       const index = Math.max(0, r.items.findIndex(i => i.insertion === was));
       this.state = { ...r, target, picked: this.state?.picked, line: this.state?.line, index, loading: false, at: this.state!.at };
       this.redraw();
@@ -691,7 +719,7 @@ export class Completer {
       }
       const press = completionPicker(s).view.press(i, { mods: 0, button: 0 });
       this.redraw(); void this.enrich();
-      if (press === "open") personRuns("complete.accept", { n: i + 1 }, this);
+      if (press === "open" || s.items[i]!.querySuggestion) personRuns("complete.accept", { n: i + 1 }, this);
     }
     return true;
   }
@@ -802,11 +830,16 @@ export class Completer {
       if (s.pickKey) void this.board.completionPicked?.(s.pickKey, item.insertion).catch(() => {});
       // A note picked from a search's list (ranked or not, as the bar's): the words and the note, the eval's label (PIE-1197).
       if ((s.target.kind === "page" || s.target.kind === "block") && item.blockId) this.board.searchPicked?.(s.target.query, item.blockId, index, "complete");
+      if (item.querySuggestion) {
+        this.acceptedQuery = { suggestion: item.querySuggestion, text: this.d.text };
+        await this.board.querySuggest?.({ text: item.querySuggestion.input, outcome: item.queryOutcome ?? "accepted", suggestion: item.querySuggestion, corrections: item.queryCorrections }).catch(e => { this.d.note = String(e); });
+      }
       this.dismiss();
+      this.d.completed?.(item);
       // A folder leaves `[file::notes/` open: its entries are offered next; a filter's key `stage:` its values. A chosen value ends it
       // (the cursor is still in its word, which would offer the same value again).
       // An action chosen in a note's edit lists its arguments next, as an editor's signature help does (esc closes them, ⏎ then runs).
-      if (s.target.kind !== "filter-value" && (s.target.kind !== "component" || item.kind === "property") && this.target()) void this.refresh(s.target.kind === "action" && item.kind === "action");
+      if (!item.querySuggestion && s.target.kind !== "filter-value" && (s.target.kind !== "component" || item.kind === "property") && this.target()) void this.refresh(s.target.kind === "action" && item.kind === "action");
       return true;
     } catch (e) {
       if (this.current(turn)) { s.message = e instanceof Error ? e.message : String(e); this.redraw(); }
@@ -932,7 +965,7 @@ export const completerOf = (d: CompletionField): Completer | null => byDraft.get
 export const completionOf = (d: CompletionField): CompletionState | null => byDraft.get(d)?.shown ?? null;
 
 const AUTO_OPENING_KINDS: ReadonlySet<CompletionKind> = new Set([
-  "button-step", "fence-setting", "component", "attribute", "attribute-value", "key", "value", "yaml-key", "yaml-value", "filter-key", "filter-value",
+  "query", "button-step", "fence-setting", "component", "attribute", "attribute-value", "key", "value", "yaml-key", "yaml-value", "filter-key", "filter-value",
 ]);
 
 /** Where a line ends in ⏎ as it's written (a figure's YAML, a fence's settings): ⏎ stays a new line until a choice. */
@@ -1150,6 +1183,7 @@ export function enterKeeps(s: CompletionState): "new line" | "applies" | null {
   const item = s.items[s.index];
   if (s.picked || !item) return null;
   const word = s.line ? "applies" : "new line";
+  if (item.querySuggestion) return word;
   if (item.newPage) return word;
   if (s.target.kind === "filter-key" || s.target.kind === "filter-value") return "applies";
   if (ENTER_ENDS_THE_LINE.has(s.target.kind)) return word;

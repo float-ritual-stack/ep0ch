@@ -54,6 +54,7 @@ export interface PickHow { alt: boolean; actor: Actor }
 
 /** What a source reaches: the door (its outline, dispatcher, drawer and screens) and the note in front of the person. */
 export interface BarHost {
+  where?(): string | undefined;
   ctx: Ctx;
   runs: BarRun[];
   /** The door's dispatcher (every screen's, then the screen shown's). */

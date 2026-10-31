@@ -27,13 +27,22 @@ export interface When {
 export type DateComparison = "<" | "<=" | ">" | ">=" | "=";
 
 /** The wall clock at `ms` on this machine, as milliseconds on a UTC line: the axis every date is read on. */
-export function wallClock(ms: number): number {
+export function wallClock(ms: number, zone?: string): number {
+  if (zone) {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(ms);
+    const n = (key: string) => Number(parts.find(p => p.type === key)!.value);
+    return Date.UTC(n("year"), n("month") - 1, n("day"), n("hour"), n("minute"), n("second"), ((ms % 1000) + 1000) % 1000);
+  }
   const d = new Date(ms);
   return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds());
 }
 
 /** The moment (epoch ms) a wall-clock time stands for on this machine: `wallClock`'s inverse. */
-export function fromWallClock(wall: number): number {
+export function fromWallClock(wall: number, zone?: string): number {
+  if (zone) {
+    const first = wall - (wallClock(wall, zone) - wall);
+    return wall - (wallClock(first, zone) - first);
+  }
   const d = new Date(wall);
   return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds()).getTime();
 }

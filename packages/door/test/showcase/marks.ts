@@ -192,6 +192,7 @@ export const marks: Record<string, string[]> = {
   // A reader and a shell for a hyper chord to reach the door from, and the part's line.
   hyper: ["Allotment notebook", "a terminal tile: with the layer on", "reach the door"],
   // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
+  "query-words": ["Words become a query", "where: stage=ready"],
   "facets": ["#frost-jobs", "uses▾", "facets"],
   // The navigator (PIE-1443): the facets on #frost-jobs, its Matches in a tile with the pinned note first, a reader.
   "navigator": ["☼ views", "▾ Pinned", "Lag the standpipe", "« "],

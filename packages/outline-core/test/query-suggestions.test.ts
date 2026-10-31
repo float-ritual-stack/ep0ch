@@ -35,7 +35,7 @@ describe("query completion says what the grammar can say", () => {
     expect(await values("updated >= ")).toEqual(QUERY_DATE_HELP.map(d => `updated >= ${d.word}`));
     expect(await values("created>=-")).toEqual(QUERY_DATE_HELP.filter(d => d.word.startsWith("-")).map(d => `created>=${d.word}`));
     expect(await values("due <= to")).toEqual(["due <= today", "due <= tomorrow"]);
-    expect(await values("child>=2:ty")).toEqual(["child>=2:type=meeting", "child>=2:type=request"]);
+    expect(await values("child>=2:ty")).toEqual(["child>=2:type=", "child>=2:type=meeting", "child>=2:type=request"]);
     for (const d of QUERY_DATE_HELP) expect(readDateBound(d.word, 0)).not.toBeNull();
   });
   test("a value may read this note; a range key offers a ready range", async () => {

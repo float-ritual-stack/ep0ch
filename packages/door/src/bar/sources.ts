@@ -192,6 +192,8 @@ const NOTES: BarSource = {
   about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up, saying how sure it is (\"no strong match\" when the top isn't); a second / (//words) also has Jev read every note's title for ones the words missed (PIE-1200); ⏎ opens one where opens land, alt+⏎ in a new detail; alt+m or a right-click on a hit is its menu: copy its id, reference or web link (note.copy-ref)",
   main: { empty: false, typed: true, most: 10 },
   async rows(q, host, _scope, signal) {
+    const where = host.where?.();
+    if (where) return (await host.ctx.board.queryNotes(where, 30, undefined, signal)).notes.map(noteRow);
     const named = q.match(/^outline:([^\s]+)(?:\s+(.*))?$/);
     if (named) {
       const ctx = await outlineBoards(host.ctx).on({ outline: named[1]! });
@@ -207,6 +209,7 @@ const NOTES: BarSource = {
     return searchRows(await host.ctx.board.search(words, 30, { near: host.near() ?? undefined, signal }), words);
   },
   later(q, rows, host, signal) {
+    if (host.where?.()) return null;
     const board = host.ctx.board;
     const deep = q.startsWith("/"), words = q.replace(/^\//, "").trim();
     // A deep search runs with no word hits too: finding what the words missed is its point.

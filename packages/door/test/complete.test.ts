@@ -296,7 +296,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
       const stop = traceActions(r => runs.push(r));
       completionKey(d, k, c);
       stop();
-      const name = ("shift" in k && k.shift ? "shift+" : "") + keyName(k)!;
+      const name = keyName(k)!;
       expect(runs.map(r => r.name), name).toHaveLength(1);
       expect([...declaredKeys(runs[0]!.keys)], `${runs[0]!.name} names ${name}`).toContain(name);
       c.dismiss();

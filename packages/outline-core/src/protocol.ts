@@ -14,7 +14,7 @@
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 293;
+export const PROTOCOL = 294;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 22;
 
@@ -173,6 +173,7 @@ export interface QuestionFields {
   limit?: number;
   facets?: true | string[];
   facetValues?: number;
+  facetSearch?: string;
   facetKeys?: number;
 }
 
@@ -710,6 +711,7 @@ export interface ExtensionsConfigured {
  * own sources' answers (`mergeSourceAnswers`): the door and Detail merge the same way, so they show the same rows.
  */
 export interface CompletionRowsRequest {
+  zone?: string;
   /**
    * The token at the cursor as outline-core's detector found it, without where it sits on the line: `headingShort` (the
    * `# Title [hea…` shorthand, written as a whole `[heading::…` token), a component's `attrs` (the props already written:
@@ -727,6 +729,7 @@ export interface CompletionRowsRequest {
 
 /** One source's answer to `completion.rows`, with what its list says when it's empty or cut. */
 export interface CompletionSourceAnswer extends SourceAnswer {
+  queryWords?: boolean;
   /** The source cut its list at this many. */
   truncated?: number | null;
   /** What to say when it found nothing; `partial` when it found some and says so. */

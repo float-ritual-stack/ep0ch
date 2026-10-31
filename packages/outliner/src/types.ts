@@ -1512,10 +1512,9 @@ export interface BlockSearchQuery {
   group?: string;
   /** `true`: value counts for every key the matches carry; or these keys. */
   facets?: true | string[];
-  /** Values a facet lists per key: 50 when left out, at most 1000. */
-  facetValues?: number;
-  /** Keys `facets: true` lists: 50 when left out, at most 1000. */
-  facetKeys?: number;
+  facetValues?: number; // 50 by default, at most 1000.
+  facetSearch?: string;
+  facetKeys?: number; // 50 by default, at most 1000.
   /**
    * `hide` leaves out what tools write for their own bookkeeping (`[machine::…]`, outline-core `machinery.ts`), `only`
    * holds just that, `show` everything (PIE-867). The service's requests answer `hide` when it is left out; asked
@@ -2537,10 +2536,11 @@ export type OutlinerRequestAction =
   | ({ id: string; action: "outputs.place" } & import("./place").PlaceInput)
   | { id: string; action: "scripts.render"; of: string; blockId: string; line: number; props: Record<string, string[]>; deadlineMs: number }
   | ({ id: string; action: "extensions.list"; reload?: boolean } & Pick<import("@ep0ch/outline-core/site").SiteAnswerRequest, "blockId" | "line" | "draft" | "chain">)
+  | ({ id: string; action: "query.suggest" } & import("@ep0ch/outline-core/query-words").QuerySuggestRequest)
   /**
    * The service's completion sources for the token at the cursor (PIE-1340): pages, blocks and their fragments, files,
    * agents and the extensions' completion sources, each answering on outline-core's row contract, with the trigger's
-   * picks. `{ answers: [{ source, rows, problem?, truncated?, empty?, partial?, heading?, jev? }], picks }`. It writes nothing.
+   * picks. `{ answers: [{ source, rows, problem?, truncated?, empty?, partial?, heading?, jev? }], picks }`.
    */
   | ({ id: string; action: "completion.rows" } & import("@ep0ch/outline-core/protocol").CompletionRowsRequest)
   /** A completion row was chosen (PIE-1340): its pick is counted, so every client ranks it higher next time. `{ picks }`. */

@@ -11,7 +11,6 @@
 import { checkValue as schemaCheck, settingsSchemas, type ComponentSchema, type PropSchema } from "@ep0ch/outline-core/component-schema";
 export { settingsSchemas } from "@ep0ch/outline-core/component-schema";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
-import { querySuggestions } from "@ep0ch/outline-core/query-suggestions";
 import type { BarQuestion, BarSuggestion } from "../bar/ask";
 import { printable } from "../props";
 import { RowView } from "../scroll";
@@ -98,7 +97,7 @@ export function settingQuestion(field: SettingField, src: SettingSources): BarQu
     case "enum":
       return { ...base, type: "choice", choices: (p.values ?? []).map(v => v.value), says: Object.fromEntries((p.values ?? []).map(v => [v.value, `${v.value} · ${v.meaning}`])) };
     case "query":
-      return { ...base, type: "text", free: true, suggest: typed => querySuggestions(typed, (key, prefix) => src.catalog(key, prefix)) };
+      return { ...base, type: "text", free: true, complete: { grammar: "query", where: field.value ?? undefined } };
     case "property":
       return { ...base, type: "text", free: true, suggest: async typed => {
         const keys = [...new Set([...samples(typed).map(s => s.value), ...(await src.catalog(undefined, typed.trim())).map(r => r.key)])];

@@ -1,5 +1,5 @@
 {
-  "revision": "850fdf8c384a85afbdfda90019f64ae5038dfc3d",
+  "revision": "de392062e0dadcaa58e3f49213b56bb51fe81398",
   "patterns": {
     "width-length": {
       "count": 256,
@@ -129,7 +129,7 @@
         "packages/door/src/graphs.ts:fe678e71b0cf29ad",
         "packages/door/src/graphs.ts:fe678e71b0cf29ad",
         "packages/door/src/graphs.ts:3f549e5e075f01cb",
-        "packages/door/src/graphs.ts:717aa23480c4ca9a",
+        "packages/door/src/graphs.ts:a80fadbd7c90a6a1",
         "packages/door/src/graphs.ts:44b040af2cdbc86d",
         "packages/door/src/graphs.ts:e8c6c22a8a8b103d",
         "packages/door/src/graphs.ts:e8c6c22a8a8b103d",
@@ -392,16 +392,16 @@
     "packages/door/src/desk/screen-layout.ts": 2362,
     "packages/door/src/drawer.ts": 2082,
     "packages/door/src/screens.ts": 2245,
-    "packages/door/src/showcase/showcase.ts": 2186,
+    "packages/door/src/showcase/showcase.ts": 2180,
     "packages/door/src/surface/note.ts": 13482,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4671,
     "packages/outliner/src/detail-pi-preview.ts": 2420,
     "packages/outliner/src/detail-pi.ts": 2042,
-    "packages/outliner/src/publish.ts": 3397,
+    "packages/outliner/src/publish.ts": 3393,
     "packages/outliner/src/resource-catalog.ts": 4937,
-    "packages/outliner/src/server.ts": 5103,
+    "packages/outliner/src/server.ts": 5102,
     "packages/outliner/src/store.ts": 6506,
     "packages/outliner/src/tree-controller.ts": 3251,
     "packages/outliner/src/types.ts": 3027

@@ -19,6 +19,7 @@ import { ch, isDown, isUp, type Key } from "../term";
 import { ago, rowLines } from "../text";
 import { RowView, wheelRows, clamp, type RowPress } from "../scroll";
 import { LineField } from "../surface/line";
+import { COMPLETION_ACTIONS, lineCompleter, renderCompletion } from "../surface/completer";
 import { askInBar } from "../bar/ask";
 import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { findBoards } from "./query";
@@ -41,7 +42,8 @@ export const FACET_SORTS = ["uses", "name", "last"] as const;
 export type FacetSort = (typeof FACET_SORTS)[number];
 
 /** A pick (no value means the whole key): `mode` says whether the notes must carry it or must not; `path`: it stands for everything below it too. */
-export interface Clause { key: string; value?: string; mode: "include" | "exclude"; path?: boolean }
+import { clauseText, selectionQuery, type Clause } from "@ep0ch/outline-core/query-clauses";
+export { clauseText, selectionQuery, type Clause } from "@ep0ch/outline-core/query-clauses";
 interface Value { value: string; count: number; last: number }
 /** A node of a facet's tree of path-shaped values: its own value's figures (when a note carries exactly it) and what is below. */
 interface Node { path: string; label: string; depth: number; value?: Value; kids: Node[]; open: boolean }
@@ -71,29 +73,6 @@ const CAL_ROWS = 8, CAL_COLS = 28;
 /** Saved views listed before a "▸ more views" row. */
 const VIEWS_SHOWN = 8;
 const USES = 5, LAST = 5;
-const SAFE_VALUE = /^[\w./@*-]+$/u;
-
-/** One clause as the views' grammar writes it: `#tag` for a tag, `key=value` (quoted when it needs it, `/*` for a path). */
-export function clauseText(c: Clause): string {
-  // A path's `/*` goes inside the quotes with it: `"back garden/*"` (the grammar takes nothing after a closing quote).
-  if (c.value === undefined) return c.mode === "exclude" ? `NOT ${c.key}` : c.key;
-  const value = c.value + (c.path ? "/*" : "");
-  const term = c.key === "tag" ? `#${c.value}` : `${c.key}=${SAFE_VALUE.test(value) ? value : `"${value.replace(/[\\"]/g, "\\$&")}"`}`;
-  return c.mode === "exclude" ? `NOT ${term}` : term;
-}
-/**
- * The selection as a query: each facet's included values ORed in a group, the facets ANDed, an excluded value a NOT.
- * `raw`: a query typed by hand, kept in front of the picks.
- */
-export function selectionQuery(clauses: readonly Clause[], raw: string): string {
-  const keys = [...new Set(clauses.map(c => c.key))];
-  const terms = keys.flatMap(key => {
-    const mine = clauses.filter(c => c.key === key);
-    const inc = mine.filter(c => c.mode === "include" && c.value !== undefined).map(clauseText);
-    return [...mine.filter(c => c.mode === "include" && c.value === undefined).map(clauseText), ...(inc.length > 1 ? [`(${inc.join(" OR ")})`] : inc), ...mine.filter(c => c.mode === "exclude").map(clauseText)];
-  });
-  return [raw.trim() ? (terms.length && /\b(?:OR|AND|NOT)\b/.test(raw) ? `(${raw.trim()})` : raw.trim()) : "", ...terms].filter(Boolean).join(" ");
-}
 
 export class FacetsPane implements Pane, AttachedOwner {
   clauses: Clause[] = [];
@@ -125,6 +104,25 @@ export class FacetsPane implements Pane, AttachedOwner {
   private reload: Timer | null = null;
   /** The query being typed (`e`): applied on ⏎, dropped on esc. */
   draft: LineField | null = null;
+  private wordPicks: Clause[] = [];
+  private wordPicksWhere = "";
+  private suggestedPicks(): Clause[] {
+    const state = this.draft && lineCompleter(this.draft)?.shown;
+    return state?.items[state.index]?.querySuggestion?.clauses.flatMap(c => c.pick ? [c.pick] : []) ?? (this.query() === this.wordPicksWhere ? this.wordPicks : []);
+  }
+  editQuery(desk: DeskApi, text = this.query()) {
+    const draft = new LineField(text, true, { complete: { grammar: "query", where: this.query() } });
+    draft.completed = item => {
+      if (!item.querySuggestion) return;
+      this.wordPicks = item.querySuggestion.clauses.flatMap(c => c.pick ? [c.pick] : []);
+      this.wordPicksWhere = item.querySuggestion.where;
+      this.wordPicks.forEach(c => this.open.add(c.key));
+      this.draft = null;
+      this.act(desk, "facets.query", { text: item.querySuggestion.where });
+    };
+    this.draft = draft;
+    desk.redraw();
+  }
 
   /**
    * Matches, the notes the selection leaves (PIE-1443): the one ListView, its rows the service's groups (Pinned first),
@@ -197,7 +195,8 @@ export class FacetsPane implements Pane, AttachedOwner {
   spine() { return { title: this.title() }; }
   typing() { return this.draft !== null; }
   lineField() { return this.draft; }
-  blur() { this.draft = null; }
+  completing() { return !!this.draft && !!lineCompleter(this.draft)?.shown?.items.length; }
+  blur() { if (this.draft) lineCompleter(this.draft)?.dismiss(); this.draft = null; }
   spec() {
     const q = selectionQuery(this.clauses, this.raw);
     return { ...(q ? { query: q } : {}), args: { share: this.share, sort: this.sort, ...(this.zero ? { zero: true } : {}), ...(this.open.size ? { open: [...this.open] } : {}),
@@ -309,7 +308,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     return root.kids;
   }
 
-  private clauseOf(key: string, node: Node): Clause | undefined { return this.clauses.find(c => c.key === key && c.value === node.path); }
+  private clauseOf(key: string, node: Node): Clause | undefined { return [...this.clauses, ...this.suggestedPicks()].find(c => c.key === key && c.value === node.path); }
 
   /** Matches' rows from the answers: the service's groups, Pinned first, each note a card. */
   private setRows() {
@@ -358,7 +357,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   rows(): Row[] {
     if (!this.answer) return [];
     // Asked a dozen times a frame (the cursor's row, what the tile shows, each tile's facts): built once for what it is built from.
-    const from = `${this.sort}|${this.zero}|${this.place}|${this.day}|${this.views.length}|${[...this.open].join(",")}|${this.clauses.map(c => `${c.key}\0${c.value}\0${c.mode}\0${c.path ? 1 : 0}`).join("\n")}`;
+    const from = `${this.sort}|${this.zero}|${this.place}|${this.day}|${this.views.length}|${[...this.open].join(",")}|${[...this.clauses, ...this.suggestedPicks()].map(c => `${c.key}\0${c.value}\0${c.mode}\0${c.path ? 1 : 0}`).join("\n")}`;
     const kept = this.rowsKept;
     if (kept && kept.answer === this.answer && kept.all === this.all && kept.from === from) return kept.rows;
     const rows = this.build(this.answer);
@@ -382,10 +381,10 @@ export class FacetsPane implements Pane, AttachedOwner {
     const here = new Map(answer.facets.map(f => [f.key, f]));
     const listed = this.zero && this.all ? this.all.facets.map(f => f.key) : answer.facets.map(f => f.key);
     // The facets in use (opened, or with a pick) come first, so what is being looked at is never far down a long list.
-    const using = (k: string) => this.open.has(k) || this.clauses.some(c => c.key === k);
+    const using = (k: string) => this.open.has(k) || [...this.clauses, ...this.suggestedPicks()].some(c => c.key === k);
     const keys = [...new Set([...listed.filter(using), ...this.clauses.map(c => c.key), ...listed.filter(k => !using(k))])];
     for (const key of keys) {
-      const f = here.get(key), open = this.open.has(key);
+      const f = here.get(key), open = this.open.has(key) || this.suggestedPicks().some(c => c.key === key);
       rows.push({ kind: "facet", key, count: f?.count ?? 0, open, more: f?.more ?? 0 });
       if (!open) continue;
       const mine = new Set((f?.values ?? []).map(v => v.value));
@@ -471,8 +470,15 @@ export class FacetsPane implements Pane, AttachedOwner {
     const cell = (sort: FacetSort, label: string) => (this.sort === sort ? fg(C.white) + `\x1b[1m${label}▾\x1b[22m` : fg(C.dark) + label + " ") + RESET;
     const a = this.answer, q = this.query();
     push(pad(` ${fg(C.dark)}${a?.matched ?? "…"} of ${this.all?.matched ?? "…"} notes`, Math.max(0, w - USES - 1 - LAST)) + cell("uses", "uses") + " " + cell("last", "last"));
-    if (this.draft) push(fg(C.yellow) + ` ? ${this.draft.plain()}` + RESET);
-    else push(fg(C.dark) + pad(q ? ` ? ${q}` : " ? every note · e types a query", w) + RESET);
+    if (this.draft) { this.draft.drawnAt(8, 1, w - 8); push(fg(C.yellow) + ` where: ${this.draft.show(w - 8)}` + RESET); }
+    else push(fg(C.dark) + pad(q ? ` where: ${q}` : " where: every note · e types words or a query", w) + RESET);
+    const completion = this.draft && lineCompleter(this.draft), ghost = completion?.shown;
+    if (completion && ghost && (ghost.items.length || ghost.message)) {
+      const items: (number | null)[] = [], row = lines.length;
+      renderCompletion(ghost, w, Math.min(7, Math.max(3, h - 8)), items).forEach(l => push(l));
+      completion.drawn = { row, col: 0, cols: w, items };
+    }
+    if (this.draft?.note) push(fg(C.yellow) + this.draft.note + RESET);
     if (this.error) push(fg(C.lred) + " " + this.error + RESET);
     else if (!a) push(fg(C.dark) + " loading…" + RESET);
     if (a?.hint) push(fg(C.yellow) + " " + a.hint + RESET);
@@ -680,9 +686,10 @@ export class FacetsPane implements Pane, AttachedOwner {
   private act(desk: DeskApi, name: string, args: Record<string, unknown> = {}) { void desk.press?.(this, FACETS_ACTIONS, name, args); }
 
   private draftKey(k: Key, desk: DeskApi): boolean {
+    if (this.draft?.take(k)) { desk.redraw(); return true; }
     if (k.kind === "enter") { const text = this.draft?.text.trim() ?? ""; this.draft = null; this.act(desk, "facets.query", { text }); return true; }
     if (k.kind === "esc") this.draft = null;
-    else if (!this.draft?.take(k)) return k.kind !== "tab" && k.kind !== "backtab";
+    else return k.kind !== "tab" && k.kind !== "backtab";
     desk.redraw();
     return true;
   }
@@ -709,7 +716,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (c === "+" || c === "=") { this.act(desk, "facets.set", { mode: "include" }); return true; }
     if (c === "-") { this.act(desk, "facets.set", { mode: "exclude" }); return true; }
     if (c === "0" || k.kind === "backspace") { if (row?.kind === "day") this.act(desk, "facets.day", { day: "" }); else this.act(desk, "facets.set", { mode: "off" }); return true; }
-    if (c === "e") { this.draft = new LineField(this.query(), false, { complete: false }); desk.redraw(); return true; }
+    if (c === "e") { this.act(desk, "facets.edit"); return true; }
     if (c === "[" || c === "]") { this.act(desk, "facets.resize", { by: c === "[" ? -0.1 : 0.1 }); return true; }
     if (c === "v") { this.act(desk, "facets.save"); return true; }
     if (c === "s") { this.act(desk, "facets.sort"); return true; }
@@ -724,7 +731,11 @@ export class FacetsPane implements Pane, AttachedOwner {
   }
 
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
-    if (this.draft !== null) return true;
+    if (this.draft !== null) {
+      if (this.draft.mouse({ ...k, x, y })) { desk.redraw(); return true; }
+      if (k.action === "down") lineCompleter(this.draft)?.click(y, x, t => desk.ctx.copy?.(t));
+      return true;
+    }
     if (k.action === "up") { this.dragging = false; return true; }
     if (this.dragging && k.action === "drag") {
       this.act(desk, "facets.resize", { share: (this.divider + this.noteRoom - y) / Math.max(1, this.bodyRoom) });
@@ -914,9 +925,17 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       return { id: note.id, title: subject(note) };
     },
   }),
+  "facets.edit": def({
+    summary: "type words or the views' grammar on where:; after a pause Tab or a click accepts the ghost, Esc drops it, right shows why",
+    keys: "e", touches: "draft", draft: "type", replay: "safe",
+    person: "the query line is the person's; agents ask query.suggest and apply with facets.query",
+    args: { text: { type: "string", optional: true, about: "words to put on the query line; left out edits the selection" } },
+    examples: [{ act: "facets.edit tile=facets", does: "opens the current selection for words or grammar" }],
+    run({ text }, { pane, desk }) { const p = pane as FacetsPane; p.editQuery(desk, text); return { text: p.draft!.text }; },
+  }),
   "facets.query": def({
     summary: "set the selection as text in the views' grammar (`project=x/* type=meeting #yomama NOT week=3`): it replaces the picks; the service evaluates it and the facets and notes follow. Empty clears. The person types it with e",
-    keys: [{ keys: "e", does: "then typing edits the query" }, { keys: "⏎", does: "applies", says: "apply the typed query as the selection" }, { keys: "esc", does: "undoes", says: "undo the typed query" }], touches: "tile", while: "typing", replay: "safe", way: "an agent passes text=<query>: the person's selection moves with it",
+    keys: [{ keys: "⏎", does: "applies", says: "apply the typed query as the selection" }, { keys: "esc", does: "undoes", says: "undo the typed query" }], touches: "tile", while: "typing", replay: "safe", way: "an agent passes text=<query>: the person's selection moves with it",
     args: { text: { type: "string", about: "the query; empty clears the selection" } },
     examples: [
       { act: "facets.query text=\"#garden NOT type=meeting\" tile=facets", does: "selects notes tagged #garden that are not meetings, replacing the picks" },
@@ -1215,6 +1234,13 @@ const makeFacets = (kind: "facets" | "tags") => (s: { query?: string; args?: Rec
     ...(attachedPlaceOf(a.place) ? { place: attachedPlaceOf(a.place)! } : {}), ...(typeof a.pin === "string" ? { pin: a.pin } : {}), ...(Array.isArray(a.show) ? { show: a.show.map(String) } : {}),
     ...(typeof a.group === "string" ? { group: a.group } : {}), ...(typeof a.calendar === "boolean" ? { calendar: a.calendar } : {}), ...(typeof a.day === "string" && DAY.test(a.day) ? { day: a.day } : {}) });
 };
+for (const info of COMPLETION_ACTIONS.list()) {
+  FACETS_ACTIONS.define(info.name, { ...info, repaints: true, person: "the ghost belongs to the person; agents ask query.suggest", run(args, { pane }, actor) {
+    const draft = (pane as FacetsPane).draft, completer = draft && lineCompleter(draft);
+    if (!completer) throw new ActionRefused("type on where: first (facets.edit)");
+    return COMPLETION_ACTIONS.runUntyped(info.name, args, completer, actor);
+  } });
+}
 const kindOf = (kind: "facets" | "tags", about: string, key: string): TileKind => ({
   kind, about, noun: kind === "tags" ? "a tags tile" : "a facets tile",
   keys: [{ key, label: kind }],

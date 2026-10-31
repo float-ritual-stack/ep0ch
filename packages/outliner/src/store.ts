@@ -4447,7 +4447,7 @@ export class OutlinerStore {
       const records = (block: Block) => (graph.propertyRecordsByBlock.get(block.id) ?? []).filter(record => scope === "all" || record.scope === scope);
       const valuesOf = (block: Block, key: string) => records(block).filter(record => record.key === key || key === "tag" && record.key === "tags").flatMap(record => splitPropertyValue(record.value));
       if (query.group) answer.groups = questionGroups(blocks, rows, query.group, valuesOf);
-      if (query.facets) answer.facets = questionFacets(blocks, query.facets, valuesOf, block => records(block).map(record => record.key), query.facetValues, query.facetKeys);
+      if (query.facets) answer.facets = questionFacets(blocks, query.facets, valuesOf, block => records(block).map(record => record.key), query.facetValues, query.facetKeys, query.facetSearch);
       const hint = [questionHint(query, this.knownPropertyKeys(graph)), questionValueWarning(query, key => this.loosenedValuesOf(graph, query, key, scope))].filter(Boolean).join(" · ");
       if (hint && !options.select) answer.hint = hint;
     }

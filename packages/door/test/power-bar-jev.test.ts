@@ -19,9 +19,11 @@ describe.skipIf(!outliner)("the power bar says how sure a search is", () => {
   const fake = Bun.serve({
     port: 0, hostname: "127.0.0.1",
     async fetch(request) {
-      const { model, questions } = await request.json() as { model: string; questions: Record<string, { instructions: string }> };
+      const { model, questions } = await request.json() as { model: string; questions: Record<string, { type: string; instructions: string; criteria?: Record<string, string> }> };
       const answers = Object.fromEntries(Object.entries(questions).map(([id, q]) => [id, id === "exists" ? { type: "noul", noul: questions.which ? 0.9 : exists }
         : id === "which" ? { type: "choice", probabilities: Object.fromEntries(Object.entries((q as unknown as { criteria: Record<string, string> }).criteria).map(([n, d]) => [n, d.includes("Compost turning") ? 0.9 : 0.001])) }
+        : q.type === "noul" ? { type: "noul", noul: 0 }
+        : q.type === "choice" ? { type: "choice", choice: "none", probabilities: { none: 1 }, confidence: 1 }
         : { type: "score", score: q.instructions.includes("Compost turning") ? 2.6 : 0.3 }]));
       return Response.json({ model, answers, usage: { input_tokens: 300, output_tokens: 2 } });
     },
