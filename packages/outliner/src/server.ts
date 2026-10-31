@@ -106,6 +106,7 @@ import {
 import { probeSocket } from "./socket-probe";
 import { actionOf, thisTurn, WHOLE_OUTLINE_READS, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { isWatchable, QueryWatches, type WatchConnection } from "./query-watches";
+import { LineWatches } from "./line-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
 import {
@@ -435,8 +436,8 @@ export class OutlinerServer {
   readonly extensionRegistry: ExtensionRegistry;
   /** Handler lines, their results, and actions (src/extension-calls.ts). */
   readonly extensionCalls: ExtensionCalls;
-  /** One virtual QueryWatches connection per query-fed handler line. */
-  private readonly extensionQueryConnections = new Map<string, WatchConnection>();
+  /** The one owner of the questions a note's lines watch: handler lines' `query` and render scripts' `q()` (src/line-watches.ts). */
+  private readonly lineWatches: LineWatches;
   readonly scriptRuns: ScriptRuns;
   private readonly scriptAnswers = new Map<string, { clientId: string; resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   /** `@name` request lines and what their agents did (src/agent-requests.ts). */
@@ -524,6 +525,7 @@ export class OutlinerServer {
       // A pass waits its turn a watch at a time, behind interactive requests (PIE-1413).
       turn: action => this.turns.next(action, "watches"),
     });
+    this.lineWatches = new LineWatches(this.watches, { changed: blockId => { if (!this.stopping) void this.extensionCalls.refreshOutput(blockId, "open").catch(() => {}); } });
     this.workflows = new WorkflowManager(store);
     this.mentions = new MentionRepository(store,store.workspaceRoot,folder => this.folderOpensThisOutline(folder));
     this.editRecovery = new EditRecoveryRepository(store);
@@ -618,30 +620,7 @@ export class OutlinerServer {
       ...(options.agentWorkingMs ? { workingAfterMs: options.agentWorkingMs.after, progressMs: options.agentWorkingMs.every } : {}),
     });
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
-      watchQuery: (blockId, callKey, query) => {
-        const key = `${blockId}\0${callKey}`;
-        let connection = this.extensionQueryConnections.get(key);
-        if (!connection) {
-          connection = { write: (line: string) => {
-            const event = (JSON.parse(line) as { event?: { changes?: { dropped?: boolean }[] } }).event;
-            if (!this.stopping && event?.changes?.length) void this.extensionCalls.refreshOutput(blockId, "open").catch(() => {});
-          } };
-          this.extensionQueryConnections.set(key, connection);
-        }
-        const response = this.watches.ask(connection, { id: "extension-query", action: "blocks.query", watch: "input", query });
-        if (!response.ok) {
-          this.watches.closed(connection);
-          this.extensionQueryConnections.delete(key);
-          throw new Error(response.error);
-        }
-        return response.result as ReturnType<OutlinerStore["queryBlocks"]>;
-      },
-      forgetQuery: (blockId, callKey) => {
-        const key = `${blockId}\0${callKey}`;
-        const connection = this.extensionQueryConnections.get(key);
-        if (connection) this.watches.closed(connection);
-        this.extensionQueryConnections.delete(key);
-      },
+      lines: this.lineWatches,
       undoDrafts: (edits, by, write) => this.draftPatches.undoScript(edits, by, write),
       resolveProposal: (id, by, rule) => this.draftPatches.resolveProposal(id, by, rule),
       script: (extension, request) => this.scriptRuns.answered(this.scriptRuns.start(extension, request), request),
@@ -4435,6 +4414,7 @@ export class OutlinerServer {
         }
       }
       if (event.domain === "content" && event.blockId && event.change?.kind === "delete") this.extensionCalls.removed(event.blockId);
+      if (event.domain === "content" && event.blockId && event.change?.kind === "restore") this.extensionCalls.restored(event.blockId);
       // A handler line reads its block's children and the blocks it names: a person's or agent's change to one
       // (an edit, a child added, moved, trashed or restored) may redraw the line. An extension's own writes don't, so
       // nothing loops; a script's do (a render line only reads: PIE-981).
