@@ -1,4 +1,5 @@
 import { errorDetails } from "../status-log";
+import { codeVersion } from "./code-version";
 import { loseRuns } from "../runbook";
 // The door session (PIE-418): one door that keeps running without a terminal, and the terminals that attach to it.
 // It holds what the door holds (the screens and their layouts, the dispatcher, draft sessions, terminal tiles with
@@ -33,14 +34,6 @@ import { screenRequest } from "../start";
 import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { ep0ch, placeFor, placeLabel, recordPlace, sessionFile, sessionFlags, sessionLock, sessionSocket, type Place } from "./place";
 export { sessionFile, sessionLog, sessionSocket } from "./place";
-
-/** The checkout this code runs from, and its commit (an upgrade compares them). */
-export function codeVersion(dir = resolve(import.meta.dir, "../..")): { dir: string; commit: string | null } {
-  try {
-    const r = Bun.spawnSync(["git", "-C", dir, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore" });
-    return { dir, commit: r.exitCode === 0 ? r.stdout.toString().trim() : null };
-  } catch { return { dir, commit: null }; }
-}
 
 /** A process's parents, nearest first, up to init (Linux's /proc, else ps); empty when it can't be read. */
 export function ancestors(pid: number): number[] {

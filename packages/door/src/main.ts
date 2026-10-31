@@ -225,6 +225,8 @@ ${DOCS_USAGE}
                                    this folder's outline, else the only one running. open <id> is
                                    act open id=<id>; a URI names its outline and machine first; open file:<path>
                                    [diff=true] shows a file (or its git diff) where opens land; --as <id> (or EP0CH_AGENT) names the agent
+  ep0ch trace on|off|show [action] [--last N] [--json]
+                                   prove which code ran in this door: ordered probes, running revision and handler findings
 ${AGENT_USAGE}
   ep0ch where [--json]             where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
                                    checked (the door's pid and control socket, the Herdr pane, the tile), and where
@@ -422,7 +424,7 @@ if (args[0] === "actions") {
   const { actionsDoc, wantsDoc } = await import("./actions-doc");
   if (wantsDoc(args)) process.exit(await actionsDoc(args.slice(1)));
 }
-if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) {
+if (["peek", "snap", "open", "actions", "act", "subscribe", "trace"].includes(args[0] ?? "")) {
   // Which door, when EP0CH_CONTROL names none: the one on the outline this folder names, else the only one running.
   if (!process.env.EP0CH_CONTROL) {
     const { controlFor } = await import("./session/place");

@@ -10,6 +10,8 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+- `ep0ch trace on`, then `trace show <action>`, proves which probes answered an action and which code revision the door runs; the service mirror names multiple agent handlers on one ask (PIE-1377).
+
 ### The sysop monk watches every machine and records a calm restart (PIE-1476)
 
 - **Open `sysop`:** current memory, load, disk and failed user units, with a daily health glyph per machine and “asleep since” for a missed sample.

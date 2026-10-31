@@ -4,7 +4,8 @@ import { ZOOM_WHEEL } from "./wkeys";
 import type { ZoomReach } from "./screen-layout";
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
 import { Draft, keepCopy } from "../edit";
-import { errorDetails } from "../status-log";
+import { errorDetails, messageContext } from "../status-log";
+import { probe } from "../surface/probe";
 import { HomeSurface } from "../surface/home";
 import { type Completer } from "../surface/completer";
 import { floatTheme } from "../theme";
@@ -950,6 +951,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * container's policy hold.
    */
   undoLayout(actor: Actor, txn?: string): { undone: string; what: string; steps: number; screen: string; left?: string } {
+    probe("layout.undo");
     const party = partyOf(actor);
     let entries: LayoutEntry[];
     if (txn) {
@@ -2154,6 +2156,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private applyPlacement(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor): { desk: Desk; id: number; why?: string } | null {
+    probe("open.plan");
     const plan = placement(this.layout, request, this.layoutCtx(by));
     const dest = plan.destination;
     if (dest.kind === "none") {
@@ -2243,6 +2246,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (plan.reveal) this.revealElsewhere(m, landed, request.from);
     // No room for a spine (PIE-1207): the note it showed is a step back, said with the open.
     this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : plan.noSpine && prior ? `no room for a spine · alt← returns ${subject(prior)}` : undefined);
+    messageContext.run({ ...messageContext.getStore(), tile: this.tileId(landed) }, () => probe("open.land"));
     // The idle reader a pinned one's open went to takes the next one aimed there too, as a reader opened beside it does.
     if (dest.kind === "swap" && plan.besideOf !== undefined) this.besides.set(plan.besideOf, dest.tile);
     this.save(); this.redraw();

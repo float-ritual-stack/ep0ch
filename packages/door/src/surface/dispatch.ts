@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { beginTrace } from "./probe";
 import { parseTileAddress, type ResolveOpts } from "../desk/tile-address";
 import { fromPress } from "../session/session-term";
 import { effective, keyNow, keysNow } from "./keymap";
@@ -793,41 +794,45 @@ export class Dispatcher {
   /** Run a request with the set that owns it: the tile read, the actor rule checked, the action run, its answer said. */
   private runIn(reg: Registration, req: ActRequest, actor: Actor, typed: boolean, given?: unknown): unknown {
     const { def, at, args, seen } = this.checked(reg, req, actor, typed);
-    for (const t of requestTracers) t({ action: req.action, args: seen, ...(at.tile ? { tile: { id: at.tile.id, name: at.tile.name, ...(at.tile.role ? { role: at.tile.role } : {}) } } : {}), named: req.tile !== undefined, takes: reg.takes, replay: def.replay, scope: reg.set.scope, actor, typed });
-    const hooked = this.host.beforeAction?.(req.action);
-    if (hooked) { const shown = pressShown.getStore(); if (shown) shown.changed = true; }
-    const confirmation = ++this.nextConfirmation;
-    const ctx = this.host.ctx();
-    const touches = reg.touchesAt?.(req.action, at) ?? def.touchesWith?.(seen as never, at.name) ?? def.touches;
-    const on = reg.on(at, { actor, standing: this.standing(actor, touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
-    // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
-    const run = () => messageContext.run({ ...messageContext.getStore(), action: req.action, ...(at.tile ? { tile: at.tile.id ?? at.tile.name, note: at.tile.shows ?? undefined } : {}) }, () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor));
-    const recordedArgs = { ...seen };
-    for (const [key, spec] of Object.entries(reg.set.argsOf(req.action) ?? {})) {
-      const value = recordedArgs[key];
-      if (spec.kind === "tile" && typeof value === "string" && !isTilePath(value)) recordedArgs[key] = this.tile(value)?.id ?? value;
-    }
-    const ran = actor.kind === "user" && ctx?.recordAction && def.record !== false
-      ? ctx.recordAction({ action: req.action, args: recordedArgs, ...(reg.takes === "tile" || req.tile !== undefined ? { tile: at.tile?.id ?? at.name ?? req.tile } : {}) }, def.replay, run)
-      : run();
-    // What it did, said on the status bar: an agent's always, with who it is; the person's when the screen doesn't
-    // show it. Said as soon as it's done: at once for an action that answers at once (a key's flash is there to read).
-    const done = (out: unknown) => {
-      const hint = typeof def.hint === "function" ? def.hint(seen, on) : def.hint;
-      if (hint) this.host.hint?.({ ...hint, id: def.hintId ?? req.action }, at.name, actor);
-      if (def.says && (actor.kind === "agent" || (def.confirms && confirmation >= this.saidConfirmation))) {
-        const s = def.says(out, seen as never), said = typeof s === "string" ? s : s?.text, ms = typeof s === "object" && s ? s.ms : undefined;
-        if (said) {
-          // An earlier async open must not overwrite the status of a later action.
-          this.saidConfirmation = Math.max(this.saidConfirmation, confirmation);
-          ctx?.flash?.(actor.kind === "agent" ? `${agentLabel(actor)} ${said}` : said.replace(/^· /, ""), ms);
-        }
+    const tile = at.tile?.id ?? at.tile?.name;
+    const trace = beginTrace(req.action, tile);
+    return messageContext.run({ ...messageContext.getStore(), action: req.action, tile, trace, note: at.tile?.shows ?? undefined }, () => {
+      for (const t of requestTracers) t({ action: req.action, args: seen, ...(at.tile ? { tile: { id: at.tile.id, name: at.tile.name, ...(at.tile.role ? { role: at.tile.role } : {}) } } : {}), named: req.tile !== undefined, takes: reg.takes, replay: def.replay, scope: reg.set.scope, actor, typed });
+      const hooked = this.host.beforeAction?.(req.action);
+      if (hooked) { const shown = pressShown.getStore(); if (shown) shown.changed = true; }
+      const confirmation = ++this.nextConfirmation;
+      const ctx = this.host.ctx();
+      const touches = reg.touchesAt?.(req.action, at) ?? def.touchesWith?.(seen as never, at.name) ?? def.touches;
+      const on = reg.on(at, { actor, standing: this.standing(actor, touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
+      // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
+      const run = () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor);
+      const recordedArgs = { ...seen };
+      for (const [key, spec] of Object.entries(reg.set.argsOf(req.action) ?? {})) {
+        const value = recordedArgs[key];
+        if (spec.kind === "tile" && typeof value === "string" && !isTilePath(value)) recordedArgs[key] = this.tile(value)?.id ?? value;
       }
-      const shown = pressShown.getStore();
-      if (shown) { shown.ran++; shown.changed ||= changesShown(def, touches, out, seen); }
-      return reg.answer ? reg.answer(out, at) : out;
-    };
-    return ran instanceof Promise ? ran.then(done) : done(ran);
+      const ran = actor.kind === "user" && ctx?.recordAction && def.record !== false
+        ? ctx.recordAction({ action: req.action, args: recordedArgs, ...(reg.takes === "tile" || req.tile !== undefined ? { tile: at.tile?.id ?? at.name ?? req.tile } : {}) }, def.replay, run)
+        : run();
+      // What it did, said on the status bar: an agent's always, with who it is; the person's when the screen doesn't
+      // show it. Said as soon as it's done: at once for an action that answers at once (a key's flash is there to read).
+      const done = (out: unknown) => {
+        const hint = typeof def.hint === "function" ? def.hint(seen, on) : def.hint;
+        if (hint) this.host.hint?.({ ...hint, id: def.hintId ?? req.action }, at.name, actor);
+        if (def.says && (actor.kind === "agent" || (def.confirms && confirmation >= this.saidConfirmation))) {
+          const s = def.says(out, seen as never), said = typeof s === "string" ? s : s?.text, ms = typeof s === "object" && s ? s.ms : undefined;
+          if (said) {
+            // An earlier async open must not overwrite the status of a later action.
+            this.saidConfirmation = Math.max(this.saidConfirmation, confirmation);
+            ctx?.flash?.(actor.kind === "agent" ? `${agentLabel(actor)} ${said}` : said.replace(/^· /, ""), ms);
+          }
+        }
+        const shown = pressShown.getStore();
+        if (shown) { shown.ran++; shown.changed ||= changesShown(def, touches, out, seen); }
+        return reg.answer ? reg.answer(out, at) : out;
+      };
+      return ran instanceof Promise ? ran.then(done) : done(ran);
+    });
   }
 
   /** The actor rule for one request, with what its arguments make it touch: null, or why not. */
