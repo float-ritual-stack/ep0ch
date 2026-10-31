@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The Lens and Workbench extension pages read in ten seconds (PIE-1474)
+
+- **Both pages lead with what you can do:** one point per line and no paragraph past three sentences, so `extension-page-shape` passes again on main. Nothing was added or dropped.
+- **Workbench's handler line is one point:** its description says "Draws this view's matches as table, cards and list"; the controls moved to the page.
+- **Run:** `ep0ch install --apply` refreshes the installed pages.
+
 ### A failed handler line says why in one short line (PIE-1471)
 
 - **The kept drawing's notice is plain words:** `workbench: no `query` on this note; showing the drawing from 11:25 PM` instead of the raw error with `{{this.query}}` and a UTC stamp. The time is the machine's local clock (`Oct 30, 11:25 PM` on an earlier day); the door, Detail and the web page read the same line from the one helper (`keptNotice`).

@@ -9,7 +9,7 @@
     "key": "workbench",
     "kind": "component",
     "effects": "read",
-    "description": "Draw this view's question as table, cards and list; the note's query, group, sort and columns are the controls",
+    "description": "Draws this view's matches as table, cards and list",
     "query": {
       "where": "{{this.query}}",
       "group": "{{this.group || type}}",
