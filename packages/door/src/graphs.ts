@@ -10,6 +10,7 @@ import { childRows, resolveLive, setLiveSource, liveSource, type LiveSite } from
 import { asksPerItem, liveProps } from "@ep0ch/outline-core/figure-live";
 import { figureResultsMarkdown, resultsHead, type FigureResults, type ResultsContext } from "@ep0ch/outline-core/figure-results";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
+import { readContentSize, type ContentSize } from "@ep0ch/outline-core/media-line";
 import { FIGURES } from "./figures/index";
 import { ACCENT, DIM, HI, INK, inlineRows, presentRow, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
 export type { RowInline, RowLink } from "./figures/palette";
@@ -85,9 +86,9 @@ export const isDensity = (s: unknown): s is Density => DENSITIES.includes(s as D
 const TITLE_LINES: Record<Density, number> = { compact: 1, cozy: 2, comfortable: 3 };
 
 /** A figure's control a reader draws: one of a tabs figure's tabs, or its density (a table's too). */
-export interface FigureControl { figure: string; tab?: string; density?: true }
+export interface FigureControl { figure: string; tab?: string; density?: true; size?: true }
 /** What a reader learns of each figure it drew: which it is, its tabs and their counts, and what's chosen now. */
-export interface FigureInfo { key: string; n: number; kind: string; title: string; density: Density; tabs?: { value: string; count: number }[]; tab?: string }
+export interface FigureInfo { key: string; n: number; kind: string; title: string; density: Density; tabs?: { value: string; count: number }[]; tab?: string; size: ContentSize; cols: number; rows: number; line?: number; note?: string; revision?: number }
 
 /**
  * A reader's hold on its figures (src/surface/note.ts): what the person (or an agent) chose for each, by the figure's
@@ -102,7 +103,10 @@ export interface FiguresEnv {
    * figure with another title above it keeps its tab and density.
    */
   drawn?: { n: number; titles: Map<string, number> };
-  ui?(key: string): { tab?: string; density?: Density } | undefined;
+  ui?(key: string): { tab?: string; density?: Density; size?: Partial<ContentSize> } | undefined;
+  fullWidth?: number;
+  line?: number;
+  viewport?(key: string, rows: string[], width: number, height?: number): string[];
   tag?(c: FigureControl, text: string): string;
   seen?(info: FigureInfo): void;
   all?: boolean;
@@ -412,6 +416,16 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   const rowLink = link;
   link = rowLink ? (block, text, _figure, query, at, cell) => rowLink(block, text, key, query, at, cell) : undefined;
   const chosen = figures?.ui?.(key);
+  const size = readContentSize({ ...props, ...chosen?.size });
+  if (size.width === "full") W = figures?.fullWidth ?? W;
+  warn.push(...size.problems.map(problem => fg(C.yellow) + problem + RESET));
+  const finish = (body: string[], footer = "", control = "", extra: Partial<FigureInfo> = {}) => {
+    const sizing = figures?.tag?.({ figure: key, size: true }, `↔ ${size.width}`) ?? "";
+    const drawn = frame(String(props.title ?? ""), body, W, footer, [control, sizing].filter(Boolean).join(" · "));
+    const lines = figures?.viewport?.(key, drawn, W, size.height ?? (kind === "timeline" ? body.length : undefined)) ?? drawn;
+    figures?.seen?.({ key, n, kind, title, density: ui.density, size, cols: W, rows: lines.length, note: src.note, line: figures.line, ...extra });
+    return lines;
+  };
   const writtenLines = props.lines === undefined ? undefined : Number(props.lines);
   const validLines = writtenLines === undefined || Number.isSafeInteger(writtenLines) && writtenLines >= 0;
   if (!validLines) warn.push(fg(C.yellow) + "lines needs a whole number: 0 truncates, 1 or more wraps" + RESET);
@@ -425,18 +439,16 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
     const draw = KINDS[kind];
     const tabs: { value: string; count: number }[] | undefined = kind === "tabs" ? (props.tabs ?? []).map((t: Props) => ({ value: t.value, count: t.count })) : undefined;
     const tab = tabs ? (tabs.find(t => t.value === ui.tab) ?? tabs[0])?.value : undefined;
-    figures?.seen?.({ key, n, kind, title, density: ui.density, ...(tabs ? { tabs } : {}), ...(tab !== undefined ? { tab } : {}) });
     const body = draw ? withRowLimit(ui.lines, () => draw(props, Math.max(10, W - 4), link, { ...ui, ...(tab !== undefined ? { tab } : {}) })) : [];
     if (live.error) body.push(...errorLines(live.error, W));
     if (!body.length) body.push(fg(DIM) + "no results" + RESET);
     body.push(...warn);
-    return frame(String(props.title ?? ""), body, W, live.status ?? "live", densityControl(kind, ui));
+    return finish(body, live.status ?? "live", densityControl(kind, ui), { ...(tabs ? { tabs } : {}), ...(tab !== undefined ? { tab } : {}) });
   }
   const draw = KINDS[kind];
   if (!draw) return frame(props.title ?? kind, [fg(DIM) + `graph-${kind} isn't drawn in the terminal yet` + RESET], W);
-  if (kind === "table") figures?.seen?.({ key, n, kind, title, density: ui.density });
   const footer = read.waiting ? "asking for its child notes…" : read.children ? "live · child notes" : "";
-  try { return frame(String(props.title ?? ""), [...withRowLimit(ui.lines, () => draw(props, Math.max(10, W - 4), link, ui)), ...warn], W, footer, kind === "table" ? densityControl(kind, ui) : ""); }
+  try { return finish([...withRowLimit(ui.lines, () => draw(props, Math.max(10, W - 4), link, ui)), ...warn], footer, kind === "table" ? densityControl(kind, ui) : ""); }
   catch (e) { return frame(kind, [fg(C.lred) + `couldn't draw: ${(e as Error).message}` + RESET], W); }
 }
 

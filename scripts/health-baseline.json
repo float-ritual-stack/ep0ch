@@ -1,5 +1,5 @@
 {
-  "revision": "5403b9fb9fd4d743d7fdf90c81cb74f4eedd551a",
+  "revision": "317f98ba170512db011d6a298b941c652c5401cf",
   "patterns": {
     "width-length": {
       "count": 256,
@@ -215,7 +215,7 @@
         "packages/door/src/surface/note.ts:c168c9df45107454",
         "packages/door/src/surface/note.ts:25a87f3b8fa82f32",
         "packages/door/src/surface/note.ts:f1183abfe806b2b5",
-        "packages/door/src/surface/note.ts:460d08b790144dd1",
+        "packages/door/src/surface/note.ts:7a750309dd6cd817",
         "packages/door/src/surface/note.ts:af1eedc2bea296e3",
         "packages/door/src/surface/note.ts:f91a58c5dc32ddba",
         "packages/door/src/surface/note.ts:abc8dcea9a076884",
@@ -388,12 +388,12 @@
   "files": {
     "packages/claude-mod/hooks/register.ts": 2906,
     "packages/door/src/app.ts": 2081,
-    "packages/door/src/desk/desk.ts": 8764,
+    "packages/door/src/desk/desk.ts": 8763,
     "packages/door/src/desk/screen-layout.ts": 2396,
     "packages/door/src/drawer.ts": 2082,
     "packages/door/src/screens.ts": 2245,
     "packages/door/src/showcase/showcase.ts": 2192,
-    "packages/door/src/surface/note.ts": 13530,
+    "packages/door/src/surface/note.ts": 13483,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4671,

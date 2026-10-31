@@ -38,10 +38,11 @@ export function ageSince(iso: string | number | undefined, now: number, style: A
  * today, `Oct 30, 11:25 PM` before. "" when `iso` isn't a time. The door and the web page both read the words from the
  * one service line that uses it, so they agree.
  */
-export function clockWords(iso: string | number, now: number = Date.now()): string {
+export function clockWords(iso: string | number, now: number = Date.now(), style: "auto" | "time" | "date" | "date-time" = "auto"): string {
   const at = new Date(iso);
   if (!Number.isFinite(at.getTime())) return "";
   const time = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  const today = at.toDateString() === new Date(now).toDateString();
-  return today ? time : `${at.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`;
+  const today = style === "time" || style === "auto" && at.toDateString() === new Date(now).toDateString();
+  const day = at.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return style === "date" ? day : today ? time : `${day}${style === "date-time" ? " " : ", "}${time}`;
 }

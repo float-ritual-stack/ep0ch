@@ -9,6 +9,26 @@ import { noteStructure } from "./component-block";
 import { frontMatterLines } from "./header-line";
 import { propertyTokensInLine } from "./property-grammar";
 import { parseResourceRef } from "./resource-ref";
+import type { PropSchema } from "./component-schema";
+
+export type ContentWidth = "fit" | "full";
+export interface ContentSize { width: ContentWidth; height?: number }
+export const MAX_CONTENT_HEIGHT = 200;
+export const CONTENT_SIZE_PROPS: readonly PropSchema[] = [
+  { key: "width", where: "yaml", type: "enum", default: "fit", meaning: "fit keeps the reading measure; full fills the available width", values: [{ value: "fit", meaning: "inside the reading measure" }, { value: "full", meaning: "the whole available width" }] },
+  { key: "height", where: "yaml", type: "int", min: 1, max: MAX_CONTENT_HEIGHT, meaning: "height in terminal rows", samples: ["8", "12"] },
+];
+
+/** The sizing words images and figures read at their source boundary. */
+export function readContentSize(props: { width?: unknown; height?: unknown; size?: MediaSize }): ContentSize & { problems: string[] } {
+  const problems: string[] = [];
+  const width = props.width ?? (props.size === "full" ? "full" : "fit");
+  if (width !== "fit" && width !== "full") problems.push(`width: ${width} isn't fit or full`);
+  const height = props.height === undefined ? undefined : Number(props.height);
+  if (height !== undefined && (!Number.isSafeInteger(height) || height < 1)) problems.push(`height: ${props.height} isn't a positive number of rows`);
+  else if (height !== undefined && height > MAX_CONTENT_HEIGHT) problems.push(`height: ${props.height} exceeds ${MAX_CONTENT_HEIGHT} rows; drawn at ${MAX_CONTENT_HEIGHT}`);
+  return { width: width === "full" ? "full" : "fit", ...(height !== undefined && Number.isSafeInteger(height) && height > 0 ? { height: Math.min(height, MAX_CONTENT_HEIGHT) } : {}), problems };
+}
 
 /** What a media line names: an image, a video or an artifact. */
 export type MediaKind = "img" | "video" | "artifact";
@@ -27,16 +47,16 @@ export type MediaSize = { cells: number } | { percent: number } | "full";
  */
 export interface MediaSpec {
   kind: MediaKind; path: string;
-  size?: MediaSize; height?: number; align?: Align; layout?: "hero"; fit?: "cover" | "contain"; dim?: number; focus?: Focus; alt?: string;
+  size?: MediaSize; width?: ContentWidth; height?: number; align?: Align; layout?: "hero"; fit?: "cover" | "contain"; dim?: number; focus?: Focus; alt?: string;
   blur?: number; bleed?: "full" | "measure"; heightShare?: number; tint?: number; fade?: number; title?: "below" | "over"; scroll?: "scroll" | "pinned";
   problems: string[];
 }
 /** A point in an image, as fractions of it across and down. */
 export type Focus = { x: number; y: number };
-export type MediaAttr = "size" | "height" | "align" | "layout" | "fit" | "dim" | "hero-focus" | "alt" | "blur" | "bleed" | "tint" | "fade" | "title" | "scroll";
+export type MediaAttr = "size" | "width" | "height" | "align" | "layout" | "fit" | "dim" | "hero-focus" | "alt" | "blur" | "bleed" | "tint" | "fade" | "title" | "scroll";
 const MEDIA_KEY = /^(img|image|video|artifact)$/i;
 /** The layout properties a media line takes beside its path: what the library's image schemas must document. */
-export const MEDIA_ATTRS: readonly MediaAttr[] = ["size", "height", "align", "layout", "fit", "dim", "hero-focus", "alt", "blur", "bleed", "tint", "fade", "title", "scroll"];
+export const MEDIA_ATTRS: readonly MediaAttr[] = ["size", "width", "height", "align", "layout", "fit", "dim", "hero-focus", "alt", "blur", "bleed", "tint", "fade", "title", "scroll"];
 const ATTRS = new Set<string>(MEDIA_ATTRS);
 const LEAD = /^\s*(?:[-*]\s+)?/;
 /** A block anchor ending a line (` ^beds`), kept as it is when the line is rewritten. */
@@ -76,7 +96,7 @@ function tokens(line: string): { lead: string; toks: Tok[]; block: boolean; anch
   // `img:: path`, perhaps followed by the layout tokens: the path is what comes before them.
   const blockForm = /^(img|image|video|artifact)::\s*(.*)$/i.exec(rest);
   if (blockForm) {
-    const tail = /(?:^|\s)(\[(?:size|height|align|layout|fit|dim|hero-focus|alt|blur|bleed|tint|fade|title|scroll)::.*)$/i.exec(blockForm[2]!);
+    const tail = /(?:^|\s)(\[(?:size|width|height|align|layout|fit|dim|hero-focus|alt|blur|bleed|tint|fade|title|scroll)::.*)$/i.exec(blockForm[2]!);
     const path = (tail ? blockForm[2]!.slice(0, tail.index) : blockForm[2]!).trim();
     const more = tail ? scanTokens(tail[1]!) : [];
     if (!path || path.startsWith("[") || !more) return null;
@@ -110,7 +130,9 @@ export function parseMediaLine(line: string): MediaSpec | null {
       if (size) spec.size = size; else spec.problems.push(`size::${value} isn't a size (cells, N% or full)`);
     } else if (k === "height") {
       if (/^\d{1,2}%$/.test(v) && parseInt(v) > 0 && parseInt(v) <= 50) spec.heightShare = parseInt(v) / 100;
-      else if (/^\d{1,3}$/.test(v) && +v > 0) spec.height = +v; else spec.problems.push(`height::${value} isn't a number of rows`);
+      else { const size = readContentSize({ height: v }); spec.height = size.height; spec.problems.push(...size.problems); }
+    } else if (k === "width") {
+      const size = readContentSize({ width: v }); spec.width = size.width; spec.problems.push(...size.problems);
     } else if (k === "align") {
       if ((ALIGNS as readonly string[]).includes(v)) spec.align = v as Align; else spec.problems.push(`align::${value} isn't left, center or right`);
     } else if (k === "layout") {
@@ -136,6 +158,7 @@ export function parseMediaLine(line: string): MediaSpec | null {
       if (f) spec.focus = f; else spec.problems.push(`hero-focus::${value} isn't a point (x,y: 0 to 1, or percents)`);
     } else if (k === "alt") spec.alt = value.trim();
   }
+  if (spec.width) spec.size = spec.width === "full" ? "full" : undefined;
   return spec;
 }
 
@@ -263,6 +286,7 @@ export function rewriteMediaLine(line: string, set: Partial<Record<MediaAttr, st
   const t = parseMediaLine(line) ? tokens(line) : null;
   if (!t) return null;
   let toks = t.toks.map(x => ({ ...x }));
+  if (set.size !== undefined && set.width === undefined) toks = toks.filter(x => x.key.toLowerCase() !== "width");
   for (const [k, v] of Object.entries(set)) {
     if (v === undefined) continue;
     const i = toks.findIndex(x => x.key.toLowerCase() === k);

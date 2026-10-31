@@ -24,7 +24,7 @@ export interface ProducerStore {
   get(id: string): { id: string; revision: number; text: string; parentId: string | null } | null;
   children(parentId: string | null): { id: string }[];
   queryBlocks(input: BlockSearchQuery, binder?: ValueBinder, select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): VisibleBlockCollection & { groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string };
-  readSavedView(viewId: string, options: Record<string, never>, format: "tree", select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): SavedViewReadResult<TreeIndexBlock>;
+  readSavedView(viewId: string, options: import("./types").SavedViewReadOptions, format: "tree", select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): SavedViewReadResult<TreeIndexBlock>;
   matchQuery(expression: unknown, ids: unknown, narrow?: { this?: unknown }, binder?: ValueBinder, draft?: BlockRecord): { blockIds: string[] };
   /** For each id, the notes linking to it (`sources`) and the ones it links to (`targets`), read once for all of them. */
   linkNeighbours(ids: readonly string[], which: { sources: boolean; targets: boolean }): Map<string, Set<string>>;
@@ -120,7 +120,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 const own = (error: unknown) => { if (error instanceof StillCounting) throw error; return message(error); };
 
 /** One question, asked: the results, or why not. A view is read as the door's tree reads it. */
-type Asked = { blocks: (VisibleBlock | TreeIndexBlock)[]; truncated: boolean; groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string; error?: string };
+type Asked = { blocks: (VisibleBlock | TreeIndexBlock)[]; truncated: boolean; total?: number; groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string; error?: string };
 
 function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined, p: Props, group?: string): Asked | null {
   const question = figureQuestion(p, group);
@@ -134,11 +134,11 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined,
       viewId = page.values![0]!;
     } else viewId = question.viewId;
     let read: SavedViewReadResult<TreeIndexBlock>;
-    try { read = store.readSavedView(viewId, {}, "tree"); } catch (error) { return { blocks: [], truncated: false, error: own(error) }; }
+    try { read = store.readSavedView(viewId, { limit: p.limit === undefined ? undefined : Number(p.limit) }, "tree"); } catch (error) { return { blocks: [], truncated: false, error: own(error) }; }
     if (read.status !== "ready") return { blocks: [], truncated: false, error: `view ${read.status}: ${read.errors.join("; ")}` };
     const hidden = read.machineryHidden;
     return {
-      blocks: read.blocks,
+      blocks: read.blocks, total: read.total,
       truncated: read.completeness?.kind === "truncated" || read.nextOffset !== undefined,
       ...(hidden ? { hint: `${hidden > 50 ? "50+" : hidden} machinery note${hidden === 1 ? "" : "s"} hidden · machinery=show` } : {}),
     };
@@ -146,7 +146,7 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined,
   const { where, limit, sort, direction, machinery } = question;
   try {
     const found = store.queryBlocks({ where, ...(thisId ? { this: thisId } : {}), limit, sort: `${sort} ${direction}`, ...(question.group ? { group: question.group } : {}), machinery: machinery ?? DEFAULT_MACHINERY } as BlockSearchQuery, tools.binder);
-    return { blocks: found.blocks, truncated: found.completeness?.kind === "truncated", ...(found.groups ? { groups: found.groups } : {}), ...(found.hint ? { hint: found.hint } : {}) };
+    return { blocks: found.blocks, truncated: found.completeness.kind === "truncated", total: found.completeness.kind === "truncated" ? found.completeness.matched : found.blocks.length, ...(found.groups ? { groups: found.groups } : {}), ...(found.hint ? { hint: found.hint } : {}) };
   } catch (error) {
     return { blocks: [], truncated: false, error: sortProblem(own(error), sort, direction) };
   }
@@ -163,7 +163,7 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
   if (asksPerItem(kind, p)) {
     const counts = (p.items as Props[]).map((item, index) => {
       tools.spend(`counting ${item.label ?? `item ${index + 1}`}`);
-      const a = ask(store, tools, thisId, item);
+      const a = ask(store, tools, thisId, { ...item, limit: item.limit ?? p.limit });
       if (!a) return { ids: [], truncated: false };
       return a.error ? { ids: [], truncated: false, error: `${item.label ?? `item ${index + 1}`}: ${a.error}` } : { ids: a.blocks.map(b => b.id), truncated: a.truncated };
     });
@@ -179,10 +179,12 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
   const done = asking.props.done ? subset(store, tools, thisId, String(asking.props.done), ids) : {};
   const now = asking.props.now ? subset(store, tools, thisId, String(asking.props.now), ids) : {};
   const error = done.error ? `done: ${done.error}` : now.error ? `now: ${now.error}` : undefined;
-  const titles = kind === "table" || kind === "tabs" ? cellTitles(store, a.blocks, Array.isArray(p.columns) ? p.columns.map(String) : undefined) : undefined;
+  const titles = kind === "timeline" && p.meta === "parent"
+    ? Object.fromEntries([...new Set(a.blocks.flatMap(b => b.parentId ? [b.parentId] : []))].flatMap(id => { const parent = store.get(id); return parent ? [[id, displayTitleOfText(parent.text) ?? id]] : []; }))
+    : kind === "table" || kind === "tabs" ? cellTitles(store, a.blocks, Array.isArray(p.columns) ? p.columns.map(String) : undefined) : undefined;
   // (A `link:` property's notes are the rows' links; they need no title.)
   return {
-    kind: "figure", blocks: a.blocks, truncated: a.truncated, ...(titles ? { titles } : {}),
+    kind: "figure", blocks: a.blocks, truncated: a.truncated, ...(a.total !== undefined ? { total: a.total } : {}), ...(titles ? { titles } : {}),
     ...(a.groups ? { groups: a.groups } : {}), ...(a.hint ? { hint: a.hint } : {}),
     ...(done.ids ? { done: done.ids } : {}), ...(now.ids ? { now: now.ids } : {}),
     ...(error ? { error } : {}),

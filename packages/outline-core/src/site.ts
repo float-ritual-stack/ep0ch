@@ -161,6 +161,8 @@ export type SiteProduced =
     kind: "figure";
     blocks: unknown[];
     truncated: boolean;
+    /** Every match counted by the service, including rows beyond limit. */
+    total?: number;
     groups?: QuestionGroup[];
     done?: string[];
     now?: string[];

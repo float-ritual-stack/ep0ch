@@ -5,6 +5,7 @@
 // style-cascade.ts); the door's `LINK_BLOCK_KINDS` and the media line's attributes are what a test holds this list to
 // (packages/door/test/component-coverage.test.ts). Pure: no I/O; types only from component-schema.ts.
 import type { ComponentSchema, PropSchema } from "./component-schema";
+import { CONTENT_SIZE_PROPS } from "./media-line";
 import { enumOf } from "./prop-values";
 
 
@@ -77,7 +78,7 @@ const IMAGE: ComponentSchema = {
   where: "a line of a note: `[img::path]` and the `[size::…]`, `[align::…]`… beside it on the same line",
   props: [
     line("size", "text", "its width: columns, a percentage of the reader, or `full`", { samples: ["20", "40%", "full"] }),
-    line("height", "int", "its height in rows", { min: 1, max: 40, samples: ["6", "12", "20"] }),
+    ...CONTENT_SIZE_PROPS.map(p => line(p.key, p.type, p.meaning, { ...p, where: "line" })),
     line("align", "enum", "where it sits across the reader", { default: "left", values: enumOf({ left: "at the left", center: "in the middle", right: "at the right" }) }),
     line("alt", "text", "words for where the picture can't be drawn, and for a screen reader", { samples: ["a hawk moth at the buddleia"] }),
     line("dim", "number", "how far to darken it, 0 (none) to 1 (black); a bright picture is dimmed on its own when left out", { samples: ["0", "0.3", "0.6"] }),

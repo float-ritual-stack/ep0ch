@@ -28,6 +28,7 @@
 //   flow      from: <property>, to: <property> → a flow per pair, counted
 
 import { MACHINERY_MODES, type MachineryMode } from "./machinery";
+import { dateWords } from "./dates";
 import type { QuestionGroup } from "./protocol";
 import { referencedBlock, pageAddressReferences, tryNormalizePageAddress } from "./link-syntax";
 import { isChecklistStatus, type ChecklistStatus } from "./checklist-marks";
@@ -36,12 +37,13 @@ import { addCell, dayOf, dayState, decisionState, isoOf, localDay, monthOf, toda
 
 /** One result as a live figure reads it: its note, its title and properties, and when it was made and changed. */
 /** A note a live figure draws: `properties` are its block-scope properties as a record holds them (read with `valueOf`, never as a key → value map). */
-export interface FigureItem { id: string; title: string; properties: BlockRecord["properties"]; createdAt: number; updatedAt: number; author: string | null }
+export interface FigureItem { id: string; parentId?: string | null; title: string; properties: BlockRecord["properties"]; createdAt: number; updatedAt: number; author: string | null }
 
 /** What the service answered a figure's question: its results, its groups when it grouped, which `done:`/`now:` hold. */
 export interface FigureAnswer {
   items: readonly FigureItem[];
   truncated: boolean;
+  total?: number;
   groups?: readonly QuestionGroup[];
   done?: ReadonlySet<string>;
   now?: ReadonlySet<string>;
@@ -104,6 +106,7 @@ export const asksPerItem = (kind: string, p: Props) =>
  * asked as written.
  */
 export function liveAsk(kind: string, p: Props): { props: Props; ask: Props; group?: string; error?: string } {
+  if (kind === "timeline") p = { ...p, sort: p.date ?? p.sort ?? "updated", direction: p.direction ?? "asc" };
   if (kind === "uptime" && p.source === "backups") p = { query: "type=backup-run", machinery: "show", ...p };
   if ((kind === "uptime" || kind === "activity" || kind === "calendar") && (p.query || p.view)) p = { limit: 1000, ...p };
   const group = kind === "rank" || kind === "tabs" ? String(p.group ?? "status") : undefined;
@@ -113,8 +116,8 @@ export function liveAsk(kind: string, p: Props): { props: Props; ask: Props; gro
 }
 
 /** The status line of a live figure's answer: `live · 12 results`. */
-export const liveStatus = (a: { items: readonly unknown[]; truncated: boolean }) =>
-  `live · ${a.items.length}${a.truncated ? "+" : ""} result${a.items.length === 1 ? "" : "s"}`;
+export const liveStatus = (a: { items: readonly unknown[]; truncated: boolean; total?: number }) =>
+  `live · ${a.items.length}${a.truncated && a.total === undefined ? "+" : ""} result${a.items.length === 1 ? "" : "s"}${a.total !== undefined && a.total > a.items.length ? ` · +${a.total - a.items.length} more` : ""}`;
 
 const date = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
@@ -199,8 +202,11 @@ export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Pro
       });
       return { props: { ...p, tabs, truncated: a.truncated } };
     }
-    case "timeline":
-      return { props: { ...p, events: items.map(m => ({ date: p.date ? itemField(m, p.date) : date(p.sort === "created" ? m.createdAt : m.updatedAt), label: m.title, state: now?.has(m.id) ? "now" : undefined, block: m.id })) } };
+    case "timeline": {
+      const field = p.date ?? p.sort ?? "updated";
+      const dates = dateWords(items.map(m => field === "created" || field === "updated" ? new Date(field === "created" ? m.createdAt : m.updatedAt).toISOString() : itemField(m, field)));
+      return { props: { ...p, events: items.map((m, i) => ({ date: dates[i], label: m.title, note: p.meta === "parent" ? a.titles?.[m.parentId ?? ""] : p.meta ? itemField(m, p.meta) : undefined, state: now?.has(m.id) ? "now" : undefined, block: m.id })) } };
+    }
     case "meter": {
       const held = items.filter(m => (done ? isDone(m) : true)).length;
       if (p.limit !== undefined) return { props: { ...p, items: [{ label: p.label ?? "", value: held }] } };
@@ -270,7 +276,7 @@ export function keepGroups(groups: readonly QuestionGroup[] | undefined, kept: R
 }
 
 /** The props a figure's question is read from (`liveAsk`, `figureQuestion`, `done:`/`now:`, a stat's items): what a client sends to be answered. */
-const ASK_KEYS = ["query", "view", "limit", "sort", "direction", "machinery", "source", "group", "done", "now", "label", "value", "columns", "link"] as const;
+const ASK_KEYS = ["query", "view", "limit", "sort", "direction", "date", "meta", "machinery", "source", "group", "done", "now", "label", "value", "columns", "link"] as const;
 export function askProps(p: Props): Props {
   const pick = (from: Props) => Object.fromEntries(ASK_KEYS.flatMap(k => from?.[k] === undefined ? [] : [[k, from[k]]]));
   // A title that reads the Site (`{{props.day}}` in a template, PIE-1362) is asked with the question, and answered read.

@@ -246,7 +246,7 @@ export interface AfterRows { rows: string[]; regions?: { key: string; at: number
 export interface DocRegion { key: string; row: number; rows: number }
 
 /** A part of a note drawn (Doc.parts): its kind, first row, body line and the cell its control goes in. */
-export interface DocPart { kind: "figure" | "table" | "heading"; row: number; line: number; col: number }
+export interface DocPart { kind: "figure" | "table" | "heading"; row: number; line: number; col: number; figure?: string; rows?: number; cols?: number; full?: boolean }
 
 /** A background under rows [from, to) of `lines`, across cells [from, to) (`cols`; the whole row without), in `bg` (an SGR). */
 export interface DocTint { rows: [number, number]; cols?: [number, number]; bg: string }
@@ -404,6 +404,7 @@ export function childEnv(env: DocEnv, { off, end, width }: { off: number; end: n
   const inside = (n: number) => n >= off && n < end;
   return {
     ...env, nested: true, width, keepTags: true,
+    figures: env.figures && { ...env.figures, fullWidth: width, seen: f => env.figures!.seen?.({ ...f, line: f.line === undefined ? undefined : f.line + off }) },
     // Only the note's own first line can supply its header, never a child's first line.
     hero: false, heroLine: env.heroLine !== undefined && inside(env.heroLine) ? env.heroLine - off : -1,
     after: env.after && ((n, w) => n < 0 ? [] : env.after!(n + off, w)),
@@ -469,6 +470,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     });
     for (const [r, j] of sub.wraps ?? []) wraps.set(base + r, j);
     for (const r of sub.regions ?? []) regions.push({ ...r, row: base + r.row });
+    // A child's full width stays inside its parent's inset.
+    for (const p of sub.parts ?? []) parts.push({ ...p, row: base + p.row, line: off + p.line, col: dx + p.col, full: false });
     for (const b of sub.blocks) if (b.kind !== "span") blocks.push({ ...b, row: base + b.row, line: b.line + off, end: b.end + off, inner: [b.inner[0] + off, b.inner[1] + off], strip: b.strip + quoted, col: b.col + dx });
   };
   const adoptMedia = (sub: Doc, base: number, dx: number, off: number) => {
@@ -715,9 +718,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const tunedLines = look?.lists?.(i, componentRowFields(figure.attrs ?? ""))["rows.lines"];
       if (tunedLines !== undefined) source.yaml = source.yaml.replace(/^lines:.*$/m, "") + `\nlines: ${tunedLines}`;
       if (env.figures) env.figures.drawn ??= { n: 0, titles: new Map() };
-      const graph = renderGraph(gk, source, W, env.link, { ...env.figures, lines: componentLines(i, figure.attrs) }, rows, env.site);
-      parts.push({ kind: "figure", row: out.length, line: i, col: Math.max(16, W) - 3 });
-      out.push(...(env.inlineList ? env.inlineList(graph, W) : graph));
+      let info: import("./graphs").FigureInfo | undefined;
+      const graph = renderGraph(gk, source, W, env.link, { ...env.figures, line: i, lines: componentLines(i, figure.attrs), seen: f => { info = f; env.figures?.seen?.(f); } }, rows, env.site);
+      parts.push({ kind: "figure", row: out.length, line: i, col: Math.max(16, info?.cols ?? W) - 3, figure: info?.key, rows: graph.length, cols: info?.cols ?? W, full: info?.size.width === "full" });
+      out.push(...graph);
       i = figure.end;
       continue;
     }

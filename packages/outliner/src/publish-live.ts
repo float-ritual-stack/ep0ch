@@ -254,7 +254,7 @@ async function answerFigure(host: LiveHost, kind: string, p: Props, note: string
   const own = showable.size ? await host.titles([...showable]) : new Map<string, string>();
   const titles = Object.fromEntries([...showable].flatMap(id => { const t = own.get(id) || a.titles?.[id]; return t ? [[id, t]] : []; }));
   const answer: FigureAnswer = {
-    items, truncated: a.truncated, ...(groups ? { groups } : {}), ...(Object.keys(titles).length ? { titles } : {}),
+    items, truncated: a.truncated, total: a.total === undefined ? undefined : a.total - (a.blocks.length - items.length), ...(groups ? { groups } : {}), ...(Object.keys(titles).length ? { titles } : {}),
     ...(a.done ? { done: new Set(a.done) } : {}), ...(a.now ? { now: new Set(a.now) } : {}), ...(a.hint ? { hint: a.hint } : {}),
   };
   const drawn = liveProps(kind, asking.props, answer);
@@ -262,12 +262,12 @@ async function answerFigure(host: LiveHost, kind: string, p: Props, note: string
   return { props: titled(drawn.props), status: liveStatus(answer), ...(error ? { error } : {}) };
 }
 
-async function itemsOf(host: LiveHost, blocks: readonly { id: string; properties?: BlockProperty[]; createdAt?: string; updatedAt?: string; author?: string }[]): Promise<FigureItem[]> {
+async function itemsOf(host: LiveHost, blocks: readonly { id: string; parentId?: string | null; properties?: BlockProperty[]; createdAt?: string; updatedAt?: string; author?: string }[]): Promise<FigureItem[]> {
   const shown = await host.shown(blocks.map(block => block.id));
   const visible = blocks.filter(block => shown.has(block.id));
   const titles = await host.titles(visible.map(block => block.id));
   return visible.map(block => ({
-    id: block.id, title: titles.get(block.id) || "untitled", properties: recordProperties(block.properties ?? []),
+    id: block.id, parentId: block.parentId, title: titles.get(block.id) || "untitled", properties: recordProperties(block.properties ?? []),
     createdAt: ms(block.createdAt), updatedAt: ms(block.updatedAt), author: block.author ?? null,
   }));
 }

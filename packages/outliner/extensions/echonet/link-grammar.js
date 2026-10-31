@@ -1425,9 +1425,22 @@ function artifactReference(value) {
 var isArtifactName = (value) => artifactReference(value) !== null;
 
 // packages/outline-core/src/media-line.ts
+var MAX_CONTENT_HEIGHT = 200;
+function readContentSize(props) {
+  const problems = [];
+  const width = props.width ?? (props.size === "full" ? "full" : "fit");
+  if (width !== "fit" && width !== "full")
+    problems.push(`width: ${width} isn't fit or full`);
+  const height = props.height === undefined ? undefined : Number(props.height);
+  if (height !== undefined && (!Number.isSafeInteger(height) || height < 1))
+    problems.push(`height: ${props.height} isn't a positive number of rows`);
+  else if (height !== undefined && height > MAX_CONTENT_HEIGHT)
+    problems.push(`height: ${props.height} exceeds ${MAX_CONTENT_HEIGHT} rows; drawn at ${MAX_CONTENT_HEIGHT}`);
+  return { width: width === "full" ? "full" : "fit", ...height !== undefined && Number.isSafeInteger(height) && height > 0 ? { height: Math.min(height, MAX_CONTENT_HEIGHT) } : {}, problems };
+}
 var ALIGNS = ["left", "center", "right"];
 var MEDIA_KEY = /^(img|image|video|artifact)$/i;
-var MEDIA_ATTRS = ["size", "height", "align", "layout", "fit", "dim", "hero-focus", "alt", "blur", "bleed", "tint", "fade", "title", "scroll"];
+var MEDIA_ATTRS = ["size", "width", "height", "align", "layout", "fit", "dim", "hero-focus", "alt", "blur", "bleed", "tint", "fade", "title", "scroll"];
 var ATTRS = new Set(MEDIA_ATTRS);
 var LEAD = /^\s*(?:[-*]\s+)?/;
 var ANCHOR = /\s+\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/;
@@ -1465,7 +1478,7 @@ function tokens(line) {
   const lead = LEAD.exec(body)[0], rest = body.slice(lead.length);
   const blockForm = /^(img|image|video|artifact)::\s*(.*)$/i.exec(rest);
   if (blockForm) {
-    const tail = /(?:^|\s)(\[(?:size|height|align|layout|fit|dim|hero-focus|alt|blur|bleed|tint|fade|title|scroll)::.*)$/i.exec(blockForm[2]);
+    const tail = /(?:^|\s)(\[(?:size|width|height|align|layout|fit|dim|hero-focus|alt|blur|bleed|tint|fade|title|scroll)::.*)$/i.exec(blockForm[2]);
     const path = (tail ? blockForm[2].slice(0, tail.index) : blockForm[2]).trim();
     const more = tail ? scanTokens(tail[1]) : [];
     if (!path || path.startsWith("[") || !more)
@@ -1510,10 +1523,15 @@ function parseMediaLine(line) {
     } else if (k === "height") {
       if (/^\d{1,2}%$/.test(v) && parseInt(v) > 0 && parseInt(v) <= 50)
         spec.heightShare = parseInt(v) / 100;
-      else if (/^\d{1,3}$/.test(v) && +v > 0)
-        spec.height = +v;
-      else
-        spec.problems.push(`height::${value} isn't a number of rows`);
+      else {
+        const size = readContentSize({ height: v });
+        spec.height = size.height;
+        spec.problems.push(...size.problems);
+      }
+    } else if (k === "width") {
+      const size = readContentSize({ width: v });
+      spec.width = size.width;
+      spec.problems.push(...size.problems);
     } else if (k === "align") {
       if (ALIGNS.includes(v))
         spec.align = v;
@@ -1570,6 +1588,8 @@ function parseMediaLine(line) {
     } else if (k === "alt")
       spec.alt = value.trim();
   }
+  if (spec.width)
+    spec.size = spec.width === "full" ? "full" : undefined;
   return spec;
 }
 var ARTIFACT_ATTRS = new Set(["size", "height", "align", "alt"]);

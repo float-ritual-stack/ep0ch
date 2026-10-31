@@ -11,6 +11,7 @@
 // A change to what this reads or how it compares bumps GRAMMAR (protocol.ts).
 
 import { splitPropertyValue } from "./property-grammar";
+import { clockWords } from "./age";
 
 export const DAY_MS = 86_400_000;
 
@@ -265,4 +266,12 @@ export function looksLikeDate(text: string): boolean {
 /** A date's day as `YYYY-MM-DD` on the wall-clock axis (a span's first day). */
 export function isoDay(when: When): string {
   return new Date(when.from).toISOString().slice(0, 10);
+}
+
+/** A series of dates in the reader's zone: clocks on one day, dated clocks across days; unreadable words stay written. */
+export function dateWords(values: readonly string[]): string[] {
+  const dates = values.map(value => readDate(value));
+  const sameDay = new Set(dates.flatMap(date => date ? [isoDay(date)] : [])).size === 1;
+  return dates.map((date, i) => !date ? values[i]! : clockWords(fromWallClock(date.from), undefined,
+    date.from !== date.to ? "date" : sameDay ? "time" : "date-time"));
 }
