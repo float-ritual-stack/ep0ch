@@ -13,6 +13,7 @@ import { asksPerItem, cellBlockId, CHILDREN_QUERY, figureQuestion, itemField, li
 import { recordProperties, valuesOf } from "@ep0ch/outline-core/block-record";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { frontMatterLines } from "@ep0ch/outline-core/header-line";
+import { bodyMatch, matchWords } from "@ep0ch/outline-core/property-match";
 import { VIEW, checkValue } from "@ep0ch/outline-core/component-schema";
 import { viewWords } from "@ep0ch/outline-core/view-spec";
 import { listCellText, type ListGroup, type ListPrimitive } from "@ep0ch/outline-core/list-row";
@@ -254,7 +255,8 @@ function collection(store: ProducerStore, bound: Bound, tools: SiteTools, writte
       return named && titles?.[named] ? { text: titles[named], link: named } : raw;
     };
     const rows = found.blocks.map((block, i) => {
-      const label = displayTitleOfText(block.text) ?? block.id;
+      const match = bodyMatch(block);
+      const label = (displayTitleOfText(block.text) ?? block.id) + (match ? ` · ${matchWords(match, false)}` : "");
       const front = frontMatterLines(block.text);
       const body = block.text.split("\n").filter((_, i) => !front.has(i)).join("\n").trim().split("\n");
       const cells = columns.map(key => rowValue(block, key, label, body)).map(cell => typeof cell === "object" && cell.link === table.blocks[i] && table.rowRevisions?.[i] ? { ...cell, revision: table.rowRevisions[i]! } : cell);
@@ -262,7 +264,7 @@ function collection(store: ProducerStore, bound: Bound, tools: SiteTools, writte
       return { id: block.id, label, cells, bind: `((${block.id}))`, body: body.slice(0, bodyLines),
         detail: columns.flatMap((key, i) => key === "title" || !listCellText(cells[i]!) ? [] : [`${key}: ${listCellText(cells[i]!)}`]).join(" · "),
         ...(cover ? { cover } : {}), preview: { block: block.id },
-        do: { open: p.open || table.rowRevisions?.[i] ? { ref: table.blocks[i]!, ...(p.open ? { where: p.open } : {}), ...(table.rowRevisions?.[i] ? { revision: table.rowRevisions[i]! } : {}) } : table.blocks[i]! },
+        do: { open: p.open || table.rowRevisions?.[i] || match ? { ref: table.blocks[i]!, ...(p.open ? { where: p.open } : {}), ...(table.rowRevisions?.[i] ? { revision: table.rowRevisions[i]! } : {}), ...(match ? { at: match.start, atLabel: match.raw, atSays: `the line its ${match.key} is written on` } : {}) } : table.blocks[i]! },
       };
     });
     const groups = (sourceGroups: QuestionGroup[], parent = ""): ListGroup[] => sourceGroups.map(group => ({

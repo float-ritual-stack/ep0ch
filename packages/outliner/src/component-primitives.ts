@@ -228,12 +228,15 @@ function activation(value: unknown, path: string): NonNullable<ListRow["do"]> {
   if (raw.open !== undefined) {
     if (typeof raw.open === "object" && raw.open) {
       const open = raw.open as Record<string, unknown>;
-      only(open, ["ref", "where", "revision"], `${path}.open`);
+      only(open, ["ref", "where", "revision", "at", "atLabel", "atSays"], `${path}.open`);
       if (typeof open.ref !== "string" || !linkable(open.ref)) fail(`${path}.open.ref`, "must be a block id or Resource ref");
       if (open.where !== undefined && !["current", "beside", "float", "full"].includes(open.where as string)) fail(`${path}.open.where`, "must be current, beside, float or full");
       const revision = open.revision === undefined ? undefined : finite(open.revision, `${path}.open.revision`);
       if (revision !== undefined && (!Number.isInteger(revision) || revision < 1)) fail(`${path}.open.revision`, "must be a positive integer");
-      return { open: { ref: open.ref as string, where: open.where as "current" | "beside" | "float" | "full" | undefined, ...(revision !== undefined ? { revision } : {}) } };
+      const at = open.at === undefined ? undefined : finite(open.at, `${path}.open.at`);
+      if (at !== undefined && (!Number.isInteger(at) || at < 0)) fail(`${path}.open.at`, "must be a character offset from zero");
+      for (const key of ["atLabel", "atSays"] as const) if (open[key] !== undefined && typeof open[key] !== "string") fail(`${path}.open.${key}`, "must be text");
+      return { open: { ref: open.ref as string, where: open.where as "current" | "beside" | "float" | "full" | undefined, ...(revision !== undefined ? { revision } : {}), ...(at !== undefined ? { at, atLabel: open.atLabel as string | undefined, atSays: open.atSays as string | undefined } : {}) } };
     }
     if (typeof raw.open !== "string" || !linkable(raw.open)) fail(`${path}.open`, "must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
     return { open: raw.open };

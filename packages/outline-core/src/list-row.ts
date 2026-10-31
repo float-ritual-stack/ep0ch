@@ -17,9 +17,10 @@ export type ListTone = RuleTone;
  * clipboard and answers an agent with the text.
  */
 export type ListOpenWhere = "current" | "beside" | "float" | "full";
+export interface ListOpen { ref: string; where?: ListOpenWhere; revision?: number; at?: number; atLabel?: string; atSays?: string }
 
 export type Activation =
-  | { open: string | { ref: string; where?: ListOpenWhere; revision?: number } }
+  | { open: string | ListOpen }
   | { run: { action: string; args?: Record<string, string> } }
   | { copy: string }
   | { insert: string };
@@ -76,10 +77,10 @@ export interface ListPrimitive {
 export const LIST_MAX_ROWS = QUESTION_MAX_LIMIT;
 
 /** The one activation a row carries, or null for a header. A row with several (a hand-built one) answers the first in the ADR's order. */
-export function activationOf(row: Pick<ListRow, "do">): { kind: ActivationKind; value: string | { action: string; args?: Record<string, string> }; where?: ListOpenWhere; revision?: number } | null {
+export function activationOf(row: Pick<ListRow, "do">): ({ kind: ActivationKind; value: string | { action: string; args?: Record<string, string> } } & Omit<ListOpen, "ref">) | null {
   const d = row.do as Record<string, unknown> | undefined;
   if (!d) return null;
-  if (d.open && typeof d.open === "object") { const open = d.open as { ref: string; where?: ListOpenWhere; revision?: number }; return { kind: "open", value: open.ref, where: open.where, revision: open.revision }; }
+  if (d.open && typeof d.open === "object") { const { ref, ...target } = d.open as ListOpen; return { kind: "open", value: ref, ...target }; }
   for (const kind of ACTIVATION_KINDS) if (d[kind] !== undefined) return { kind, value: d[kind] as string | { action: string; args?: Record<string, string> } };
   return null;
 }

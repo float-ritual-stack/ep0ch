@@ -27,7 +27,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
     const ref = openedRef(r);
     if (!ref) return text;
     const activation = activationOf(r);
-    const to: LinkTarget = { block: ref, role: "row", openWhere: activation?.where, revision: activation?.revision };
+    const to: LinkTarget = { block: ref, role: "row", openWhere: activation?.where, revision: activation?.revision, at: activation?.at, atLabel: activation?.atLabel, atSays: activation?.atSays };
     return blocks?.row ? blocks.row(key, r.id, to, text) : tag?.(to, text) ?? text;
   };
   const drawing = view.draw({ primitive: answer.view, cols: Math.max(8, width - 4), focused: entered, selection: true, tag: row,

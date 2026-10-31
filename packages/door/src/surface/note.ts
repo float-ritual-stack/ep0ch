@@ -4262,7 +4262,7 @@ export class NoteSurface {
       const a = activationOf(row);
       if (!a) return x;
       const at = { listRow: { key, row: row.id } };
-      const to: LinkTarget = a.kind === "open" ? (isResourceRef(a.value as string) ? { resourceRef: a.value as string, label: a.value as string, role: "row" } : { block: a.value as string, role: "row" })
+      const to: LinkTarget = a.kind === "open" ? (isResourceRef(a.value as string) ? { resourceRef: a.value as string, label: a.value as string, role: "row" } : { block: a.value as string, role: "row", openWhere: a.where, revision: a.revision, at: a.at, atLabel: a.atLabel, atSays: a.atSays })
         : a.kind === "run" ? run(actionLine({ action: (a.value as { action: string }).action, args: (a.value as { args?: Record<string, string> }).args }))
         : { role: "row", label: row.label, listText: a.kind === "copy" ? { copy: a.value as string } : { insert: a.value as string } };
       return tagged(drawn, { ...to, ...at }, x);
