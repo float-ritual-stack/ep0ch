@@ -1,3 +1,4 @@
+import { sortText } from "./block-query";
 // What a producer in a note asks of its Site (PIE-533 S3), answered once for every client: a `::graph-*` figure's
 // question (its query or view, groups, `done:`/`now:` subsets, a stat's per-item counts), a figure block's child
 // bullets, `::fields` (one row per occurrence of a key) and `::if` (does `this` match). The door's watched reads and the
@@ -273,7 +274,7 @@ function collection(store: ProducerStore, bound: Bound, tools: SiteTools, writte
       ...(group.groups ? { groups: groups(group.groups, `${parent}/${group.value ?? "\u0000"}`) } : {}),
     }));
     const arrange: Record<string, NonNullable<ListPrimitive["arrange"]>> = { table: "table", gallery: "grid", feed: "rows", board: "lanes" };
-    return { kind: "view", title, layout, layouts, question: { ...question, where: compiled.config.query, ...(compiled.config.sort ? { sort: `${compiled.config.sort.field} ${compiled.config.sort.direction}` } : {}) }, view: {
+    return { kind: "view", title, layout, layouts, question: { ...question, where: compiled.config.query, ...(compiled.config.sort ? { sort: sortText(compiled.config.sort) } : {}) }, view: {
       type: "list", rows, arrange: arrange[layout], size: p.card ?? "small", columns, headers: table.headers, page: Number(p.page ?? 200),
       ...(found.groups ? { groups: groups(found.groups) } : {}), empty: found.hint ?? "No matching notes",
     }, ...(found.groups ? { groups: found.groups } : {}), ...(found.facets ? { facets: found.facets } : {}),

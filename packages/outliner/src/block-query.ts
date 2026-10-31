@@ -1140,13 +1140,14 @@ export function dateGroupOf(group: string): DateGroup | null {
 }
 
 /** `"<field>[ asc|desc]"` (asc unless said) or `{ field, direction }`, checked and normalized. */
-function normalizeSort(sort: unknown): BlockQuerySort {
+export function normalizeSort(sort: unknown, defaultDirection = "asc"): BlockQuerySort | string {
+  if (typeof sort === "string" && sort.includes(",")) return sort.split(",").map(part => sortText(normalizeSort(part, defaultDirection))).join(", ");
   let field: unknown, direction: unknown;
   if (typeof sort === "string") {
     const words = sort.trim().split(/\s+/);
     if (!words[0] || words.length > 2) throw new Error(`Sort is "<property|created|updated|title>[ asc|desc]", not ${sort}`);
     field = words[0];
-    direction = words[1] ?? "asc";
+    direction = words[1] ?? defaultDirection;
   } else if (sort && typeof sort === "object" && !Array.isArray(sort)) {
     ({ field, direction } = sort as { field?: unknown; direction?: unknown });
   } else {
@@ -1392,33 +1393,35 @@ export function valueOrder(key: string | null, direction: 1 | -1 = 1, now = Date
  * either direction; text without case; blocks without the property last in either direction; ties keep the order
  * they came in (outline order).
  */
+export const sortParts = (sort: BlockQuerySort | string): BlockQuerySort[] => typeof sort === "string" ? sort.split(",").map(part => { const [field, direction] = part.trim().split(/\s+/); return { field: field!, direction: direction as "asc" | "desc" }; }) : [sort];
+export const sortText = (sort: BlockQuerySort | string): string => typeof sort === "string" ? sort : sortParts(sort).map(s => `${s.field} ${s.direction}`).join(", ");
+
 export function sortQueriedBlocks<T extends Pick<Block, "id" | "createdAt" | "updatedAt" | "properties"> & { text?: string }>(
-  blocks: T[],
-  sort: BlockQuerySort,
+  blocks: T[], sort: BlockQuerySort | string,
   valueOf: (block: T, key: string) => string | undefined = (block, key) => block.properties.find(p => p.key === key)?.value,
 ): void {
-  const direction = sort.direction === "asc" ? 1 : -1;
-  const key = sortPropertyKey(sort.field);
-  if (sort.field === "title") {
-    const titles = new Map(blocks.map(block => [block.id, titleOf(block.text ?? "").toLowerCase()]));
-    blocks.sort((left, right) => direction * titles.get(left.id)!.localeCompare(titles.get(right.id)!) || left.id.localeCompare(right.id));
-    return;
-  }
-  if (key === null) {
-    const field = sort.field === "created" ? "createdAt" : "updatedAt";
-    blocks.sort((left, right) =>
-      direction * left[field].localeCompare(right[field]) ||
-      direction * left.createdAt.localeCompare(right.createdAt) ||
-      left.id.localeCompare(right.id)
-    );
-    return;
-  }
-  const values = new Map(blocks.map(block => [block.id, valueOf(block, key)?.trim() || null]));
-  const order = valueOrder(key, direction);
+  const parts = sortParts(sort);
+  const comparisons = parts.map(part => {
+    const direction = part.direction === "asc" ? 1 : -1, key = sortPropertyKey(part.field);
+    if (part.field === "title") {
+      const titles = new Map(blocks.map(block => [block.id, titleOf(block.text ?? "").toLowerCase()]));
+      return (left: T, right: T) => direction * titles.get(left.id)!.localeCompare(titles.get(right.id)!);
+    }
+    if (key === null) {
+      const field = part.field === "created" ? "createdAt" : "updatedAt";
+      return (left: T, right: T) => direction * left[field].localeCompare(right[field]);
+    }
+    const values = new Map(blocks.map(block => [block.id, valueOf(block, key)?.trim() || null])), order = valueOrder(key, direction);
+    return (left: T, right: T) => {
+      const a = values.get(left.id)!, b = values.get(right.id)!;
+      return a === null || b === null ? a === b ? 0 : a === null ? 1 : -1 : order(a, b);
+    };
+  });
   blocks.sort((left, right) => {
-    const a = values.get(left.id)!, b = values.get(right.id)!;
-    if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
-    return order(a, b);
+    for (const compare of comparisons) { const order = compare(left, right); if (order) return order; }
+    const first = parts[0]!;
+    if (sortPropertyKey(first.field) !== null) return 0;
+    return (first.field === "title" ? 0 : (first.direction === "asc" ? 1 : -1) * left.createdAt.localeCompare(right.createdAt)) || left.id.localeCompare(right.id);
   });
 }
 
