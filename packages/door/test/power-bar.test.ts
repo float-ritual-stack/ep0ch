@@ -17,6 +17,7 @@ import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { Offline, SocketBoard, USER, type Actor } from "../src/socket";
 import { askInBar } from "../src/bar/ask";
+import { askingFirst } from "../src/extensions";
 import { filtered } from "../src/bar/filter";
 import { notePageUrl } from "../src/open";
 import { KeyDecoder, type Key } from "../src/term";
@@ -570,6 +571,42 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar).toMatchObject({ scope: "ask", query: "under:" });
     expect(rows).toContain("under:");
     closeBar();
+  });
+
+  test("a script's form asks every slot it declares, the needed first and the optional ones left out when empty; a query slot completes (PIE-1473)", async () => {
+    const entry = { id: "demo", name: "Demo", state: "active", actions: [] } as any;
+    const action = { id: "run", name: "ext.demo.run", label: "Run demo", args: [
+      { name: "query", type: "query", description: "what to draw" },
+      { name: "title", type: "text", required: true },
+      { name: "limit", type: "number" },
+    ] } as any;
+    let ran: Record<string, string> | null = null;
+    await askingFirst(app as any, entry, action, undefined, {}, USER, async args => { ran = args; }, false, true);
+    await until(() => peek().bar?.form, "the form", 3000);
+    const form = () => peek().bar.form;
+    expect(form().fields.map((f: any) => f.name)).toEqual(["title", "query", "limit"]);
+    expect(form().fields.filter((f: any) => f.required).map((f: any) => f.name)).toEqual(["title"]);
+    // The needed one is answered; the query slot is typed into, completes from the grammar; the rest is left out.
+    type("Plot"); await (app as any).bar.settled();
+    key({ kind: "enter" });
+    await until(() => form()?.focus === "query", "on query", 3000);
+    type("type=meeting AND un");
+    await (app as any).bar.settled();
+    expect(peek().bar.rows.map((r: any) => r.label)).toContain("type=meeting AND under:");
+    // A clause picked fills the input and asks again; the rest of the slots are left out; ⏎ on the act line runs.
+    key({ kind: "down" });
+    expect(peek().bar.rows[peek().bar.selected - 1].label).toBe("type=meeting AND under:");
+    key({ kind: "enter" });
+    await until(() => peek().bar?.query === "type=meeting AND under:", "the clause filled in", 3000);
+    expect(ran).toBeNull();
+    type("x"); await (app as any).bar.settled(); key({ kind: "enter" });
+    await until(() => form()?.focus === "limit", "on limit", 3000);
+    await (app as any).bar.settled();
+    key({ kind: "enter" });
+    await until(() => form()?.focus === "run", "the act line", 3000);
+    key({ kind: "enter" });
+    await until(() => ran !== null, "the run", 3000);
+    expect(ran!).toEqual({ title: "Plot", query: "type=meeting AND under:x" });
   });
 
   test("an action line is offered first in any scope, and ⏎ there runs it; never in an argument's answer (PIE-856)", async () => {
