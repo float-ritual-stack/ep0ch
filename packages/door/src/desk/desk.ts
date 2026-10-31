@@ -6548,12 +6548,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** `tile.copy-ref` (PIE-1297): the tile's id, or the address of its place (`tileAddressesOf`), to the person's clipboard or back to an agent. */
-  copyTileRef(sel: string | undefined, kind: "id" | "ref", actor: Actor) {
+  copyTileRef(sel: string | undefined, kind: "id" | "ref" | "name", actor: Actor) {
     const t = this.tile(sel), refs = this.tileAddressesOf(this.panes.get(t.id)!);
     if (!refs) throw new ActionRefused(`${this.nameOf(t.id)} isn't reachable from here to name`);
-    const text = kind === "ref" ? refs.place ?? refs.id : refs.id;
+    // `name`: the name on the tile, as `%name` (what the power bar's % completes, `tile=` takes and a script's left=/right= reads).
+    const text = kind === "name" ? `%${refs.name}` : kind === "ref" ? refs.place ?? refs.id : refs.id;
     const answer = { ...this.tileAnswer(t.id), kind, text, id: refs.id, ...(refs.place ? { place: refs.place } : {}) };
-    const what = `${refs.name}'s ${kind === "ref" ? `reference${refs.place ? "" : ` (nothing else names ${refs.name} alone, so its id)`}` : "id"}`;
+    const what = `${refs.name}'s ${kind === "name" ? "name" : kind === "ref" ? `reference${refs.place ? "" : ` (nothing else names ${refs.name} alone, so its id)`}` : "id"}`;
     return { ...answer, ...deliverCopy(this.ctx, actor, text, what) };
   }
 

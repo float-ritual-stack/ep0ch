@@ -636,7 +636,7 @@ export class SocketBoard implements Board {
    * line's action) is what it acts on; `args` a tile's own. `actor` is who asks (`mutation`: the person, or an
    * agent by its own id), which the change feed records beside the extension's writes as `requestedBy`.
    */
-  async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage; invitation?: string; button?: { block: string; line?: number } } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
+  async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string>; slots?: string; passage?: Passage; invitation?: string; button?: { block: string; line?: number } } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
     return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, clientId: this.clientId, mutation: requesterOf(actor) });
   }
 

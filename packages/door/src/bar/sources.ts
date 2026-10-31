@@ -17,7 +17,7 @@ import { tileKinds } from "../desk/tile-kinds";
 import { wCaption, type WRow } from "../desk/wkeys";
 import { ScreenTile } from "../desk/screen-tile";
 import { notConfigured, jevOff } from "../surface/completer";
-import { ActionRefused, actRequestOf, coerceActionArgs, declaredKeys, lineWords, type Keys, shownLine, type ActionInfo, type ActRequest } from "../surface/actions";
+import { ActionRefused, actRequestOf, coerceActionArgs, FREE_ARGS, declaredKeys, lineWords, type Keys, shownLine, type ActionInfo, type ActRequest } from "../surface/actions";
 import { authorName, USER } from "../socket";
 import { ago } from "../text";
 import { filtered } from "./filter";
@@ -28,7 +28,7 @@ import { actionLead, actionPage } from "../surface/action-page";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
-import { extensionList, extensionParts, PART_KINDS, partKind, scriptActions, type ExtensionEntry, type ExtensionList } from "../extensions";
+import { extensionList, extensionParts, PART_KINDS, partKind, scriptActions, scriptNamed, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
 import { AGENTS } from "./ask-agent";
 import { settingsChip, settingsMarkdown, settingsNeedYou, settingsWords, shownValue } from "../extension-settings";
@@ -355,11 +355,11 @@ function actionLine(q: string, host: BarHost, command = false): BarRow | null {
   if (lead && !host.dispatch.has("run")) q = q.slice(lead[0].length);
   const words = lineWords(q);
   let req: ActRequest;
-  try { req = actRequestOf(words); } catch (e) {
+  try { req = actRequestOf(words, { repeats: "list" }); } catch (e) {
     if (!q.includes("=") && !words[0]?.includes(".")) return null;
     return { key: `line:${q}`, label: q, fill: q, exact: true, refused: e instanceof Error ? e.message : String(e), data: { action: words[0], args: {} } };
   }
-  const scripts = scriptActions().filter(s => s.extension.name === req.action);
+  const scripts = scriptNamed(req.action);
   if (scripts.length === 1 && !host.dispatch.has(req.action)) req.action = scripts[0]!.action.name;
   const actions = host.dispatch.list().actions;
   const corrections: string[] = [];
@@ -372,7 +372,8 @@ function actionLine(q: string, host: BarHost, command = false): BarRow | null {
   if (info) {
     const fields = formFields(info);
     for (const key of Object.keys(req.args ?? {})) {
-      if (fields.some(f => f.name === key)) continue;
+      // A script takes any word as a slot (FREE_ARGS): none is a typo of a declared one.
+      if (FREE_ARGS in info.args || fields.some(f => f.name === key)) continue;
       const names = fields.map(f => f.name);
       const prefixes = names.filter(n => key.startsWith(n));
       const near = closest(key, names) ?? (prefixes.length === 1 ? prefixes[0]! : null);
@@ -396,10 +397,17 @@ function actionLine(q: string, host: BarHost, command = false): BarRow | null {
       const spec = info.args[key];
       const choices = spec?.type === "boolean" ? ["true", "false"] : spec?.choices;
       if (spec?.type === "boolean" && ["yes", "no", "0", "1"].includes(String(value))) continue;
-      if (choices?.length && !choices.includes(String(value)) && !info.args[key]?.kind) {
-        const near = closest(String(value), choices);
-        if (near) { corrections.push(`${key}=${value} -> ${key}=${near} (allowed: ${choices.join(", ")})`); req.args![key] = near; }
-        else throw new ActionRefused(`${key}=${value}: allowed values: ${choices.join(", ")}`);
+      // A repeated word is a list: each value is checked and corrected on its own.
+      if (choices?.length && !info.args[key]?.kind) {
+        const each = (Array.isArray(value) ? value : [value]).map(String);
+        const fixed = each.map(v => {
+          if (choices.includes(v)) return v;
+          const near = closest(v, choices);
+          if (!near) throw new ActionRefused(`${key}=${v}: allowed values: ${choices.join(", ")}`);
+          corrections.push(`${key}=${v} -> ${key}=${near} (allowed: ${choices.join(", ")})`);
+          return near;
+        });
+        if (fixed.some((v, i) => v !== each[i])) req.args![key] = Array.isArray(value) ? fixed : fixed[0]!;
       }
     }
     req.args = coerceActionArgs(req.action, spec, req.args ?? {});

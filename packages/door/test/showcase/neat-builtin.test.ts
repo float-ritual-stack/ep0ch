@@ -214,6 +214,78 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     } finally { app.pop(); }
   }, 30_000);
 
+  // PIE-1230 / PIE-1253: Evan types `neat page=[[a]] right=%tree` (or any script by its name) and the door arranges his tiles.
+  const agent: Actor = { kind: "agent", id: "script-cli-test" };
+  const tilesNow = async (app: typeof h.app) => ((await app.dispatch.act({ action: "layout.get" }, USER)) as ReturnType<Desk["layoutAll"]>).layers.find(l => !l.drawer)!.tiles;
+
+  test("a script's name typed as an action runs it with a button's slots, and left= right= take pages and tiles", async () => {
+    const { app, seeded } = h;
+    await app.dispatch.act({ action: "section", args: { name: "neat" } }, USER);
+    const listed = await h.board.listExtensions(true);
+    expect(listed.extensions.some(e => e.name === "neat" && e.script)).toBe(true);
+    await app.loadExtensions(true);
+    // A terminal the person keeps, and a tile to send to the far right.
+    await app.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle" } }, USER);
+    await app.dispatch.act({ action: "tile.open", args: { kind: "tree", name: "plot" } }, USER);
+    const exhibit = (await tilesNow(app)).find(t => t.name === "plot")!;
+    const before = (await tilesNow(app)).find(t => t.name === "kettle")!;
+    // `act neat …` is the same run as `act script.run of=neat …`: two pages, one tile by the name layout.get shows.
+    const r = await app.act({ action: "neat", args: { page: [`((${seeded.notes.shed.id}))`], right: `%${exhibit.name}` }, as: agent.id }) as { message?: string };
+    expect(JSON.stringify(r)).toContain("neat:");
+    const tiles = await tilesNow(app);
+    const shed = tiles.find(t => t.showing?.id === seeded.notes.shed.id)!;
+    const far = tiles.find(t => t.tile === exhibit.tile)!;
+    expect(shed.collapsed).not.toBe(true);
+    expect(far.collapsed).not.toBe(true);
+    expect(shed.rect!.col).toBe(0);
+    expect(far.rect!.col + far.rect!.cols).toBe(Math.max(...tiles.filter(t => !t.collapsed && t.shown !== false).map(t => t.rect!.col + t.rect!.cols)));
+    // The terminal is left as it was: neither folded nor moved off its place.
+    const kettle = tiles.find(t => t.name === "kettle")!;
+    expect(kettle.collapsed).toBe(before.collapsed);
+  }, 30_000);
+
+  test("a script nobody has is refused with the nearest names and the call that works", async () => {
+    const { app } = h;
+    await app.loadExtensions(true);
+    await expect(app.act({ action: "script.run", args: { of: "nea" }, as: agent.id })).rejects.toThrow(/no script called nea here; did you mean neat\?.*script\.run of=<name>/);
+    await expect(app.act({ action: "neet", args: {}, as: agent.id })).rejects.toThrow(/nothing here answers to neet.*neat/);
+    // A slot naming a page or a tile nobody has is said in the run's answer, never a quiet default.
+    const said = JSON.stringify(await app.act({ action: "neat", args: { page: "[[no such page]]", right: "%no-such-tile" }, as: agent.id }));
+    expect(said).toMatch(/2 steps failed.*no page no such page.*no tile no-such-tile/);
+  });
+
+  test("a tile named like a kind is that tile, and a group holding a terminal is left alone", async () => {
+    const { app, seeded } = h;
+    await app.dispatch.act({ action: "section", args: { name: "neat" } }, USER);
+    await app.loadExtensions(true);
+    await app.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "terminal" } }, USER);
+    await app.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle" } }, USER);
+    await app.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "inner" } }, USER);
+    await app.dispatch.act({ action: "tile.group", tile: "inner" }, USER);
+    await app.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: "kettle" }, USER);
+    await app.act({ action: "neat", args: { page: `((${seeded.notes.shed.id}))`, right: "%terminal" }, as: agent.id });
+    const tiles = await tilesNow(app);
+    const named = tiles.find(t => t.name === "terminal")!, kettle = tiles.find(t => t.name === "kettle")!;
+    // %terminal is the tile called terminal: the other terminal is not moved or unfolded.
+    expect(named.collapsed).not.toBe(true);
+    expect(kettle.collapsed).toBe(true);
+    // The group with a terminal inside stays open.
+    const group = tiles.find(t => (t as { mount?: unknown }).mount)!;
+    expect(group).toBeDefined();
+    expect(group.collapsed).not.toBe(true);
+  }, 30_000);
+
+  test("script.run finds the script a button there would: the note's own before the outline's", async () => {
+    const { app, board } = h;
+    await board.createBlock(null, "Global scoped [script::scoped]\n```js\nreturn 'global';\n```");
+    // A script note answers for the notes under it (its ancestors' scripts come before the outline's).
+    const home = await board.createBlock(null, "Local scoped [script::scoped]\n```js\nreturn 'local';\n```");
+    const caller = await board.createBlock(home.id, "Caller note");
+    await app.loadExtensions(true);
+    const r = await app.act({ action: "script.run", args: { of: "scoped", block: caller.id }, as: agent.id }) as { message?: string };
+    expect(r.message).toBe("local");
+  }, 30_000);
+
   test("an outline's own neat script overrides the installed arrangement", async () => {
     const { app, board, seeded } = h;
     await board.createBlock(null, "My neat [script::neat]\n```js\nreturn 'neat: outline wins ' + props.page[0];\n```");

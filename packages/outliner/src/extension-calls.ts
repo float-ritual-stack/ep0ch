@@ -159,6 +159,8 @@ export interface ExtensionActRequest {
   readonly line?: number;
   /** Arguments a tile or agent passes along (the tile's own args). */
   readonly args?: Readonly<Record<string, string>>;
+  /** A script's slots as a button line writes them (`page="a" page="b"`), so a repeated one is a list: what a press reads from its button, a typed call (`ep0ch neat page=… page=…`) says itself. */
+  readonly slots?: string;
   /** A run its schedule started (PIE-754): when, and the schedule; it has no block and no one who asked. */
   readonly scheduled?: { readonly at: string; readonly every?: string; readonly cron?: string };
   /**

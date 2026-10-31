@@ -3,6 +3,7 @@
 // terminal, on a scratch state dir: a door that started anyway would say so on stderr (no outline named here) and
 // exit 1, never 2.
 import { afterAll, describe, expect, test } from "bun:test";
+import { createServer } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -187,4 +188,22 @@ describe("--screen detail <uri> on a host named by EP0CH_SOCKET", () => {
       await host.dispose();
     }
   }, 30_000);
+});
+
+// PIE-1230: a script's name is resolved before a command suggestion, so bare `ep0ch neat` runs neat (it is one letter from `new`).
+describe("a script's name typed as a command", () => {
+  test("a word close to a command, with no slots, is asked of the door as script.run before it is called a typo", async () => {
+    const sock = join(dir, "c.sock");
+    const seen: any[] = [];
+    const server = createServer(c => c.on("data", d => { seen.push(JSON.parse(d.toString().split("\n")[0]!)); c.end(JSON.stringify({ ok: true, result: { message: "neat: done" } }) + "\n"); }));
+    await new Promise<void>(r => server.listen(sock, r));
+    try {
+      const env: Record<string, string> = {};
+      for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("EP0CH_")) env[k] = v;
+      Object.assign(env, { HOME: dir, EP0CH_OUTLINES: join(dir, "outlines"), EP0CH_STATE: join(dir, "state"), EP0CH_CONTROL: sock, EP0CH_DAEMON: "0" });
+      const p = Bun.spawn([process.execPath, MAIN, "neat"], { cwd: dir, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const code = await p.exited;
+      expect({ code, seen: seen.map(r => [r.action, r.args]) }).toEqual({ code: 0, seen: [["script.run", { of: "neat" }]] });
+    } finally { server.close(); }
+  });
 });
