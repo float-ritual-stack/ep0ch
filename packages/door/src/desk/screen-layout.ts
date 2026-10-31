@@ -1290,6 +1290,7 @@ class Step<I> {
         const row = parentOf(this.d.tree, plan.keep?.tile ?? op.tile)?.parent;
         if (row && isLine(row) && row.t !== "flow" && this.ofNode(row).spines === "centre") this.centreSpines(row);
       }
+      if (plan.route && "full" in plan.route && (dest.kind === "new" || dest.kind === "swap")) this.dispatch({ op: "zoom", tile: dest.kind === "swap" ? dest.tile : op.tile, on: true });
       this.d.answer = { placement: plan };
       return;
     }

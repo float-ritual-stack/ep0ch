@@ -214,6 +214,8 @@ function collection(store: ProducerStore, bound: Bound, tools: SiteTools, writte
       const note = store.get(source)!;
       title = displayTitleOfText(note.text) ?? "Collection";
       p = Object.fromEntries(parsePropertyRecords(note.text).filter(field => field.scope === "block").map(field => [field.key, field.value]));
+      // A saved note's page address is not a page size; numeric values and inline/layout overrides still configure the collection.
+      if (p.page !== undefined && Number.isNaN(Number(p.page))) delete p.page;
       const where = [p.where, written.where].filter(Boolean).map(w => `(${w})`).join(" AND ");
       p = { ...p, ...written, ...(where ? { where } : {}) };
     }

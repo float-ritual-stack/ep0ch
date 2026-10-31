@@ -1,6 +1,7 @@
 import { renderCollection } from "./collections";
 import { quoteDepth, stripQuotes } from "@ep0ch/outline-core/callouts";
 import type { InlineListDraw } from "./surface/inline-list";
+import type { LinkBlocksEnv } from "./links";
 // Transclusions in read mode, as Detail projects them: `!((id))` shows the target note rendered, in a
 // shaded region; `!((id^fragment))` shows just the fragment's slice (a step with its nested content, a
 // heading's section, a paragraph); a virtual-branch target shows its results (views.read). Embeds nest to
@@ -216,7 +217,7 @@ export type EmbedBody = (target: Msg, part: { text: string; startLine: number } 
  * body the way the reader does. With a sink, the title, a view's results, the links in the embedded text
  * and its step boxes are tagged, so `[ ]` stops on them and a click acts on them (PIE-415, PIE-441, PIE-472).
  */
-export function embedRegion(id: string, fragment: string | undefined, n: number, w: number, src: Source | null | undefined, body: EmbedBody, sink?: LinkTarget[], host = "", list?: InlineListDraw, span?: { note: Msg; startLine: number; endLine: number; task: (line: number, box: string) => string | null }): string[] {
+export function embedRegion(id: string, fragment: string | undefined, n: number, w: number, src: Source | null | undefined, body: EmbedBody, sink?: LinkTarget[], host = "", list?: InlineListDraw, span?: { note: Msg; startLine: number; endLine: number; task: (line: number, box: string) => string | null }, blocks?: LinkBlocksEnv): string[] {
   const S = (line: string) => shade(line, w);
   if (span) {
     const source = span.note.text.split("\n"), depth = quoteDepth(source[span.startLine - 1] ?? "").depth;
@@ -224,13 +225,13 @@ export function embedRegion(id: string, fragment: string | undefined, n: number,
     const indent = Math.min(...lines.filter(l => l.trim()).map(l => l.length - l.trimStart().length));
     const part = { text: lines.map(l => l.slice(indent)).join("\n"), startLine: span.startLine };
     return body(span.note, part, Math.max(4, w - 2), {
-      embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, body, sink, host, list),
+      embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, body, sink, host, list, undefined, blocks),
       task: span.task,
     }).map(l => S(" " + l));
   }
   if (n >= MAX_EMBEDS) return [S(fg(C.lred) + `${shortRef(id, fragment)} · EMBED LIMIT · maximum ${MAX_EMBEDS}` + RESET)];
   const st = embedState(id, fragment, src, host);
-  if (st.kind === "node") return nodeRegion(st.node, st.views, w, body, sink, list);
+  if (st.kind === "node") return nodeRegion(st.node, st.views, w, body, sink, list, blocks, `embed:${host}:${n}:${refOf(id, fragment)}`);
   if (st.kind === "loading") return [S(fg(C.dark) + `${shortRef(id, fragment)} · reading…` + RESET)];
   return [S(fg(C.lred) + `${shortRef(id, fragment)} · TARGET FAILED · ${printable(st.error)}` + RESET)];
 }
@@ -298,7 +299,7 @@ export function viewResults(m: Msg, w: number, _src: Source | null | undefined, 
  * body renderer, a nested embed inside it by this again (so it sits one gutter further in), and each step
  * the service found in what's shown gets its status control.
  */
-function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRead>, w: number, body: EmbedBody, sink: LinkTarget[] | undefined, list?: InlineListDraw): string[] {
+function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRead>, w: number, body: EmbedBody, sink: LinkTarget[] | undefined, list?: InlineListDraw, blocks?: LinkBlocksEnv, key?: string): string[] {
   const S = (line: string) => shade(line, w);
   const ref = shortRef(node.blockId, node.fragmentId);
   if (node.status !== "ready" || !node.block) {
@@ -318,7 +319,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
   }
   const target = node.block, id = noteOf(node);
   if (node.kind === "view") {
-    const rows = renderCollection({ props: { of: `((${id}))` } }, id, w, undefined, (to, text) => tagged(sink, to, text));
+    const rows = renderCollection({ props: { of: `((${id}))` }, key }, id, w, blocks, (to, text) => tagged(sink, to, text));
     return list ? list(rows, w) : rows;
   }
   const title = printable(node.title ?? headedTitle(target));
@@ -330,7 +331,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
     // The service stops listing a document's embeds at the one past the limit; the rest are the limit too.
     if (n >= MAX_EMBEDS) return [shade(fg(C.yellow) + `${shortRef(cid, cfrag)} · EMBED LIMIT · maximum ${MAX_EMBEDS}` + RESET, width)];
     const child = children.get(refOf(cid, cfrag))?.shift();
-    return child ? nodeRegion(child, views, width, body, sink, list) : [shade(fg(C.dark) + `${shortRef(cid, cfrag)} · not projected here` + RESET, width)];
+    return child ? nodeRegion(child, views, width, body, sink, list, blocks, `${key}/${n}:${refOf(cid, cfrag)}`) : [shade(fg(C.dark) + `${shortRef(cid, cfrag)} · not projected here` + RESET, width)];
   };
   const task = (noteLine: number, box: string) => {
     const step = node.checklist?.find(s => s.span.startLine === noteLine);

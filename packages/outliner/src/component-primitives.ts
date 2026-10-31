@@ -30,7 +30,7 @@ import { ACTIVATION_KINDS, LIST_MAX_ROWS, LIST_PREVIEWS, activationCount, listHe
 export const PRIMITIVE_TYPES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button", "list"] as const;
 /** The fields each primitive accepts besides `type` (anything else is refused): the one list the validator checks and the scripts reference prints. */
 export const PRIMITIVE_FIELDS = {
-  text: ["text", "tone", "strong", "act"],
+  text: ["text", "tone", "strong", "act", "link", "revision"],
   blockdown: ["text"],
   badge: ["label", "tone", "act"],
   button: ["label", "act", "tone"],
@@ -67,7 +67,7 @@ export type Tone = typeof TONES[number];
 export type ActionLine = string;
 
 export type Primitive =
-  | { type: "text"; text: string; tone?: Tone; strong?: boolean; act?: ActionLine }
+  | ({ type: "text"; strong?: boolean } & Extract<TableCell, object>)
   /**
    * Blockdown a client draws with its own reader (the door's note surface, Detail's, the publisher's HTML), so its
    * headings, lists, links and properties read as they do in a note. A text target gets the source as written.
@@ -388,11 +388,12 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
     return list.map((child, index) => validatePrimitive(child, `${path}.${key}[${index}]`, depth + 1, count));
   };
   switch (node.type) {
-    case "text":
+    case "text": {
       only(node, PRIMITIVE_FIELDS.text, path);
       if (node.strong !== undefined && typeof node.strong !== "boolean") fail(`${path}.strong`, "must be true or false");
-      return { type: "text", text: text(node.text, `${path}.text`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}), ...(node.strong ? { strong: true } : {}),
-        ...(node.act !== undefined ? { act: actionLine(node.act, `${path}.act`) } : {}) };
+      const { type, strong, ...cell } = node;
+      return { type: "text", ...tableCell(cell, path) as Extract<TableCell, object>, ...(strong ? { strong: true } : {}) };
+    }
     case "blockdown":
       only(node, PRIMITIVE_FIELDS.blockdown, path);
       return { type: "blockdown", text: text(node.text, `${path}.text`, false, MAX_BLOCKDOWN)! };
@@ -672,7 +673,10 @@ export interface MarkdownDraw {
 function markdownLines(node: Primitive, draw: MarkdownDraw = {}): string[] {
   const inner = (child: Primitive) => markdownLines(child, draw);
   switch (node.type) {
-    case "text": return [node.strong ? `**${mdInline(node.text)}**` : mdInline(node.text), ""];
+    case "text": {
+      const text = node.strong ? `**${mdInline(node.text)}**` : mdInline(node.text);
+      return [node.link && BLOCK_ID.test(node.link) ? `[${text}](#${node.link})` : text, ""];
+    }
     // Blockdown is the reader's own: as written, between blank lines.
     case "blockdown": return [node.text.replace(/\r\n?/g, "\n").trim(), ""];
     case "badge": return [`\`${oneLine(node.label).replace(/`/g, "'")}\``, ""];
@@ -744,7 +748,10 @@ const toneClass = (value: Tone | undefined) => value && value !== "default" ? ` 
 
 function htmlOf(node: Primitive, count = { images: 0 }): string {
   switch (node.type) {
-    case "text": return `<p class="ext-text${toneClass(node.tone)}">${node.strong ? `<strong>${html(node.text)}</strong>` : html(node.text)}</p>`;
+    case "text": {
+      const text = node.strong ? `<strong>${html(node.text)}</strong>` : html(node.text);
+      return `<p class="ext-text${toneClass(node.tone)}">${node.link && BLOCK_ID.test(node.link) ? `<a href="#${html(node.link)}">${text}</a>` : text}</p>`;
+    }
     // The source, escaped: a reader with a Blockdown renderer draws it (the publisher, BLOCKDOWN_HTML), any other
     // shows it as written.
     case "blockdown": return `<div class="ext-blockdown">${html(node.text)}</div>`;

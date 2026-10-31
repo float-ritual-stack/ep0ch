@@ -253,23 +253,23 @@ has. The tone is one of `default`, `good`, `warn`, `bad`, `dim`, `accent`.
 
 | Builder | Fields (anything else is refused) | Source |
 |---|---|---|
-| `view.text` | `text`, `tone`, `strong`, `act` | `packages/outliner/src/component-primitives.ts:391` |
-| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:396` |
-| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:399` |
-| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:406` |
-| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:413` |
-| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:420` |
-| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:446` |
-| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:457` |
-| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:463` |
-| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:481` |
-| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:484` |
-| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:487` |
-| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:492` |
-| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:508` |
-| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:515` |
-| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:403` |
-| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty`, `arrange`, `size`, `columns`, `page` | `packages/outliner/src/component-primitives.ts:529` |
+| `view.text` | `text`, `tone`, `strong`, `act`, `link`, `revision` | `packages/outliner/src/component-primitives.ts:391` |
+| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:397` |
+| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:400` |
+| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:407` |
+| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:414` |
+| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:421` |
+| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:447` |
+| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:458` |
+| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:464` |
+| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:482` |
+| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:485` |
+| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:488` |
+| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:493` |
+| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:509` |
+| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:516` |
+| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:404` |
+| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty`, `arrange`, `size`, `columns`, `page` | `packages/outliner/src/component-primitives.ts:530` |
 
 <!-- generated:view:end -->
 

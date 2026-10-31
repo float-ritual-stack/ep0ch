@@ -298,7 +298,10 @@ export class ListView<S = unknown> {
    * host decides: `tag` turns a row's text into the reader's link, `preview.of` draws the row's note.
    */
   draw(o: ListDrawOpts<S>): ListDrawn<S> {
-    if (o.primitive?.arrange) return this.arranged(o, o.primitive);
+    if (o.primitive?.arrange) {
+      const drawn = this.arranged(o, o.primitive), filter = o.filterLine === false ? null : this.filterRow(o.cols);
+      return filter === null ? drawn : { ...drawn, lines: [filter, ...drawn.lines], rowAt: [null, ...drawn.rowAt] };
+    }
     const rows = this.visible(), mine = o.selection ? this.picked() : null;
     const others = this.others();
     const agentRows = new Map<string, string[]>();
@@ -308,8 +311,8 @@ export class ListView<S = unknown> {
     const lw = beside ? Math.max(20, Math.floor(o.cols * 0.42)) : o.cols, pw = beside ? o.cols - lw - 3 : o.cols;
     const lines: string[] = [], at: (number | null)[] = [];
     const push = (line: string, row: number | null) => { lines.push(line); at.push(row); };
-    const kept = this.filter();
-    if (o.filterLine !== false && (this.typing || kept)) push(fg(C.yellow) + pad(`/ ${this.typing ? this.typing.plain() : kept}`, lw) + RESET, null);
+    const filter = o.filterLine === false ? null : this.filterRow(lw);
+    if (filter !== null) push(filter, null);
     // The rows an agent's say-so takes at the bottom come out of the viewport, never past the tile: as many as fit beside one row.
     const sayers = others.filter(a => a.row || a.filter).slice(0, o.room === undefined ? undefined : Math.max(0, o.room - 1 - lines.length));
     const says = sayers.length;
@@ -375,6 +378,11 @@ export class ListView<S = unknown> {
     return { lines: lines.slice(0, cut), rowAt: at.slice(0, cut), previewed: mine, beside, listCols: lw };
   }
 
+  private filterRow(cols: number): string | null {
+    const kept = this.filter();
+    return this.typing || kept ? fg(C.yellow) + pad(`/ ${this.typing ? this.typing.plain() : kept}`, cols) + RESET : null;
+  }
+
   private arranged(o: ListDrawOpts<S>, node: ListPrimitive): ListDrawn<S> {
     const rows = this.visible(), mine = o.selection ? this.picked()?.id : undefined;
     const byId = new Map(rows.map((row, i) => [row.id, { row, i }]));
@@ -389,7 +397,11 @@ export class ListView<S = unknown> {
       const lines = primitiveLines({ type: "card", title: `${row.id === mine ? "▸ " : ""}${title}`,
       ...(record ? {} : { subtitle: row.detail }), children: [
         ...(!record && row.cover ? [{ type: "image", src: row.cover, caption: false, height: node.size === "large" ? 8 : 4 }] : []),
-        ...(record ? (node.columns ?? []).flatMap((key, i) => i === titleAt ? [] : [{ type: "text", text: rowLines(`${key}: ${listCellText(row.cells?.[i] ?? "")}`, Math.max(8, cols - 2), 4).join("\n") }]) : []),
+        ...(record ? (node.columns ?? []).flatMap((key, i) => {
+          if (i === titleAt) return [];
+          const cell = row.cells?.[i] ?? "";
+          return [{ type: "text", ...(typeof cell === "object" ? cell : {}), text: rowLines(`${key}: ${listCellText(cell)}`, Math.max(8, cols - 2), 4).join("\n") }];
+        }) : []),
         ...(row.body ?? []).map(text => ({ type: "text", text })),
       ] }, cols, { link: tag });
       const drawn = byId.get(row.id)?.row;
@@ -412,7 +424,7 @@ export class ListView<S = unknown> {
       return out;
     };
     this.pageSize = node.page ?? 200;
-    const all = node.rows.filter(row => byId.has(row.id));
+    const all = rows.filter(selectable);
     this.page = Math.min(this.page, Math.max(0, Math.ceil(all.length / this.pageSize) - 1));
     const ordered = all.slice(this.page * this.pageSize, (this.page + 1) * this.pageSize);
     let lines: string[];

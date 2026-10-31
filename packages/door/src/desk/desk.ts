@@ -2250,7 +2250,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     messageContext.run({ ...messageContext.getStore(), tile: this.tileId(landed) }, () => probe("open.land"));
     // The idle reader a pinned one's open went to takes the next one aimed there too, as a reader opened beside it does.
     if (dest.kind === "swap" && plan.besideOf !== undefined) this.besides.set(plan.besideOf, dest.tile);
-    if (plan.route && "full" in plan.route) this.apply({ op: "zoom", tile: landed, on: true });
     this.save(); this.redraw();
     if (plan.why) this.ctx.flash(plan.why);
     return { desk: this, id: landed, ...(plan.why ? { why: plan.why } : {}) };

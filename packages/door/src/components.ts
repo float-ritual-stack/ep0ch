@@ -133,7 +133,10 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
   switch (n.type) {
     case "text":
       // Its lines are its own, as the service's terminal target keeps them; each wraps to the width.
-      return String(n.text ?? "").split("\n").flatMap(t => wrap(one(t), w)).map(l => fg(toned(n.tone ?? "default")) + (n.strong ? BOLD + press(n.act, l) + UNBOLD : press(n.act, l)) + RESET);
+      return String(n.text ?? "").split("\n").flatMap(t => wrap(one(t), w)).map(l => {
+        const text = n.link ? tag(n.link, l, n.revision as number | undefined) : press(n.act, l);
+        return fg(toned(n.tone ?? "default")) + (n.strong ? BOLD + text + UNBOLD : text) + RESET;
+      });
     case "blockdown": {
       const text = String(n.text ?? "");
       return draw.blockdown ? draw.blockdown(text, w) : text.split("\n").flatMap(t => wrap(one(t), w)).map(l => fg(C.white) + l + RESET);

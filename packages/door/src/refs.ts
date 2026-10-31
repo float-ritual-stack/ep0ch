@@ -25,6 +25,15 @@ import { propertyTokenMatches } from "@ep0ch/outline-core/property-grammar";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, pairValues, problemWords, readerWords } from "@ep0ch/outline-core/site-values";
 import type { SiteAnswer, SiteLink, SiteValue } from "@ep0ch/outline-core/site";
+import type { ListRow } from "@ep0ch/outline-core/list-row";
+import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
+
+export function listOpenTarget(row: Pick<ListRow, "do">): LinkTarget | null {
+  if (!row.do || !("open" in row.do)) return null;
+  const open = typeof row.do.open === "string" ? { ref: row.do.open } : row.do.open;
+  return isResourceRef(open.ref) ? { resourceRef: open.ref, label: open.ref, role: "row" }
+    : { block: open.ref, role: "row", openWhere: open.where, revision: open.revision, at: open.at, atLabel: open.atLabel, atSays: open.atSays };
+}
 
 /** Markers around a resolved link / an unlinked missing one in prepared text; colourBody styles them. */
 export const LINK_ON = "", MISSING_ON = "", LINK_OFF = "";

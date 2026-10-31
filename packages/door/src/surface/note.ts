@@ -75,7 +75,7 @@ import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
-import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
@@ -833,7 +833,7 @@ type GripMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { describe(): { movi
 type ComposerMove = FloatMove;
 type SplitFrame = { target: "comment" | "sources" | "list-preview" | "edit-preview"; beside: boolean; w: number; h: number; edge: number };
 /** The person asked to go somewhere while a comment is unsent (PIE-785): what they asked for waits on their choice. */
-interface LeaveAsk { what: string; name: keyof NoteActionArgs & string; args: Record<string, unknown>; elem?: string }
+interface LeaveAsk { what: string; name: keyof NoteActionArgs & string | "list.open"; args: Record<string, unknown>; elem?: string }
 /** The answers to leaving an unsent comment, with their keys: the draft kept and on, back to writing, or let go. */
 export type LeaveChoice = "save" | "keep" | "discard";
 /** How the power bar says each answer (src/bar/ask.ts asks it). */
@@ -2965,7 +2965,7 @@ export class NoteSurface {
       return buttonRows(label, { ...call.look, ...pressed, ...(refused ? { state: "disabled", why: refused } : {}) },
         t => tagged(drawn, { role: "control", label, press: { act: call.act!, steps: call.steps, ...(call.alt ? { alt: call.alt } : {}), block, line, label: call.label } }, t));
     };
-    const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m?.id ?? "", env.inlineList);
+    const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m?.id ?? "", env.inlineList, undefined, this.listEnv);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
     const presenter = (noteText: string) => (t: string, linked: boolean) => presentLinks(t, false, src, noteText, linked ? undefined : drawn);
     // A live ::graph-check row's box: a step of its own note, whose mark writes the property its `done:` names.
@@ -2982,7 +2982,7 @@ export class NoteSurface {
       return st && steps ? LINK_ON + tagged(drawn, { role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }, shown) + LINK_OFF : null;
     };
     return {
-      spanPreview: (startLine, endLine, width) => m ? embedRegion(m.id, undefined, 0, width, src, inner, drawn, m.id, env.inlineList, { note: m, startLine, endLine, task: (line, box) => task(noteLines.indexOf(line), box) }) : [],
+      spanPreview: (startLine, endLine, width) => m ? embedRegion(m.id, undefined, 0, width, src, inner, drawn, m.id, env.inlineList, { note: m, startLine, endLine, task: (line, box) => task(noteLines.indexOf(line), box) }, this.listEnv) : [],
       present: presenter(m?.text ?? ""), ...(outline ? { liveStep } : {}),
       ...(outline ? { embed: embedHook } : {}),
       ...(m && outline ? { use: useHook(m.id, noteLines, undefined, 0, env.regions), button: buttonHook(m.id, noteLines) } : {}),
@@ -4262,7 +4262,7 @@ export class NoteSurface {
       const a = activationOf(row);
       if (!a) return x;
       const at = { listRow: { key, row: row.id } };
-      const to: LinkTarget = a.kind === "open" ? (isResourceRef(a.value as string) ? { resourceRef: a.value as string, label: a.value as string, role: "row" } : { block: a.value as string, role: "row", openWhere: a.where, revision: a.revision, at: a.at, atLabel: a.atLabel, atSays: a.atSays })
+      const to: LinkTarget = a.kind === "open" ? listOpenTarget(row)!
         : a.kind === "run" ? run(actionLine({ action: (a.value as { action: string }).action, args: (a.value as { args?: Record<string, string> }).args }))
         : { role: "row", label: row.label, listText: a.kind === "copy" ? { copy: a.value as string } : { insert: a.value as string } };
       return tagged(drawn, { ...to, ...at }, x);
@@ -4438,8 +4438,17 @@ export class NoteSurface {
     };
   }
 
-  /** Open a row of list `l` for real: the element it is drawn as, opened as `element.open` opens it (fresh: alt+⏎). */
+  /** An agent's row may be outside the person's answer, so follow its target without needing a drawn element. */
   private async openListRow(l: ListHandle<any>, row: ListViewRow<any>, where: "home" | "new", actor: Actor, host: SurfaceHost, standing: boolean): Promise<unknown> {
+    const target = listOpenTarget(row);
+    if (target) {
+      const asked = this.askLeave("list.open", { list: l.key, id: row.id, where }, actor, host);
+      if (asked) return asked;
+      const result = await this.followTarget(target, { ...host, actor }, { link: true, fresh: where === "new", by: actor, standing });
+      this.noteAgent(actor, `opened ${row.label}`);
+      host.redraw();
+      return result && "id" in result ? { opened: result.id, title: subject(result) } : result;
+    }
     const at = this.linkRowElement(l.key, row.id);
     if (!at) throw new ActionRefused(`${row.label} isn't drawn in ${l.title} now`);
     // A row that runs an action line is a press (button.press), as whoever asks.
@@ -4532,7 +4541,8 @@ export class NoteSurface {
     // An element is found again by its key: what's drawn above it may have changed (the kept comment's line).
     const n = ask.elem ? this.elems.findIndex(e => e.key === ask.elem) + 1 : 0;
     if (ask.elem && !n) return { choice, ...(said ? { said } : {}), then: "the element isn't drawn any more" };
-    const then = await this.runKey(ask.name, (n ? { ...ask.args, n } : ask.args) as never, host);
+    const then = ask.name === "list.open" ? await this.runList(ask.name, ask.args as never, host)
+      : await this.runKey(ask.name, (n ? { ...ask.args, n } : ask.args) as never, host);
     return { choice, ...(said ? { said } : {}), then };
   }
 
@@ -5687,7 +5697,7 @@ export class NoteSurface {
     if (e.kind === "task") { if (select) this.openPicker(e); host.redraw(); return { step: e.task?.step.itemId ?? null, choice: select }; }
     // A callout's icon or type opens its type choice under it (the person's; an agent changes it by callout.type).
     if (e.kind === "callout") { if (select) this.openCalloutPicker(e); host.redraw(); return { callout: e.label, choice: select, types: calloutsOf(this.src).types.map(t => t.name) }; }
-    const how: OpenHow = { link: true, fresh };
+    const how: OpenHow = { link: true, fresh, by: actor, standing: select };
     const l = e.link!;
     if (e.value !== undefined) return this.followValue({ key: e.value, target: l.block ? { block: l.block } : { page: l.page! } }, host, how);
     return this.followTarget(l, host, how);

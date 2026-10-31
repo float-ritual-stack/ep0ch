@@ -50,9 +50,9 @@ test("a saved collection answers nested groups and inline overrides through the 
   const pots = store.create("Wash pots [type::chore] [area::shed] [owner::Sol] [stage::ready]");
   const seeds = store.create("Sort seeds [type::chore] [area::shed] [owner::Mira] [stage::later]");
   const loose = store.create("Check forecast [type::chore] [stage::ready]");
-  const view = store.create("Garden chores [type::virtual-branch] [query::type=chore] [layout::table, gallery, feed, board] [group::area, owner] [sort::title] [direction::asc]\n[summary-properties::title, owner, stage] [gallery.card::large]");
+  const view = store.create("Garden chores [type::virtual-branch] [page::garden-chores] [query::type=chore] [layout::table, gallery, feed, board] [group::area, owner] [sort::title] [direction::asc]\n[summary-properties::title, owner, stage] [gallery.card::large]");
   const answer = await client.request<SiteAnswer>({ action: "site.answer", blockId: host.id,
-    produce: { kind: "view", props: { of: `((${view.id}))`, layout: "board", where: "stage=ready" } } });
+    produce: { kind: "view", props: { of: `((${view.id}))`, layout: "board", where: "stage=ready", page: 2 } } });
   const result = answer.produced as Extract<SiteProduced, { kind: "view" }>;
   expect(result.kind).toBe("view");
   expect(result.error).toBeUndefined();
@@ -67,11 +67,18 @@ test("a saved collection answers nested groups and inline overrides through the 
   expect(result.view.rows.find(r => r.id === beans.id)?.cells).toEqual(["Water beans", "Mira", "ready"]);
   expect(result.view.rows.some(r => r.id === seeds.id)).toBe(false);
   const gallery = await client.request<SiteAnswer>({ action: "site.answer", blockId: host.id,
-    produce: { kind: "view", props: { of: `((${view.id}))`, layout: "gallery" } } });
+    produce: { kind: "view", props: { of: `((${view.id}))`, layout: "gallery", page: 2 } } });
   expect((gallery.produced as typeof result).view.size).toBe("large");
   const unknown = await client.request<SiteAnswer>({ action: "site.answer", blockId: host.id,
-    produce: { kind: "view", props: { of: `((${view.id}))`, where: "gardne=ready" } } });
+    produce: { kind: "view", props: { of: `((${view.id}))`, where: "gardne=ready", page: 2 } } });
   expect((unknown.produced as typeof result).hint).toContain("no notes have gardne");
+  const named = await client.request<SiteAnswer>({ action: "site.answer", blockId: host.id,
+    produce: { kind: "view", props: { of: "garden-chores", page: 2 } } });
+  expect((named.produced as typeof result).error).toBeUndefined();
+  expect((named.produced as typeof result).view.rows.map(r => r.id)).toContain(beans.id);
+  const addressed = await client.request<SiteAnswer>({ action: "site.answer", blockId: host.id,
+    produce: { kind: "view", props: { of: `((${view.id}))` } } });
+  expect((addressed.produced as typeof result).error).toBeUndefined();
 });
 
 describe("a figure over this", () => {
