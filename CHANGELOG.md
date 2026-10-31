@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A note a script creates says who ran it and "via script" (PIE-1464)
+
+- **`ep0ch revisions` on a note, comment or reply a script made:** reads "by you · via script" when you pressed it (a button, `act`, the CLI), and "by <agent> · via script" when an agent did; it used to read "by you" only, though the same run's property writes already said "via script". The change feed's action names the script (`script:<name>`).
+- **A person's block can carry the run that made it** (its session and task, never an actor id): `BlockProvenance.actorId` is optional for a user author, and `createBlock`, `commentOn` and `replyTo` pass it through one `creationOf`.
+- **Run:** `PROTOCOL` 291: restart the outline host and your doors (`ep0ch install --apply`); a client on 290 is refused with that command named.
+
 ### ctrl+z in a BBS message reader tile puts the layout back (PIE-1470)
 
 - **ctrl+z with the keys in a reader tile that shows the BBS message reader** (the showcase's `exhibit`) said "no step change to undo in this note" and stopped, so a tile closed with `^W x` stayed closed; it now hands the key on to the desk's layout undo when the reader has nothing of its own to undo, as every other tile does. A step change the reader did make is still taken back first.

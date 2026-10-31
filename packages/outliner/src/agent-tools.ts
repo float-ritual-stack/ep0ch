@@ -65,6 +65,7 @@ import type {
   BlockSearchQuery,
   GotoSearchCollection,
   SearchCertainty,
+  BlockProvenance,
   MutationProvenance,
   ProjectedBlock,
   ResolvedBlockReferences,
@@ -101,6 +102,13 @@ function mutationOf(actor: AgentActor): MutationProvenance {
 
 function provenanceOf(actor: AgentActor) {
   return { actorId: actor.actorId, ...(actor.sessionId ? { sessionId: actor.sessionId } : {}), ...(actor.taskId ? { taskId: actor.taskId } : {}) };
+}
+
+/** What a new block records of its writer: an agent's actor, session and task; a person's session and task only (a run they pressed, PIE-1464); the system's nothing. */
+function creationOf(actor: AgentActor): BlockProvenance | undefined {
+  if ((actor.author ?? "agent") === "agent") return provenanceOf(actor);
+  if (actor.author !== "user" || (!actor.sessionId && !actor.taskId)) return undefined;
+  return { ...(actor.sessionId ? { sessionId: actor.sessionId } : {}), ...(actor.taskId ? { taskId: actor.taskId } : {}) };
 }
 
 function requireText(value: unknown, what: string): string {
@@ -1001,7 +1009,7 @@ export async function createBlock(
   if (typeof input.parent !== "string" || !input.parent.trim()) throw new WorkToolRefusal("Give the parent: a reference, or root");
   const parentId = input.parent.trim() === "root" ? null : (await writableBlock(client, input.parent)).id;
   const position = input.position === undefined ? undefined : boundedInteger(input.position, "position", 0, 0, 1_000_000);
-  let block = await client.request<Block>({ action: "create", text, parentId, author: actor.author ?? "agent", provenance: actor.author && actor.author !== "agent" ? undefined : provenanceOf(actor) });
+  let block = await client.request<Block>({ action: "create", text, parentId, author: actor.author ?? "agent", provenance: creationOf(actor) });
   if (position !== undefined) {
     await client.requireCompatibleService();
     block = await client.request<Block>({ action: "move", blockId: block.id, expectedRevision: block.revision, parentId, position, mutation: mutationOf(actor) });
@@ -1142,7 +1150,7 @@ async function commentOnBlock(client: AgentToolsClient, input: Parameters<typeof
   const receipt = await createBlockComment(client, {
     requestId: input.requestId?.trim() || randomUUID(),
     author: actor.author ?? "agent",
-    provenance: actor.author && actor.author !== "agent" ? undefined : provenanceOf(actor),
+    provenance: creationOf(actor),
     input: {
       blockId: block.id,
       expectedRevision: block.revision,
@@ -1188,7 +1196,7 @@ async function commentOnResource(
     action: "annotations.batch",
     requestId: input.requestId?.trim() || randomUUID(),
     author: actor.author ?? "agent",
-    provenance: actor.author && actor.author !== "agent" ? undefined : provenanceOf(actor),
+    provenance: creationOf(actor),
     operations: [{ operationId: "comment", type: "resource-comment", input: {
       resourceId, expectedRevision: input.revision ?? resourceTextRevision(hash), body: input.body, source: "agent",
       passage: {
@@ -1226,7 +1234,7 @@ export async function replyTo(
     requestId: input.requestId?.trim() || randomUUID(),
     input: { annotationId, body, source: "agent" },
     author: actor.author ?? "agent",
-    provenance: actor.author && actor.author !== "agent" ? undefined : provenanceOf(actor),
+    provenance: creationOf(actor),
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no reply");
