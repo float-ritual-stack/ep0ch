@@ -4,9 +4,30 @@
   "version": 1,
   "name": "Issues",
   "description": "Your tracker's open issues, offered as you type a link.",
-  "run": ["bun", "issues.ts"],
+  "run": [
+    "bun",
+    "issues.ts"
+  ],
   "sources": [
-    { "id": "issues", "title": "issues", "triggers": ["[[", "key::"], "keys": ["issue"],
-      "description": "open issues by number or title; enter writes [issue::#12]" }
+    {
+      "id": "issues",
+      "title": "issues",
+      "triggers": [
+        "[[",
+        "key::"
+      ],
+      "keys": [
+        "issue"
+      ],
+      "description": "open issues by number or title; enter writes [issue::#12]"
+    },
+    {
+      "id": "issue-button",
+      "title": "issue button",
+      "triggers": [
+        "::"
+      ],
+      "description": "a button that opens an issue note; Tab fills its label and note id"
+    }
   ]
 }

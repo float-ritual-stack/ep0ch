@@ -24,7 +24,7 @@ import { propSchemaOfField } from "@ep0ch/outline-core/script-component";
 import type { FormFieldType } from "@ep0ch/outline-core/form-fields";
 import { calloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
-import { matchesSearchText, rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
+import { slotReferences } from "@ep0ch/outline-core/button-call";
 
 /** At most this many candidates per lookup. */
 export const COMPLETION_LIMIT = 20;
@@ -100,7 +100,7 @@ async function pageFragmentRows(ask: Asked, svc: CompletionService): Promise<Ans
 }
 
 const pages: ServiceSource = {
-  decl: { id: "pages", title: "pages", triggers: ["[["], priority: 10, ranked: true, by: "service" },
+  decl: { id: "pages", title: "pages", triggers: ["[["], priority: 0, ranked: true, by: "service" },
   async rows(ask, svc) {
     const parts = await pageFragmentRows(ask, svc);
     if (parts) return parts;
@@ -154,7 +154,7 @@ function fragmentRow(c: Fragment, oneNote: boolean, under = false): SourceRow {
 }
 
 const blocks: ServiceSource = {
-  decl: { id: "blocks", title: "references", triggers: ["(("], priority: 10, ranked: true, by: "service" },
+  decl: { id: "blocks", title: "references", triggers: ["(("], priority: 0, ranked: true, by: "service" },
   async rows(ask, svc) {
     const fragment = parseFragmentCompletionQuery(ask.query), draft = ask.draft ? { draft: ask.draft } : {};
     const anchors = (query: Record<string, unknown>) => svc.request<Fragments>("fragments.candidates", { query }).catch(() => null);
@@ -216,7 +216,7 @@ const blocks: ServiceSource = {
 };
 
 const files: ServiceSource = {
-  decl: { id: "files", title: "files", triggers: ["[file::"], priority: 10, ranked: true, by: "service" },
+  decl: { id: "files", title: "files", triggers: ["[file::"], priority: 0, by: "service" },
   async rows(ask, svc) {
     const found = await svc.request<{ sourcePath: string; isDirectory: boolean }[]>("files.complete", { prefix: ask.query });
     return {
@@ -229,7 +229,7 @@ const files: ServiceSource = {
 interface Listed { extensions: { state: string; name?: string; description?: string; directory?: string; handlers: { key: string; kind: string; description?: string; argument?: { example?: string } }[]; agents?: { name: string; description?: string; threads?: boolean }[]; script?: { blockId?: string; file?: string; code: string } }[] }
 
 const formatters: ServiceSource = {
-  decl: { id: "formatters", title: "format scripts", triggers: ["| as"], priority: 10, by: "service" },
+  decl: { id: "formatters", title: "format scripts", triggers: ["| as"], priority: 0, by: "service" },
   async rows(ask, svc) {
     const listed = await svc.request<Listed>("extensions.list", { ...(ask.near ? { blockId: ask.near } : {}) });
     return { rows: listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed")).map(e => ({ label: e.name!, insert: e.name!, kind: "script", definition: e.script!.blockId, docs: e.description })) };
@@ -237,7 +237,7 @@ const formatters: ServiceSource = {
 };
 
 const agents: ServiceSource = {
-  decl: { id: "agents", title: "agents", triggers: ["@"], priority: 10, by: "service" },
+  decl: { id: "agents", title: "agents", triggers: ["@"], priority: 0, by: "service" },
   async rows(ask, svc) {
     const listed = await svc.request<Listed>("extensions.list", {});
     const all = listed.extensions.filter(e => e.state === "active" || e.state === "failed").flatMap(extension => (extension.agents ?? []).map(agent => ({ ...agent, extension })));
@@ -276,14 +276,16 @@ function contextualSchema(schema: ComponentSchema, keys: string[]): ComponentSch
   return { ...schema, props, example };
 }
 
-/** A variation as a row: its source written, the first YAML value selected so the next keys replace it. */
+/** The schema's example values are the snippet's slots, in their authored order. */
 function variationRow(schema: ComponentSchema, v: ReturnType<typeof variation>, label: string): SourceRow {
   const yaml = v.use.indexOf("\n---\n");
-  const first = yaml >= 0 ? /^([^:\n]+:[ \t]*)([^\n]+)$/m.exec(v.use.slice(yaml + 5)) : null;
-  const at = first ? yaml + 5 + first.index + first[1]!.length : -1;
+  const slots = yaml >= 0 ? [...v.use.slice(yaml + 5, v.use.indexOf("\n---", yaml + 5)).matchAll(/^([^:\n]+:[ \t]*)([^\n]+)$/gm)]
+    .map(m => ({ start: yaml + 5 + m.index! + m[1]!.length, end: yaml + 5 + m.index! + m[0].length })) : [];
+  slots.push(...slotReferences(v.use).filter(s => !slots.some(value => s.start >= value.start && s.end <= value.end)));
+  slots.sort((a, b) => a.start - b.start);
   return {
     label, kind: "component", group: schema.group, component: schema.id,
-    insert: at >= 0 ? { snippet: v.use, select: { start: at, end: at + first![2]!.length } } : v.use,
+    insert: slots.length ? { snippet: v.use, slots, select: slots[0] } : v.use,
     detail: `::${componentName(schema)}`,
     docs: `${schema.title}: ${schema.intro}\n\n\`\`\`blockdown\n${v.use}\n\`\`\``,
     example: { use: v.use, ...(v.note ? { note: v.note } : {}) },
@@ -293,13 +295,12 @@ function variationRow(schema: ComponentSchema, v: ReturnType<typeof variation>, 
 // The component schemas (PIE-618, `components.schemas`): the answer the library draws its pages from, no list of its
 // own. Grouped, used ones first: it orders its own rows (the matcher still ranks what's typed).
 const components: ServiceSource = {
-  decl: { id: "components", title: "components", triggers: ["::"], priority: 10, ranked: true, by: "service" },
+  decl: { id: "components", title: "components", triggers: ["::"], priority: 0, by: "service" },
   async rows(ask, svc) {
     const [schemas, recent, keys] = await Promise.all([schemasOf(svc), svc.request<Record<string, number>>("components.usage", {}), noteKeys(ask, svc)]);
     const all = schemas.flatMap(schema => { const id = componentName(schema); return id ? [{ id, title: `${id} ${schema.title}`, text: schema.intro, schema }] : []; });
     const q = ask.query.trim();
-    const ordered = q ? rankTextSearchMatches(all.filter(c => matchesSearchText(q, [c.id, c.title, c.text])), q).map(m => m.document)
-      : all.sort((a, b) => (recent[b.id] ?? 0) - (recent[a.id] ?? 0));
+    const ordered = all.sort((a, b) => (recent[b.id] ?? 0) - (recent[a.id] ?? 0));
     const groupOf = (c: typeof all[number]) => `${c.schema.group}${recent[c.id] !== undefined ? " · used" : ""}`;
     const groups = [...new Set(ordered.map(groupOf))];
     const rows: SourceRow[] = groups.flatMap(group => ordered.filter(c => groupOf(c) === group).map(({ id, schema: original }): SourceRow => {
@@ -315,7 +316,7 @@ const components: ServiceSource = {
         return { label: p.key, detail: p.type, docs: p.meaning, kind: "property", insert: { snippet: text, select: { start: text.length - 2, end: text.length - 2 } } };
       });
       const definition = noteOf(original);
-      return { ...variationRow(schema, variation(schema, {}), titleOf(schema)), id, group, filter: id, ...(definition ? { definition } : {}), variations: [...swept, ...args] };
+      return { ...variationRow(schema, variation(schema, {}), titleOf(schema)), id, group, filter: `${id} ${schema.intro}`, ...(definition ? { definition } : {}), variations: [...swept, ...args] };
     }));
     const listed = await svc.request<Listed>("extensions.list", {});
     const handlers = listed.extensions.filter(e => e.state === "active" || e.state === "failed").flatMap(e => e.handlers.filter(h => h.argument?.example));
@@ -361,11 +362,11 @@ const notes = (n: number) => `${n} note${n === 1 ? "" : "s"}`;
 // Properties are open (AGENTS.md): `[key` offers the keys the outline's notes carry (`properties.catalog`, most used
 // first), then the keys the component schemas give a meaning; `[key::` the values that key has, then the schema's.
 const properties: ServiceSource = {
-  decl: { id: "properties", title: "properties", triggers: ["[key", "key::", "yaml-key"], priority: 10, by: "service" },
+  decl: { id: "properties", title: "properties", triggers: ["[key", "key::", "yaml-key"], priority: 0, by: "service" },
   async rows(ask, svc) {
-    const q = ask.query.trim(), schemas = await schemasOf(svc);
-    if (ask.kind === "yaml-key") return { rows: yamlKeyCandidates(schemas, ask.component ?? "", q).map(c => candidateRow(schemas, c, ask, "property")) };
-    const catalog = await catalogOf(svc, ask.kind === "value" ? { key: ask.key } : { keys: true }, q.toLowerCase());
+    const schemas = await schemasOf(svc);
+    if (ask.kind === "yaml-key") return { rows: yamlKeyCandidates(schemas, ask.component ?? "", "").map(c => candidateRow(schemas, c, ask, "property")) };
+    const catalog = await catalogOf(svc, ask.kind === "value" ? { key: ask.key } : { keys: true }, ask.query);
     const rows: SourceRow[] = [], seen = new Set<string>();
     if (ask.kind === "key") {
       // What the notes carry first, most used first, with a schema's meaning where one has it; then the schemas' others.
@@ -375,13 +376,13 @@ const properties: ServiceSource = {
         const meant = known.get(c.key);
         rows.push({ label: c.key, kind: "property", detail: notes(c.count), insert: `[${c.key}::`, docs: [meant?.detail, `${notes(c.count)} with ${c.key}`].filter(Boolean).join("\n\n") });
       }
-      for (const c of keyCandidates(schemas, q)) if (!seen.has(c.key)) { seen.add(c.key); rows.push(candidateRow(schemas, c, ask, "property")); }
+      for (const c of keyCandidates(schemas, "")) if (!seen.has(c.key)) { seen.add(c.key); rows.push(candidateRow(schemas, c, ask, "property")); }
     } else {
       // The values the notes have first, drawn and explained where a schema knows them; then the schema's others.
       const configured = ask.component ? schemas.filter(s => s.id === ask.component) : settingsSchemas(schemas, ask.attrs ?? []);
       const owners = configured.filter(s => schemaProp(s, ask.key ?? ""));
       const scoped = owners.length ? owners : schemas;
-      const meant = new Map(valueCandidates(scoped, ask.key ?? "", q, true, ask.component).map(c => [c.label, c]));
+      const meant = new Map(valueCandidates(scoped, ask.key ?? "", "", true, ask.component).map(c => [c.label, c]));
       const allowed = owners.flatMap(s => schemaProp(s, ask.key ?? "")?.values?.map(v => v.value) ?? []);
       // A key whose value is a query (`[query::`, `[rule-match::`) completes what the grammar can say, not only values other notes wrote.
       if (schemas.some(s => s.props.some(p => p.key === ask.key && p.complete === "query"))) {
@@ -406,23 +407,23 @@ const properties: ServiceSource = {
 // and values first, then the schemas', each written as the filter writes it (`stage:`, `done`). It orders its own rows,
 // most used first.
 const filters: ServiceSource = {
-  decl: { id: "filters", title: "properties", triggers: ["filter-key", "filter-value"], priority: 10, ranked: true, by: "service" },
+  decl: { id: "filters", title: "properties", triggers: ["filter-key", "filter-value"], priority: 0, by: "service" },
   async rows(ask, svc) {
-    const value = ask.kind === "filter-value", q = ask.query.trim().toLowerCase();
-    const [catalog, schemas] = await Promise.all([catalogOf(svc, value ? { key: ask.key } : { keys: true }, q), schemasOf(svc).catch(() => [])]);
+    const value = ask.kind === "filter-value";
+    const [catalog, schemas] = await Promise.all([catalogOf(svc, value ? { key: ask.key } : { keys: true }, ask.query), schemasOf(svc).catch(() => [])]);
     const rows: SourceRow[] = [], seen = new Set<string>();
     if (!value) {
       const counts = new Map<string, number>();
       for (const c of catalog) counts.set(c.key, (counts.get(c.key) ?? 0) + c.count);
       for (const [key, n] of [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) { seen.add(key); rows.push({ label: `${key} (${n})`, filter: key, insert: `${key}:`, kind: "property", docs: `${n} block${n === 1 ? "" : "s"} carry it` }); }
-      for (const c of keyCandidates(schemas, q)) if (!seen.has(c.key) && c.key.toLowerCase().startsWith(q)) { seen.add(c.key); rows.push({ label: c.key, insert: `${c.key}:`, kind: "property", docs: c.detail }); }
+      for (const c of keyCandidates(schemas, "")) if (!seen.has(c.key)) { seen.add(c.key); rows.push({ label: c.key, insert: `${c.key}:`, kind: "property", docs: c.detail }); }
     } else {
       // A filter's word has no spaces to hold: a value with one is left out there (a field's value may have them).
       const fits = (v: string) => !ask.words || !/\s/.test(v);
       for (const c of catalog) if (!seen.has(c.value) && fits(c.value)) { seen.add(c.value); rows.push({ label: `${c.value} (${c.count})`, filter: c.value, insert: c.value, kind: "value", docs: `${c.count} block${c.count === 1 ? "" : "s"} have ${ask.key}:${c.value}` }); }
-      for (const c of valueCandidates(schemas, ask.key ?? "", q, false)) if (!seen.has(c.label) && fits(c.label) && c.label.toLowerCase().startsWith(q)) { seen.add(c.label); rows.push({ label: c.label, insert: c.insertion, kind: "value", docs: c.detail }); }
+      for (const c of valueCandidates(schemas, ask.key ?? "", "", false)) if (!seen.has(c.label) && fits(c.label)) { seen.add(c.label); rows.push({ label: c.label, insert: c.insertion, kind: "value", docs: c.detail }); }
     }
-    return { rows: rows.slice(0, COMPLETION_LIMIT), ...(value ? { empty: `no ${ask.key} value starts ${JSON.stringify(ask.query)}` } : {}) };
+    return { rows, ...(value ? { empty: `no ${ask.key} value matches ${JSON.stringify(ask.query)}` } : {}) };
   },
 };
 
@@ -488,14 +489,14 @@ async function propValues(schema: SlotOwner, prop: PropSchema, ask: Asked, svc: 
   if (prop.complete === "query") return (await querySuggestions(q, (key, prefix) => catalogOf(svc, key ? { key } : {}, prefix))).map(r => ({ label: r.value, value: r.value, detail: r.detail, ...(r.open ? { open: true } : {}) }));
   if (prop.type === "property") {
     const faceted = await whereKeys(ask, svc);
-    if (faceted) return faceted.filter(f => f.key.startsWith(q)).map(f => ({ label: f.key, value: f.key, detail: `${f.count} of the ${notes(faceted.matched)} where= holds carry it` }));
+    if (faceted) return faceted.map(f => ({ label: f.key, value: f.key, detail: `${f.count} of the ${notes(faceted.matched)} where= holds carry it` }));
     const keys = await scopedKeys(schema, ask, svc);
-    return (keys.length ? keys : axisValues(prop)).filter(key => key.startsWith(q)).map(key => ({ label: key, value: key }));
+    return (keys.length ? keys : axisValues(prop)).map(key => ({ label: key, value: key }));
   }
   if (prop.type.startsWith("property:")) return (await catalogOf(svc, { key: prop.type.slice("property:".length) }, q)).map(f => ({ label: f.value, value: f.value }));
   if (prop.type === "script") {
     const listed = await svc.request<Listed>("extensions.list", ask.draft ? { blockId: ask.draft.blockId, draft: { text: ask.draft.text } } : {});
-    return listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed") && e.name?.startsWith(q)).map(e => ({ label: e.name!, value: e.name!, ...(e.description ? { detail: e.description } : {}) }));
+    return listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed")).map(e => ({ label: e.name!, value: e.name!, ...(e.description ? { detail: e.description } : {}) }));
   }
   if (prop.type === "ref") {
     // The notes `((` finds (the built-in search; an extension's `((` source isn't asked here), written as their reference.
@@ -503,7 +504,7 @@ async function propValues(schema: SlotOwner, prop: PropSchema, ask: Asked, svc: 
     return found!.rows.filter(r => !r.under).map(r => ({ label: r.label, value: r.insert as string, ...(r.docs ? { detail: r.docs } : {}) }));
   }
   // An action's live list is the client's (the door's own actions, beside these): the service offers the schema's samples.
-  return axisValues(prop).filter(v => v.toLowerCase().startsWith(q.toLowerCase())).map(value => ({ label: value, value, ...(prop.values?.find(v => v.value === value)?.meaning ? { detail: prop.values.find(v => v.value === value)!.meaning } : {}) }));
+  return axisValues(prop).map(value => ({ label: value, value, ...(prop.values?.find(v => v.value === value)?.meaning ? { detail: prop.values.find(v => v.value === value)!.meaning } : {}) }));
 }
 
 /** The text a YAML value holds so far when it was typed inside quotes (`"a \"b` -> `a "b`); unquoted text is as written. */
@@ -519,7 +520,7 @@ const stayOpen = (text: string): string | { snippet: string; select: { start: nu
 // A component's props and their values (PIE-1366): `::box{li` its props (the schema's and a template's), `::box{pad.x="`
 // and a figure's `density: ` the values each can take, by its type. A YAML value draws what it makes (`example`).
 const attributes: ServiceSource = {
-  decl: { id: "attributes", title: "values", triggers: ["attribute", "attribute-value", "yaml-value"], priority: 10, ranked: true, by: "service" },
+  decl: { id: "attributes", title: "values", triggers: ["attribute", "attribute-value", "yaml-value"], priority: 0, by: "service" },
   async rows(ask, svc) {
     // A component's schema, else the slots of the script a handler line (`name:: slot=value`) names.
     const known = (await schemasOf(svc)).find(s => componentName(s) === ask.component);
@@ -528,7 +529,7 @@ const attributes: ServiceSource = {
     const props = await componentProps(schema, ask, svc);
     if (ask.kind === "attribute") {
       const used = new Set(ask.attrs?.map(a => a.key));
-      return { heading: "attributes", rows: props.filter(p => !used.has(p.key) && p.key.startsWith(ask.query)).map((p): SourceRow => ({
+      return { heading: "attributes", rows: props.filter(p => !used.has(p.key)).map((p): SourceRow => ({
         label: p.key, detail: p.type, docs: p.meaning, kind: "property",
         insert: ask.existingValue ? p.key : { snippet: `${p.key}=""`, select: { start: p.key.length + 2, end: p.key.length + 2 } },
       })) };
@@ -556,7 +557,7 @@ const attributes: ServiceSource = {
 // The outline's callout types (PIE-538, `callouts.types` over outline-core's built-ins): the one list the reader draws
 // and the type choice offers, each written `[!name]`.
 const callouts: ServiceSource = {
-  decl: { id: "callouts", title: "callout types", triggers: ["> [!"], priority: 10, by: "service" },
+  decl: { id: "callouts", title: "callout types", triggers: ["> [!"], priority: 0, by: "service" },
   async rows(ask, svc) {
     const declared = await svc.request<{ types: CalloutType[] }>("callouts.types", {}).then(r => r.types, () => []);
     return {
@@ -605,11 +606,11 @@ export type AskExtension = (source: ExtensionCompletionSource, ask: Asked, signa
  * Every service-side source the token's trigger reaches, asked at once: the built-ins and the extensions' completion
  * sources. A source that fails or runs past its time answers no rows and says why (`problem`); the others still answer.
  */
-export async function completionRows(svc: CompletionService, request: CompletionRowsRequest, extensions: readonly ExtensionCompletionSource[], askExtension: AskExtension, picks: Picks): Promise<CompletionRowsResult> {
+export async function completionRows(svc: CompletionService, request: CompletionRowsRequest, extensions: readonly ExtensionCompletionSource[], askExtension: AskExtension, picks: Picks, signal?: AbortSignal): Promise<CompletionRowsResult> {
   const t = request.target, trigger = triggerOf(t.kind);
   const prefix = await svc.request<{ workIdPrefix?: string }>("references.resolve", { text: "" }).then(r => r.workIdPrefix ?? null, () => null);
   const ask: Asked = {
-    trigger, kind: t.kind, query: t.query, ...(t.key ? { key: t.key } : {}), ...(t.component ? { component: t.component } : {}),
+    trigger, signal, kind: t.kind, query: t.query, ...(t.key ? { key: t.key } : {}), ...(t.component ? { component: t.component } : {}),
     ...(t.attrs ? { attrs: t.attrs } : {}), ...(t.quote ? { quote: t.quote } : {}), ...(t.existingValue ? { existingValue: true } : {}), ...(t.words ? { words: true } : {}),
     limit: request.limit ?? COMPLETION_LIMIT, prefix, ...(t.headingShort ? { headingShort: true } : {}), ...(request.near ? { near: request.near } : {}), ...(request.draft ? { draft: request.draft } : {}),
     ...(request.offset ? { offset: request.offset } : {}), ...(request.semantic ? { semantic: true } : {}), where: t.where, zone: request.zone,
@@ -625,7 +626,7 @@ export async function completionRows(svc: CompletionService, request: Completion
   for (const e of extensions) if (sourceAnswers(e, ask)) {
     const decl = { id: e.name, title: e.title, priority: 0, by: e.extension };
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(new Error("took too long")), EXTENSION_SOURCE_MS);
-    asks.push(askExtension(e, ask, controller.signal).then(
+    asks.push(askExtension(e, ask, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal).then(
       rows => ({ source: decl, rows }),
       error => ({ source: decl, rows: [], problem: `${e.title}: ${controller.signal.aborted ? `no answer in ${EXTENSION_SOURCE_MS / 1000}s` : error instanceof Error ? error.message : String(error)}` }),
     ).finally(() => clearTimeout(timer)));

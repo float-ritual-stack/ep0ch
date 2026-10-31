@@ -4,7 +4,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // copied, followed (block, page and Work-ID values) and edited in place: an edit is one `properties.patch`
 // of that token, checked against the revision the panel read, so it never overwrites someone else's change.
 // The surface owns the panel and runs its actions; this file draws it and turns keys into intents.
-import { popupHint, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
+import { popupHint, completerOf, completionOf } from "./completer";
 import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { isWritablePropertyValue, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { titleLine, type Msg } from "../board";
@@ -190,10 +190,7 @@ export class PropertyPanel {
         const c = completerOf(f.input), pop = completionOf(f.input);
         if (c) c.drawn = null;
         if (c && pop && out.length < h) {
-          const at: (number | null)[] = [];
-          const popup = renderCompletion(pop, w, Math.min(COMPLETION_ROWS, h - out.length - (foot ? 1 : 0)), at, 0, info.look);
-          c.drawn = { row: (info.origin ?? 0) + out.length, items: at };
-          out.push(...popup);
+          c.drawn = { row: (info.origin ?? 0) + out.length, anchor: keyW + 5 + f.input.cursorCol, items: [] };
         }
       }
     }

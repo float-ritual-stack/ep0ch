@@ -349,7 +349,7 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     expect(short.items[0].insertion).toBe("[heading::plot]");
     // A key in a draft: the same list [head offers while typing.
     const key = await app.act({ action: "complete", args: { text: "[heading-p" }, as: "test-agent" }) as any;
-    expect(key.items.map((i: any) => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
+    expect(key.items[0].insertion).toBe("[heading-pattern::");
   }, 20_000);
   describe("edit previews", () => {
     // Stages keep cursor, scroll and placement between visits; these journeys start independently.

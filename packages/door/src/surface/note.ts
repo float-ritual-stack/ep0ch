@@ -147,7 +147,7 @@ import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outli
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { callSplice, COMPONENTS_PAGE, makeComponent } from "./component-new";
-import { COMPLETION_ACTIONS, COMPLETION_DOCS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_DOCS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, completerFor, completerOf, completionOf, recordCompletionPick, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -1510,7 +1510,8 @@ export class NoteSurface {
     this.innerFrame = host?.innerFrame;
     const view = host ? withFigureBoard(host.ctx.board, () => host.redraw(), () => this.renderOn(w, h, host)) : this.renderOn(w, h);
     if (!this.previewPoint() || this.listPreview.rect || this.editing) this.keepCurrent(host);
-    return this.withPlacementMenu(view, w, h, "reader");
+    const field = this.panel?.field?.input ?? this.writingDraft;
+    return this.withPlacementMenu(field ? { ...view, completion: completerOf(field) ?? undefined } : view, w, h, "reader");
   }
 
   private renderOn(w: number, h: number, host?: SurfaceHost): SurfaceView {
@@ -2070,7 +2071,7 @@ export class NoteSurface {
     this.use(host);
     this.lookAt(m, w, host);
     const covered = this.modes.rows(w, h, host);
-    if (covered) return { ...covered, ...(this.draft ? { placements: this.editPreview.place === "tile" ? [] : this.draft.frame?.preview?.placements } : {}), completion: this.draft ? completerOf(this.draft) ?? undefined : undefined, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
+    if (covered) return { ...covered, ...(this.draft ? { placements: this.editPreview.place === "tile" ? [] : this.draft.frame?.preview?.placements } : {}), ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
@@ -2114,8 +2115,7 @@ export class NoteSurface {
       this.panel.origin = at;
       const panelHits = () => { for (const r of this.panel!.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false }, ...(r.target ? [{ row: at + r.y, from: r.from, to: w, prop: r.n, follow: true }] : [])); };
       if (this.panel.full) { const lines = [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)]; panelHits(); return { lines }; }
-      const popup = this.panel.field && completionOf(this.panel.field.input) ? COMPLETION_ROWS : 0;
-      const ph = Math.min(rows.length + 2 + popup + (info.values.length ? Math.min(info.values.length, 6) + 1 : 0) + (this.panel.note || this.panel.field?.note ? 1 : 0), Math.max(4 + popup, Math.floor((h - head.length) * 0.5)));
+      const ph = Math.min(rows.length + 2 + (info.values.length ? Math.min(info.values.length, 6) + 1 : 0) + (this.panel.note || this.panel.field?.note ? 1 : 0), Math.max(4, Math.floor((h - head.length) * 0.5)));
       head.push(...this.panel.render(rows, w, ph, info));
       panelHits();
     }
@@ -3827,7 +3827,6 @@ export class NoteSurface {
     };
   }
 
-
   /** The block adapter saved the edit: show the saved note, and say so (and how it was recorded). */
   private saved(m: Msg, by: Actor, asked: Actor, change: string, host: SurfaceHost) {
     this.msg = { ...this.rereadNote(m), childIds: this.msg?.id === m.id ? this.msg.childIds : m.childIds };
@@ -4720,7 +4719,7 @@ export class NoteSurface {
     if (!c) return null;
     const lines = renderEditor(c.d, c.f, w, h).map(l => pad(l, w) + RESET);
     while (lines.length < h) lines.push("");
-    return this.withPlacementMenu({ lines, placements: previewPictures(c.d, 0, h) }, w, h, "comment");
+    return this.withPlacementMenu({ lines, completion: completerOf(c.d) ?? undefined, placements: previewPictures(c.d, 0, h) }, w, h, "comment");
   }
 
   /**
@@ -5143,7 +5142,6 @@ export class NoteSurface {
     return parseTileAddress(value).kind === "name" ? found.id : value;
   }
 
-
   /**
    * The block `r` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note's one
    * line that runs. With no position and several lines that run (a handler line, a component, an @name request), `r`
@@ -5241,7 +5239,6 @@ export class NoteSurface {
     this.endWant = this.scroll < this.endScroll ? "edge" : "last";
     this.scroll = this.endWant === "edge" ? this.endScroll : this.maxScroll;
   }
-
 
   /**
    * Reading keys only (j k, arrows, PgUp PgDn, space, Home End): scroll the note without starting or
@@ -6167,7 +6164,6 @@ export class NoteSurface {
     });
   }
 
-
   /**
    * The image a person's key means when it names none (the current element in view), or the one `n` (from images) or
    * `line` (its note line, 1 the subject) names.
@@ -7002,7 +6998,6 @@ export class NoteSurface {
     return true;
   }
 
-
   /** Choice `i` of the open status choice, for the person: the step as drawn now. */
   private async choose(i: number, host: SurfaceHost) {
     if (this.picker?.kind === "callout") return this.chooseCallout(i, host);
@@ -7188,7 +7183,6 @@ export class NoteSurface {
     d.place(d.text.split("\n").length - 1, Infinity);
     return at.tile;
   }
-
 
   /**
    * The note line (from 0) of the element at `x`, `y` (cells of the last render), else of the current element, else
@@ -8802,9 +8796,8 @@ export class NoteSurface {
       return true;
     }
     const completion = this.writingDraft && completerOf(this.writingDraft);
-    if (completion?.overPreview(x, y)) {
-      completion.click(y, x, text => host.ctx.copy?.(text, "component preview"));
-      host.redraw(); return true;
+    if (completion?.click(y, x, text => host.ctx.copy?.(text, "component preview"))) {
+      this.gesture.forget(); host.redraw(); return true;
     }
     if (r.click) {
       // A click that did something (a link, a fold, a panel row) isn't the first half of a double click.
@@ -9377,7 +9370,6 @@ export class NoteSurface {
     return this.runKey(`proposal.${op}`, id ? { id } : {}, host).then(r => r ?? null);
   }
 
-
   requireNote(): Msg {
     if (!this.msg) throw new ActionRefused("this reader shows no note; open one first");
     return this.msg;
@@ -9714,7 +9706,6 @@ const describeRow = (r: PropRow, src: Source | null, text: string) => ({
 });
 
 
-
 /** A draft action (src/edit.ts, DRAFT_ACTIONS) run on the reader's edit or comment being written. */
 function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<DraftActionArgs[K], On> {
   const info = DRAFT_ACTIONS.list().find(a => a.name === name)!, def = DRAFT_ACTIONS.def(name)!;
@@ -9768,7 +9759,6 @@ export const imagePlacements = (images: readonly DocImage[], col: number, cellW:
     return [{ key: `img:${png.key}:${im.line}`, image: png, col: col + im.col, row: im.line, cols: im.cols, rows: im.rows, z: -1, ...(crop ? { crop } : {}) }];
   });
 
-
 /**
  * A draft's live preview where no note is open (PIE-496): the reader's own body renderer, with embeds when its outline is available. An
  * edit's or a comment's preview on a note is `NoteSurface.snippetDoc`, its embeds expanded (PIE-852).
@@ -9797,7 +9787,6 @@ function openConstructs(text: string): ReturnType<typeof syntaxWarnings> {
   if (openSeen.text !== text) openSeen = { text, open: syntaxWarnings(text) };
   return openSeen.open;
 }
-
 
 // ── the actions ──────────────────────────────────────────────────────────────
 
@@ -10336,8 +10325,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       elementEdit(surface.draft).change(op as ElementOperation, actor, to); surface.noteAgent(actor, op, surface.draft); host.redraw();
     },
   }),
-  // The draft's own actions (Enter's list continuation, Tab, Shift+Tab, a click, the wheel, the preview),
-  // on this reader's edit or the comment being written: the same code its keys and mouse run.
+  "snippet.next": forwardDraft("snippet.next"),
+  "snippet.previous": forwardDraft("snippet.previous"),
+  "snippet.end": forwardDraft("snippet.end"),
   "draft.newline": forwardDraft("draft.newline"),
   "draft.indent": forwardDraft("draft.indent"),
   "draft.outdent": forwardDraft("draft.outdent"),
@@ -10486,6 +10476,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const spend = invitation !== undefined ? () => ds!.spend(invitation, actor) : undefined;
         if (!await insertCompletion(board, d, target, item, own, still, actor, spend)) throw new Error("the draft changed while the reference was checked; ask again");
       } catch (e) { throw new ActionRefused(`not inserted: ${e instanceof Error ? e.message : String(e)}`); }
+      if (r.pickKey) await recordCompletionPick(board, r.pickKey, item.insertion);
       surface.noteAgent(actor, `inserted ${item.insertion}`);
       host.redraw();
       return { ...out, inserted: item.insertion, dirty: d.dirty };

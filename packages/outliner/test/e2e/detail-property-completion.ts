@@ -4,7 +4,8 @@ import {runHerdrScenario} from './herdr-runner';
 
 // Components, properties and callout types complete in Detail (PIE-1344): `::`, `[key`, `[key::` and `> [!` list the
 // service's rows, the ones the door lists; a component chosen writes all its lines; a figure's values too (PIE-1366).
-const result=await runHerdrScenario({name:'detail-property-completion',async prepare(){},async run(s){
+const nvim=Bun.which('nvim');if(!nvim)throw Error('Neovim is required for the snippet undo journey');
+const result=await runHerdrScenario({name:'detail-property-completion',editor:`${nvim} --clean`,async prepare(){},async run(s){
   const terminal=await s.attachClient();
   await terminal.resize(600,100);
   await s.client.request<Block>({action:'create',text:'Greenhouse log [season::spring] [crop::beans]'});
@@ -23,6 +24,22 @@ const result=await runHerdrScenario({name:'detail-property-completion',async pre
   await s.keys(s.panes.detail,'shift+down');await s.focus(s.panes.detail);await terminal.write('\x1b[6~');
   await s.waitFor('the docs scroll without changing the row',()=>s.visible(s.panes.detail),text=>text!==before&&text.includes('Components 1/'));
   await s.checkpoint('01-docs-scrolled');
+  await s.keys(s.panes.detail,'enter');await s.waitVisible(s.panes.detail,'items:');
+  await s.text(s.panes.detail,'Raised beds');
+  await s.keys(s.panes.detail,'tab','shift+tab');
+  await s.text(s.panes.detail,'Harvest');
+  await s.waitFor('the first slot is replaced after backtab',()=>s.visible(s.panes.detail),text=>text.includes('title: Harvest')&&!text.includes('Raised beds'));
+  await s.keys(s.panes.detail,'ctrl+e');await s.waitVisible(s.panes.detail,'draft.md');
+  await terminal.write('ggccHARVEST NOTES\x1b:wq\r');
+  await s.waitFor('the editor changed text outside the slot',()=>s.visible(s.panes.detail),text=>text.includes('HARVEST NOTES')&&text.includes('title: Harvest'));
+  await s.checkpoint('01-editor-import');
+  await s.keys(s.panes.detail,'ctrl+z');
+  await s.waitFor('undo restores the draft before the editor import',()=>s.visible(s.panes.detail),text=>text.includes('PLANTING NOTES')&&text.includes('title: Harvest')&&!text.includes('HARVEST NOTES'));
+  await s.checkpoint('01-editor-import-undone');
+  await s.keys(s.panes.detail,'ctrl+z');
+  await s.waitFor('one undo removes the filled snippet',()=>s.visible(s.panes.detail),text=>text.includes('::graph-st')&&!text.includes('items:'));
+  await s.checkpoint('01-snippet-undone');
+  await s.keys(s.panes.detail,'tab');await s.waitVisible(s.panes.detail,'Components');
   await s.keys(s.panes.detail,'enter');await s.waitVisible(s.panes.detail,'items:');
   await s.keys(s.panes.detail,'ctrl+s');
   await s.waitFor('the figure written whole',()=>s.client.request<Block>({action:'get',blockId:note.id}),b=>b.text.startsWith('PLANTING NOTES\n\n::graph-stat\n---\n')&&b.text.trimEnd().endsWith('::'));

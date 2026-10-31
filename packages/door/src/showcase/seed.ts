@@ -1,4 +1,5 @@
 import { QUERY_WORDS, QUERY_TRELLIS, QUERY_FENCE } from "./seed/query-words";
+import { pickId } from "@ep0ch/outline-core/completion-source";
 import { PEEK } from "./seed/peek";
 import { shellLineDemo } from "./seed/sh-lines";
 import { BUTTON_LOOKS, BUTTON_SEQUENCES } from "./seed/button-sequences";
@@ -568,7 +569,7 @@ Tune → Glass adjusts the delays and stack limit. ^W U keeps an ordinary tile a
   notes.recipe = await make(notes.root.id, RECIPE);
   notes.finding = await make(notes.root.id, FINDING);
   notes.meeting = await make(notes.root.id, MEETING);
-  await board.completionPicked("((", `((${notes.meeting.id}))`);
+  await board.completionPicked("((", pickId(`((${notes.meeting.id}))`));
   notes.deepLinks = await make(notes.root.id, DEEP_LINKS);
   notes.stickyPlan = await make(notes.root.id, STICKY_PLAN);
   for (const job of STICKY_JOBS) await make(notes.stickyPlan.id, job);

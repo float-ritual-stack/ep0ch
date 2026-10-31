@@ -72,7 +72,9 @@ export function buttonBodyEnd(lines: readonly string[], i: number): number {
 
 /** A `{key}` in a button's action or script values: the word of the same name on the line fills it. */
 const SLOT_REF = /\{([A-Za-z][\w.-]*)\}/g;
-const refsOf = (text: string): string[] => [...text.matchAll(SLOT_REF)].map(m => m[1]!);
+export const slotReferences = (text: string): { key: string; start: number; end: number }[] =>
+  [...text.matchAll(SLOT_REF)].map(m => ({ key: m[1]!, start: m.index!, end: m.index! + m[0].length }));
+const refsOf = (text: string): string[] => slotReferences(text).map(s => s.key);
 
 /** A slot's value as a word of an action line: as written when it is one word, else quoted. */
 const wordOf = (value: string) => (/^[^\s"'\\]+$/.test(value) ? value : '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"');

@@ -70,14 +70,16 @@ export function detailActionScopes(
     | "mode"
     | "previewRegions"
     | "propertyInspector"
-  >,
+  > & Partial<Pick<DetailState, "buffer">>,
   options: { bufferMode?: boolean; previewFocused?: boolean } = {},
 ): readonly string[] {
   if (state.destinationChooser.active) return ["destination"];
   if (state.propertyInspector.edit) return ["property-edit"];
   if (state.propertyInspector.filterDraft !== null) return ["property-filter"];
   if (state.backlinks.filterDraft !== null) return ["backlinks-filter"];
+  if (state.buffer?.snippet && (!state.completion?.items.length || state.completion.loading)) return ["snippet", state.mode];
   if (state.completion) return [...(state.completion.docsRect ? ["completion-docs"] : []), state.completion.items.length?"completion":"completion-empty", state.mode];
+  if (state.buffer?.snippet) return ["snippet", state.mode];
   if (options.previewFocused) return ["draft-preview", state.mode];
   if (options.bufferMode ?? (state.mode === "edit" || state.mode === "comment")) {
     return [state.mode];
@@ -433,6 +435,9 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
       case "detail.completion.open":
         await dispatch({ type: "completion.open" });
         return true;
+      case "detail.snippet.next": await dispatch({ type: "snippet.next" }); return true;
+      case "detail.snippet.previous": await dispatch({ type: "snippet.previous" }); return true;
+      case "detail.snippet.end": await dispatch({ type: "snippet.end" }); return true;
       case "detail.buffer.undo":
         await dispatch({ type: "buffer.undo" });
         return true;

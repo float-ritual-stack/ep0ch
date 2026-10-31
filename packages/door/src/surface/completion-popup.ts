@@ -4,7 +4,7 @@ import type { CompletionItem, CompletionState } from "./completer";
 import { Canvas } from "../canvas";
 import { ListPicker, pickRow } from "./picker";
 import { listPreview } from "../bar/list-preview";
-import { litCells } from "../bar/filter";
+import { searchMatchSpans } from "@ep0ch/outline-core/search-match";
 import { declaredKeys, keyCaption } from "./actions";
 import { COMPLETION_ACCEPT, COMPLETION_MOVE, COMPLETION_DOCS, COMPLETION_DISMISS } from "./completion-actions";
 import { C, chip, fg, pad, RESET, width as cells, ellipsize } from "../style";
@@ -51,9 +51,8 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   }
   const header = h >= 3, footer = h >= 2 && (!reference || h >= 6);
   const out: string[] = [];
-  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", agent: "agents", tile: "tiles", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values", "button-step": ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions", action: ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions here" }[s.target?.kind as string] ?? "references";
   const ranking = !footer && s.jev ? ` · jev ${s.jev}` : "";
-  if (header) rows.push(null), out.push(fg(C.lcyan) + pad(` ${printable(s.heading ?? heading, " ")} ${s.index + 1}/${s.items.length}${echo}${ranking}${scopes ? ` ${scopes}` : ""}${s.loading ? " · finding..." : ""}`, w) + RESET);
+  if (header) rows.push(null), out.push(fg(C.lcyan) + pad(` ${printable(s.heading ?? "completions", " ")} ${s.index + 1}/${s.items.length}${echo}${ranking}${scopes ? ` ${scopes}` : ""}${s.loading ? " · finding..." : ""}`, w) + RESET);
   const picker = completionPicker(s);
   picker.sel = s.index;
   const selected = s.items[s.index]!;
@@ -154,7 +153,7 @@ export function completionPicker(s: CompletionState): ListPicker<CompletionItem,
         const room = Math.max(1, w - 3 - cells(kind) - cells(arrow));
         const label = ellipsize(printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " "), room);
         const addition = it.addition ? ellipsize(it.addition, Math.max(0, room - cells(label))) : "";
-        const lit = litCells(label, s.target.query);
+        const lit = new Set(it.matches ?? searchMatchSpans(it.label, s.target.query));
         const words = [...label].map((c, i) => lit.has(i) ? fg(C.yellow) + c + fg(C.grey) : c).join("");
         const text = ` ${on ? "»" : " "} ${words}` + (addition ? fg(C.dark) + addition + fg(C.grey) : "");
         const tail = fg(C.dark) + kind + fg(C.grey) + arrow;

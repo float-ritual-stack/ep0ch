@@ -33,7 +33,8 @@ import { ActionRefused, shownLine } from "./actions";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { headedTitle, subject, type Msg } from "../board";
 import { completionTargetAtCursor, filterTargetAtCursor, parseFragmentCompletionQuery, type CompletionKind, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
-import { insertSelection, insertText, mergeSourceAnswers, pickKey, triggerOf, type SourceAnswer, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
+import { insertSelection, insertSlots, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf, sourceAnswers, type SourceAnswer, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
+import type { SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
 import type { CompletionRowsResult, CompletionSourceAnswer } from "@ep0ch/outline-core/protocol";
 import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type SocketBoard } from "../socket";
@@ -86,6 +87,8 @@ export interface CompletionField {
   /** What a line completes: a draft has none of this and completes text. */
   readonly complete?: LineCompletion;
   completed?(item: CompletionItem): void;
+  startSnippet?(slots: SnippetSlot[], offset: number): void;
+  offsetOf?(row: number, col: number): number;
   splice(start: number, end: number, text: string, lines?: Record<number, string>, by?: Actor, selection?: { start: number; end: number }): void;
 }
 
@@ -99,7 +102,9 @@ export interface CompletionItem extends Omit<SourceRow, "insert"> {
   children?: CompletionItem[];
   source?: string;
   preview?: (w: number, h: number) => string[];
+  matches?: number[];
   selection?: { start: number; end: number };
+  slots?: SnippetSlot[];
   /** Exactly what choosing it writes in place of the token. */
   insertion: string;
   /** One short word for the row's right-hand column: block, anchor, page, property, component, agent, action, value. */
@@ -141,9 +146,10 @@ const snippet = (text: string) => text.split(/\r?\n/).slice(1).map(withoutProper
 export const notConfigured = (semantic: { status: string; message?: string }) => semantic.status === "unavailable" && /not configured/i.test(semantic.message ?? "");
 
 /** What a door source is asked: the token, the draft's note, and how (ADR 0004 §4's ask, with the door's own reach). */
-interface DoorAsk { board: CompletionBoard; target: CompletionTarget; own?: OwnNote; opts: LookupOptions; signal?: AbortSignal }
+interface DoorAsk extends SourceAsk { board: CompletionBoard; target: CompletionTarget; own?: OwnNote; opts: LookupOptions; signal?: AbortSignal }
 /** A door source's answer: its rows, and what to say when it has none. */
-interface DoorAnswer { rows: CompletionItem[]; empty?: string }
+type DoorRow = SourceRow & Pick<CompletionItem, "preview">;
+interface DoorAnswer { rows: DoorRow[]; empty?: string }
 /**
  * A completion source the door answers itself (PIE-1340): only what the door alone knows (its actions, for a button's
  * steps and an action-typed prop; a fence's settings). Each answers on outline-core's contract (`SourceDecl`, rows a
@@ -151,19 +157,26 @@ interface DoorAnswer { rows: CompletionItem[]; empty?: string }
  * their values, callouts, the extensions' sources) is the service's (`completion.rows`). `lookupCompletion` asks
  * every source for the token and merges them with outline-core's one matcher: nothing below switches on a kind.
  */
-interface DoorSource { decl: SourceDecl; kinds: readonly CompletionKind[]; rows(ask: DoorAsk): Promise<DoorAnswer> }
+interface DoorSource { decl: SourceDecl; rows(ask: DoorAsk): Promise<DoorAnswer> }
 
 const hostOf = (board: CompletionBoard, opts: LookupOptions) => opts.host ?? (ambient?.board === board ? ambient.host?.() : undefined);
-const door = (id: string, title: string, ranked = false): SourceDecl => ({ id, title, triggers: [], priority: 10, ranked, by: "door" });
+const door = (id: string, title: string, kinds: CompletionKind[], ranked = false): SourceDecl => ({ id, title, triggers: kinds.map(k => triggerOf(k)!), priority: 0, ranked, by: "door" });
 
 /** An act line past its action's name (`tile.zoom t`): what's left to complete is its arguments. */
 const actLineArgs = (query: string, host: BarHost) => { const q = query.trimStart(), first = q.split(/\s/)[0]!; return q.length > first.length && host.dispatch.has(first); };
 /** An act line's arguments and their values as the popup's rows, each written by `write` (its quoting, a `/` before it); null before the action's name ends. */
 const argRows = async (query: string, host: BarHost, opts: LookupOptions, write: (line: string) => string): Promise<DoorAnswer | null> =>
   actLineArgs(query, host) ? { rows: (await commandRows(query, host, { explicit: opts.explicit })).map(r => commandItem(r, write(r.line))) } : null;
+const actionRows = async (query: string, host: BarHost) => {
+  const source = barSource("actions")!;
+  return Promise.all((await source.rows(query, host, "actions")).map(async row => {
+    const preview = await source.preview(row, host);
+    return { ...row, docs: preview && "markdown" in preview ? preview.markdown : undefined };
+  }));
+};
 /** An argument's row in the popup: its name or value as the label, what it means beside, a tile's screen or a note as its preview. */
-const commandItem = (r: CommandRow, insertion: string): CompletionItem => ({
-  label: r.label, insertion, kind: r.kind, ...(r.detail ? { detail: r.detail } : {}), ...(r.docs ? { docs: r.docs } : {}),
+const commandItem = (r: CommandRow, insertion: string): DoorRow => ({
+  label: r.label, insert: insertion, kind: r.kind, ...(r.detail ? { detail: r.detail } : {}), ...(r.docs ? { docs: r.docs } : {}),
   ...(r.preview && "note" in r.preview ? { blockId: r.preview.note } : {}),
   ...(r.preview && "lines" in r.preview ? { preview: ((lines: string[]) => (_w: number, h: number) => lines.slice(0, h))(r.preview.lines) } : {}),
 });
@@ -185,64 +198,66 @@ const wordEnd = (line: string, col: number) => col + /^\S*/.exec(line.slice(col)
 
 const DOOR_SOURCES: readonly DoorSource[] = [
   // A button's step (PIE-1298): a script note's name after `((`, else the door's actions and their arguments.
-  { decl: door("steps", "steps", true), kinds: ["button-step"], async rows({ board, target, own, opts }) {
+  { decl: door("steps", "steps", ["button-step"], true), async rows({ board, target, own, opts }) {
     if (target.query.trimStart().startsWith("((")) {
       const q = target.query.trimStart().slice(2);
       const listed = await board.listExtensions(false, own ? { blockId: own.blockId, draft: { text: own.text } } : {});
-      return { rows: listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed") && e.name?.startsWith(q))
-        .map(e => ({ label: e.name!, insertion: `((${e.name}))`, docs: e.description, kind: "script" })) };
+      const scripts = listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed") && e.name)
+        .map(e => ({ id: e.id, title: e.name!, text: e.description ?? "" }));
+      return { rows: (q ? rankTextSearchMatches(scripts, q).map(m => m.document) : scripts)
+        .map(e => ({ label: e.title, insert: `((${e.title}))`, docs: e.text, kind: "script", enter: opts.line ? undefined : "new line" })) };
     }
     const host = hostOf(board, opts);
     if (!host) return { rows: [] };
     // Past the action's name, its arguments and their values; before it, the actions.
     const args = await argRows(target.query, host, opts, line => line);
-    if (args) return args;
-    const rows = await barSource("actions")!.rows(target.query, host, "actions");
-    return { rows: rows.map(r => ({ label: r.label, insertion: r.fill ?? r.label, docs: r.detail, kind: "action" })) };
+    if (args) return { rows: args.rows.map(r => ({ ...r, enter: opts.line ? undefined : "new line" })) };
+    const rows = await actionRows(target.query, host);
+    return { rows: rows.map(r => ({ label: r.label, insert: r.fill ?? r.label, docs: r.docs, kind: "action", enter: opts.line ? undefined : "new line" })) };
   } },
   // The actions that apply here, from a note's edit (PIE-1076): the power bar's `>` rows (the tile's own menu first),
   // then, past the name, its arguments as the bar's line completes them.
-  { decl: door("here-args", "arguments", true), kinds: ["action"], async rows({ board, target, opts }) {
+  { decl: door("here-args", "arguments", ["action"], true), async rows({ board, target, opts }) {
     const host = hostOf(board, opts);
     return (host && await argRows(target.query, host, opts, line => "/" + line)) || { rows: [] };
   } },
   // `@` where no note is being edited (the power bar's ask line, a comment): the agents here by persona, whose sessions
   // hear addressed mail (PIE-1437); the service answers the outline's own agents beside them.
-  { decl: door("sessions", "agents here"), kinds: ["agent"], async rows({ board, own, opts }) {
+  { decl: door("sessions", "agents here", ["agent"]), async rows({ board, own, opts }) {
     const host = hostOf(board, opts);
     if (!host || own) return { rows: [] };
-    return { rows: (await agentsHere(host)).map(a => ({ label: a.label, insertion: `@${a.value} `, ...(a.detail ? { detail: a.detail } : {}), kind: "agent" })) };
+    return { rows: (await agentsHere(host)).map(a => ({ label: a.label, insert: `@${a.value} `, ...(a.detail ? { detail: a.detail } : {}), kind: "agent" })) };
   } },
   // `%` in an ask line: the tiles on the screen shown, by the names `tile=` takes (the tile kind's values).
-  { decl: door("tiles", "tiles"), kinds: ["tile"], async rows({ board, target, opts }) {
+  { decl: door("tiles", "tiles", ["tile"]), async rows({ board, target, opts }) {
     const host = hostOf(board, opts);
     if (!host) return { rows: [] };
     const tiles = await argKind("tile")?.(target.query, host, {}) ?? [];
-    return { rows: tiles.map(t => ({ label: t.value, insertion: `%${t.value} `, ...(t.detail ? { detail: t.detail } : {}), ...(t.preview && "note" in t.preview ? { blockId: t.preview.note } : {}), kind: "tile" })) };
+    return { rows: tiles.map(t => ({ label: t.value, insert: `%${t.value} `, ...(t.detail ? { detail: t.detail } : {}), ...(t.preview && "note" in t.preview ? { blockId: t.preview.note } : {}), kind: "tile" })) };
   } },
   // Matched by the one matcher against their words (`sort list` finds "Sort the list in this block").
-  { decl: door("here", "actions here"), kinds: ["action"], async rows({ board, target, opts }) {
+  { decl: door("here", "actions here", ["action"]), async rows({ board, target, opts }) {
     const host = hostOf(board, opts);
     if (!host || actLineArgs(target.query, host)) return { rows: [] };
-    const rows = await barSource("actions")!.rows(target.query, host, "actions");
+    const rows = await actionRows(target.query, host);
     // A passage's actions (their words as quote=) need words selected in a reader: a / line has none.
     const passage = new Set(host.dispatch.list().actions.filter(a => a.args.quote?.context).map(a => a.name));
-    const seen = new Set<string>(passage), out: CompletionItem[] = [];
+    const seen = new Set<string>(passage), out: DoorRow[] = [];
     for (const r of rows) {
       const d = r.data as { action?: string; args?: Record<string, unknown>; summary?: string; words?: string } | undefined;
       if (!d?.action || r.key.startsWith("line:") || r.key.startsWith("w:") || seen.has(d.action) || !host.dispatch.has(d.action)) continue;
       seen.add(d.action);
       // A menu row by its own words ("Sort the list in this block"), its action dim beside; the rest by name.
       const label = d.words ?? r.label, named = label !== d.action;
-      out.push({ label, insertion: `/${shownLine(d.action, d.args ?? {})} `, ...(named || r.keycap ? { detail: [named ? d.action : "", r.keycap ?? ""].filter(Boolean).join(" · ") } : {}), docs: d.summary || r.detail, filter: d.action, kind: "action" });
+      out.push({ label, insert: `/${shownLine(d.action, d.args ?? {})} `, ...(named || r.keycap ? { detail: [named ? d.action : "", r.keycap ?? ""].filter(Boolean).join(" · ") } : {}), docs: r.docs, filter: d.action, kind: "action" });
     }
     return { rows: out };
   } },
-  { decl: door("fence", "settings"), kinds: ["fence-setting"], async rows() {
-    return { rows: SCRIPT_FENCE.settings.map(s => ({ label: `${s.key}=`, insertion: `${s.key}=`, docs: s.meaning, kind: "setting" })) };
+  { decl: door("fence", "settings", ["fence-setting"]), async rows({ opts }) {
+    return { rows: SCRIPT_FENCE.settings.map(s => ({ label: `${s.key}=`, insert: `${s.key}=`, docs: s.meaning, kind: "setting", enter: opts.line ? undefined : "new line" })) };
   } },
   // A prop whose values are the door's own actions (a rule's `run`, PIE-1366): the service answers every other prop's.
-  { decl: door("actions", "values", true), kinds: ["attribute-value", "yaml-value"], async rows({ board, target, opts }) {
+  { decl: door("actions", "values", ["attribute-value", "yaml-value"], true), async rows({ board, target, opts }) {
     const host = hostOf(board, opts);
     if (!host) return { rows: [] };
     const schemas = await componentsReady({ board, redraw: () => {} });
@@ -251,8 +266,8 @@ const DOOR_SOURCES: readonly DoorSource[] = [
     const q = target.query, write = (v: string) => target.kind === "yaml-value" ? yamlScalar(v) : attributeScalar(v, target.quote);
     const args = await argRows(q, host, opts, line => write(line));
     if (args) return args;
-    const rows = await barSource("actions")!.rows(q, host, "actions");
-    return { rows: rows.map(r => ({ label: r.label, insertion: write(r.fill ?? r.label), docs: r.detail, kind: "value" })) };
+    const rows = await actionRows(q, host);
+    return { rows: rows.map(r => ({ label: r.label, insert: write(r.fill ?? r.label), docs: r.docs, kind: "value" })) };
   } },
 ];
 
@@ -268,7 +283,7 @@ const itemOf = (row: SourceRow, src: ListSource, schemas: readonly ComponentSche
   const schema = row.component ? schemas.find(s => s.id === row.component) : undefined;
   const glimpse = example?.inline ? exampleGlimpse(example, src) : "";
   return {
-    ...rest, kind: rest.kind ?? "", insertion: insertText(insert), ...(selection ? { selection } : {}),
+    ...rest, kind: rest.kind ?? "", insertion: insertText(insert), slots: insertSlots(insert), ...(selection ? { selection } : {}),
     ...(glimpse ? { label: `${rest.label}  ${glimpse}` } : {}),
     ...(example ? {
       source: example.use,
@@ -281,10 +296,7 @@ const itemOf = (row: SourceRow, src: ListSource, schemas: readonly ComponentSche
     ...(variations?.length ? { children: variations.map(v => itemOf(v, src, schemas)) } : {}),
   };
 };
-/** A door row on the contract: its insertion as the insert (a selection makes it a snippet). */
-const rowOf = (item: CompletionItem): CompletionItem & SourceRow => ({ ...item, insert: item.selection ? { snippet: item.insertion, select: item.selection } : item.insertion });
-
-/** A token no service or extension source can answer (a fence's settings, a button's step) asks nothing: it needs no pause for typing. */
+/** Door-local triggers still ask the host for their shared picks. */
 const asksService = (board: CompletionBoard, target: CompletionTarget) => typeof board.completionRows === "function" && !!triggerOf(target.kind);
 
 /** The service's answer to `completion.rows`, or none (a test double, a service without it): its sources answer nothing. */
@@ -304,28 +316,27 @@ async function serviceRows(board: CompletionBoard, target: CompletionTarget, own
  * equals. What it says when there are none, or the list is cut, is the sources' own words.
  */
 export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, own?: OwnNote, opts: LookupOptions = {}): Promise<CompletionLookup> {
-  const mine = DOOR_SOURCES.filter(s => s.kinds.includes(target.kind));
+  const mine = DOOR_SOURCES.filter(s => sourceAnswers(s.decl, { trigger: triggerOf(target.kind), key: target.key }));
   const [service, ...answers] = await Promise.all([
     serviceRows(board, target, own, opts),
-    ...mine.map(s => s.rows({ board, target, own, opts, ...(opts.signal ? { signal: opts.signal } : {}) }).then(a => ({ source: s.decl, rows: a.rows.map(r => rowOf({ ...r, ...((!opts.line && ["fence-setting", "button-step"].includes(target.kind)) ? { enter: "new line" as const } : {}) })), empty: a.empty }))),
+    ...mine.map(s => s.rows({ ...target, trigger: triggerOf(target.kind), limit: opts.limit ?? COMPLETION_LIMIT, board, target, own, opts, signal: opts.signal }).then(a => ({ source: s.decl, ...a }))),
   ]);
   const src = { board, redraw: () => {} };
   // A row that draws a component's properties finds its schema in the connection's copy (the library's).
   const schemas = service.answers.some(a => a.rows.some(r => r.component)) ? await componentsReady(src) : [];
-  const all: (SourceAnswer<CompletionItem & SourceRow> & Partial<CompletionSourceAnswer>)[] = [...answers, ...service.answers.map(a => ({ ...a, rows: a.rows.map(r => rowOf(itemOf(r, src, schemas))) }))];
+  const all: (SourceAnswer<DoorRow> & Partial<CompletionSourceAnswer>)[] = [...answers, ...service.answers];
   const merged = mergeSourceAnswers(all, target.query, { picks: service.picks });
-  const items = merged.map(({ insert: _i, from: _f, tier: _t, ...item }) => item as CompletionItem);
+  const items = merged.map(row => itemOf(row, src, schemas));
   const truncated = all.find(a => a.truncated)?.truncated ?? null;
   const partial = all.map(a => a.partial).find(Boolean) ?? "";
   const problems = [service.failed, ...all.map(a => a.problem)].filter(Boolean).join(" · ");
   const empty = all.map(a => a.empty).filter(Boolean).join(" · ");
   const message = items.length ? [partial || (truncated ? `showing the first ${truncated} matches` : ""), problems].filter(Boolean).join(" · ")
     : [partial && `partial search: ${partial}`, empty, problems].filter(Boolean).join(" · ");
-  const heading = all.map(a => a.heading).find(Boolean);
+  const heading = all.map(a => a.heading).find(Boolean) ?? all.find(a => a.rows.length)?.source.title ?? "completions";
   return {
     items, truncated, message, queryWords: all.some(a => a.queryWords), ...(all.some(a => a.jev === "ranked") ? { jev: "ranked" as const } : {}), ...(all.some(a => a.jevOff) ? { jevOff: true } : {}),
     ...(all.find(a => a.sure)?.sure ? { sure: all.find(a => a.sure)!.sure! } : {}),
-    // Only a token the service answers has picks kept for it (a fence's settings, a button's steps don't: nothing reads them).
     ...(heading ? { heading } : {}), ...(triggerOf(target.kind) ? { pickKey: pickKey({ trigger: triggerOf(target.kind), kind: target.kind, key: target.key }) } : {}),
   };
 }
@@ -406,7 +417,9 @@ export async function insertCompletion(board: CompletionBoard, d: CompletionFiel
   }
   // Right before the splice, with no wait between: what the insert uses up (an invitation) is spent only when it lands.
   commit?.();
+  const offset = d.offsetOf?.(d.row, target.start) ?? target.start;
   d.splice(target.start, target.end, item.insertion, item.anchor && own?.blockId === item.blockId ? { [item.anchor.lineIndex]: item.anchor.line } : {}, by, by.kind === "user" ? item.selection : undefined);
+  if (by.kind === "user" && item.slots?.length) d.startSnippet?.(item.slots, offset);
   if (made) d.note = made;
   const host = component && by.kind === "user" ? ambient?.host?.() : undefined;
   if (component && host) void openNote(component.id, host, { alt: true, actor: by }).catch(() => {});
@@ -443,8 +456,6 @@ export class Completer {
     const host = ambient?.board === this.board ? ambient.host?.() : undefined, here = this.where?.();
     return host && here ? { ...host, here } : host;
   }
-  /** The tile host paints this popup after the screen, beyond the editor's rectangle. */
-  screenLayer = false;
   private preview: { item: CompletionItem; surface: NoteSurface; host: SurfaceHost } | null = null;
   /** The lookup and what follows it (Jev's re-order, the preview's context): the pause for typing, latest-wins, abort. */
   private readonly search = new SearchSchedule(TYPING_PAUSE_MS);
@@ -453,8 +464,6 @@ export class Completer {
   private acceptedQuery?: { suggestion: QueryWords; text: string };
   private loadingMore = false;
   private limit = COMPLETION_LIMIT;
-  /** The order `::` first listed the components in, kept for this draft. */
-  private componentOrder?: Map<string, { i: number; group?: string }>;
   constructor(private readonly d: CompletionField, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: CompletionOwner = () => undefined) {}
 
   /** The token the cursor is in, if any: in a filter's words its key or value; in a property's field its value (a `[[` there first). */
@@ -467,7 +476,7 @@ export class Completer {
     if (c && (c.grammar === "act" || c.grammar === "act-query")) {
       const host = this.barHost();
       if (host && actLineArgs(line.slice(0, f.col), host)) return { kind: "button-step", start: 0, end: wordEnd(line, f.col), query: line.slice(0, f.col) };
-      const ask = askTargetAt(line, f.col);
+      const ask = askTargetAt(line, f.col) ?? completionTargetAtCursor(line, f.col, f.lines, f.row);
       if (ask || c.grammar === "act" || line.startsWith("@") || line.startsWith("outline:")) return ask;
       return { kind: "query", start: 0, end: line.length, query: line.slice(0, f.col), where: c.where };
     }
@@ -591,15 +600,6 @@ export class Completer {
       const r = await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: this.barHost(), line: this.d.complete !== undefined, signal: turn.signal, ...(explicit ? { explicit } : {}) });
       if (r.jevOff) jevOff.add(this.board);
       if (!this.current(turn)) return;
-      // `::` with nothing typed lists the components used ones first: the order this draft first saw stays while it's
-      // written (PIE-1127), so a component used meanwhile doesn't move the rows under the person's eye.
-      if (target.kind === "component" && !target.query.trim()) {
-        const key = (i: CompletionItem) => i.id ?? i.insertion;
-        this.componentOrder ??= new Map(r.items.map((item, i) => [key(item), { i, group: item.group }]));
-        const first = (i: CompletionItem) => this.componentOrder!.get(key(i));
-        // Each row keeps its first place and the heading it was under then.
-        r.items = [...r.items].sort((a, b) => (first(a)?.i ?? Infinity) - (first(b)?.i ?? Infinity)).map(i => first(i) ? { ...i, group: first(i)!.group } : i);
-      }
       // A `[` that starts no property the schemas know (a Markdown link's text, say) opens nothing.
       if (!r.items.length && !r.queryWords && target.kind !== "query" && target.kind !== "page" && target.kind !== "block" && target.kind !== "file" && target.kind !== "callout") { this.dismiss(); return; }
       const index = Math.max(0, r.items.findIndex(i => i.insertion === was));
@@ -835,7 +835,7 @@ export class Completer {
     try {
       if (!await insertCompletion(this.board, this.d, s.target, item, this.own(), () => this.current(turn))) return false;
       // Counted by the outline host (PIE-1340), so this pick ranks higher next time, here and in every other client.
-      if (s.pickKey) void this.board.completionPicked?.(s.pickKey, item.insertion).catch(() => {});
+      if (s.pickKey) void recordCompletionPick(this.board, s.pickKey, item.insertion);
       // A note picked from a search's list (ranked or not, as the bar's): the words and the note, the eval's label (PIE-1197).
       if ((s.target.kind === "page" || s.target.kind === "block") && item.blockId) this.board.searchPicked?.(s.target.query, item.blockId, index, "complete");
       if (item.querySuggestion) {
@@ -869,6 +869,10 @@ export function completerFor(d: CompletionField, board: unknown, redraw: () => v
   byDraft.set(d, c);
   return c;
 }
+
+/** Ranking history must never turn a successful draft insertion into a reported failure. */
+export const recordCompletionPick = (board: CompletionBoard, key: string, insertion: string) =>
+  board.completionPicked?.(key, pickId(insertion)).catch(() => {});
 
 /** The draft's completer, if it has one. */
 export const completerOf = (d: CompletionField): Completer | null => byDraft.get(d) ?? null;
@@ -937,6 +941,8 @@ export function completionKey(d: Draft, k: Key, c: Completer | null): DraftActio
   if (!c || d.busy || k.kind === "mouse") return d.key(k);
   // A line break or tab inside a paste is text: it never chooses a candidate.
   if ("pasted" in k || k.kind === "paste") { c.dismiss(); return d.key(k); }
+  const shown = c.shown;
+  if ((!shown?.items.length || shown.loading) && d.snippetKey(k)) { c.dismiss(); return "keep"; }
   if (popupKey(d, k, c)) return "keep";
   // `^` or `#` in a finished ((reference)), or just after it, opens it again to search inside its note (PIE-762).
   if (k.kind === "char" && !k.ctrl && d.selectedText() === null && reopenReference(d, k.ch)) { void c.refresh(); return "keep"; }
@@ -973,6 +979,8 @@ lineCompletionHooks.before = (i, k) => {
   const c = lineCompleter(i);
   if (!c || k.kind === "mouse") return false;
   if ("pasted" in k || k.kind === "paste") { c.dismiss(); return false; }
+  const shown = c.shown;
+  if ((!shown?.items.length || shown.loading) && i.snippetKey(k)) { c.dismiss(); return true; }
   const took = popupKey(i, k, c, true);
   openAt.set(i, c.state?.target);
   return took;

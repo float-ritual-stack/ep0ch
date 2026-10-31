@@ -4,7 +4,7 @@ import type { ModeKey } from "../surface/modes";
 import { outlineBoards, type NoteAddress } from "./outline-boards";
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
 import { headedTitle } from "../board";
-import { completerOf, type Completer } from "../surface/completer";
+import type { Completer } from "../surface/completer";
 import type { Look, TileLooks } from "../look";
 import { MARGIN_MODES, type MarginMode } from "../surface/margin";
 import type { StyleLayer } from "@ep0ch/outline-core/style-cascade";
@@ -713,11 +713,7 @@ export class ReaderPane implements Pane, AttachedOwner {
     return "keeps the note opened into it · alt+l in another tile, then a click here, sends that tile's opens here";
   }
   render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView {
-    const draft = this.surface.writingDraft;
-    const completion = draft && completerOf(draft);
-    if (completion) completion.screenLayer = true;
     const v = this.surface.render(w, h, desk && this.host(desk));
-    if (completion?.shown) v.completion = completion;
     if (this.msg || this.surface.draft || h < 3) return v;
     // An empty reader (^W o d) says what it's for, and offers a note to write in it: ctrl+n here makes one and opens it in this tile.
     // What it says, cut to leave room for the offer under it (its click inside the tile).

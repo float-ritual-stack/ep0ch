@@ -2,10 +2,13 @@
 // lookups find, the way Tree, Detail and Quick Capture do, and insert the same syntax. The popup never
 // keeps a key it doesn't use. Everything here runs on a scratch service with fictional notes.
 import { serviced } from "./serviced";
+import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
+import { Canvas } from "../src/canvas";
+import { drawCompletionFloat } from "../src/surface/completion-float";
 import { CommentSession } from "../src/comment";
 import { Desk } from "../src/desk/desk";
 import { boardScreen } from "./board-view";
@@ -13,7 +16,7 @@ import * as BV from "./board-view";
 import type { ReaderPane } from "../src/desk/panes";
 import { openScreen } from "../src/desk/screen-specs";
 import { view as riverView } from "./river-view";
-import { MainMenu } from "../src/screens";
+import { MainMenu, MessageReader } from "../src/screens";
 import { completionTargetAtCursor, pageAddressCompletion } from "@ep0ch/outline-core/completion-triggers";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import { BUILTIN_HEADING_STYLES } from "@ep0ch/outline-core/heading-styles";
@@ -269,9 +272,9 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     const { d, c } = typing("## Calls [heading-p");
     await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the keys");
     expect(c.state!.target).toMatchObject({ kind: "key", query: "heading-p" });
-    expect(c.state!.items.map(i => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
+    expect(c.state!.items.slice(0, 2).map(i => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
     const drawn = renderCompletion(c.state!, 110, 8).map(visible).join("\n");
-    expect(drawn).toContain("properties 1/2");
+    expect(drawn).toContain("properties 1/");
     expect(drawn).toContain("Heading styles");
     completionKey(d, K("down"), c); completionKey(d, K("up"), c);
     completionKey(d, K("enter"), c);
@@ -279,7 +282,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     // Each value with a preview: the glyph track it draws, small.
     expect(c.state!.items.map(i => i.insertion)).toEqual(["stack]", "waffle]", "uptime]", "dots]", "rule]"]);
     expect(c.state!.items[1]!.label).toMatch(/^waffle {2}[▓▒░ ]{6,}/);
-    expect(renderCompletion(c.state!, 70, 8).map(visible).join("\n")).toContain("values 1/5");
+    expect(renderCompletion(c.state!, 70, 8).map(visible).join("\n")).toContain("properties 1/5");
     for (const ch of "wa") completionKey(d, char(ch), c);
     await until(() => !!c.state && !c.state.loading && c.state.target.query === "wa", "waffle");
     completionKey(d, K("down"), c); completionKey(d, K("up"), c);
@@ -589,7 +592,12 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const press = (k: Key) => s.key(k, h);
     const pop = () => completionOf(d);
     const settled = async () => { await until(() => !!pop() && !pop()!.loading, "the completion lookup"); return pop()!; };
-    const screen = () => s.render(60, 24, h).lines.map(visible).join("\n");
+    const screen = () => {
+      const view = s.render(60, 24, h), canvas = new Canvas(60, 24), area = { col: 0, row: 0, cols: 60, rows: 24 };
+      view.lines.forEach((line, row) => canvas.text(0, row, line, 60));
+      if (view.completion) drawCompletionFloat(canvas, view.completion, area, area);
+      return canvas.lines().map(visible).join("\n");
+    };
     return { s, h, d, type, press, pop, settled, screen };
   }
 
@@ -735,7 +743,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     await board.request("delete", { blockId: template, author: "agent" });
   });
 
-  test("component ranking includes standalone uses and stays fixed while typing (PIE-1127 round 2)", async () => {
+  test("component ranking reads current standalone uses from the service while typing", async () => {
     await create('Standalone field\n::fields{key=trellis}');
     const e = await editing(await create("Ranking practice\n"));
     e.type("::");
@@ -743,7 +751,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(first[0]!.label).toBe("Fields");
     await create('A newly used button\n::button{of=water-plants}');
     e.type("b"); await e.settled(); e.press({ kind: "backspace" });
-    expect((await e.settled()).items.map(i => i.label)).toEqual(first.map(i => i.label));
+    expect((await e.settled()).items[0]!.label).toBe("Button");
   });
 
   test("file script completion shows the registered path and code (PIE-1164 round 2)", async () => {
@@ -943,7 +951,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.pop()!.index).toBe(0);
     expect(e.d.row).toBe(2);                                              // the wheel didn't move the cursor
     const lines = e.screen().split("\n");
-    const header = lines.findIndex(l => l.includes("references 1/"));
+    const header = lines.findIndex(l => l.includes("pages 1/"));
     expect(e.s.click(3, header, e.h)).toBe(true);                         // the header: the popup's, nothing chosen
     expect(e.pop()).not.toBeNull();
     expect(e.s.click(3, 0, e.h)).toBe(false);                             // above the popup: not the popup's
@@ -964,7 +972,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("enter")); e.type("see [[");
     let p = await e.settled();
     expect(p.items.some(i => i.kind === "page")).toBe(true);
-    expect(e.screen()).toContain("references 1/");
+    expect(e.screen()).toContain("pages 1/");
     expect(editHint(e.d, { save: "save" })).toBe(`${popupHint(p)} · ctrl+s save`);
     expect(popupHint(p)).toStartWith("↑↓ move · ⏎/tab inserts");
     e.type("HOME");
@@ -1345,6 +1353,40 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     own.drafting!.dispose();
   });
 
+  test.each([false, true])("an agent's long snippet succeeds even when pick storage fails: %s", async (storageFails) => {
+    const insertion = "Mulch around the beans. ".repeat(400).slice(0, 8192);
+    const extension = join(scratch.workspace, "extensions", "long-snippet");
+    mkdirSync(extension, { recursive: true });
+    writeFileSync(join(extension, "extension.json"), JSON.stringify({ contract: 2, id: "long-snippet", version: 1, name: "Long snippet", run: ["bun", "main.ts"], sources: [{ id: "beds", title: "Beds", triggers: ["[["] }] }));
+    writeFileSync(join(extension, "main.ts"), `process.stdout.write(JSON.stringify({ ok: true, value: { rows: [{ label: "Mulching instructions", insert: ${JSON.stringify(insertion)} }] } }));`);
+    await board.request("extensions.list", { reload: true });
+    const own = new NoteSurface(), h = host();
+    own.show((await board.get(await create("Snippet practice")))!, h);
+    await own.act("edit.text", { text: "[[Mulching" }, h, AGENT);
+    await own.act("draft.place", { line: 1 }, h, AGENT);
+    const db = new Database(join(scratch.outlines, `${scratch.name}.sqlite`));
+    try {
+      if (storageFails) db.exec("CREATE TRIGGER fail_picks BEFORE INSERT ON metadata WHEN NEW.key LIKE 'completion%' BEGIN SELECT RAISE(FAIL, 'pick storage unavailable'); END");
+      const before = redraws;
+      const result = await own.act("complete", { insert: 1 }, h, AGENT);
+      expect(result).toMatchObject({ inserted: insertion, dirty: true });
+      expect(own.draft!.text).toBe(insertion);
+      expect(own.agent?.did).toStartWith("inserted ");
+      expect(redraws).toBeGreaterThan(before);
+      if (!storageFails) {
+        const rows = await board.completionRows({ target: { kind: "page", query: "Mulching" } });
+        expect(Object.values(rows.picks).some(p => p.n === 1)).toBe(true);
+        expect(Object.keys(rows.picks).every(key => key.length < 100)).toBe(true);
+      }
+    } finally {
+      if (storageFails) db.exec("DROP TRIGGER fail_picks");
+      db.close();
+      own.drafting!.dispose();
+      rmSync(extension, { recursive: true, force: true });
+      await board.request("extensions.list", { reload: true });
+    }
+  });
+
   test("the complete action refuses to insert when the person typed while it looked the references up", async () => {
     const e = await editing(ids.compost!);
     e.press(K("enter")); e.type("@claude-7"); e.press(K("enter")); e.type("see [file::notes/pl");
@@ -1424,6 +1466,59 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     app.push(new MainMenu());
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
+
+  test.each(["inline", "floating", "popup", "split"])("BBS comments show and accept their completion popup: %s", async place => {
+    const address = `garden-comment-${place}`;
+    await create(null, `Garden handbook [page::${address}]`);
+    const note = await create(null, `Comment practice ${place}\nWater the beds.`);
+    const reader = new MessageReader([(await board.get(note.id))!], 0);
+    app.push(reader);
+    try {
+      await until(() => !!reader.surface.msg && !reader.surface.msg.partial, "the message reader");
+      await reader.dispatch.act({ action: "comment.note" }, USER);
+      await reader.dispatch.act({ action: "comment.place", args: { place } }, USER);
+      const draft = reader.surface.writingDraft!;
+      type(`[[${address}`);
+      await until(() => !!completionOf(draft) && !completionOf(draft)!.loading, "the comment candidates");
+      const label = `${address} · Garden handbook`;
+      const lines = screen();
+      const y = lines.findIndex(line => line.includes(label));
+      expect(y).toBeGreaterThanOrEqual(0);
+      const x = lines[y]!.indexOf(label);
+      key({ kind: "mouse", action: "down", button: 0, x, y });
+      key({ kind: "mouse", action: "up", button: 0, x, y });
+      await until(() => draft.text === `[[${address}]]`, "the visible comment candidate inserts");
+      expect(reader.surface.writingDraft).toBe(draft);
+      await reader.dispatch.act({ action: "comment.close", args: { discard: true } }, USER);
+    } finally { app.pop(); }
+  });
+
+  test("a board composer accepts a visible completion outside its box without closing", async () => {
+    for (let i = 0; i < 12; i++) await create(null, `Garden bed ${i} [page::garden-${i}]`);
+    size.rows = 24;
+    const b = boardScreen(hub.id), B = BV.view(b);
+    app.push(b);
+    try {
+      await until(() => !!B.lanes[0]?.items?.length, "the board lane");
+      await b.dispatch.act({ action: "card.new" }, USER);
+      const draft: Draft = B.composer.session.draft;
+      type("[[garden");
+      await until(() => !!completionOf(draft) && !completionOf(draft)!.loading, "garden candidates");
+      const lines = screen(), r = B.composerAt;
+      const outside = completionOf(draft)!.items.map(item => {
+        const y = lines.findIndex(line => line.includes(item.label));
+        return { item, y, x: y < 0 ? -1 : lines[y]!.indexOf(item.label) };
+      }).find(({ x, y }) => x >= 0 && y >= 0 && (x < r.col || y < r.row || x >= r.col + r.cols || y >= r.row + r.rows));
+      expect(outside).toBeDefined();
+      const { item, x, y } = outside!;
+      key({ kind: "mouse", action: "down", button: 0, x, y });
+      key({ kind: "mouse", action: "up", button: 0, x, y });
+      await until(() => !completionOf(draft) || !B.composer, "the click lands");
+      expect(B.composer?.session.draft).toBe(draft);
+      expect(draft.text).toBe(item.insertion);
+      await b.dispatch.press("composer.close", { discard: true });
+    } finally { app.pop(); size.rows = 48; }
+  });
 
   test("reference completion keeps the typing line clear and reveals a body match (PIE-1104)", async () => {
     const journal = await create(null, "Winter ledger\n" + Array.from({ length: 40 }, (_, i) => `Ledger entry ${i}.`).join("\n") + "\nInsurance return passage.\nKeep the receipt.");

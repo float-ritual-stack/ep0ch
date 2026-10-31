@@ -1,6 +1,5 @@
 import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
-import { completionRows, PICKS_METADATA_KEY, readPicks } from "./completion-sources";
-import { recordPick } from "@ep0ch/outline-core/completion-source";
+import { CompletionRequests } from "./completion-requests";
 import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
 import { waitingAsks } from "./waiting-you";
 import { artifactRepoRef } from "@ep0ch/outline-core/media-line";
@@ -378,6 +377,7 @@ const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTION
   "outline.snapshot", "shares.snapshot.take", "shares.snapshot.finish", "shares.list", "shares.revoke", "reader.report", "reader.view"]);
 
 export class OutlinerServer {
+  private completions?: CompletionRequests;
   private readonly mentions: MentionRepository;
   private readonly editRecovery: EditRecoveryRepository;
   private activeGotoRankings = 0;
@@ -2403,34 +2403,9 @@ export class OutlinerServer {
       }
     }
     if (request.action === "query.suggest") return querySuggestReply(this.querySuggester ??= new QuerySuggester(this.own, this.suggestionKeeps), request, () => this.store.sequence);
-    if (request.action === "completion.rows" || request.action === "completion.picked") {
-      // Completion (PIE-1340): the service's sources and the extensions' answer on one contract; picks are kept here so
-      // every client ranks the same way.
+    if (request.action === "completion.rows" || request.action === "completion.picked" || request.action === "completion.cancel") {
       try {
-        const picks = readPicks(this.store.readMetadata(PICKS_METADATA_KEY));
-        let result: unknown;
-        if (request.action === "completion.picked") {
-          if (typeof request.key !== "string" || !request.key || request.key.length > 80) throw new Error("completion.picked needs key: the trigger's pick key");
-          if (typeof request.insert !== "string" || !request.insert || request.insert.length > 2000) throw new Error("completion.picked needs insert: the text the row wrote");
-          if (this.readOnly) throw new Error("This outline is read-only.");
-          const next = recordPick(picks, request.key, request.insert, new Date());
-          this.store.writeMetadata(PICKS_METADATA_KEY, JSON.stringify(next));
-          result = { picks: next[request.key] };
-        } else {
-          const t = request.target as Record<string, unknown> | undefined;
-          if (!t || typeof t !== "object" || typeof t.kind !== "string" || typeof t.query !== "string" || t.query.length > 500) throw new Error("completion.rows needs target: { kind, query } (query up to 500 characters)");
-          if (t.attrs !== undefined && (!Array.isArray(t.attrs) || t.attrs.length > 100 || !t.attrs.every(a => a && typeof a === "object" && typeof (a as { key?: unknown }).key === "string" && typeof (a as { value?: unknown }).value === "string"))) throw new Error("target.attrs must be a list of { key, value } strings (at most 100)");
-          if (t.quote !== undefined && t.quote !== '"' && t.quote !== "'") throw new Error(`target.quote must be " or '`);
-          if (request.near !== undefined && typeof request.near !== "string") throw new Error("near must be a block id");
-          if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive whole number");
-          const own = { request: <T>(action: string, input: Record<string, unknown>): Promise<T> => this.own.request<T>({ action, ...input } as RequestInput) };
-          const listed = this.extensionRegistry.list().completionSources;
-          result = await completionRows(own, request, listed, (source, ask, signal) => this.extensionCalls.complete({
-            extension: source.extension, source: source.id, query: ask.query,
-            trigger: { kind: ask.trigger!, ...(ask.key ? { key: ask.key } : {}), ...(ask.component ? { component: ask.component } : {}) },
-            ...(request.near ? { near: request.near } : {}),
-          }, signal), picks);
-        }
+        const result = await (this.completions ??= new CompletionRequests(this.store, this.own, this.extensionRegistry, this.extensionCalls, this.readOnly)).run(request);
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
         if (isSqliteBusy(error)) throw error;
@@ -3981,6 +3956,7 @@ export class OutlinerServer {
         case "roadmap.items.similar":
         case "roadmap.items.attach":
           throw new Error(`${request.action} requires asynchronous dispatch.`);
+        case "completion.cancel":
         case "completion.rows":
         case "completion.picked":
         case "search.picked":

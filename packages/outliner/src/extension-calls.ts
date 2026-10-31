@@ -499,12 +499,15 @@ export function validateCompletionRows(value: unknown): SourceRow[] {
     if (!label?.trim()) throw new Error(`rows[${index}] needs a label`);
     const raw = row.insert;
     const snippet = isObject(raw) ? raw.snippet : raw;
-    if (typeof snippet !== "string" || !snippet || snippet.length > 500 || /[\u0000-\u001f\u007f]/.test(snippet)) throw new Error(`rows[${index}].insert must be one line of text up to 500 characters (or { snippet, select })`);
+    if (typeof snippet !== "string" || !snippet || snippet.length > MAX_BAR_PREVIEW || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(snippet)) throw new Error(`rows[${index}].insert must be text (or { snippet, slots })`);
     let insert: SourceRow["insert"] = snippet;
-    if (isObject(raw) && raw.select !== undefined) {
-      const sel = raw.select as Record<string, unknown>;
-      if (!isObject(sel) || !Number.isSafeInteger(sel.start) || !Number.isSafeInteger(sel.end) || (sel.start as number) < 0 || (sel.end as number) < (sel.start as number) || (sel.end as number) > snippet.length) throw new Error(`rows[${index}].insert.select must be { start, end } inside the snippet`);
-      insert = { snippet, select: { start: sel.start as number, end: sel.end as number } };
+    if (isObject(raw)) {
+      const span = (sel: unknown) => {
+        if (!isObject(sel) || !Number.isSafeInteger(sel.start) || !Number.isSafeInteger(sel.end) || (sel.start as number) < 0 || (sel.end as number) < (sel.start as number) || (sel.end as number) > snippet.length) throw new Error(`rows[${index}].insert slots must be { start, end } inside the snippet`);
+        return { start: sel.start as number, end: sel.end as number };
+      };
+      if (raw.slots !== undefined && !Array.isArray(raw.slots)) throw new Error(`rows[${index}].insert.slots must be a list of spans`);
+      insert = { snippet, ...(raw.select !== undefined ? { select: span(raw.select) } : {}), ...(Array.isArray(raw.slots) ? { slots: raw.slots.map(span) } : {}) };
     }
     const id = text(row, "id", index, 200) ?? snippet;
     if (ids.has(id)) throw new Error(`rows[${index}].id ${id} is another row's too: each row's id is its own`);
@@ -512,9 +515,11 @@ export function validateCompletionRows(value: unknown): SourceRow[] {
     const kind = text(row, "kind", index, 20), detail = text(row, "detail", index, 200), docs = text(row, "docs", index, MAX_BAR_PREVIEW, true);
     const group = text(row, "group", index, 40), filter = text(row, "filter", index, 200);
     if (row.preselect !== undefined && typeof row.preselect !== "boolean") throw new Error(`rows[${index}].preselect must be true or false`);
+    if (row.priority !== undefined && (typeof row.priority !== "number" || !Number.isFinite(row.priority))) throw new Error(`rows[${index}].priority must be a number`);
     return {
       id, label, insert, ...(kind ? { kind } : {}), ...(detail ? { detail } : {}), ...(docs ? { docs } : {}),
       ...(group ? { group } : {}), ...(filter ? { filter } : {}), ...(row.preselect ? { preselect: true } : {}),
+      ...(row.priority !== undefined ? { priority: row.priority as number } : {}),
     };
   });
 }

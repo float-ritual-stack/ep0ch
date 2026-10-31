@@ -384,6 +384,7 @@ export const SOURCES = [
   "- **Picks come first:** choose an issue twice and it rises among equals, here, in Detail and in every door on this outline (the host keeps the picks).",
   "- **Its own key:** `[issue::` lists the open issues too; `[issue::21` finds #21 by its number.",
   "- **A query completes the grammar (PIE-1472):** in a view note's `[query::`, a handler line's `lens:: query=\"` (install **Lens** from `&lens`; `lens:: ` lists its slots), a figure's `query:` or a settings field, Tab offers `under:this`, `parent:`, `links:`, `#tag`, `NOT`/`AND`/`OR`, `{{this.page}}` and, after `updated >=`, `-7d` or `today`, each with the grammar's own words beside it, then the keys and values the notes have.",
+  "- **Snippet slots:** type `::button issue` and choose the button. Its `{label}` is selected; Tab moves to `{note}`, Shift+Tab goes back, Esc ends the slots and one undo removes the entire insertion. The **snippets** section starts with a component whose example values work the same way.",
   "- **Take it away:** remove Issues in the power bar (`&issues`): the issue rows go, the pages stay. Install it again from the same row.",
 ].join("\n");
 

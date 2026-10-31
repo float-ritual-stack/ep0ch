@@ -1,3 +1,4 @@
+import { drawCompletionFloat } from "../surface/completion-float";
 import { errorDetails } from "../status-log";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // The board's lanes (PIE-511, PIE-515): what the hub source keeps for a columns container it fills, its model. The
@@ -259,9 +260,9 @@ export class Lanes implements SourceModel {
       const d = this.composer.session.draft, r = this.composerAt;
       const pop = completerOf(d)?.shown ? completerOf(d) : null;
       if (k.action === "wheel-up" || k.action === "wheel-down") { if (pop) pop.move(k.action === "wheel-down" ? 1 : -1); else void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(k.action === "wheel-down" ? 1 : -1), preview: !!r && wheelTarget(d, k.x - r.col - 1, k.y - r.row - 1) === "preview" }, d, USER); this.host.redraw(); return true; }
+      if (r && pop && k.action === "down" && pop.click(k.y - r.row - 1, k.x - r.col - 1)) { this.host.redraw(); return true; }
       const inside = !!r && k.x >= r.col && k.y >= r.row && k.x < r.col + r.cols && k.y < r.row + r.rows;
       const inText = !!r && k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1;
-      if (r && pop && k.action === "down" && inText && pop.click(k.y - r.row - 1, k.x - r.col - 1)) { this.host.redraw(); return true; }
       // A drag (or a shift+click) selects; the button coming up copies what it selected (copy on select, as in a reader).
       if (k.action === "up" && this.composerDrag) { this.composerDrag = false; if (d.selectedText()?.trim() && copyOnSelect()) this.composerCommand("copy"); return true; }
       const shift = k.action === "down" && !!((k.mods ?? 0) & 4);
@@ -1498,6 +1499,8 @@ export class Lanes implements SourceModel {
     const lines = renderEditor(d, { look, title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, ...(C0.kind === "card" && C0.twin ? { twin: C0.twin.said } : {}), by: writtenBy(d, "save"), preview: (t, pw, links) => draftPreviewDoc(t, pw, { board: this.host.ctx.board, redraw: () => this.host.redraw() }, links), pick: true }, w, r.rows - 2);
     this.composerAt = r;
     lines.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
+    const completion = completerOf(d);
+    if (completion) drawCompletionFloat(canvas, completion, { col: 0, row: 0, cols: canvas.cols, rows: canvas.rows }, { ...r, col: r.col + 1, row: r.row + 1 }, look);
   }
 
 }

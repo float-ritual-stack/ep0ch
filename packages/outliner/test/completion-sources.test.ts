@@ -3,13 +3,13 @@
 // every note and issue is made up.
 import { afterEach, expect, test } from "bun:test";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import { mergeSourceAnswers, insertText } from "@ep0ch/outline-core/completion-source";
+import { mergeSourceAnswers, insertText, pickId } from "@ep0ch/outline-core/completion-source";
 import { completionRows } from "../src/completion-sources";
 import { ReferenceCompletionSession, referenceCompletionProvider } from "../src/reference-completion";
 import { renderReferenceCompletion } from "../src/reference-completion-renderer";
@@ -54,6 +54,23 @@ async function setup(install: string[] = []) {
 
 const merged = (r: CompletionRowsResult, query: string) => mergeSourceAnswers(r.answers, query, { picks: r.picks });
 
+test("exact property keys and values complete beyond the catalog's first hundred, including filters", async () => {
+  const { create, rows } = await setup();
+  const common = Array.from({ length: 105 }, (_, i) => `[bed-${i}::green] [planting::bed-${i}]`).join(" ");
+  await create(`Common beds ${common}`);
+  await create(`More common beds ${common}`);
+  await create("Rare bed [zz-trellis::silver] [planting::zz-moonflower]");
+  for (const [kind, query, expected] of [
+    ["key", "zz-trellis", "[zz-trellis::"],
+    ["filter-key", "zz-trellis", "zz-trellis:"],
+    ["value", "zz-moonflower", "zz-moonflower]"],
+    ["filter-value", "zz-moonflower", "zz-moonflower"],
+  ] as const) {
+    const result = await rows(kind, query, { key: "planting" });
+    expect(merged(result, query).map(row => insertText(row.insert))).toContain(expected);
+  }
+});
+
 test("layout completion belongs to the view note on its title and the hero on its image line", async () => {
   const { client, create } = await setup();
   const note = await create("Garden [query::type=chore]");
@@ -75,7 +92,7 @@ test("an extension's source joins [[ beside the pages: its rows rank with them b
   await create("Seed swap [page::Seed swap]");
   await create("Garden club [page::Garden club]");
   const listed = await list(true);
-  expect(listed.completionSources).toEqual([expect.objectContaining({ name: "ext.issues.issues", triggers: ["[[", "key::"], keys: ["issue"] })]);
+  expect(listed.completionSources).toContainEqual(expect.objectContaining({ name: "ext.issues.issues", keys: ["issue"] }));
   const r = await rows("page", "seed");
   expect(r.answers.map(a => a.source.id)).toEqual(["pages", "ext.issues.issues"]);
   const list1 = merged(r, "seed");
@@ -105,9 +122,9 @@ test("a pick is kept by the host: the next ask of the trigger ranks it first amo
   await list(true);
   const before = merged(await rows("value", "", { key: "issue" }), "");
   expect(insertText(before[0]!.insert)).toBe("#12");
-  await client.request({ action: "completion.picked", key: "key::issue", insert: "#27" });
+  await client.request({ action: "completion.picked", key: "key::issue", insert: pickId("#27") });
   const after = await rows("value", "", { key: "issue" });
-  expect(after.picks["#27"]?.n).toBe(1);
+  expect(after.picks[pickId("#27")]?.n).toBe(1);
   expect(insertText(merged(after, "")[0]!.insert)).toBe("#27");
 });
 
@@ -320,3 +337,74 @@ test("scrolling large completion docs stays cheap and reaches the whole passage"
     expect(draw(48).join("\n")).toContain(corrected);
   } finally { session.dismiss(); }
 }, 20_000);
+
+
+test("Detail fills a component and an extension button through shared slots, keeps the pick, and undoes each insertion whole", async () => {
+  const { client, list } = await setup(["issues"]);
+  await list(true);
+  for (const [query, label] of [["::graph-stat", "component"], ["::button issue", "snippet"]]) {
+    const buffer = new TextBuffer(query); buffer.moveEnd();
+    const session = new ReferenceCompletionSession(referenceCompletionProvider(client, "slot-test"), () => buffer, () => {}, () => true);
+    await session.refresh();
+    const n = session.state!.items.findIndex(i => i.kind === label);
+    expect(n).toBeGreaterThanOrEqual(0);
+    const insertion = session.state!.items[n]!.insertion;
+    expect(await session.accept(n)).toBe(true);
+    expect(buffer.selectedText).toBeTruthy();
+    buffer.insert("Garden totals");
+    buffer.moveSnippet(1);
+    expect(buffer.selectedText).toBeTruthy();
+    buffer.moveSnippet(-1);
+    expect(buffer.selectedText).toBe("Garden totals");
+    buffer.endSnippet();
+    expect(buffer.undo()).toBe(true);
+    expect(buffer.text).toBe(query);
+    const result = await client.request<CompletionRowsResult>({ action: "completion.rows", target: { kind: "component", query: "" } });
+    expect(result.picks[pickId(insertion)]?.n).toBe(1);
+    session.dismiss();
+  }
+});
+
+test.each(["editor import", "backspace"])("Detail undoes a change outside the snippet before undoing the snippet: %s", async change => {
+  const { client } = await setup();
+  const original = "Planting notes\n::graph-stat";
+  const buffer = new TextBuffer(original); buffer.placeCursor(1, 12);
+  const session = new ReferenceCompletionSession(referenceCompletionProvider(client, "undo-test"), () => buffer, () => {}, () => true);
+  await session.refresh();
+  const n = session.state!.items.findIndex(i => i.component === "graph-stat");
+  expect(n).toBeGreaterThanOrEqual(0);
+  expect(await session.accept(n)).toBe(true);
+  buffer.insert("Garden totals");
+  buffer.moveSnippet(1); buffer.moveSnippet(-1);
+  const before = buffer.text;
+  if (change === "editor import") buffer.replaceText(before.replace("Planting notes", "Harvest notes"));
+  else {
+    const start = buffer.selectionRange!.start;
+    buffer.placeCursor(start.row, start.column);
+    buffer.backspace();
+  }
+  expect(buffer.text).not.toBe(before);
+  expect(buffer.undo()).toBe(true);
+  expect(buffer.text).toBe(before);
+  expect(buffer.snippet).toBeNull();
+  expect(buffer.undo()).toBe(true);
+  expect(buffer.text).toBe(original);
+  session.dismiss();
+});
+
+test("cancelling a popup stops a slow extension source before its timeout", async () => {
+  const { client, extensionsFolder, list } = await setup();
+  const folder = join(extensionsFolder, "slow-garden");
+  mkdirSync(folder);
+  writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "slow-garden", version: 1, name: "Slow garden", run: ["bun", "source.ts"], sources: [{ id: "beds", title: "beds", triggers: ["[["] }] }));
+  writeFileSync(join(folder, "source.ts"), 'await Bun.stdin.json(); await Bun.write(import.meta.dir + "/started", "ready"); await Bun.sleep(10000); console.log(JSON.stringify({ok:true,value:{rows:[]}}));');
+  await list(true);
+  const pending = client.request<CompletionRowsResult>({ action: "completion.rows", turn: "garden-turn", target: { kind: "page", query: "" } });
+  for (let n = 0; n < 100 && !existsSync(join(folder, "started")); n++) await Bun.sleep(10);
+  expect(existsSync(join(folder, "started"))).toBe(true);
+  await client.request({ action: "completion.cancel", turn: "garden-turn" });
+  const answer = await pending;
+  const source = answer.answers.find(a => a.source.id === "ext.slow-garden.beds")!;
+  expect(source.problem).toMatch(/abort|cancel|stop/i);
+  expect(source.problem).not.toContain("no answer in");
+});

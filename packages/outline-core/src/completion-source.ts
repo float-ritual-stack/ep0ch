@@ -1,11 +1,13 @@
 // Completion sources (ADR 0004 §4, PIE-1340): one contract every source answers on, built-in or an extension's, and the
 // one merge that ranks their rows together. A source declares the triggers it answers (outline-core's
 // completion-triggers.ts names which one the cursor is in) and answers rows for what's typed; the completer asks every
-// source for the trigger, built-ins first, and merges their answers here: preselect, then how well the search matcher
-// (search-match.ts) matches the row, then recent and frequent picks, then the source's priority, each source's own
+// source for the trigger, built-ins first, and merges their answers here: preselect, then source priority, then how well the search matcher
+// (search-match.ts) matches the row, then recent and frequent picks, each source's own
 // order kept. The door and Detail both merge with this, so they show the same rows. Pure: no I/O.
-import { prepareSearchQuery, scoreSearchDocument, type SearchMatchKind } from "./search-match";
+import { prepareSearchQuery, scoreSearchDocument, searchMatchSpans, type SearchMatchKind } from "./search-match";
 import type { CompletionKind } from "./completion-triggers";
+import type { SnippetSlot } from "./completion-snippet";
+import { slotReferences } from "./button-call";
 
 /**
  * The triggers a source can join, as an extension's manifest writes them. No source adds a sigil of its own: these are
@@ -16,22 +18,22 @@ export const EXTENSION_TRIGGERS = ["[[", "((", "@", "::", "[key", "key::", "yaml
  * Every trigger the sources answer: the extensions', and those only the service's built-ins answer (a component's
  * attributes and a filter's words, PIE-1366), whose insert needs what the ask carries (the quote, the filter's words).
  */
-export const SOURCE_TRIGGERS = [...EXTENSION_TRIGGERS, "attribute", "attribute-value", "filter-key", "filter-value", "query", "| as"] as const;
+export const SOURCE_TRIGGERS = [...EXTENSION_TRIGGERS, "attribute", "attribute-value", "filter-key", "filter-value", "query", "| as", "/", "%", "button-step", "fence-setting"] as const;
 export type SourceTrigger = (typeof SOURCE_TRIGGERS)[number];
 
 const TRIGGER_OF: Partial<Record<CompletionKind, SourceTrigger>> = {
-  query: "query", formatter: "| as",
+  query: "query", formatter: "| as", action: "/", tile: "%", "button-step": "button-step", "fence-setting": "fence-setting",
   page: "[[", block: "((", agent: "@", component: "::", key: "[key", value: "key::", "yaml-key": "yaml-key", "yaml-value": "yaml-value",
   attribute: "attribute", "attribute-value": "attribute-value", "filter-key": "filter-key", "filter-value": "filter-value", file: "[file::", callout: "> [!",
 };
 /** The triggers that complete one property's (or one prop's) value: a source's `keys` narrow them, and picks are kept per key. */
 export const VALUE_TRIGGERS: ReadonlySet<SourceTrigger | null> = new Set(["key::", "yaml-value", "attribute-value", "filter-value"]);
 
-/** The trigger a detected target is, or null for one only the door answers (a fence's settings, a button's step). */
+/** The trigger a detected target asks its sources for. */
 export const triggerOf = (kind: CompletionKind): SourceTrigger | null => TRIGGER_OF[kind] ?? null;
 
 /** What choosing a row writes in place of the token: text, or a snippet whose `select` span is selected once it's in. */
-export type SourceInsert = string | { snippet: string; select?: { start: number; end: number } };
+export type SourceInsert = string | { snippet: string; select?: SnippetSlot; slots?: SnippetSlot[] };
 
 /**
  * One row a source answers. It draws from these fields alone (marker, label with its matched letters lit, detail dim,
@@ -56,7 +58,7 @@ export interface SourceRow {
   insert: SourceInsert;
   /** Lit first when the list opens, above every match (one per list: the first wins). */
   preselect?: boolean;
-  /** A row may override its source's priority among equal matches. */
+  /** A row may override its source's priority. */
   priority?: number;
   /** Until a deliberate choice, Enter belongs to the field; Tab still inserts. */
   enter?: "new line" | "applies";
@@ -103,7 +105,7 @@ export interface SourceDecl {
   triggers: readonly SourceTrigger[];
   /** For a value (`key::`, `yaml-value`, `attribute-value`, `filter-value`): only these property keys; every key when absent. */
   keys?: readonly string[];
-  /** Higher first among rows that match equally well and were picked as often; built-ins 10, extensions 0. */
+  /** Higher first after preselect; ordinary built-ins and extensions share priority 0. */
   priority?: number;
   /** The source orders its own rows (the service's notes search, Jev): the merge never reorders them among themselves. */
   ranked?: boolean;
@@ -140,7 +142,7 @@ export interface SourceAnswer<R extends SourceRow = SourceRow> {
 
 /** How often and how lately a row's insert was chosen for a trigger: the outline host keeps these, so every client agrees. */
 export interface PickRecord { n: number; at: string }
-/** Per trigger (`[[`, `key::issue`…), per insert text. */
+/** Per trigger (`[[`, `key::issue`…), per pick identity. */
 export type Picks = Record<string, Record<string, PickRecord>>;
 
 /** The key picks are kept under for an ask: the trigger, and for a value its property key. */
@@ -149,8 +151,19 @@ export const pickKey = (ask: Pick<SourceAsk, "trigger" | "kind" | "key">): strin
 
 /** The text an insert writes. */
 export const insertText = (insert: SourceInsert): string => typeof insert === "string" ? insert : insert.snippet;
+/** Pick history keeps a stable identity, so a large snippet never becomes a metadata key. */
+export function pickId(text: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (let i = 0; i < text.length; i++) hash = BigInt.asUintN(64, (hash ^ BigInt(text.charCodeAt(i))) * 0x100000001b3n);
+  return hash.toString(16);
+}
 /** The span a snippet selects once it's in, if any. */
 export const insertSelection = (insert: SourceInsert): { start: number; end: number } | undefined => typeof insert === "string" ? undefined : insert.select;
+/** Explicit spans select example values; named placeholders share the button's {slot} grammar. */
+export const insertSlots = (insert: SourceInsert): SnippetSlot[] => typeof insert === "string" ? []
+  : insert.slots ?? [...(insert.select ? [insert.select] : []), ...slotReferences(insert.snippet)
+    .filter(s => !insert.select || s.start >= insert.select.end || s.end <= insert.select.start)]
+    .sort((a, b) => a.start - b.start);
 
 /** At most this many picks are kept per trigger: the oldest go. */
 export const PICKS_PER_TRIGGER = 200;
@@ -182,29 +195,29 @@ const TIER: Record<SearchMatchKind, number> = {
 const UNPLACED = 5;
 
 /** A merged row: the row, the source it came from (`from`, its id), and the tier it matched at (lower is better). */
-export type MergedRow<R extends SourceRow = SourceRow> = R & { from: string; tier: number };
+export type MergedRow<R extends SourceRow = SourceRow> = R & { from: string; tier: number; matches: number[] };
 
 /**
- * Every source's rows as one list, best first: a preselected row (and a fallback row last); then by tier (search-match's rungs, coarsened: as
+ * Every source's rows as one list, best first: a preselected row (and a fallback row last); then source priority and tier (search-match's rungs, coarsened: as
  * typed in the label, held in the label, in the text, with typos, letters in order); then picked more often and more
- * lately; then the source's priority. A source's own order is kept among its rows (`ranked` keeps it entirely; the
+ * lately; with the last pick breaking a frecency tie. A source's own order is kept among its rows (`ranked` keeps it entirely; the
  * rest are sorted by the same key first), and a row whose insert an earlier row has is left out. An unranked source's
  * row the matcher doesn't match at all is left out: one matcher decides what matches what's typed.
  */
 export function mergeSourceAnswers<R extends SourceRow>(answers: readonly SourceAnswer<R>[], query: string, opts: { picks?: Record<string, PickRecord>; now?: Date; limit?: number } = {}): MergedRow<R>[] {
   const q = prepareSearchQuery(query), now = opts.now ?? new Date(), picks = opts.picks ?? {};
-  type Entry = { row: MergedRow<R>; pre: number; tier: number; f: number; p: number; score: number; i: number };
+  type Entry = { row: MergedRow<R>; pre: number; tier: number; f: number; at: string; p: number; score: number; i: number };
   const lists: Entry[][] = answers.map(a => {
     const entries: Entry[] = [];
     a.rows.forEach((row, i) => {
-      const text = insertText(row.insert);
-      const m = q ? scoreSearchDocument({ id: text, title: row.label, text: row.filter ?? "" }, q) : null;
+      const text = insertText(row.insert), pick = picks[pickId(text)];
+      const m = q ? scoreSearchDocument({ id: row.id ?? text, title: row.label, text: row.filter ?? "" }, q) : null;
       if (q && !m && !a.source.ranked) return;
       const tier = !q ? 0 : m ? TIER[m.kind] : UNPLACED;
-      entries.push({ row: { ...row, from: a.source.id, tier } as MergedRow<R>, pre: row.preselect ? 0 : row.fallback ? 2 : 1, tier, f: frecency(picks[text], now), p: row.priority ?? a.source.priority ?? 0, score: m?.score ?? 0, i });
+      entries.push({ row: { ...row, from: a.source.id, tier, matches: searchMatchSpans(row.label, query) } as MergedRow<R>, pre: row.preselect ? 0 : row.fallback ? 2 : 1, tier, f: frecency(pick, now), at: pick?.at ?? "", p: row.priority ?? a.source.priority ?? 0, score: m?.score ?? 0, i });
     });
     if (!a.source.ranked) {
-      entries.sort((x, y) => x.pre - y.pre || x.tier - y.tier || y.f - x.f || y.p - x.p || y.score - x.score || x.i - y.i);
+      entries.sort((x, y) => x.pre - y.pre || y.p - x.p || x.tier - y.tier || y.f - x.f || y.at.localeCompare(x.at) || y.score - x.score || x.i - y.i);
       return entries;
     }
     // A ranked source's order stands: each row takes the best tier of any row it put after it, so an incidental row
@@ -219,12 +232,16 @@ export function mergeSourceAnswers<R extends SourceRow>(answers: readonly Source
     // Rows listed under another move with it, so a note picked before rises with its anchors.
     const groups: Entry[][] = [];
     for (const e of entries) if (e.row.under && groups.length) groups.at(-1)!.push(e); else groups.push([e]);
-    groups.sort(([x], [y]) => x!.pre - y!.pre || x!.tier - y!.tier || y!.f - x!.f || x!.i - y!.i);
+    groups.sort(([x], [y]) => x!.pre - y!.pre || x!.tier - y!.tier || y!.f - x!.f || y!.at.localeCompare(x!.at) || x!.i - y!.i);
     entries.splice(0, entries.length, ...groups.flat());
     for (const e of entries) e.row.tier = e.tier;
     return entries;
   });
-  const better = (x: Entry, y: Entry) => x.pre - y.pre || x.tier - y.tier || y.f - x.f || y.p - x.p;
+  // Partial and fuzzy guesses drop out when any source has every term as typed. Service-ranked notes remain its decision.
+  if (q && lists.some(list => list.some(e => e.score >= 20000))) {
+    for (const [i, list] of lists.entries()) if (!answers[i]!.source.ranked) lists[i] = list.filter(e => e.pre !== 1 || e.score >= 20000);
+  }
+  const better = (x: Entry, y: Entry) => x.pre - y.pre || y.p - x.p || x.tier - y.tier || y.f - x.f || y.at.localeCompare(x.at);
   const out: MergedRow<R>[] = [], seen = new Set<string>(), heads = lists.map(() => 0);
   let preselected = false;
   for (;;) {

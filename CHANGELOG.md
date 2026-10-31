@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Completion follows you and fills whole snippets (PIE-1480)
+
+- **Complete where you type:** one source contract and matcher in notes, the power bar and Detail. Chosen rows rise across clients; the popup lights matched letters and sits at the cursor through the shared screen float placement.
+- **Fill a whole snippet:** a component's values and an extension's `{slot}` placeholders select in order: Tab forward, Shift+Tab back, Esc to finish, one undo for the whole insertion. The editor's controls and `act snippet.next`, `snippet.previous`, `snippet.end` do the same.
+- **Bring your own rows:** Issues supplies open-issue rows and a button snippet. Uninstalling removes its rows; dismissing a popup stops a slow source.
+- **Run:** try the kitchen sink's **sources**, **completion** and **snippets** sections. The deployer must number the wire change (`completion.rows.turn`, `completion.cancel`) at rebase and run `ep0ch install --apply` on both machines; no schema migration. Matcher/slot behavior also needs the deployer's grammar decision. This branch leaves PROTOCOL and GRAMMAR unchanged.
+
 ### Hover opens a post-it that stays above every screen (PIE-1481)
 
 - **Hover and keep:** click ◇ in the status bar, or press `alt+u`, to cycle hover off, on and sticky. Links and cut-off titles open after a short delay in the opposite corner; moving into the post-it keeps it open. Its ←/→ controls and title wheel flip the bounded history. Alt-hover makes one sticky even with hover off; Esc or × dismisses it.

@@ -1,8 +1,8 @@
 {
-  "revision": "5f00f9a9bbdb81817ac83d6c9ac8074acfa4b5dd",
+  "revision": "2dc9fa3b52b8371c6886d04770e27e0b9b51f66c",
   "patterns": {
     "width-length": {
-      "count": 256,
+      "count": 255,
       "sites": [
         "packages/door/src/agent-fleet.ts:9566dd856b2d71fd",
         "packages/door/src/app.ts:78c924628d252913",
@@ -194,7 +194,6 @@
         "packages/door/src/surface/editor.ts:5b126ece17823524",
         "packages/door/src/surface/editor.ts:5b126ece17823524",
         "packages/door/src/surface/editor.ts:5b126ece17823524",
-        "packages/door/src/surface/editor.ts:e0f299e9d4abf0fe",
         "packages/door/src/surface/editor.ts:1746cff03332e3fa",
         "packages/door/src/surface/element-editor.ts:ad73c971150dbbfc",
         "packages/door/src/surface/element-editor.ts:d92cf1ea02e539e",
@@ -388,12 +387,12 @@
   "files": {
     "packages/claude-mod/hooks/register.ts": 2906,
     "packages/door/src/app.ts": 2079,
-    "packages/door/src/desk/desk.ts": 8754,
+    "packages/door/src/desk/desk.ts": 8748,
     "packages/door/src/desk/screen-layout.ts": 2358,
     "packages/door/src/drawer.ts": 2081,
     "packages/door/src/screens.ts": 2245,
-    "packages/door/src/showcase/showcase.ts": 2178,
-    "packages/door/src/surface/note.ts": 13471,
+    "packages/door/src/showcase/showcase.ts": 2168,
+    "packages/door/src/surface/note.ts": 13462,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4671,
@@ -401,9 +400,9 @@
     "packages/outliner/src/detail-pi.ts": 2042,
     "packages/outliner/src/publish.ts": 3392,
     "packages/outliner/src/resource-catalog.ts": 4937,
-    "packages/outliner/src/server.ts": 5098,
+    "packages/outliner/src/server.ts": 5074,
     "packages/outliner/src/store.ts": 6485,
     "packages/outliner/src/tree-controller.ts": 3251,
-    "packages/outliner/src/types.ts": 3014
+    "packages/outliner/src/types.ts": 3011
   }
 }

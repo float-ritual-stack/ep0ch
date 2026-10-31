@@ -1,3 +1,4 @@
+import { drawCompletionFloat } from "./surface/completion-float";
 import { LIST_MOVE_KEYS } from "./surface/attached-keys";
 import { modeBinding, modeHint, modeActionKeys, Modes } from "./surface/modes";
 import { clipText } from "./overflow";
@@ -1817,18 +1818,17 @@ export class MessageReader implements Screen {
     const lines = v.lines.slice(0, h - 1);
     while (lines.length < h - 1) lines.push("");
     lines.push(this.hint(v.scroll, w));
-    if (!this.overlays.top()) return { lines, placements: v.placements };
-    const canvas = new Canvas(w, lines.length);
+    const completion = v.completion;
+    if (!this.overlays.top() && !completion?.shown) return { lines, placements: v.placements };
+    const canvas = new Canvas(w, lines.length), area = { col: 0, row: 0, cols: w, rows: lines.length };
     lines.forEach((l, row) => canvas.text(0, row, l, w));
     const values = lookFor(ctx, { screen: this.title }, w).values;
+    if (completion) drawCompletionFloat(canvas, completion, area, area, values);
     for (const o of [...this.overlays.all()].reverse()) o.draw(canvas, { col: 0, row: 0, cols: w, rows: lines.length }, values);
     return { lines: canvas.lines() };
   }
 
-  /**
-   * The surface's hint, with the BBS keys where a host's own go (before the reading keys; an element, a
-   * selection, an edit or the panel say their own keys instead), then how far down and the way back.
-   */
+  /** Editing owns the hint; the host adds BBS navigation only while reading. */
   private hint(scroll: { top: number; room: number; total: number } | undefined, w: number): string {
     const s = this.surface;
     const more = overflows(scroll) ? ` · ${scrollPct(scroll)}` : "";

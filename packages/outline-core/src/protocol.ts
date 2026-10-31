@@ -14,7 +14,7 @@
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 298;
+export const PROTOCOL = 299;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 22;
 
@@ -711,6 +711,8 @@ export interface ExtensionsConfigured {
  * own sources' answers (`mergeSourceAnswers`): the door and Detail merge the same way, so they show the same rows.
  */
 export interface CompletionRowsRequest {
+  /** A client's lookup turn; completion.cancel stops its slow sources when typing moves on. */
+  turn?: string;
   zone?: string;
   /**
    * The token at the cursor as outline-core's detector found it, without where it sits on the line: `headingShort` (the
@@ -758,11 +760,11 @@ export interface SearchPickedRequest { query: string; blockId: string; rank: num
 
 export interface CompletionRowsResult {
   answers: CompletionSourceAnswer[];
-  /** This trigger's picks (`pickKey`): how often and how lately each insert was chosen, on any client. */
+  /** This trigger's picks (`pickKey`), indexed by `pickId`: how often and how lately each insert was chosen. */
   picks: Record<string, PickRecord>;
 }
 
-/** `completion.picked`: a row was chosen. `key` is `pickKey`'s, `insert` the text it wrote. */
+/** `completion.picked`: a row was chosen. `key` is `pickKey`'s, `insert` is its compact `pickId` identity. */
 export interface CompletionPickedRequest { key: string; insert: string }
 
 /** Progress for an ask in a held draft; the line stays authored text. */

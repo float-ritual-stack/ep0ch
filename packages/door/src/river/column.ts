@@ -39,7 +39,7 @@ import { CLOSE_KEY, type ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
 import { LineField } from "../surface/line";
-import { popupHint, COMPLETION_ROWS, completerOf, completionOf, lookupCompletion, renderCompletion, type CompletionBoard } from "../surface/completer";
+import { popupHint, completerOf, completionOf, lookupCompletion, type CompletionBoard } from "../surface/completer";
 import { filterTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 import { Fold } from "../fold";
 import { matchesSearchText, prepareSearchQuery, type SearchQuery } from "@ep0ch/outline-core/search-match";
@@ -356,8 +356,7 @@ export class RiverColumn extends ReaderPane {
     if (this.surface.editing && this.surface.msg) return super.render(w, h, focused, desk);
     const head: string[] = [];
     if (this.filter.length && this.mode !== "filter") head.push(fg(C.yellow) + pad(`≡ ${filterText(this.filter)}`, w) + RESET);
-    const popup = this.mode === "filter" ? this.popupRows(w, h, desk?.lookOf?.(this)?.values) : null;
-    const foot = this.mode === "filter" ? [...(popup?.lines ?? []), paint("|14/ ") + this.input.show(w - 2)] : this.mode === "tags" ? this.tagLines(w) : [];
+    const foot = this.mode === "filter" ? [paint("|14/ ") + this.input.show(w - 2)] : this.mode === "tags" ? this.tagLines(w) : [];
     // A block column keeps its note's header above the scroll, as a reader does: the reader's own (the surface's
     // stickyHeader), with the backdrop of a picture that has scrolled under it (PIE-598).
     const root = this.source.kind === "block" && desk ? this.rootOf() : undefined;
@@ -367,26 +366,13 @@ export class RiverColumn extends ReaderPane {
     const sticky = root && desk ? this.surface.stickyHeader(root, w, this.host(desk), this.top - this.digestAt) : null;
     this.sticky = (sticky?.lines ?? []).map((_, r) => ({ card: -1, replies: false, links: sticky!.links.filter(l => l.row === r) }));
     this.headRows = head.length + this.sticky.length;
-    // Where the popup went, so a click on a candidate chooses it: right under the cards drawn above it.
-    const pc = popup && completerOf(this.input);
-    if (pc && popup) pc.drawn = { row: this.headRows + view.length, items: popup.rows };
     // The note's images, as a reader tile hands its own to the desk: cut to the rows the column shows.
     const placements = [...(sticky?.placements ?? []).map(p => ({ ...p, row: p.row + head.length })), ...this.images.flatMap(p => inWindow(p, this.top, room, this.headRows) ?? [])];
     // The filter's line is the last of the foot, under however many rows the cards took: a click or drag there is the line's (PIE-1290).
     this.filterAt = this.mode === "filter" ? { x: 2, y: head.length + (sticky?.lines.length ?? 0) + view.length + foot.length - 1, w: w - 2 } : null;
-    return { lines: [...head, ...(sticky?.lines ?? []), ...view, ...foot].slice(0, h).map(l => pad(l, w)), placements };
-  }
-
-  /**
-   * The filter's completion popup (PIE-626): its keys and values from the outline's property index, drawn above the
-   * line being typed, over the cards. Where it went is kept, so a click on a candidate chooses it.
-   */
-  private popupRows(w: number, h: number, values?: StyleValues): { lines: string[]; rows: (number | null)[] } | null {
-    const pop = completionOf(this.input), c = completerOf(this.input);
-    if (c) c.drawn = null;
-    if (!pop || !c) return null;
-    const rows: (number | null)[] = [];
-    return { lines: renderCompletion(pop, w, Math.min(COMPLETION_ROWS, Math.max(0, h - 3)), rows, 0, values), rows };
+    const completion = this.mode === "filter" ? completerOf(this.input) : null;
+    if (completion) completion.drawn = this.filterAt ? { row: this.filterAt.y + 1, anchor: 2 + this.input.cursorCol, items: [] } : null;
+    return { completion: completion ?? undefined, lines: [...head, ...(sticky?.lines ?? []), ...view, ...foot].slice(0, h).map(l => pad(l, w)), placements };
   }
 
   private tagLines(w: number): string[] {

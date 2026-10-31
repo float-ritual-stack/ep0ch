@@ -2,7 +2,7 @@ import { eraseBack } from "@ep0ch/outline-core/graphemes";
 import { clientReload, reexecClient } from "./client-code";
 import type { RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { installCrashLog } from "./crash-log";
-import type { CompletionRowsResult } from "@ep0ch/outline-core/protocol";
+import { requestCompletionRows } from "./reference-completion";
 import {captureAnnotationPassage} from "./document-annotation";
 import {loadDetailDraftPreview} from './detail-read-preview';
 import {PaneDisplay} from "./pane-display";
@@ -756,8 +756,8 @@ const effects: DetailEffects = {
   async queryBlocks(query) {
     return client.request<VisibleBlockCollection>({ action: "blocks.query", query });
   },
-  async completionRows(request) {
-    return client.request<CompletionRowsResult>({ action: "completion.rows", ...request });
+  async completionRows(request, signal) {
+    return requestCompletionRows(client, request, signal);
   },
   async completionPicked(key, insert) {
     return client.request({ action: "completion.picked", key, insert });

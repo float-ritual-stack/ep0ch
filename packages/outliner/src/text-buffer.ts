@@ -3,6 +3,8 @@ import {
   wordStartAfter, wordStartBefore,
 } from "@ep0ch/outline-core/graphemes";
 
+import { SnippetSession, type SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
+
 const MAX_HISTORY_ENTRIES = 100;
 
 type HistoryGroup = "typing" | "backspace" | "delete" | null;
@@ -37,6 +39,32 @@ export class TextBuffer {
   readonly #redoHistory: TextBufferSnapshot[] = [];
   #historyGroup: HistoryGroup = null;
   #groupedEdit = false;
+  snippet: SnippetSession | null = null;
+  #snippetText = "";
+
+  startSnippet(slots: SnippetSlot[], offset: number): void {
+    if (!slots.length) return;
+    this.snippet = new SnippetSession(slots, offset);
+    this.#snippetText = this.text;
+    this.selectSlot(this.snippet.current);
+  }
+  private selectSlot(slot: SnippetSlot): void {
+    const place = (at: number, extend: boolean) => {
+      const lines = this.text.slice(0, at).split("\n");
+      this.placeCursor(lines.length - 1, lines.at(-1)!.length, extend);
+    };
+    place(slot.start, false); place(slot.end, true);
+  }
+  syncSnippet(): void {
+    if (this.snippet && !this.snippet.update(this.#snippetText, this.text)) this.snippet = null;
+    this.#snippetText = this.text;
+  }
+  moveSnippet(by: number): void {
+    this.syncSnippet();
+    const slot = this.snippet?.move(by);
+    if (slot) this.selectSlot(slot); else this.endSnippet();
+  }
+  endSnippet(): void { this.syncSnippet(); this.snippet = null; this.clearSelection(); }
 
   constructor(text = "") {
     this.lines = text.split(/\r?\n/);
@@ -104,41 +132,43 @@ export class TextBuffer {
     const historyGroup = !selection && !normalized.includes("\n") && isSingleGrapheme(normalized)
       ? "typing"
       : null;
-    this.recordEdit(historyGroup);
-    if (selection) this.deleteRange(selection);
+    this.recordEdit(historyGroup, () => {
+      if (selection) this.deleteRange(selection);
 
-    const parts = normalized.split("\n");
-    const line = this.lines[this.row];
-    const before = line.slice(0, this.column);
-    const after = line.slice(this.column);
+      const parts = normalized.split("\n");
+      const line = this.lines[this.row];
+      const before = line.slice(0, this.column);
+      const after = line.slice(this.column);
 
-    if (parts.length === 1) {
-      this.lines[this.row] = before + normalized + after;
-      this.column += normalized.length;
-      return;
-    }
+      if (parts.length === 1) {
+        this.lines[this.row] = before + normalized + after;
+        this.column += normalized.length;
+        return;
+      }
 
-    const lastPart = parts[parts.length - 1];
-    const replacement = [before + parts[0], ...parts.slice(1, -1), lastPart + after];
-    this.lines.splice(this.row, 1, ...replacement);
-    this.row += replacement.length - 1;
-    this.column = lastPart.length;
+      const lastPart = parts[parts.length - 1];
+      const replacement = [before + parts[0], ...parts.slice(1, -1), lastPart + after];
+      this.lines.splice(this.row, 1, ...replacement);
+      this.row += replacement.length - 1;
+      this.column = lastPart.length;
+    });
   }
 
   replaceCurrentLine(start: number, end: number, value: string): void {
     const line = this.lines[this.row];
     const safeStart = Math.max(0, Math.min(start, line.length));
     const safeEnd = Math.max(safeStart, Math.min(end, line.length));
-    this.recordEdit(null);
-    this.clearSelectionAnchor();
-    // A value of several lines (a component's YAML, PIE-1344) becomes that many lines, the cursor after its last.
-    const parts = value.replace(/\r\n?/g, "\n").split("\n"), last = parts.length - 1;
-    parts[0] = line.slice(0, safeStart) + parts[0];
-    const column = parts[last]!.length;
-    parts[last] += line.slice(safeEnd);
-    this.lines.splice(this.row, 1, ...parts);
-    this.row += last;
-    this.column = column;
+    this.recordEdit(null, () => {
+      this.clearSelectionAnchor();
+      // A value of several lines (a component's YAML, PIE-1344) becomes that many lines, the cursor after its last.
+      const parts = value.replace(/\r\n?/g, "\n").split("\n"), last = parts.length - 1;
+      parts[0] = line.slice(0, safeStart) + parts[0];
+      const column = parts[last]!.length;
+      parts[last] += line.slice(safeEnd);
+      this.lines.splice(this.row, 1, ...parts);
+      this.row += last;
+      this.column = column;
+    });
   }
 
   replaceLine(row: number, value: string): void {
@@ -149,23 +179,25 @@ export class TextBuffer {
       throw new Error("Text buffer line replacement cannot contain a newline");
     }
     if (this.lines[row] === value) return;
-    this.recordEdit(null);
-    this.clearSelectionAnchor();
-    this.lines[row] = value;
-    if (row === this.row) this.column = Math.min(this.column, value.length);
+    this.recordEdit(null, () => {
+      this.clearSelectionAnchor();
+      this.lines[row] = value;
+      if (row === this.row) this.column = Math.min(this.column, value.length);
+    });
   }
 
   replaceText(value: string): boolean {
     if (value === this.text) return false;
-    this.recordEdit(null);
-    this.clearSelectionAnchor();
-    this.lines.length = 0;
-    for (const line of value.split("\n")) this.lines.push(line);
-    this.row = Math.min(this.row, this.lines.length - 1);
-    this.column = clampToGraphemeStart(
-      this.lines[this.row],
-      Math.min(this.column, this.lines[this.row].length),
-    );
+    this.recordEdit(null, () => {
+      this.clearSelectionAnchor();
+      this.lines.length = 0;
+      for (const line of value.split("\n")) this.lines.push(line);
+      this.row = Math.min(this.row, this.lines.length - 1);
+      this.column = clampToGraphemeStart(
+        this.lines[this.row],
+        Math.min(this.column, this.lines[this.row].length),
+      );
+    });
     return true;
   }
 
@@ -176,48 +208,54 @@ export class TextBuffer {
   backspace(): void {
     if (this.deleteSelection()) return;
     if (this.column > 0) {
-      this.recordEdit("backspace");
-      const line = this.lines[this.row];
-      const start = previousGraphemeStart(line, this.column);
-      this.lines[this.row] = line.slice(0, start) + line.slice(this.column);
-      this.column = start;
+      this.recordEdit("backspace", () => {
+        const line = this.lines[this.row];
+        const start = previousGraphemeStart(line, this.column);
+        this.lines[this.row] = line.slice(0, start) + line.slice(this.column);
+        this.column = start;
+      });
       return;
     }
     if (this.row === 0) return;
 
-    this.recordEdit(null);
-    const previousLength = this.lines[this.row - 1].length;
-    this.lines[this.row - 1] += this.lines[this.row];
-    this.lines.splice(this.row, 1);
-    this.row -= 1;
-    this.column = previousLength;
+    this.recordEdit(null, () => {
+      const previousLength = this.lines[this.row - 1].length;
+      this.lines[this.row - 1] += this.lines[this.row];
+      this.lines.splice(this.row, 1);
+      this.row -= 1;
+      this.column = previousLength;
+    });
   }
 
   deleteForward(): void {
     if (this.deleteSelection()) return;
     const line = this.lines[this.row];
     if (this.column < line.length) {
-      this.recordEdit("delete");
-      const end = nextGraphemeEnd(line, this.column);
-      this.lines[this.row] = line.slice(0, this.column) + line.slice(end);
+      this.recordEdit("delete", () => {
+        const end = nextGraphemeEnd(line, this.column);
+        this.lines[this.row] = line.slice(0, this.column) + line.slice(end);
+      });
       return;
     }
     if (this.row >= this.lines.length - 1) return;
 
-    this.recordEdit(null);
-    this.lines[this.row] += this.lines[this.row + 1];
-    this.lines.splice(this.row + 1, 1);
+    this.recordEdit(null, () => {
+      this.lines[this.row] += this.lines[this.row + 1];
+      this.lines.splice(this.row + 1, 1);
+    });
   }
 
   deleteSelection(): boolean {
     const range = this.selectionRange;
     if (!range) return false;
-    this.recordEdit(null);
-    this.deleteRange(range);
+    this.recordEdit(null, () => {
+      this.deleteRange(range);
+    });
     return true;
   }
 
   undo(): boolean {
+    if (this.snippet) this.endSnippet();
     const snapshot = this.#undoHistory.pop();
     if (!snapshot) return false;
     this.pushHistory(this.#redoHistory, this.snapshot());
@@ -333,16 +371,27 @@ export class TextBuffer {
 
   /** Multiple synchronous transformations form one user undo step. */
   editTogether(edit: () => void): void {
-    if(this.#groupedEdit){edit();return;}
-    this.recordEdit(null);
-    this.#groupedEdit=true;
-    try{edit();}finally{this.#groupedEdit=false;this.breakHistoryGroup();}
+    if (this.#groupedEdit) { edit(); return; }
+    this.recordEdit(null, () => {
+      this.#groupedEdit = true;
+      try { edit(); } finally { this.#groupedEdit = false; this.breakHistoryGroup(); }
+    });
   }
 
-  private recordEdit(group: HistoryGroup): void {
-    if(this.#groupedEdit)return;
-    const coalesced = group !== null && group === this.#historyGroup && this.#redoHistory.length === 0;
-    if (!coalesced) this.pushHistory(this.#undoHistory, this.snapshot());
+  private recordEdit(group: HistoryGroup, edit: () => void): void {
+    if (this.#groupedEdit) { edit(); return; }
+    this.syncSnippet();
+    let coalesced = group !== null && group === this.#historyGroup && this.#redoHistory.length === 0;
+    const before = this.snippet || !coalesced ? this.snapshot() : null;
+    edit();
+    if (this.snippet) {
+      const inside = this.snippet.update(this.#snippetText, this.text);
+      this.#snippetText = this.text;
+      if (inside) return;
+      this.snippet = null;
+      coalesced = false;
+    }
+    if (!coalesced) this.pushHistory(this.#undoHistory, before!);
     this.#redoHistory.length = 0;
     this.#historyGroup = group;
   }

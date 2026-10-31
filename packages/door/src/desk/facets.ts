@@ -19,7 +19,7 @@ import { ch, isDown, isUp, type Key } from "../term";
 import { ago, rowLines } from "../text";
 import { RowView, wheelRows, clamp, type RowPress } from "../scroll";
 import { LineField } from "../surface/line";
-import { COMPLETION_ACTIONS, lineCompleter, renderCompletion } from "../surface/completer";
+import { COMPLETION_ACTIONS, lineCompleter } from "../surface/completer";
 import { askInBar } from "../bar/ask";
 import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { findBoards } from "./query";
@@ -473,11 +473,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (this.draft) { this.draft.drawnAt(8, 1, w - 8); push(fg(C.yellow) + ` where: ${this.draft.show(w - 8)}` + RESET); }
     else push(fg(C.dark) + pad(q ? ` where: ${q}` : " where: every note · e types words or a query", w) + RESET);
     const completion = this.draft && lineCompleter(this.draft), ghost = completion?.shown;
-    if (completion && ghost && (ghost.items.length || ghost.message)) {
-      const items: (number | null)[] = [], row = lines.length;
-      renderCompletion(ghost, w, Math.min(7, Math.max(3, h - 8)), items).forEach(l => push(l));
-      completion.drawn = { row, col: 0, cols: w, items };
-    }
+    if (completion) completion.drawn = ghost ? { row: 2, anchor: 8 + this.draft!.cursorCol, items: [] } : null;
     if (this.draft?.note) push(fg(C.yellow) + this.draft.note + RESET);
     if (this.error) push(fg(C.lred) + " " + this.error + RESET);
     else if (!a) push(fg(C.dark) + " loading…" + RESET);
@@ -532,7 +528,7 @@ export class FacetsPane implements Pane, AttachedOwner {
       // Under the float, the tree's rows aren't there to click.
       for (let y = rect.row; y < rect.row + rect.rows; y++) this.lineRows[y] = -1;
     }
-    return { lines: out };
+    return { lines: out, completion: completion ?? undefined };
   }
 
   /** The calendar at the foot of the tree (`rows` high from line `y`): « the month », days with notes in the selection lit, the picked day bracketed. */

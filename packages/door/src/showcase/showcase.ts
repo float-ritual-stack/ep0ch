@@ -1,3 +1,4 @@
+import { completionSection, snippetSection } from "./completion";
 import { queryWordSections } from "./query-words";
 import { DropZonesPane } from "./drop-zones";
 import { runbookSections } from "./runbook";
@@ -329,24 +330,11 @@ export const SECTIONS: Section[] = [
       });
     },
   },
-  {
-    key: "completion", need: "see what a completion row is before choosing it: what kind of thing, a dim detail, and its docs wrapped beside the list (PIE-1339)",
-    part: "the completer's rows and docs panel (PIE-1339, PIE-1245): each row draws its own fields (CompletionItem's label, detail, kind, docs), never a switch on its kind; the docs go beside the list when 30 columns are free, else under it, each sized to what it holds (bar/list-preview.ts listWithDocs, Helix's completion.rs rule); ⏎ and tab both insert unless the footer says ⏎ is a new line (enterKeeps); the popup's keys are actions: complete.ask, complete.move, complete.accept, complete.dismiss, complete.docs",
-    files: "src/surface/completion-popup.ts (renderCompletion, enterKeeps), src/surface/completion-actions.ts (COMPLETION_ACTIONS), src/bar/list-preview.ts, src/surface/note.ts (the complete.* forwards)",
-    aside: "Go in (⏎): the reader is writing a comment that ends in ((Gree, and its popup is open: each row says what it is at its right edge (block, anchor, page) with a dim detail on the next line; the lit row's docs wrap beside the list on a wide screen, under it on a narrow one · ↑↓, ctrl+n/p, hover or the wheel light another row and the docs follow · ⏎ or tab inserts it · shift+↑↓, PgUp/PgDn or the wheel over the docs scroll them · esc closes it · type ## Calls :: on a new line: the footer says ⏎ is a new line until you choose with ↑↓ or tab · ctrl+n and ctrl+p move while the popup is open; otherwise they stay a new note and the edit preview (UI-GRAMMAR §7) · act: complete.ask, complete.move by=1, complete.accept, complete.dismiss, complete.docs by=1",
-    stage(n, show) {
-      const r = new ReaderPane();
-      return deskOf({ title: "showcase · completion", panes: [r], names: ["guide"] }, show, [[r, n.deepLinks]], d => {
-        void d.press(r, NOTE_ACTIONS, "passage.select")
-          .then(() => d.press(r, NOTE_ACTIONS, "comment.write", { body: "Ask about the beds, see ((Gree" }))
-          .then(() => d.press(r, NOTE_ACTIONS, "complete.ask"));
-      });
-    },
-  },
+  completionSection(deskOf),
   {
     key: "one-completer", need: "complete an action and its arguments where you type: in a note's edit (ctrl+k, or / first on a line) and on the power bar's line, the same rows from the same completer (PIE-1076)",
     part: "the one completer (PIE-1076): the editing component's Completer is every place's, the power bar's line too (LineField with grammar act); an act line's arguments and values are commandRows (src/bar/command.ts), from each ArgSpec and its kind's values (src/bar/arg-kinds.ts: a tile by the name tile= takes, from the layout), shared by the bar's line, a note's ::button step and an edit's / line; a sigil first in a value names its kind (% tiles, / notes, [[ pages, : screens); the actions here are the power bar's > rows; edit.actions (ctrl+k in an edit) and edit.run (⏎ on a / line) take the line out, save and run it, what it leaves out taking its default (ASKED_IN_PLACE: nothing asked again in the bar); arguments the host binds (ArgSpec.context: block, quote, with) are never offered",
-    files: "src/surface/completer.ts (DOOR_SOURCES here, here-args, steps; actionHereAt), src/bar/command.ts (commandRows, VALUE_SIGILS), src/bar/bar.ts (lineCompletes, drawLineCompletion), src/surface/note.ts (edit.actions, edit.run), src/extensions.ts (ASKED_IN_PLACE)",
+    files: "src/surface/completer.ts (DOOR_SOURCES here, here-args, steps; actionHereAt), src/bar/command.ts (commandRows, VALUE_SIGILS), src/bar/bar.ts (lineCompletes), src/surface/completion-float.ts (drawCompletionFloat), src/surface/note.ts (edit.actions, edit.run), src/extensions.ts (ASKED_IN_PLACE)",
     aside: "Go in (⏎): the note is open in its edit with the actions that apply here listed at the cursor · type sort list, ⏎ (or tab) chooses it and its arguments are listed next · o, tab: order= and its values · ↓ ⏎ chooses desc · ⏎ on the line runs it: the list is sorted, last first, the edit saved and closed; ctrl+z takes it back · esc closes a list and leaves the line · in the power bar (ctrl+k outside the edit): tile.zoom t, tab: tile=, then this screen's tiles · act: edit.actions, complete.accept n=, edit.run",
     stage(n, show) {
       const r = new ReaderPane();
@@ -1667,6 +1655,8 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · search says how sure", panes: [page], names: ["page"] }, show, [[page, n.searchEvals]]);
     },
   },
+  snippetSection(deskOf),
+
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */
