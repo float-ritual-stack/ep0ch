@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Dragging a tile shows every place it can land (PIE-1209)
+
+- **Six visible bands:** the tile underneath shows split above, left, right and below, tabs in the upper middle and swap in the lower middle. The pointer lights its band; a refused drop says why there. The layout showcase includes a Drop zones tab.
+- **Run:** restart the door after updating it; no protocol or grammar change.
+
 ### Shell lines keep replaceable output beside their command (PIE-1148)
 
 - **Run from the note:** `sh::` and `nu::` work with x, a run chip or act, keep output and run records, and offer six copyable `| as` formatter scripts. Edited output asks before replacement; `[run::open]` opts into running when opened.

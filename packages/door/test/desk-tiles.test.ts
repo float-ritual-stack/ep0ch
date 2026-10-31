@@ -136,14 +136,14 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     expect(now().spec()).toEqual({ mode: "pinned", page: "garden-now" });
   });
 
-  test("a header dropped on a tile's lower triangle splits it; on its centre, tabs; on the outer right edge, a column", () => {
+  test("a header dropped on a tile's lower band splits it; on its upper centre, tabs; on the outer right edge, a column", () => {
     const d = rect("draft"), t = rect("tree");
     drag(d.col + 4, d.row, t.col + Math.floor(t.cols / 2), t.row + t.rows - 2);
     expect(shape()).toBe("row(col(claude,now),col(tree,draft,preview,middle),side)");
     expect(message()).toBe("moved draft below tree");
     expect(get().focus).toBe("draft");
     const n = rect("now"), t2 = rect("tree");
-    drag(n.col + 4, n.row, t2.col + Math.floor(t2.cols / 2), t2.row + Math.floor(t2.rows / 2));
+    drag(n.col + 4, n.row, t2.col + Math.floor(t2.cols / 2), t2.row + Math.floor(t2.rows * 0.4));
     expect(shape()).toBe("row(claude,col(tabs(tree,*now),draft,preview,middle),side)");
     // The tab set's header: a click on a tab's label shows it; alt+n and alt+p step through them.
     render();
@@ -164,7 +164,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     mouse("down", d.col + 4, d.row); mouse("drag", d.col + 6, d.row); mouse("drag", m.col + 1, m.row + Math.floor(m.rows / 2)); render();
     expect(D().describe().dragging).toMatchObject({ name: "draft", drop: { kind: "split", target: "middle", dir: "left" } });
     const drawn = D().render(D().ctx).lines.join("\n");
-    expect(drawn).toContain("← split left");
+    expect(drawn).toContain("split");
     key({ kind: "esc" });
     mouse("up", m.col + 1, m.row + 5);
     expect(D().describe().dragging).toBeNull();

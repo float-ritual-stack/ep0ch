@@ -66,7 +66,8 @@ import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme, themed } from "../theme";
 import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term";
-import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
+import { DOCK_DROP, dropAt, dropOp, handleDrop, type Drop, type DropTile, type DropPlace } from "./drop";
+import { drawDrop } from "./drop-drawing";
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
@@ -2880,7 +2881,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   private syncModeHint(shown?: string) {
     const overlay = this.overlays.top();
-    const mode = this.ctx?.armed?.() ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linkOwner().pathTo(this.linkingFrom()!)}:${this.linking.pick ? `pick${this.linking.pick.chosen ? ":chosen" : ""}` : this.linking.verb}` : this.drag ? "resize" : this.dragging || this.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";
+    const mode = this.ctx?.armed?.() ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linkOwner().pathTo(this.linkingFrom()!)}:${this.linking.pick ? `pick${this.linking.pick.chosen ? ":chosen" : ""}` : this.linking.verb}` : this.drag ? "resize" : this.dragging ? "" : this.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";
     if (mode === this.modeHintKey) return;
     const previous = this.modeHintKey;
     this.modeHintKey = mode;
@@ -4571,18 +4572,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The drop the pointer is over: its outline, what it does, and the tile being carried, at the pointer. */
   private drawGhost(canvas: Canvas, drop: Drop<number> | null, name: string, x: number, y: number, drawer?: string) {
-    if (drop) {
-      const g = drop.ghost;
-      // A drop the policy refuses is outlined in red, with the reason in place of what it would do.
-      const why = drop.refused;
-      const c = why ? C.lred : C.yellow;
-      canvas.box(g, fg(c), `${chipStyle(c, C.black)} ${why ? `✕ ${why}` : drop.label} ${RESET}`, "");
-      if (drop.kind === "tabs" && !why) canvas.text(g.col + 1, g.row + 1, `${fg(C.yellow)}${"▀".repeat(Math.max(0, g.cols - 2))}${RESET}`, Math.max(0, g.cols - 2));
-    }
-    // Over the drawer: the drawer lights up where it is (its chip, its dock); the tile carried says where it goes.
-    const label = ` ⠿ ${name}${drawer ? ` · ${drawer}` : ""} `;
-    const ly = Math.max(this.area.row, Math.min(this.area.row + this.area.rows - 1, y + 1));
-    canvas.text(Math.max(0, Math.min(this.area.cols - width(label), x + 1)), ly, `${chipStyle(drawer ? C.yellow : C.magenta, C.black)}${label}${RESET}`);
+    const src = this.dragging?.src;
+    const tile = src !== undefined && drop && drop.kind !== "edge" && !drop.handle ? this.dropTiles().find(t => t.id === drop.target) : undefined;
+    drawDrop(canvas, this.area, drop, name, x, y, drawer, tile, src, to => refusal(this.layout, dropOp(src!, to), this.layoutCtx(USER)));
   }
 
   /**
@@ -7858,12 +7850,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * zones a tile of this screen gets, with the reason policy refuses it; drawn as the ghost until `cancelDrag`.
    */
   foreignAt(x: number, y: number, moving: { name: string; kind: string }): { to?: string; where: Where; label: string; refused?: string } | null {
-    const refuse = (to: Place<number>) => refusal(this.layout, { op: "open", tile: this.nextId, kind: moving.kind, name: moving.name, loose: true, at: to }, this.layoutCtx(USER));
+    const refuse = (to: DropPlace<number>) => refusal(this.layout, { op: "open", tile: this.nextId, kind: moving.kind, name: moving.name, loose: true, at: to.kind === "swap" ? { kind: "tabs", target: to.target } : to }, this.layoutCtx(USER));
     const drop = this.saysDocked(dropAt(this.dropTiles(), this.area, x, y, -1, true, refuse));
     this.foreign = drop ? { name: moving.name, drop, x, y } : null;
     this.redraw();
     if (!drop) return null;
-    const where: Where = drop.kind === "edge" ? `edge-${drop.dir}` : drop.kind === "tabs" ? "tabs" : drop.dir;
+    const where: Where = drop.kind === "edge" ? `edge-${drop.dir}` : drop.kind === "split" ? drop.dir : "tabs";
     return { ...(drop.kind !== "edge" ? { to: this.nameOf(drop.target) } : {}), where, label: drop.label, ...(drop.refused ? { refused: drop.refused } : {}) };
   }
   /** A drop as `layout.move`'s arguments (a drag's release, a float docked by its title). */
@@ -7904,7 +7896,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const bar = row !== null && row > r.row && row < r.row + r.rows - 1 ? { row, col: r.col + 1, cols: r.cols - 2, rows: 1 } : null;
       return { kind: "into", tile: hit[0], note: pane.msg.id, line, bar, draft: !!land?.draft, label: `→ drop: embed or copy here, in ${subject(pane.msg)}${land?.draft ? " (your edit)" : ""} after line ${line + 1}` };
     }
-    const drop = dropAt(this.dropTiles(), this.area, x, y, src, true);
+    const drop = dropAt(this.dropTiles().filter(t => t.id !== src), this.area, x, y, -1, true);
     return drop ? { kind: "detach", drop, label: `⧉ detach it: ${drop.label}` } : null;
   }
 
@@ -7928,6 +7920,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private moveArgs(drop: Drop<number>): Record<string, unknown> {
+    if (drop.kind === "swap") return { to: this.nameOf(drop.target) };
     return drop.kind === "edge" ? { where: `edge-${drop.dir}` } : drop.kind === "tabs" ? { to: this.nameOf(drop.target), where: "tabs", ...(drop.index !== undefined ? { index: drop.index } : {}) } : { to: this.nameOf(drop.target), where: drop.dir };
   }
   /**
@@ -7935,7 +7928,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * those that can't be meant as a move: a shut dock's handle, the screen's outer edge, a tile's header (its tabs).
    */
   private floatDock(id: number, x: number, y: number): Drop<number> | null {
-    const refuse = (to: Place<number>) => refusal(this.layout, { op: "move", tile: id, to }, this.layoutCtx(USER));
+    const refuse = (to: DropPlace<number>) => refusal(this.layout, dropOp(id, to), this.layoutCtx(USER));
     const handles = this.handles.map(h => ({ from: h.from, to: h.to, row: this.hintRow, shows: shown(h.dock.kid)[0] ?? h.id, edge: h.dock.edge }));
     const onHandle = handleDrop(handles, this.area, x, y, id, refuse);
     if (onHandle) return onHandle;
@@ -8155,7 +8148,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.dragging = null; this.headPress = null;
       if (d?.drop) {
         const drop = d.drop;
-        this.run("layout.move", this.moveArgs(drop), this.nameOf(d.src));
+        this.run(drop.kind === "swap" ? "layout.swap" : "layout.move", this.moveArgs(drop), this.nameOf(d.src));
       } else if (d?.into) {
         this.endGroupGhost();
         const into = d.into;
@@ -8195,7 +8188,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const h = this.headPress;
         if (!this.dragging && Math.abs(k.x - h.x) + Math.abs(k.y - h.y) < 1) return;
         // Where it would land (a dock's handle on the hint row first), with the reason policy refuses it, if any.
-        const refuse = (to: Place<number>) => refusal(this.layout, { op: "move", tile: h.id, to }, this.layoutCtx(USER));
+        const refuse = (to: DropPlace<number>) => refusal(this.layout, dropOp(h.id, to), this.layoutCtx(USER));
         const handles = this.handles.map(x => ({ from: x.from, to: x.to, row: this.hintRow, shows: shown(x.dock.kid)[0] ?? x.id, edge: x.dock.edge }));
         // Over a group (PIE-696): its own drop zones say where it would land inside; the tile moves in whole.
         const into = handleDrop(handles, this.area, k.x, k.y, h.id, refuse) ? null : this.groupDropAt(k.x, k.y, h.id);
