@@ -60,7 +60,9 @@ describe("showcase: snippet slots (PIE-1480)", () => {
     expect(n).toBeGreaterThanOrEqual(0);
     await act("complete.accept", { n: n + 1 });
     expect(d()!.selectedText()).toBe("{label}");
-    press({ kind: "paste", text: "Open watering issue" });
+    press({ kind: "paste", text: "carrot\tbean" });
+    expect(d()!.text).toContain("carrot\tbean");
+    expect(d()!.text).toContain("{note}");
     const lines = h.sc.render(h.app).lines.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, ""));
     const y = lines.findIndex(l => l.includes("[next]"));
     expect(y).toBeGreaterThanOrEqual(0);

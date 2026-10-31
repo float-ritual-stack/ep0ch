@@ -348,6 +348,33 @@ test("Detail fills a component and an extension button through shared slots, kee
   }
 });
 
+test.each(["editor import", "backspace"])("Detail undoes a change outside the snippet before undoing the snippet: %s", async change => {
+  const { client } = await setup();
+  const original = "Planting notes\n::graph-stat";
+  const buffer = new TextBuffer(original); buffer.placeCursor(1, 12);
+  const session = new ReferenceCompletionSession(referenceCompletionProvider(client, "undo-test"), () => buffer, () => {}, () => true);
+  await session.refresh();
+  const n = session.state!.items.findIndex(i => i.component === "graph-stat");
+  expect(n).toBeGreaterThanOrEqual(0);
+  expect(await session.accept(n)).toBe(true);
+  buffer.insert("Garden totals");
+  buffer.moveSnippet(1); buffer.moveSnippet(-1);
+  const before = buffer.text;
+  if (change === "editor import") buffer.replaceText(before.replace("Planting notes", "Harvest notes"));
+  else {
+    const start = buffer.selectionRange!.start;
+    buffer.placeCursor(start.row, start.column);
+    buffer.backspace();
+  }
+  expect(buffer.text).not.toBe(before);
+  expect(buffer.undo()).toBe(true);
+  expect(buffer.text).toBe(before);
+  expect(buffer.snippet).toBeNull();
+  expect(buffer.undo()).toBe(true);
+  expect(buffer.text).toBe(original);
+  session.dismiss();
+});
+
 test("cancelling a popup stops a slow extension source before its timeout", async () => {
   const { client, extensionsFolder, list } = await setup();
   const folder = join(extensionsFolder, "slow-garden");

@@ -165,7 +165,7 @@ export class Draft {
   }
   endSnippet() { this.settle(); this.snippet = null; this.snippetStep = undefined; this.anchor = null; }
   snippetKey(k: Key): boolean {
-    if (!this.snippet) return false;
+    if (!this.snippet || "pasted" in k) return false;
     const action = k.kind === "tab" ? "snippet.next" : k.kind === "backtab" ? "snippet.previous" : k.kind === "esc" ? "snippet.end" : null;
     if (!action) return false;
     void DRAFT_ACTIONS.run(action, {}, this, USER);
