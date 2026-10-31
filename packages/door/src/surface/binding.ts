@@ -13,13 +13,15 @@ export function boundComponent(note: Msg, binding: Binding) {
   if (!ref) return null;
   const blocks = componentBlocks(lines);
   const block = blocks.find(b => ref.id ? b.id === ref.id : b.start === ref.line);
-  if (!block) throw new ActionRefused("the view's source changed · open its settings again");
-  return { block, lines, props: viewSpec(block, lines)!.props };
+  const spec = block && viewSpec(block, lines);
+  return block && spec ? { block, lines, props: spec.props } : null;
 }
 
 /** Only the chosen field changes; the component's other words, body and anchor stay as authored. */
 function componentValue(note: Msg, binding: Binding, key: string, value: string | null): string {
-  const { block, lines } = boundComponent(note, binding)!;
+  const component = boundComponent(note, binding);
+  if (!component) throw new ActionRefused("the view's source changed · open its settings again");
+  const { block, lines } = component;
   const open = COMPONENT_OPEN.exec(lines[block.start]!)!, attrs = open[3];
   const fences = lines.slice(block.start + 1, block.end).flatMap((line, i) => /^\s*---\s*$/.test(line) ? [block.start + 1 + i] : []);
   const yamlStart = fences[0], yamlEnd = fences[1];

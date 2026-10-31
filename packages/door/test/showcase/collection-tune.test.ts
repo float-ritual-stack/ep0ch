@@ -90,6 +90,7 @@ describe("showcase: tune the collection's own record (PIE-1483)", () => {
     await until(() => bar().query === "owner", "facet inserted in the shared input");
     await h.app.dispatch.act({ action: "bar.edit", args: { op: "clear" } }, { kind: "user" });
     await h.app.dispatch.act({ action: "bar.edit", args: { op: "paste", text: "owenr" } }, { kind: "user" });
+    await until(() => bar().items.some(i => i.row.key === "missing:owenr"), "the facet lookup reports the miss");
     expect(bar().items.map(i => i.row.label).join(" ")).toMatch(/no notes have owenr.*owner/);
     await expect(h.app.dispatch.act({ action: "bar.pick", args: { n: 1 } }, { kind: "user" })).rejects.toThrow(/no notes have owenr.*owner/);
     expect(bar().query).toBe("owenr");
@@ -197,6 +198,96 @@ describe("showcase: tune the collection's own record (PIE-1483)", () => {
     expect(tune().msg.id).toBe(note.id);
     await stage().dispatch.act({ action: "tile.close", tile: "tune" }, { kind: "user" });
     await act("tile.focus");
+  }, 20_000);
+
+  test("review: toggling an inline inherited layout preserves untouched layouts", async () => {
+    await show();
+    const source = await h.board.createBlock(null, 'Shared garden [type::virtual-branch] [query::collection=garden] [layout::gallery, feed] [sort::owner asc, stage desc] [summary-properties::title, owner]');
+    const note = await h.board.createBlock(null, `Inherited garden\n\n::view{of=((${source.id}))} ^garden\n::`);
+    await act("open", { id: note.id });
+    await until(() => surface().msg?.id === note.id && lists()[0]?.detail.layout === "gallery", "inherited gallery");
+    await act("settings.toggle", { key: "layout", value: "board" });
+    const text = (await h.board.get(note.id))!.text;
+    expect(text).toContain('layout="board, gallery, feed"');
+    await act("settings.toggle", { key: "sort", value: "owner asc" });
+    await act("settings.toggle", { key: "summary-properties", value: "owner" });
+    const saved = (await h.board.get(note.id))!.text;
+    expect(saved).toContain('sort="stage desc"');
+    expect(saved).toContain('summary-properties="title"');
+    expect((await h.board.get(source.id))!.text).toBe(source.text);
+  }, 20_000);
+
+  test("review: a hidden updated column can be restored", async () => {
+    await show(false);
+    await act("settings.set", { key: "summary-properties", value: "title, updated" });
+    await act("settings.toggle", { key: "summary-properties", value: "updated" });
+    await act("settings.set", { key: "summary-properties" });
+    expect(bar().items.some(i => i.row.key === "toggle:updated")).toBe(true);
+    await h.app.dispatch.act({ action: "bar.question", args: { op: "toggle", value: "updated" } }, { kind: "user" });
+    await h.app.dispatch.act({ action: "bar.close" }, { kind: "user" });
+    expect((await act("settings")).fields.find((f: any) => f.key === "summary-properties").value).toBe("title, updated");
+  }, 20_000);
+
+  test("review: matched properties outside the first fifty facets remain selectable", async () => {
+    await show();
+    const props = Array.from({ length: 55 }, (_, i) => `[field-${String(i).padStart(2, "0")}::seed]`).join(" ");
+    await h.board.createBlock(null, `Many fields [collection::wide] ${props}`);
+    const note = await h.board.createBlock(null, 'Wide garden [type::virtual-branch] [query::collection=wide] [layout::table]');
+    await act("open", { id: note.id });
+    await until(() => surface().msg?.id === note.id && lists()[0]?.view.pickable().length === 1, "wide garden");
+    await act("settings.toggle", { key: "group", value: "field-54" });
+    expect((await h.board.get(note.id))!.text).toContain("[group::field-54]");
+    await act("settings.toggle", { key: "group", value: "field-54" });
+    await act("settings.set", { key: "group" });
+    await h.app.dispatch.act({ action: "bar.edit", args: { op: "paste", text: "field-54" } }, { kind: "user" });
+    await until(() => bar().items.some(i => i.row.key === "toggle:field-54"), "a typed facet beyond the first fifty");
+    h.press({ kind: "enter" });
+    await until(() => bar().items.some(i => i.row.key === "toggle:field-54" && i.row.label.startsWith("[x]")), "the typed facet is selected");
+    expect((await h.board.get(note.id))!.text).toContain("[group::field-54]");
+    await h.app.dispatch.act({ action: "bar.close" }, { kind: "user" });
+    expect((await act("settings.set", { key: "summary-properties", value: "title, field-54" })).warnings).toEqual([]);
+  }, 20_000);
+
+  test("review: an unanchored card follows an external insertion before its view", async () => {
+    await show();
+    const note = await h.board.createBlock(null, 'Garden without anchor\n\n::view{query="collection=garden" layout=table}\n::');
+    await act("open", { id: note.id });
+    await until(() => surface().msg?.id === note.id && lists()[0]?.view.pickable().length === 4, "unanchored garden");
+    await act("settings");
+    try {
+      const saved = await h.board.update(note.id, note.text.replace("\n\n", "\n\nNew introduction.\n\n"), note.revision!, { kind: "agent", id: "gardener" });
+      await until(() => h.S().stage(SECTIONS.findIndex(s => s.key === "collection-tune")).top.pane("garden").surface.msg?.revision === saved.revision, "external edit arrived");
+      expect(h.screen()).toContain("New introduction.");
+      expect(surface().panel).toBeNull();
+      await until(() => lists()[0]?.view.pickable().length === 4, "the shifted view rebuilt");
+      await act("settings");
+      await act("settings.toggle", { key: "layout", value: "board" });
+      expect((await h.board.get(note.id))!.text).toContain('layout="board, table"');
+      const current = (await h.board.get(note.id))!;
+      await h.board.update(note.id, 'Garden without anchor\n\nThe view was removed.', current.revision!, { kind: "agent", id: "gardener" });
+      await until(() => h.screen().includes("The view was removed."), "the removal is painted");
+      expect(surface().panel).toBeNull();
+    } finally {
+      h.S().stage(SECTIONS.findIndex(s => s.key === "collection-tune")).top.pane("garden").surface.panel = null;
+    }
+  }, 20_000);
+
+  test("review: saved-note bindings refuse stale revisions and an agent cannot press the person's question", async () => {
+    const note = await show(false);
+    const agent = (action: string, args: Record<string, unknown> = {}) => stage().dispatch.act({ action, tile: "garden", args }, { kind: "agent", id: "gardener" }) as Promise<any>;
+    const read = await agent("settings");
+    await h.board.update(note.id, note.text + "\n\nA concurrent edit.", note.revision!, { kind: "user" });
+    await expect(agent("binding.set", { revision: read.revision, key: "layout", value: "board" })).rejects.toThrow(/changed elsewhere.*not saved/);
+    expect((await h.board.get(note.id))!.text).toContain("A concurrent edit.");
+    await act("settings.set", { key: "layout" });
+    const query = bar().query;
+    await expect(h.app.dispatch.act({ action: "bar.question", args: { op: "toggle", value: "board" } }, { kind: "agent", id: "gardener" })).rejects.toThrow(/person/);
+    expect(bar().query).toBe(query);
+    await h.app.dispatch.act({ action: "bar.close" }, { kind: "user" });
+    await act("props.close");
+    await act("edit");
+    await expect(agent("binding.set", { revision: surface().msg.revision, key: "layout", value: "board" })).rejects.toThrow(/draft|editing|typing/);
+    await act("edit.close");
   }, 20_000);
 
   test("the seeded garden tunes by keys, mouse and act at 177 and 44 columns", async () => {

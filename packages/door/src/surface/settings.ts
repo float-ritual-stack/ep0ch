@@ -2,7 +2,7 @@ import { settingsSchemas, type ComponentSchema } from "@ep0ch/outline-core/compo
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { viewWords } from "@ep0ch/outline-core/view-spec";
 import { missingPropertyHint } from "@ep0ch/outline-core/property-hint";
-import type { QuestionFacet } from "@ep0ch/outline-core/protocol";
+import type { QuestionFacet, QuestionAnswerFields } from "@ep0ch/outline-core/protocol";
 import { componentsOf, componentsReady } from "../component-schemas";
 import { extensionList } from "../extensions";
 import { NODELIST_QUERY, nodesOf } from "../echonet/net";
@@ -17,21 +17,24 @@ import { boundComponent, setBinding, type Binding } from "./binding";
 import type { NoteSurface, On, SurfaceHost } from "./note";
 import type { ListHandle } from "./list-view";
 
-export interface SettingsSubject { note: Msg; binding: Binding; schemas: ComponentSchema[]; fields: SettingField[]; list?: ListHandle }
+export interface SettingsSubject { note: Msg; binding: Binding; schemas: ComponentSchema[]; fields: SettingField[]; list?: ListHandle; collection?: NonNullable<ListHandle["collection"]>["answer"]; props?: Record<string, unknown> }
 const LIST = { type: "string", optional: true, about: "the view: its list.blocks number or ^name; left out, the card's subject or the view under the cursor" } as const;
 const KEY = { type: "string", about: "the field's key (settings lists them)" } as const;
+const properties = (config: Record<string, unknown>) => Object.entries(config).map(([key, value]) => ({ key, value: Array.isArray(value) ? value.join(", ") : String(value) }));
 
 export function settingsSubject(surface: NoteSurface, note: Msg, named?: string): SettingsSubject {
   const card = surface.panel?.card;
   const listName = named ?? card?.list;
   const current = surface.listHost().current();
   const lists = surface.listsDrawn.filter(l => l.binding);
-  const list = listName !== undefined ? surface.listNamed(listName) : lists.find(l => l.key === current) ?? (lists.length === 1 ? lists[0] : undefined);
+  const list = named !== undefined ? surface.listNamed(named) : listName !== undefined ? lists.find(l => l.key === listName) : lists.find(l => l.key === current) ?? (lists.length === 1 ? lists[0] : undefined);
   const binding = list?.binding ?? { block: note.id };
   const inline = binding.component ? boundComponent(note, binding) : null;
-  const props = inline ? Object.entries(inline.props).map(([key, value]) => ({ key, value: Array.isArray(value) ? value.join(", ") : String(value) })) : parsePropertyRecords(note.text).filter(p => p.scope === "block");
+  if ((listName !== undefined && !list) || (binding.component && !inline)) return { note, binding, schemas: [], fields: [] };
+  const collection = list?.collection?.answer;
+  const props = collection ? properties(collection.config) : parsePropertyRecords(note.text).filter(p => p.scope === "block");
   const schemas = inline ? componentsOf(surface.src).filter(s => s.id === "view") : settingsSchemas(componentsOf(surface.src), props);
-  return { note, binding, schemas, fields: settingFields(schemas, props), list };
+  return { note, binding, schemas, fields: settingFields(schemas, props), list, collection, props: inline?.props };
 }
 
 export function openSettings(surface: NoteSurface, subject: SettingsSubject): SettingsCard {
@@ -46,7 +49,8 @@ export function openSettings(surface: NoteSurface, subject: SettingsSubject): Se
 function sources(subject: SettingsSubject, host: SurfaceHost): SettingSources {
   const listed = () => (extensionList()?.extensions ?? []).filter(e => e.state === "active" || e.state === "failed");
   return {
-    facets: () => (subject.list?.detail?.facets ?? []) as QuestionFacet[],
+    facets: () => subject.collection?.facets ?? [],
+    facet: key => facet(subject, host, key),
     catalog: (key, prefix) => host.ctx.board.propertyCatalog(key, prefix, 30),
     actions: () => listed().flatMap(e => e.actions.filter(a => (a.on ?? "block") === "block" && !a.builtIn).map(a => ({ value: `${e.id}/${a.id}`, label: `${e.id}/${a.id} · ${a.label}`, detail: a.effects }))),
     extensions: () => listed().map(e => e.id),
@@ -66,6 +70,10 @@ async function read(on: On, list?: string): Promise<SettingsSubject> {
   if (surface.src) await componentsReady(surface.src);
   const subject = settingsSubject(surface, note, list);
   if (!subject.schemas.length) throw new ActionRefused("this note isn't configured by a component (settings says which notes are)");
+  if (subject.list?.collection) {
+    subject.collection = await subject.list.collection.read(subject.props ?? { of: `((${note.id}))` });
+    subject.fields = settingFields(subject.schemas, properties(subject.collection.config));
+  }
   return subject;
 }
 
@@ -75,16 +83,22 @@ function fieldOf(subject: SettingsSubject, key: string): SettingField {
   return field;
 }
 
-function checkChoice(subject: SettingsSubject, field: SettingField, value: string): void {
+async function facet(subject: SettingsSubject, host: SurfaceHost, key: string): Promise<QuestionFacet | undefined> {
+  if (!subject.collection) return undefined;
+  const answer = await host.ctx.board.request<QuestionAnswerFields>("blocks.query", { query: { ...subject.collection.question, facets: [key], facetValues: 1, limit: 1 }, fields: ["id"] });
+  return answer.facets?.find(f => f.key === key && f.count > 0);
+}
+
+async function choiceProblem(subject: SettingsSubject, host: SurfaceHost, field: SettingField, value: string): Promise<string | undefined> {
   const p = field.prop;
   if (p.question?.source === "facets") {
     const key = p.question.order ? value.replace(/\s+(asc|desc)$/i, "") : value;
-    const keys = settingOptions(field, (subject.list?.detail?.facets ?? []) as QuestionFacet[]).map(o => o.value);
-    if (!keys.includes(key)) throw new ActionRefused(missingPropertyHint(key, keys));
-  } else if (p.values && !p.values.some(v => v.value === value)) throw new ActionRefused(`${p.key} is one of ${p.values.map(v => v.value).join(", ")}`);
+    const keys = settingOptions(field, subject.collection?.facets ?? []).map(o => o.value);
+    if (!keys.includes(key) && !await facet(subject, host, key)) return missingPropertyHint(key, keys);
+  } else if (p.values && !p.values.some(v => v.value === value)) return `${p.key} is one of ${p.values.map(v => v.value).join(", ")}`;
 }
 
-async function write(on: On, subject: SettingsSubject, field: SettingField, value: string | null, actor: Actor) {
+async function write(on: On, subject: SettingsSubject, field: SettingField, value: string | null, actor: Actor, checked?: string[]) {
   const { surface, host } = on, { note, binding } = subject;
   let saved: Msg;
   try { saved = await setBinding(host.ctx.board, note, binding, field.prop.key, value, actor); }
@@ -102,15 +116,15 @@ async function write(on: On, subject: SettingsSubject, field: SettingField, valu
   field.value = value;
   if (surface.msg?.id === note.id) surface.refresh({ ...saved, childIds: surface.msg.childIds });
   if (subject.list) for (const state of subject.list.view.settings.values()) delete state[field.prop.key];
-  const known = settingOptions(field, (subject.list?.detail?.facets ?? []) as QuestionFacet[]).map(o => o.value);
-  const warnings = field.prop.question?.source === "facets" && value ? viewWords(value).map(v => field.prop.question?.order ? v.replace(/\s+(asc|desc)$/i, "") : v).filter(k => !known.includes(k) && !beforeValues.includes(k)) : [];
+  const warnings = checked ?? (field.prop.question?.source === "facets" && value
+    ? (await Promise.all(viewWords(value).filter(v => !beforeValues.includes(v)).map(v => choiceProblem(subject, host, field, v)))).filter((p): p is string => p !== undefined) : []);
   const said = `${value === null ? "cleared" : "saved"} · ${field.prop.key}${value === null ? "" : `: ${printable(value)}`}`;
-  const message = [said, ...warnings.map(k => missingPropertyHint(k, known))].join(" · ");
+  const message = [said, ...warnings].join(" · ");
   if (surface.panel?.card) surface.panel.card.note = message;
   host.ctx.flash(message);
   surface.noteAgent(actor, said);
   host.redraw();
-  return { saved: true, warnings: warnings.map(k => missingPropertyHint(k, known)), cleared: value === null, key: field.prop.key, to: value, revision: saved.revision, recordedAs: mutationFor(actor) };
+  return { saved: true, warnings, cleared: value === null, key: field.prop.key, to: value, revision: saved.revision, recordedAs: mutationFor(actor) };
 }
 
 const describe = (subject: SettingsSubject) => ({ id: subject.note.id, revision: subject.note.revision, schema: subject.schemas[0]!.id, schemas: subject.schemas.map(s => ({ id: s.id, title: s.title })), title: subject.schemas.map(s => s.title).join(" + "),
@@ -137,19 +151,23 @@ export const SETTINGS_DEFS = {
     args: { list: LIST, key: KEY, value: { type: "string", optional: true, about: "new value; left out asks the person" } },
     async run({ list, key, value }, on: On, actor) {
       const subject = await read(on, list), field = fieldOf(subject, key);
-      const set = async (answer: string) => {
+      const set = async (answer: string, checked?: string[]) => {
         const to = settingValue(field, answer), why = to ? settingProblem(field, to) : null;
         if (why) throw new ActionRefused(why);
         if (to === field.value) {
           if ((await on.host.ctx.board.get(subject.note.id))?.revision !== subject.note.revision) throw new ActionRefused("the note changed elsewhere since its settings were read · not saved; open them again (settings)");
           return { saved: false, unchanged: true, key: field.prop.key, revision: subject.note.revision };
         }
-        return write(on, subject, field, to || null, actor);
+        return write(on, subject, field, to || null, actor, checked);
       };
       if (value !== undefined) return set(value);
       if (actor.kind !== "user") throw new ActionRefused(`say value=…: ${field.prop.key} is ${field.prop.type}: ${field.prop.meaning}`);
       const question = settingQuestion(field, sources(subject, on.host));
-      if (field.prop.question) question.change = async next => { const before = viewWords(field.value ?? field.prop.default); for (const v of viewWords(next)) if (!before.includes(v)) checkChoice(subject, field, v); return set(next); };
+      if (field.prop.question) question.change = async next => {
+        const before = viewWords(field.value ?? field.prop.default);
+        for (const v of viewWords(next)) if (!before.includes(v)) { const why = await choiceProblem(subject, on.host, field, v); if (why) throw new ActionRefused(why); }
+        return set(next, []);
+      };
       return askInBar(on.host.ctx as never, `${subject.schemas[field.section]!.title} · ${field.prop.key}`, [question], {}, actor, answers => set(answers[field.prop.key] ?? ""));
     },
   }),
@@ -160,9 +178,9 @@ export const SETTINGS_DEFS = {
     async run({ list, key, value }, on: On, actor) {
       const subject = await read(on, list), field = fieldOf(subject, key);
       if (!field.prop.question) throw new ActionRefused(`${key} isn't a toggle or pick-order question · settings.set key=${key} value=… sets it`);
-      if (!viewWords(field.value ?? field.prop.default).includes(value)) checkChoice(subject, field, value);
+      if (!viewWords(field.value ?? field.prop.default).includes(value)) { const why = await choiceProblem(subject, on.host, field, value); if (why) throw new ActionRefused(why); }
       const next = changedQuestionValue(field.prop.question.type, field.value ?? field.prop.default ?? "", value);
-      return write(on, subject, field, next || null, actor);
+      return write(on, subject, field, next || null, actor, []);
     },
   }),
   "binding.set": def({

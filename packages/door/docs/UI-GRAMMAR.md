@@ -818,11 +818,15 @@ Comma (`list.tune` / `settings`) opens and enters the existing settings card ove
 layout first. `group`, `sort` and `summary-properties` are **pick-order** questions: Space toggles,
 J/K moves a shown choice later/earlier, and the arrow rows do the same by mouse. Type to filter;
 Tab uses the shared completion popup. The schema supplies enum values and record fields (title, created,
-updated); the collection's Question answer supplies facets counted across its matches. The same candidate
-set drives the picker, completion and validation, so a hidden title can be shown again. An unknown facet says which keys are nearest. A raw value
-is saved before that warning. Each choice saves immediately and keeps the bar's filter and selection.
+updated); `view-fields` describes the same record fields the collection renderer reads, so hidden columns
+can be shown again. The collection's Question supplies facets counted across its matches. Its displayed facets
+are capped; a typed or picked key outside them is looked up through that Question. An unknown facet says which
+keys are nearest. A raw value is saved before that warning. Each choice saves immediately and keeps the bar's filter and selection.
 
 The source is the only settings store: the saved view's header or that inline component's own braces/YAML.
+The collection producer resolves inheritance for both the view and its card; the card still writes to the inline
+component. If an edit moves an unanchored component or removes the card's component, the card closes; a named
+component is found again by its anchor.
 Nested views carry their original note line through `childEnv`; YAML fields retain the mapping's indentation
 and neighboring fields when a sequence is replaced.
 `binding.set key=… value=… revision=…` is the door's write primitive; stale writes refuse and re-read,

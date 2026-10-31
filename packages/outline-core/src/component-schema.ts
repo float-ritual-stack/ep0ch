@@ -18,7 +18,7 @@ import { BLOCK_COMPONENT_SCHEMAS } from "./component-schemas-blocks";
 import { USE } from "./component-schemas-use";
 import { BUTTON } from "./component-schemas-button";
 import { enumOf } from "./prop-values";
-import { VIEW_SORT_FIELDS, VIEW_TITLE_FIELD } from "./view-fields";
+import { VIEW_SORT_FIELDS, VIEW_SUMMARY_FIELDS } from "./view-fields";
 
 /** What a property's value is. */
 export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query", "action", "writers", "duration", "property", "script", "node"] as const;
@@ -252,7 +252,7 @@ export const VIEW: ComponentSchema = {
     { key: "limit", where: "note", type: "int", meaning: "the most rows it lists", min: 1, max: 1000, default: "200" },
     { key: "child-depth", where: "note", type: "int", meaning: "how deep each row's own children are listed under it", min: 0, max: 8, default: "0" },
     { key: "expanded", where: "note", type: "enum", meaning: "whether it opens expanded in the tree", values: enumOf({ true: "open", false: "folded" }) },
-    { key: "summary-properties", where: "note", type: "list", question: { type: "pick-order", source: "facets" }, values: [VIEW_TITLE_FIELD], meaning: "the properties each row's summary line shows, comma-separated", samples: ["work-stage, priority"] },
+    { key: "summary-properties", where: "note", type: "list", question: { type: "pick-order", source: "facets" }, values: VIEW_SUMMARY_FIELDS, meaning: "the properties each row's summary line shows, comma-separated", samples: ["work-stage, priority"] },
   ],
   source: { use: '::view{query="type=chore" layout=table} ^garden', note: { title: "Garden chores", name: "query", value: "type=chore" } },
   example: {},

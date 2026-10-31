@@ -65,6 +65,7 @@ export function settingProblem(field: SettingField, value: string): string | nul
 /** What the pickers read: the outline's properties and values, the actions extensions offer, the extensions installed. */
 export interface SettingSources {
   facets?(): readonly { key: string; count: number }[];
+  facet?(key: string): Promise<{ key: string; count: number } | undefined>;
   /** `properties.catalog`: the keys starting with `prefix` (each value counted), or `key`'s values starting with it. */
   catalog(key: string | undefined, prefix: string): Promise<readonly { key: string; value: string; count: number }[]>;
   /** The actions a rule can run: `<extension>/<action>` on a block, with what they do. */
@@ -104,8 +105,21 @@ export function settingQuestion(field: SettingField, src: SettingSources): BarQu
   };
   if (p.question) {
     const options = settingOptions(field, src.facets?.() ?? []);
-    const choices = p.question.order ? options.flatMap(option => (field.order?.values ?? []).map(direction => ({ ...option, value: `${option.value} ${direction.value}` }))) : options;
+    const ordered = (options: BarSuggestion[]) => p.question!.order ? options.flatMap(option => (field.order?.values ?? []).map(direction => ({ ...option, value: `${option.value} ${direction.value}` }))) : [...options];
+    const choices = ordered(options);
+    const suggest = p.question.source === "facets" && src.facet ? async (typed: string) => {
+      const key = p.question!.order ? typed.trim().replace(/\s+(asc|desc)$/i, "") : typed.trim();
+      if (key && !options.some(o => o.value === key)) {
+        const found = await src.facet!(key);
+        if (found) {
+          const extra = settingOptions(field, [found]).filter(o => !options.some(known => known.value === o.value));
+          options.push(...extra); choices.push(...ordered(extra));
+        }
+      }
+      return choices;
+    } : undefined;
     return { ...base, value: field.value ?? p.default ?? "", type: p.question.type, choices: choices.map(c => c.value),
+      ...(suggest ? { suggest } : {}),
       empty: typed => p.question!.source === "facets" ? missingPropertyHint(typed.replace(/\s+(asc|desc)$/i, ""), options.map(c => c.value)) : `${p.key} is one of ${choices.map(c => c.value).join(", ")}`,
       says: Object.fromEntries(choices.map(c => [c.value, `${c.value} · ${c.detail}`])), complete: { valueKey: p.key, candidates: choices } };
   }

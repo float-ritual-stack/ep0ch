@@ -121,9 +121,9 @@ export async function changeQuestion(value: string, by?: number) {
   return result;
 }
 
-function questionRows(q: BarQuestion, typed: string, head: string): BarRow[] {
+function questionRows(q: BarQuestion, typed: string, head: string, suggested: readonly BarSuggestion[] = []): BarRow[] {
   const chosen = viewWords(q.value), words = typed.trim().toLowerCase();
-  const choices = [...new Set([...chosen, ...q.choices ?? []])];
+  const choices = [...new Set([...chosen, ...q.choices ?? [], ...suggested.map(s => s.value)])];
   const rows: BarRow[] = choices.filter(value => !words || value.toLowerCase().includes(words)).map(value => ({
     key: `toggle:${value}`, label: `[${chosen.includes(value) ? "x" : " "}] ${q.says?.[value] ?? value}`,
     group: chosen.includes(value) ? `${head} · shown` : `${head} · hidden`, data: value, stays: true,
@@ -341,7 +341,7 @@ const ASK_SOURCE: BarSource = {
     if (!q || !waiting) return [];
     const head = `${waiting.title} · ${q.label ?? q.name}`;
     const typed = query.trim();
-    if (liveQuestion()) return questionRows(q, query, head);
+    if (liveQuestion()) return q.suggest && typed ? Promise.resolve(q.suggest(query)).then(found => questionRows(q, query, head, found)) : questionRows(q, query, head);
     if (q.suggest) {
       const typedRow = q.free && typed ? [{ key: `answer:${typed}`, label: typed, detail: "as typed", group: head, data: typed }] : [];
       const nowRow = !typed && q.value !== undefined ? [{ key: `answer:${q.value}`, label: q.value, detail: "now", group: head, data: q.value }] : [];

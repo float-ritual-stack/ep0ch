@@ -2101,6 +2101,7 @@ export class NoteSurface {
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
       ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · ${this.focusMark.says ?? "the line that links here"}${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · esc lets go` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
+    if (this.panel?.card && !this.settingsSchemaOf(m)) this.closePanel();
     if (this.panel?.card) {
       const card = this.panel.card, fields = this.settingFields(m, card.schemas);
       const at = head.length;
@@ -3098,8 +3099,7 @@ export class NoteSurface {
   }
 
   settingsSchemaOf(m: Msg): ComponentSchema[] | null {
-    const schemas = settingsSubject(this, m).schemas;
-    return schemas.length ? schemas : null;
+    const schemas = settingsSubject(this, m).schemas; return schemas.length ? schemas : null;
   }
   settingFields(m: Msg, _schema: readonly ComponentSchema[]): SettingField[] { return settingsSubject(this, m).fields; }
   closePanel(): boolean {

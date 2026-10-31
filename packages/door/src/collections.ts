@@ -2,7 +2,7 @@ import type { ViewSpec } from "@ep0ch/outline-core/view-spec";
 import type { SiteProduced } from "@ep0ch/outline-core/site";
 import { actionLine } from "@ep0ch/outline-core/action-line";
 import { figureFrame, frame, type FiguresEnv } from "./graphs";
-import { liveSource, siteProduced, type LiveSite } from "./live";
+import { liveSource, siteProduced, siteRequest, type LiveSite } from "./live";
 import { watchedOn } from "./watched";
 import type { LinkBlocksEnv } from "./links";
 import { listOpenTarget, type LinkTarget } from "./refs";
@@ -52,6 +52,11 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   });
   const pages = view.pageCount(PERSON);
   blocks?.seen?.({ binding: note ? { block: note, ...(component ? { component } : {}) } : undefined, n, key, title: answer.title, view, entered, about: answer.question.where,
+    collection: { answer, async read(props) {
+      const board = (site?.board ?? liveSource().board)!;
+      const { produced } = await board.request<{ produced: typeof answer }>("site.answer", siteRequest(note, { kind: "view", props }, site));
+      return produced;
+    } },
     detail: { layout: answer.layout, layouts: answer.layouts, sort: answer.question.sort, group: answer.question.group, facets: answer.facets, truncated: answer.truncated, page: view.page + 1, pages },
     async change(changes, who) {
       const next = { ...view.settings.get(who), ...changes };
