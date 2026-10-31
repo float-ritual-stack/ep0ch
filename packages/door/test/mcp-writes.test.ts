@@ -587,12 +587,20 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(s.json.outcome).toBe("proposed");
     const c = await tool("outline_create", { uri, text: "Newt sighted", requestId: "newt-sighting" });
     expect(c.json).toMatchObject({ outcome: "proposed", said: expect.stringContaining("comment") });
+    const parent = await textOf(here, "pond-notes", HERE, ids.frogs!);
+    await boardOn(here, "pond-notes", HERE).request("update", {
+      blockId: parent.id, text: `${parent.text}\nRecount at dawn.`, expectedRevision: parent.revision, mutation: { author: "user" },
+    });
     const retry = await tool("outline_create", { uri, text: "Newt sighted", requestId: "newt-sighting" });
+    expect(retry.isError, retry.text).toBe(false);
     expect(retry.json.detail.thread).toBe(c.json.detail.thread);
     expect(retry.json.detail.deduplicated).toBe(true);
     const changed = await tool("outline_create", { uri, text: "Toad sighted", requestId: "newt-sighting" });
     expect(changed.isError).toBe(true);
     expect(changed.text).toContain("different input");
+    const moved = await tool("outline_create", { uri, text: "Newt sighted", position: 0, requestId: "newt-sighting" });
+    expect(moved.isError).toBe(true);
+    expect(moved.text).toContain("different input");
     const after = await textOf(here, "pond-notes", HERE, ids.frogs!);
     expect(after.text).toContain("Twelve at dusk");
     expect(after.text).not.toContain("species::");

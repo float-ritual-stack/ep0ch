@@ -285,9 +285,12 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     } finally { gw.stop(); outlines.close(); laptopBack(); }
   }, 60_000);
 
-  test("a live write whose answer is lost is queued with why, as the same write, and lands once", async () => {
+  test.each(["full", "propose"] as const)("a live create at %s access whose answer is lost lands once after its parent is edited", async (access) => {
     // A stand-in link that passes everything to the laptop's host but loses the answer to one create.
-    const proxy = join(dir, "lossy.sock");
+    const board = boardOn(far, "attic-notes", FAR);
+    await board.configureMcpAccess(access);
+    const parent = await board.request<{ id: string; revision: number }>("create", { parentId: null, text: "Spare lamps", author: "user" });
+    const proxy = join(dir, `lossy-${access}.sock`);
     let lose = true;
     const server: Server = createServer(c => {
       const up = connect(far.sock);
@@ -298,7 +301,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
         for (let nl = inBuf.indexOf("\n"); nl >= 0; nl = inBuf.indexOf("\n")) {
           const line = inBuf.slice(0, nl); inBuf = inBuf.slice(nl + 1);
           const msg = JSON.parse(line);
-          if (lose && msg.action === "create") { lose = false; dropped.add(msg.id); }
+          if (lose && msg.action === (access === "full" ? "create" : "annotations.batch")) { lose = false; dropped.add(msg.id); }
           up.write(line + "\n");
         }
       });
@@ -320,19 +323,23 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     if ("error" in config) throw new Error(config.error);
     const gw = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: () => {} });
     try {
-      const w = await tool("outline_create", { ref: ids.lamps, outline: "attic-notes", text: "A lamp whose answer was lost" }, gw);
+      const w = await tool("outline_create", { ref: parent.id, outline: "attic-notes", text: "A lamp whose answer was lost" }, gw);
       expect(w.isError, w.text).toBe(false);
       expect(w.json).toMatchObject({ outcome: "queued", why: expect.stringContaining("didn't answer the write"), base: { source: "live" } });
       // It did land on the laptop; the answer was what got lost.
-      expect((await childrenOf(ids.lamps!)).filter(t => t === "A lamp whose answer was lost")).toHaveLength(1);
+      const landed = (await board.children(parent.id)).filter(n => n.text.includes("A lamp whose answer was lost"));
+      expect(landed).toHaveLength(1);
+      await board.request("update", { blockId: parent.id, text: "Spare lamps\nLabel the oil tins.", expectedRevision: parent.revision, mutation: { author: "user" } });
       // The first try and the queued retry share a request id, including when the live answer is lost.
       clock += 50_000;
-      expect((await tool("outline_read", { ref: ids.lamps, outline: "attic-notes" }, gw)).json.reachability.source).toBe("live");
+      expect((await tool("outline_read", { ref: parent.id, outline: "attic-notes" }, gw)).json.reachability.source).toBe("live");
       const status = (await tool("outline_write_status", { queueId: w.json.queueId }, gw)).json;
-      expect(status).toMatchObject({ state: "applied" });
-      expect((await childrenOf(ids.lamps!)).filter(t => t === "A lamp whose answer was lost")).toHaveLength(1);
+      expect(status).toMatchObject({ state: access === "full" ? "applied" : "proposed" });
+      if (access === "propose") expect(status.said).toContain(landed[0]!.id);
+      else expect(status.uri).toContain(landed[0]!.id);
+      expect((await board.children(parent.id)).filter(n => n.text.includes("A lamp whose answer was lost")).map(n => n.id)).toEqual(landed.map(n => n.id));
       expect(await pull()).toMatchObject({ ok: true, taken: 0 });
-    } finally { gw.stop(); outlines.close(); server.close(); }
+    } finally { gw.stop(); outlines.close(); server.close(); await board.configureMcpAccess("full"); }
   }, 60_000);
 
   test("a host on another protocol is as good as away: the mirror serves, and the reason names the command to run on the laptop", async () => {
