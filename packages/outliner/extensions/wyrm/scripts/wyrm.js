@@ -1,7 +1,7 @@
 // ep0ch-script effects=write
 // Legend of the Ep0ch Wyrm: a door game in the shape of the old BBS ones. Every player is a note, every stat a chip
 // on its first line, every day's news a note under the town's Daily News. One action per press: `wyrm do=<verb>`.
-// The person's press is the consent; each run is one attributed, undoable edit (two for an ambush: both players).
+// An ambush records one fact; each player's chips cache their fold of those facts.
 
 const DAY_TURNS = 15;
 const DAY_AMBUSHES = 3;
@@ -44,7 +44,7 @@ const typeOf = note => valueOf(note, "type");
 /** Each changed chip in one write: replaced, added, or (value null) removed. */
 async function save(note, changes) {
   const properties = Object.fromEntries(Object.entries(changes).map(([key, value]) => [key, value === null || value === undefined || value === "" ? null : String(value)]));
-  await tools.outline_set_property({ ref: note.id, revision: note.revision, properties });
+  return await tools.outline_set_property({ ref: note.id, revision: note.revision, properties });
 }
 
 /** A death from an earlier day is over: that player has risen, whole, though their note says so only at their next move. */
@@ -77,13 +77,52 @@ async function worldOf(note) {
   throw new Error("this note isn't in a Wyrm town: press from a player's sheet or the town note");
 }
 
+/** Fold only events after this player's checkpoint: ordinary moves can still spend or earn the cached gold. */
+async function foldPlayer(world, id) {
+  for (;;) {
+    const note = await read(id);
+    const through = valueOf(note, "wyrm-through");
+    const ref = JSON.stringify(`((${id}))`);
+    const found = await query({ where: `parent:((${world.id})) type=wyrm-event verb=ambush (by=${ref} OR on=${ref})${through ? ` created > ${through}` : ""}`, sort: "created asc", limit: 200 });
+    if (!found.rows.length) return note;
+    const changes = {};
+    const value = key => Object.hasOwn(changes, key) ? changes[key] : valueOf(note, key);
+    const number = key => Number(value(key) ?? 0);
+    for (const row of found.rows) {
+      const event = await read(row.id), day = valueOf(event, "day");
+      if (value("day") !== day) Object.assign(changes, { day, turns: DAY_TURNS, ambushes: DAY_AMBUSHES });
+      const side = valueOf(event, "by") === `((${id}))` ? "by" : "on";
+      const won = valueOf(event, "winner") === side;
+      const hp = numberOf(event, `${side}-hp`);
+      changes.hp = hp;
+      changes.dead = hp === 0 ? 1 : null;
+      changes.gold = number("gold") + (won ? 1 : -1) * numberOf(event, "gold");
+      if (side === "by" || !won) changes.rest = null;
+      if (side === "by") {
+        changes.ambushes = number("ambushes") - 1;
+        changes.xp = number("xp") + numberOf(event, "xp");
+      }
+      changes["wyrm-through"] = event.created;
+    }
+    try {
+      const saved = await save(note, changes);
+      if (saved.outcome === "proposed") throw new Error(saved.reason);
+      // A held editor owns these chips until save; rereading the saved note would replay this same event into its draft.
+      if (saved.edits?.some(edit => edit.route === "draft")) return { ...note, foldInDraft: true };
+    } catch (error) {
+      // Another fold or move won the revision: rebuild from its chips and checkpoint, never replay our old totals.
+      if ((await read(id)).revision === note.revision) throw error;
+    }
+  }
+}
+
 async function news(world, line) {
   const board = (await q("type=wyrm-news", { under: world.id, limit: 1 })).blocks[0];
   await tools.outline_create({ parent: board?.id ?? world.id, text: `${line} [type::wyrm-event] [day::${today}]`, position: 0 });
 }
 
 // --- join: a new player under the town --------------------------------------------------------------------------------
-const here = await read(this.id);
+let here = await read(this.id);
 if (verb === "join") {
   const world = await worldOf(here);
   const count = (await q("type=wyrm-player", { under: world.id, limit: 200 })).blocks.length;
@@ -97,6 +136,12 @@ if (verb === "join") {
 
 if (typeOf(here) !== "wyrm-player") throw new Error("press this from a player's sheet (a note with [type::wyrm-player]); join from the town note");
 const world = await worldOf(here);
+// Read the log head before either balance: one next event admits the fight for both participants together.
+const ambushAfter = verb === "ambush"
+  ? (await query({ where: `parent:((${world.id})) type=wyrm-event verb=ambush`, sort: "created desc", limit: 1 })).rows[0]?.id ?? "start"
+  : null;
+here = await foldPlayer(world, here.id);
+if (here.foldInDraft) return `${here.title}'s pending ambush is folded into the open draft; save it before the next move`;
 let me = stats(here);
 const name = here.title;
 const change = {};
@@ -252,44 +297,45 @@ switch (verb) {
     if (!target) throw new Error("ambush needs target=<a sleeping player's note>");
     if (me.foe) return await finish("finish your fight first");
     if (me.ambushes <= 0) return await finish("you've ambushed enough for one day");
-    const victimNote = await read(target);
+    let victimNote = await read(target);
     if (victimNote.id === here.id) return await finish("you can't ambush yourself");
     const victimWorld = typeOf(victimNote) === "wyrm-player" ? await worldOf(victimNote).catch(() => null) : null;
     if (victimWorld?.id !== world.id) return await finish("that isn't a player in this town");
+    victimNote = await foldPlayer(world, victimNote.id);
+    if (victimNote.foldInDraft) return `${victimNote.title}'s pending ambush is folded into the open draft; save it before the next move`;
     const them = stats(victimNote);
     if (them.dead) return await finish(`${victimNote.title} is already dead`);
     if (them.rest !== "fields") return await finish(`${victimNote.title} isn't sleeping in the fields`);
-    // Two notes change and a script has no batch write (PIE-1264): check both are as read before writing either,
-    // then always save the loser's debit before the winner's credit, so a refusal between the saves loses gold
-    // instead of minting it.
-    const [mineNow, theirsNow] = await Promise.all([read(here.id), read(victimNote.id)]);
-    if (mineNow.revision !== here.revision || theirsNow.revision !== victimNote.revision)
-      return `${theirsNow.revision !== victimNote.revision ? victimNote.title : name} changed while you crept up: try again`;
-    me.ambushes -= 1; set("ambushes", me.ambushes);
     // A whole fight at once: they wake mid-swing.
     let a = me.hp, b = them.hp;
     for (let round = 0; round < 200 && a > 0 && b > 0; round++) {
       b -= Math.max(1, Math.round(roll(0.5, 1) * attack(me) - defence(them) * 0.5));
       if (b > 0) a -= Math.max(0, Math.round(roll(0.5, 1) * attack(them) - defence(me)));
     }
-    if (b <= 0) {
-      const loot = them.gold, xp = Math.round(them.level * 50 * roll(0.8, 1.2));
-      // Dead today: the victim's day is stamped so their next move doesn't count as a new morning.
-      await save(victimNote, { ...morning(victimNote, them), hp: 0, dead: 1, gold: 0, rest: null, day: today });
-      me.hp = Math.max(1, a); set("hp", me.hp);
-      // Both players saved before the news and the comment, which can fail without leaving the loot half moved.
-      const message = await finish(await gain(loot, xp, `you kill ${victimNote.title} in their sleep: +${fmt(loot)} gold, +${fmt(xp)} xp`));
-      await news(world, `${name} found ${victimNote.title} asleep in the fields and killed them, taking ${fmt(loot)} gold.`);
-      try { await tools.outline_comment({ ref: victimNote.id, whole: true, body: `${name} killed you in your sleep and took ${fmt(loot)} gold. Bank it next time.` }); } catch { /* the news has it */ }
-      return message;
+    const won = b <= 0, gold = won ? them.gold : me.gold;
+    const xp = won ? Math.round(them.level * 50 * roll(0.8, 1.2)) : 0;
+    const line = won
+      ? `${name} found ${victimNote.title} asleep in the fields and killed them, taking ${fmt(gold)} gold.`
+      : `${name} tried to kill ${victimNote.title} in their sleep. ${victimNote.title} woke up and won.`;
+    const event = { type: "wyrm-event", verb: "ambush", by: `((${here.id}))`, on: `((${victimNote.id}))`, gold,
+      winner: won ? "by" : "on", "by-hp": won ? Math.max(1, a) : 0, "on-hp": won ? 0 : Math.max(1, b), xp, day: today };
+    try {
+      await tools.outline_create({ parent: world.id,
+        requestId: `wyrm:ambush:${world.id}:${ambushAfter}`,
+        text: `${line} ${Object.entries(event).map(([key, value]) => `[${key}::${value}]`).join(" ")}` });
+    } catch (error) {
+      if (!String(error).includes("Create request ID was already used with different input")) throw error;
+      await foldPlayer(world, here.id);
+      await foldPlayer(world, victimNote.id);
+      throw new Error("Another ambush landed first; the players' sheets are refreshed. Press ambush again.");
     }
-    // The attacker's purse goes first (the debit), then the sleeper's (the credit).
-    const lost = me.gold;
-    set("hp", 0); set("dead", 1); set("gold", 0);
-    const answer = await finish(`${victimNote.title} wakes and kills you. They keep your ${fmt(lost)} gold`);
-    await save(victimNote, { ...morning(victimNote, them), hp: Math.max(1, b), gold: them.gold + lost });
-    await news(world, `${name} tried to kill ${victimNote.title} in their sleep. ${victimNote.title} woke up and won.`);
-    return answer;
+    await foldPlayer(world, here.id);
+    await foldPlayer(world, victimNote.id);
+    if (won) {
+      try { await tools.outline_comment({ ref: victimNote.id, whole: true, body: `${name} killed you in your sleep and took ${fmt(gold)} gold. Bank it next time.` }); } catch { /* the event has it */ }
+    }
+    return won ? `you kill ${victimNote.title} in their sleep: +${fmt(gold)} gold, +${fmt(xp)} xp`
+      : `${victimNote.title} wakes and kills you. They keep your ${fmt(gold)} gold`;
   }
   case "wyrm": {
     if (me.level < MAX_LEVEL) return await finish(`only a level ${MAX_LEVEL} fool hunts ${WYRM.name}`);

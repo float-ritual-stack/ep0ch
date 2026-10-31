@@ -4,7 +4,7 @@ import { createTextQuoteAnchor } from "./annotations";
 import { findPassage, isMiss, missMessage } from "@ep0ch/outline-core/passage";
 import { markdownListItems } from "./markdown-structure";
 import { checklistItems } from "./checklist-items";
-import type { AnnotationBatchReceipt, AnnotationTarget, Block, BlockAuthor, BlockCommentInput,
+import type { AnnotationBatchOperation, AnnotationBatchReceipt, AnnotationTarget, Block, BlockAuthor, BlockCommentInput,
   BlockCommentPassage, BlockProvenance } from "./types";
 
 /** Shared by source-aware readers and the service's simplified comment operation. */
@@ -61,6 +61,13 @@ export interface BlockCommentRequest {
   input: BlockCommentInput;
   author?: BlockAuthor;
   provenance?: BlockProvenance;
+}
+
+/** A whole-note comment (including a proposed create) keeps its identity when its parent is edited. */
+export function commentRequestIdentity(operation: AnnotationBatchOperation): unknown {
+  if (operation.type !== "block-comment" || operation.input.passage !== undefined) return operation;
+  const { expectedRevision, ...input } = operation.input;
+  return { ...operation, input };
 }
 
 /** The service resolves the quote and validates its revision inside the request ledger transaction. */

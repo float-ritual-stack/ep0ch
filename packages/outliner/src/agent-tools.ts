@@ -1002,19 +1002,15 @@ async function warned(client: AgentToolsClient, text: string, near?: string, sel
 /** A new block under `parent` (a reference, or `root`), at `position` among its siblings (0 first; default last). */
 export async function createBlock(
   client: AgentToolsClient,
-  input: { parent: string; text: string; position?: number },
+  input: { parent: string; text: string; position?: number; requestId?: string },
   actor: AgentActor,
-): Promise<{ id: string; ref: string; revision: number; parentId: string | null; warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
+): Promise<{ id: string; ref: string; revision: number; parentId: string | null; deduplicated?: true; warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
   const text = requireText(input.text, "The new block's text");
   if (typeof input.parent !== "string" || !input.parent.trim()) throw new WorkToolRefusal("Give the parent: a reference, or root");
   const parentId = input.parent.trim() === "root" ? null : (await writableBlock(client, input.parent)).id;
   const position = input.position === undefined ? undefined : boundedInteger(input.position, "position", 0, 0, 1_000_000);
-  let block = await client.request<Block>({ action: "create", text, parentId, author: actor.author ?? "agent", provenance: creationOf(actor) });
-  if (position !== undefined) {
-    await client.requireCompatibleService();
-    block = await client.request<Block>({ action: "move", blockId: block.id, expectedRevision: block.revision, parentId, position, mutation: mutationOf(actor) });
-  }
-  return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId, ...(await warned(client, block.text, block.id, block.id, { at: { note: block.id, revision: block.revision, actorId: actor.actorId } })) };
+  const block = await client.request<Block & { deduplicated?: true }>({ action: "create", text, parentId, position, requestId: input.requestId, author: actor.author ?? "agent", provenance: creationOf(actor) });
+  return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId, ...(block.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, block.text, block.id, block.id, { at: { note: block.id, revision: block.revision, actorId: actor.actorId } })) };
 }
 
 // ─── A view's hand-set order ────────────────────────────────────────────────

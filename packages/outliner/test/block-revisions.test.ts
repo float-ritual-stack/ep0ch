@@ -1,5 +1,6 @@
 // PIE-621: a block's earlier texts, kept when a save replaces them, so a saved note can go back (block.revisions).
 import { Database } from "bun:sqlite";
+import { migrateCreateRequests } from "../scripts/migrations/0008-create-requests";
 import { migrateRevisionTasks } from "../scripts/migrations/0007-revision-tasks";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
@@ -103,7 +104,7 @@ test("schema 6 revision texts survive the offline upgrade and subsequent yolo sa
   const before = store.revisionText(note.id, 1);
   store.close();
   const old = new Database(path);
-  old.exec("ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 6");
+  old.exec("DROP TABLE create_requests; ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 6");
   const frozen = new Database(":memory:");
   frozen.exec(SCHEMA_SQL_6);
   expect(schemaShape(old)).toEqual(schemaShape(frozen));
@@ -117,6 +118,7 @@ test("schema 6 revision texts survive the offline upgrade and subsequent yolo sa
     expect(readFileSync(path)).toEqual(original);
   } finally { held.close(); }
   migrateRevisionTasks(path);
+  migrateCreateRequests(path);
   store = new OutlinerStore(path);
   try {
     expect(store.revisionText(note.id, 1)).toEqual(before);
@@ -125,6 +127,6 @@ test("schema 6 revision texts survive the offline upgrade and subsequent yolo sa
     expect(store.revisionText(note.id, 3)).toMatchObject({ text: "Ledger\nPeas", actorId: "cowboy", taskId: "via:yolo" });
   } finally { store.close(); }
   const migrated = readFileSync(path);
-  expect(() => migrateRevisionTasks(path)).toThrow("Expected schema 6, found 7");
+  expect(() => migrateRevisionTasks(path)).toThrow("Expected schema 6, found 8");
   expect(readFileSync(path)).toEqual(migrated);
 });

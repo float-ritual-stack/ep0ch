@@ -585,8 +585,22 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(p.json).toMatchObject({ outcome: "proposed", detail: { outcome: "proposed", reason: expect.stringContaining("propose") } });
     const s = await tool("outline_set_property", { uri, key: "species", value: "common-frog", revision: before.revision });
     expect(s.json.outcome).toBe("proposed");
-    const c = await tool("outline_create", { uri, text: "Newt sighted" });
+    const c = await tool("outline_create", { uri, text: "Newt sighted", requestId: "newt-sighting" });
     expect(c.json).toMatchObject({ outcome: "proposed", said: expect.stringContaining("comment") });
+    const parent = await textOf(here, "pond-notes", HERE, ids.frogs!);
+    await boardOn(here, "pond-notes", HERE).request("update", {
+      blockId: parent.id, text: `${parent.text}\nRecount at dawn.`, expectedRevision: parent.revision, mutation: { author: "user" },
+    });
+    const retry = await tool("outline_create", { uri, text: "Newt sighted", requestId: "newt-sighting" });
+    expect(retry.isError, retry.text).toBe(false);
+    expect(retry.json.detail.thread).toBe(c.json.detail.thread);
+    expect(retry.json.detail.deduplicated).toBe(true);
+    const changed = await tool("outline_create", { uri, text: "Toad sighted", requestId: "newt-sighting" });
+    expect(changed.isError).toBe(true);
+    expect(changed.text).toContain("different input");
+    const moved = await tool("outline_create", { uri, text: "Newt sighted", position: 0, requestId: "newt-sighting" });
+    expect(moved.isError).toBe(true);
+    expect(moved.text).toContain("different input");
     const after = await textOf(here, "pond-notes", HERE, ids.frogs!);
     expect(after.text).toContain("Twelve at dusk");
     expect(after.text).not.toContain("species::");
@@ -817,13 +831,17 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const lamps = formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.lamps! });
     const q = (await tool("outline_create", { uri: lamps, text: "A tin of lamp oil" })).json;
     // A pull that made the block and stopped before its ledger heard: the ledger says applying, the block is there.
-    await boardOn(far, "attic-notes", FAR).request("create", { parentId: ids.lamps, text: "A tin of lamp oil", author: "agent", provenance: { actorId: "mcp:chat.example.test" } });
+    const farBoard = boardOn(far, "attic-notes", FAR);
+    const made = await farBoard.request<{ id: string; revision: number }>("create", { parentId: ids.lamps, text: "A tin of lamp oil", requestId: `netmail:${q.id}`, author: "agent", provenance: { actorId: "mcp:chat.example.test" } });
+    // Someone has edited the landed note before its lost answer is retried: only the receipt identifies it.
+    await farBoard.request("update", { blockId: made.id, text: "A tin of lamp oil, labelled", expectedRevision: made.revision, mutation: { author: "user" } });
     const state = join(dir, "far-state");
+    mkdirSync(state, { recursive: true });
     writeFileSync(join(state, "netmail-applied.json"), JSON.stringify({ [q.id]: { id: q.id, state: "applying", at: "2026-03-14T09:00:00.000Z" } }));
     const retried = await pull();
-    expect(retried.settled).toMatchObject([{ state: "applied", said: expect.stringContaining("found made by a pull cut off before") }]);
+    expect(retried.settled).toMatchObject([{ state: "applied", uri: expect.stringContaining(made.id) }]);
     const kids = await boardOn(far, "attic-notes", FAR).request<{ text: string }[]>("children", { parentId: ids.lamps });
-    expect(kids.filter(k => k.text === "A tin of lamp oil")).toHaveLength(1);
+    expect(kids.filter(k => k.text.startsWith("A tin of lamp oil")).map(k => k.text)).toEqual(["A tin of lamp oil, labelled"]);
 
     // The far box's host doesn't answer: nothing is settled, the write waits.
     expect((await tool("outline_comment", { uri: lamps, whole: true, body: "Trim the wicks" })).json.outcome).toBe("queued");

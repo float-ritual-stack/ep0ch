@@ -93,7 +93,7 @@ beforeAll(async () => {
   const schema = join(repo, "packages/outliner/src/schema.ts");
   writeFileSync(schema, readFileSync(schema, "utf8").replace(/^export const SCHEMA_VERSION = \d+;/m, `export const SCHEMA_VERSION = ${M};`));
   writeFileSync(join(repo, "packages/outliner/scripts/migrations", STEP_FILE), STEP);
-  // Keep 0006 and 0007: an outline still at 5 must take both before the new step.
+  // Keep the shipped steps: an outline still at 5 must take them before the new step.
   git("add", "-A"); git("commit", "-qm", `seed trays: schema ${M}`);
   newHead = git("rev-parse", "HEAD");
   git("push", "-q", "origin", "main"); git("reset", "-q", "--hard", oldHead);
@@ -165,7 +165,7 @@ store.close();
   source.run("VACUUM INTO ?", [join(outlines, "seed-bank.sqlite")]);
   source.close();
   const old = new Database(join(outlines, "seed-bank.sqlite"));
-  old.exec("DROP TABLE block_reference_candidates; ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 5");
+  old.exec("DROP TABLE create_requests; DROP TABLE block_reference_candidates; ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 5");
   old.close();
   // Compost needs only a settings rewrite: install must not decide from note changes alone.
   mkdirSync(join(outlines, "compost/extensions/readwise"), { recursive: true });
@@ -208,7 +208,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(plan.out).toContain("away, workstation");
     expect(existsSync(sshLog)).toBe(false);
     expect(readFileSync(join(outlines, ".host/clients"), "utf8")).toBe("away\n");
-    expect(plan.out).toContain(`schema 5 → ${M}: will migrate 3 outlines (allotment, compost, seed-bank) with 0006-reference-index.ts, 0007-revision-tasks.ts, ${STEP_FILE}`);
+    expect(plan.out).toContain(`schema 5 → ${M}: will migrate 3 outlines (allotment, compost, seed-bank) with 0006-reference-index.ts, 0007-revision-tasks.ts, 0008-create-requests.ts, ${STEP_FILE}`);
     expect(plan.out).toContain("systemctl --user stop outliner-host.service");
     expect(git("rev-parse", "HEAD")).toBe(oldHead);
 

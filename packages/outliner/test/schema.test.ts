@@ -10,6 +10,7 @@ import { ownerLockOf } from "../src/workspace-ownership";
 import { freshSchemaShape, schemaDifferences, schemaShape, stamp } from "../scripts/migrations/0001-stamp";
 import { SCHEMA_SQL_6, REFERENCE_INDEX_SQL_6 } from "../scripts/migrations/schema-6";
 import { migrateRevisionTasks as migrate7 } from "../scripts/migrations/0007-revision-tasks";
+import { migrateCreateRequests as migrate8 } from "../scripts/migrations/0008-create-requests";
 import { migrateReferenceIndex as migrate6 } from "../scripts/migrations/0006-reference-index";
 import { migrate as migrate5, SCHEMA_SQL_4 } from "../scripts/migrations/0005-extension-providers";
 
@@ -53,6 +54,70 @@ test("a new file gets the schema, stamp and outline instance id", () => {
   expect(reopened.outlineInstanceId).toBe(id);
   expect(reopened.queryBlocks({ filters: [{ key: "system-view", value: "inbox" }], limit: 2 }).blocks).toHaveLength(1);
   reopened.close();
+});
+
+test("schema 7 requires 0008; a served file stays untouched, and migrated create receipts survive reopening", async () => {
+  const path = join(directory(), "outliner.sqlite");
+  const old = new Database(path);
+  old.exec(SCHEMA_SQL_6);
+  insertOutlineInstanceId(old);
+  old.query("INSERT INTO blocks (id, position, text, author, created_at, updated_at) VALUES (?, 0, 'Greenhouse log', 'user', '2026-10-01', '2026-10-01')").run("11111111-1111-4111-8111-111111111111");
+  old.exec("PRAGMA user_version = 6");
+  old.close();
+  migrate7(path);
+  const before = readFileSync(path);
+  expect(() => new OutlinerStore(path)).toThrow(/schema version 7.*only schema version 8.*0008-create-requests\.ts/s);
+  const migrate = async () => {
+    const child = Bun.spawn(["bun", join(import.meta.dir, "../scripts/migrations/0008-create-requests.ts"), path], { stdout: "pipe", stderr: "pipe" });
+    return { code: await child.exited, err: await new Response(child.stderr).text() };
+  };
+  const held = new Database(ownerLockOf(path).path);
+  held.exec("BEGIN IMMEDIATE");
+  try { expect(await migrate()).toMatchObject({ code: 1, err: expect.stringContaining("already owned") }); }
+  finally { held.close(); }
+  expect(readFileSync(path).equals(before)).toBe(true);
+  expect(await migrate()).toMatchObject({ code: 0 });
+  expect(userVersion(path)).toBe(8);
+  let store = new OutlinerStore(path);
+  expect(store.require("11111111-1111-4111-8111-111111111111")).toMatchObject({ text: "Greenhouse log", createdAt: "2026-10-01", revision: 1 });
+  const first = store.create("Vent opened", null, "user", undefined, { requestId: "vent-1" });
+  store.close();
+  store = new OutlinerStore(path);
+  try {
+    expect(store.create("Vent opened", null, "user", undefined, { requestId: "vent-1" })).toMatchObject({ id: first.id, deduplicated: true });
+    expect(schemaDifferences(schemaShape(store.database), freshSchemaShape())).toEqual([]);
+  } finally { store.close(); }
+  const migrated = readFileSync(path);
+  expect(await migrate()).toMatchObject({ code: 1, err: expect.stringContaining("Expected schema 7, found 8") });
+  expect(readFileSync(path).equals(migrated)).toBe(true);
+});
+
+test.each([7, 8])("a failed 0008 migration leaves committed WAL bytes untouched at schema %i", async (version) => {
+  const path = join(directory(), "outliner.sqlite");
+  const store = new OutlinerStore(path);
+  const note = store.create("Before interruption");
+  store.close();
+  const writer = Bun.spawn(["bun", "-e", `
+    import { Database } from "bun:sqlite";
+    const db = new Database(process.argv[1]);
+    db.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0");
+    db.query("UPDATE blocks SET text = ? WHERE id = ?").run("Committed before interruption", process.argv[2]);
+    db.exec("PRAGMA user_version = " + process.argv[3]);
+    process.kill(process.pid, "SIGKILL");
+  `, path, note.id, String(version)], { env: { ...process.env }, stdout: "pipe", stderr: "pipe" });
+  await writer.exited;
+  expect(writer.signalCode).toBe("SIGKILL");
+  const before = readFileSync(path), wal = readFileSync(`${path}-wal`);
+  expect(wal.length).toBeGreaterThan(32);
+  const child = Bun.spawn(["bun", join(import.meta.dir, "../scripts/migrations/0008-create-requests.ts"), path], {
+    env: { ...process.env }, stdout: "pipe", stderr: "pipe",
+  });
+  const code = await child.exited, err = await new Response(child.stderr).text();
+  expect({ code, err }).toMatchObject({ code: 1, err: expect.stringContaining(version === 8 ? "Expected schema 7, found 8" : "already exists") });
+  expect({
+    database: readFileSync(path).equals(before),
+    wal: existsSync(`${path}-wal`) && readFileSync(`${path}-wal`).equals(wal),
+  }).toEqual({ database: true, wal: true });
 });
 
 test("a database from before schema versions is refused, untouched, with the command that upgrades it", () => {
@@ -138,6 +203,7 @@ test("a schema 6 database missing its instance id is refused with the exact repa
   expect(outlineInstanceId(path)).toBe(repaired.outlineInstanceId);
   expect(migrate6(path)).toEqual({ migrated: false, outlineInstanceId: repaired.outlineInstanceId });
   migrate7(path);
+  migrate8(path);
   new OutlinerStore(path).close();
 });
 
@@ -157,6 +223,7 @@ test("the version 5 migration moves Jira onto the extension providers as ext:jir
   }
   migrate6(path);
   migrate7(path);
+  migrate8(path);
   const store = new OutlinerStore(path);
   expect(store.get(noteId)?.text).toBe("Kept through the migration");
   expect(store.readMarks.mark("user", [noteId])).toBe(1);
@@ -360,7 +427,7 @@ test("two imports to one name: the one that finds it claimed is refused and touc
 });
 
 describe("the refusal says the exact commands for this machine (PIE-617)", () => {
-  const SCRIPT = join(import.meta.dir, "../scripts/migrations/0007-revision-tasks.ts");
+  const SCRIPT = join(import.meta.dir, "../scripts/migrations/0008-create-requests.ts");
   const at = (folder: string, name: string, version: number) => {
     const path = join(folder, `${name}.sqlite`);
     const database = new Database(path);
@@ -442,6 +509,7 @@ test("schema 6 indexes existing references and keeps them current through edits 
   migrated.close();
   frozen.close();
   migrate7(path);
+  migrate8(path);
   let store = new OutlinerStore(path);
   try {
     const links = (id: string) => store.queryBacklinks({ targetBlockId: id, limit: 10 });
