@@ -57,12 +57,12 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   const picker = completionPicker(s);
   picker.sel = s.index;
   const selected = s.items[s.index]!;
-  // The docs panel (PIE-1339, PIE-1245): the lit row's docs wrapped at the panel's own width, then what it draws; a
-  // reference's own reader once it's read (enrich). Every line is kept, so shift+up/down and the wheel scroll it.
+  // Show what a choice draws before its longer docs can push it out of view. Every line stays scrollable; a
+  // reference uses its own reader once it's read (enrich).
   const preview = (pw: number, ph: number) => {
     if (selected.blockId && selected.preview) { s.previewLines = undefined; return selected.preview(pw, ph); }
     const docs = selected.docs ?? (selected.preview ? "" : selected.insertion);
-    const lines = [...(docs ? drawVariation({ use: docs, values: {} }, pw) : []), ...(selected.preview?.(pw, 10000) ?? [])];
+    const lines = [...(selected.preview?.(pw, 10000) ?? []), ...(docs ? drawVariation({ use: docs, values: {} }, pw) : [])];
     s.previewLines = lines;
     // Not clamped here: the room rule asks once to measure, at a height other than the panel's (previewBy clamps).
     const top = s.previewTop ?? 0;

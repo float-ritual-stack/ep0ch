@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Completion shows the example and saves the chosen query (PIE-1479)
+
+- **Preview before inserting:** component completion shows its rendered example before the source, properties and longer docs. The kitchen sink's library picker previews Tabs, copies its drawn text and inserts a variation through the same actions.
+- **Keep the completed answer:** Tab on a settings-card query refreshes the answer row immediately, so Enter saves the completed clause even before the next repaint.
+- **Run:** try the kitchen sink's settings, facets and library sections. No protocol, grammar or schema change.
+
 ### Collection cards peek while you browse (PIE-849)
 
 - A collection with `open=float` previews each pick in a following float while the gallery keeps your keys. Enter reads it, Esc closes it, and its ⤢ lands it beside the view.
