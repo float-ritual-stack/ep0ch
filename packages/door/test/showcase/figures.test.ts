@@ -7,7 +7,9 @@ import { visible } from "../../src/style";
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { osc52 } from "../../src/surface/selection";
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { readContentSize } from "@ep0ch/outline-core/media-line";
+import { NoteSurface, type SurfaceHost } from "../../src/surface/note";
 import { join } from "node:path";
 import { App } from "../../src/app";
 import { liveBoard } from "../../src/live";
@@ -34,6 +36,125 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
   const { scratch, written, press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
+
+  const sizingSurfaces: NoteSurface[] = [];
+  afterEach(() => { for (const surface of sizingSurfaces.splice(0)) surface.dispose(); });
+  const timeline = "::graph-timeline\n---\ntitle: Resize log\nquery: type=showcase-landing\ndate: landed\nheight: 4\n---\n::";
+  const sizingReader = async (body: string) => {
+    const note = await board.createBlock(null, `Sizing review\n\n${body}`);
+    const surface = new NoteSurface(); sizingSurfaces.push(surface);
+    const host: SurfaceHost = { ctx: app, redraw() {}, navigate() {} };
+    surface.show(note, host);
+    const draw = () => surface.render(100, 60, host).lines.map(plain);
+    await until(() => draw().some(l => l.includes("Landing 1") || l.includes("Check the latch")), "the sizing figure's rows");
+    const bottom = () => {
+      const rows = draw(), y = rows.findIndex(l => l.includes("↔ fit"));
+      expect(y).toBeGreaterThan(-1);
+      return { x: rows[y]!.indexOf("+") + 8, y };
+    };
+    return { note, surface, host, draw, bottom };
+  };
+
+  test("review 1: a timeline inside a callout saves height and width drags within its frame", async () => {
+    const { note, surface, host, bottom, draw } = await sizingReader(`> [!note] Landings\n${timeline.split("\n").map(l => `> ${l}`).join("\n")}`);
+    const { x, y } = bottom();
+    surface.press(x, y, host); surface.drag(x, y + 3, host); surface.release(x, y + 3, host);
+    await until(() => !surface.figureSizing.drag, "the nested drag finishes");
+    await surface.inTurn(async () => {});
+    expect((await board.get(note.id))!.text).toContain("> height: 7");
+    const rows = draw(), top = rows.findIndex(l => l.includes("RESIZE LOG")), side = rows[top]!.lastIndexOf("+");
+    surface.press(side, top + 1, host); surface.drag(side + 8, top + 1, host); surface.release(side + 8, top + 1, host);
+    await until(() => !surface.figureSizing.drag, "the nested width drag finishes");
+    expect((await board.get(note.id))!.text).toContain("> width: full");
+    expect(draw().find(l => l.includes("RESIZE LOG"))!.indexOf("+")).toBe(rows[top]!.indexOf("+"));
+  });
+
+  test.each(["before resize", "while queued"])("review 3: a changed figure refuses resizing %s", async when => {
+    const { note, surface, host, draw } = await sizingReader(timeline);
+    const changed = note.text.replace(timeline, `${timeline.replace("Resize log", "Other log")}\n\n${timeline}`);
+    const held = Promise.withResolvers<void>();
+    const preceding = surface.inTurn(async () => {
+      await held.promise;
+      await board.update(note.id, changed, note.revision!);
+    });
+    if (when === "before resize") { held.resolve(); await preceding; }
+    const resizing = surface.act("figure.size", { figure: "1", height: 7 }, host, USER).then(() => "saved", e => String(e));
+    // The board's socket orders this read after the action's pre-turn read on the old implementation.
+    await board.get(note.id);
+    held.resolve(); await preceding;
+    const result = await resizing;
+    expect(draw().join("\n")).toContain("OTHER LOG");
+    expect(result).toMatch(/changed.*resize again/i);
+    expect((await board.get(note.id))!.text).toBe(changed);
+  });
+
+  test("review 4: clicking the footer toggles a figure from fit to full", async () => {
+    const { note, surface, host, draw } = await sizingReader(timeline);
+    const rows = draw(), y = rows.findIndex(l => l.includes("↔ fit")), x = rows[y]!.indexOf("↔ fit") + 2;
+    surface.press(x, y, host); surface.release(x, y, host);
+    await surface.inTurn(async () => {});
+    expect((await board.get(note.id))!.text).toContain("width: full");
+  });
+
+  test("review 5: shifted arrows scroll inside a figure and keep the reading position", async () => {
+    const { surface, host, draw } = await sizingReader(timeline);
+    const elements = (await surface.act("elements", {}, host, USER) as any).elements;
+    const control = elements.find((e: any) => e.kind === "figure" && e.label.includes("↔"));
+    await surface.act("element.select", { n: control.n }, host, USER);
+    const before = draw(), reading = surface.position.reading, scroll = surface.scroll;
+    const y = before.findIndex(l => l.includes("RESIZE LOG"));
+    expect(before.join("\n")).not.toContain("Landing 4");
+    for (let n = 0; n < 4; n++) surface.key({ kind: "down", shift: true }, host);
+    const after = draw();
+    expect((await surface.act("elements", {}, host, USER) as any).elements.find((e: any) => e.current)).toMatchObject({ kind: "figure", label: control.label });
+    expect(after.join("\n")).toContain("Landing 4");
+    expect(surface.position.reading).toBe(reading);
+    expect(surface.scroll).toBe(scroll);
+    expect(after.findIndex(l => l.includes("RESIZE LOG"))).toBe(y);
+  });
+
+  test("review 6: showing another note cancels a held figure drag", async () => {
+    const { note, surface, host, bottom, draw } = await sizingReader(timeline);
+    const other = await board.createBlock(null, `Another note\n\n${timeline}`);
+    const { x, y } = bottom();
+    surface.press(x, y, host); surface.drag(x, y + 3, host);
+    expect(surface.figureSizing.drag).not.toBeNull();
+    surface.show(other, host);
+    await until(() => draw().some(l => l.includes("Landing 1")), "the second note's figure answers");
+    surface.release(x, y + 3, host);
+    await until(() => !surface.figureSizing.drag, "the released drag finishes");
+    await surface.inTurn(async () => {});
+    expect((await board.get(other.id))!.text).toBe(other.text);
+    expect((await board.get(note.id))!.text).toBe(note.text);
+  });
+
+  test("review 7: a full-width figure keeps its bottom rows aligned with the status picker open", async () => {
+    await board.createBlock(null, "Check the latch [sizing-job::yes] [status::todo]");
+    const { surface, host, draw } = await sizingReader("::graph-check\n---\ntitle: Wide checks\nquery: sizing-job=yes\ndone: status=done\nwidth: full\n---\n::");
+    const before = draw(), top = before.find(l => l.includes("WIDE CHECKS"))!;
+    await surface.act("task.menu", { n: 1 }, host, USER);
+    await until(() => draw().some(l => l.includes("Mark done")), "the step's status picker");
+    const after = draw(), foot = after.find(l => l.includes("↔ full"))!;
+    expect(after.findIndex(l => l.includes("Mark done"))).toBeLessThan(after.indexOf(foot));
+    expect(surface.render(100, 60, host).wide?.some(r => r.row === after.indexOf(foot))).toBe(true);
+    expect(foot.indexOf("+")).toBe(top.indexOf("+"));
+    expect(foot.lastIndexOf("+")).toBe(top.lastIndexOf("+"));
+  });
+
+  test("review 8: an absurd figure height draws at 200 rows with a warning", async () => {
+    // Fail before drawing on uncapped code: the regression must not allocate a billion rows.
+    expect(readContentSize({ height: 1_000_000_000 }).height).toBe(200);
+    const note = await board.createBlock(null, `Tall figure\n\n${timeline.replace("height: 4", "height: 1000000000")}`);
+    const own = new SocketBoard(scratch.sock);
+    try {
+      const rows = (await drawNote(own, note.id, 100))!.map(plain);
+      expect(rows.join("\n")).toMatch(/height: 1000000000.*200/);
+      const start = rows.findIndex(l => l.includes("RESIZE LOG"));
+      const end = rows.findIndex((l, i) => i > start && /\+[┄─╌·.]{4}/.test(l));
+      expect(end - start + 1).toBe(204);
+      expect((await board.get(note.id))!.text).toBe(note.text);
+    } finally { own.close(); }
+  });
 
   test("PIE-1244: landings read in date order with human times and their parent", async () => {
     const own = new SocketBoard(scratch.sock);

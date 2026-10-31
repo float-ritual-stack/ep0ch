@@ -13,9 +13,10 @@ import type { PropSchema } from "./component-schema";
 
 export type ContentWidth = "fit" | "full";
 export interface ContentSize { width: ContentWidth; height?: number }
+export const MAX_CONTENT_HEIGHT = 200;
 export const CONTENT_SIZE_PROPS: readonly PropSchema[] = [
   { key: "width", where: "yaml", type: "enum", default: "fit", meaning: "fit keeps the reading measure; full fills the available width", values: [{ value: "fit", meaning: "inside the reading measure" }, { value: "full", meaning: "the whole available width" }] },
-  { key: "height", where: "yaml", type: "int", min: 1, meaning: "height in terminal rows", samples: ["8", "12"] },
+  { key: "height", where: "yaml", type: "int", min: 1, max: MAX_CONTENT_HEIGHT, meaning: "height in terminal rows", samples: ["8", "12"] },
 ];
 
 /** The sizing words images and figures read at their source boundary. */
@@ -25,7 +26,8 @@ export function readContentSize(props: { width?: unknown; height?: unknown; size
   if (width !== "fit" && width !== "full") problems.push(`width: ${width} isn't fit or full`);
   const height = props.height === undefined ? undefined : Number(props.height);
   if (height !== undefined && (!Number.isSafeInteger(height) || height < 1)) problems.push(`height: ${props.height} isn't a positive number of rows`);
-  return { width: width === "full" ? "full" : "fit", ...(height !== undefined && Number.isSafeInteger(height) && height > 0 ? { height } : {}), problems };
+  else if (height !== undefined && height > MAX_CONTENT_HEIGHT) problems.push(`height: ${props.height} exceeds ${MAX_CONTENT_HEIGHT} rows; drawn at ${MAX_CONTENT_HEIGHT}`);
+  return { width: width === "full" ? "full" : "fit", ...(height !== undefined && Number.isSafeInteger(height) && height > 0 ? { height: Math.min(height, MAX_CONTENT_HEIGHT) } : {}), problems };
 }
 
 /** What a media line names: an image, a video or an artifact. */

@@ -1450,7 +1450,7 @@ export class NoteSurface {
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m && m.id === this.msg?.id && host.ctx.outline === this.msg.address?.outline) m.address ??= this.msg.address;
     this.use(host);
-    if (m?.id !== this.msg?.id) { this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
+    if (m?.id !== this.msg?.id) { this.figureSizing.cancel(); this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.modes.drop("revision"); this.foldsOf = m?.id ?? null; this.zoom = null; this.zoomTurn++; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
     this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
@@ -2762,7 +2762,7 @@ export class NoteSurface {
       figures: this.printed ? { ...env.figures, all: true, seen: f => figures.push(f) } : {
         ...env.figures, ui: key => ({ ...this.figureUI.get(key), size: this.figureSizing.preview(key) }),
         tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.tab ?? (c.size ? "↔ fit/full" : `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim()) }, x),
-        seen: f => figures.push({ ...f, line: f.note === m.id && f.line !== undefined ? lines[f.line] : f.line }),
+        seen: f => figures.push({ ...f, revision: m.revision, line: f.note === m.id && f.line !== undefined ? lines[f.line] : f.line }),
       },
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
       ...additions,
@@ -4868,6 +4868,8 @@ export class NoteSurface {
     // W zooms into the part the [ ] position or the reading line is in; esc then returns to the whole note (PIE-780).
     const zk = modeBinding(ZOOM_KEYS, k);
     if (zk && (zk.args?.on !== false || this.zoom) && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("element.zoom", zk.args ?? {}, host); return true; }
+    const fk = this.figureKey(k);
+    if (fk) { void this.runKey(fk.name, fk.args as never, host); return true; }
     if (isUp(k) || isDown(k)) { void this.runKey("reading.step", { by: isUp(k) ? -1 : 1 }, host); return true; }
     // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
     // ctrl+z undoes the last step change made here.
@@ -4893,9 +4895,6 @@ export class NoteSurface {
     if (k.kind === "pgdn" || c === " " || k.kind === "pgup") { void this.runKey("scroll", { by: k.kind === "pgup" ? -15 : 15 }, host); return true; }
     // Home to the top; End or G to the last line, then (pressed again) past it to the middle (PIE-622).
     if (k.kind === "home" || k.kind === "end" || c === "G") { void this.runKey("scroll", { to: k.kind === "home" ? "top" : "end" }, host); return true; }
-    // A live figure's element is current: its tabs, its density (figureKey).
-    const fk = this.figureKey(k);
-    if (fk) { void this.runKey(fk.name, fk.args as never, host); return true; }
     // An image is current (PIE-532): its size, where it sits, the header (imageKey).
     const ik = this.imageKey(k);
     if (ik) { void this.runKey(ik.name, ik.args as never, host); return true; }
@@ -8250,7 +8249,7 @@ export class NoteSurface {
     if (!hit) return { doc, picks: null };
     let at = hit.line + 1;
     // A step's choice goes under its item; a callout's right under its top edge.
-    if (hit.ref && !hit.ref.via) while (at < doc.source.length && doc.source[at] === doc.source[hit.line]) at++;
+    if (hit.ref && !hit.ref.via && !hit.ref.live) while (at < doc.source.length && doc.source[at] === doc.source[hit.line]) at++;
     const { lines, rows } = hit.callout ? calloutPanel(hit.callout, P, W) : pickerPanel(hit.ref!, P.list.items, P.list.sel, P.note, P.busy, W);
     const { doc: out } = withRows(doc, [{ at, lines }]);
     return { doc: out, picks: { at, lines: lines.length, rows: rows.map(r => at + r) } };
@@ -8627,7 +8626,8 @@ export class NoteSurface {
       }
     }
     this.dragging = false;
-    if (!this.editing && !this.floatAt(x, y, host) && this.figureSizing.edge(x, y)) { void this.runKey("figure.resize", { phase: "start", x, y }, host); return; }
+    const control = this.hitAt(x, y - (this.drawn?.heroRows ?? 0));
+    if (!this.editing && !(control && "link" in control && control.link.role === "figure") && !this.floatAt(x, y, host) && this.figureSizing.edge(x, y)) { void this.runKey("figure.resize", { phase: "start", x, y }, host); return; }
     if (this.placementMenu) { this.gesture.press(x, y); return; }
     // The header image (PIE-1361): its bottom row sizes it, the picture above that moves its focus.
     // Its rows as drawn: under a title written over it, the picture runs on under the title's rows.
@@ -9672,7 +9672,7 @@ function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly stri
       links: [...doc.links.map(l => ({ ...l, line: mv(l.line) })), ...inserts.flatMap((p, i) => (p.links ?? []).map(l => ({ ...l, line: starts[i]! + l.line })))],
       images: [...doc.images.map(im => ({ ...im, line: mv(im.line) })), ...inserts.flatMap((p, i) => (p.images ?? []).map(im => ({ ...im, line: starts[i]! + im.line })))],
       media: doc.media.map(x => ({ ...x, row: mv(x.row) })),
-      parts: doc.parts?.map(p => ({ ...p, row: mv(p.row) })),
+      parts: doc.parts?.map(p => ({ ...p, row: mv(p.row), ...(p.rows ? { rows: mv(p.row + p.rows - 1) + 1 - mv(p.row) } : {}) })),
       heads: doc.heads.map(h => ({ ...h, row: mv(h.row), ...(h.rows ? { rows: mv(h.row + h.rows - 1) + 1 - mv(h.row) } : {}) })),
       ...(doc.regions ? { regions: doc.regions.map(r => ({ ...r, row: mv(r.row), rows: mv(r.row + r.rows - 1) + 1 - mv(r.row) })) } : {}),
       trims: new Map([...doc.trims].map(([r, t]) => [mv(r), t])),

@@ -2,7 +2,7 @@ import { ActionRefused, def } from "./actions";
 import type { On } from "./note";
 import { keyTable } from "./keymap";
 import { modeActionKeys, type ModeKey } from "./modes";
-import { resizeEnded, resizeHeld } from "../resize";
+import { resizeHeld } from "../resize";
 import { readContentSize } from "@ep0ch/outline-core/media-line";
 import { DENSITIES, isDensity, type Density } from "../graphs";
 
@@ -81,7 +81,7 @@ export const figureActions = {
   "figure.size": def({
     summary: "set a figure's height in rows or width fit/full in its YAML; with neither, toggle fit/full. One normal edit, ctrl+z undoes",
     keys: `${modeActionKeys([FIGURE_SIZE_KEYS], "figure.size")}, ⏎ on its ↔ control`,
-    touches: "nothing", replay: "safe",
+    touches: "draft", draft: "write", replay: "ask",
     args: {
       figure: { type: "string", optional: true, about: "the figure's number or title (figures lists them)" },
       height: { type: "number", optional: true, about: "the rows inside the frame; shift+up/down scrolls them" },
@@ -90,14 +90,18 @@ export const figureActions = {
     examples: [{ act: "figure.size figure=1 height=8 width=full", does: "shows eight rows inside a figure spanning the tile, saving both in its YAML" }],
     async run({ figure, height, width }, { surface, host }: On, actor) {
       const f = surface.figureNamed(figure, "any");
-      const size = { height, width: width ?? (height === undefined ? f.size.width === "full" ? "fit" : "full" : undefined) };
-      const checked = readContentSize(size);
-      if (checked.problems.length) throw new ActionRefused(checked.problems.join(" · "));
-      const m = await host.ctx.board.get(f.note ?? surface.requireNote().id);
-      if (!m || f.line === undefined) throw new ActionRefused("open the figure's note to resize it");
-      const values = Object.fromEntries(Object.entries(size).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]));
       return surface.inTurn(async () => {
-        const result = await surface.writeFigureProperties(m, f.line!, values, host, actor);
+        const m = await host.ctx.board.get(f.note ?? surface.requireNote().id);
+        if (!m || f.line === undefined) throw new ActionRefused("open the figure's note to resize it");
+        if (m.revision !== f.revision) {
+          surface.refresh(m); host.redraw();
+          throw new ActionRefused("the figure's note changed; resize again after it redraws");
+        }
+        const size = { height, width: width ?? (height === undefined ? f.size.width === "full" ? "fit" : "full" : undefined) };
+        const checked = readContentSize(size);
+        if (checked.problems.length) throw new ActionRefused(checked.problems.join(" · "));
+        const values = Object.fromEntries(Object.entries(size).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]));
+        const result = await surface.writeFigureProperties(m, f.line, values, host, actor);
         surface.noteAgent(actor, `resized ${f.title}`);
         host.ctx.flash("saved figure · ctrl+z undoes"); host.redraw();
         return result;
@@ -134,7 +138,7 @@ export const figureActions = {
         if (phase === "end" && d && !d.saving) {
           d.saving = true;
           try { if (d.now) await surface.act("figure.size", { figure: String(d.frame.figure.n), ...d.now }, host, actor); }
-          finally { sizing.drag = null; resizeEnded(); host.redraw(); }
+          finally { sizing.cancel(); host.redraw(); }
         }
       } else throw new ActionRefused("phase is start, move or end");
       host.redraw();

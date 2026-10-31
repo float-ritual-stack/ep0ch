@@ -1328,6 +1328,7 @@ function artifactReference(value) {
 var isArtifactName = (value) => artifactReference(value) !== null;
 
 // packages/outline-core/src/media-line.ts
+var MAX_CONTENT_HEIGHT = 200;
 function readContentSize(props) {
   const problems = [];
   const width = props.width ?? (props.size === "full" ? "full" : "fit");
@@ -1336,7 +1337,9 @@ function readContentSize(props) {
   const height = props.height === undefined ? undefined : Number(props.height);
   if (height !== undefined && (!Number.isSafeInteger(height) || height < 1))
     problems.push(`height: ${props.height} isn't a positive number of rows`);
-  return { width: width === "full" ? "full" : "fit", ...height !== undefined && Number.isSafeInteger(height) && height > 0 ? { height } : {}, problems };
+  else if (height !== undefined && height > MAX_CONTENT_HEIGHT)
+    problems.push(`height: ${props.height} exceeds ${MAX_CONTENT_HEIGHT} rows; drawn at ${MAX_CONTENT_HEIGHT}`);
+  return { width: width === "full" ? "full" : "fit", ...height !== undefined && Number.isSafeInteger(height) && height > 0 ? { height: Math.min(height, MAX_CONTENT_HEIGHT) } : {}, problems };
 }
 var ALIGNS = ["left", "center", "right"];
 var MEDIA_KEY = /^(img|image|video|artifact)$/i;

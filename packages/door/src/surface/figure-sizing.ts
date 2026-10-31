@@ -1,7 +1,7 @@
 import type { ContentSize } from "@ep0ch/outline-core/media-line";
 import type { Doc, DocPart } from "../doc";
 import type { FigureInfo } from "../graphs";
-import { resizeHeld } from "../resize";
+import { resizeEnded, resizeHeld } from "../resize";
 import { C, fg, pad, RESET } from "../style";
 import type { InlineList } from "./inline-list";
 
@@ -18,8 +18,9 @@ export class FigureSizing {
     this.frames = (doc.parts ?? []).flatMap(p => {
       const figure = figures.find(f => f.key === p.figure);
       if (!figure) return [];
-      const y = top + p.row - scroll + heroRows;
-      return y + figure.rows > top + heroRows && y < bottom + heroRows ? [{ figure, x: p.full ? fullCol : col, y, cols: figure.cols, rows: figure.rows, from: Math.max(y, top + heroRows), to: Math.min(y + figure.rows, bottom + heroRows) }] : [];
+      const y = top + p.row - scroll + heroRows, rows = p.rows!, cols = p.cols!;
+      const x = (p.full ? fullCol : col) + p.col - (Math.max(16, cols) - 3);
+      return y + rows > top + heroRows && y < bottom + heroRows ? [{ figure, x, y, cols, rows, from: Math.max(y, top + heroRows), to: Math.min(y + rows, bottom + heroRows) }] : [];
     });
   }
   edge(x: number, y: number) {
@@ -27,6 +28,7 @@ export class FigureSizing {
     return frame && { frame, axis: y === frame.y + frame.rows - 1 ? "height" as const : "width" as const };
   }
   preview(key: string) { return this.drag?.frame.figure.key === key ? this.drag.now : undefined; }
+  cancel() { if (this.drag) { this.drag = null; resizeEnded(); } }
   move(x: number, y: number) {
     const d = this.drag;
     if (!d || d.saving || x === d.x && y === d.y && !d.now) return;

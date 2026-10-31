@@ -160,7 +160,7 @@ describe("the actor rule, for every action (PIE-514)", () => {
       expect({ n, person: !!of(n).person }).toEqual({ n, person: true });
     }
     // The person's draft: the draft session's rule.
-    for (const [n, use] of [["edit.save", "leave"], ["edit.close", "leave"], ["session.leave", "leave"], ["comment.send", "leave"], ["edit.text", "replace"], ["props.edit", "write"], ["task.status", "write"], ["draft.newline", "type"], ["comment.write", "text"], ["complete", "type"]] as const) {
+    for (const [n, use] of [["edit.save", "leave"], ["edit.close", "leave"], ["session.leave", "leave"], ["comment.send", "leave"], ["edit.text", "replace"], ["props.edit", "write"], ["task.status", "write"], ["figure.size", "write"], ["draft.newline", "type"], ["comment.write", "text"], ["complete", "type"]] as const) {
       expect({ n, t: of(n).touches, use: of(n).draft }).toEqual({ n, t: "draft", use });
     }
     // A lookup reads; complete insert= types at the cursor (round 3, deferred).

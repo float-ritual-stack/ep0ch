@@ -88,7 +88,7 @@ const TITLE_LINES: Record<Density, number> = { compact: 1, cozy: 2, comfortable:
 /** A figure's control a reader draws: one of a tabs figure's tabs, or its density (a table's too). */
 export interface FigureControl { figure: string; tab?: string; density?: true; size?: true }
 /** What a reader learns of each figure it drew: which it is, its tabs and their counts, and what's chosen now. */
-export interface FigureInfo { key: string; n: number; kind: string; title: string; density: Density; tabs?: { value: string; count: number }[]; tab?: string; size: ContentSize; cols: number; rows: number; line?: number; note?: string }
+export interface FigureInfo { key: string; n: number; kind: string; title: string; density: Density; tabs?: { value: string; count: number }[]; tab?: string; size: ContentSize; cols: number; rows: number; line?: number; note?: string; revision?: number }
 
 /**
  * A reader's hold on its figures (src/surface/note.ts): what the person (or an agent) chose for each, by the figure's

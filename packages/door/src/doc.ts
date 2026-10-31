@@ -470,6 +470,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     });
     for (const [r, j] of sub.wraps ?? []) wraps.set(base + r, j);
     for (const r of sub.regions ?? []) regions.push({ ...r, row: base + r.row });
+    // A child's full width stays inside its parent's inset.
+    for (const p of sub.parts ?? []) parts.push({ ...p, row: base + p.row, line: off + p.line, col: dx + p.col, full: false });
     for (const b of sub.blocks) if (b.kind !== "span") blocks.push({ ...b, row: base + b.row, line: b.line + off, end: b.end + off, inner: [b.inner[0] + off, b.inner[1] + off], strip: b.strip + quoted, col: b.col + dx });
   };
   const adoptMedia = (sub: Doc, base: number, dx: number, off: number) => {

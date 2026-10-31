@@ -8,6 +8,7 @@
 import { figureSource } from "./figure-props";
 import { componentBlocks, noteStructure } from "./component-block";
 import type { ShapePatch } from "./write-shape";
+import { quoteDepth, stripQuotes } from "./callouts";
 
 const ITEM = /^([ \t]*)(?:[-*+]|\d+[.)])[ \t]+(.*)$/;
 const DATED = /^(\*\*|\*)?(\d{4}-\d{2}(?:-\d{2})?)\b\s*(?::|—|–|-)?\s*(.+?)\1?$/;
@@ -133,12 +134,14 @@ export function withFigureProp(body: readonly string[], key: string, value: stri
 
 /** One edit for a figure's settings, whether changed in Sources or by dragging its frame. */
 export function figurePropertyPatch(text: string, line: number, values: Readonly<Record<string, string>>) {
-  const lines = text.split("\n"), block = componentBlocks(lines).find(b => b.start === line)!;
-  let body = lines.slice(line + 1, block.end);
+  const lines = text.split("\n"), depth = quoteDepth(lines[line]!).depth;
+  const source = lines.map(l => stripQuotes(l, depth)), block = componentBlocks(source).find(b => b.start === line)!;
+  const prefix = lines[line]!.slice(0, lines[line]!.length - source[line]!.length);
+  let body = source.slice(line + 1, block.end);
   for (const [key, value] of Object.entries(values)) body = withFigureProp(body, key, value);
   return {
     observed: lines.slice(line, block.end + 1).join("\n"),
-    replacement: [lines[line]!, ...body, lines[block.end]!].join("\n"),
+    replacement: [lines[line]!, ...body.map(l => prefix + l), lines[block.end]!].join("\n"),
     start: lines.slice(0, line).join("\n").length + (line ? 1 : 0),
   };
 }
