@@ -97,7 +97,7 @@ export type HostMode = "beside" | "over" | "none";
 /** Where an alt-open lands: beside, a tab, the wired tile itself, or the first reader that isn't pinned (`first-unheld`). */
 export type AltRule = "beside" | "tab" | "tile" | "first-unheld";
 export const ALT_RULES: readonly AltRule[] = ["beside", "tab", "tile", "first-unheld"];
-/** Where an open with no link lands: the first reader that isn't pinned, the next column of the flow it's in, or a reader beside it. */
+/** Where opens land after a tile's wire and its container's opensInto. */
 export const OPEN_RULES = ["reader", "next", "beside", "float", "full"] as const;
 export type OpenRule = typeof OPEN_RULES[number];
 export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "altOpens", "host", "readable", "shuts", "agents", "spines", "min-width"] as const;

@@ -110,7 +110,7 @@ const POLICY_ARGS = {
   locked: { type: "boolean", optional: true, about: "its shape is fixed, its contents live" },
   altOpens: { type: "string", optional: true, choices: ALT_RULES, about: "alt-open rule (default beside); alt readers keep what fits and older ones fold" },
   opensInto: { type: "string", optional: true, kind: "tile", choices: [""], about: "the tile its tiles' opens land in (empty clears)" },
-  opens: { type: "string", optional: true, choices: OPEN_RULES, about: "the open rule: reader (the first reader that isn't pinned, the default), next (a new column after the tile's own, in a flow) beside (a reader beside the tile), float (a follower over it), or full (zoom the opened reader)" },
+  opens: { type: "string", optional: true, choices: OPEN_RULES, about: "the open rule: reader (the first reader that isn't pinned, the default), next (a new column after the tile's own, in a flow), beside (a reader beside the tile), float (a follower over it), or full (zoom the opened reader)" },
   agents: { type: "string", optional: true, choices: ["free", "edit", "off"], about: "what an agent may do to the tiles under it (free, edit, off; PIE-639): node=screen is the screen's default, a tile's own wins (tile.agent); free clears" },
   host: { type: "string", optional: true, choices: ["over", "beside", "none"], about: "node=screen: where the host layer (the agent, terminals) may appear over this screen: over, beside or none" },
   clear: { type: "string", optional: true, about: "fields to take away, comma-separated" },

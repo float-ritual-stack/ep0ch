@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { SECTIONS } from "../../src/showcase/showcase";
+import { ITEM_BG, RULER_BG } from "../../src/surface/selection";
 import { until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
@@ -81,6 +82,15 @@ describe("showcase: collection peeks (PIE-849)", () => {
     expect((await act("list.blocks")).lists[0].page).toBe(2);
     expect(h.screen()).toContain("2/2");
     await until(() => floats()[0]?.showing?.id === list().view.picked().id, "page previews its first card", 1500);
+    await act("tile.close", {}, floats()[0].name);
+    const lines = h.screen().split("\n"), y = lines.findIndex(line => line.includes("◀ 2/2 ▶")), x = lines[y]!.indexOf("◀");
+    h.press({ kind: "mouse", action: "down", button: 0, x, y });
+    h.press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => list().view.page === 0 && floats().length === 1, "clicking back previews page one", 1500);
+    await act("tile.close", {}, floats()[0].name);
+    const pickedLine = h.sc.render(h.app).lines.find(line => line.includes(list().view.picked().label))!;
+    expect(pickedLine).not.toContain(RULER_BG);
+    expect(pickedLine).not.toContain(ITEM_BG);
     const after = await h.board.get(h.seeded.notes.peek.id);
     expect(after?.revision).toBe(before?.revision);
     expect(after?.text).toBe(before?.text);

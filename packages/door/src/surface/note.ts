@@ -4266,9 +4266,9 @@ export class NoteSurface {
   /** The lists the last layout drew, numbered in drawing order. */
   get listsDrawn(): ListHandle<any>[] { return this.linkBlocksDrawn; }
 
-  /** Arranged lists mark their own selection; the reader's item band would cover neighboring cards and cells. */
+  /** The entered list owns selection even while a page turn has no drawn row element yet. */
   private framedList(e: Element | undefined): boolean {
-    const key = e?.link?.listRow?.key;
+    const key = this.listIn ?? e?.link?.listRow?.key;
     return key !== undefined && this.listViews.get(key)?.selectionStyle === "frame";
   }
 
