@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { looksLikeDate, readBound, readDate, readDateBound, valueHolds } from "../src/dates";
+import { queryDateWords } from "../src/query-date-words";
 import { dateWarnings, describeReferenceWarnings } from "../src/reference-warnings";
 
 // Tuesday 2026-10-13, 17:00 on the wall clock.
@@ -62,4 +63,11 @@ describe("dates as people write them", () => {
     expect(ws.map(w => w.written)).toEqual(["[due::Oct 32]"]);
     expect(describeReferenceWarnings(ws)).toStartWith("saved; a date can't be read: [due::Oct 32] isn't a date");
   });
+});
+
+test("query words keep tonight local and weeks Monday-based across the clock change", () => {
+  const now = Date.parse("2026-11-04T02:00:00Z"); // Tuesday night in Toronto; Wednesday on the host's UTC clock.
+  expect(queryDateWords("tonight", "America/Toronto", now)[0]!.clause).toBe('updated >= "2026-11-03T23:00:00.000Z" AND updated <= "2026-11-04T04:59:59.999Z"');
+  expect(queryDateWords("last week", "America/Toronto", now)[0]!.clause).toBe('updated >= "2026-10-26T04:00:00.000Z" AND updated <= "2026-11-02T04:59:59.999Z"');
+  expect(queryDateWords("since Tuesday", "America/Toronto", now)[0]!.clause).toBe('updated >= "2026-11-03T05:00:00.000Z" AND updated <= "2026-11-04T02:00:00.000Z"');
 });

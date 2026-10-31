@@ -1,5 +1,5 @@
 {
-  "revision": "4f32880900a05278251ae496c600d30af9e20876",
+  "revision": "bd9a551b1473aadc86aadcd738547266518b422e",
   "patterns": {
     "width-length": {
       "count": 256,
@@ -392,16 +392,16 @@
     "packages/door/src/desk/screen-layout.ts": 2362,
     "packages/door/src/drawer.ts": 2082,
     "packages/door/src/screens.ts": 2245,
-    "packages/door/src/showcase/showcase.ts": 2186,
+    "packages/door/src/showcase/showcase.ts": 2180,
     "packages/door/src/surface/note.ts": 13482,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4671,
     "packages/outliner/src/detail-pi-preview.ts": 2420,
     "packages/outliner/src/detail-pi.ts": 2042,
-    "packages/outliner/src/publish.ts": 3396,
+    "packages/outliner/src/publish.ts": 3392,
     "packages/outliner/src/resource-catalog.ts": 4937,
-    "packages/outliner/src/server.ts": 5103,
+    "packages/outliner/src/server.ts": 5102,
     "packages/outliner/src/store.ts": 6506,
     "packages/outliner/src/tree-controller.ts": 3251,
     "packages/outliner/src/types.ts": 3027

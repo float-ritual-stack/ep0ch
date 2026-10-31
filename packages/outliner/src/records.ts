@@ -8,7 +8,7 @@ export const RECORD_FIELDS = {
   "finding-closed": ["finding", "fixed", "dismissed"],
   // Jev's figure suggestions (PIE-1251, jev-suggestions.ts): a fact per suggestion, a fact per settled outcome, and the day's
   // run (`jev-run`, the keys kitty's lab runs share, so one query reads both): asks, agreement, tokens.
-  suggestion: ["day", "note", "revision", "writer", "harness", "component", "gate", "confidence", "callout", "model", "prompt-rev", "source", "thread"],
+  suggestion: ["day", "note", "revision", "writer", "harness", "component", "gate", "confidence", "callout", "model", "prompt-rev", "source", "thread", "query", "words"],
   // PIE-1388: what a write's review told its writer, a fact per finding: its rule, Evan's rubric item, the passage, what was
   // said and whether a ready patch came with it (model and tokens are the day's run). Settled by the same outcome record,
   // which repeats the passage and what was said, so one row reads whole. `fix` is the ready patch's new text, under the
@@ -17,7 +17,7 @@ export const RECORD_FIELDS = {
   "review-finding": ["day", "note", "revision", "writer", "harness", "rule", "rubric", "component", "key", "line", "title", "passage", "said", "patch", "source", "fix"],
   // A backfill's note reviewed with nothing to say (PIE-1402): kept, so a rerun doesn't ask Jev about it again.
   "review-quiet": ["day", "note", "revision", "writer", "harness", "source"],
-  "suggestion-outcome": ["day", "suggestion", "note", "outcome", "component", "writer", "harness", "because", "rule", "rubric", "title", "passage", "said", "patched"],
+  "suggestion-outcome": ["day", "suggestion", "note", "outcome", "component", "writer", "harness", "because", "rule", "rubric", "title", "passage", "said", "patched", "query", "words"],
   // PIE-1197: a real query and the note(s) that should come first (`expect`: ids, or `none` when nothing should), and who
   // said so (`source`: an agent's read after its search, the note it made, or Evan's pick). The search eval reads them.
   "search-eval-case": ["query", "outline", "expect", "source", "surface", "rank", "asked", "note"],

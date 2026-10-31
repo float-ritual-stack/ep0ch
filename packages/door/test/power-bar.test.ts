@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { buttonCallsOf } from "@ep0ch/outline-core/button-call";
 import { shellWord } from "../src/machine";
 import { lineWords } from "../src/surface/actions";
+import { lineCompleter } from "../src/surface/completer";
 import { traceRequests } from "../src/surface/dispatch";
 import { ReaderPane } from "../src/desk/panes";
 import { App } from "../src/app";
@@ -81,6 +82,28 @@ describe.skipIf(!outliner)("the power bar", () => {
   afterAll(async () => {
     app?.drawer.tile?.kill(); board?.close(); await scratch.dispose();
     for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  });
+
+  test("Tab accepts a query ghost and lists the notes its grammar selects", async () => {
+    await board.createBlock(null, 'Query words [type::rule] [rule-name::query-words]\n[alias::stakedbeans=text~"Runner beans"]');
+    await app.dispatch.press("bar.open", { scope: "notes" });
+    type("stakedbeans");
+    await until(() => frame().some(line => line.includes("Tab accepts")), "the learned query ghost");
+    key({ kind: "tab" });
+    await until(() => peek().bar.rows.some((row: any) => row.source === "notes" && row.key === notes.beans!.id), "the query's matching note");
+    expect(peek().bar.query).toBe('(text~"Runner beans")');
+    expect(frame().some(line => line.includes("Runner beans"))).toBe(true);
+    await app.dispatch.press("bar.close");
+    const entry = { id: "demo", name: "Demo", state: "active", actions: [] } as any;
+    const action = { id: "run", name: "ext.demo.run", label: "Run demo", args: [{ name: "query", type: "query" }] } as any;
+    let ran: Record<string, string> | null = null;
+    await askingFirst(app as any, entry, action, undefined, {}, USER, async args => { ran = args; }, false, true);
+    type("stakedbeans");
+    await until(() => frame().some(line => line.includes("Tab accepts")), "the query field's ghost");
+    key({ kind: "tab" });
+    await until(() => peek().bar.query === '(text~"Runner beans")', "the query field's accepted filter");
+    expect(ran).toBeNull();
+    await app.dispatch.press("bar.close");
   });
 
   test("ctrl+k opens it over the screen with the person's keys; with nothing typed it lists the tiles as the tree, then what changed", async () => {
@@ -592,11 +615,12 @@ describe.skipIf(!outliner)("the power bar", () => {
     await until(() => form()?.focus === "query", "on query", 3000);
     type("type=meeting AND un");
     await (app as any).bar.settled();
-    expect(peek().bar.rows.map((r: any) => r.label)).toContain("type=meeting AND under:");
+    const completion = () => lineCompleter((app as any).bar.input)?.shown;
+    await until(() => !!completion()?.items.some(r => r.insertion === "type=meeting AND under:"), "the query clause offered");
     // A clause picked fills the input and asks again; the rest of the slots are left out; ⏎ on the act line runs.
-    key({ kind: "down" });
-    expect(peek().bar.rows[peek().bar.selected - 1].label).toBe("type=meeting AND under:");
-    key({ kind: "enter" });
+    const clauseRow = completion()!.items.findIndex(r => r.insertion === "type=meeting AND under:");
+    for (let n = completion()!.index; n < clauseRow; n++) key({ kind: "down" });
+    key({ kind: "tab" });
     await until(() => peek().bar?.query === "type=meeting AND under:", "the clause filled in", 3000);
     expect(ran).toBeNull();
     type("x"); await (app as any).bar.settled(); key({ kind: "enter" });

@@ -1682,11 +1682,9 @@ export class SocketBoard implements Board {
     });
   }
 
-  /**
-   * The service's completion sources for a token (`completion.rows`, PIE-1340): pages, blocks, files, agents and the
-   * extensions' sources, each on outline-core's row contract, with the trigger's picks; the completer merges them with
-   * its own sources' rows.
-   */
+  querySuggest(input: import("@ep0ch/outline-core/query-words").QuerySuggestRequest): Promise<import("@ep0ch/outline-core/query-words").QuerySuggestAnswer> {
+    return this.request("query.suggest", { ...input });
+  }
   completionRows(input: CompletionRowsRequest, signal?: AbortSignal): Promise<CompletionRowsResult> {
     return this.request<CompletionRowsResult>("completion.rows", { ...input }, undefined, signal);
   }

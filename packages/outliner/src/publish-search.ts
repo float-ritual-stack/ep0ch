@@ -20,6 +20,17 @@ import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/p
 import { plainBody } from "./publish-marginalia";
 import type { GotoSearchCollection, PageAddressMatch, PropertyCatalogItem } from "./types";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
+import { sameOrigin } from "./publish-page";
+import type { OutlinerRequester } from "./client-target";
+
+export async function querySearchCompletion(client: OutlinerRequester, request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  if (request.method === "POST") {
+    if (!sameOrigin(request)) return new Response("Use the search page's origin", { status: 403 });
+    return Response.json(await client.request({ ...await request.json(), action: "query.suggest", mutation: { author: "user" } }));
+  }
+  return Response.json(await client.request({ action: "completion.rows", target: { kind: "query", query: url.searchParams.get("q") ?? "", where: url.searchParams.get("where") ?? "" }, semantic: url.searchParams.get("semantic") === "1", zone: url.searchParams.get("zone") ?? undefined }));
+}
 
 /** A summary line's heading, quote and list marks and its step box, left off. */
 const SUMMARY_LEAD = new RegExp(`^\\s*(?:#{1,6}\\s+|>\\s?|[-*+]\\s+(?:${STEP_BOX}\\s+)?|\\d+[.)]\\s+)+`);
@@ -124,8 +135,7 @@ const TAG_LIMIT = 200;
  * use: a nested tag counts, `#garden` finds `#garden/beds`), as a page here may show them: each with the line that
  * carries the tag, and its crumbs.
  */
-async function tagNotes(host: SearchHost, tag: string): Promise<SearchAnswer> {
-  const query = `#${tag}`;
+async function queryNotes(host: SearchHost, query: string, tag?: string): Promise<SearchAnswer> {
   const found = await host.request<{ blocks: { id: string; title?: string; text?: string }[]; completeness: { kind: string } }>({
     action: "blocks.query", query: { where: query, limit: TAG_LIMIT, ...(host.under ? { subtreeRootId: host.under } : {}) }, fields: ["title", "text"],
   });
@@ -135,7 +145,7 @@ async function tagNotes(host: SearchHost, tag: string): Promise<SearchAnswer> {
   const hits = blocks.map((block) => {
     const text = block.text ?? "";
     // The first line after the title that carries it (the parser's own reading of a #tag: never one in code).
-    const at = parsePropertyRecords(text).find((record) => record.syntax === "hashtag" && record.line > 0 && tagMatches([record.value], tag))?.line;
+    const at = tag ? parsePropertyRecords(text).find((record) => record.syntax === "hashtag" && record.line > 0 && tagMatches([record.value], tag))?.line : undefined;
     const line = at === undefined ? "" : text.split(/\r?\n/)[at] ?? "";
     return {
       id: block.id,
@@ -149,9 +159,10 @@ async function tagNotes(host: SearchHost, tag: string): Promise<SearchAnswer> {
 }
 
 /** The outline's notes by words, as the power bar finds them (`tree.search`, from `near`), as a page here may show them. */
-export async function searchNotes(host: SearchHost, query: string, near?: string): Promise<SearchAnswer> {
+export async function searchNotes(host: SearchHost, query: string, near?: string, where?: string): Promise<SearchAnswer> {
+  if (where) return queryNotes(host, where);
   const tag = tagOf(query);
-  if (tag) return tagNotes(host, tag);
+  if (tag) return queryNotes(host, `#${tag}`, tag);
   const wanted = query.trim().slice(0, 200);
   const terms = searchTextTerms(wanted).filter((term) => term.length >= 2);
   if (!wanted) return { query: wanted, hits: [], truncated: false, terms };

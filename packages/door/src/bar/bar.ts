@@ -38,7 +38,7 @@ import "./sources";
 import { tabKeys, tabStrip, type TabRow } from "../surface/chip-rows";
 import { modeBinding } from "../surface/modes";
 import { JEV_PAUSE_MS, SearchSchedule, TYPING_PAUSE_MS } from "../search-schedule";
-import { compactQuestion, formOpen, formLine, maskedQuestion, clearPrivateForm } from "./ask";
+import { compactQuestion, formOpen, formLine, maskedQuestion, questionCompletion, clearPrivateForm } from "./ask";
 
 /** One row of the list, with the source it's from and the heading drawn above it (a source's title, a tile's screen). */
 export interface BarItem { source: BarSource; row: BarRow; heading?: string }
@@ -110,7 +110,9 @@ export class PowerBar {
 
   /** An agent's own bar, never drawn: it asks the service at once instead of waiting for typing to pause. */
   private readonly quick: boolean;
+  private acceptedWhere?: string;
   constructor(private readonly host: BarHost, private readonly pick: (n: number, alt: boolean) => void, o: { query?: string; scope?: string | null; quick?: boolean } = {}) {
+    this.host = { ...host, where: () => this.acceptedWhere === this.query ? this.acceptedWhere : undefined };
     this.quick = !!o.quick;
     this.scope = o.scope ? barSource(o.scope)?.id ?? null : null;
     // The query is plain words for every source (the service's search, a filter over rows): no outline-text completion.
@@ -140,7 +142,8 @@ export class PowerBar {
   /** Put away: nothing it asked for is waited on. */
   /** The bar's line: plain words for every source, so no outline-text completion; a masked answer is never copied. */
   private line(text: string): LineField {
-    const l = new LineField(text, false, { complete: { grammar: "act" }, id: "power-bar" });
+    const l = new LineField(text, false, { complete: this.scope === "ask" ? questionCompletion() ?? { grammar: "act" } : { grammar: !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act" }, id: "power-bar" });
+    l.completed = item => { if (item.querySuggestion) { this.acceptedWhere = item.querySuggestion.where; this.refresh(); } };
     l.copy = t => { if (!(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(t); };
     return l;
   }
@@ -164,6 +167,10 @@ export class PowerBar {
   setScope(s: string | null) {
     if (this.scope === "ask" && maskedQuestion() && s !== "ask") { this.input = this.line(""); clearPrivateForm(); }
     this.scope = s ? barSource(s)?.id ?? null : null;
+    if (this.input.complete) {
+      this.input.complete.grammar = this.scope === "ask" ? (questionCompletion() || {}).grammar ?? "act" : !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act";
+      this.input.complete.where = this.scope === "ask" ? (questionCompletion() || {}).where : undefined;
+    }
     this.picker.sel = 0; this.litKey = null;
     this.refresh();
   }
@@ -480,7 +487,15 @@ export class PowerBar {
     this.menuSpots = menu.map(r => r.hits.map(h => ({ from: h.from, to: h.to, action: h.action, args: h.args ?? {} })));
     // After the menu and the scope's own rows, so their clicks keep their rows.
     const verdictRows = below ? wrap(verdict, w - 2).slice(0, 2).map(l => paint(" |08") + l) : [];
-    const head = [tabs, line, ...menu.map(r => r.text), ...this.sourceHead, ...verdictRows, fg(C.blue) + "─".repeat(w) + RESET];
+    const head = [tabs, line, ...menu.map(r => r.text), ...this.sourceHead, ...verdictRows];
+    const completion = completerOf(this.input), pop = completion && completionOf(this.input);
+    if (completion && pop?.target.kind === "query" && (pop.items.length || pop.message)) {
+      const rows: (number | null)[] = [];
+      const lines = renderCompletion(pop, w, Math.min(COMPLETION_ROWS, Math.max(3, rect.rows - head.length - 6)), rows);
+      completion.drawn = { row: this.rect!.row + head.length + 1, col: this.rect!.col + 1, cols: w, items: rows };
+      head.push(...lines);
+    }
+    head.push(fg(C.blue) + "─".repeat(w) + RESET);
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
     const it = this.items[this.picker.sel];
     const empty = !this.items.length && !this.asking.size;
@@ -572,14 +587,15 @@ export class PowerBar {
 
   /** Whether the line's completion takes `k` first: a key for its open list, tab where an argument is being typed, a click on the list. */
   private lineCompletes(k: Key): boolean {
-    const c = this.scope === "ask" ? null : completerOf(this.input) ?? lineCompleter(this.input);
+    const c = this.scope === "ask" && !questionCompletion() ? null : completerOf(this.input) ?? lineCompleter(this.input);
     if (!c) return false;
     if (k.kind === "mouse") return k.action === "down" && !!c.shown && c.click(k.y, k.x, t => this.host.ctx.copy?.(t));
     // A list still being asked for takes no ⏎: the line is the person's, and runs.
     const listed = !!c.shown?.items.length && !c.shown.loading;
     const keys = listed && ["up", "down", "tab", "enter", "esc", "pgup", "pgdn"].includes(k.kind);
     // → at the line's end asks as tab does (the shell's), so one completion answers both.
-    const asks = (k.kind === "tab" || k.kind === "right" && this.input.cursor === this.query.length) && !!c.target();
+    const target = c.target();
+    const asks = (k.kind === "tab" || k.kind === "right" && this.input.cursor === this.query.length) && !!target && target.kind !== "query";
     if (!keys && !asks) return false;
     this.input.take(asks && !keys ? { kind: "tab" } : k);
     return true;
@@ -588,8 +604,7 @@ export class PowerBar {
   /** The line's completion list, under the word being typed, over the bar's rows: where it went is kept, so a click chooses. */
   private drawLineCompletion(canvas: Canvas, r: Rect, values?: StyleValues) {
     const c = completerOf(this.input), pop = c && completionOf(this.input);
-    if (c) c.drawn = null;
-    if (!c || !pop || this.scope === "ask" || this.compact()) return;
+    if (!c || !pop || pop.target.kind === "query" || this.scope === "ask" || this.compact() || !pop.items.length && !pop.message) return;
     const word = this.query.slice(0, this.input.cursor).lastIndexOf(" ") + 1, y = 3;
     // Beside the docs, never over them: the list keeps to the rows' column where that holds one (28 cells at least).
     const pv = this.previewRect, beside = pv && pv.col > 30 && pv.row + pv.rows > y ? pv.col - 1 : r.cols - 1;
@@ -608,6 +623,8 @@ export class PowerBar {
     const height = compact ? (compact.choice ? Math.min(this.items.length, 6) : 0) + 3 : 0;
     const r = (this.rect = compact ? { col: 1, row: Math.max(0, rows - height - 1), cols: Math.min(cols - 3, Math.max(48, width(compact.title) + 24)), rows: height } : barRect(cols, rows));
     const canvas = new Canvas(r.cols + 1, r.rows + 1);
+    const completion = completerOf(this.input);
+    if (completion) completion.drawn = null;
     const values = lookFor(this.host.ctx, { screen: this.host.screens().at(-1)?.title }, r.cols).values;
     withRowLimit(values["rows.lines"], () => this.picker.draw(canvas, { col: 0, row: 0, cols: r.cols, rows: r.rows }, values));
     this.drawLineCompletion(canvas, r, values);

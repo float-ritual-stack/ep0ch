@@ -1057,3 +1057,19 @@ test("the top level: tool-written notes fold away, and a [publish-home::true] no
   store.delete(porch.id);
   store.delete(snap.id);
 });
+
+test("query words in web search stay a proposal until acceptance, then the filter finds the notes", async () => {
+  store.create('Query words [rule-name::query-words]\n[alias::moths=text~"moth"]', null, "user");
+  const owner = { sessionId: "query-words-browser" };
+  const complete = await publisher.handle(new Request(`http://${HOST}/pub/search?format=query&semantic=1&q=moths`), "tailnet", undefined, owner);
+  expect(complete.status).toBe(200);
+  const row = (await complete.json()).answers.flatMap((a: { rows: { querySuggestion?: unknown }[] }) => a.rows).find((r: { querySuggestion?: unknown }) => r.querySuggestion);
+  expect(row.insert).toContain('text~"moth"');
+  const accepted = await publisher.handle(new Request(`http://${HOST}/pub/search?format=query`, {
+    method: "POST", headers: { origin: `http://${HOST}`, "content-type": "application/json" },
+    body: JSON.stringify({ text: "moths", suggestion: row.querySuggestion, outcome: "accepted" }),
+  }), "tailnet", undefined, owner);
+  expect(accepted.status).toBe(200);
+  const matches = await publisher.handle(new Request(`http://${HOST}/pub/search?format=json&q=moths&where=${encodeURIComponent(row.insert)}`), "tailnet", undefined, owner);
+  expect((await matches.json()).hits.map((hit: { id: string }) => hit.id)).toContain(survey.id);
+});

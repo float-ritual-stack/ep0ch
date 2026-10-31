@@ -2,7 +2,6 @@
 // power bar, built from the outline's own properties (here a made-up catalog). Fictional notes and values.
 import { describe, expect, test } from "bun:test";
 import { BUILTIN_COMPONENT_SCHEMAS, componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
-import { querySuggestions } from "@ep0ch/outline-core/query-suggestions";
 import { listSuggestions, settingFields, settingProblem, settingQuestion, settingsSchema, settingsSchemas, settingValue, type SettingSources } from "../src/surface/settings-card";
 
 const CATALOG = [
@@ -41,15 +40,7 @@ describe("the settings card", () => {
     expect(settingValue(field("rule-under"), "11111111-2222-4333-8444-555555555555")).toBe("((11111111-2222-4333-8444-555555555555))");
   });
 
-  test("a query is built from the outline's own properties and values; writers from the extensions installed", async () => {
-    expect((await querySuggestions("type=re", src.catalog)).map(s => s.value)).toEqual(["type=request"]);
-    expect((await querySuggestions("type=request AND tri", src.catalog)).map(s => s.value)).toEqual(["type=request AND triage=done"]);
-    expect((await querySuggestions("type=request OR child:tri", src.catalog)).map(s => s.value)).toEqual(["type=request OR child:triage=done"]);
-    // A key that starts with "not" is a key, never a NOT; a real NOT is a word of its own.
-    const notes = { ...src, catalog: async (key: string | undefined, prefix: string) => [{ key: "notice", value: "posted", count: 1 }].filter(r => (key ? r.key === key && r.value.startsWith(prefix) : r.key.startsWith(prefix))) };
-    expect((await querySuggestions("noti", notes.catalog)).map(s => s.value)).toEqual(["notice=posted"]);
-    expect((await querySuggestions("type=request AND NOT noti", notes.catalog)).map(s => s.value)).toEqual(["type=request AND NOT notice=posted"]);
-    expect((await querySuggestions("(notice=po", notes.catalog)).map(s => s.value)).toEqual(["(notice=posted"]);
+  test("writer lists come from the extensions installed", () => {
     expect(listSuggestions("user, ", ["user", "agent", "ext:echonet"]).map(s => s.value)).toEqual(["user, agent", "user, ext:echonet"]);
     expect(listSuggestions("user, ext:", ["user", "agent", "ext:echonet"]).map(s => s.value)).toEqual(["user, ext:echonet"]);
   });

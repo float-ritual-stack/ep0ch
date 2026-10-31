@@ -1,3 +1,4 @@
+import { QUERY_WORDS, QUERY_TRELLIS, QUERY_FENCE } from "./seed/query-words";
 import { shellLineDemo } from "./seed/sh-lines";
 import { BUTTON_LOOKS, BUTTON_SEQUENCES } from "./seed/button-sequences";
 import { PICK_A_TILE } from "./seed/pick-a-tile";
@@ -559,6 +560,9 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   for (const job of STICKY_JOBS) await make(notes.stickyPlan.id, job);
   notes.stickyPad = await make(notes.root.id, STICKY_PAD);
   notes.oneCompleter = await make(notes.root.id, ONE_COMPLETER);
+  notes.queryWords = await make(notes.root.id, QUERY_WORDS);
+  notes.queryTrellis = await make(notes.root.id, QUERY_TRELLIS);
+  notes.queryFence = await make(notes.root.id, QUERY_FENCE);
   notes.askAgent = await make(notes.root.id, ASK_AGENT);
   notes.shedPlan = await make(notes.root.id, SHED_PLAN);
   for (const job of SHED_JOBS) await make(notes.shedPlan.id, job);

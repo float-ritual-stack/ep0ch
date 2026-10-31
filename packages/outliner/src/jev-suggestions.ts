@@ -15,6 +15,8 @@ import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRevisions } from "@ep0ch/outline-core/protocol";
+import type { QueryWords } from "@ep0ch/outline-core/query-words";
+import type { JevReading } from "./jev";
 import type { RequestInput } from "./client";
 import { writeShape, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
@@ -31,6 +33,16 @@ export const FOLLOW_WITHIN_MS = 24 * 60 * 60 * 1000;
 const SETTLE_NOTES_PER_PASS = 20;
 
 export interface SuggestionClient { request<T>(input: RequestInput, timeoutMs?: number): Promise<T> }
+
+/** Suggestions share the day's run: acceptance and the next edit must not update its revision at once. */
+export class SuggestionWrites {
+  private pending: Promise<void> = Promise.resolve();
+  run<T>(write: () => Promise<T>): Promise<T> {
+    const next = this.pending.then(write);
+    this.pending = next.then(() => undefined, () => undefined);
+    return next;
+  }
+}
 
 /** Jev writes the records, as itself: the writer the record is about is a field. */
 const JEV: RecordWho = { author: "agent", provenance: { actorId: "jev/figure-fit" } };
@@ -62,6 +74,17 @@ export interface SuggestionWrite {
 }
 
 const dayOf = (at: Date | number) => new Date(at).toISOString().slice(0, 10);
+
+export async function recordQueryWords(client: SuggestionClient, suggestion: QueryWords, event: "suggested" | "accepted" | "edited" | "ignored", actorId: string, reading?: JevReading, cache?: RecordCache): Promise<string> {
+  const day = dayOf(Date.now()), who: RecordWho = { author: "agent", provenance: { actorId: "jev/query-suggest" } };
+  const props = clean({ day, component: "query", ...writerOf(actorId), query: suggestion.where, words: suggestion.input,
+    ...(event === "suggested" ? { source: "query", confidence: String(Math.min(...suggestion.clauses.map(c => c.confidence), 1)), model: reading?.model ?? "code", "prompt-rev": promptRevOf(reading) }
+      : { suggestion: suggestion.id, outcome: event === "accepted" ? "followed" : event === "edited" ? "different" : "ignored", because: event }),
+  });
+  const record = await writeRecord(board(client), event === "suggested" ? "suggestion" : "suggestion-outcome", props, who, { title: `${event}: ${suggestion.input}`, cache });
+  await updateRun(client, day, { reading }, "query-suggest-live", "component=query");
+  return event === "suggested" ? record.id : suggestion.id;
+}
 
 /** A suggestion a writer was told, as a fact, and the day's run brought up to date. Never throws. */
 export async function recordSuggestion(client: SuggestionClient, fit: FigureFit, reading: FigureFitReading | undefined, at: SuggestionWrite, now = new Date()): Promise<void> {
@@ -319,17 +342,17 @@ const chipNumber = (text: string, key: string) => Number(new RegExp(`\\[${key}::
  * outcome records of the day, never carried by hand; `quiet`, `unavailable` and tokens are the tally itself. The one
  * record that is rewritten, as a rate: a conflicting write loses a count rather than looping.
  */
-async function updateRun(client: SuggestionClient, day: string, change: { quiet?: number; unavailable?: number; reading?: Pick<FigureFitReading, "model" | "prompt" | "usage"> }): Promise<void> {
-  const find = async () => (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=jev-run experiment=${LIVE_EXPERIMENT} run=${day}`, machinery: "show", limit: 1 } })).blocks[0];
+async function updateRun(client: SuggestionClient, day: string, change: { quiet?: number; unavailable?: number; reading?: Pick<FigureFitReading, "model" | "prompt" | "usage"> }, experiment = LIVE_EXPERIMENT, scope = "NOT component=query"): Promise<void> {
+  const find = async () => (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=jev-run experiment=${experiment} run=${day}`, machinery: "show", limit: 1 } })).blocks[0];
   let run = await find();
   if (!run) {
     const zero = Object.fromEntries(["items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out"].map(k => [k, "0"]));
-    await writeRecord(board(client), "jev-run", { experiment: LIVE_EXPERIMENT, run: day, model: "unknown", "prompt-rev": "unknown", ...zero }, JEV, { title: `figure-fit ${day}` });
+    await writeRecord(board(client), "jev-run", { experiment, run: day, model: "unknown", "prompt-rev": "unknown", ...zero }, JEV, { title: `${experiment.replace(/-live$/, "")} ${day}` });
     run = await find();
     if (!run) return;
   }
-  const suggested = ((await countOf(client, `type=suggestion day=${day}`, "day"))[day] ?? 0) + ((await countOf(client, `type=review-finding day=${day} NOT source=backfill`, "day"))[day] ?? 0);
-  const outcomes = await countOf(client, `type=suggestion-outcome day=${day}`, "outcome");
+  const suggested = ((await countOf(client, `type=suggestion day=${day} ${scope}`, "day"))[day] ?? 0) + ((await countOf(client, `type=review-finding day=${day} NOT source=backfill ${scope}`, "day"))[day] ?? 0);
+  const outcomes = await countOf(client, `type=suggestion-outcome day=${day} ${scope}`, "outcome");
   const quiet = chipNumber(run.text, "quiet") + (change.quiet ?? 0);
   let text = run.text;
   const set = (key: string, value: string | number) => { text = setChip(text, key, value); };

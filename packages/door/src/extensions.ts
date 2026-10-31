@@ -1,6 +1,5 @@
 import { errorDetails, type MessageDetails } from "./status-log";
 import type { FormFieldType } from "@ep0ch/outline-core/form-fields";
-import { querySuggestions, type PropertyCatalog } from "@ep0ch/outline-core/query-suggestions";
 import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
 // Extensions in the door (PIE-512): what the outline service's extension registry offers (`extensions.list`,
 // pi-herdr-outliner PIE-507, docs/extensions/README.md) bound into the door's shared parts, never drawn or run
@@ -671,11 +670,10 @@ function givenArgs(a: ExtensionAction, raw: Record<string, unknown>): Record<str
 
 /**
  * A field of type `tag` (a template's prop, PIE-533 S4) is asked as text, typed as written (`#garden`), and so is a
- * `query` (a render script's `[form-field::where query]`), in the saved views' grammar. Given the outline's property
- * catalog, a query offers what the grammar can say as it is typed (outline-core's `querySuggestions`, PIE-1472).
+ * `query` (a render script's `[form-field::where query]`), whose line shares grammar and word completion.
  */
-export const asQuestion = <Q extends { type: string; description?: string }>(x: Q, catalog?: PropertyCatalog) => (x.type === "tag" ? { ...x, type: "text", free: true }
-  : x.type === "query" ? { ...x, type: "text", free: true, description: x.description ?? "a query, in the saved views' grammar", ...(catalog ? { suggest: (typed: string) => querySuggestions(typed, catalog) } : {}) } : x) as Q & { type: BarQuestion["type"] };
+export const asQuestion = <Q extends { type: string; description?: string }>(x: Q) => (x.type === "tag" ? { ...x, type: "text", free: true }
+  : x.type === "query" ? { ...x, type: "text", free: true, description: x.description ?? "a query, in the saved views' grammar", complete: { grammar: "query" } } : x) as Q & { type: BarQuestion["type"] };
 
 /** An argument the door asks the person for when they didn't give it: a choice or a property (from its choices), or a needed one. */
 const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "property" || (!!x.required && x.default === undefined && !x.defaultProperty);
@@ -687,14 +685,13 @@ const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "prope
  */
 export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>, asked = false, optionals = false): Promise<R | { asking: string; action: string }> {
   if (actor.kind !== "user" || !ctx.dispatch || asked) return run(given);
-  const catalog: PropertyCatalog = (key, prefix) => ctx.board.propertyCatalog(key, prefix, 30);
   // A form from the note (PIE-828): what it asks is the note's, so the service says it (a form it can't read is refused there).
   if (a.fieldsFrom === "block") {
     let specs: ExtensionArgChoice[];
     try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch (err) { throw new ActionRefused(err instanceof Error ? err.message : String(err)); }
     const open = specs.filter(x => (x.fromBlock || asks(x)) && !Object.hasOwn(given, x.name));
     if (!open.length) return run(given);
-    const r = await askInBar(ctx, a.label, open.map(x => asQuestion(x.fromBlock ? { ...x, required: !!x.required } : x, catalog)), given, actor, run);
+    const r = await askInBar(ctx, a.label, open.map(x => asQuestion(x.fromBlock ? { ...x, required: !!x.required } : x)), given, actor, run);
     return r && typeof r === "object" && "asking" in r ? { asking: (r as { asking: string }).asking, action: a.name } : r;
   }
   const declared = (a.args ?? []).filter(x => given[x.name] === undefined);
@@ -707,7 +704,7 @@ export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: Ex
   let specs: ExtensionArgChoice[];
   try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch { specs = ask; }
   // In a form anything typed is an answer, except to a fixed list of choices (src/bar/form.ts, fieldQuestion).
-  const questions = ask.map(x => asQuestion({ ...x, ...specs.find(y => y.name === x.name) }, catalog)).map(q => form && !("free" in q) && !(q as { choices?: string[] }).choices?.length ? { ...q, free: true } : q);
+  const questions = ask.map(x => asQuestion({ ...x, ...specs.find(y => y.name === x.name) })).map(q => form && !("free" in q) && !(q as { choices?: string[] }).choices?.length ? { ...q, free: true } : q);
   const r = form
     ? await askInBar(ctx, a.label, questions, given, actor, args => run(Object.fromEntries(Object.entries(args).filter(([, v]) => v !== ""))), { action: a.name, check: () => null })
     : await askInBar(ctx, a.label, questions, given, actor, run);

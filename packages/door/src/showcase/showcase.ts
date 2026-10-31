@@ -1,3 +1,4 @@
+import { queryWordSections } from "./query-words";
 import { DropZonesPane } from "./drop-zones";
 import { runbookSections } from "./runbook";
 import { COLLECTION_SECTIONS } from "./collections";
@@ -109,7 +110,7 @@ export interface Section {
 type Shower = (after: (ctx: Ctx) => void) => void;
 
 /** Two panes side by side, the first `ratio` of the width. */
-const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
+export const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
 
 /** The thread tile as it is now (PIE-693): a links tile listing the reader's note's Children alone. */
 const repliesTile = () => new BacklinksPane("reader", false, ["children"]);
@@ -137,7 +138,7 @@ const stagePanes = new WeakMap<Desk, Pane[]>();
  * The stage opens on `m` (PIE-1207: there is no current note to follow): each of its own readers still empty shows it,
  * but a `detail`; `reveal`, the outline's cursor goes to it too, as the person's open does.
  */
-function fill(d: Desk, m: Msg, reveal = false) {
+export function fill(d: Desk, m: Msg, reveal = false) {
   for (const p of stagePanes.get(d) ?? []) {
     if (p instanceof ReaderPane && p.kind === "reader" && !details.has(p) && !p.msg) p.show(m, d);
     else if (reveal) void (p as Pane).reveal?.(m, d);
@@ -1424,14 +1425,7 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · hyper", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },
-  {
-    key: "facets", need: "see the properties the notes have with how often each value is used and when it was last used, and narrow notes by including or excluding values", part: "the facets tile (PIE-881): a tile kind (`facets`, ^W o f; `tags` is the same opened on the tags facet, ^W o #) that asks the service (`blocks.query` with the selection as `where` and `facets=true`, which counts every match and says each value's last update), so the door never counts or narrows: every property is a facet and a tag is one of them; a value is included (+) or excluded (−), ORed within a facet and ANDed across facets; a path value (`plot=x/y/z`, a nested tag) is a tree, and picking x includes x/…; the selection is the views' query text (e edits it, facets.query sets it) and v saves it as a view; sorted by uses, name or last use; the first row always counts matches out of all notes; matching notes keep their own resizable share below the keys and open as every list's do (PIE-1220); whole-key picks write key or NOT key, with values still narrowing them", files: "src/desk/facets.ts, src/socket.ts (facetList), outline-core src/property-grammar.ts (path values), protocol.ts (QuestionFacet), outliner src/question-answer.ts",
-    aside: "matches stay visible below the keys: drag the Matches divider, click less/more or press [ ] to resize their share · a key row has [+] to require any value and [-] to require its absence; + and - on the key do the same, and 0 drops it · the tags facet is open: ⏎ or a click on #frost-jobs includes it (+), again excludes it (−), again drops it · the query line shows the selection in the views' grammar (`#frost-jobs NOT #compost`): e types one, v saves it as a view on the board hub · ⏎ on a facet (▸) opens its values; path values group as a tree · s or a click on a header word sorts by uses, name or last use · z lists what the selection leaves at 0, dimmed · x clears · ⏎ on a note opens it in the reader beside · the tile is the service's answer: write a #tag or [key::value] in any note and the counts move · agents: facets.set key=tag value=compost mode=exclude, facets.query text=…, facets.save, facets.list",
-    stage(n, show) {
-      const t = new FacetsPane("tags"), r = new ReaderPane();
-      return deskOf({ title: "showcase · tags", panes: [t, r], names: ["tags", "reader"], layout: ([x, y]) => row(0.45, x!, y!) }, show, [[r, n.notebook]], d => { if (n.notebook) fill(d, n.notebook); });
-    },
-  },
+  ...queryWordSections({ deskOf, row, fill }),
   {
     key: "navigator", need: "browse an outline as Notebook Navigator does: properties, tags and saved views on the left, the notes they pick grouped by day in the middle (pinned first, each with its chips and a line of preview), the picked note read on the right; narrow with a click, pin or tag a row with one key, pick a day on the calendar, save the pick as a view",
     part: "the navigator screen (PIE-1443, `--screen navigator`): the facets tile (PIE-881) whose Matches is its attachment, placed as Sources and comments are (inline, split, floating, popup or a tile of its own: facets.place, ctrl+o), here in a tile (`matches`) wired select and open to a reader, in a flow that folds to spines when narrow. Matches is the one ListView: the service groups the notes (`group=updated:recent`: Today, Yesterday, Previous 7 days, Previous 30 days, months) and answers each one's excerpt (`excerpt`, outline-core `noteExcerpt`); the notes carrying `[pinned::true]` come first from a question of their own; a row's chips are the keys the tile shows (`show=`, tags unless it says). Saved views are the shortcuts at the top (facets.view), the calendar's day narrows the selection (facets.day), * pins (facets.pin), t asks for a tag or property in the power bar's form (facets.tag, the one completer)",

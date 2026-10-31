@@ -17,6 +17,7 @@ import type { CompletionRowsRequest, CompletionRowsResult, CompletionSourceAnswe
 import { axisValues, keyCandidates, schemaProp, settingsSchemas, sweep, valueCandidates, variation, yamlKeyCandidates, yamlScalar, attributeScalar, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { querySuggestions } from "@ep0ch/outline-core/query-suggestions";
+import { queryWhy, queryWordsWhere, type QuerySuggestAnswer, type QueryWords } from "@ep0ch/outline-core/query-words";
 import type { PropsSpec } from "@ep0ch/outline-core/site";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import { propSchemaOfField } from "@ep0ch/outline-core/script-component";
@@ -48,10 +49,10 @@ interface Wire { id: string; text: string; title?: string }
 
 /** What a service source is asked: the ask, plus the draft and the note it writes in. */
 interface Asked extends SourceAsk, Pick<CompletionRowsRequest["target"], "headingShort" | "attrs" | "quote" | "existingValue" | "words"> {
-  near?: string; draft?: { blockId: string; text: string }; offset?: number; semantic?: boolean; prefix: string | null;
+  near?: string; draft?: { blockId: string; text: string }; offset?: number; semantic?: boolean; prefix: string | null; where?: string; zone?: string;
 }
 type Answer = Omit<CompletionSourceAnswer, "source">;
-interface ServiceSource { decl: SourceDecl; rows(ask: Asked, svc: CompletionService): Promise<Answer> }
+interface ServiceSource { decl: SourceDecl; rows(ask: Asked, svc: CompletionService): Promise<Answer | null> }
 
 const notConfigured = (s?: { status: string; message?: string }) => s?.status === "unavailable" && /not configured/i.test(s.message ?? "");
 const REASON = { linked: "linked from here", near: "near here", yours: "you edited" } as const;
@@ -498,7 +499,7 @@ async function propValues(schema: SlotOwner, prop: PropSchema, ask: Asked, svc: 
   if (prop.type === "ref") {
     // The notes `((` finds (the built-in search; an extension's `((` source isn't asked here), written as their reference.
     const found = await blocks.rows({ ...ask, trigger: "((", kind: "block" }, svc);
-    return found.rows.filter(r => !r.under).map(r => ({ label: r.label, value: r.insert as string, ...(r.docs ? { detail: r.docs } : {}) }));
+    return found!.rows.filter(r => !r.under).map(r => ({ label: r.label, value: r.insert as string, ...(r.docs ? { detail: r.docs } : {}) }));
   }
   // An action's live list is the client's (the door's own actions, beside these): the service offers the schema's samples.
   return axisValues(prop).filter(v => v.toLowerCase().startsWith(q.toLowerCase())).map(value => ({ label: value, value, ...(prop.values?.find(v => v.value === value)?.meaning ? { detail: prop.values.find(v => v.value === value)!.meaning } : {}) }));
@@ -570,7 +571,31 @@ const callouts: ServiceSource = {
 };
 
 /** The service's sources, in the order their rows come among equals. */
-export const SERVICE_SOURCES: readonly ServiceSource[] = [pages, blocks, files, agents, components, properties, filters, attributes, callouts, formatters];
+const queryWords: ServiceSource = {
+  decl: { id: "query-words", title: "query words", triggers: ["query", "key::", "yaml-value", "attribute-value"], priority: 20, ranked: true, by: "service" },
+  async rows(ask, svc) {
+    if (ask.kind !== "query" && !(await schemasOf(svc)).some(s => (!ask.component || componentName(s) === ask.component || s.id === ask.component) && s.props.some(p => p.key === ask.key && p.complete === "query"))) return null;
+    const text = ask.kind === "yaml-value" ? yamlQuoted(ask.query) : ask.query;
+    const insert = (where: string) => ask.kind === "value" ? `${where}]` : ask.kind === "yaml-value" ? yamlScalar(where) : ask.kind === "attribute-value" ? attributeScalar(where, ask.quote) : where;
+    const grammar = ask.kind === "query" ? (await querySuggestions(text, (key, prefix) => catalogOf(svc, key ? { key } : {}, prefix))).map(r => ({ label: r.value, insert: r.value, detail: r.detail, kind: "query" })) : [];
+    const answer = await svc.request<QuerySuggestAnswer>("query.suggest", { text, where: ask.where, zone: ask.zone, semantic: ask.semantic ?? false });
+    if ("unavailable" in answer) return { rows: grammar, problem: answer.unavailable };
+    if (answer.pending) return { rows: grammar, queryWords: true };
+    if (answer.grammar) return { rows: grammar };
+    const row = (suggestion: QueryWords, label = suggestion.where): SourceRow => ({
+      label, insert: insert(suggestion.where), kind: "ghost", querySuggestion: suggestion, preselect: true,
+      docs: queryWhy(suggestion), detail: [suggestion.clauses.some(c => c.widens) ? "widens to the whole outline" : "", ...suggestion.clauses.flatMap(c => c.alternatives.length ? [`${c.clause} · or ${c.alternatives[0]}`] : [])].filter(Boolean).join(" · "),
+    });
+    const first = row(answer);
+    first.variations = [row(answer, queryWhy(answer)), ...answer.clauses.flatMap((clause, i) => clause.alternatives.map(alternative => {
+      const clauses = answer.clauses.map((c, j) => j === i ? { ...c, clause: alternative, pick: c.alternativePicks?.[alternative] } : c);
+      return { ...row({ ...answer, clauses, where: queryWordsWhere(answer.base, clauses) }, `${clause.from.join(" ")} → ${alternative}`), queryOutcome: "edited" as const, queryCorrections: [{ from: clause.from, clause: alternative }] };
+    }))];
+    return { rows: [first, ...(answer.replacement ? [{ ...row({ ...answer, base: "", where: answer.replacement }, `replace selection: ${answer.replacement}`), preselect: false }] : [])], heading: "query words · Tab accepts · → why · Esc drops" };
+  },
+};
+
+export const SERVICE_SOURCES: readonly ServiceSource[] = [pages, blocks, files, agents, components, properties, filters, attributes, callouts, formatters, queryWords];
 
 /** An extension's completion source answering through its `source` operation (`ExtensionCalls.complete`). */
 export type AskExtension = (source: ExtensionCompletionSource, ask: Asked, signal: AbortSignal) => Promise<SourceRow[]>;
@@ -586,15 +611,15 @@ export async function completionRows(svc: CompletionService, request: Completion
     trigger, kind: t.kind, query: t.query, ...(t.key ? { key: t.key } : {}), ...(t.component ? { component: t.component } : {}),
     ...(t.attrs ? { attrs: t.attrs } : {}), ...(t.quote ? { quote: t.quote } : {}), ...(t.existingValue ? { existingValue: true } : {}), ...(t.words ? { words: true } : {}),
     limit: request.limit ?? COMPLETION_LIMIT, prefix, ...(t.headingShort ? { headingShort: true } : {}), ...(request.near ? { near: request.near } : {}), ...(request.draft ? { draft: request.draft } : {}),
-    ...(request.offset ? { offset: request.offset } : {}), ...(request.semantic ? { semantic: true } : {}),
+    ...(request.offset ? { offset: request.offset } : {}), ...(request.semantic ? { semantic: true } : {}), where: t.where, zone: request.zone,
   };
-  const asks: Promise<CompletionSourceAnswer>[] = [];
+  const asks: Promise<CompletionSourceAnswer | null>[] = [];
   // A key an extension's source names (`[issue::`) is that source's: the properties source steps aside, so a value
   // isn't offered twice with two different inserts.
   const claimed = VALUE_TRIGGERS.has(ask.trigger) && extensions.some(e => e.keys?.length && sourceAnswers(e, ask));
   for (const s of SERVICE_SOURCES) if (sourceAnswers(s.decl, ask) && !(claimed && (s === properties || s === attributes))) {
     // A source that fails says so in its own answer: the others' rows still come.
-    asks.push(s.rows(ask, svc).then(a => ({ source: s.decl, ...a }), error => ({ source: s.decl, rows: [], problem: `${s.decl.title}: ${error instanceof Error ? error.message : String(error)}` })));
+    asks.push(s.rows(ask, svc).then(a => a && ({ source: s.decl, ...a }), error => ({ source: s.decl, rows: [], problem: `${s.decl.title}: ${error instanceof Error ? error.message : String(error)}` })));
   }
   for (const e of extensions) if (sourceAnswers(e, ask)) {
     const decl = { id: e.name, title: e.title, priority: 0, by: e.extension };
@@ -604,7 +629,7 @@ export async function completionRows(svc: CompletionService, request: Completion
       error => ({ source: decl, rows: [], problem: `${e.title}: ${controller.signal.aborted ? `no answer in ${EXTENSION_SOURCE_MS / 1000}s` : error instanceof Error ? error.message : String(error)}` }),
     ).finally(() => clearTimeout(timer)));
   }
-  return { answers: await Promise.all(asks), picks: picks[pickKey(ask)] ?? {} };
+  return { answers: (await Promise.all(asks)).filter(a => a !== null), picks: picks[pickKey(ask)] ?? {} };
 }
 
 /** The picks the outline keeps, read from their metadata value; a value that can't be read is no picks. */
