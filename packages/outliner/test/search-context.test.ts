@@ -83,7 +83,7 @@ test("Jev's state carries the note being edited", async () => {
 });
 
 describe("pages.complete", () => {
-  test("ranks addresses forgivingly, nearer the note first inside a rung", () => {
+  test("requires every typed term in an address or title, nearer the note first inside a rung", () => {
     const dir = mkdtempSync(join(tmpdir(), "search-context-"));
     try {
       const store = new OutlinerStore(join(dir, "outline.sqlite"), { workspaceRoot: dir });
@@ -93,9 +93,9 @@ describe("pages.complete", () => {
       const far = store.create("Party hats for the shed [page::party-hats-shed]");
       const addresses = (query: string | undefined, context?: string) => store.completePageAddresses(query, 10, context).addresses.map(address => address.address);
       expect(addresses("party hats")).toEqual(["party-hats-garden", "party-hats-shed"]);
-      expect(addresses("party hast").sort()).toEqual(["party-hats-garden", "party-hats-shed"]);
-      // The Work ID or page is found by its note's title; "cats" is a typo of "hats", so the shed page holds all but one term.
-      expect(addresses("fat cats")).toEqual(["party-hats-garden", "party-hats-shed"]);
+      expect(addresses("party hast")).toEqual([]);
+      // A page's title can match, but the shed's missing words no longer qualify as completion.
+      expect(addresses("fat cats")).toEqual(["party-hats-garden"]);
       expect(addresses("hats", far.id)).toEqual(["party-hats-shed", "party-hats-garden"]);
       expect(addresses("hats", edited.id)).toEqual(["party-hats-garden", "party-hats-shed"]);
       expect(addresses(undefined, edited.id)[0]).toBe("party-hats-garden");
