@@ -177,6 +177,63 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     } finally { app.pop(); }
   }, 30_000);
 
+  test("a typed neat line, ctrl+z with the bar open: the layout tree is what it was before the run, run after run (PIE-1230)", async () => {
+    const { app, board } = h;
+    await app.loadExtensions(true);
+    const desk = openScreen("desk") as Desk;
+    app.push(desk);
+    try {
+      const open = async (title: string, name: string) => {
+        const note = await board.createBlock(null, `${title}\nBody.`);
+        return (await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: note.id, name } }, USER) as { tile: string }).tile;
+      };
+      await open("Reading the gate log", "reader");
+      await open("Reading the path log", "exhibit");
+      // A links tile in the drawer, as the showcase door has: neat wires its pages to it, and the person's keys go there.
+      const links = await app.dispatch.act({ action: "tile.open", args: { kind: "backlinks", name: "links" } }, USER) as { tile: string };
+      await app.dispatch.act({ action: "tile.drawer", tile: links.tile, args: { on: true } }, USER);
+      // The tree as names and nesting, shares and ids aside: what a person sees arranged.
+      const shape = async () => {
+        const l = await app.dispatch.act({ action: "layout.get" }, USER) as { tree: unknown };
+        const walk = (n: any): string => n.kids ? `${n.split}(${n.kids.map(walk).join(" ")})` : String(n.name).replace(/\d+$/, "");
+        return walk(l.tree);
+      };
+      const drawer = app.drawer as any;
+      drawer.goTo(drawer.desk.pane("links"), USER);   // the drawer open, as the door's is once neat has put a tile there
+      await app.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
+      const start = await shape();
+      for (const round of [1, 2, 3]) {
+        const seen = new Set(app.describe().messages.map(m => m.id));
+        // neat's links step aims a links tile that is already in the drawer, and the person's keys go there (the pane: typing in drawer:backlinks).
+        const tile = drawer.desk.tileOutline().map((t: { name: string }) => t.name).findLast((n: string) => /^(replies|backlinks)\d*$/.test(n));
+        if (tile) drawer.goTo(drawer.desk.pane(tile), USER);
+        h.press({ kind: "char", ch: "k", ctrl: true });
+        for (const c of 'neat page="[[Bike shed]]" right=%exhibit') h.ch(c);
+        await app.bar!.settled();
+        h.press({ kind: "enter" });
+        await until(() => app.describe().messages.some(m => !seen.has(m.id) && /(^|· )neat:/.test(m.message)), `neat finished (round ${round})`, 10_000);
+        const ran = await shape();
+        expect(ran).not.toBe(start);
+        h.press({ kind: "char", ch: "z", ctrl: true });
+        await until(() => !app.bar, "ctrl+z puts the bar away");
+        await Bun.sleep(150);
+        expect([round, await shape()]).toEqual([round, start]);
+      }
+      // The person's own ctrl+z on the desk, after the bar was put away with Esc, takes the next run back as it always did.
+      const seen = new Set(app.describe().messages.map(m => m.id));
+      h.press({ kind: "char", ch: "k", ctrl: true });
+      for (const c of 'neat page="[[Bike shed]]" right=%exhibit') h.ch(c);
+      await app.bar!.settled();
+      h.press({ kind: "enter" });
+      await until(() => app.describe().messages.some(m => !seen.has(m.id) && /(^|· )neat:/.test(m.message)), "neat finished (esc round)", 10_000);
+      h.press({ kind: "esc" });
+      await until(() => !app.bar, "esc puts the bar away");
+      h.press({ kind: "char", ch: "z", ctrl: true });
+      await Bun.sleep(300);
+      expect(await shape()).toBe(start);
+    } finally { app.pop(); }
+  }, 60_000);
+
   const floating = async (tile: string) => (await h.app.dispatch.act({ action: "layout.get" }, USER) as ReturnType<Desk["layoutAll"]>).tiles.find(t => t.tile === tile)?.float;
 
   test("typed as its row reads, run neat is the first row: the action before any note named Neat (PIE-1403)", async () => {
