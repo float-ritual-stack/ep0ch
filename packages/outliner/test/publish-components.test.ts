@@ -1,10 +1,12 @@
 import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { afterEach, expect, test } from "bun:test";
+import { Window } from "happy-dom";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { Publisher } from "../src/publish";
+import { READER_SCRIPT } from "../src/publish-page";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { scratchOutline } from "./scratch-outline";
@@ -157,6 +159,66 @@ test("a view's own page lists its rows, grouped by its [group::] property", asyn
   expect(html).toMatch(/<h4 class="view-group">south <span class="dim">1<\/span><\/h4>/);
   expect(html).toContain("Weed the onion bed");
   expect(html).not.toContain("Compost secret recipe");
+});
+
+test("a saved gallery page refreshes its cards when an agent changes its query", async () => {
+  const { store, page, publisher, client } = await setup();
+  store.create("Water beans [type::garden-chore] [stage::ready]\n\nWater at dusk.");
+  store.create("Wash pots [type::garden-chore] [stage::later]");
+  const view = store.create('Garden gallery [type::virtual-branch] [query::type=garden-chore stage=ready] [layout::gallery] [body::2]\n\nChores ready for today.');
+  const html = await page(`/p/${view.id}`);
+  expect(html).toContain('class="ext-collection-grid"');
+  expect(html).toContain("Water beans");
+  expect(html).toContain("Water at dusk.");
+  expect(html).toContain("Chores ready for today.");
+  expect(html).not.toContain("Wash pots");
+  expect(html).not.toContain('class="kids view-rows"');
+
+  const window = new Window({ url: `http://127.0.0.1/p/${view.id}` });
+  cleanups.push(() => window.happyDOM.close());
+  window.document.write(html);
+  await client.request({
+    action: "update", blockId: view.id, expectedRevision: view.revision,
+    text: view.text.replace("stage=ready", "stage=later").replace("Chores ready for today.", "Chores for later."),
+    mutation: { author: "agent", actorId: "garden-helper" },
+  });
+
+  // Run the shipped refresh against the page left open, with no selection or draft holding it back.
+  const refresh = READER_SCRIPT.match(/  async function refresh\(\) \{[\s\S]*?\n  \}/)![0];
+  await new Function("document", "DOMParser", "location", "fetch", `
+    const main = document.querySelector("main");
+    const busy = () => false, readSelection = () => null;
+    let behind = false;
+    ${refresh}
+    return refresh();
+  `)(window.document, window.DOMParser, window.location,
+    (url: string, init: RequestInit) => publisher.handle(new Request(url, init)));
+
+  expect(window.document.querySelector("article")?.textContent).toContain("Chores for later.");
+  const cards = window.document.querySelector(".ext-collection-grid")?.textContent;
+  expect(cards).toContain("Wash pots");
+  expect(cards).not.toContain("Water beans");
+});
+
+test("a saved board page groups public cards without exposing locked members or cell titles", async () => {
+  const { store, publisher } = await setup();
+  const hidden = store.create("Secret notebook title [publish::never]");
+  const visible = store.create("Open notebook [publish::public]");
+  const beans = store.create(`Water beans [type::garden-chore] [area::beds] [note::${hidden.id}] [publish::public]`);
+  store.create(`Wash pots [type::garden-chore] [area::shed] [note::${visible.id}] [publish::public]`);
+  store.create("Secret compost recipe [type::garden-chore] [area::vault] [publish::never]");
+  const view = store.create('Garden board [type::virtual-branch] [query::type=garden-chore] [layout::board] [group::area] [summary-properties::title, note] [publish::public]');
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${view.id}?view=html`, { headers: { accept: "text/html" } }), "public");
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).toContain('class="ext-collection-lanes"');
+  expect(html).toMatch(/<h3>beds[\s\S]*?Water beans/);
+  expect(html).toMatch(/<h3>shed[\s\S]*?Wash pots/);
+  expect(html).toContain(`href="/share/p/${beans.id}?view=html"`);
+  expect(html).toContain("Open notebook");
+  expect(html).not.toContain("Secret notebook title");
+  expect(html).not.toContain("Secret compost recipe");
+  expect(html).not.toContain("<h3>vault");
 });
 
 test("figures draw live from the service, links list the note's links, and an embedded view draws as its lane", async () => {

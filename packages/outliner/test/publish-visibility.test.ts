@@ -411,17 +411,21 @@ test("nested templates withhold stored handler output without reads from public 
   expect(outside).toContain("VISIBLE_TEMPLATE_OUTPUT");
 });
 
-test("a page whose figure the host is still counting loads, and the figure says so (PIE-1047, PIE-1009)", async () => {
+test.each(["inline table", "saved gallery"])("a page keeps its note when its %s is still counting", async (spelling) => {
   // Oct 18: a figure's question held the host past every client's 3 s; a page now draws the rest and "still counting" there.
   let counting = true;
-  const { store, tailnet } = await setup(request => counting && request.action === "site.answer" && request.produce?.kind === "figure" ? "timeout" : false);
+  const { store, tailnet } = await setup(request => counting && request.action === "site.answer" && request.produce ? "timeout" : false);
   store.create("Bean project [type::project] [publish::public]");
-  store.create("Seed swap page [publish::public:seed-swap]\nThe swap opens at noon.\n\n::graph-table\n---\nquery: type=project\n---\n::");
+  const definition = spelling === "saved gallery" ? " [type::virtual-branch] [query::type=project] [layout::gallery]" : "";
+  const component = spelling === "inline table" ? "\n\n::graph-table\n---\nquery: type=project\n---\n::" : "";
+  store.create(`Seed swap page [publish::public:seed-swap]${definition}\nThe swap opens at noon.${component}`);
   const html = await tailnet("seed-swap");
   expect(html).toContain("The swap opens at noon.");
   expect(html).toContain("still counting: the outline host is busy; reload in a moment");
   counting = false;
-  expect(await tailnet("seed-swap")).not.toContain("still counting");
+  const ready = await tailnet("seed-swap");
+  expect(ready).toContain("Bean project");
+  expect(ready).not.toContain("still counting");
 });
 
 test("a host that doesn't answer in time fails the page as busy, and a publisher starting meanwhile waits for it (PIE-1047)", async () => {
