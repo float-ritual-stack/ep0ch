@@ -421,9 +421,9 @@ export function figureFrame(kind: string, props: Props, width: number, figures?:
   const size = readContentSize({ ...props, ...chosen?.size });
   if (size.width === "full") width = figures?.fullWidth ?? width;
   const density = chosen?.density ?? (isDensity(props.density) ? props.density : "cozy");
-  const finish = (body: string[], footer = "", control = "", extra: Partial<FigureInfo> = {}) => {
+  const finish = (body: string[], footer = "", control = "", extra: Partial<FigureInfo> = {}, displayTitle = String(props.title ?? "")) => {
     const sizing = figures?.tag?.({ figure: key, size: true }, `↔ ${size.width}`) ?? "";
-    const drawn = frame(String(props.title ?? ""), [...body, ...size.problems.map(problem => fg(C.yellow) + problem + RESET)], width, footer, [control, sizing].filter(Boolean).join(" · "));
+    const drawn = frame(displayTitle, [...body, ...size.problems.map(problem => fg(C.yellow) + problem + RESET)], width, footer, [control, sizing].filter(Boolean).join(" · "));
     const lines = figures?.viewport?.(key, drawn, width, size.height ?? (kind === "timeline" ? body.length : undefined)) ?? drawn;
     figures?.seen?.({ key, n, kind, title, density, size, cols: width, rows: lines.length, note, line: figures.line, ...extra });
     return lines;
@@ -475,7 +475,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
     if (live.error) body.push(...errorLines(live.error, W));
     if (!body.length) body.push(fg(DIM) + "no results" + RESET);
     body.push(...warn);
-    return finish(body, live.status ?? "live", densityControl(kind, ui), { ...rowInfo(), ...(tabs ? { tabs } : {}), ...(tab !== undefined ? { tab } : {}) });
+    return finish(body, live.status ?? "live", densityControl(kind, ui), { ...rowInfo(), ...(tabs ? { tabs } : {}), ...(tab !== undefined ? { tab } : {}) }, String(props.title ?? ""));
   }
   const draw = KINDS[kind];
   if (!draw) return frame(props.title ?? kind, [fg(DIM) + `graph-${kind} isn't drawn in the terminal yet` + RESET], W);

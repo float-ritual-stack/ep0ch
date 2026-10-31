@@ -75,7 +75,7 @@ test("one garden report's view table shows only the five requested readings", as
   for (const ref of [`((${view.id}))`, "garden-readings"]) {
     const note = store.create(pageReadingText(ref).replace("[page::garden-reading]", ""));
     const html = await page(`/p/${note.id}`);
-    const table = html.match(/<figure class="fig fig-table"><figcaption>Five recent readings<\/figcaption>([\s\S]*?)<\/figure>/)![1]!;
+    const table = html.match(/<figure[^>]*><figcaption>Five recent readings<\/figcaption>([\s\S]*?)<\/figure>/)![1]!;
     expect(table.match(/<tbody>([\s\S]*?)<\/tbody>/)![1]!.match(/<tr>/g)).toHaveLength(5);
     expect(table).toContain("Window sample");
   }

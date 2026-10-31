@@ -28,6 +28,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   if (spec.error) return frame("Collection", [fg(C.lred) + spec.error + RESET], width);
   if (!answer || answer.kind !== "view") return frame("Collection", [read?.state === "error" ? read.error : "Reading the collection…"], width);
   const sizing = figures && figureFrame("table", { ...spec.props, title: answer.title }, width, figures, note);
+  const figure = sizing ? { figure: sizing.key } : undefined;
   width = sizing?.width ?? width;
   const entered = blocks?.entered?.(key) ?? false;
   view.set(listRowsOf(answer.view));
@@ -40,10 +41,11 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   const row = (r: typeof view.rows[number], text: string) => {
     const to = listOpenTarget(r);
     if (!to) return text;
+    to.figure = figure;
     return blocks?.row ? blocks.row(key, r.id, to, text, r.group) : tag?.(to, text) ?? text;
   };
   const drawing = view.draw({ primitive: answer.view, cols: Math.max(8, width - 4), focused: entered, selection: true, tag: row,
-    link: (id, text, revision) => tag?.({ block: id, role: "row", revision }, text) ?? text,
+    link: (id, text, revision) => tag?.({ block: id, role: "row", revision, figure }, text) ?? text,
     header: (by, text) => press("list.sort", { by }, text),
     lane: (lane, text) => press("list.layout", { lane }, text),
   });

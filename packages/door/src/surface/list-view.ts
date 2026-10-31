@@ -242,7 +242,7 @@ export class ListView<S = unknown> {
   /** The row `who` has picked among those they see; the person's falls to the first that can be selected. */
   picked(who: string = PERSON): ListViewRow<S> | null {
     const rows = this.visible(who), pick = this.picks.get(who);
-    const at = pick ? rows.find(r => sameRow(r, pick) && selectable(r)) : undefined;
+    const at = pick ? rows.find(r => sameRow(r, pick) && selectable(r)) ?? rows.find(r => r.id === pick.id && selectable(r)) : undefined;
     return at ?? (who === PERSON ? rows.find(selectable) ?? null : null);
   }
   /** `who`'s pick as kept: a row id, whether or not it is listed now (null: none made). */

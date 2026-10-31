@@ -53,6 +53,38 @@ describe("showcase: a collection record (PIE-1281)", () => {
     h.press({ kind: "esc" });
   }, 30_000);
 
+  test.each(["person", "agent"])("review1134: %s keeps the picked note when changing from table to board", async who => {
+    const query = `review-switch-${who}`;
+    await h.board.createBlock(null, `Aster [collection::${query}] [bed::A]`);
+    const picked = await h.board.createBlock(null, `Bluebell [collection::${query}] [bed::B]`);
+    await show(`Flower layouts\n::view{query="collection=${query}" layout="table, board" group=bed sort="title asc"}`);
+    const run = who === "person" ? act : agent;
+    await run("list.pick", { id: picked.id });
+    await run("list.layout", { layout: "board" });
+    h.screen();
+    if (who === "agent") {
+      await act("tile.open", { kind: "reader", name: "companion", note: h.seeded.notes.collection.id });
+      await stage().dispatch.act({ action: "tile.focus", tile: "companion" }, { kind: "user" });
+    }
+    const opened = await run("list.open");
+    expect(opened.opened).toBe(picked.id);
+  }, 20_000);
+
+  test("review1134: clicking the second visible group occurrence picks that occurrence", async () => {
+    await h.board.createBlock(null, "Aster [collection::review-visible] [bed::A] [bed::B]");
+    await show('Two beds\n::view{query="collection=review-visible" layout=board group=bed sort="title asc"}', 177);
+    const rows = h.screen().split("\n");
+    const y = rows.findIndex(line => line.indexOf("Aster") !== -1 && line.indexOf("Aster", line.indexOf("Aster") + 5) !== -1);
+    expect(y).toBeGreaterThan(-1);
+    const x = rows[y]!.indexOf("Aster", rows[y]!.indexOf("Aster") + 5) + 2;
+    h.press({ kind: "mouse", action: "down", button: 0, x, y });
+    h.press({ kind: "mouse", action: "up", button: 0, x, y });
+    h.screen();
+    await until(() => lists()[0]?.view.picked()?.group === "/B", "the clicked B occurrence is selected", 1500);
+    const selected = (await act("list.blocks")).lists[0].rows.filter((row: any) => row.selected);
+    expect(selected).toMatchObject([{ n: 2, group: "/B" }]);
+  }, 20_000);
+
   test("an old graph-table is the table preset of the inline view, with the same rows and list actions", async () => {
     await h.app.dispatch.act({ action: "section", args: { name: "collection" } }, { kind: "user" });
     const note = await h.board.createBlock(null, [

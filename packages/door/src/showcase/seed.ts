@@ -923,8 +923,13 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
   // The note component's host sits under the scripts' note, beside its script.
   const component = notes.scripts && byTitle(await board.children(notes.scripts.id)).get(SEED.noteComponent);
   if (component) notes.noteComponent = (await board.get(component.id)) ?? component;
-  const sizing = notes.figures && byTitle(await board.children(notes.figures.id)).get(SEED.figureSizing);
-  if (sizing) notes.figureSizing = (await board.get(sizing.id)) ?? sizing;
+  if (notes.figures) {
+    const under = byTitle(await board.children(notes.figures.id));
+    for (const name of ["figureSizing", "pageReading"] as const) {
+      const hit = under.get(SEED[name]);
+      if (hit) notes[name] = (await board.get(hit.id)) ?? hit;
+    }
+  }
   // The routing section's shelf, tin and recipe sit under its note (PIE-1010).
   if (notes.routing) {
     const under = byTitle(await board.children(notes.routing.id));
