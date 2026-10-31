@@ -175,7 +175,7 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
     s.key(K("esc"), env); s.key(K("esc"), env);
   });
 
-  test("the board's composer: a property key, and ((, then a click previews and a double click inserts", async () => {
+  test("the board's composer: a property key and ((, reading the docs then inserting with one click", async () => {
     const b = boardScreen(hub.id), B: any = BV.view(b);
     app.push(b);
     try {
@@ -188,15 +188,13 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
       expect(completionOf(d)!.target).toMatchObject({ kind: "key" });
       key(K("esc")); type(" ((stake");
       await until(() => completionOf(d)?.target.kind === "block" && !completionOf(d)!.loading && completionOf(d)!.items.length > 0, "the notes");
+      await until(() => screen().some(l => l.includes("Canes along the fence.")), "the note's docs");
       const lines = screen();
       const y = lines.findIndex(l => l.includes("Stake the beans") && l.includes("»"));
       expect(y).toBeGreaterThan(0);
-      const previewX = lines[y]!.indexOf(" │ ") + 4;
-      expect(previewX).toBeGreaterThan(3);
-      click(key, previewX, y);
+      const docsY = lines.findIndex(l => l.includes("Canes along the fence."));
+      click(key, lines[docsY]!.indexOf("Canes along the fence."), docsY);
       expect(completionOf(d)!.picked).toBeFalsy();
-      expect(d.text).toEndWith(" ((stake");
-      click(key, lines[y]!.indexOf("Stake the beans"), y);
       expect(d.text).toEndWith(" ((stake");
       click(key, lines[y]!.indexOf("Stake the beans"), y);
       await until(() => d.text.endsWith(`((${beans.id}))`), "the clicked candidate");
@@ -231,7 +229,7 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
     } finally { desk.dispose?.(); app.pop(); }
   });
 
-  test("the property panel's value: [[ offers pages (a double click chooses), and the key's own values come from the outline and the schemas", async () => {
+  test("the property panel's value: [[ offers pages, and a click inserts the key's values from the outline and the schemas", async () => {
     const s = new NoteSurface(), h = host();
     s.show((await board.get(beans.id))!, h);
     key = key;                                                             // the App's input stays; this surface is keyed directly
@@ -252,12 +250,9 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
     expect(completionOf(f.input)!.items.map(i => i.insertion)).toEqual(["done"]);
     const drawn = s.render(100, 30, h).lines.map(visible).join("\n");
     expect(drawn).toContain("values 1/1");
-    // The popup's rows are on the surface's; previewing leaves the typed value intact.
     const lines = s.render(100, 30, h).lines.map(visible);
     const y = lines.findIndex(l => /» done/.test(l));
     expect(y).toBeGreaterThan(0);
-    s.click(lines[y]!.indexOf("done"), y, h);
-    expect(f.input.text).toBe("d");
     s.click(lines[y]!.indexOf("done"), y, h);
     await until(() => f.input.text === "done", "the clicked value");
     // ⏎ with no popup saves, as it always did; and [[ in a value offers pages.
@@ -270,7 +265,7 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
     expect(s.panel!.field).toBeNull();
   });
 
-  test("the river column's filter: keys and values from the property index, ⏎ and a double click choose, esc closes the popup first", async () => {
+  test("the river column's filter: keys and values from the property index, ⏎ and a click choose, esc closes the popup first", async () => {
     const river = openScreen("river") as Desk, V = () => riverView(river);
     app.push(river);
     try {
@@ -293,8 +288,6 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
       const lines = screen();
       const y = lines.findIndex(l => /» (queued|done)/.test(l));
       expect(y).toBeGreaterThan(0);
-      click(key, lines[y]!.indexOf("»") + 3, y);
-      expect(col.input.text).toBe("stage:");
       click(key, lines[y]!.indexOf("»") + 3, y);
       await until(() => /^stage:(queued|done)$/.test(col.input.text), "the clicked value");
       key(K("enter"));                                                       // no popup now: ⏎ applies the filter

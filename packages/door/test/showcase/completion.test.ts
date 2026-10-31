@@ -18,55 +18,62 @@ describe("showcase: completion (PIE-1339)", () => {
   const settled = async (what: string) => { await until(() => !!pop() && !pop()!.loading && pop()!.items.length > 1, what, 8000); return pop()!; };
   const rows = (cols: number) => { h.app.t.cols = cols; return h.sc.render(h.app).lines.map(plain); };
 
-  test("the rows say what they are, the docs sit beside the list at 120 and under it at 80; move, accept and dismiss by act and by keys", async () => {
+  test("the popup reads and inserts the same at 120 and 80 columns, through keys, mouse and act (PIE-1478)", async () => {
     await h.app.act({ action: "section", args: { name: "completion" }, as: "test-agent" });
     await until(() => marks.completion!.every(m => screen().includes(m)), "the completion section", 8000);
-    let p = await settled("the (( popup");
-    const meeting = h.seeded.notes.meeting.id;
-    expect(p.items.some(i => i.insertion === `((${meeting}))` && i.kind === "block")).toBe(true);
-    expect(p.items.some(i => i.kind === "anchor")).toBe(true);
-    // Wide: each row ends in its kind, and the docs panel is to the right of the list.
-    let lines = rows(120);
-    const at = lines.findIndex(l => l.includes("Greenhouse meeting, October"));
-    expect(lines[at]).toMatch(/Greenhouse meeting, October.*block +│/);
-    expect(p.previewRect!.col).toBeGreaterThanOrEqual(p.listWidth!);
-    expect(lines.find(l => l.includes("^a10  We agreed"))).toMatch(/anchor +│/);
-    expect(lines.some(l => /↑↓ (move · )?⏎\/tab/.test(l))).toBe(true);
-    // The lit note's own reader in the docs, without its margin's comment cards.
-    await until(() => !!pop()!.items[pop()!.index]!.preview, "the lit note read", 8000);
-    lines = rows(120);
-    const head = lines.findIndex(l => l.includes("references 1/") || / references \d+\//.test(l));
-    const docs = lines.slice(head + 1, head + 12).map(l => l.split(" │ ")[1] ?? "").join("\n");
-    expect(docs).toContain("Greenhouse");
-    expect(docs).not.toContain("[–]");
-    // Narrow: the same list with its docs under it.
-    lines = rows(80);
-    p = pop()!;
-    expect(p.previewRect!.col).toBeLessThanOrEqual(1);
-    expect(p.previewRect!.row).toBeGreaterThan(2);
-    rows(120);
-    // The person's keys go into the stage; ↓ is complete.move, as act's is.
+    await settled("the initial popup");
     press({ kind: "enter" });
-    const first = pop()!.index;
-    press({ kind: "down" });
-    expect(pop()!.index).toBe(first + 1);
-    const moved: any = await stage().dispatch.act({ action: "complete.move", args: { by: -1 }, tile: "guide" }, { kind: "user" });
-    expect(moved).toMatchObject({ index: first + 1 });   // from 1, as act counts rows
-    // An agent doesn't move the person's list: the draft is theirs.
-    await expect(stage().dispatch.act({ action: "complete.move", args: { by: 1 }, tile: "guide" }, { kind: "agent", id: "test-agent" })).rejects.toThrow();
-    expect(pop()!.index).toBe(first);
-    // Accept the meeting through act: what tab or ⏎ would insert.
-    const n = pop()!.items.findIndex(i => i.insertion === `((${meeting}))`) + 1;
-    await stage().dispatch.act({ action: "complete.accept", args: { n }, tile: "guide" }, { kind: "user" });
-    await until(() => d()!.text.endsWith(`((${meeting}))`), "the meeting inserted", 8000);
-    expect(pop()).toBeNull();
-    // Esc closes a list asked for again, leaving the text; complete.dismiss is the same action.
-    press({ kind: "backspace" }); press({ kind: "backspace" });
-    await stage().dispatch.act({ action: "complete.ask", args: {}, tile: "guide" }, { kind: "user" });
-    await settled("asked again");
-    press({ kind: "esc" });
-    expect(pop()).toBeNull();
-    expect(d()!.text).toContain("Ask about the beds, see ((");
+    const act = (action: string, args: Record<string, unknown> = {}) => stage().dispatch.act({ action, args, tile: "guide" }, { kind: "user" });
+    const ask = async () => {
+      await act("comment.write", { body: "Ask about the beds, see ((Gree" });
+      await act("complete.ask");
+      const p = await settled("reference rows");
+      await act("complete.move", { by: p.items.findIndex(i => i.blockId === h.seeded.notes.meeting.id && !i.fragmentId) - p.index });
+      await until(() => !!pop()?.items[pop()!.index]?.preview, "the selected note's docs", 8000);
+      return p;
+    };
+    for (const cols of [120, 80]) {
+      h.app.t.cols = cols;
+      let p = await ask();
+      let lines = rows(cols);
+      const header = lines.findIndex(l => l.includes("references "));
+      const end = lines.findIndex((l, i) => i > header && l.includes("↑↓"));
+      expect(lines.slice(header - 1, end + 2).join("\n")).toMatchSnapshot(`reference popup at ${cols}`);
+      if (cols === 120) expect(p.previewRect!.col).toBeGreaterThanOrEqual(p.listWidth!);
+      else { expect(p.previewRect!.col).toBeLessThanOrEqual(1); expect(p.previewRect!.row).toBeGreaterThan(2); }
+      const text = d()!.text, first = p.index;
+      press({ kind: "char", ch: "n", ctrl: true });
+      expect(pop()!.index).toBe(first + 1);
+      press({ kind: "char", ch: "p", ctrl: true });
+      expect(pop()!.index).toBe(first);
+      expect(d()!.text).toBe(text);
+      await expect(stage().dispatch.act({ action: "complete.move", args: { by: 1 }, tile: "guide" }, { kind: "agent", id: "test-agent" })).rejects.toThrow("the person is typing in this draft");
+      const before = rows(cols).join("\n");
+      await act("complete.docs", { by: 1 });
+      expect(rows(cols).join("\n")).not.toBe(before);
+      for (const kind of ["tab", "enter"] as const) {
+        p = await ask();
+        const insertion = p.items[p.index]!.insertion;
+        press(kind === "enter" ? { kind: "enter" } : { kind: "tab" });
+        await until(() => d()!.text.endsWith(insertion) && !pop(), `${kind} inserts`, 8000);
+      }
+      p = await ask();
+      lines = rows(cols);
+      const index = p.items.findIndex((item, i) => i !== p.index && lines.some(l => l.includes(item.label.trim().slice(0, 20))));
+      const item = p.items[index]!, label = item.label.trim().slice(0, 20);
+      const y = lines.findIndex(l => l.includes(label));
+      const x = lines[y]!.indexOf(label) + 2;
+      press({ kind: "mouse", action: "drag", button: 3, x, y });
+      await until(() => pop()!.index === index, "hover lights the row");
+      expect(d()!.text).toBe(text);
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "up", button: 0, x, y });
+      await until(() => d()!.text.endsWith(item.insertion) && !pop(), "one click inserts", 8000);
+      await ask();
+      press({ kind: "esc" });
+      expect(pop()).toBeNull();
+      expect(d()!.text).toBe(text);
+    }
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 });

@@ -7,7 +7,7 @@ import { Draft, keepCopy } from "../edit";
 import { errorDetails, messageContext } from "../status-log";
 import { probe } from "../surface/probe";
 import { HomeSurface } from "../surface/home";
-import { type Completer } from "../surface/completer";
+import { COMPLETION_ROWS, type Completer } from "../surface/completer";
 import { floatTheme } from "../theme";
 import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
 import { HintCard, hintStatus, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
@@ -2944,7 +2944,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   private registrations(): (Registration | Delegation)[] {
     const tileSel = (at: { tile?: TileRef; name?: string }) => (at.name === undefined ? undefined : at.tile?.id ?? at.name);
-    const pane = (t: TileRef | undefined) => (t ? this.pane(t.name) : undefined);
+    const pane = (t: TileRef | null | undefined) => (t ? this.pane(t.name) : undefined);
     const reader = (t: TileRef | undefined) => { const p = pane(t); if (!(p instanceof ReaderPane)) throw new ActionRefused(`${t?.name ?? "that tile"} isn't a reader`); return p; };
     const answerIn = (out: unknown, at: { tile?: TileRef }) => {
       const answer = out && typeof out === "object" ? out : { result: out };
@@ -2980,7 +2980,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       { set: TILE_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? tileSel(at) }) },
       { set: PANE_ACTIONS, takes: "screen", on: at => ({ h: this, reader: tileSel(at) }) },
       // Built from the registry each time: an extension's kind comes and goes while the door runs.
-      { claims: (req: ActRequest) => allKindActions().some(set => set.has(req.action)), delegate: () => this.kindDispatch(kindSets()), listed: true },
+      { claims: (req: ActRequest) => allKindActions().some(set => set.has(req.action)) && (!NOTE_ACTIONS.has(req.action) || !(pane(this.dispatch.tile(req.tile ?? "focused")) instanceof ReaderPane)), delegate: () => this.kindDispatch(kindSets()), listed: true },
       // A columns container's source's actions (the board's lanes: card.*, board.hub), on its model there.
       { claims: (req: ActRequest) => this.sourceSets().some(r => r.set.has(req.action)), delegate: () => this.kindDispatch(this.sourceSets()), listed: true },
       // A tile holding a whole screen (the board, the river, the brief): its own actions there, tile= named.
@@ -3372,10 +3372,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** What the spec says ctrl+n does with the keys where they are (PIE-591: the board's lanes make a card), or null. */
   newNoteRule(): NewNoteRule | null { return newNoteRule(this.spec, this.panes.get(this.focus)?.kind); }
 
-  /** The person is typing in an edit here, nothing else open over it: ctrl+n is still a new note (PIE-591). */
   newNoteWhileTyping(): boolean {
     const p = this.focusedReader();
-    return !!p && p.editing && this.entered.in(p) && !this.prefix && !this.overlays.top() && !this.choosingReader() && !this.pending;
+    return !!p && p.editing && !this.views.get(this.focus)?.view.completion?.shown && this.entered.in(p) && !this.prefix && !this.overlays.top() && !this.choosingReader() && !this.pending;
   }
 
   /** DeskApi.noteGone: a new note's tile (PIE-591) whose note went to the trash unwritten closes with it. */
@@ -3812,7 +3811,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const completion = this.views.get(this.focus)?.view.completion;
     const origin = this.contents.get(this.focus);
     if (completion?.shown && completion.drawn && origin) {
-      const height = Math.min(Math.floor(origin.rows / 2), area.rows);
+      const height = Math.min(COMPLETION_ROWS, Math.max(Math.floor(origin.rows / 2), area.rows - 12));
       const cursor = { col: origin.col, row: origin.row + completion.drawn.row - 1, cols: origin.cols, rows: 1 };
       const rect = keepOnScreen({ col: area.col, row: cursor.row + 1, cols: area.cols, rows: height }, area, cursor);
       completion.drawn.row = rect.row - origin.row;
@@ -5049,7 +5048,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           const dir = k.action === "wheel-up" ? -1 : 1;
           if (completer.overPreview(k.x - origin.col, k.y - origin.row)) completer.scrollPreview(dir * 3);
           else completer.move(dir);
-        } else if (k.action === "down" && k.button === 0) completer.previewPress(k.x - origin.col, k.y - origin.row, false);
+        } else if (isHover(k)) completer.hover(k.x - origin.col, k.y - origin.row);
+        else if (k.action === "down" && k.button === 0) completer.previewPress(k.x - origin.col, k.y - origin.row, false);
         else if (k.action === "drag" && k.button === 0) completer.previewPress(k.x - origin.col, k.y - origin.row, true);
         else if (k.action === "up") completer.click(k.y - origin.row, k.x - origin.col, text => ctx.copy?.(text, "component preview"));
         this.redraw();

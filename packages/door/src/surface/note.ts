@@ -147,7 +147,7 @@ import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outli
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { callSplice, COMPONENTS_PAGE, makeComponent } from "./component-new";
-import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_DOCS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -3677,12 +3677,12 @@ export class NoteSurface {
     return true;
   }
 
-  /**
-   * The draft's reference completion (PIE-416), from this reader's connection. A note draft can point at
-   * its own headings (`((#`), as typed so far; a comment or reply has no note of its own.
-   */
+  /** Only a note's own edit offers its unsaved headings; comments and replies have no note of their own. */
   completer(d: Draft, host: SurfaceHost) {
-    const c = completerFor(d, host.ctx.board, () => host.redraw(), () => (d === this.draft ? { blockId: d.blockId, text: d.text } : undefined));
+    const c = completerFor(d, host.ctx.board, () => host.redraw(), action => {
+      if (action) this.noteAgent(action.by, action.did, d);
+      return d === this.draft ? { blockId: d.blockId, text: d.text } : undefined;
+    });
     if (c && host.screen) c.where = () => host.screen?.();
     return c;
   }
@@ -10366,14 +10366,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return COMPLETION_ACTIONS.run("complete.definition", args, c, actor);
     },
   }),
-  "complete.preview": def({
-    ...COMPLETION_PREVIEW,
-    run(args, { surface }: On, actor) {
-      const draft = surface.writingDraft;
-      const c = draft && completerOf(draft);
-      if (!c?.shown) throw new ActionRefused("no preview is open; type (( or :: in an edit or comment first");
-      return COMPLETION_ACTIONS.run("complete.preview", args, c, actor);
-    },
+  "complete.docs": def({ ...COMPLETION_DOCS,
+    run(args, { surface }, actor) { return COMPLETION_ACTIONS.run("complete.docs", args, openCompleter(surface), actor); },
+  }),
+  "complete.preview": def({ ...COMPLETION_PREVIEW,
+    run(args, { surface }, actor) { return COMPLETION_ACTIONS.run("complete.preview", args, openCompleter(surface), actor); },
   }),
   // The open list's own keys (PIE-1339), on this reader's edit or the comment being written: the code the popup's keys,
   // wheel and clicks run. An agent's are its own draft's, or one it was invited into (draftRule's `type`).

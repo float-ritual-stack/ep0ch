@@ -1,43 +1,86 @@
-import {hyperlink,truncateToWidth,visibleWidth} from '@earendil-works/pi-tui';
+import {hyperlink,truncateToWidth,visibleWidth,wrapTextWithAnsi} from '@earendil-works/pi-tui';
 import {searchMatchSpans} from '@ep0ch/outline-core/search-match';
 import {completionWindow} from './completion';
-import {sanitizeDynamicText} from './terminal';
-import type {ReferenceCompletionState} from './reference-completion';
+import {sanitizeDynamicText,renderMarkdownLine} from './terminal';
+import {DEFAULT_OUTLINER_ACTION_KEYMAP,displayActionChord,type OutlinerActionKeymap} from './outliner-actions';
+import {referenceEnterKeeps,type ReferenceCompletionItem,type ReferenceCompletionState} from './reference-completion';
 
-export const COMPLETION_ROWS=8;
-/** The typed letters the matcher matched, lit (bold) in a label: outline-core's spans, as the door lights them. */
+export const COMPLETION_ROWS=26;
+function popupHelp(state:ReferenceCompletionState,keymap:OutlinerActionKeymap):string{
+  const enter=referenceEnterKeeps(state);
+  const names=enter?['accept','dismiss']:['accept','dismiss','previous','next',...(state.docsRect?['docs.down']:[])];
+  const actions=names.map(name=>{
+    const id=`detail.completion.${name}`;
+    const keys=keymap.bindings(id).filter(chord=>!enter||name!=='accept'||chord!=='Enter');
+    return `${keys.map(displayActionChord).join('/')||'unbound'} ${keymap.action(id).label}`;
+  });
+  return [...(enter?[`${displayActionChord('Enter')} ${enter}`]:[]),...actions].join(' · ');
+}
 function lit(label:string,query:string|undefined):string{
   if(!query)return label;
   const on=new Set(searchMatchSpans(label,query));
   return [...label].map((c,i)=>on.has(i)?`\x1b[1m${c}\x1b[22m`:c).join('');
 }
-/**
- * Shared compact list (PIE-1340): each row its marker, label (matched letters lit), detail dim and kind at the right;
- * under the lit row (when there's room) its docs, the same words the door's docs panel wraps. Canonical choice actions,
- * bounded geometry.
- */
-export function renderReferenceCompletion(state:ReferenceCompletionState,width:number,height=COMPLETION_ROWS,action='completion.choose',help='↑↓ select · Enter/Tab insert · Esc dismiss'):string[]{
-  const fit=(text:string)=>truncateToWidth(sanitizeDynamicText(text),Math.max(1,width),'…');
+
+// Hover and scroll reuse the wrapping; enriched context or a resize replaces it.
+const wrappedDocs=new WeakMap<ReferenceCompletionItem,{text:string;width:number;lines:string[]}>();
+function docsLines(item:ReferenceCompletionItem,width:number):string[]{
+  const text=item.context||item.docs||item.insertion,cached=wrappedDocs.get(item);
+  if(cached?.text===text&&cached.width===width)return cached.lines;
+  const lines=text.split('\n').flatMap(line=>wrapTextWithAnsi(renderMarkdownLine(sanitizeDynamicText(line)),width));
+  wrappedDocs.set(item,{text,width,lines});
+  return lines;
+}
+
+/** Detail's drawing of the shared rows; the list and docs keep separate scroll positions. */
+export function renderReferenceCompletion(state:ReferenceCompletionState,width:number,height=COMPLETION_ROWS,action='completion.choose',help?:string,keymap=DEFAULT_OUTLINER_ACTION_KEYMAP):string[]{
+  const fit=(text:string,w=width)=>truncateToWidth(sanitizeDynamicText(text),Math.max(1,w),'…');
+  const pad=(text:string,w:number)=>text+' '.repeat(Math.max(0,w-visibleWidth(text)));
+  state.docsRect=undefined;
   if(height<=0)return [];
   if(!state.items.length)return [fit(state.message??'No matches')];
-  const showHeader=height>=3,showFooter=height>=2,showContext=height>=6;
-  const capacity=Math.max(1,height-Number(showHeader)-Number(showFooter)-(showContext?1:0));
-  const window=completionWindow(state.items.length,state.index,capacity);
+  const listWidth=Math.min(width,60),beside=width-listWidth-3>=30;
+  const bodyHeight=Math.max(1,height-2),hasDocs=height>=6;
+  const listHeight=hasDocs&&!beside?Math.max(2,Math.floor((bodyHeight-1)/2)):bodyHeight;
+  // Two lines per choice reserve its signature even when a neighbouring label is long.
+  let capacity=Math.min(10,Math.max(1,Math.floor(listHeight/2)));
+  let window=completionWindow(state.items.length,state.index,capacity);
+  const headings=()=>state.items.slice(window.start,window.end).filter((item,i)=>item.group&&(!i||item.group!==state.items[window.start+i-1]?.group)).length;
+  while(capacity>1&&capacity*2+headings()>listHeight){capacity--;window=completionWindow(state.items.length,state.index,capacity);}
   const heading=(state.heading??'References').replace(/^./,c=>c.toUpperCase());
-  const rows=showHeader?[fit(`${heading} ${state.index+1}/${state.items.length}${state.incompleteness?` · Partial search`:state.truncatedLimit?` · Showing first ${state.truncatedLimit} matches`:''}`)]:[];
+  const rows=height>=3?[fit(`${heading} ${state.index+1}/${state.items.length}${state.query?` · ${state.query}▌`:''}${state.incompleteness?' · Partial search':state.truncatedLimit?` · Showing first ${state.truncatedLimit} matches`:''}`)]:[];
+  const list:string[]=[];
   for(let index=window.start;index<window.end;index++){
-    const item=state.items[index]!;
-    const kind=item.kind?` ${sanitizeDynamicText(item.kind)}`:'';
-    const room=Math.max(4,width-visibleWidth(kind));
-    const title=truncateToWidth(`${index===state.index?'›':' '} ${sanitizeDynamicText(item.label)}`,room,'…');
-    const left=room-visibleWidth(title);
-    const detail=item.detail&&left>3?`\x1b[2m · ${truncateToWidth(sanitizeDynamicText(item.detail),left-3,'…')}\x1b[22m`:'';
-    const pad=' '.repeat(Math.max(0,room-visibleWidth(title)-visibleWidth(detail)));
-    const label=lit(title,state.query)+detail+pad+(kind?`\x1b[2m${kind}\x1b[22m`:'');
-    rows.push(`${index===state.index?'\x1b[7m':''}${hyperlink(label,`pi-outliner-action:${action}:${index}:${state.generation??0}`)}\x1b[0m`);
+    const item=state.items[index]!,w=beside?listWidth:width;
+    if(item.group&&(index===window.start||item.group!==state.items[index-1]?.group)&&list.length+2<listHeight)list.push(`\x1b[2m${fit(item.group,w)}\x1b[0m`);
+    const kind=item.kind?` ${sanitizeDynamicText(item.kind)} `:'';
+    const room=Math.max(1,w-visibleWidth(kind)-1);
+    const label=lit(fit(`${index===state.index?'›':' '} ${item.label}`,room),state.query);
+    const text=pad(label,room)+`\x1b[2m${kind}\x1b[22m`;
+    const link=(s:string)=>hyperlink(s,`pi-outliner-action:${action}:${index}:${state.generation??0}`);
+    list.push(`${index===state.index?'\x1b[7m':''}${link(text)}\x1b[0m`);
+    if(list.length<listHeight)list.push(`\x1b[2m${link(fit(`    ${item.detail??''}`,w-1))}\x1b[0m`);
   }
-  const selected=state.items[state.index];
-  if(showContext&&selected)rows.push(`\x1b[2m${fit(`  ${(selected.context||selected.docs||'Select to inspect context').split('\n').map(l=>l.trim()).filter(Boolean).join(' · ')}`)}\x1b[0m`);
-  if(showFooter)rows.push(fit(state.message||help));
-  return rows.slice(0,Math.max(0,height));
+  const selected=state.items[state.index]!;
+  const docWidth=beside?width-listWidth-3:width;
+  const docs=docsLines(selected,docWidth);
+  state.docsLines=docs.length;
+  const docHeight=beside?bodyHeight:Math.max(0,bodyHeight-list.length-1);
+  const top=state.docsTop=Math.min(state.docsTop??0,Math.max(0,docs.length-docHeight));
+  const shown=docs.slice(top,top+docHeight);
+  const thumbSize=Math.max(1,Math.round(list.length*capacity/state.items.length));
+  const thumbAt=Math.round((list.length-thumbSize)*window.start/Math.max(1,state.items.length-capacity));
+  const marked=list.map((line,i)=>pad(line,(beside?listWidth:width)-1)+(state.items.length>capacity&&i>=thumbAt&&i<thumbAt+thumbSize?'█':' '));
+  if(hasDocs&&beside){
+    state.docsRect={column:listWidth+3,row:rows.length,width:docWidth,height:docHeight};
+    rows.push(...Array.from({length:Math.max(marked.length,shown.length)},(_,i)=>pad(marked[i]??'',listWidth)+' │ '+(shown[i]??'')));
+  }else{
+    rows.push(...marked);
+    if(hasDocs&&shown.length){rows.push('─'.repeat(width));state.docsRect={column:0,row:rows.length,width:docWidth,height:docHeight};rows.push(...shown);}
+  }
+  if(height>=2){
+    const enter=referenceEnterKeeps(state),hint=enter?popupHelp(state,keymap):help??popupHelp(state,keymap);
+    rows.push(fit(!enter&&state.message?`${hint} · ${state.message}`:hint));
+  }
+  return rows.slice(0,height);
 }

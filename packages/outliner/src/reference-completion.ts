@@ -24,6 +24,9 @@ export interface ReferenceCompletionItem extends Omit<SourceRow,"insert"> {
   subtitle?:string;
 }
 export interface ReferenceCompletionState {
+  docsTop?:number;
+  docsLines?:number;
+  docsRect?:{column:number;row:number;width:number;height:number};
   queryWords?:boolean;
   moved?:boolean;
   start:number;end:number;index:number;items:ReferenceCompletionItem[];
@@ -40,6 +43,10 @@ export interface ReferenceCompletionState {
   query?:string;
   /** Its one row is a new page nobody has chosen yet: ⏎ is the editor's (a new line), ↓ or a click chooses it. */
   lone?:boolean;
+}
+export function referenceEnterKeeps(state:ReferenceCompletionState):string|null {
+  const item=state.items[state.index];
+  return state.moved ? null : state.lone ? "new line" : item?.enter ?? null;
 }
 export interface ReferenceCompletionProvider {
   querySuggest?(input:QuerySuggestRequest):Promise<QuerySuggestAnswer>;
@@ -58,7 +65,7 @@ export interface ReferenceCompletionProvider {
 export interface CompletionDraft {blockId:string;text:string}
 const LIMIT=20;
 function snippet(text:string):string {
-  return propertyInspectorAuthoredText(text).split(/\r?\n/).slice(1).join(' ').replace(/\s+/g,' ').trim().slice(0,240);
+  return propertyInspectorAuthoredText(text).split(/\r?\n/).slice(1).join("\n");
 }
 
 export async function lookupReferenceCompletion(provider:ReferenceCompletionProvider,target:CompletionTarget,draft?:CompletionDraft,semantic=false):Promise<ReferenceCompletionState> {
@@ -140,12 +147,16 @@ export class ReferenceCompletionSession {
     try{
       const context=await this.provider.readContext(item.blockId);
       if(!this.current(generation)||this.state?.items[this.state.index]!==item)return;
-      item.context=context.selected?[...context.ancestors.map(blockDisplayTitle),snippet(context.selected.text)].filter(Boolean).join(' › '):'Target unavailable';this.changed();
+      item.context=context.selected?[...context.ancestors.map(blockDisplayTitle),snippet(context.selected.text)].filter(Boolean).join('\n\n'):'Target unavailable';this.changed();
     }catch(error){if(this.current(generation)&&this.state?.items[this.state.index]===item){item.context=`Context unavailable: ${error instanceof Error?error.message:String(error)}`;this.changed();}}
   }
   /** Whether ⏎ inserts the lit row: there is one, and it isn't a lone new page nobody chose on purpose (↓ first, PIE-592). */
-  get chooses():boolean{return !!this.state?.items.length&&!this.state.lone;}
-  move(delta:number):void{if(!this.state)return;this.state.lone=false;this.state.moved=true;this.state.index=Math.max(0,Math.min(this.state.items.length-1,this.state.index+delta));this.selectedInsertion=this.state.items[this.state.index]?.insertion;this.changed();void this.enrich();}
+  get chooses():boolean{return !!this.state?.items.length&&!referenceEnterKeeps(this.state);}
+  move(delta:number):void{if(!this.state)return;this.state.lone=false;this.state.moved=true;this.state.docsTop=0;this.state.index=Math.max(0,Math.min(this.state.items.length-1,this.state.index+delta));this.selectedInsertion=this.state.items[this.state.index]?.insertion;this.changed();void this.enrich();}
+  scrollDocs(by:number):void {
+    const s=this.state;if(!s)return;
+    s.docsTop=Math.max(0,Math.min(Math.max(0,(s.docsLines??0)-(s.docsRect?.height??1)),(s.docsTop??0)+by));this.changed();
+  }
   async accept(index=this.state?.index??0,renderedGeneration?:number):Promise<boolean>{
     const state=this.state,item=state?.items[index],generation=this.generation;
     if(this.accepting||!state||!item||(renderedGeneration!==undefined&&renderedGeneration!==generation)||!this.current(generation))return false;
@@ -197,7 +208,7 @@ export class ReferenceCompletionSession {
       if(state.pickKey)void this.provider.completionPicked?.(state.pickKey,item.insertion).catch(()=>{});
       if(item.querySuggestion){this.accepted={suggestion:item.querySuggestion,text:b.text};await this.provider.querySuggest?.({text:item.querySuggestion.input,outcome:item.queryOutcome??'accepted',suggestion:item.querySuggestion,corrections:item.queryCorrections}).catch(error=>{state.message=String(error);});}
       this.dismiss();return true;
-    }catch(error){if(this.current(generation)){state.message=error instanceof Error?error.message:String(error);this.changed();}return false;}finally{this.accepting=false;}
+    }catch(error){if(this.current(generation)){state.message=error instanceof Error?error.message:String(error);this.changed();}return false;}finally{this.accepting=false;if(!this.state&&item.kind==="property")void this.refresh();}
   }
 }
 
