@@ -14,6 +14,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - A collection with `open=float` previews each pick in a following float while the gallery keeps your keys. Enter reads it, Esc closes it, and its ⤢ lands it beside the view.
 - Cards have visible edges and a lit selection. `h l` cross columns or lanes, `H L` cross groups, and clickable page arrows turn your page without editing the note. Agents keep their own pick and page. Try **peek** in the kitchen sink.
+- An agent changing or closing the gallery leaves the peek you're reading or editing as your own float. Other select-wired readers keep following; ordinary put-back keeps the follower, and undo restores every select destination.
 - **Run:** after the protocol update, the deployer runs `ep0ch install --apply` on float-2 and the laptop. No schema change.
 
 ### Completion reads and inserts the same in the door and Detail (PIE-1478, PIE-1344)

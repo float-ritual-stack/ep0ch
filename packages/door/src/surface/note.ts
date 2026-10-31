@@ -279,7 +279,7 @@ export interface SurfaceHost {
   history?: ReaderHistory;
   /** What this reader keeps with its layout changed (its back and forward stacks, PIE-643; its margin, PIE-873): the host saves it. */
   keptChanged?(): void;
-  retirePeeks?(): void;
+  retirePeeks?(by: Actor): void;
   /**
    * The note shown went to the trash (an empty new note, PIE-544) and this reader had nowhere back to go: a screen
    * that was opened for it alone closes. Without it the reader stays on it.
@@ -1449,12 +1449,12 @@ export class NoteSurface {
   }
 
   /** Show a note (or nothing). Refused, returning false, while an edit or a comment holds the surface on its note. */
-  show(m: Msg | null, host: SurfaceHost): boolean {
+  show(m: Msg | null, host: SurfaceHost, by: Actor = USER): boolean {
     // An edit, a comment or a value being typed holds the reader on its note.
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m && m.id === this.msg?.id && host.ctx.outline === this.msg.address?.outline) m.address ??= this.msg.address;
     this.use(host);
-    if (m?.id !== this.msg?.id) { if (this.msg) host.retirePeeks?.(); this.figureSizing.cancel(); this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
+    if (m?.id !== this.msg?.id) { if (this.msg) host.retirePeeks?.(by); this.figureSizing.cancel(); this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.modes.drop("revision"); this.foldsOf = m?.id ?? null; this.zoom = null; this.zoomTurn++; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
     this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
@@ -4394,7 +4394,7 @@ export class NoteSurface {
       none: "this note draws no list (a ::links component, or an extension's list view)",
       picked: (l, row) => { this.selectListRow(l, row.id, row.group); if (l.change) this.enterList(l, true); const target = listOpenTarget(row); return this.previewRow(here(), target ? { ...target, listRow: { key: l.key, row: row.id, group: row.group } } : undefined); },
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
-      enter: (l, on) => { if (on || this.listIn === l.key) { this.enterList(l, on); if (!on) here().retirePeeks?.(); } },
+      enter: (l, on) => { if (on || this.listIn === l.key) { this.enterList(l, on); if (!on) here().retirePeeks?.(USER); } },
       type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(filterLine); },
       choose: (l, action, keys) => here().overlay?.(listFieldPicker(l.title, action, keys, by => { void this.runList(action, { list: l.key, by }, here()); })),
       redraw: () => host?.redraw(),
@@ -8446,7 +8446,7 @@ export class NoteSurface {
     const here = this.place();
     const note = fresh ?? to.msg;
     if (host.contextFor) host = { ...host, ctx: host.contextFor(note) };
-    if (!this.show(note, host)) return holdsEdit("the reader");
+    if (!this.show(note, host, actor)) return holdsEdit("the reader");
     const passed = stack.splice(stack.length - steps).slice(1).reverse(), other = dir < 0 ? this.aheads : this.backs;
     if (here) other.push(here);
     other.push(...passed);

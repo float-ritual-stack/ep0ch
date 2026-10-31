@@ -1190,12 +1190,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const { from, verb, to: savedTo, rule } of [...sourceWires, ...wantWires]) {
       const pane = this.panes.get(from);
       if (pane instanceof ScreenTile && pane.group) continue;
-      for (let i = wires.length - 1; i >= 0; i--) if (wires[i]!.from === from && wires[i]!.verb === verb) wires.splice(i, 1);
-      for (let i = across.length - 1; i >= 0; i--) if (across[i]!.from === from && across[i]!.verb === verb) across.splice(i, 1);
+      for (let i = wires.length - 1; i >= 0; i--) if (verb !== "select" && wires[i]!.from === from && wires[i]!.verb === verb) wires.splice(i, 1);
+      for (let i = across.length - 1; i >= 0; i--) if (verb !== "select" && across[i]!.from === from && across[i]!.verb === verb) across.splice(i, 1);
       const to = references.get(savedTo) ?? savedTo;
-      if (to.includes("/")) { across.push({ from, to, verb, rule }); continue; }
       const target = [...names].find(([id, n]) => this.tileId(id) === to || n === to)?.[0];
-      if (target === undefined) { across.push({ from, to, verb, rule }); continue; }
+      if (target === undefined) { if (!across.some(w => w.from === from && w.verb === verb && w.to === to)) across.push({ from, to, verb, rule }); continue; }
       if (target === from && !own && !rule) continue;
       if (!wires.some(w => w.from === from && w.verb === verb && w.to === target)) wires.push({ from, verb, to: target, ...(rule ? { rule } : {}) });
     }
@@ -2238,7 +2237,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
       for (const [slot, tile] of this.specTiles) if (tile === plan.merge) this.specTiles.set(slot, landed);
       if (pane instanceof ReaderPane && merging instanceof ReaderPane) pane.surface.takeHistory(merging.surface);
-      this.dropTile(plan.merge);
+      this.dropTile(plan.merge, by);
     }
     if (dest.kind === "new" && dest.at.kind === "in") {
       const rec = this.openedIn(dest.at.key);
@@ -2263,13 +2262,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const [id, p] of this.panes) if (id !== landed && id !== from) void p.reveal?.(m, this);
   }
 
-  /** Selection goes through the same landing rule; a policy float becomes its select target. */
+  /** Peek placement and select delivery share a pick; the person's other wired readers still follow it. */
   showFrom(from: Pane, m: Msg, by: Actor = USER, where?: OpenHow["where"]) {
     const id = this.idOf(from);
     if (id === undefined) return;
     const route = this.placeFrom(id, false, by, m.id, where).route;
     if (route && "float" in route) this.placeNote(m, { from: id, note: m.id, where, keys: false }, by);
-    else this.follow(id, m, by);
+    this.follow(id, m, by);
     this.redraw();
   }
 
@@ -6061,7 +6060,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const into = this.openedInto(t.id), had = this.focus === t.id, back = this.keysBackAfter(t.id, actor);
     // Retiring the source's peeks belongs to the same undo as closing the source.
     const scope = TXN.getStore(), txn = scope?.txn ?? `close:${crypto.randomUUID()}`;
-    TXN.run({ ...scope, txn }, () => { this.commit(r); this.dropTile(t.id); });
+    TXN.run({ ...scope, txn }, () => { this.commit(r); this.dropTile(t.id, actor); });
     if (!scope?.txn) this.history.close(txn);
     // The person's tile opened into a container (the board's detail) closed: their keys go to the top float, else the
     // tile opens land in there now, else home.
@@ -6745,7 +6744,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const old = this.panes.get(base.id)!;
     this.put(makeTile(spec));
     this.commit(r);
-    this.dropTile(base.id);
+    this.dropTile(base.id, actor);
     old.dispose?.();
     if (source) this.wireSource(id, source);
     this.startTile(id);
@@ -7071,20 +7070,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     throw new ActionRefused(`no tile ${sel} on the screen; tiles: ${ids.map((_, i) => i + 1).join(", ")}, their names, or focused`);
   }
 
-  /**
-   * A tile taken out because it's gone (its program ended, its source dropped it, a view replaced it): no rule keeps
-   * it, but the screen's last tile stays. Its instance ends with it.
-   */
+  /** A program or supplied tile that ended is gone; its normal close rules no longer apply. */
   private closeId(id: number) {
     const r = this.ask({ op: "close", tile: id, gone: true });
     if (!r.ok || !r.changed) return;
-    this.commit(r);
-    this.dropTile(id);
+    this.commit(r); this.dropTile(id);
   }
   /** A tile instance the layout no longer has: its program ended, its state let go. */
-  private dropTile(id: number) {
+  private dropTile(id: number, by: Actor = USER) {
     const p = this.panes.get(id);
-    if (p) this.retirePeeks(p);
+    if (p) this.retirePeeks(p, by);
     if (p) for (const d of this.relatives()) for (const [from, wires] of d.ext) for (const w of [...wires]) {
       if (w.pane === p || w.path === this.tileId(id)) {
         d.cutExt(from, w);
@@ -7104,8 +7099,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     p?.dispose?.();
     if (p) { tileRegistry.release(p); this.forgetTile(id, p); }
   }
-  /** A view owns only the peeks it opened, not the person's other select-wired readers. */
-  retirePeeks(p: Pane) { for (const f of this.floats) if (f.peekOf !== undefined && this.panes.get(f.peekOf) === p) this.closeId(f.id); }
+  /** A peek the close rules keep becomes the person's float, released from its old source. */
+  retirePeeks(p: Pane, by: Actor = USER) {
+    for (const f of this.floats) if (f.peekOf !== undefined && this.panes.get(f.peekOf) === p) {
+      const r = this.ask({ op: "close", tile: f.id }, by);
+      if (r.ok) { this.commit(r); this.dropTile(f.id, by); } else this.apply({ op: "peek.release", tile: f.id }, by);
+    }
+  }
   /** Everything this desk keeps about tile `id` that leaves it (closed, or moved whole to the drawer or another screen). */
   private forgetTile(id: number, p: Pane) {
     this.ctx?.agentPointers?.dropTile(this, this.tileId(id));

@@ -816,11 +816,14 @@ has a bright, bold frame and title, with no cell background. Small and large kee
 `landing()` applies the record's `open` after a tile's wire and its container's `opensInto`. `open=float`
 creates a reader tile with a select wire and `peekOf` ownership on its float: subsequent picks reuse only
 the view's own peek while the view keeps the keys. Enter enters it; Esc in the gallery or the peek closes it.
-Replacing the source note or closing its tile retires the owned peek and wire; a person's floated reader stays.
+Replacing the source note or closing its tile retires the owned peek and wire through the existing close rules,
+as the actor who changed the source. A refused close releases the peek into an ordinary float: an agent never
+takes its reader's keys or editor. A person's floated reader stays, and its select wire still delivers picks.
 The peek's
 `⤢` calls `tile.float on=false where=right`, landing it beside its source and releasing the select wire.
 An explicit landing refuses a container that takes no drops; plain `tile.float on=false` puts it back
-where it was opened and keeps its select wire.
+where it was opened and keeps its select wire. Picks and Enter reuse that following reader without another peek.
+Undoing a source close restores all distinct select destinations, including both the owned peek and other readers.
 `open=full` uses the existing zoom path. The dispatcher remains the owner of who may move the keys.
 
 `◀ 2/4 ▶` and PgUp/PgDn call `list.page`. A component's `^name` keys its viewer state; each actor keeps

@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { join, resolve } from "node:path";
+import { startControl } from "../../src/control";
+import { Mirror } from "../../src/mirror";
 import { SECTIONS } from "../../src/showcase/showcase";
 import { ITEM_BG, RULER_BG } from "../../src/surface/selection";
 import { until } from "../scratch";
@@ -71,6 +74,9 @@ describe("showcase: collection peeks (PIE-849)", () => {
     await act("list.open", { n: 2 });
     expect(floats().map((t: any) => t.name)).toContain("my-reader");
     expect(floats()).toHaveLength(2);
+    await act("tile.focus");
+    await act("list.pick", { n: 2 });
+    await until(() => stage().pane("my-reader").surface.msg?.id === list().view.picked().id, "the person's select wire delivers beside the peek", 1500);
   }, 15_000);
 
   test("an explicit right landing refuses a container that takes no drops and keeps the following wire", async () => {
@@ -90,6 +96,14 @@ describe("showcase: collection peeks (PIE-849)", () => {
       await act("tile.float", { on: false }, peek.name);
       expect(floats()).toHaveLength(0);
       expect(stage().layoutGet().tiles.find((t: any) => t.name === "garden").wires).toContainEqual({ verb: "select", to: peek.tile });
+      await act("tile.focus");
+      await act("list.pick", { n: 2 });
+      await until(() => stage().pane(peek.name).surface.msg?.id === list().view.picked().id, "the put-back reader keeps following", 1500);
+      expect(floats()).toHaveLength(0);
+      await act("list.enter", { on: true });
+      h.press({ kind: "enter" });
+      await until(() => stage().focusedName() === peek.name, "Enter enters the put-back reader", 1500);
+      expect(floats()).toHaveLength(0);
     } finally { await act("layout.policy", { clear: "droppable" }); }
   }, 15_000);
 
@@ -109,9 +123,17 @@ describe("showcase: collection peeks (PIE-849)", () => {
       expect(floats().map((t: any) => t.name)).toEqual(["my-reader"]);
       expect(stage().layoutGet().tiles.flatMap((t: any) => t.wires ?? []).some((w: any) => w.to === peek.tile)).toBe(false);
       if (change === "close") {
-        await act("layout.undo", {}, "outside");
+        await act("tile.focus", {}, "outside");
+        h.press({ kind: "char", ch: "z", ctrl: true });
+        await until(() => stage().layoutGet().tiles.some((t: any) => t.name === "garden"), "Ctrl+Z restores the source", 1500);
         expect(stage().layoutGet().tiles.some((t: any) => t.name === "garden")).toBe(true);
         expect(floats()).toHaveLength(2);
+        const restored = stage().layoutGet(), source = restored.tiles.find((t: any) => t.name === "garden");
+        for (const reader of restored.tiles.filter((t: any) => t.float)) expect(source.wires).toContainEqual({ verb: "select", to: reader.tile });
+        await until(() => list()?.view.pickable().length === 4, "the restored gallery's cards", 4000);
+        await act("tile.focus");
+        await act("list.pick", { n: 1 });
+        await until(() => floats().every((t: any) => t.showing?.id === list().view.picked().id), "both restored readers follow the pick", 1500);
         await act("tile.close");
         expect(floats().map((t: any) => t.name)).toEqual(["my-reader"]);
       }
@@ -119,6 +141,48 @@ describe("showcase: collection peeks (PIE-849)", () => {
       if (change === "close") await act("tile.open", { kind: "reader", name: "garden", note: h.seeded.notes.peek.id }, "outside");
     }
   }, 15_000);
+
+  test.each([
+    ["open", false], ["tile.close", false], ["open", true], ["tile.close", true],
+  ] as const)("an agent's %s leaves the person's peek and keys alone (editing=%s)", async (action, editing) => {
+    await setup();
+    await act("tile.open", { kind: "reader", name: "outside" });
+    await act("list.open", { n: 2 });
+    const peek = floats()[0], reader = stage().pane(peek.name).surface;
+    if (editing) {
+      h.ch("e");
+      h.press({ kind: "enter" });
+      await until(() => h.app.person().typingIn === peek.name, "the person's keys in the peek's editor");
+      for (const ch of "Unsaved garden words") h.ch(ch);
+      expect(reader.draft.text).toContain("Unsaved garden words");
+    }
+    const before = h.app.person(), text = reader.draft?.text;
+    expect(before.focus).toBe(peek.name);
+    expect(before.typingIn).toBe(editing ? peek.name : null);
+    const control = await startControl({ app: h.app, mirror: new Mirror(177, 60), info: () => h.app.t }, join(h.scratch.root, "door", "peek.sock"));
+    try {
+      const proc = Bun.spawn([process.execPath, resolve(import.meta.dir, "../../src/main.ts"), "act", action, "tile=garden", ...(action === "open" ? [`id=${h.seeded.notes.shed.id}`] : []), "--as", "walkbot"], {
+        env: { ...process.env, ...h.scratch.env, EP0CH_CONTROL: control.path, EP0CH_STATE: join(h.scratch.root, "door"), EP0CH_SOCKET: h.scratch.sock }, stdout: "pipe", stderr: "pipe",
+      });
+      const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
+      expect(await proc.exited, out + err).toBe(0);
+      const after = h.app.person();
+      expect({ focus: after.focus, typingIn: after.typingIn }).toEqual({ focus: before.focus, typingIn: before.typingIn });
+      expect(floats().find((t: any) => t.name === peek.name)?.showing?.id).toBe(peek.showing.id);
+      if (editing) {
+        expect(reader.draft.text).toBe(text);
+        h.ch("!");
+        expect(reader.draft.text).toContain("Unsaved garden words!");
+      }
+      h.press({ kind: "esc" });
+      if (editing) { h.press({ kind: "esc" }); await until(() => !reader.draft, "discard the scratch edit"); h.press({ kind: "esc" }); }
+      expect(floats().some((t: any) => t.name === peek.name)).toBe(true);
+    } finally {
+      control.close();
+      if (reader.draft) { h.press({ kind: "esc" }); h.press({ kind: "esc" }); }
+      if (action === "tile.close") await act("tile.open", { kind: "reader", name: "garden", note: h.seeded.notes.peek.id }, "outside");
+    }
+  }, 20_000);
 
   test("a peek lands to the right of its source and keeps its note after another pick", async () => {
     await setup();

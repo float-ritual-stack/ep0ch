@@ -66,7 +66,7 @@ export interface DeskApi {
   redraw(): void;
   /** Save the screen's layout now (a reader's history changed, PIE-643). */
   keepLayout?(): void;
-  retirePeeks?(p: Pane): void;
+  retirePeeks?(p: Pane, by: Actor): void;
   historyLanded?(p: ReaderPane, by: Actor): void;
   /** The layout permits closing this tile, including the container that keeps it. */
   canClose?(p: Pane): boolean;
@@ -444,10 +444,10 @@ export class ReaderPane implements Pane, AttachedOwner {
   typing() { return this.surface.typingFilter; }
   lineField() { return this.surface.lineField; }
   /** Show `m` as its own (a note opened into it, alt+⏎ on a link). A reader pinned to a page shown another note lets the page go; the pin stays. */
-  hold(m: Msg, desk: DeskApi) {
+  hold(m: Msg, desk: DeskApi, by: Actor = USER) {
     this.pinGen++;
     if (this.pinPage && m.id !== this.pageNote) { this.pinPage = null; this.pageNote = null; }
-    this.show(m, desk);
+    this.show(m, desk, by);
   }
   /**
    * Pin it or let it go (`p`, a click on the pin chip, `reader.pin`): pinned, it keeps the note it shows (or `page`'s note,
@@ -606,7 +606,7 @@ export class ReaderPane implements Pane, AttachedOwner {
       // The trail (PIE-208) opens as a list over the screen this reader is on.
       ...(desk.overlay ? { overlay: (p: ListPicker<any, any>) => desk.overlay!(p) } : {}),
       ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
-      ...(desk.retirePeeks ? { retirePeeks: () => desk.retirePeeks!(this) } : {}),
+      ...(desk.retirePeeks ? { retirePeeks: (by: Actor) => desk.retirePeeks!(this, by) } : {}),
       ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),
       ...(desk.untrash ? { untrash: (board: object) => desk.untrash!(board) } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): with no wire it replaces
@@ -671,10 +671,10 @@ export class ReaderPane implements Pane, AttachedOwner {
     this.show(m, desk);
     return null;
   }
-  show(m: Msg | null, desk: DeskApi) {
+  show(m: Msg | null, desk: DeskApi, by: Actor = USER) {
     if (this.keepsOff(m)) return false;
     const host = this.host(desk);
-    const shown = this.surface.show(m, { ...host, ctx: host.contextFor!(m) });
+    const shown = this.surface.show(m, { ...host, ctx: host.contextFor!(m) }, by);
     // The history a saved layout brought (PIE-643) is taken up with the note it was saved on (`wantNote`).
     if (shown && m && this.wantNav !== undefined && this.wantNote() === m.id) { const nav = this.wantNav; this.wantNav = undefined; this.surface.restoreNav(nav); }
     return shown;

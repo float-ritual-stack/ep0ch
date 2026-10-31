@@ -224,6 +224,7 @@ export type Op<I = number> =
   /** `unnamed`: an open that named no place (an agent's `tile.open` with neither tile= nor where=): too narrow to read beside its target, it floats (PIE-1444). */
   | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; deliberate?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[]; unnamed?: boolean }
   | { op: "close"; tile: I; gone?: boolean }
+  | { op: "peek.release"; tile: I }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
   | { op: "replace"; tile: I; with: I; kind: string; name?: string; link?: I; verb?: WireVerb; selectFrom?: I[] }
   /** A tile leaves this layout whole, to go on elsewhere (your drawer, PIE-498): moved, not closed. */
@@ -565,8 +566,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     const readers = leaves(s.tree).filter(id => { const f = ctx.tile(id); return !s.collapsed.has(id) && f.notes && !f.follower && !f.editing && !f.holds && !f.pinned && f.available !== false; });
     const target = readers[0];
     if (target !== undefined) route = { to: target };
-    // No reader on this screen at all, but readers inside a mount (PIE-1306): the mount with the person's keys, else the
-    // first, places it as its own open naming no tile, the way a mount with no reader hands one out (`outward`).
+    // With no reader here, a mount places the open itself (PIE-1306), reversing `outward`; prefer the focused mount.
     else if (ctx.inside && !leaves(s.tree).some(id => ctx.tile(id).notes && !ctx.tile(id).follower)) {
       const open = (id: I) => !s.collapsed.has(id) && ctx.tile(id).available !== false ? ctx.inside!(id) : undefined;
       const focused = open(ctx.person.focus);
@@ -577,7 +577,8 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   const keys = ctx.keys ?? ctx.standing;
   const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing, route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
   if (route && "float" in route) {
-    const peek = ctx.standing ? s.floats.find(f => f.peekOf === from && !ctx.tile(f.id).editing && !ctx.tile(f.id).holds && !ctx.tile(f.id).pinned)?.id : undefined;
+    const followers = [...s.floats.filter(f => f.peekOf === from).map(f => f.id), ...selectTargets(s, from).filter(id => !isFloat(s, id))];
+    const peek = ctx.standing ? followers.find(id => !ctx.tile(id).editing && !ctx.tile(id).holds && !ctx.tile(id).pinned) : undefined;
     result.destination = peek === undefined ? { kind: "new", at: { kind: "float", near: from } } : { kind: "swap", tile: peek };
     result.giveNewKeys = keys && request.keys !== false;
     if (peek !== undefined && result.giveNewKeys) result.keys = peek;
@@ -682,8 +683,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       const name = String(s.names.get(target));
       // It replaces there (no spine kept): the reader beside a pinned one is where its opens go, one at a time.
       if (again !== undefined) return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: again, keep: false }, ctx), route };
-      // Else a reader on the screen that sits idle (no list feeds it, nothing pinned or typed in it), an empty one first:
-      // it takes the open before the pinned one is split in two (PIE-1207).
+      // Reuse an idle reader, empty first, before splitting the pinned one's space (PIE-1207).
       const idle = visible(s.tree).filter(id => id !== target && takesOpen(s, ctx, id) && ctx.tile(id).held);
       const free = idle.find(id => !ctx.tile(id).showing) ?? idle[0];
       if (free !== undefined) return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: free, keep: false }, ctx), route, besideOf: target, why: `${name} is pinned: opened in ${String(s.names.get(free))} · p in ${name} unpins it` };
@@ -703,8 +703,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       const beside = fresh ? undefined : ctx.beside?.get(target);
       if (beside !== undefined && s.names.has(beside) && !ctx.tile(beside).editing && !ctx.tile(beside).holds && ctx.tile(beside).available !== false)
         return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: beside }, ctx), route };
-      // An agent's open never splits the tile the person is typing in (PIE-1294: it took a 44-column edit to 21): it
-      // lands in another reader that can take it, else beside another tile, else nowhere, said in the owner's words.
+      // Preserve the edit's width: an agent opens in another reader, beside another tile, or nowhere (PIE-1294).
       if (ctx.protectTyping && ctx.person.typingIn === target) {
         const shownHere = visible(s.tree).filter(id => id !== target && !s.collapsed.has(id) && ctx.tile(id).available !== false);
         const reader = shownHere.find(id => { const f = ctx.tile(id); return f.notes && !f.follower && !f.lists && !f.editing && !f.holds && !f.pinned && !f.deliberate; });
@@ -731,21 +730,17 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
           return cover === undefined || cover === "spine" ? leaves(k).map(t => [t, true] as const) : [];
         })) : s.collapsed;
         let edge = row?.dir === "row" ? spineEdge(row, folded, target, space.spines, before) : null;
-        // On a desk (a row that isn't a flow) a book spine sits beside the reader it came from, on the side the policy picks:
-        // the spread's edge there is often the tree, and a spine left of it took column 0 and tile 1 (PIE-1457). Start, end
-        // and centre gather spines at the row's edges, as asked.
+        // A desk's book spine stays beside its reader: the spread's edge may be a tree, displacing tile 1 (PIE-1457).
         if (edge && row?.t !== "flow" && space.spines === "book") edge = { target, dir: edge.dir };
         // An agent's kept page never goes in left of the tile the person is typing in: it would shift their text along (PIE-1294).
         const typing = ctx.protectTyping && ctx.person.typingIn !== null && row ? row.kids.findIndex(k => leaves(k).includes(ctx.person.typingIn!)) : -1;
         if (edge && typing >= 0 && row!.kids.findIndex(k => leaves(k).includes(edge!.target)) + (edge.dir === "right" ? 1 : 0) <= typing) edge = spineEdge(row!, folded, target, "end", before);
-        // A row with no key takes the spine as a split beside a tile: an edge that's a container (a column of replies over
-        // activity) would put it inside that, beside a tile it isn't about, so it goes beside the reader on that side instead.
+        // An unnamed row splits a tile: a container edge would put the spine beside unrelated content inside it.
         if (edge && !(row?.t === "split" && row.key) && row?.kids.find(k => leaves(k).includes(edge!.target))?.t !== "leaf") edge = { target, dir: edge.dir };
         const keep = { tile: target, at: row?.t === "split" && row.key && edge
           ? { kind: "in" as const, key: row.key, node: row.id, index: row.kids.findIndex(k => leaves(k).includes(edge.target)) + (edge.dir === "right" ? 1 : 0) }
           : { kind: "split" as const, target: edge?.target ?? target, dir: edge?.dir ?? (before ? "left" as const : "right" as const) } };
-        // A kept spine never takes the room another tile needs to read (PIE-1207): with none, the open replaces, and the
-        // note it showed is a step back in the reader's history.
+        // A spine must leave reading room; otherwise Back keeps the old note (PIE-1207).
         if (request.inspect || spineFits(s, keep, ctx.area)) result.keep = keep;
         else result.noSpine = true;
       }
@@ -1058,6 +1053,11 @@ class Step<I> {
     switch (op.op) {
       case "open": return this.open(op);
       case "close": return this.close(op.tile, !!op.gone);
+      case "peek.release": {
+        const f = this.d.floats.find(f => f.id === op.tile);
+        if (f) { this.d.wires = this.d.wires.filter(w => w.from !== f.peekOf || w.to !== f.id || w.verb !== "select"); delete f.peekOf; }
+        return;
+      }
       case "replace": return this.replace(op);
       case "take": return this.take(op.tile, op.heir);
       case "group": return this.group(op);
