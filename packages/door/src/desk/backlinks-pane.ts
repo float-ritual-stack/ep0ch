@@ -402,7 +402,7 @@ export class BacklinksPane implements Pane {
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.sync(desk);
     this.controls = [];
-    if (!this.target) return { lines: [fg(C.dark) + pad(`the links of what ${this.source} shows land here`, w) + RESET] };
+    if (!this.target) return { lines: [fg(C.dark) + pad(`the links of what ${this.sourceLabel()} shows land here`, w) + RESET] };
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
     if (!this.data) return { lines: [fg(C.dark) + pad("asking the service…", w) + RESET] };
     const rows = this.rows();
@@ -573,7 +573,7 @@ export class BacklinksPane implements Pane {
     return {
       lists: () => (this.target ? [this.handle(desk)] : []),
       current: () => "links",
-      none: this.target ? "the links are still being read" : `no links are listed here: the links of what ${this.source} shows land in this tile (b aims it at a note)`,
+      none: this.target ? "the links are still being read" : `no links are listed here: the links of what ${this.sourceLabel()} shows land in this tile (b aims it at a note)`,
       // The person's pick moved: the row shows where this tile's selection goes (a preview following), as moving to it always did.
       picked: (_l, row) => {
         const rows = this.rows(), i = rows.findIndex(r => r.key === row.id);
