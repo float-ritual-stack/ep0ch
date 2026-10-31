@@ -25,13 +25,16 @@ async function nearest(ref) {
   return near.length ? `; nearest pages: ${near.map(p => `[[${p}]]`).join(', ')}` : '';
 }
 async function resolve(ref) {
+  // %name and tile:name are a tile's name, resolved by the door (tile.info): a tile called "terminal" is that tile, not every terminal.
+  // Only the bare words terminal and agent mean every tile of that kind.
   const named = /^(?:tile:|%)(.+)$/.exec(ref)?.[1];
-  const all = await tiles();
-  const kind = named ?? ref;
-  if (KINDS[kind] && all.some(KINDS[kind])) return { tiles: all.filter(KINDS[kind]).map(t => t.tile) };
   if (named !== undefined) {
     const t = await step('tile.info', { tile: named });
     return t ? { tiles: [t.tile] } : null;
+  }
+  if (Object.hasOwn(KINDS, ref)) {
+    const all = (await tiles()).filter(KINDS[ref]);
+    if (all.length) return { tiles: all.map(t => t.tile) };
   }
   try { return { note: (await read(ref)).id }; } catch (e) { failed.push(`${ref}: ${e?.message ?? String(e)}${await nearest(ref)}`); return null; }
 }
@@ -108,7 +111,11 @@ if (A) {
 // Everything else folds to a spine by the book, except what you keep: terminals and agents (unless fold= names them),
 // tiles you pinned, and, when you name edges, the tile you are in.
 const fold = list(props.fold);
-const foldable = t => !(KINDS.terminal(t) && !fold.includes('terminal')) && !(KINDS.agent(t) && !fold.includes('agent')) && !t.pinned;
+// A group holds tiles of its own: it is left alone when a terminal or agent is anywhere inside it (full layout lists them).
+const inside = t => [t, ...((t.mount?.layout?.tiles ?? []).flatMap(inside))];
+const full = (await act('layout.get', { full: true })).layers.find(x => !x.drawer).tiles;
+const holds = id => inside(full.find(x => x.tile === id) ?? {});
+const foldable = t => !holds(t.tile).some(x => (KINDS.terminal(x) && !fold.includes('terminal')) || (KINDS.agent(x) && !fold.includes('agent'))) && !t.pinned;
 for (const t of await tiles()) {
   if (used.has(t.tile) || t.tile === linksTile || (edges && t.tile === layer.focus) || t.collapsed || t.shown === false || !foldable(t)) continue;
   // A float has no place to fold in: it goes back into the layout first, then folds as the rest do.

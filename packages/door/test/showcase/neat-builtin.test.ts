@@ -254,6 +254,38 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     expect(said).toMatch(/2 steps failed.*no page no such page.*no tile no-such-tile/);
   });
 
+  test("a tile named like a kind is that tile, and a group holding a terminal is left alone", async () => {
+    const { app, seeded } = h;
+    await app.dispatch.act({ action: "section", args: { name: "neat" } }, USER);
+    await app.loadExtensions(true);
+    await app.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "terminal" } }, USER);
+    await app.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle" } }, USER);
+    await app.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "inner" } }, USER);
+    await app.dispatch.act({ action: "tile.group", tile: "inner" }, USER);
+    await app.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: "kettle" }, USER);
+    await app.act({ action: "neat", args: { page: `((${seeded.notes.shed.id}))`, right: "%terminal" }, as: agent.id });
+    const tiles = await tilesNow(app);
+    const named = tiles.find(t => t.name === "terminal")!, kettle = tiles.find(t => t.name === "kettle")!;
+    // %terminal is the tile called terminal: the other terminal is not moved or unfolded.
+    expect(named.collapsed).not.toBe(true);
+    expect(kettle.collapsed).toBe(true);
+    // The group with a terminal inside stays open.
+    const group = tiles.find(t => (t as { mount?: unknown }).mount)!;
+    expect(group).toBeDefined();
+    expect(group.collapsed).not.toBe(true);
+  }, 30_000);
+
+  test("script.run finds the script a button there would: the note's own before the outline's", async () => {
+    const { app, board } = h;
+    await board.createBlock(null, "Global scoped [script::scoped]\n```js\nreturn 'global';\n```");
+    // A script note answers for the notes under it (its ancestors' scripts come before the outline's).
+    const home = await board.createBlock(null, "Local scoped [script::scoped]\n```js\nreturn 'local';\n```");
+    const caller = await board.createBlock(home.id, "Caller note");
+    await app.loadExtensions(true);
+    const r = await app.act({ action: "script.run", args: { of: "scoped", block: caller.id }, as: agent.id }) as { message?: string };
+    expect(r.message).toBe("local");
+  }, 30_000);
+
   test("an outline's own neat script overrides the installed arrangement", async () => {
     const { app, board, seeded } = h;
     await board.createBlock(null, "My neat [script::neat]\n```js\nreturn 'neat: outline wins ' + props.page[0];\n```");

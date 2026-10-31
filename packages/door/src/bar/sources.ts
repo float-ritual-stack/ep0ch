@@ -397,10 +397,17 @@ function actionLine(q: string, host: BarHost, command = false): BarRow | null {
       const spec = info.args[key];
       const choices = spec?.type === "boolean" ? ["true", "false"] : spec?.choices;
       if (spec?.type === "boolean" && ["yes", "no", "0", "1"].includes(String(value))) continue;
-      if (choices?.length && !choices.includes(String(value)) && !info.args[key]?.kind) {
-        const near = closest(String(value), choices);
-        if (near) { corrections.push(`${key}=${value} -> ${key}=${near} (allowed: ${choices.join(", ")})`); req.args![key] = near; }
-        else throw new ActionRefused(`${key}=${value}: allowed values: ${choices.join(", ")}`);
+      // A repeated word is a list: each value is checked and corrected on its own.
+      if (choices?.length && !info.args[key]?.kind) {
+        const each = (Array.isArray(value) ? value : [value]).map(String);
+        const fixed = each.map(v => {
+          if (choices.includes(v)) return v;
+          const near = closest(v, choices);
+          if (!near) throw new ActionRefused(`${key}=${v}: allowed values: ${choices.join(", ")}`);
+          corrections.push(`${key}=${v} -> ${key}=${near} (allowed: ${choices.join(", ")})`);
+          return near;
+        });
+        if (fixed.some((v, i) => v !== each[i])) req.args![key] = Array.isArray(value) ? fixed : fixed[0]!;
       }
     }
     req.args = coerceActionArgs(req.action, spec, req.args ?? {});

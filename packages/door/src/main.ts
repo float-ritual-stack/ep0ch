@@ -234,9 +234,9 @@ if (words && "help" in words) { console.log(usageFor(USAGE, words.help)); proces
 // A plain word that is no command is a script's name (PIE-1230): `ep0ch neat page=[[a]]` is `ep0ch act script.run of=neat page=[[a]]`,
 // an agent's run in the door of this folder's outline (the shell's agent id, or --as), refused in words if no script has that name.
 let notACommand: string | undefined;
-// (A word that is one typo from a command stays that command's typo, unless it has slots; --help is always about ep0ch.)
-if (words && "error" in words && /^[A-Za-z][\w.-]*$/.test(args[0] ?? "") && !words.error.startsWith("no flag") && !args.some(a => a === "--help" || a === "-h")
-  && (args.slice(1).some(a => a.includes("=")) || !words.error.includes("did you mean"))) {
+// (A script's name is resolved before a command suggestion: `ep0ch neat` is neat, though `new` is close. With no door to ask, or no script of
+// that name, it is the unknown command it always was, exit 2. --help is always about ep0ch.)
+if (words && "error" in words && /^[A-Za-z][\w.-]*$/.test(args[0] ?? "") && !words.error.startsWith("no flag") && !args.some(a => a === "--help" || a === "-h")) {
   notACommand = words.error;
   args = ["act", "script.run", `of=${args[0]}`, ...args.slice(1)];
 } else if (words) { console.error(`ep0ch: ${words.error}`); process.exit(2); }
@@ -419,8 +419,8 @@ if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? 
     const at = await controlFor(process.env, process.cwd(), args[0] === "peek" ? args : []);
     if (typeof at === "object") {
       if (args[0] === "open" && args.includes("--json")) console.log(JSON.stringify({ opened: false, reason: at.error }));
-      else console.error(`ep0ch: ${at.error}`);
-      process.exit(args[0] === "open" && args.includes("--json") ? 0 : 1);
+      else console.error(`ep0ch: ${notACommand ?? at.error}`);
+      process.exit(notACommand ? 2 : args[0] === "open" && args.includes("--json") ? 0 : 1);
     }
     process.env.EP0CH_CONTROL = at;
   } else {
@@ -432,10 +432,9 @@ if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? 
     const reached = await resolveDoor(process.env, process.cwd(), args[0] === "peek" ? args : []);
     if (reached.path) process.env.EP0CH_CONTROL = reached.path;
     else if (args[0] === "open" && args.includes("--json") && reached.refused) { console.log(JSON.stringify({ opened: false, reason: reached.text })); process.exit(0); }
-    else if (args[0] === "peek" || reached.refused) {
-      console.error(`ep0ch: ${reached.text}`);
-      if (notACommand) console.error(`ep0ch: and ${notACommand}`);
-      process.exit(1);
+    else if (args[0] === "peek" || reached.refused || notACommand) {
+      console.error(`ep0ch: ${notACommand ?? reached.text}`);
+      process.exit(notACommand ? 2 : 1);
     }
   }
   const code = await controlClient(args);

@@ -20,7 +20,7 @@ import { moved } from "./keymap";
  */
 export function shownLine(action: string, args: Record<string, unknown> = {}, tile?: string): string {
   const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
-  return [action, ...(tile !== undefined ? [`tile=${said(tile)}`] : []), ...Object.entries(args).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${said(String(v))}`)].join(" ");
+  return [action, ...(tile !== undefined ? [`tile=${said(tile)}`] : []), ...Object.entries(args).filter(([, v]) => v !== undefined).flatMap(([k, v]) => (Array.isArray(v) ? v : [v]).map(x => `${k}=${said(String(x))}`))].join(" ");
 }
 
 export type ArgType = "string" | "number" | "boolean";
@@ -640,9 +640,11 @@ export function coerceActionArgs(action: string, spec: Record<string, ArgSpec>, 
   for (const [k, s] of Object.entries(spec)) {
     if (out[k] === undefined) continue;
     const call = (args: Record<string, unknown>) => `ep0ch act ${shownLine(action, args)}`;
-    if (s.choices && !s.kind && !s.choices.includes(String(out[k]))) {
-      const near = closest(String(out[k]), s.choices);
-      throw new ActionRefused(`${action}: ${k} is ${s.choices.join(", ")}, not ${out[k]}.${near ? ` Did you mean ${k}=${near}?` : ""} Try: ${call({ ...out, [k]: near ?? s.choices[0] })}`);
+    // A list is checked value by value.
+    const bad = s.choices && !s.kind ? (Array.isArray(out[k]) ? out[k] as unknown[] : [out[k]]).map(String).find(x => !s.choices!.includes(x)) : undefined;
+    if (bad !== undefined) {
+      const near = closest(bad, s.choices!);
+      throw new ActionRefused(`${action}: ${k} is ${s.choices!.join(", ")}, not ${bad}.${near ? ` Did you mean ${k}=${near}?` : ""} Try: ${call({ ...out, [k]: near ?? s.choices![0] })}`);
     }
     const conflict = s.conflicts?.find(other => out[other] !== undefined);
     if (conflict) {

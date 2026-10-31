@@ -310,6 +310,16 @@ export function asScriptRun(req: { action: string; tile?: string; args?: Record<
   return { ...req, action: "script.run", args: { ...(req.args ?? {}), of: req.action } };
 }
 
+/**
+ * The scripts called `name` as a press at `block`'s line `line` finds them: the note's own and its ancestors' first, then the
+ * outline's (the service lists them in that order for the site). A press (`runPress`) and `script.run` both ask this, so a typed
+ * call from a note runs the script the note's button would.
+ */
+export async function scriptsAt(board: SocketBoard, name: string, block?: string, line?: number) {
+  const listed = await board.listExtensions(false, { blockId: block, ...(line !== undefined ? { line } : {}) });
+  return { listed, scripts: listed.extensions.filter(e => e.script && e.name === name && (e.state === "active" || e.state === "failed")) };
+}
+
 /** Every script's name with its own words about itself (its note's title or extension's about, the first of its description). */
 export function scriptNames(): { name: string; about: string }[] {
   return scriptActions().map(s => ({ name: s.extension.name!, about: (s.extension.summary || s.action.label || "").trim() }));
@@ -455,11 +465,18 @@ export const SCRIPT_RUN_ACTIONS = actionSet<ExtOn>()("script-run", {
       { act: 'script.run of=neat page="[[Garden plan]]" page="[[Shed repairs]]"', does: "runs neat with its two pages, as its button does" },
       { act: 'script.run of=neat left="[[Garden plan]]" right=%tree', does: "runs neat with a page at the far left and the tree tile at the far right" },
     ],
-    async run({ of, ...slots }, on, actor) {
-      const found = scriptNamed(of);
-      if (!found.length) throw new ActionRefused(noScript(of));
+    async run(given, on, actor) {
+      const { of, ...slots } = given as { of: string } & Record<string, unknown>;
       if (!on.ctx.dispatch) throw new ActionRefused("this screen has no dispatcher to run a script with");
-      return on.ctx.dispatch.act({ action: found[0]!.action.name, args: slots as Record<string, unknown> }, actor);
+      // From the note it is run for (block=, else the note in front of the person), as that note's button would find it.
+      const block = typeof slots.block === "string" ? slots.block : actor.kind === "user" ? on.ctx.noteInFront?.() ?? undefined : undefined;
+      const line = typeof slots.line === "string" && /^\d+$/.test(slots.line) ? Number(slots.line) : undefined;
+      const { scripts } = await scriptsAt(on.ctx.board, of, block, line);
+      const run = scripts[0]?.actions.find(a => a.id === "run");
+      if (!scripts.length) throw new ActionRefused(noScript(of));
+      if (scripts[0]!.state === "failed") throw new ActionRefused(scripts[0]!.error ?? `${of} failed to load`);
+      if (!run) throw new ActionRefused(`${of} is a module (imported by other scripts); it has no run`);
+      return on.ctx.dispatch.act({ action: run.name, args: slots as Record<string, unknown> }, actor);
     },
   }),
 });
