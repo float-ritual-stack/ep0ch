@@ -10,6 +10,8 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+- Saved view pages on the web draw their table, gallery, feed or board layout through the same renderer as inline views, keeping public members and linked titles within the page's visibility (PIE-1477).
+
 ### Published clocks read in your time zone (PIE-1384)
 
 - **Every displayed instant:** page footers, folders, comments, replies, Sources and figure cells share time elements and the reader script’s formatting pass, with a UTC-labelled fallback.

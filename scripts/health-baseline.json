@@ -1,5 +1,5 @@
 {
-  "revision": "850fdf8c384a85afbdfda90019f64ae5038dfc3d",
+  "revision": "4f32880900a05278251ae496c600d30af9e20876",
   "patterns": {
     "width-length": {
       "count": 256,
@@ -129,7 +129,7 @@
         "packages/door/src/graphs.ts:fe678e71b0cf29ad",
         "packages/door/src/graphs.ts:fe678e71b0cf29ad",
         "packages/door/src/graphs.ts:3f549e5e075f01cb",
-        "packages/door/src/graphs.ts:717aa23480c4ca9a",
+        "packages/door/src/graphs.ts:a80fadbd7c90a6a1",
         "packages/door/src/graphs.ts:44b040af2cdbc86d",
         "packages/door/src/graphs.ts:e8c6c22a8a8b103d",
         "packages/door/src/graphs.ts:e8c6c22a8a8b103d",
@@ -399,7 +399,7 @@
     "packages/outliner/src/detail-controller.ts": 4671,
     "packages/outliner/src/detail-pi-preview.ts": 2420,
     "packages/outliner/src/detail-pi.ts": 2042,
-    "packages/outliner/src/publish.ts": 3397,
+    "packages/outliner/src/publish.ts": 3396,
     "packages/outliner/src/resource-catalog.ts": 4937,
     "packages/outliner/src/server.ts": 5103,
     "packages/outliner/src/store.ts": 6506,

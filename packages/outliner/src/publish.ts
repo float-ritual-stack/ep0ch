@@ -12,8 +12,8 @@ import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import type { Decoration } from "./extension-rules";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
 import { COMPONENT_STYLE, componentSentinel, drawComponents, drawNoteButtons, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown, readImages } from "./publish-components";
-import { boardHtml, FIGURE_STYLE, viewRowsHtml } from "./publish-figures";
-import { drawNoteComponents, drawViewLane, readViewLane, type DrawnComponent, type LiveHost } from "./publish-live";
+import { boardHtml, FIGURE_STYLE } from "./publish-figures";
+import { drawNoteComponents, drawViewLane, drawViewPage, hasCollectionLayout, readViewLane, type DrawnComponent, type LiveHost } from "./publish-live";
 import { publishedValueWords, readPageValues } from "./publish-values";
 import { substituteValues } from "@ep0ch/outline-core/site-values";
 import type { SiteValue } from "@ep0ch/outline-core/site";
@@ -1696,9 +1696,11 @@ export class Publisher {
       const rendered = await this.blockMarkdown(entry, index, audience, !share || share.comments, { browse, owner, anchors: [], ...(share ? { share } : {}) });
       const base = share?.base ?? this.basePathFor(audience);
       // A step's box changes from the owner's own page (PIE-811); a share's and a public page's are drawn, read-only.
-      const article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(drawSubtitle(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.subtitle), rendered.components), rendered.marks, browse), rendered.anchors), rendered.steps, owner), rendered.index, base);
-      const sourceText = (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text;
-      const sources = await pageSources(this.liveHost(audience, index, base, share), entry.blockId, this.outlineName ?? "this outline", sourceText, rendered.drawn.get(entry.blockId) ?? new Map(), base);
+      let article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(drawSubtitle(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.subtitle), rendered.components), rendered.marks, browse), rendered.anchors), rendered.steps, owner), rendered.index, base);
+      const source = await this.client.request<Block>({ action: "get", blockId: entry.blockId });
+      const host = this.liveHost(audience, index, base, share);
+      if (hasCollectionLayout(source)) article += htmlViewLinks(await drawViewPage(host, source, entry.title), rendered.index, base);
+      const sources = await pageSources(host, entry.blockId, this.outlineName ?? "this outline", source.text, rendered.drawn.get(entry.blockId) ?? new Map(), base);
       if (!browse) return renderedHtml(this.page(entry, sources + article, audience, skin), 200, sources ? READER_CSP : RENDERED_CSP);
       const crumbs = await this.crumbs(entry, index, true, share);
       return renderedHtml(htmlPage(entry.title, `${sources}<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share), search: { base, near: entry.blockId }, skin }), 200, READER_CSP);
@@ -1740,10 +1742,7 @@ export class Publisher {
     let lanes = "";
     if (entry) {
       const own = (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [entry.blockId], fields: ["properties"] })).blocks[0];
-      if (own && isVirtualBranchDefinition({ properties: own.properties ?? [] })) {
-        const lane = await readViewLane(host, own, entry.title);
-        lanes += `<section class="inside view"><h2>Rows <span class="dim">${lane.count}${lane.truncated ? "+" : ""}</span></h2>\n${viewRowsHtml(lane)}</section>\n`;
-      }
+      if (own && isVirtualBranchDefinition({ properties: own.properties ?? [] })) lanes += await drawViewPage(host, own, entry.title);
     }
     if (views.length) {
       const viewTitles = await host.titles(views.map((view) => view.id));
