@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### ctrl+z takes back a run's layout on every desk it changed (PIE-1230)
+
+- **ctrl+z after a script run that put a tile in the drawer** (neat's links tile, with your keys left there) took back only the drawer's part and left the screen as the run arranged it: one ctrl+z, from the bar or after Esc, now puts back the whole run, the screen and the drawer together, and the status line says the steps of both.
+- **Run:** nothing to run; restart your door to get it.
+
 ### A script's run in the power bar undoes with ctrl+z, and the CLI's flags go around a script's name (PIE-1230)
 
 - **ctrl+z right after a typed script line ran, with the bar still open on its answer:** puts the bar away and takes the run back, as "ctrl+z undoes" on the status line says (it used to edit the bar's text; only Esc, then ctrl+z took the layout back).

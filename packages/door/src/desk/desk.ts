@@ -965,8 +965,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     const r = this.undoEntries(entries, actor);
     if (!r.done.length) throw new ActionRefused(r.blocked!);
+    // A run's transaction is one undo, but its changes can have landed on more than one desk (neat puts a links tile in the
+    // drawer, and the run leaves the person's keys there): the same transaction is taken back on the others, whichever desk
+    // the key reached (PIE-1230). What a desk can't put back (the lock, a typing tile) is said, as a single desk says it.
+    let steps = r.done.reduce((n, e) => n + e.steps, 0), left = r.blocked;
+    for (const txn of new Set(r.done.flatMap(e => (e.txn ? [e.txn] : [])))) {
+      for (const d of this.relatives()) {
+        if (d === this || !d.history.forTxn(txn)) continue;
+        try { steps += d.undoLayout(actor, txn).steps; } catch (e) { left ??= e instanceof Error ? e.message : String(e); }
+      }
+    }
     this.save(); this.redraw();
-    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: r.done[0]!.what, steps: r.done.reduce((n, e) => n + e.steps, 0), ...(r.blocked ? { left: r.blocked } : {}) };
+    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: r.done[0]!.what, steps, ...(left ? { left } : {}) };
   }
 
   /**
