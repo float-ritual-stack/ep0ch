@@ -1,3 +1,4 @@
+import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
 import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
@@ -64,7 +65,7 @@ import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
 import { childEnv, codeSpans, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { type Density, type FigureControl, type FigureInfo } from "../graphs";
-import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE, type EmbedBody } from "../embeds";
+import { embedRegion, embedsLoading, embedState, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE, type EmbedBody } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
 import { drawSources, FOLDS, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
@@ -170,7 +171,7 @@ import { AGENT_BG, selectText, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt
  * How a note was opened: a followed link (`link`), into a new reader (`fresh`), and by whom (`by`, PIE-514: the actor
  * itself, carried to where it lands, so an agent's open is an agent's there too: it never takes the person's keys).
  */
-export interface OpenHow { link?: boolean; fresh?: boolean; by?: Actor; standing?: boolean }
+export interface OpenHow { where?: import("@ep0ch/outline-core/list-row").ListOpenWhere; link?: boolean; fresh?: boolean; by?: Actor; standing?: boolean }
 /**
  * A link that names something outside the door: a web page (`browser`) or a file (`viewer`, a figure). The person's
  * follow opens it there; an agent's never does (`launched: false`): it is given the address instead.
@@ -2543,7 +2544,7 @@ export class NoteSurface {
     const { doc: rendered, points, lines: noteLines } = this.body(m, env, src, drawn, tokens, (source, noteLines) => {
       const regions = regionsByLine(outline ? projectionsOf(m, src) : [], noteLines), bodyText = source.split("\n");
       // A view note's results under its body, drawn as an embedded view (the service's answer).
-      const last = bodyText.length - 1, results = outline ? (width: number) => viewResults(m, width, src, drawn, env.inlineList) : null;
+      const last = bodyText.length - 1, results = outline ? (width: number) => renderCollection({ props: { of: `((${m.id}))` }, key: "^view" }, m.id, width, this.listEnv, (to, text) => tagged(drawn, to, text)) : null;
       const view = !!results && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch";
       // The rules' decorations (PIE-600): above or below what they matched, in its place, or around it.
       const plan = planDecorations(decorations, noteLines, { row: extDraw.row, press: (act, text) => tagged(drawn, { role: "control", label: text, press: { act, block: m.id, line: 0 } }, text), markdown: extDraw.markdown, blockdown: extDraw.blockdown, image: extDraw.image, headings: headingStylesOf(src) }, bodyText);
@@ -4267,7 +4268,7 @@ export class NoteSurface {
       return tagged(drawn, { ...to, ...at }, x);
     };
     const drawing = view.draw({
-      cols: width, focused: entered, selection: entered || previewing, tag, empty: node.empty ?? "nothing here",
+      primitive: node, cols: width, focused: entered, selection: entered || previewing, tag, empty: node.empty ?? "nothing here",
       ...(previewing ? { preview: { side: node.preview!, of: (row: ListViewRow, w: number) => {
         const p = row.preview;
         return !p ? null : "block" in p ? lb.preview?.(p.block, w) ?? null : markdown(p.markdown);
@@ -4385,15 +4386,19 @@ export class NoteSurface {
       if (k.kind === "enter") view.stopTyping(true);
       else if (k.kind === "esc") view.stopTyping(false);
       else if (!T.take(k)) return true;
+      if (l.change) void l.change({ where: view.filter() }, PERSON).then(() => host.redraw());
       host.redraw();
       return true;
     }
+    if (k.kind === "tab" && l.change) { void this.runList("list.layout", { list }, host); return true; }
     const n = view.visible().filter(selectable).length, c = ch(k);
     const to = (i: number) => { if (n && i >= 0 && i < n) void this.runList("list.pick", { list: String(l.n), n: i + 1 }, host); return true; };
     if (isDown(k) || isUp(k)) {
-      void this.runKey("reading.step", { by: isDown(k) ? 1 : -1 }, host);
+      void this.runList("list.step", { list, by: isDown(k) ? 1 : -1 }, host);
       return true;
     }
+    if (l.change && (c === "s" || c === "g")) { void this.runList(c === "s" ? "list.sort" : "list.group", { list }, host); return true; }
+    if (l.change && (k.kind === "pgup" || k.kind === "pgdn")) { void this.runList("list.page", { list, by: k.kind === "pgup" ? -1 : 1 }, host); return true; }
     if (k.kind === "home") return to(0);
     if (k.kind === "end") return to(n - 1);
     if (k.kind === "enter" || k.kind === "alt-enter") { if (n) void this.runList("list.open", { list: String(l.n), ...(k.kind === "alt-enter" ? { where: "new" } : {}) }, host); return true; }
@@ -4421,6 +4426,14 @@ export class NoteSurface {
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
       enter: (l, on) => { if (on || this.listIn === l.key) this.enterList(l, on); },
       type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(filterLine); },
+      choose: (l, action, keys) => {
+        const h = here();
+        h.overlay?.(new ListPicker<string, unknown>({ name: action, items: () => keys, clickChooses: true,
+          row: (key, _i, on, w) => [pickRow(key || "no grouping", on, w)],
+          choose: by => { void this.runList(action, { list: l.key, by }, h); },
+          frame: (a, n) => ({ rect: centred(a, Math.min(50, a.cols - 2), Math.min(n + 2, a.rows)), title: `${action} · ${l.title}` }),
+        }));
+      },
       redraw: () => host?.redraw(),
     };
   }
@@ -6125,7 +6138,10 @@ export class NoteSurface {
    * A key this reader takes ahead of its host's own while a live figure's element is current (tab and shift+tab
    * cycle a desk's tiles, ← → step a river's columns or a BBS reader's messages otherwise): the host asks first.
    */
-  claims(k: Key): boolean { return this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H"); }
+  claims(k: Key): boolean {
+    const list = this.listsDrawn.find(l => l.key === this.listIn);
+    return !!list && (!!list.view.typing || k.kind === "tab" && !!list.change) || this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H");
+  }
 
   /**
    * The image action key `k` runs while an image is the current element (PIE-532): + - its size (a header's height),
@@ -6753,6 +6769,7 @@ export class NoteSurface {
 
   /** Open what a link names: media in the system viewer, web pages in the browser (openOutside), blocks and pages through the host (`how`, where). */
   private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | Outside | TagList | null> {
+    how = { ...how, ...(l.openWhere && !how.fresh ? { where: l.openWhere } : {}) };
     if (l.query !== undefined) {
       if (!host.query) { host.ctx.flash(`${l.query}: this screen has nowhere to list notes · / searches the outline`); return null; }
       return host.query(l.query, { ...how, ...(host.actor ? { by: host.actor } : {}) });

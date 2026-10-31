@@ -133,6 +133,8 @@ export const SEED = {
   rowsTruncate: "Truncate",
   dayPlan: "Plan for Saturday",
   outbox: "Letters to send",
+  collection: "Garden collection",
+  collectionInline: "Garden collection inline",
   listDemo: "One list, three ways",
   society: "Allotment society",
   fieldsRail: "Where a key is written",

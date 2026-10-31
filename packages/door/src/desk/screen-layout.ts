@@ -1,3 +1,4 @@
+import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
 import type { AltRule } from "./layout";
 // The screen-layout module (PIE-513): the reducer in the door's one-way data flow. A screen's layout is one value
@@ -503,7 +504,7 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string, othe
  * reader), else the open rule: the next column of its flow (`next`), beside it (`beside`), or none (a reader is its own
  * home: the note replaces its own; anything else lands in the first reader that isn't pinned).
  */
-function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt", facts?: TileFacts, tile?: (id: I) => TileFacts): { to: I } | { into: string } | { next: true } | { beside: I } | { tab: I } | { across: string; rule: AltRule } | null {
+function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt", facts?: TileFacts, tile?: (id: I) => TileFacts, preferred?: ListOpenWhere): { to: I; full?: true } | { float: true } | { into: string } | { next: true } | { beside: I } | { tab: I } | { across: string; rule: AltRule } | null {
   const wire = s.wires.find(w => w.from === id && w.verb === verb && s.names.has(w.to));
   if (verb === "alt") {
     const open = landing(s, id, "open", facts, tile);
@@ -527,6 +528,9 @@ function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names
   if (into !== undefined && into !== id) return { to: into };
   // A container by its key (the board's readers row): a tile opened into it holds the note.
   if (into === undefined && e.opensInto && node(s.tree, e.opensInto)) return { into: e.opensInto };
+  if (preferred === "current" || preferred === "full") return { to: id, ...(preferred === "full" ? { full: true } : {}) };
+  if (preferred === "beside") return { beside: id };
+  if (preferred === "float") return { float: true };
   // A list (the links tile) opens in its home, the reader it belongs to, when no link or container says otherwise (PIE-794).
   const home = facts?.home !== undefined ? named(s, facts.home) : undefined;
   if (home !== undefined && home !== id) return { to: home };
@@ -537,6 +541,7 @@ function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names
 }
 
 export interface PlacementRequest<I = number> {
+  where?: ListOpenWhere;
   from: I;
   to?: I;
   fresh?: boolean;
@@ -601,7 +606,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   const openWire = fresh && !s.wires.some(w => w.from === from && w.verb === "alt") ? s.across.find(w => w.from === from && w.verb === "open") : undefined;
   let route = to !== undefined ? { to } : wire ? { across: wire.to, rule: wire.rule ?? "tile" as const }
     : openWire ? { across: openWire.to, rule: "beside" as const }
-    : landing(s, from, verb, ctx.tile(from), ctx.tile);
+    : landing(s, from, verb, ctx.tile(from), ctx.tile, fresh ? undefined : request.where);
   if (to !== undefined && request.rule && request.rule !== "tile") {
     const available = request.rule === "first-unheld" ? leaves(s.tree).find(id => { const f = ctx.tile(id); return f.notes && !f.pinned && !f.editing && !f.holds && !f.follower; }) : undefined;
     route = available !== undefined ? { to: available } : request.rule === "tab" ? { tab: to } : { beside: to };
@@ -624,6 +629,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   }
   const keys = ctx.keys ?? ctx.standing;
   const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing, route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
+  if (route && "float" in route) { result.destination = { kind: "new", at: { kind: "float" } }; result.giveNewKeys = keys && request.keys !== false; return result; }
   if (request.newNote) {
     const policy = policyAt(s, from, ctx.tile(from));
     const tabs = ctx.tile(from).tabs;

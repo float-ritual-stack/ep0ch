@@ -12,7 +12,7 @@ import { drawCheck } from "./figures/check";
 import { TONE as CALLOUT_TONE } from "./callouts";
 import { imageSource, type ImagePrimitive } from "@ep0ch/outline-core/media-line";
 import type { ListPrimitive } from "@ep0ch/outline-core/list-row";
-import { listRowLines, listRowsOf } from "./surface/list-view";
+import { ListView, listRowsOf } from "./surface/list-view";
 import { buttonText } from "./surface/button";
 import { viewToneAsButton } from "@ep0ch/outline-core/button-call";
 
@@ -91,13 +91,14 @@ const kids = (n: Node): unknown[] => (Array.isArray(n.children) ? n.children : [
 
 /** What the reader lends a view's drawing. */
 export interface PrimitiveDraw {
+  header?: (key: string, text: string) => string;
   /**
    * Tags `text` as a press (PIE-957): a primitive that carries an action line (`act`). The reader's `[ ]` stops on it, ⏎
    * and a click run the line as the person. Without it (a page, a draft's preview) the primitive is drawn as it is.
    */
   press?(act: string, text: string): string;
   /** Tags a card's or a table row's block (`link` and `links` in the view): the reader's `[ ]` stops on it, a click opens it. */
-  link?(block: string, text: string): string;
+  link?(block: string, text: string, revision?: number): string;
   /** A `blockdown` primitive drawn as the reader draws a note's body, `width` wide. Without it, its lines as written. */
   blockdown?(text: string, width: number): string[];
   /**
@@ -127,7 +128,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
   const n = view as Node;
   const { link } = draw, headings = draw.headings ?? BUILTIN_HEADING_STYLE_REGISTRY;
   const inner = (v: unknown, width: number) => primitiveLines(v, width, draw, depth + 1);
-  const tag = (block: unknown, text: string) => (link && typeof block === "string" ? link(block, text) : text);
+  const tag = (block: unknown, text: string, revision?: number) => (link && typeof block === "string" ? link(block, text, revision) : text);
   const press = (act: unknown, text: string) => (typeof act === "string" && act && draw.press ? draw.press(act, text) : text);
   switch (n.type) {
     case "text":
@@ -181,7 +182,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       }
       const line = (cells: string[]) => cells.map((c, i) => (i === cells.length - 1 ? pad(c, widths[i]!).trimEnd() : pad(c, widths[i]!))).join("  ");
       return [
-        fg(C.grey) + BOLD + line(columns) + UNBOLD + RESET,
+        fg(C.grey) + BOLD + columns.map((c, i) => { const cell = pad(c, widths[i]!); return draw.header ? draw.header(c, cell) : cell; }).join("  ") + UNBOLD + RESET,
         fg(C.dark) + widths.map(x => "─".repeat(x)).join("  ") + RESET,
         ...rows.flatMap((r, k) => {
           const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!));
@@ -197,7 +198,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
               const padded = i === cells.length - 1 ? pad(c[j] ?? "", widths[i]!).trimEnd() : pad(c[j] ?? "", widths[i]!);
               const o = own[i];
               const ink = fg(o?.tone ? toned(o.tone) : C.white);
-              if (o?.link) return ink + tag(o.link, padded) + RESET;
+              if (o?.link) return ink + tag(o.link, padded, o.revision as number | undefined) + RESET;
               if (o?.act) return ink + press(o.act, padded) + RESET;
               return ink + (links[k] ? tag(links[k], padded) : press(acts[k], padded)) + RESET;
             });
@@ -234,8 +235,9 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       if (!Array.isArray(n.rows)) throw new PrimitiveUnknown("a list needs rows");
       if (draw.list) return draw.list(n as unknown as ListPrimitive, w);
       // As the service's terminal target says it: a section's header, its rows under it, nothing selected.
-      const rows = listRowsOf(n as unknown as ListPrimitive);
-      return rows.length ? rows.flatMap(r => listRowLines(r, { cols: w, lines: 2 })) : [fg(C.dark) + one(n.empty ?? "nothing here") + RESET];
+      const node = n as unknown as ListPrimitive, view = new ListView("primitive");
+      view.set(listRowsOf(node));
+      return view.draw({ primitive: node, cols: w, lines: 2, focused: false, selection: false, empty: node.empty }).lines;
     }
     case "track":
       return drawTrack(primitiveStyle(n, headings, "fade"), w) ?? [fg(C.dark) + "─".repeat(w) + RESET];

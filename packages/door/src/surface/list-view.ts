@@ -5,12 +5,14 @@
 // decides: where an open lands, what a row's note previews as, which rows the model narrows. Those stay with the
 // host that draws it (the reader, the links tile), reached through `ListHandle`, the one seam `LISTVIEW_ACTIONS`
 // (list.blocks, list.pick, list.step, list.open, list.filter, list.enter) runs over.
-import { filterListRows, listHead, listSections, type ListPreviewSide, type ListPrimitive, type ListRow, type ListTone } from "@ep0ch/outline-core/list-row";
+import { listCellText, filterListRows, listHead, listSections, type ListPreviewSide, type ListPrimitive, type ListRow, type ListTone } from "@ep0ch/outline-core/list-row";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { dividerLine, listSlots, zebraRow } from "../list-look";
 import { RowView, type RowGesture, type RowPress } from "../scroll";
 import type { Actor } from "../socket";
-import { C, ellipsize, fg, pad, RESET, selectedRow, tint, width } from "../style";
+import { BOLD, UNBOLD, C, ellipsize, fg, pad, RESET, selectedRow, tint, width } from "../style";
+import { primitiveLines } from "../components";
+import { tier } from "../figures/palette";
 import { rowLines } from "../text";
 import type { LineField } from "./line";
 import { paintRange } from "./selection";
@@ -85,10 +87,11 @@ export function listRowLines<S>(r: ListViewRow<S>, o: RowDraw<S>): string[] {
  * The rows a `list` primitive draws, flat: each section's header (a row that can't be picked) then its rows, nested
  * under it. A row with no mark is a dot, or a square when it does nothing (a header the view wrote itself).
  */
-export function listRowsOf(node: Pick<ListPrimitive, "rows" | "groups">): ListViewRow[] {
+export function listRowsOf<S = unknown>(node: Pick<ListPrimitive, "rows" | "groups" | "arrange">): ListViewRow<S>[] {
+  if (node.arrange && node.arrange !== "lanes") return node.rows.map(r => ({ ...r }));
   return listSections(node).flatMap(({ head, rows }) => [
     ...(head ? [{ id: `\u0000group:${head.name ?? head.label}`, label: listHead(head), mark: "▾", tone: "warn" as const, pick: false, group: head.name ?? head.label, ...(head.note ? { detail: head.note } : {}) }] : []),
-    ...rows.map((r): ListViewRow => ({ ...r, mark: r.mark ?? (r.do ? "·" : "■"), depth: head ? 1 : 0 })),
+    ...rows.map((r): ListViewRow<S> => ({ ...r, mark: r.mark ?? (r.do ? "·" : "■"), depth: head ? 1 : 0 })),
   ]);
 }
 
@@ -106,6 +109,10 @@ export interface ListPreview<S> {
 }
 
 export interface ListDrawOpts<S> {
+  primitive?: ListPrimitive;
+  header?: (key: string, text: string) => string;
+  link?: (id: string, text: string, revision?: number) => string;
+  lane?: (name: string, text: string) => string;
   /** The width of the list and its preview together. */
   cols: number;
   lines?: number;
@@ -145,6 +152,28 @@ export class ListView<S = unknown> {
   /** The person's filter while they type it (`/`): applied as it's typed, ⏎ keeps it, esc goes back to what it was. */
   typing: LineField | null = null;
   private was = "";
+  readonly settings = new Map<string, Record<string, unknown>>();
+  private readonly answered = new Map<string, ListViewRow<S>[]>();
+  lane = 0;
+  page = 0;
+  private readonly agentPages = new Map<string, number>();
+  private pageSize = 200;
+  private lanes: string[][] = [];
+
+  turnPage(who: string, by: number, pages: number): number {
+    const current = who === PERSON ? this.page : this.agentPages.get(who) ?? 0;
+    const next = Math.max(0, Math.min(pages - 1, current + by));
+    if (who === PERSON) this.page = next; else this.agentPages.set(who, next);
+    return next + 1;
+  }
+
+  pickLane(who: string, lane: number) {
+    const first = this.lanes[lane]?.[0];
+    if (first) this.pick(who, first);
+    if (who === PERSON) this.lane = lane;
+  }
+
+  setAnswer(who: string, rows: ListViewRow<S>[]) { if (who === PERSON) this.set(rows); else this.answered.set(who, rows); }
 
   /**
    * `narrows`: whether this view narrows its rows by a typed filter. A host whose model narrows its own (the links
@@ -188,6 +217,7 @@ export class ListView<S = unknown> {
 
   /** The rows `who` sees: all, or those their filter leaves (the person's, when this view narrows; an agent's always). */
   visible(who: string = PERSON): readonly ListViewRow<S>[] {
+    if (this.answered.has(who)) return this.answered.get(who)!;
     const words = this.filter(who);
     // A host that narrows for the person (the links model) still leaves an agent's filter to this view: it is the agent's own.
     return (this.narrows || who !== PERSON) && words ? filterListRows(this.all, words) : this.all;
@@ -207,7 +237,10 @@ export class ListView<S = unknown> {
   setPick(who: string, id: string | null) {
     if ((this.picks.get(who) ?? null) === id) return;
     if (id === null) this.picks.delete(who); else this.picks.set(who, id);
-    this.view.reveal();
+    if (who === PERSON) {
+      this.page = Math.max(0, Math.floor(this.pickable(who).findIndex(r => r.id === id) / this.pageSize));
+      this.view.reveal();
+    }
   }
   /** The rows `who` can pick among those they see, numbered from 1 by `list.blocks` and `list.pick n=`. */
   pickable(who: string = PERSON): ListViewRow<S>[] { return this.visible(who).filter(selectable); }
@@ -218,8 +251,7 @@ export class ListView<S = unknown> {
     const rows = this.visible(who), row = rows.find(r => r.id === id);
     if (!row) throw new Error(`no row ${id} in ${this.key}`);
     if (!selectable(row)) throw new Error(`${row.label} is a header: it has nothing to pick`);
-    this.picks.set(who, row.id);
-    this.view.reveal();
+    this.setPick(who, row.id);
     return row;
   }
   /** Move `who`'s pick `by` rows among those that can be selected; null where there's no row that way. */
@@ -228,8 +260,7 @@ export class ListView<S = unknown> {
     const to = (at < 0 ? (by > 0 ? -1 : rows.length) : at) + Math.trunc(by);
     const row = rows[Math.max(0, Math.min(rows.length - 1, to))];
     if (!row || (to < 0 || to >= rows.length) && at >= 0 && rows[at] === row) return null;
-    this.picks.set(who, row.id);
-    this.view.reveal();
+    this.setPick(who, row.id);
     return row;
   }
   /** Forget `who`'s pick (their own, not the rows). */
@@ -267,6 +298,7 @@ export class ListView<S = unknown> {
    * host decides: `tag` turns a row's text into the reader's link, `preview.of` draws the row's note.
    */
   draw(o: ListDrawOpts<S>): ListDrawn<S> {
+    if (o.primitive?.arrange) return this.arranged(o, o.primitive);
     const rows = this.visible(), mine = o.selection ? this.picked() : null;
     const others = this.others();
     const agentRows = new Map<string, string[]>();
@@ -342,10 +374,73 @@ export class ListView<S = unknown> {
     const cut = o.room === undefined ? lines.length : Math.max(1, o.room);
     return { lines: lines.slice(0, cut), rowAt: at.slice(0, cut), previewed: mine, beside, listCols: lw };
   }
+
+  private arranged(o: ListDrawOpts<S>, node: ListPrimitive): ListDrawn<S> {
+    const rows = this.visible(), mine = o.selection ? this.picked()?.id : undefined;
+    const byId = new Map(rows.map((row, i) => [row.id, { row, i }]));
+    const tag = (id: string, text: string, revision?: number) => {
+      const row = byId.get(id)?.row;
+      const marked = id === mine ? `${BOLD}${text}${UNBOLD}` : text;
+      return row && o.tag ? o.tag(row, marked) : o.link?.(id, marked, revision) ?? marked;
+    };
+    const titleAt = Math.max(0, node.columns?.indexOf("title") ?? 0);
+    const card = (row: ListRow, cols: number, record = false): string[] => {
+      const title = record ? listCellText(row.cells?.[titleAt] ?? row.label) : row.label;
+      const lines = primitiveLines({ type: "card", title: `${row.id === mine ? "▸ " : ""}${title}`,
+      ...(record ? {} : { subtitle: row.detail }), children: [
+        ...(!record && row.cover ? [{ type: "image", src: row.cover, caption: false, height: node.size === "large" ? 8 : 4 }] : []),
+        ...(record ? (node.columns ?? []).flatMap((key, i) => i === titleAt ? [] : [{ type: "text", text: rowLines(`${key}: ${listCellText(row.cells?.[i] ?? "")}`, Math.max(8, cols - 2), 4).join("\n") }]) : []),
+        ...(row.body ?? []).map(text => ({ type: "text", text })),
+      ] }, cols, { link: tag });
+      const drawn = byId.get(row.id)?.row;
+      if (!drawn || !o.tag) return lines;
+      const [before, after] = o.tag(drawn, "\u0000").split("\u0000");
+      return lines.map(line => before + line + after);
+    };
+    const combine = (parts: string[][], cols: number) => Array.from({ length: Math.max(0, ...parts.map(p => p.length)) }, (_, line) => parts.map(p => pad(p[line] ?? "", cols)).join("  "));
+    const drawRows = (own: readonly ListRow[], cols: number, arrange: ListPrimitive["arrange"]): string[] => {
+      if (arrange === "table" && tier(cols) !== "narrow") {
+        const columns = node.columns ?? ["title"];
+        const shown = [...columns];
+        if (tier(cols) === "cozy") while (shown.length > 2 && shown.reduce((n, key) => n + Math.max(8, width(key)), 0) + 2 * (shown.length - 1) > cols) shown.pop();
+        return [...primitiveLines({ type: "table", columns: shown, rows: own.map(r => r.cells?.slice(0, shown.length) ?? [r.label]), links: own.map(r => r.id) }, cols, { link: tag, header: o.header }),
+          ...(shown.length < columns.length ? [fg(C.dark) + `+ ${columns.length - shown.length} columns · widen to see them` + RESET] : [])];
+      }
+      const per = arrange === "grid" && tier(cols) !== "narrow" ? Math.max(1, Math.floor(cols / (node.size === "large" && tier(cols) === "wide" ? 44 : 29))) : 1;
+      const cw = Math.floor((cols - 2 * (per - 1)) / per), out: string[] = [];
+      for (let i = 0; i < own.length; i += per) out.push(...combine(own.slice(i, i + per).map(row => card(row, cw, arrange === "table")), cw), "");
+      return out;
+    };
+    this.pageSize = node.page ?? 200;
+    const all = node.rows.filter(row => byId.has(row.id));
+    this.page = Math.min(this.page, Math.max(0, Math.ceil(all.length / this.pageSize) - 1));
+    const ordered = all.slice(this.page * this.pageSize, (this.page + 1) * this.pageSize);
+    let lines: string[];
+    if (node.arrange === "lanes" && node.groups?.length) {
+      const lanes = node.groups, narrow = tier(o.cols) === "narrow" || o.cols / lanes.length < 24;
+      this.lanes = lanes.map(group => group.ids ?? listSections({ rows: ordered, groups: [group] }).flatMap(section => section.rows.map(row => row.id)));
+      const pickedLane = this.lanes.findIndex(ids => mine !== undefined && ids.includes(mine));
+      if (pickedLane >= 0) this.lane = pickedLane;
+      const drawn = narrow ? [lanes[Math.min(this.lane, lanes.length - 1)]!] : lanes;
+      const cols = Math.floor((o.cols - 2 * (drawn.length - 1)) / drawn.length);
+      lines = [
+        ...(narrow ? [lanes.map((g, i) => o.lane ? o.lane(String(i), `${i === this.lane ? "▸ " : ""}${g.label}`) : g.label).join(" · ")] : []),
+        ...combine(drawn.map(group => [fg(C.yellow) + `${group.label} (${group.count})` + RESET,
+          ...listSections({ rows: ordered, groups: [group] }).flatMap(section => [
+            ...(group.groups?.length && section.head ? [fg(C.dark) + section.head.label + RESET] : []),
+            ...drawRows(section.rows, cols, "rows"),
+          ])]), cols),
+      ];
+    } else lines = drawRows(ordered, o.cols, node.arrange);
+    if (!ordered.length) lines.push(fg(C.dark) + (node.empty ?? "No matching notes") + RESET);
+    for (const other of this.others()) if (other.row || other.filter) lines.push(fg(C.lmagenta) + `${other.who}: ${other.row?.label ?? ""}${other.filter ? ` / ${other.filter}` : ""}` + RESET);
+    return { lines, rowAt: lines.map(() => null), previewed: null, beside: false, listCols: o.cols };
+  }
 }
 
 /** The handle a host gives for each list it draws: the one seam `LISTVIEW_ACTIONS` runs over (src/surface/list-actions.ts). */
 export interface ListHandle<S = unknown> {
+  change?: (changes: Record<string, unknown>, who: string) => Promise<unknown>;
   /** Its number among the host's lists, from 1, in drawing order. */
   n: number;
   /** Its `^name`, else its position (`#2`): the key its view state is kept under. */

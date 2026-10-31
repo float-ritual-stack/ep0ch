@@ -454,6 +454,23 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "});",
     "```",
   ].join("\n"));
+  notes.collection = await make(notes.root.id, [
+    `${SEED.collection} [type::virtual-branch] [query::collection=garden] [layout::table, gallery, feed, board]`,
+    "[summary-properties::title, owner, stage] [sort::title] [direction::asc] [group::area] [gallery.card::large] [cover::cover, img]",
+    "One garden, four layouts. Enter the list, tab through its layouts; click a table header to sort. j k pick, Enter opens; / asks the query to filter. Changes here belong to the viewer.",
+  ].join("\n"));
+  for (const text of [
+    "Water the beans [collection::garden] [area::beds] [owner::Mira] [stage::ready] [cover::Bean leaves after rain]\n\nWater at dusk, around the roots.",
+    "Wash the pots [collection::garden] [area::shed] [owner::Sol] [stage::ready] [cover::Terracotta on the bench]\n\nRinse and stack on the drying shelf.",
+    "Sort the seeds [collection::garden] [area::shed] [owner::Mira] [stage::later]\n\nKeep the beans for spring.",
+    "Check the forecast [collection::garden] [owner::Sol] [stage::ready]\n\nBring the tender plants in before frost.",
+  ]) await make(notes.root.id, text);
+  notes.collectionInline = await make(notes.root.id, [
+    SEED.collectionInline, "A saved source inline, and an anonymous board:",
+    `::view{of=((${notes.collection.id})) layout=gallery} ^garden`, "::", "",
+    '::view{query="collection=garden" layout=board group=stage} ^stages', "::", "",
+    '::graph-table{query="collection=garden" columns="title, owner, stage" sort="title asc"} ^old', "::",
+  ].join("\n"));
   notes.listDemo = await make(notes.root.id, [
     `${SEED.listDemo} [type::daily-plan]`,
     "One ListView draws every list on this screen: the block below, the shelf under it and the links tile beside. Same rows, same keys, same actions.",

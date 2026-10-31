@@ -1,3 +1,4 @@
+import { renderCollection } from "./collections";
 import { quoteDepth, stripQuotes } from "@ep0ch/outline-core/callouts";
 import type { InlineListDraw } from "./surface/inline-list";
 // Transclusions in read mode, as Detail projects them: `!((id))` shows the target note rendered, in a
@@ -15,9 +16,9 @@ import type { InlineListDraw } from "./surface/inline-list";
 import { anchorsOfText, nearestAnchor } from "@ep0ch/outline-core/reference-warnings";
 import { embeddedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import type { Msg } from "./board";
-import { bodyMatch, headedTitle, matchWords, subject } from "./board";
+import { headedTitle, subject } from "./board";
 import type { DocEnv } from "./doc";
-import { printable, summarySegments, viewSummaryKeys, type Source, prop } from "./props";
+import { printable, type Source, prop } from "./props";
 import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, MISSING_MARK, outlineChanged, drawShortId, type LinkTarget } from "./refs";
 import type { ChecklistStep, ProposalsBeside, SocketBoard, TransclusionNode } from "./socket";
 import { BOLD, C, drawEllipsized, fg, LINK_END, linkTag, pad, RESET, tint, UNBOLD, width as cells } from "./style";
@@ -286,31 +287,10 @@ function heading(id: string, fragment: string | undefined, text: string, w: numb
  * the service's projection of the note (`transclusions.read`, then `views.read`), so the service says whether it is
  * a view. Only a note typed a virtual branch is asked; null for any other, or one the service says isn't a view.
  */
-export function viewResults(m: Msg, w: number, src: Source | null | undefined, sink?: LinkTarget[], list?: InlineListDraw): string[] | null {
+export function viewResults(m: Msg, w: number, _src: Source | null | undefined, sink?: LinkTarget[], list?: InlineListDraw): string[] | null {
   if ((prop(m, "type") ?? "").toLowerCase() !== "virtual-branch") return null;
-  const st = embedState(m.id, undefined, src);
-  if (st.kind === "loading") return [shade(fg(C.dark) + "≡ reading the view's results…" + RESET, w)];
-  if (st.kind !== "node" || st.node.kind !== "view") return null;
-  return nodeRegion(st.node, st.views, w, () => [], sink, list);
-}
-
-/** A virtual branch's results, as Detail lists them. */
-function viewRegion(target: Msg, v: ViewRead, w: number, sink: LinkTarget[] | undefined): string[] {
-  const S = (line: string) => shade(line, w), title = printable(headedTitle(target));
-  const head = (text: string, colour?: number) => heading(target.id, undefined, text, w, sink, colour);
-  if (v.status === "invalid") return [head(`≡ ${title} · CONFIG ERROR`, C.lred), ...v.errors.map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
-  if (v.status !== "ready") return [head(`≡ ${title} · QUERY FAILED`, C.lred), ...(v.errors.length ? v.errors : [v.status]).map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
-  if (!v.items.length) return [head(`≡ ${title} · EMPTY`)];
-  const count = `${v.items.length} result${v.items.length === 1 ? "" : "s"}${v.truncated ? ` · TRUNCATED at ${v.limit}` : ""}`;
-  const keys = viewSummaryKeys(target) ?? [];
-  return [head(`≡ ${title} · ${count}`), ...v.items.map(m => {
-    const summary = summarySegments(m.properties ?? [], keys).map(s => s.plain).join(" · ");
-    // A row a line chip put here (PIE-1277) opens at that line, lit, as a ::fields row does, and says which line.
-    const line = bodyMatch(m);
-    const to: LinkTarget = { block: m.id, role: "row", ...(line ? { at: line.start, ...(line.raw ? { atLabel: line.raw } : {}), atSays: `the line its ${line.key} is written on` } : {}) };
-    const where = line ? fg(C.dark) + ` · ${matchWords(line, false)}` : "";
-    return S(fg(C.lcyan) + "  ∙ " + fg(C.white) + tagged(sink, to, printable(headedTitle(m))) + where + (summary ? fg(C.brown) + " · " + summary : "") + RESET);
-  })];
+  const rows = renderCollection({ props: { of: `((${m.id}))` } }, m.id, w, undefined, (to, text) => tagged(sink, to, text));
+  return list ? list(rows, w) : rows;
 }
 
 /**
@@ -338,8 +318,8 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
   }
   const target = node.block, id = noteOf(node);
   if (node.kind === "view") {
-    const v = views.get(node);
-    return v ? (list ? list(viewRegion(target, v, w, sink), w) : viewRegion(target, v, w, sink)) : [S(fg(C.dark) + `${ref} · reading…` + RESET)];
+    const rows = renderCollection({ props: { of: `((${id}))` } }, id, w, undefined, (to, text) => tagged(sink, to, text));
+    return list ? list(rows, w) : rows;
   }
   const title = printable(node.title ?? headedTitle(target));
   const out = [heading(id, node.fragmentId, node.fragmentId ? `» ${title} ^${node.fragmentId}` : `» ${title}`, w, sink, C.dark, !node.fragmentId && isOpenProposal(target) ? target : null)];

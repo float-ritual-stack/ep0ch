@@ -8,7 +8,8 @@
 // duration, a property's name. A choice is written as an ordinary attributed property edit (`properties.patch`), so the
 // note stays plain text. The card is a face of the property panel (the reader's `panel` mode): it draws here and turns
 // keys into intents; the surface runs the `settings.*` actions.
-import { checkValue as schemaCheck, type ComponentSchema, type PropSchema } from "@ep0ch/outline-core/component-schema";
+import { checkValue as schemaCheck, settingsSchemas, type ComponentSchema, type PropSchema } from "@ep0ch/outline-core/component-schema";
+export { settingsSchemas } from "@ep0ch/outline-core/component-schema";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { querySuggestions } from "@ep0ch/outline-core/query-suggestions";
 import type { BarQuestion, BarSuggestion } from "../bar/ask";
@@ -32,11 +33,6 @@ type Props = readonly { key: string; value: string }[];
  * property (`source.note.name`) the note carries, with the others it `requires` (a view with `[echo::]` is a view and an
  * EchoNet area; a plain note with `[echo::]` is a posting, no area).
  */
-export function settingsSchemas(schemas: readonly ComponentSchema[], props: Props): ComponentSchema[] {
-  const keys = new Set(props.map(p => p.key.toLowerCase()));
-  return schemas.filter(s => s.source.note && keys.has(s.source.note.name) && (s.source.note.requires ?? []).every(k => keys.has(k.toLowerCase())));
-}
-
 /** The first schema a note is configured by, or null. */
 export const settingsSchema = (schemas: readonly ComponentSchema[], props: Props): ComponentSchema | null => settingsSchemas(schemas, props)[0] ?? null;
 

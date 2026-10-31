@@ -15,7 +15,7 @@ const NO_JEV = ["TYPESAFE_API_KEY"];
  * examples). Run from the repository's root, the outliner's test preload sets OUTLINER_EXTENSIONS_DIR in this
  * process to an empty folder; inherited, the host would look there and find none of them.
  */
-const OWN_FOLDERS = ["OUTLINER_EXTENSIONS_DIR"];
+const OWN_FOLDERS = ["OUTLINER_EXTENSIONS_DIR", "OUTLINER_RESOURCE_EXTENSIONS"];
 
 /** The outliner package: EP0CH_OUTLINER, else this repository's packages/outliner. */
 export const outliner = [process.env.EP0CH_OUTLINER, resolve(import.meta.dir, "../../outliner")]

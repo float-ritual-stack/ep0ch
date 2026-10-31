@@ -1,6 +1,6 @@
+import { ListView, type ListViewRow } from "../surface/list-view";
 import { standsAsPerson } from "../surface/dispatch";
 import { NOBODY } from "../whereabouts";
-import { rowLines } from "../text";
 // Query tiles (PIE-511): one saved view's cards (a virtual branch, as the service reads it with `views.read`),
 // with its own cursor. A board lane is one; so is a query tile opened on the desk (`^W o q`, `tile.open
 // kind=query view=<id>`). Where its cards open is the desk's rule (its link, its container's opens-into); the
@@ -19,14 +19,14 @@ import { bodyMatch, headedTitle, matchWords, subject, type Msg } from "../board"
 import { markReveal } from "../reveal";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
-import { C, fg, pad, RESET, selectedRow } from "../style";
+import { C, fg, RESET } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
 import { readView, type ViewRead } from "../views";
 import { RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
 import { summarySegments, viewSummaryKeys, prop } from "../props";
-import { clamp, pressOn, RowView, wheelRows, type RowPress } from "../scroll";
+import { clamp, pressOn, wheelRows, type RowPress } from "../scroll";
 import { hasUnsent } from "../draft-session";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
@@ -34,7 +34,6 @@ import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 const PREFERRED = ["validate", "doing", "queued", "review", "done"];
 /** Views under a hub that aren't lanes on its board. */
 const HIDDEN = new Set(["superseded"]);
-const PRIORITY: Record<string, number> = { high: C.lred, medium: C.yellow, low: C.dark };
 
 const isView = (k: Msg) => (prop(k, "type") ?? "").toLowerCase() === "virtual-branch";
 
@@ -113,7 +112,8 @@ export class QueryPane implements Pane {
   read?: ViewRead;
   sel = 0;
   /** Its cursor and scroll. */
-  cursor = new RowView();
+  readonly list = new ListView<Msg>("query", false);
+  get cursor() { return this.list.view; }
   /** A card the next read should select (a move or a create landing here), and the word for it if it's not there. */
   want?: string;
   /** The latest read still on its way, for whoever needs the lane as the service has it now. */
@@ -150,7 +150,7 @@ export class QueryPane implements Pane {
   get name(): string { return this.query ?? (this.def ? subject(this.def) : `view ${this.view.slice(0, 8)}`); }
   /** List another query (a `#tag` opened again from its home): its cards are read again, the cursor at the top. */
   retarget(query: string, desk: DeskApi): Promise<void> {
-    if (query !== this.query) { this.query = query; this.items = null; this.sel = 0; this.cursor = new RowView(); }
+    if (query !== this.query) { this.query = query; this.items = null; this.sel = 0; this.cursor.reset(); }
     return this.load(desk);
   }
   /** The view as read now (a rename or a new query), its cards asked again when it changed. */
@@ -294,35 +294,20 @@ export class QueryPane implements Pane {
     if (this.stale && this.desk) { const desk = this.desk; this.stale = false; queueMicrotask(() => void this.refreshNow(desk)); }
     const items = this.items ?? [];
 
-    const lines: string[] = [];
-    // The view's [summary-properties::…] say what a card shows after its Work ID and priority (a reading list's
-    // author); without them, whatever its cards carry: stage fields, or outbox fields (to · channel · waiting on).
     const keys = viewSummaryKeys(this.def)?.filter(k => k !== "work-id" && k !== "priority") ?? null;
-    const at: number[] = [];
-    const owners: number[] = [];
-    items.forEach((m, j) => {
-      at.push(lines.length);
-      const sel = j === this.sel;
+    const rows: ListViewRow<Msg>[] = items.map(m => {
       const wid = prop(m, "work-id") ?? prop(m, "ticket") ?? "";
       const title = workIdTitle(subject(m), wid).title;
-      const pri = PRIORITY[prop(m, "priority") ?? ""] ?? C.dark;
-      // A row a line chip matched says where, and the step's state when it sits on one (PIE-1277).
       const line = bodyMatch(m), where = line ? matchWords(line) : "";
       const extra = [where, ...(keys ? summarySegments(m.properties, keys).map(x => x.value) : [prop(m, "track"), prop(m, "to") && `→ ${prop(m, "to")}`, prop(m, "channel"), prop(m, "waiting-on") && `waiting on ${prop(m, "waiting-on")}`])].filter(Boolean).join(" · ");
-      if (sel) {
-        lines.push(selectedRow(` ${wid} ${prop(m, "priority") ?? ""} ${extra} · ${ago(m.updatedAt)}`, w, focused, "idleRow"));
-        lines.push(...rowLines(` ${title}`, w, undefined, { hang: 1 }).map(line => selectedRow(line, w, focused, "idleRow")));
-      } else {
-        lines.push(pad(` ${fg(pri)}● ${fg(C.lcyan)}${wid}${wid ? " " : ""}${fg(C.dark)}${extra} · ${ago(m.updatedAt)}`, w) + RESET);
-        lines.push(...rowLines(` ${title}`, w, undefined, { hang: 1 }).map(line => fg(C.grey) + pad(line, w) + RESET));
-      }
-      owners.push(...Array.from({ length: lines.length - at[j]! }, () => j));
+      return { id: m.id, label: title, detail: [wid, prop(m, "priority"), extra, ago(m.updatedAt)].filter(Boolean).join(" · "), do: { open: m.id }, source: m };
     });
-    this.cardHeight = lines.length / Math.max(1, items.length) || 2;
-    this.cursor.place(this.sel, lines.length, h, [at[this.sel] ?? 0, (at[this.sel + 1] ?? lines.length) - 1]);
-    this.drawnItems = owners.slice(this.cursor.top, this.cursor.top + h);
-    lines.splice(this.cursor.top + h);
-    lines.splice(0, this.cursor.top);
+    this.list.set(rows);
+    this.list.setPick("you", items[this.sel]?.id ?? null);
+    const drawn = this.list.draw({ cols: w, room: h, focused, selection: true, lines: 2 });
+    const lines = drawn.lines;
+    this.drawnItems = drawn.rowAt.map(at => at ?? -1);
+    this.cardHeight = lines.length / Math.max(1, new Set(this.drawnItems.filter(i => i >= 0)).size) || 2;
     if (!this.items) lines.push(fg(C.dark) + " loading…" + RESET);
     else if (this.read && this.read.status !== "ready") for (const e of this.read.errors) lines.push(fg(C.lred) + " " + e + RESET);
     else if (!items.length) lines.push(fg(C.dark) + ` nothing in ${this.name || "this view"} yet: no note matches what it asks for` + RESET);

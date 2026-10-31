@@ -242,6 +242,7 @@ export interface LinkView { text: string; missing: boolean }
  * none.
  */
 export type LinkTarget = {
+  openWhere?: import("@ep0ch/outline-core/list-row").ListOpenWhere;
   outline?: string;
   machine?: string;
   inlineList?: { key: number; row: number };

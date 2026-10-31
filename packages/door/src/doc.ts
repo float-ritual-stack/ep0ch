@@ -1,3 +1,5 @@
+import { viewSpec } from "@ep0ch/outline-core/view-spec";
+import { renderCollection } from "./collections";
 import { expandsEmbeds } from "./embed-policy";
 import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { clipText } from "./overflow";
@@ -657,6 +659,14 @@ export function renderDoc(body: string, env: DocEnv): Doc {
 
     // The inline links component (src/links.ts): ::links, ::resources, ::backlinks, ::outlinks, one line or a block
     // to its `::`, drawn with the links tile's rows in a figure's frame, each row a link the reader opens.
+    const component = componentAt.get(i), collection = component && viewSpec(component, src);
+    if (collection) {
+      const rows = renderCollection(collection, env.note, W, env.linkBlocks, env.tag, env.site);
+      out.push(...(env.inlineList ? env.inlineList(rows, W) : rows));
+      i = component!.end;
+      continue;
+    }
+
     const lb = linkBlockAt(src, i, componentAt);
     if (lb) {
       const rows = renderLinkBlock({ ...lb.spec, lines: componentLines(i, componentAt.get(i)?.attrs, lb.spec.lines) }, env.note, W, frame, env.tag, env.linkBlocks, componentLines(i, componentAt.get(i)?.attrs));
