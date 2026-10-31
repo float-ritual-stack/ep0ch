@@ -4,7 +4,7 @@ import { HYPER_KEYS } from "../hyper";
 import { W_KEYS, wCaption, ZOOM_WHEEL } from "./wkeys";
 import { FRAME_GLYPHS } from "./frame-controls";
 import { GATHER_HINT } from "../surface/hint-card";
-import { SPINES, ALT_RULES, type AltRule } from "./layout";
+import { SPINES, ALT_RULES, OPEN_RULES, type AltRule } from "./layout";
 // Tiles and layouts as actions (PIE-413, PIE-473, PIE-474): every change to the layout is one of these
 // commands. The desk's keys, its mouse drags and clicks, and the control socket (`ep0ch act`) are only
 // callers: a header dropped on a tile's centre runs `layout.move where=tabs`, `^W m l` runs
@@ -110,7 +110,7 @@ const POLICY_ARGS = {
   locked: { type: "boolean", optional: true, about: "its shape is fixed, its contents live" },
   altOpens: { type: "string", optional: true, choices: ALT_RULES, about: "alt-open rule (default beside); alt readers keep what fits and older ones fold" },
   opensInto: { type: "string", optional: true, kind: "tile", choices: [""], about: "the tile its tiles' opens land in (empty clears)" },
-  opens: { type: "string", optional: true, choices: ["reader", "next", "beside"], about: "the open rule: reader (the first reader that isn't pinned, the default), next (a new column after the tile's own, in a flow) or beside (a reader beside the tile)" },
+  opens: { type: "string", optional: true, choices: OPEN_RULES, about: "the open rule: reader (the first reader that isn't pinned, the default), next (a new column after the tile's own, in a flow) beside (a reader beside the tile), float (a follower over it), or full (zoom the opened reader)" },
   agents: { type: "string", optional: true, choices: ["free", "edit", "off"], about: "what an agent may do to the tiles under it (free, edit, off; PIE-639): node=screen is the screen's default, a tile's own wins (tile.agent); free clears" },
   host: { type: "string", optional: true, choices: ["over", "beside", "none"], about: "node=screen: where the host layer (the agent, terminals) may appear over this screen: over, beside or none" },
   clear: { type: "string", optional: true, about: "fields to take away, comma-separated" },
@@ -259,17 +259,17 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.float": def({
     words: "pop this tile out as a float over everything, or put it back",
-    summary: "pop tile=<tile> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or put a float back in the layout (on the board, as a detail). Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
-    keys: [{ keys: "^W f", does: "float" }, { keys: "o", does: "on the board" }, { via: "the frame card's float or put back row" }, { keys: "f", does: "while dragging a tile" }],
+    summary: "pop tile=<tile> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or put a float back in the layout (on the board, as a detail). where=right lands beside its opener. Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
+    keys: [{ keys: "⤢", does: "land a peek beside its gallery" }, { keys: "^W f", does: "float" }, { keys: "o", does: "on the board" }, { via: "the frame card's float or put back row" }, { keys: "f", does: "while dragging a tile" }],
     touches: "shape", replay: "safe", says: r => `${r.floated ? "popped out" : "put back"} ${r.name ?? r.tile}`,
     menu: { label: "float", group: TILE, key: "ctrl+w f", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float ? { label: "put back in the layout" } : { refused: n.refused("float") }; } },
-    args: { on: { type: "boolean", optional: true, about: "true floats it, false puts it back; with it left out the action toggles. A tile already in that state is left as it is (a script floating every tile can't land one that floats)" } },
+    args: { where: { type: "string", optional: true, choices: ["right"], about: "right: land beside the tile that opened this float" }, on: { type: "boolean", optional: true, about: "true floats it, false puts it back; with it left out the action toggles. A tile already in that state is left as it is (a script floating every tile can't land one that floats)" } },
     examples: [
       { act: "tile.float on=true tile=activity", does: "pops the activity tile out as a float over the other tiles" },
       { act: "tile.float on=false tile=activity", does: "puts a floating activity tile back in the layout" },
     ],
-    run({ on }, { d, reader }, actor) {
-      return d.floatTile(reader, actor, on);
+    run({ on, where }, { d, reader }, actor) {
+      return d.floatTile(reader, actor, on, where as "right" | undefined);
     },
   }),
   "tile.link": def({

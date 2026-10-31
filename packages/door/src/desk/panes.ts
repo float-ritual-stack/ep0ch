@@ -129,7 +129,7 @@ export interface DeskApi {
   /** What tile `name` shows or has selected (a backlinks tile lists the backlinks of its source's note). */
   tileShowing?(name: string): Msg | null;
   /** A selection moved in `from`: the tiles its select wires go to (its previews) show `m`; nothing else moves. */
-  showFrom?(from: Pane, m: Msg, by?: Actor): void;
+  showFrom?(from: Pane, m: Msg, by?: Actor, where?: OpenHow["where"]): void;
   /** Whether the previews tile `from`'s selection goes to all show nothing yet (a list given the keys fills only those, PIE-1426). */
   previewsEmpty?(from: Pane): boolean;
   /**
@@ -619,7 +619,7 @@ export class ReaderPane implements Pane, AttachedOwner {
       // alt+D (PIE-1247): the desk's element.detach on this reader, which places the new tile.
       detach: () => runOwn(READER_ACTIONS, "element.detach", {}, { pane: this, desk }),
       // A row picked in a list drawn in the note shows where this reader's selection goes (PIE-794).
-      ...(desk.showFrom ? { preview: (m: Msg) => desk.showFrom!(this, m) } : {}),
+      ...(desk.showFrom ? { preview: (m: Msg, where?: OpenHow["where"]) => desk.showFrom!(this, m, undefined, where) } : {}),
       // Its look (PIE-673), as the desk resolved it for this tile: margin, list density, heading spacing.
       get look() { return desk.lookOf?.(pane); },
       // Its own header and written title (PIE-1248): what the tile says over what the note says.

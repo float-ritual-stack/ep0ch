@@ -71,7 +71,7 @@ import { drawDrop } from "./drop-drawing";
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
-  shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
+  shape as layoutShapeOf, peekSource, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
@@ -2140,8 +2140,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Inspect the same placement that the open will apply, so headers and actions agree. */
-  private placeFrom(from: number, fresh = false, by: Actor = USER, note = "") {
-    return placement(this.layout, { from, fresh, note, inspect: true }, this.layoutCtx(by));
+  private placeFrom(from: number, fresh = false, by: Actor = USER, note = "", where?: OpenHow["where"]) {
+    return placement(this.layout, { from, fresh, note, where, inspect: true }, this.layoutCtx(by));
   }
 
   private landFrom(at: number, m: Msg, opts: OpenHow & { reveal?: boolean }, by: Actor): boolean {
@@ -2193,8 +2193,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.commit(r);
     // A new float the person's open put their keys in (a new note's, a detail's) gives them back where they were when it
     // closes, a terminal's program included (PIE-1445): the tile they had is its opener.
-    if (made && by.kind === "user" && this.isFloat(id) && this.focus === id && had !== id && this.panes.has(had)) {
-      this.openedBy(id, had);
+    if (made && this.isFloat(id) && (this.focus === id || peekSource(this.layout, id) !== undefined) && had !== id && this.panes.has(had)) {
+      this.openedBy(id, peekSource(this.layout, id) ?? had);
       if (this.ptyIn && this.ptyIn === this.panes.get(had)) this.typingBack.add(id);
     }
     if (made) {
@@ -2263,15 +2263,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const [id, p] of this.panes) if (id !== landed && id !== from) void p.reveal?.(m, this);
   }
 
-  /**
-   * A selection moved in `from` (a backlinks tile's row, a tree's row), by `by`: the previews following it, and its link,
-   * show `m`. Nothing else moves (a reader the tile `from` lists the backlinks of keeps its note). An agent's (its `tree.pick`) is shown as the agent's, so the open path's guard keeps it out of a tile the screen
-   * limits for agents, and the layout's rules keep it off the person's keys (PIE-632).
-   */
-  showFrom(from: Pane, m: Msg, by: Actor = USER) {
+  /** Selection goes through the same landing rule; a policy float becomes its select target. */
+  showFrom(from: Pane, m: Msg, by: Actor = USER, where?: OpenHow["where"]) {
     const id = this.idOf(from);
     if (id === undefined) return;
-    this.follow(id, m, by);
+    const route = this.placeFrom(id, false, by, m.id, where).route;
+    if (route && "float" in route) this.placeNote(m, { from: id, note: m.id, where, keys: false }, by);
+    else this.follow(id, m, by);
     this.redraw();
   }
 
@@ -4077,7 +4075,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
     const arrival = this.arriving(id);
     const bright = (TONE[lv.tone] % 8) + 8;
-    const head = (float ? `${fg(C.yellow)}${FRAME_GLYPHS.float} ${RESET}` : "") + this.header(id, r, keys, !joined && lv.border !== "none", float ? 2 : 0, r.col + 3 + fits);
+    const head = (float ? `${fg(C.yellow)}${peekSource(this.layout, id) !== undefined ? "⤢" : FRAME_GLYPHS.float} ${RESET}` : "") + this.header(id, r, keys, !joined && lv.border !== "none", float ? 2 : 0, r.col + 3 + fits);
     if (float) this.floatButtons.push({ id, row: r.row, from: r.col + 2, to: r.col + 5 });
     const view = inner.cols >= 1 && inner.rows >= 1 ? this.drawn(id, pane, inner, focused, typing) : null;
     // A kept session still needs an entry point when its reader is not taking keys.
@@ -5317,15 +5315,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
   }
 
-  /**
-   * The screen's own next step out, as an action: out of a zoom, a dock the keys are in shuts, the keys go home (the
-   * spec's), a dock sliding over shuts. False: none left. A float keeps the keys (PIE-1418): given back to the tile
-   * under it, they went somewhere the float hid (the river at 40 columns, a new note's float), and x then closed that.
-   */
+  /** Close the innermost temporary place; a peek closes back to its gallery. Other floats keep their keys. */
   private closeStep(esc: boolean): boolean {
     const step = (name: string, args: Record<string, unknown>, tile: string) => { this.run(name, args, tile); return true; };
     if (this.layout.lift) return step("tile.zoom", { on: false, reach: this.layout.lift.reach }, this.nameOf(this.layout.lift.tile));
     if (this.zoom !== null) return step("tile.zoom", { on: false }, this.nameOf(this.zoom));
+    if (esc && peekSource(this.layout, this.focus) !== undefined) return step("tile.close", {}, this.nameOf(this.focus));
     // Esc lets go of the tiles the person picked to gather.
     if (esc && this.pickedBy(USER).length) return step("tile.select", { clear: true }, this.nameOf(this.focus));
     const shuts = (d: Dock<number> | null) => !!d?.open && d.policy?.overlay !== false && policyOfNode(this.layout, d).collapsible;
@@ -7283,12 +7278,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(p.id), pane: p.n, zoomed: !!r.answer.zoomed };
   }
 
-  /**
-   * `tile.float`: pop tile `sel` out of the tree as a float over everything (its own rectangle), or put a float
-   * back (beside the tile the person has; one opened into a container goes back into it). Refused where policy keeps the
-   * tile where it is, and to an agent for the tile the person is typing in.
-   */
-  floatTile(sel: string | undefined, actor: Actor, on?: boolean): TileDone {
+  /** Float a tile, or land it in its container or beside its opener through screen-layout. */
+  floatTile(sel: string | undefined, actor: Actor, on?: boolean, where?: "right"): TileDone {
     const t = this.tile(sel), p = this.panes.get(t.id)!;
     // on=true|false (PIE-957): the state asked for, so a script that floats every tile never puts back one already floating.
     if (on !== undefined && on === this.isFloat(t.id)) return { ...this.tileAnswer(t.id), floated: on } as TileDone;
@@ -7296,8 +7287,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const key = this.openedInto(t.id), c = key !== undefined ? node(this.root, key) : null;
     // A float opened into a container (the board's readers row) goes back into it, as its last tile there; a full one
     // gives way, never a tile holding an edit or a comment, nor (for an agent) the one the person has.
-    if (this.isFloat(t.id) && key !== undefined && c) {
-      const at: At<number> = { kind: "in", key, weight: this.weightIn(key) };
+    const from = peekSource(this.layout, t.id) ?? this.openerOf(t.id);
+    if (this.isFloat(t.id) && (where && from !== undefined || key !== undefined && c)) {
+      const at: At<number> = where && from !== undefined ? { kind: "split", target: from, dir: where } : { kind: "in", key: key!, weight: this.weightIn(key!) };
       const asked = this.ask({ op: "float", tile: t.id, at }, actor);
       if (!asked.ok) throw new ActionRefused(asked.refused);
       this.apply({ op: "float", tile: t.id, at }, actor);
@@ -8269,7 +8261,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (hp) { hp.press(); return this.redraw(); }
       // ⧉ on a tile's header: on a float it puts it back, on a pinned tile it floats it (tile.float either way, as ^W f).
       const fb = this.floatButtons.find(at);
-      if (fb) return this.run("tile.float", {}, this.nameOf(fb.id));
+      if (fb) return this.run("tile.float", peekSource(this.layout, fb.id) !== undefined ? { on: false, where: "right" } : {}, this.nameOf(fb.id));
       // × on a tile's frame: it closes (tile.close, as ^W x), without taking the keys there first.
       const xb = this.closeButtons.find(at);
       if (xb) return this.run("tile.close", {}, this.nameOf(xb.id));

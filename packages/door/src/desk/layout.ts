@@ -98,7 +98,8 @@ export type HostMode = "beside" | "over" | "none";
 export type AltRule = "beside" | "tab" | "tile" | "first-unheld";
 export const ALT_RULES: readonly AltRule[] = ["beside", "tab", "tile", "first-unheld"];
 /** Where an open with no link lands: the first reader that isn't pinned, the next column of the flow it's in, or a reader beside it. */
-export type OpenRule = "reader" | "next" | "beside";
+export const OPEN_RULES = ["reader", "next", "beside", "float", "full"] as const;
+export type OpenRule = typeof OPEN_RULES[number];
 export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "altOpens", "host", "readable", "shuts", "agents", "spines", "min-width"] as const;
 /** The width a reader opened beside others still gets before earlier ones fold to spines, when no policy says (PIE-794). */
 export const READABLE = 48;
@@ -1010,7 +1011,7 @@ export function policyOf(x: unknown): Policy {
   for (const k of ["min", "max", "fixed", "readable", "min-width"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
   if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)).map(canonKind))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
-  if (o.opens === "reader" || o.opens === "next" || o.opens === "beside") out.opens = o.opens;
+  if (OPEN_RULES.includes(o.opens as OpenRule)) out.opens = o.opens as OpenRule;
   // The open rule before PIE-1207 (the hidden current note) is the first reader not pinned now.
   else if (o.opens === "current") out.opens = "reader";
   if (SPINES.includes(o.spines as Spines)) out.spines = o.spines as Spines;

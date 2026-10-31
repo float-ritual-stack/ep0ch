@@ -103,6 +103,8 @@ export type Wire<I = number> = { from: I; verb: WireVerb; to: I; rule?: AltRule 
 export const WIRE_VERBS: readonly WireVerb[] = ["select", "open", "alt"];
 export const wireTarget = <I>(s: Pick<LayoutState<I>, "wires">, from: I, verb: WireVerb = "open"): I | undefined => s.wires.find(w => w.from === from && w.verb === verb)?.to;
 export const selectTargets = <I>(s: Pick<LayoutState<I>, "wires">, from: I): I[] => s.wires.filter(w => w.from === from && w.verb === "select").map(w => w.to);
+/** A float following a selection is a peek; its select wire is its source. */
+export const peekSource = <I>(s: Pick<LayoutState<I>, "wires" | "floats">, id: I): I | undefined => s.floats.some(f => f.id === id) ? s.wires.find(w => w.to === id && w.verb === "select")?.from : undefined;
 
 /** What a tile is, as the layout's rules need it: the desk's tile instances answer it. */
 export interface TileFacts {
@@ -543,20 +545,9 @@ function besideReader<I>(s: Pick<LayoutState<I>, "names">, ctx: Ctx<I>, id: I): 
   return f.notes && !f.pinned && !f.editing && !f.holds && f.available !== false ? at : undefined;
 }
 
-/**
- * The one place that decides where an open lands. A new-note place, explicit container/place or named tile wins;
- * otherwise the wire, nearest container, home and flow rule are read in that order. A missing container falls
- * back to a visible reader only for the person. An unlinked reader takes its own open. A busy named destination
- * refuses an agent; the person's open keeps the edit and uses a reader beside it. An unwired open aimed at a reader no list
- * feeds (PIE-1207), or a request that says `keep`, keeps its old note as a spine
- * at its container policy's stack front; a wire aimed at a tile replaces its note with history. New-note tabs that cannot fit float instead.
- * Automatic opens reuse the note already here; a history landing folds its duplicate into that tile, keeping the trail,
- * unless the tile is wired either way or follows a selection (a preview stepping onto its source's note shows it, PIE-1426).
- * Explicitly made tiles and pinned readers stay independent: an open aimed at a pinned reader (a wire, `to`, its own
- * link) lands in the reader opened beside it, else a new one there (PIE-1207). With no route, the first reader that
- * isn't pinned takes it; there is no hidden current note.
- * Floats, tabs, docks and shapes that cannot take a spine swap with reader history only.
- * Only the person's standing moves the keys or reveals the note in the outline; an invitation is already resolved by the dispatcher.
+/** The one placement owner: explicit places, wires, containers, record policy, then the screen's defaults.
+ * A policy float follows its source's picks until it lands. Only the person's standing reuses that follower;
+ * an agent's open is independent. The dispatcher supplies standing and whether keys may move.
  */
 export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across" | "collapsed" | "floats">, request: PlacementRequest<I>, ctx: Ctx<I>): NotePlacement<I> {
   const { from, to, fresh, note } = request;
@@ -588,7 +579,13 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   }
   const keys = ctx.keys ?? ctx.standing;
   const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing, route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
-  if (route && "float" in route) { result.destination = { kind: "new", at: { kind: "float" } }; result.giveNewKeys = keys && request.keys !== false; return result; }
+  if (route && "float" in route) {
+    const peek = ctx.standing ? selectTargets(s, from).find(id => isFloat(s, id) && !ctx.tile(id).editing && !ctx.tile(id).holds && !ctx.tile(id).pinned) : undefined;
+    result.destination = peek === undefined ? { kind: "new", at: { kind: "float", near: from } } : { kind: "swap", tile: peek };
+    result.giveNewKeys = keys && request.keys !== false;
+    if (peek !== undefined && result.giveNewKeys) result.keys = peek;
+    return result;
+  }
   if (request.newNote) {
     const policy = policyAt(s, from, ctx.tile(from));
     const tabs = ctx.tile(from).tabs;
@@ -1231,6 +1228,8 @@ class Step<I> {
         spineWeights(this.d.tree, plan.keep.tile, op.tile, before);
       }
       if (dest.kind === "new") this.open({ op: "open", tile: op.tile, name: op.name, kind: op.kind ?? "reader", at: dest.at, ...(!plan.giveNewKeys ? { keys: false as const } : {}) }, true);
+      if (dest.kind === "new" && plan.route && "float" in plan.route && this.ctx.standing)
+        this.d.wires.push({ from: op.placement.from, to: op.tile, verb: "select" });
       if (plan.merge !== undefined) {
         this.guard(plan.merge, "merge");
         const focused = this.d.focus === plan.merge;
@@ -1595,11 +1594,7 @@ class Step<I> {
     this.d.zoom = null;
     this.d.answer = { floated: true };
   }
-  /**
-   * A float back in the layout: where `at` says (else beside the tile the person has, or the last pinned tile), when the
-   * containers there take it (locked, droppable, accepts, as any move asks); else beside the first pinned tile whose
-   * containers do, else along an outer edge; refused, with the first place's reason, when nothing takes it.
-   */
+  /** Land where requested, or in a container that takes it; expand beside a peek's source ends its following. */
   private land(id: I, at?: At<I>) {
     this.guard(id, "float");
     const e = effective([{ by: "screen", policy: this.d.policy }]);
@@ -1631,6 +1626,7 @@ class Step<I> {
     }
     if (!next) refuse(refused);
     this.d.tree = next!;
+    if (at?.kind === "split" && at.target === peekSource(this.d, id)) this.d.wires = this.d.wires.filter(w => w.to !== id || w.verb !== "select");
     this.d.floats = this.d.floats.filter(f => f.id !== id);
     this.d.answer = { floated: false };
   }
