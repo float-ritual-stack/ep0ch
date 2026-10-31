@@ -208,3 +208,12 @@ test("a handler line completes the slots its script declares: names with their w
   const sort = await rows("attribute-value", "wh", { component: "lens", key: "sort", quote: '"', attrs: [{ key: "query", value: "type=meeting" }] });
   expect(merged(sort, "").map(r => r.label)).toContain("when");
 });
+
+test("a figure's query: written in YAML quotes still completes the grammar; the quote is decoded, not offered (PIE-1472)", async () => {
+  const { rows } = await setup([]);
+  const labels = async (query: string) => merged(await rows("yaml-value", query, { component: "graph-tabs", key: "query" }), query).map(r => insertText(r.insert));
+  // The first pick wrote `"#garden AND under:"`; the next lookup is asked from inside that quote.
+  expect(await labels('"#garden AND un')).toEqual(expect.arrayContaining(['"#garden AND under:"', '"#garden AND unread:"']));
+  expect(await labels('"#garden AND under:t')).toContain('"#garden AND under:this"');
+  expect(await labels("'#garden AND under:t")).toContain('"#garden AND under:this"');
+});

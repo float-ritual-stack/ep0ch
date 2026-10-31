@@ -489,6 +489,10 @@ async function propValues(schema: SlotOwner, prop: PropSchema, ask: Asked, svc: 
   return axisValues(prop).filter(v => v.toLowerCase().startsWith(q.toLowerCase())).map(value => ({ label: value, value, ...(prop.values?.find(v => v.value === value)?.meaning ? { detail: prop.values.find(v => v.value === value)!.meaning } : {}) }));
 }
 
+/** The text a YAML value holds so far when it was typed inside quotes (`"a \"b` -> `a "b`); unquoted text is as written. */
+const yamlQuoted = (typed: string): string =>
+  typed.startsWith('"') ? typed.slice(1).replace(/\\(["\\])/g, "$1") : typed.startsWith("'") ? typed.slice(1).replace(/''/g, "'") : typed;
+
 /** A value that is the start of more (`under:`): inserted with its closing quote, if it has one, behind the cursor. */
 const stayOpen = (text: string): string | { snippet: string; select: { start: number; end: number } } => {
   const at = text.length - (/["']$/.test(text) ? 1 : 0);
@@ -514,7 +518,10 @@ const attributes: ServiceSource = {
     }
     const prop = props.find(p => p.key === ask.key);
     if (!prop) return { rows: [] };
-    const values = await propValues(schema, prop, ask, svc);
+    // A YAML value typed inside its own quotes (a pick wrote `"#garden AND under:"`) is asked as the text it holds; the
+    // row still replaces the whole value, quote included, so only the question changes.
+    const asked = ask.kind === "yaml-value" ? { ...ask, query: yamlQuoted(ask.query) } : ask;
+    const values = await propValues(schema, prop, asked, svc);
     // A glimpse after the label shows how a value looks (a density, a tone); a value found in the outline (a query, a key,
     // a note, a script) changes what is drawn, not how, so its row is its words alone (PIE-1392).
     const looks = !foundValues(prop);

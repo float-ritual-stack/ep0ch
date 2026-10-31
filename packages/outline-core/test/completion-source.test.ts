@@ -91,4 +91,9 @@ test("a handler line (`name:: slot=value`) is an attribute trigger like a compon
   // A closed quote is finished; a property or prose line is no handler line.
   expect(completionTargetAtCursor('lens:: query="x"', 16)).toBeNull();
   expect(completionTargetAtCursor("Notes about lens:: foo", 22)).toBeNull();
+  // A property chip inside a handler line (or a bare `key:: value` line) is the property's to complete.
+  for (const line of ["img:: /tmp/flower.jpg [size::4", "status:: done [owner::a", "lens:: query=\"x\" [mood::"]) {
+    expect(completionTargetAtCursor(line, line.length)).toMatchObject({ kind: "value" });
+  }
+  expect(completionTargetAtCursor("img:: /tmp/flower.jpg [si", 25)).toMatchObject({ kind: "key" });
 });

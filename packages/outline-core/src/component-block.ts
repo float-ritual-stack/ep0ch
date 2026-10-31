@@ -147,6 +147,8 @@ export function componentAttributeAtCursor(line: string, column: number): {
   if (!opening || column < opening[0].length) return null;
   const name = opening[1] ?? opening[2]!, braced = opening[1] !== undefined;
   const from = opening[0].length, before = line.slice(from, column);
+  // A property chip inside a handler line (`img:: /tmp/a.jpg [size::4`) is the property's to complete, not a slot's.
+  if (!braced && /\[[^\]]*$/.test(before)) return null;
   const words = splitWords(before, false, false).flat();
   const last = words.at(-1);
   const active = last && before.endsWith(last.raw) ? last : null;
