@@ -1446,6 +1446,8 @@ async function handleDetailMouse(data: string): Promise<boolean> {
   const wheel = parseTreeWheelEvent(data);
   if (wheel) {
     editorDragActive = false;
+    const docs=controller.state.completion?.docsRect;
+    if(docs&&wheel.column>=docs.column&&wheel.column<docs.column+docs.width&&wheel.row>=docs.row&&wheel.row<docs.row+docs.height){await controller.dispatch({type:"completion.docs",by:wheel.direction==="up"?-3:3},viewport());return true;}
     const region = detailMouseRegionAt(wheel, mouseLayout);
     if (region === "editor") {
       draftSplitFocus = "editor";
@@ -1464,7 +1466,6 @@ async function handleDetailMouse(data: string): Promise<boolean> {
     }
     return true;
   }
-
   const pointer = parseTreePrimaryPointer(data);
   if (!pointer) return false;
   if (pointer.phase === "down") {
@@ -1490,7 +1491,6 @@ async function handleDetailMouse(data: string): Promise<boolean> {
     }
     return true;
   }
-
   if (!editorDragActive) return true;
   const bodyTop = 3;
   const bodyBottom = terminal.rows - 3;

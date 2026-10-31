@@ -56,6 +56,10 @@ export interface SourceRow {
   insert: SourceInsert;
   /** Lit first when the list opens, above every match (one per list: the first wins). */
   preselect?: boolean;
+  /** A row may override its source's priority among equal matches. */
+  priority?: number;
+  /** Until a deliberate choice, Enter belongs to the field; Tab still inserts. */
+  enter?: "new line" | "applies";
   /** Offered after every match, from any source (a new page to make from what's typed). */
   fallback?: boolean;
   /** Listed under the row before it (a note's anchor under the note): it moves with that row, never on its own. */
@@ -197,10 +201,10 @@ export function mergeSourceAnswers<R extends SourceRow>(answers: readonly Source
       const m = q ? scoreSearchDocument({ id: text, title: row.label, text: row.filter ?? "" }, q) : null;
       if (q && !m && !a.source.ranked) return;
       const tier = !q ? 0 : m ? TIER[m.kind] : UNPLACED;
-      entries.push({ row: { ...row, from: a.source.id, tier } as MergedRow<R>, pre: row.preselect ? 0 : row.fallback ? 2 : 1, tier, f: frecency(picks[text], now), p: a.source.priority ?? 0, score: m?.score ?? 0, i });
+      entries.push({ row: { ...row, from: a.source.id, tier } as MergedRow<R>, pre: row.preselect ? 0 : row.fallback ? 2 : 1, tier, f: frecency(picks[text], now), p: row.priority ?? a.source.priority ?? 0, score: m?.score ?? 0, i });
     });
     if (!a.source.ranked) {
-      entries.sort((x, y) => x.pre - y.pre || x.tier - y.tier || y.f - x.f || y.score - x.score || x.i - y.i);
+      entries.sort((x, y) => x.pre - y.pre || x.tier - y.tier || y.f - x.f || y.p - x.p || y.score - x.score || x.i - y.i);
       return entries;
     }
     // A ranked source's order stands: each row takes the best tier of any row it put after it, so an incidental row

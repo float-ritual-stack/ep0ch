@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Completion reads and inserts the same in the door and Detail (PIE-1478, PIE-1344)
+
+- **Read before inserting:** each completion row shows its kind and a separate dim detail, with wrapped docs beside the list when there is room or below it. Ten choices, a scroll thumb and `n/total` keep your place; Shift+↑/↓, PgUp/PgDn and the wheel scroll docs.
+- **Choose where you type:** Tab, Enter or a click inserts; Ctrl+n/p move only while the popup is open, and hover lights a row. Where the source reserves Enter for a new line, the footer says so. `complete.move`, `complete.accept`, `complete.dismiss` and `complete.docs` expose the same actions.
+- **One source:** Detail reads components, properties and callout types from the service and the same trigger detector as the door. Component docs come from schemas, property counts from facets, and references read their notes lazily. Try the kitchen sink's completion section at wide and narrow sizes.
+- **Run:** loki sets PROTOCOL to main's plus one at the final rebase, then runs `ep0ch install --apply` on each machine. No schema or trigger grammar change.
+
 - Saved view pages on the web draw their table, gallery, feed or board layout through the same renderer as inline views, keeping public members and linked titles within the page's visibility (PIE-1477).
 ### Words on a query line become a proposed filter (PIE-1238)
 

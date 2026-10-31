@@ -692,9 +692,7 @@ export interface DetailEffects {
   resolveReference(target: OutlinerLinkTarget): Promise<ResolvedOutlinerLinkTarget>;
   followResourceOccurrence(target: OutlinerLinkTarget): Promise<FollowResourceOccurrenceReceipt>;
   queryBlocks(query: BlockSearchQuery): Promise<VisibleBlockCollection>;
-  /** The service's completion sources for the token at the cursor (`completion.rows`, PIE-1340). */
   completionRows(request: CompletionRowsRequest): Promise<CompletionRowsResult>;
-  /** A completion row was chosen: the host counts the pick (`completion.picked`). */
   completionPicked(key: string, insert: string): Promise<unknown>;
   /** Make a page nobody has written yet (`pages.follow`), as a new page row does before it links it. */
   followPage(address: string): Promise<{ created: boolean; status: string; block?: Block }>;
@@ -827,6 +825,7 @@ export type DetailIntent =
   | { type: "completion.move"; delta: -1 | 1 }
   | { type: "completion.accept" }
   | { type: "completion.choose"; index:number; generation?:number }
+  | { type: "completion.docs"; by:number }
   | { type: "completion.dismiss" }
   | { type: "preview.navigate"; direction: "up" | "down" | "pageup" | "pagedown" | "top" | "bottom" }
   | { type: "file.navigate"; direction: "up" | "down" | "pageup" | "pagedown" | "home" | "end" }
@@ -1056,7 +1055,7 @@ export function detailVisibleEditorHeight(
 ): number {
   if (viewport.editorBody) return viewport.editorBody.height;
   const completionRows = state.completion
-    ? COMPLETION_ROWS
+    ? Math.min(COMPLETION_ROWS,Math.floor(viewport.height*0.65))
     : 0;
   return Math.max(1, viewport.height - 5 - completionRows);
 }
@@ -4393,6 +4392,7 @@ export function createDetailController(
         }
         ensureEditorCursorVisible(viewport);
         break;
+      case "completion.docs": completions.scrollDocs(intent.by); break;
       case "completion.dismiss":
         if (state.completion) state.status = "";
         completions.dismiss();

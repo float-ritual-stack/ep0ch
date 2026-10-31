@@ -24,6 +24,16 @@ test("a ranked source keeps its order; an equal match goes to the higher priorit
   expect(labels(mergeSourceAnswers([other, ranked], "plum"))).toEqual(["Plum log", "Plum tree", "Plum jam", "new page · plum"]);
 });
 
+test("a row's priority wins an equal match before the limit, except in a ranked source", () => {
+  for (const ranked of [false, true]) {
+    const answer: SourceAnswer = { source: src("seeds", { ranked }), rows: [
+      { label: "Seed", insert: "ordinary", priority: 1 },
+      { label: "Seed", insert: "preferred", priority: 20 },
+    ] };
+    expect(mergeSourceAnswers([answer], "seed", { limit: 1 }).map(row => row.insert)).toEqual([ranked ? "ordinary" : "preferred"]);
+  }
+});
+
 test("in a ranked source an incidental row never sinks the strong ones after it, and a pick rises among equals", () => {
   const blocks: SourceAnswer = { source: src("blocks", { ranked: true, priority: 10 }), rows: [
     { label: "Seed swap", insert: "((a))" }, { label: "  ^p1  # Prices", insert: "((a^p1))", filter: "Seed swap", under: true },

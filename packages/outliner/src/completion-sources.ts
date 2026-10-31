@@ -148,7 +148,7 @@ function fragmentRow(c: Fragment, oneNote: boolean, under = false): SourceRow {
     label: c.fragmentId ? `${under ? "  " : ""}^${id}  ${where}${what}` : `${under ? "  " : ""}${where}${what} · adds ^${id}`, ...(under ? { under: true } : {}),
     blockId: c.blockId, fragmentId: id, passageLine: c.lineIndex,
     ...(!c.fragmentId ? { addition: ` · adds ^${id}` } : {}), kind: c.fragmentId ? "anchor" : c.kind, insert: `((${c.blockId}^${id}))`,
-    docs: `${c.kind} in ${c.title}${c.fragmentId ? "" : `: choosing it adds ^${id} to that line`}`,
+    detail: c.title, docs: `${c.kind} in ${c.title}${c.fragmentId ? "" : `: choosing it adds ^${id} to that line`}`,
     ...(c.anchor ? { anchor: { lineIndex: c.lineIndex, line: c.anchor.line, revision: c.revision } } : {}),
   };
 }
@@ -189,7 +189,7 @@ const blocks: ServiceSource = {
     ]);
     const notes: SourceRow[] = r.matches.map(m => ({
       label: m.title, blockId: m.block.id, kind: "block", insert: `((${m.block.id}))`,
-      ...(m.subtitle || m.reason || m.score !== undefined ? { detail: scored([m.subtitle, m.reason ? REASON[m.reason] : ""].filter(Boolean).join(" · "), m.score) } : {}),
+      detail: scored([m.subtitle || m.path, m.reason ? REASON[m.reason] : ""].filter(Boolean).join(" · "), m.score),
       docs: [m.path, hitSnippet(m.title, m.snippet)].filter(Boolean).join(" » "),
     }));
     const top = notes.slice(0, ANCHORED_NOTES).map(n => n.blockId!);
@@ -284,7 +284,8 @@ function variationRow(schema: ComponentSchema, v: ReturnType<typeof variation>, 
   return {
     label, kind: "component", group: schema.group, component: schema.id,
     insert: at >= 0 ? { snippet: v.use, select: { start: at, end: at + first![2]!.length } } : v.use,
-    docs: `${titleOf(schema)}: ${schema.intro.split(/\n|,|(?<=\.) /)[0]!.replace(/[`*_]/g, "")}`,
+    detail: `::${componentName(schema)}`,
+    docs: `${schema.title}: ${schema.intro}\n\n\`\`\`blockdown\n${v.use}\n\`\`\``,
     example: { use: v.use, ...(v.note ? { note: v.note } : {}) },
   };
 }
@@ -372,7 +373,7 @@ const properties: ServiceSource = {
       for (const c of catalog) {
         seen.add(c.key);
         const meant = known.get(c.key);
-        rows.push({ label: c.key, kind: "property", detail: notes(c.count), insert: `[${c.key}::`, ...(meant ? { docs: meant.detail } : {}) });
+        rows.push({ label: c.key, kind: "property", detail: notes(c.count), insert: `[${c.key}::`, docs: [meant?.detail, `${notes(c.count)} with ${c.key}`].filter(Boolean).join("\n\n") });
       }
       for (const c of keyCandidates(schemas, q)) if (!seen.has(c.key)) { seen.add(c.key); rows.push(candidateRow(schemas, c, ask, "property")); }
     } else {
@@ -393,7 +394,7 @@ const properties: ServiceSource = {
         seen.add(c.value);
         const m = meant.get(c.value);
         rows.push(m ? { ...candidateRow(schemas, m, ask, "value"), detail: notes(c.count) }
-          : { label: c.value, kind: "value", detail: notes(c.count), insert: ask.headingShort ? `[heading::${c.value}]` : `${c.value}]` });
+          : { label: c.value, kind: "value", detail: notes(c.count), docs: `${notes(c.count)} with [${ask.key}::${c.value}]`, insert: ask.headingShort ? `[heading::${c.value}]` : `${c.value}]` });
       }
       for (const [label, c] of meant) if (!seen.has(label)) { seen.add(label); rows.push(candidateRow(schemas, c, ask, "value")); }
     }
@@ -629,7 +630,12 @@ export async function completionRows(svc: CompletionService, request: Completion
       error => ({ source: decl, rows: [], problem: `${e.title}: ${controller.signal.aborted ? `no answer in ${EXTENSION_SOURCE_MS / 1000}s` : error instanceof Error ? error.message : String(error)}` }),
     ).finally(() => clearTimeout(timer)));
   }
-  return { answers: (await Promise.all(asks)).filter(a => a !== null), picks: picks[pickKey(ask)] ?? {} };
+  const enter: SourceRow["enter"] = ask.kind === "filter-key" || ask.kind === "filter-value" ? "applies"
+    : ask.kind === "yaml-key" || ask.kind === "yaml-value" || !ask.query.trim() && ["key", "value", "attribute", "attribute-value"].includes(ask.kind) ? "new line" : undefined;
+  const answers = (await Promise.all(asks)).filter(a => a !== null).map(a => ({ ...a,
+    rows: a.rows.map(row => ({ ...row, ...(enter ? { enter } : {}) })),
+  }));
+  return { answers, picks: picks[pickKey(ask)] ?? {} };
 }
 
 /** The picks the outline keeps, read from their metadata value; a value that can't be read is no picks. */

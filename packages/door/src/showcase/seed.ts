@@ -555,6 +555,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.recipe = await make(notes.root.id, RECIPE);
   notes.finding = await make(notes.root.id, FINDING);
   notes.meeting = await make(notes.root.id, MEETING);
+  await board.completionPicked("((", `((${notes.meeting.id}))`);
   notes.deepLinks = await make(notes.root.id, DEEP_LINKS);
   notes.stickyPlan = await make(notes.root.id, STICKY_PLAN);
   for (const job of STICKY_JOBS) await make(notes.stickyPlan.id, job);
