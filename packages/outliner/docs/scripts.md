@@ -218,22 +218,22 @@ TypeError (there is no such function): `Object.keys(tools)` lists the ones there
 | `tools.outline_resolve` | reads | **ref** | Resolve `ref` ([[page]], ((id)), a Work ID or an id) to its block id, title and revision, without reading the whole note. | `packages/outline-core/src/agent-tool-definitions.ts:195` |
 | `tools.outline_site` | reads | **ref**, paths, draft, chain, props, line | Read what the note `ref`'s `{{ }}` placeholders say, and any `paths` you ask, the way the person's screen reads them (the outline's one resolver). | `packages/outline-core/src/agent-tool-definitions.ts:211` |
 | `tools.outline_edit` | writes | **ref**, **expectedRevision**, text, replaceSection, append, at, allowStructural | Rewrite the note `ref`, checked against the revision you read with outline_read: its whole `text`, one `replaceSection` (the text under a heading,… | `packages/outline-core/src/agent-tool-definitions.ts:248` |
-| `tools.outline_create` | writes | **parent**, **text**, position | Create a block under `parent` (a ref, or root), at `position` among its siblings (0 is first; default last). | `packages/outline-core/src/agent-tool-definitions.ts:289` |
-| `tools.outline_comment` | writes | **ref**, body, quote, whole, start, near, kind, properties, prefix, suffix, requestId, from, revision | Start a comment thread on the note `ref`, as you: on an exact `quote` of its source text (add start, near, prefix or suffix when the quote repeats),… | `packages/outline-core/src/agent-tool-definitions.ts:309` |
-| `tools.outline_reply` | writes | thread, **body**, requestId, edit, observed | Reply in a comment thread, as you. | `packages/outline-core/src/agent-tool-definitions.ts:344` |
-| `tools.outline_resolve_thread` | writes | **thread**, **resolved** | Resolve a comment thread (resolved: true), or reopen it (false), as you. | `packages/outline-core/src/agent-tool-definitions.ts:363` |
-| `tools.view_order` | writes | **ref**, ids | Read or set the hand-set order of the view `ref` (a view with no [sort::] is ordered by hand: the order its board lanes, figures and Tree show). | `packages/outline-core/src/agent-tool-definitions.ts:376` |
-| `tools.outline_changes` | reads | **since**, author, actor, limit, before, machinery | What changed since a point: an ISO time, or the `cursor` an earlier call returned. | `packages/outline-core/src/agent-tool-definitions.ts:399` |
-| `tools.outline_proposals` | reads | since, actor, limit | What became of your proposals: each edit of yours that was proposed instead of applied, and every change since. | `packages/outline-core/src/agent-tool-definitions.ts:423` |
-| `tools.outline_patch` | writes | **ref**, **revision**, **patches**, mark, policy, allowStructural, propose | Small edits to the note `ref` the person may be typing in, without waiting for their save (draft.patch); for rewriting your own pages, such as a… | `packages/outline-core/src/agent-tool-definitions.ts:477` |
-| `tools.outline_proposal_apply` | writes | **ref** | Apply draft proposal the note `ref` by id, without a reader, under the agent's normal patch comparison and policy. | `packages/outline-core/src/agent-tool-definitions.ts:530` |
-| `tools.outline_proposal_dismiss` | writes | **ref** | Dismiss your own draft proposal the note `ref` by id, without a reader: mark it dismissed and put it in Trash. | `packages/outline-core/src/agent-tool-definitions.ts:530` |
-| `tools.outline_proposal_resolve` | writes | **ref** | Ask the outline agent to resolve a stale proposal against the current note, preserving other edits. | `packages/outline-core/src/agent-tool-definitions.ts:530` |
-| `tools.outline_set_property` | writes | **ref**, key, value, properties, **revision** | Set [key::value] properties on the header line of the note `ref` (the chips that end its first line): the value replaced where the key is, or the… | `packages/outline-core/src/agent-tool-definitions.ts:546` |
-| `tools.outline_assign_id` | writes | **ref**, **revision** | Give the note `ref` the outline's next work id (outliner work-id-allocate), against the `revision` outline_read returned: the id is stamped on the… | `packages/outline-core/src/agent-tool-definitions.ts:580` |
-| `tools.outline_move` | writes | **ref**, parent, before, after, position, **revision** | Move the note `ref` (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among its children (0 is first; default… | `packages/outline-core/src/agent-tool-definitions.ts:599` |
-| `tools.outline_trash` | writes | **ref**, **revision** | Put the note `ref` in Trash, with what is under it, against the `revision` outline_read returned: a note that changed since is refused and stays. | `packages/outline-core/src/agent-tool-definitions.ts:630` |
-| `tools.outline_restore` | writes | **ref** | Bring the note `ref` back from Trash, with what went under it, to where it was. | `packages/outline-core/src/agent-tool-definitions.ts:648` |
+| `tools.outline_create` | writes | **parent**, **text**, position, requestId | Create a block under `parent` (a ref, or root), at `position` among its siblings (0 is first; default last). | `packages/outline-core/src/agent-tool-definitions.ts:289` |
+| `tools.outline_comment` | writes | **ref**, body, quote, whole, start, near, kind, properties, prefix, suffix, requestId, from, revision | Start a comment thread on the note `ref`, as you: on an exact `quote` of its source text (add start, near, prefix or suffix when the quote repeats),… | `packages/outline-core/src/agent-tool-definitions.ts:310` |
+| `tools.outline_reply` | writes | thread, **body**, requestId, edit, observed | Reply in a comment thread, as you. | `packages/outline-core/src/agent-tool-definitions.ts:345` |
+| `tools.outline_resolve_thread` | writes | **thread**, **resolved** | Resolve a comment thread (resolved: true), or reopen it (false), as you. | `packages/outline-core/src/agent-tool-definitions.ts:364` |
+| `tools.view_order` | writes | **ref**, ids | Read or set the hand-set order of the view `ref` (a view with no [sort::] is ordered by hand: the order its board lanes, figures and Tree show). | `packages/outline-core/src/agent-tool-definitions.ts:377` |
+| `tools.outline_changes` | reads | **since**, author, actor, limit, before, machinery | What changed since a point: an ISO time, or the `cursor` an earlier call returned. | `packages/outline-core/src/agent-tool-definitions.ts:400` |
+| `tools.outline_proposals` | reads | since, actor, limit | What became of your proposals: each edit of yours that was proposed instead of applied, and every change since. | `packages/outline-core/src/agent-tool-definitions.ts:424` |
+| `tools.outline_patch` | writes | **ref**, **revision**, **patches**, mark, policy, allowStructural, propose | Small edits to the note `ref` the person may be typing in, without waiting for their save (draft.patch); for rewriting your own pages, such as a… | `packages/outline-core/src/agent-tool-definitions.ts:478` |
+| `tools.outline_proposal_apply` | writes | **ref** | Apply draft proposal the note `ref` by id, without a reader, under the agent's normal patch comparison and policy. | `packages/outline-core/src/agent-tool-definitions.ts:531` |
+| `tools.outline_proposal_dismiss` | writes | **ref** | Dismiss your own draft proposal the note `ref` by id, without a reader: mark it dismissed and put it in Trash. | `packages/outline-core/src/agent-tool-definitions.ts:531` |
+| `tools.outline_proposal_resolve` | writes | **ref** | Ask the outline agent to resolve a stale proposal against the current note, preserving other edits. | `packages/outline-core/src/agent-tool-definitions.ts:531` |
+| `tools.outline_set_property` | writes | **ref**, key, value, properties, **revision** | Set [key::value] properties on the header line of the note `ref` (the chips that end its first line): the value replaced where the key is, or the… | `packages/outline-core/src/agent-tool-definitions.ts:547` |
+| `tools.outline_assign_id` | writes | **ref**, **revision** | Give the note `ref` the outline's next work id (outliner work-id-allocate), against the `revision` outline_read returned: the id is stamped on the… | `packages/outline-core/src/agent-tool-definitions.ts:581` |
+| `tools.outline_move` | writes | **ref**, parent, before, after, position, **revision** | Move the note `ref` (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among its children (0 is first; default… | `packages/outline-core/src/agent-tool-definitions.ts:600` |
+| `tools.outline_trash` | writes | **ref**, **revision** | Put the note `ref` in Trash, with what is under it, against the `revision` outline_read returned: a note that changed since is refused and stays. | `packages/outline-core/src/agent-tool-definitions.ts:631` |
+| `tools.outline_restore` | writes | **ref** | Bring the note `ref` back from Trash, with what went under it, to where it was. | `packages/outline-core/src/agent-tool-definitions.ts:649` |
 
 <!-- generated:tools:end -->
 
@@ -241,7 +241,7 @@ TypeError (there is no such function): `Object.keys(tools)` lists the ones there
 |---|---|
 | `hostApi` | `packages/outliner/src/host-api.ts:273` |
 | `AGENT_TOOL_DEFINITIONS` | `packages/outline-core/src/agent-tool-definitions.ts:123` |
-| `AGENT_TOOL_SURFACES` | `packages/outline-core/src/agent-tool-definitions.ts:688` |
+| `AGENT_TOOL_SURFACES` | `packages/outline-core/src/agent-tool-definitions.ts:691` |
 
 ## view.*
 
@@ -253,23 +253,23 @@ has. The tone is one of `default`, `good`, `warn`, `bad`, `dim`, `accent`.
 
 | Builder | Fields (anything else is refused) | Source |
 |---|---|---|
-| `view.text` | `text`, `tone`, `strong`, `act`, `link`, `revision` | `packages/outliner/src/component-primitives.ts:392` |
-| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:398` |
-| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:401` |
-| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:408` |
-| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:415` |
-| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:422` |
-| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:448` |
-| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:459` |
-| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:465` |
-| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:483` |
-| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:486` |
-| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:489` |
-| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:494` |
-| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:510` |
-| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:517` |
-| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:405` |
-| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty`, `arrange`, `size`, `columns`, `headers`, `page` | `packages/outliner/src/component-primitives.ts:531` |
+| `view.text` | `text`, `tone`, `strong`, `act`, `link`, `revision` | `packages/outliner/src/component-primitives.ts:393` |
+| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:399` |
+| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:402` |
+| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:409` |
+| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:416` |
+| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:423` |
+| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:449` |
+| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:460` |
+| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:466` |
+| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:484` |
+| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:487` |
+| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:490` |
+| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:495` |
+| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:511` |
+| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:518` |
+| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:406` |
+| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty`, `arrange`, `size`, `columns`, `headers`, `page` | `packages/outliner/src/component-primitives.ts:532` |
 
 <!-- generated:view:end -->
 
@@ -308,7 +308,7 @@ primitive's label without the line. In a note the same press is `::button{label=
 |---|---|
 | `validatePrimitive` | `packages/outliner/src/component-primitives.ts:379` |
 | `PRIMITIVE_TYPES` | `packages/outliner/src/component-primitives.ts:30` |
-| `PRIMITIVE_FIELDS` | `packages/outliner/src/component-primitives.ts:28` |
+| `PRIMITIVE_FIELDS` | `packages/outliner/src/component-primitives.ts:33` |
 | `MAX_NODES` | `packages/outliner/src/component-primitives.ts:137` |
 
 ## What a script returns
@@ -450,11 +450,11 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 | Entry | Source |
 |---|---|
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:323` |
-| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:795` |
+| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:813` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1839` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:218` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4825` |
-| `viaYolo` | `packages/outliner/src/server.ts:4855` |
+| `viaYolo` | `packages/outliner/src/server.ts:4850` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:594` |
 
 ## Lifecycle
@@ -493,7 +493,7 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 | `stopRun` | `packages/outliner/src/script-runs.ts:286` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:348` |
 | `scripts.stop` | `packages/outliner/src/server.ts:763` |
-| `scripts.stop` request | `packages/outliner/src/types.ts:2563` |
+| `scripts.stop` request | `packages/outliner/src/types.ts:2549` |
 
 ## Traps
 
@@ -531,6 +531,41 @@ Each of these cost someone an hour.
 **Save:** the saved note waits for the person's save when the edit landed in their draft.
 **Script-owned output:** `place("Report", { at: "^weekly", mode: "upsert" })` creates or replaces this script's own region; a person's edit inside that region makes replacement a proposal.
 **Worked run:** [task 4](PROGRAMMABLE-NOTES.md#4-append-while-a-person-holds-a-draft) drives append and the conflicting cursor on a scratch door.
+
+## An append log and a shell waiter
+
+A process note's children are its log. `outline_create` appends without a parent revision; the home host's
+`created` timestamps give arrival order, including queued netmail. Give each logical event a stable `requestId`:
+
+```js
+await tools.outline_create({
+  parent: this.id,
+  requestId: "greenhouse:vent-open:2026-10-31",
+  text: "Vent opened [type::greenhouse-event] [verb::open]"
+});
+```
+
+Repeat that input and the answer names the first block with `deduplicated: true`, even after a restart. Reusing the
+id with different text, parent or position is refused. `position` is part of the same create transaction; a retry
+does not reposition the note.
+
+An agent in a shell can wait for the next entry. Start this before the append, replacing the made-up process id:
+
+```sh
+ep0ch wait 'parent:((11111111-1111-4111-8111-111111111111))' --ws garden --timeout 60 --json
+```
+
+The command keeps one watched `blocks.query` on its connection. Existing matches are its starting point; when
+`queries.changed` supplies new rows it prints their block records and exits 0. `--ids` and `--lines` print the same
+forms as `find`; `--machine` selects another machine as usual. The timeout exits 2 and says `nothing new`.
+A lost connection exits 1 and prints the command to start again.
+It watches the newest 1,000 matches, the service's query limit; narrow the query for a larger burst.
+
+The kitchen sink's wyrm demo uses this pattern: an ambush is one event under the town, with both players' balances
+folded into chips through `outline_set_property` at the read revision. Each player's `wyrm-through` checkpoint is
+saved with those chips; a stale fold rereads, and an interrupted fold finishes on the next press. Compaction and a
+rule that folds events from other appenders are the next slice. When a player's sheet is being edited, the fold
+joins that draft; the chips become saved state when the person saves it.
 
 ## Worked examples
 

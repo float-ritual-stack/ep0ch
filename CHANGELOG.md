@@ -23,6 +23,19 @@ are its record. The outliner's entries from then are kept below, under
 - An agent changing or closing the gallery leaves the peek you're reading or editing as your own float. Other select-wired readers keep following; ordinary put-back keeps the follower, and undo restores every select destination.
 - **Run:** after the protocol update, the deployer runs `ep0ch install --apply` on float-2 and the laptop. No schema change.
 
+### Agents can append once and wait for the next log entry (PIE-1271)
+
+`create` and `outline_create` take a stable `requestId`: the same input returns the first block with
+`deduplicated: true`; different input under that id is refused. Netmail keeps the id from its first live attempt
+through queued retries. Creation and its requested position commit together, in the host's creation-time order.
+`ep0ch wait '<query>'` prints new matches and exits; `--timeout <seconds>` exits 2 with `nothing new`.
+The wyrm's ambush is one event under the town, folded into both players' chips, with interrupted folds recoverable.
+
+Schema **7 → 8**: with the host stopped, run
+`bun packages/outliner/scripts/migrations/0008-create-requests.ts <database>` for each outline.
+`ep0ch install --apply` runs the migration and updates the host and clients together on each machine.
+Compaction and the rule-note fold remain the next slice.
+
 ### Completion reads and inserts the same in the door and Detail (PIE-1478, PIE-1344)
 
 - **Read before inserting:** each completion row shows its kind and a separate dim detail, with wrapped docs beside the list when there is room or below it. Ten choices, a scroll thumb and `n/total` keep your place; Shift+↑/↓, PgUp/PgDn and the wheel scroll docs.
