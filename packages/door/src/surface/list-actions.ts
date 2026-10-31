@@ -106,10 +106,10 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
       const row = rowIn(l, who, { n, id });
       if (!selectable(row)) throw new ActionRefused(`${row.label} is a header: it has nothing to pick`);
-      l.view.pick(who, row.id);
+      l.view.pick(who, row.id, row.group);
       if (who === PERSON) await host.picked(l, row);
       host.redraw();
-      return { list: l.n, title: l.title, row: l.view.pickable(who).findIndex(r => r.id === row.id) + 1, text: row.label, ...(openedRef(row) ? { id: openedRef(row) } : {}), moved: who === PERSON };
+      return { list: l.n, title: l.title, row: l.view.indexOf(who, row) + 1, text: row.label, ...(openedRef(row) ? { id: openedRef(row) } : {}), moved: who === PERSON };
     },
   }),
   "list.step": def({
@@ -127,7 +127,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
       if (!row) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} the pick in ${l.title}`);
       if (who === PERSON) await host.picked(l, row);
       host.redraw();
-      return { list: l.n, title: l.title, row: l.view.pickable(who).findIndex(r => r.id === row.id) + 1, text: row.label, moved: who === PERSON };
+      return { list: l.n, title: l.title, row: l.view.indexOf(who, row) + 1, text: row.label, moved: who === PERSON };
     },
   }),
   "list.open": def({

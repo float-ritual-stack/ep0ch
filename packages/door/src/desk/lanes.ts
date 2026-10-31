@@ -856,7 +856,7 @@ export class Lanes implements SourceModel {
       if (parent) throw new ActionRefused(`${lane.name} lists roadmap items: the workboard's allocator puts them under their project's work queue, so parent= can't be chosen`);
       return { born: plan.born, defaults: plan.defaults, needs, parent: null, plan };
     }
-    const where = parent ? { id: parent, why: "named by the caller" } : pickParent(lane.name, lane.def!, lane.items ?? [], this.lanes.flatMap(l => l.items ?? []));
+    const where = parent ? { id: parent, why: "named by the caller" } : pickParent(lane.name, plan.parentId, lane.items ?? [], this.lanes.flatMap(l => l.items ?? []));
     if ("refused" in where) throw new ActionRefused(where.refused);
     return { born: plan.born, defaults: plan.defaults, needs, parent: where, plan };
   }

@@ -19,7 +19,7 @@ export function renderPrimitiveList(surface: Pick<NoteSurface, "listFor" | "list
   const tag = (row: ListViewRow, x: string): string => {
     const a = activationOf(row);
     if (!a) return x;
-    const at = { listRow: { key, row: row.id } };
+    const at = { listRow: { key, row: row.id, group: row.group } };
     const to: LinkTarget = a.kind === "open" ? listOpenTarget(row)!
       : a.kind === "run" ? run(actionLine({ action: (a.value as { action: string }).action, args: (a.value as { args?: Record<string, string> }).args }))
       : { role: "row", label: row.label, listText: a.kind === "copy" ? { copy: a.value as string } : { insert: a.value as string } };

@@ -42,6 +42,10 @@ export interface ListViewRow<S = unknown> extends ListRow {
 }
 
 const TONE_INK: Record<ListTone, number> = { default: C.white, good: C.lgreen, warn: C.yellow, bad: C.lred, dim: C.dark, accent: C.lcyan };
+type ListPick = Pick<ListRow, "id" | "group">;
+// A note in two groups has two positions, even after a new answer replaces the row objects.
+const sameRow = (a: ListPick | null | undefined, b: ListPick | null | undefined): boolean => !!a && !!b && a.id === b.id && a.group === b.group;
+const rowKey = (row: ListPick): string => JSON.stringify([row.id, row.group]);
 
 /** Whether a row can be selected: it does something when picked, or its host says it can be. */
 export const selectable = (row: ListViewRow): boolean => row.pick ?? !!row.do;
@@ -91,7 +95,7 @@ export function listRowsOf<S = unknown>(node: Pick<ListPrimitive, "rows" | "grou
   if (node.arrange && node.arrange !== "lanes") return node.rows.map(r => ({ ...r }));
   return listSections(node).flatMap(({ head, rows }) => [
     ...(head ? [{ id: `\u0000group:${head.name ?? head.label}`, label: listHead(head), mark: "▾", tone: "warn" as const, pick: false, group: head.name ?? head.label, ...(head.note ? { detail: head.note } : {}) }] : []),
-    ...rows.map((r): ListViewRow<S> => ({ ...r, mark: r.mark ?? (r.do ? "·" : "■"), depth: head ? 1 : 0 })),
+    ...rows.map((r): ListViewRow<S> => ({ ...r, ...(head ? { group: head.name ?? head.label } : {}), mark: r.mark ?? (r.do ? "·" : "■"), depth: head ? 1 : 0 })),
   ]);
 }
 
@@ -147,7 +151,7 @@ export interface ListDrawn<S> {
 export class ListView<S = unknown> {
   readonly view = new RowView();
   private all: ListViewRow<S>[] = [];
-  private picks = new Map<string, string>();
+  private picks = new Map<string, ListPick>();
   private filters = new Map<string, string>();
   /** The person's filter while they type it (`/`): applied as it's typed, ⏎ keeps it, esc goes back to what it was. */
   typing: LineField | null = null;
@@ -158,7 +162,7 @@ export class ListView<S = unknown> {
   page = 0;
   private readonly agentPages = new Map<string, number>();
   private pageSize = 200;
-  private lanes: string[][] = [];
+  private lanes: ListViewRow<S>[][] = [];
 
   pageCount(who: string): number { return Math.max(1, Math.ceil(this.pickable(who).length / this.pageSize)); }
 
@@ -166,17 +170,20 @@ export class ListView<S = unknown> {
     const current = who === PERSON ? this.page : this.agentPages.get(who) ?? 0;
     const next = Math.max(0, Math.min(pages - 1, current + by));
     const first = this.pickable(who)[next * this.pageSize];
-    if (first) this.pick(who, first.id);
+    if (first) this.pick(who, first.id, first.group);
     return next + 1;
   }
 
   pickLane(who: string, lane: number) {
     const first = this.lanes[lane]?.[0];
-    if (first) this.pick(who, first);
+    if (first) this.pick(who, first.id, first.group);
     if (who === PERSON) this.lane = lane;
   }
 
-  setAnswer(who: string, rows: ListViewRow<S>[]) { if (who === PERSON) this.set(rows); else this.answered.set(who, rows); }
+  setAnswer(who: string, rows: ListViewRow<S>[]) {
+    if (who === PERSON) this.set(rows);
+    else { this.answered.set(who, rows); this.reconcilePage(who); }
+  }
 
   /**
    * `narrows`: whether this view narrows its rows by a typed filter. A host whose model narrows its own (the links
@@ -192,7 +199,10 @@ export class ListView<S = unknown> {
    * The rows as the host gave them. A pick on a row that is not among them is kept: a host that narrows for the person
    * leaves out rows other actors have picked, and they come back with the filter cleared. `picked` only answers a row that is listed.
    */
-  set(rows: readonly ListViewRow<S>[]) { this.all = [...rows]; }
+  set(rows: readonly ListViewRow<S>[]) {
+    this.all = [...rows];
+    for (const who of new Set([PERSON, ...this.picks.keys(), ...this.answered.keys()])) this.reconcilePage(who);
+  }
   get rows(): readonly ListViewRow<S>[] { return this.all; }
 
   // ── filters ──────────────────────────────────────────────────────────────
@@ -231,39 +241,46 @@ export class ListView<S = unknown> {
 
   /** The row `who` has picked among those they see; the person's falls to the first that can be selected. */
   picked(who: string = PERSON): ListViewRow<S> | null {
-    const rows = this.visible(who), id = this.picks.get(who);
-    const at = id !== undefined ? rows.find(r => r.id === id && selectable(r)) : undefined;
+    const rows = this.visible(who), pick = this.picks.get(who);
+    const at = pick ? rows.find(r => sameRow(r, pick) && selectable(r)) : undefined;
     return at ?? (who === PERSON ? rows.find(selectable) ?? null : null);
   }
   /** `who`'s pick as kept: a row id, whether or not it is listed now (null: none made). */
-  pickedId(who: string = PERSON): string | null { return this.picks.get(who) ?? null; }
+  pickedId(who: string = PERSON): string | null { return this.picks.get(who)?.id ?? null; }
   /** Keep `id` as `who`'s pick without checking it against the rows (a host that moves its own selection by row, then draws). */
-  setPick(who: string, id: string | null) {
-    if ((this.picks.get(who) ?? null) === id) return;
-    if (id === null) this.picks.delete(who); else this.picks.set(who, id);
-    const page = Math.max(0, Math.floor(this.pickable(who).findIndex(r => r.id === id) / this.pageSize));
-    if (who === PERSON) { this.page = page; this.view.reveal(); }
+  setPick(who: string, id: string | null, group?: string) {
+    const pick = id === null ? null : { id, group: group ?? this.visible(who).find(r => r.id === id)?.group };
+    if (sameRow(this.picks.get(who), pick)) return;
+    if (pick === null) this.picks.delete(who); else this.picks.set(who, pick);
+    this.reconcilePage(who);
+    if (who === PERSON) this.view.reveal();
+  }
+  private reconcilePage(who: string) {
+    const row = this.picked(who), rows = this.pickable(who);
+    const page = Math.max(0, Math.floor((row ? rows.indexOf(row) : -1) / this.pageSize));
+    if (who === PERSON) { if (this.page !== page) this.view.reveal(); this.page = page; }
     else this.agentPages.set(who, page);
   }
   /** The rows `who` can pick among those they see, numbered from 1 by `list.blocks` and `list.pick n=`. */
   pickable(who: string = PERSON): ListViewRow<S>[] { return this.visible(who).filter(selectable); }
+  indexOf(who: string, row: ListPick): number { return this.pickable(who).findIndex(candidate => sameRow(candidate, row)); }
   /** Whether `who` has picked anything of their own (the person's default first row isn't one). */
   hasPick(who: string): boolean { return this.picks.has(who); }
   /** Pick a row by id for `who`; the row, or why not. */
-  pick(who: string, id: string): ListViewRow<S> {
-    const rows = this.visible(who), row = rows.find(r => r.id === id);
+  pick(who: string, id: string, group?: string): ListViewRow<S> {
+    const rows = this.visible(who), row = rows.find(r => r.id === id && (group === undefined || r.group === group));
     if (!row) throw new Error(`no row ${id} in ${this.key}`);
     if (!selectable(row)) throw new Error(`${row.label} is a header: it has nothing to pick`);
-    this.setPick(who, row.id);
+    this.setPick(who, row.id, row.group);
     return row;
   }
   /** Move `who`'s pick `by` rows among those that can be selected; null where there's no row that way. */
   step(who: string, by: number): ListViewRow<S> | null {
-    const rows = this.pickable(who), at = rows.findIndex(r => r.id === this.picked(who)?.id);
+    const rows = this.pickable(who), at = rows.indexOf(this.picked(who)!);
     const to = (at < 0 ? (by > 0 ? -1 : rows.length) : at) + Math.trunc(by);
     const row = rows[Math.max(0, Math.min(rows.length - 1, to))];
     if (!row || (to < 0 || to >= rows.length) && at >= 0 && rows[at] === row) return null;
-    this.setPick(who, row.id);
+    this.setPick(who, row.id, row.group);
     return row;
   }
   /** Forget `who`'s pick (their own, not the rows). */
@@ -279,12 +296,12 @@ export class ListView<S = unknown> {
   // ── what a list says it holds ────────────────────────────────────────────
 
   describe(who: string = PERSON, describeRow?: (row: ListViewRow<S>, n: number) => Partial<ListRowInfo>, marked: string = PERSON): ListRowInfo[] {
-    const rows = this.pickable(who), mine = this.picked(marked)?.id;
+    const rows = this.pickable(who), mine = this.picked(marked);
     return rows.map((r, i) => ({
       n: i + 1, id: r.id, text: r.label, ...(r.detail ? { detail: r.detail } : {}), ...(r.group ? { group: r.group } : {}),
       ...(describeRow?.(r, i + 1) ?? {}),
-      ...(r.id === mine ? { selected: true as const } : {}),
-      ...(this.others().filter(o => o.who !== who && o.row?.id === r.id).length ? { pickedBy: this.others().filter(o => o.who !== who && o.row?.id === r.id).map(o => o.who) } : {}),
+      ...(sameRow(r, mine) ? { selected: true as const } : {}),
+      ...(this.others().filter(o => o.who !== who && sameRow(o.row, r)).length ? { pickedBy: this.others().filter(o => o.who !== who && sameRow(o.row, r)).map(o => o.who) } : {}),
     }));
   }
 
@@ -309,7 +326,7 @@ export class ListView<S = unknown> {
     const rows = this.visible(), mine = o.selection ? this.picked() : null;
     const others = this.others();
     const agentRows = new Map<string, string[]>();
-    for (const a of others) if (a.row) agentRows.set(a.row.id, [...(agentRows.get(a.row.id) ?? []), a.who]);
+    for (const a of others) if (a.row) agentRows.set(rowKey(a.row), [...(agentRows.get(rowKey(a.row)) ?? []), a.who]);
     const preview = o.preview && mine ? o.preview : null;
     const beside = !!preview && preview.side === "right" && o.cols >= (preview.minWidth ?? 70);
     const lw = beside ? Math.max(20, Math.floor(o.cols * 0.42)) : o.cols, pw = beside ? o.cols - lw - 3 : o.cols;
@@ -320,10 +337,10 @@ export class ListView<S = unknown> {
     // The rows an agent's say-so takes at the bottom come out of the viewport, never past the tile: as many as fit beside one row.
     const sayers = others.filter(a => a.row || a.filter).slice(0, o.room === undefined ? undefined : Math.max(0, o.room - 1 - lines.length));
     const says = sayers.length;
-    const drawn = rows.map((r, i) => listRowLines(r, { cols: lw, lines: o.lines, selected: r.id === mine?.id, focused: o.focused, agent: agentRows.has(r.id), ...(o.tag ? { tag: o.tag } : {}) }));
+    const drawn = rows.map(r => listRowLines(r, { cols: lw, lines: o.lines, selected: sameRow(r, mine), focused: o.focused, agent: agentRows.has(rowKey(r)), ...(o.tag ? { tag: o.tag } : {}) }));
     // The selected row is shown with the heading it sits under (a group's, PIE-1448): the rows that can't be picked just
     // above it come into view with it, so the list's first group never scrolls its heading away.
-    const selAt = mine ? rows.findIndex(r => r.id === mine.id) : -1;
+    const selAt = mine ? rows.indexOf(mine) : -1;
     let headAt = selAt;
     while (headAt > 0 && !selectable(rows[headAt - 1]!)) headAt--;
     // The heading the selected row sits under, however far above it: when it has scrolled off, it is drawn on its own
@@ -388,18 +405,12 @@ export class ListView<S = unknown> {
   }
 
   private arranged(o: ListDrawOpts<S>, node: ListPrimitive): ListDrawn<S> {
-    const rows = this.visible(), mine = o.selection ? this.picked()?.id : undefined;
-    const byId = new Map(rows.map((row, i) => [row.id, { row, i }]));
-    const tag = (id: string, text: string, revision?: number) => {
-      const row = byId.get(id)?.row;
-      const marked = id === mine ? `${BOLD}${text}${UNBOLD}` : text;
-      return row && o.tag ? o.tag(row, marked) : o.link?.(id, marked, revision) ?? marked;
-    };
+    const rows = this.visible(), mine = o.selection ? this.picked() : null;
     const titleAt = Math.max(0, node.columns?.indexOf("title") ?? 0);
-    const card = (row: ListRow, cols: number, record = false): string[] => {
+    const card = (row: ListViewRow<S>, cols: number, record = false): string[] => {
       const cell = record ? row.cells?.[titleAt] ?? row.label : row.label;
       const title = typeof cell === "object" && cell.link ? o.link?.(cell.link, cell.text, cell.revision) ?? cell.text : listCellText(cell);
-      const lines = primitiveLines({ type: "card", title: `${row.id === mine ? "▸ " : ""}${title}`,
+      const lines = primitiveLines({ type: "card", title: `${sameRow(row, mine) ? "▸ " : ""}${title}`,
       ...(record ? {} : { subtitle: row.detail }), children: [
         ...(!record && row.cover ? [{ type: "image", src: row.cover, caption: false, height: node.size === "large" ? 8 : 4 }] : []),
         ...(record ? (node.columns ?? []).flatMap((key, i) => {
@@ -408,14 +419,13 @@ export class ListView<S = unknown> {
           return [{ type: "text", ...(typeof cell === "object" ? cell : {}), text: rowLines(`${node.headers?.[i] ?? key}: ${listCellText(cell)}`, Math.max(8, cols - 2), 4).join("\n") }];
         }) : []),
         ...(row.body ?? []).map(text => ({ type: "text", text })),
-      ] }, cols, { link: tag });
-      const drawn = byId.get(row.id)?.row;
-      if (!drawn || !o.tag) return lines;
-      const [before, after] = o.tag(drawn, "\u0000").split("\u0000");
+      ] }, cols, { link: o.link });
+      if (!o.tag) return lines;
+      const [before, after] = o.tag(row, "\u0000").split("\u0000");
       return lines.map(line => before + line + after);
     };
     const combine = (parts: string[][], cols: number) => Array.from({ length: Math.max(0, ...parts.map(p => p.length)) }, (_, line) => parts.map(p => pad(p[line] ?? "", cols)).join("  "));
-    const drawRows = (own: readonly ListRow[], cols: number, arrange: ListPrimitive["arrange"]): string[] => {
+    const drawRows = (own: readonly ListViewRow<S>[], cols: number, arrange: ListPrimitive["arrange"]): string[] => {
       if (arrange === "table" && tier(cols) !== "narrow") {
         const keys = node.columns ?? ["title"];
         const shown = [...keys];
@@ -423,7 +433,9 @@ export class ListView<S = unknown> {
           if (width(shown.map((key, i) => pad(node.headers?.[i] ?? key, 8)).join("  ")) <= cols) break;
           shown.pop();
         }
-        return [...primitiveLines({ type: "table", columns: shown.map((key, i) => node.headers?.[i] ?? key), rows: own.map(r => r.cells?.slice(0, shown.length) ?? [r.label]), links: own.map(r => r.id) }, cols, { link: tag, header: (_label, text, i) => o.header?.(shown[i]!, text) ?? text }),
+        return [...primitiveLines({ type: "table", columns: shown.map((key, i) => node.headers?.[i] ?? key), rows: own.map(r => r.cells?.slice(0, shown.length) ?? [r.label]) }, cols, { link: o.link,
+          row: (i, text) => { const row = own[i]!, marked = sameRow(row, mine) ? `${BOLD}${text}${UNBOLD}` : text; return o.tag?.(row, marked) ?? marked; },
+          header: (_label, text, i) => o.header?.(shown[i]!, text) ?? text }),
           ...(shown.length < keys.length ? [fg(C.dark) + `+ ${keys.length - shown.length} columns · widen to see them` + RESET] : [])];
       }
       const per = arrange === "grid" && tier(cols) !== "narrow" ? Math.max(1, Math.floor(cols / (node.size === "large" && tier(cols) === "wide" ? 44 : 29))) : 1;
@@ -432,6 +444,7 @@ export class ListView<S = unknown> {
       return out;
     };
     this.pageSize = node.page ?? 200;
+    this.reconcilePage(PERSON);
     const all = rows.filter(selectable);
     this.page = Math.min(this.page, Math.max(0, Math.ceil(all.length / this.pageSize) - 1));
     const ordered = all.slice(this.page * this.pageSize, (this.page + 1) * this.pageSize);
@@ -439,8 +452,8 @@ export class ListView<S = unknown> {
     if (node.arrange === "lanes" && node.groups?.length) {
       const lanes = node.groups, laneCount = lanes.length;
       const narrow = tier(o.cols) === "narrow" || o.cols / laneCount < 24;
-      this.lanes = lanes.map(group => group.ids ?? listSections({ rows: ordered, groups: [group] }).flatMap(section => section.rows.map(row => row.id)));
-      const pickedLane = this.lanes.findIndex(ids => mine !== undefined && ids.includes(mine));
+      this.lanes = lanes.map(group => listRowsOf<S>({ ...node, groups: [group] }).filter(selectable));
+      const pickedLane = this.lanes.findIndex(own => own.some(row => sameRow(row, mine)));
       if (pickedLane >= 0) this.lane = pickedLane;
       const drawn = narrow ? [lanes[Math.min(this.lane, lanes.length - 1)]!] : lanes;
       const count = drawn.length;
@@ -448,9 +461,9 @@ export class ListView<S = unknown> {
       lines = [
         ...(narrow ? [lanes.map((g, i) => o.lane ? o.lane(String(i), `${i === this.lane ? "▸ " : ""}${g.label}`) : g.label).join(" · ")] : []),
         ...combine(drawn.map(group => [fg(C.yellow) + `${group.label} (${group.count})` + RESET,
-          ...listSections({ rows: ordered, groups: [group] }).flatMap(section => [
+          ...listSections({ rows: node.rows, groups: [group] }).flatMap(section => [
             ...(group.groups?.length && section.head ? [fg(C.dark) + section.head.label + RESET] : []),
-            ...drawRows(section.rows, cols, "rows"),
+            ...drawRows(ordered.filter(row => row.group === (section.head?.name ?? section.head?.label)), cols, "rows"),
           ])]), cols),
       ];
     } else lines = drawRows(ordered, o.cols, node.arrange);

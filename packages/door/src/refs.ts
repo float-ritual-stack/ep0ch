@@ -328,7 +328,7 @@ export type LinkTarget = {
    * list (its key) and the row's id, so the `[ ]` position on it selects it there and its preview follows; alone
    * (role "control"), its `⏎ in` control.
    */
-  listRow?: { key: string; row?: string };
+  listRow?: { key: string; row?: string; group?: string };
   /** A list row's `copy` or `insert` activation (PIE-747): ⏎ puts the text on the clipboard, or into the person's open draft. */
   listText?: { copy: string } | { insert: string };
   /**

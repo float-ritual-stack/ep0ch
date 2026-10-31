@@ -228,4 +228,71 @@ describe("showcase: a collection record (PIE-1281)", () => {
     expect(lists()[0].detail.layout).toBe("table");
   }, 20_000);
 
+  test("review: a multi-valued group still turns to page two", async () => {
+    const aster = await h.board.createBlock(null, "Aster [collection::review-multi] [bed::A] [bed::B]");
+    await h.board.createBlock(null, "Bluebell [collection::review-multi] [bed::B]");
+    await show('Flowers in two beds\n::view{query="collection=review-multi" layout=board group=bed sort="title asc" page=1}');
+    await act("list.pick", { n: 1 });
+    await act("list.enter", { on: true });
+    h.press({ kind: "pgdn" });
+    await until(() => lists()[0]?.detail?.page === 2, "the second occurrence's page", 4000);
+    const second = (await act("list.blocks")).lists[0];
+    expect(second.page).toBe(2);
+    expect(second.pages).toBe(3);
+    expect(second.rows.filter((r: any) => r.selected)).toMatchObject([{ id: aster.id, n: 2 }]);
+    expect(second.rows[1].group).not.toBe(second.rows[0].group);
+    h.press({ kind: "pgdn" });
+    await until(() => lists()[0]?.detail?.page === 3, "Bluebell's page", 4000);
+    expect(h.screen()).toContain("Bluebell");
+    expect(await act("list.step", { by: -1 })).toMatchObject({ row: 2 });
+    expect(await act("list.pick", { n: 2 })).toMatchObject({ row: 2 });
+    expect((await act("list.blocks")).lists[0].page).toBe(2);
+    expect((await act("list.open")).opened).toBe(aster.id);
+  }, 20_000);
+
+  test("review: a linked cell opens its own target even when that target is another collection row", async () => {
+    const end = await h.board.createBlock(null, "Cedar handbook");
+    const middle = await h.board.createBlock(null, `Birch record [collection::review-link] [note::${end.id}]`);
+    await h.board.createBlock(null, `Aster record [collection::review-link] [note::${middle.id}]`);
+    await show('Linked records\n::graph-table{query="collection=review-link" columns="note" sort="title asc" link=note}\n::');
+    const cells = (await act("elements")).elements;
+    const cell = cells.find((e: any) => e.label.trim() === "Birch record");
+    expect(cell).toBeDefined();
+    const result = await act("element.open", { n: cell.n });
+    expect(result.opened).toBe(middle.id);
+  }, 20_000);
+
+  test("review: sorting after a page change keeps the selected note on the drawn page", async () => {
+    for (const title of ["Aster", "Bluebell", "Clover", "Daisy"]) await h.board.createBlock(null, `${title} [collection::review-sort]`);
+    await show('Sorted flowers\n::view{query="collection=review-sort" layout=table sort="title asc" page=2}', 44);
+    await act("list.pick", { n: 3 });
+    expect(h.screen()).toContain("Clover");
+    await agent("list.pick", { n: 3 });
+    await agent("list.sort", { by: "title", order: "desc" });
+    expect((await agent("list.page", { by: 0 })).page).toBe(1);
+    expect((await act("list.blocks")).lists[0].page).toBe(2);
+    expect(lists()[0].view.picked().label).toBe("Clover");
+    await act("list.sort", { by: "title", order: "desc" });
+    await until(() => lists()[0]?.detail?.sort === "title desc", "descending answer", 4000);
+    const drawn = h.screen(), picked = lists()[0].view.picked();
+    const opened = await act("list.open");
+    expect(opened.opened).toBe(picked.id);
+    expect(drawn).toContain(picked.label);
+  }, 20_000);
+
+  test.each(["this", "inbox"])("review: the board creates under the same create-parent %s as Tree", async parent => {
+    const { boardScreen, view } = await import("../board-view");
+    const hub = await h.board.createBlock(null, "Flower work");
+    const inbox = await h.board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { filters: [{ key: "system-view", value: "inbox" }] } });
+    await h.board.createBlock(hub.id, `Flowers [type::virtual-branch] [query::kind=review-flower] [create::kind=review-flower] [create-parent::${parent}]`);
+    await h.board.createBlock(hub.id, `Pots [type::virtual-branch] [query::kind=review-pot] [create-parent::${hub.id}]`);
+    const board = boardScreen(hub.id, false);
+    h.app.push(board);
+    await until(() => { board.render(h.app); return view(board).lanes.length === 2 && view(board).lanes.every(lane => lane.items); }, "the two flower lanes", 8000);
+    const created = await board.dispatch.act({ action: "card.create", args: { lane: "Flowers", text: "Aster" } }, { kind: "user" }) as any;
+    const expected = parent === "this" ? hub.id : inbox.blocks[0]!.id;
+    expect(created.parent).toBe(expected);
+    expect((await h.board.get(created.id))?.parentId).toBe(expected);
+  }, 20_000);
+
 });

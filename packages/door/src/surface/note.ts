@@ -594,7 +594,7 @@ const sameElementLink = (a: Link, b: Link) => a.press || b.press
   ? !!a.press && !!b.press && a.press.block === b.press.block && a.press.line === b.press.line && a.label === b.label
   : a.role === b.role && sameLink(a, b) && same(a.task, b.task, taskBase) && same(a.callout, b.callout, calloutBase)
     && same(a.figure, b.figure, figureElemBase) && a.inlineList?.key === b.inlineList?.key && a.inlineList?.row === b.inlineList?.row
-    && a.listRow?.key === b.listRow?.key && a.listRow?.row === b.listRow?.row;
+    && a.listRow?.key === b.listRow?.key && a.listRow?.row === b.listRow?.row && a.listRow?.group === b.listRow?.group;
 const same = <T,>(a: T | undefined, b: T | undefined, base: (x: T) => unknown) => (a && b ? base(a) === base(b) : !a === !b);
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
@@ -2748,7 +2748,7 @@ export class NoteSurface {
     this.listEnv = this.printed ? undefined : {
       list: (key, signature) => this.listFor(key, false, signature),
       entered: key => this.listIn === key,
-      row: (key, row, to, x) => tagged(drawn, { ...to, listRow: { key, row } }, x),
+      row: (key, row, to, x, group) => tagged(drawn, { ...to, listRow: { key, row, group } }, x),
       control: (key, x) => tagged(drawn, { role: "control", label: key, listRow: { key } }, x),
       ...(preview ? { preview } : {}),
       seen: info => blocks.push(info),
@@ -4278,11 +4278,11 @@ export class NoteSurface {
   listNamed(named?: string): ListHandle<any> { return listNamed(this.listHost(), named); }
 
   /** The element drawn for row `row` of list `key`, and its number among the elements (from 1), or null. */
-  linkRowElement(key: string, row: string): { e: Element; n: number; row?: number } | null {
-    const i = this.elems.findIndex(e => e.link?.listRow?.key === key && e.link.listRow.row === row);
+  linkRowElement(key: string, row: string, group?: string): { e: Element; n: number; row?: number } | null {
+    const i = this.elems.findIndex(e => e.link?.listRow?.key === key && e.link.listRow.row === row && (group === undefined || e.link.listRow.group === group));
     if (i >= 0) return { e: this.elems[i]!, n: i + 1 };
     for (const [listKey, list] of this.inlineLists) {
-      const index = list.rows.findIndex(r => r.target.listRow?.key === key && r.target.listRow.row === row);
+      const index = list.rows.findIndex(r => r.target.listRow?.key === key && r.target.listRow.row === row && (group === undefined || r.target.listRow.group === group));
       const n = this.elems.findIndex(e => e.link?.inlineList?.key === listKey);
       if (index >= 0 && n >= 0) return { e: this.inlineRowElement(this.elems[n]!, index), n: n + 1, row: index + 1 };
     }
@@ -4313,9 +4313,9 @@ export class NoteSurface {
   }
 
   /** The person's pick in list `l` moves to row `row`: the [ ] position goes with it, so the ruler and the preview agree. */
-  selectListRow(l: ListHandle<any>, row: string) {
-    l.view.pick(PERSON, row);
-    const at = this.linkRowElement(l.key, row);
+  selectListRow(l: ListHandle<any>, row: string, group?: string) {
+    l.view.pick(PERSON, row, group);
+    const at = this.linkRowElement(l.key, row, group);
     if (at) this.setElem(at.e);
     this.reveal = true;
   }
@@ -4325,7 +4325,7 @@ export class NoteSurface {
     if (!on) { this.leaveList(l.key); this.letGo(); return; }
     this.modes.push(this.listMode(l.key, l.title));
     const first = l.view.picked(PERSON) ?? l.view.visible().find(selectable);
-    if (first) this.selectListRow(l, first.id);
+    if (first) this.selectListRow(l, first.id, first.group);
   }
   /** Out of the list the person is in (any, or only `key`): its typed filter goes with it. */
   private leaveList(key?: string) {
@@ -4401,7 +4401,7 @@ export class NoteSurface {
       lists: () => this.listsDrawn.map(list => ({ ...list, entered: this.listIn === list.key })),
       current: () => this.listIn ?? this.inView()?.link?.listRow?.key ?? null,
       none: "this note draws no list (a ::links component, or an extension's list view)",
-      picked: (l, row) => { this.selectListRow(l, row.id); this.previewRow(here()); },
+      picked: (l, row) => { this.selectListRow(l, row.id, row.group); this.previewRow(here()); },
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
       enter: (l, on) => { if (on || this.listIn === l.key) this.enterList(l, on); },
       type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(filterLine); },
@@ -4421,7 +4421,7 @@ export class NoteSurface {
       host.redraw();
       return result && "id" in result ? { opened: result.id, title: subject(result) } : result;
     }
-    const at = this.linkRowElement(l.key, row.id);
+    const at = this.linkRowElement(l.key, row.id, row.group);
     if (!at) throw new ActionRefused(`${row.label} isn't drawn in ${l.title} now`);
     // A row that runs an action line is a press (button.press), as whoever asks.
     if (at.e.link?.press) return NOTE_ACTIONS.run("button.press", { n: at.n }, { surface: this, host, standing }, actor);
@@ -5593,7 +5593,7 @@ export class NoteSurface {
     this.link = l ? this.links.findIndex(x => sameLink(x, l)) : -1;
     // A row of an inline ::links (PIE-693): it's that component's selection too, and its preview follows.
     const lb = l?.listRow;
-    if (lb?.row) { try { this.listViews.get(lb.key)?.pick(PERSON, lb.row); } catch { /* a row the list no longer draws */ } }
+    if (lb?.row) { try { this.listViews.get(lb.key)?.pick(PERSON, lb.row, lb.group); } catch { /* a row the list no longer draws */ } }
   }
 
   /** The current element while the person can see it (or it's about to be brought into view). */

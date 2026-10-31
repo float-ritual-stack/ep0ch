@@ -92,6 +92,8 @@ const kids = (n: Node): unknown[] => (Array.isArray(n.children) ? n.children : [
 /** What the reader lends a view's drawing. */
 export interface PrimitiveDraw {
   header?: (key: string, text: string, column: number) => string;
+  /** A table's row activation stays distinct from links carried by its individual cells. */
+  row?: (index: number, text: string) => string;
   /**
    * Tags `text` as a press (PIE-957): a primitive that carries an action line (`act`). The reader's `[ ]` stops on it, ⏎
    * and a click run the line as the person. Without it (a page, a draft's preview) the primitive is drawn as it is.
@@ -175,6 +177,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       const rawRows = (Array.isArray(n.rows) ? n.rows as unknown[][] : []).map(r => (Array.isArray(r) ? r : []));
       const rows = rawRows.map(r => r.map(c => { const o = cellOf(c); return one(o ? o.text : c); }));
       const links = Array.isArray(n.links) ? n.links : [], acts = Array.isArray(n.acts) ? n.acts : [];
+      const rowLink = (index: number, text: string) => draw.row ? draw.row(index, text) : links[index] ? tag(links[index], text) : press(acts[index], text);
       if (!columns.length) throw new PrimitiveUnknown("a table needs columns");
       const widths = columns.map((c, i) => Math.max(vwidth(c), ...rows.map(r => vwidth(r[i] ?? ""))));
       // Too wide: the widest columns give room first, down to 4 cells each.
@@ -195,7 +198,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
           return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, j) => {
             if (!byCell) {
               const text = line(cells.map(c => c[j] ?? ""));
-              return fg(C.white) + (links[k] ? tag(links[k], text) : press(acts[k], text)) + RESET;
+              return fg(C.white) + rowLink(k, text) + RESET;
             }
             const parts = cells.map((c, i) => {
               const padded = i === cells.length - 1 ? pad(c[j] ?? "", widths[i]!).trimEnd() : pad(c[j] ?? "", widths[i]!);
@@ -203,7 +206,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
               const ink = fg(o?.tone ? toned(o.tone) : C.white);
               if (o?.link) return ink + tag(o.link, padded, o.revision as number | undefined) + RESET;
               if (o?.act) return ink + press(o.act, padded) + RESET;
-              return ink + (links[k] ? tag(links[k], padded) : press(acts[k], padded)) + RESET;
+              return ink + rowLink(k, padded) + RESET;
             });
             return parts.join("  ");
           });

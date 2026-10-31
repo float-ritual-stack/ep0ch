@@ -4567,9 +4567,8 @@ export class OutlinerStore {
   }
 
   /**
-   * views.planWrite: in one read, what a move of a block into each view (or a new block with the given
-   * text) must change, or why it can't. Nothing is written; the client applies a move with
-   * properties.patch at the returned revision.
+   * views.planWrite reads the changes a move needs, or a new note's text and resolved parent.
+   * Clients apply moves with properties.patch at the returned revision; planning writes nothing.
    */
   planViewWrites(input: ViewWritePlanRequest): ViewWritePlanResult {
     if (!input || typeof input !== "object") throw new Error("View write plan request is required");
@@ -4585,8 +4584,9 @@ export class OutlinerStore {
       const active = (id: string) => { const block = this.getFromCurrentRead(id); return block && !block.effectiveDeletedRootId ? block : undefined; };
       const block = blockId === undefined ? undefined : active(blockId);
       if (blockId !== undefined && !block) throw new Error(`Block not found in the active workspace: ${blockId}`);
+      const physicalBlocks = block ? [] : [...this.loadGraph().byId.values()].filter(block => !block.effectiveDeletedRootId);
       const plans = viewIds.map(viewId => {
-        const view = writeView(viewId, active(viewId));
+        const view = writeView(viewId, active(viewId), physicalBlocks);
         // A `child:` clause reads the block's children, which a move leaves where they are.
         const subject = block ? { ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties), relations: this.queryRelations(() => this.loadGraph()) } : undefined;
         return { viewId, plan: subject ? planMoveIntoView(view, subject, now) : planCreateInView(view, text, now) };

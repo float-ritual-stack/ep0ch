@@ -314,6 +314,7 @@ export type MovePlan =
 export type CreatePlan =
   | {
       kind: "create"; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; roadmap: boolean;
+      parentId: string | null;
       /** With text: what a plain create saves. */
       text?: string;
       /** With text in a roadmap view: what `roadmap.items.create` is called with. */

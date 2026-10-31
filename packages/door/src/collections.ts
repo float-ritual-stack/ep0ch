@@ -38,15 +38,16 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   const row = (r: typeof view.rows[number], text: string) => {
     const to = listOpenTarget(r);
     if (!to) return text;
-    return blocks?.row ? blocks.row(key, r.id, to, text) : tag?.(to, text) ?? text;
+    return blocks?.row ? blocks.row(key, r.id, to, text, r.group) : tag?.(to, text) ?? text;
   };
   const drawing = view.draw({ primitive: answer.view, cols: Math.max(8, width - 4), focused: entered, selection: true, tag: row,
     link: (id, text, revision) => tag?.({ block: id, role: "row", revision }, text) ?? text,
     header: (by, text) => press("list.sort", { by }, text),
     lane: (lane, text) => press("list.layout", { lane }, text),
   });
+  const pages = view.pageCount(PERSON);
   blocks?.seen?.({ n, key, title: answer.title, view, entered, about: answer.question.where,
-    detail: { layout: answer.layout, layouts: answer.layouts, sort: answer.question.sort, group: answer.question.group, facets: answer.facets, truncated: answer.truncated, page: view.page + 1, pages: Math.max(1, Math.ceil(answer.view.rows.length / (answer.view.page ?? 200))) },
+    detail: { layout: answer.layout, layouts: answer.layouts, sort: answer.question.sort, group: answer.question.group, facets: answer.facets, truncated: answer.truncated, page: view.page + 1, pages },
     async change(changes, who) {
       const next = { ...view.settings.get(who), ...changes };
       view.settings.set(who, next);
@@ -67,7 +68,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   }).map(row => row.text);
   const footer = `${answer.view.rows.length} notes${read?.state === "loading" ? " · updating…" : ""}${answer.truncated ? " · more matches" : ""} · ${keysText(LISTVIEW_ACTIONS.def("list.layout")!.keys)}`;
   const controls = [press("list.sort", {}, "sort"), press("list.group", {}, "group"),
-    ...(answer.view.rows.length > (answer.view.page ?? 200) ? [press("list.page", { by: "-1" }, "‹"), `${view.page + 1}/${Math.ceil(answer.view.rows.length / answer.view.page!)}`, press("list.page", { by: "1" }, "›")] : [])].join(" · ");
+    ...(pages > 1 ? [press("list.page", { by: "-1" }, "‹"), `${view.page + 1}/${pages}`, press("list.page", { by: "1" }, "›")] : [])].join(" · ");
   const warning = answer.error ?? (answer.view.rows.length ? answer.hint : undefined);
   return frame(answer.title, [...tabs, controls, ...(warning ? rowLines(warning, Math.max(8, width - 4)).map(line => fg(C.lred) + line + RESET) : []), ...drawing.lines], width, footer, blocks?.control?.(key, entered ? "esc out" : "⏎ in"));
 }
