@@ -25,6 +25,13 @@ const BOLD = "\x1b[1m", ITALIC = "\x1b[3m", STRIKE = "\x1b[9m";
 const ENV: DocEnv = { width: 60, cellW: 9, cellH: 16, graphics: false, maxImageRows: 4, unfold: false };
 const note = (text: string, props: Record<string, string> = {}): Msg => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, properties: Object.entries(props).map(([key, value]) => ({ key, value })) });
 
+test("wrapped shell substitutions draw and copy without added backticks", () => {
+  const command = "sh:: echo $(date) `whoami --version`";
+  const doc = renderDoc(command, { ...ENV, width: 30 });
+  expect(doc.lines.map(plain)).toEqual(["sh:: echo $(date) `whoami", "--version`"]);
+  expect(doc.lines.map((row, i) => (doc.wraps?.get(i) ?? "") + plain(row)).join("")).toBe(command);
+});
+
 /** A surface on a fake host: what it flashed, copied and navigated to. `pages`: what `[[…]]` addresses resolve to. */
 function setup(text: string, pages: Record<string, Msg> = {}) {
   const flashes: string[] = [], copies: string[] = [], went: Msg[] = [];
@@ -236,6 +243,15 @@ describe.skipIf(!outliner)("the BBS reader, against a scratch outline", () => {
   };
   beforeAll(async () => { board = new SocketBoard(await scratch.start()); await board.info(); });
   afterAll(async () => { board.close(); await scratch.stop(); });
+
+  test("shell embed syntax stays literal in the reader", async () => {
+    const target = await create(null, "Garden instructions\nWater the seedlings.");
+    const command = `sh:: printf '%s' '!((${target.id}))'`;
+    const msg = await create(null, `Literal shell\n\n${command}`);
+    const text = (await draw((await board.get(msg.id))!)).map(plain).join("\n");
+    expect(text).toContain(command);
+    expect(text).not.toContain("Water the seedlings.");
+  });
 
   test("draws its body like every reader: labelled refs, Markdown links, bold, metadata lines hidden", async () => {
     const kettle = await create(null, "Descale the kettle");

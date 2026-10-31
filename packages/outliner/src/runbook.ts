@@ -35,6 +35,6 @@ export function runbookText(store: OutlinerStore, text: string, parentId: string
     for (const child of store.children(block.id)) collect(child);
   };
   if (root) collect(root);
-  else if (id) for (const child of store.children(id)) collect(child);
+  else if (id && isRunbook(text)) for (const child of store.children(id)) collect(child);
   return anchorRunbookSteps(text, used);
 }

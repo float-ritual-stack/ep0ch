@@ -36,8 +36,9 @@ async function command(step: RunbookStep, text: string, deadlineAt: number) {
   return new Promise<{ stdout: string; stderr: string; exit: number; timedOut: boolean }>((done, fail) => {
     const child = spawn(binary, ["-c", text], { cwd: step.cwd, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "", stderr = "", timedOut = false;
-    child.stdout.setEncoding("utf8").on("data", chunk => { stdout += chunk; });
-    child.stderr.setEncoding("utf8").on("data", chunk => { stderr += chunk; });
+    const keep = 4 * 1024 * 1024;
+    child.stdout.setEncoding("utf8").on("data", chunk => { if (stdout.length < keep) stdout += chunk.slice(0, keep - stdout.length); });
+    child.stderr.setEncoding("utf8").on("data", chunk => { stderr = (stderr + chunk).slice(-keep); });
     const stop = () => { if (child.pid) { try { process.kill(-child.pid, "SIGKILL"); } catch {} } };
     const timer = setTimeout(() => { timedOut = true; stop(); }, Math.max(1, deadlineAt - Date.now() - 1000));
     process.once("SIGTERM", stop);

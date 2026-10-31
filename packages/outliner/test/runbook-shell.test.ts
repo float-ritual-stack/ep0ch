@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { OutlinerClient } from "../src/client";
+import type { ResourceProjectionReadResult } from "../src/resource-projection";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
@@ -67,8 +68,13 @@ test("installed shell lines use Site cwd, script stages, capped output, live hin
   await run(cat);
   expect(body(cat)).toBe("Garden beds");
   await client.request({ action: "resources.projection.read", blockId: cat.id, materialize: true });
-  // A refresh waits for the shared handler answer used by every renderer.
-  const refreshed = await client.request({ action: "resources.projection.refresh", blockId: cat.id, line: 2 });
+  // Opening may already be running the handler when refresh answers with its pending state.
+  let refreshed = await client.request<ResourceProjectionReadResult>({ action: "resources.projection.refresh", blockId: cat.id, line: 2 });
+  for (const end = Date.now() + 10000; refreshed.projections.some(p => p.fetching);) {
+    if (Date.now() > end) throw new Error(`Shell hint did not finish: ${JSON.stringify(refreshed)}`);
+    await Bun.sleep(25);
+    refreshed = await client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId: cat.id, line: 2 });
+  }
   expect(JSON.stringify(refreshed)).toContain(`!((${fileNote.id}))`);
   expect(JSON.stringify(refreshed)).toContain(`[file::${join(root, "beds.md")}]`);
   const removed = await client.request<{ lines: string[] }>({ action: "extensions.uninstall", extension: "runbook", demo: "keep" });
@@ -76,6 +82,62 @@ test("installed shell lines use Site cwd, script stages, capped output, live hin
   expect(body(note)).toContain("beds.md");
   expect(store.require(record.id).text).toContain("[run.exit::0]");
 }, 30000);
+
+test("empty shell output stays empty through all bundled formatters", async () => {
+  const { client, create, run } = await setup();
+  const output: Record<string, string | undefined> = {};
+  for (const formatter of ["files", "links", "list", "tasks", "table", "code"]) {
+    const note = await create(`Empty output\n\nsh:: true | as ${formatter}`);
+    await run(note);
+    const saved = await client.request<Block>({ action: "get", blockId: note.id });
+    output[formatter] = findOutputRegions(saved.text)[0]?.body;
+  }
+  expect(output).toEqual({ files: "", links: "", list: "", tasks: "", table: "", code: "" });
+}, 30000);
+
+test("large shell output retains a bounded stdout head and stderr tail", async () => {
+  const { root, client, create, run } = await setup();
+  const cap = 4 * 1024 * 1024;
+  const lines = Array.from({ length: 131072 }, (_, i) => `${String(i + 1).padStart(7, "0")} ${"x".repeat(55)}`);
+  writeFileSync(join(root, "stdout.txt"), lines.join("\n") + "\n");
+  await create('Output length [script::output-length]\n```js\nreturn String(props.lines.join("\\n").length);\n```');
+  const note = await create(`Large output [cwd::${root}]\n\nsh:: cat stdout.txt | as output-length`);
+  await run(note);
+  let saved = await client.request<Block>({ action: "get", blockId: note.id });
+  expect(Number(findOutputRegions(saved.text)[0]!.body)).toBeLessThanOrEqual(cap);
+  saved = await client.request<Block>({ action: "update", blockId: note.id, text: saved.text.replace(" | as output-length", ""), expectedRevision: saved.revision, mutation: { author: "user" } });
+  await run(saved);
+  saved = await client.request<Block>({ action: "get", blockId: note.id });
+  const shown = findOutputRegions(saved.text)[0]!.body.split("\n");
+  expect(shown.slice(0, 200)).toEqual(lines.slice(0, 200));
+  expect(shown).toHaveLength(201);
+  expect(shown[200]).toMatch(/^\+\d+ lines$/);
+
+  const diagnostic = "latest garden failure\n";
+  writeFileSync(join(root, "stderr.txt"), "old failure\n" + "x".repeat(cap) + diagnostic + "x".repeat(cap - diagnostic.length));
+  const failed = await create(`Large error [cwd::${root}]\n\nsh:: cat stderr.txt >&2; exit 2`);
+  await expect(run(failed)).rejects.toThrow("exit 2: latest garden failure");
+}, 30000);
+
+test("saving a shell parent preserves its anchor and output when a child has the same anchor", async () => {
+  const { client, create, run } = await setup();
+  const parent = await create("Garden parent\n\nsh:: printf parent");
+  await run(parent);
+  const before = await client.request<Block>({ action: "get", blockId: parent.id });
+  const region = findOutputRegions(before.text)[0]!;
+  const child = await create("Garden child\n\nsh:: printf child", parent.id);
+  await run(child);
+  const saved = await client.request<Block>({ action: "update", blockId: parent.id, text: before.text.replace("Garden parent", "Garden parent edited"), expectedRevision: before.revision, mutation: { author: "user" } });
+  expect(saved.text.split("\n")[2]).toBe(before.text.split("\n")[2]);
+  expect(findOutputRegions(saved.text)).toMatchObject([{ anchor: region.anchor, body: region.body }]);
+  await run(saved);
+  const rerun = await client.request<Block>({ action: "get", blockId: parent.id });
+  expect(findOutputRegions(rerun.text)).toMatchObject([{ anchor: region.anchor, body: "parent" }]);
+  expect(findOutputRegions(rerun.text)).toHaveLength(1);
+  const records = await client.request<Block[]>({ action: "children", parentId: parent.id });
+  expect(records.filter(b => b.properties.some(p => p.key === "type" && p.value === "run"))
+    .every(b => b.properties.some(p => p.key === "run.step" && p.value === "^step-sh"))).toBe(true);
+}, 15000);
 
 test("opening opts in per line, and a command past the runbook deadline is stopped and recorded", async () => {
   const { folder, store, client, create, body } = await setup();

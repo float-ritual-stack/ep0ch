@@ -918,6 +918,14 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       continue;
     }
 
+    if (shell.has(i)) {
+      const joins: (string | undefined)[] = [];
+      const rows = wrap(line, W, { joins }).map(row => fg(C.lmagenta) + row + RESET);
+      wrapped(out.length, joins);
+      out.push(...rows);
+      continue;
+    }
+
     // Transclusions: each `!((…))` and `![[…]]` becomes its shaded region; the text around it stays where it was. A
     // page embed's id is its `[[page]]` target (outline-core's pageEmbedTarget): the service resolves it (PIE-1247).
     // Inline code keeps its text (fences are consumed above): an embed in a code span is its text.
@@ -957,8 +965,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       continue;
     }
     const joins: (string | undefined)[] = [], cuts: Cuts[] = [];
-    const rows = shell.has(i) ? wrap(line, W, { code: true, joins }).map(row => fg(C.lmagenta) + row + RESET)
-      : prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box)), joins, cuts);
+    const rows = prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box)), joins, cuts);
     cuts.forEach((c, k) => { if (c.length) cut(out.length + k, ...c); });
     // A run of `>` lines is one quote: its copy control is on the first.
     if (/^\s*>/.test(line)) {

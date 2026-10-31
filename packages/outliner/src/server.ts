@@ -3019,7 +3019,7 @@ export class OutlinerServer {
           break;
         case "resources.projection.read": {
           const normalized = normalizeResourceProjectionRequest(request);
-          if (request.opened) void this.extensionCalls.opened(normalized.blockId);
+          if (request.opened) void this.extensionCalls.opened(normalized.blockId).catch(error => { process.stderr.write(`outliner: open handlers failed for ${normalized.blockId}: ${error instanceof Error ? error.message : String(error)}\n`); });
           if (request.materialize === true) {
             const owner = this.store.extensionOwner(normalized.blockId);
             const record = owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner;

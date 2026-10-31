@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { ReaderPane } from "../../src/desk/panes";
@@ -59,4 +59,20 @@ describe.skipIf(!outliner)("sh:: lines in the showcase", () => {
     await expect(run()).rejects.toThrow(/script.*nothere.*(nearest|mean|Scripts)/i);
     expect(findOutputRegions((await h.board.get(note.id))!.text)).toHaveLength(0);
   }, 45000);
+
+  test("stale shell opens warn once per read and leave the host answering", async () => {
+    await h.board.request("extensions.install", { extension: "runbook", where: "outline" });
+    const note = await h.board.createBlock(null, "Old shell note\n\nsh:: true");
+    await h.board.request("delete", { blockId: note.id });
+    await h.board.request("resources.projection.read", { blockId: note.id, opened: true });
+    await h.board.request("trash.purge", { blockId: note.id, confirmation: note.id.slice(0, 8) });
+    for (let i = 0; i < 6; i++) {
+      await expect(h.board.request("resources.projection.read", { blockId: note.id, opened: true })).rejects.toThrow("Block not found");
+    }
+    await h.board.info();
+    const log = readFileSync(join(h.scratch.root, "host.log"), "utf8");
+    expect(log).not.toContain("unhandled rejection");
+    expect(log.split("\n").filter(line => line.startsWith("outliner:") && line.includes(note.id) && line.includes("Block not found"))).toHaveLength(6);
+    expect((await h.board.createBlock(null, "Garden host still answers")).text).toBe("Garden host still answers");
+  }, 15000);
 });
