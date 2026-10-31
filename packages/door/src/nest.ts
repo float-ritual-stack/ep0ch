@@ -8,7 +8,7 @@
 //   `ssh:-` without a tty: the client's address is never recorded) and the Herdr pane it runs in (`herdr:<workspace>:<pane>`), which
 //   `tileEnv` then drops so a tile can't claim that pane;
 // - a door's drop shell (`screen.shell`, src/drop.ts): `shell:<door pid>`, the door waiting under it;
-// - the Herdr launcher (scripts/door-agent-herdr.ts), for the pane it makes for the agent: `herdr:<pane label>`.
+// - a Herdr pane that already recorded one (`tile.herdr`): `herdr:<pane label>`. The daily launcher is gone.
 //
 // The nest says how the program was started, not what is true now: a tile moved to another layout keeps its
 // launch-time place, and the Herdr agent's pane keeps the door that made it while another door shows it.

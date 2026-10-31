@@ -5,8 +5,8 @@
 // - a terminal tile (`^W o s`, then `claude`): `tileEnv` (src/desk/pty.ts);
 // - the drawer's agent (the ▲ claude chip, alt+a: the host layer's, PIE-513, with no tile on any screen): a
 //   `PtyPane`, so `tileEnv` too;
-// - the Herdr launcher (scripts/door-agent-herdr.ts), for the pane it makes for the agent: `agentConfig`
-//   (src/desk/herdr-agent.ts), with EP0CH_CONTROL naming the link it points at the attached door.
+// - a named agent's hc terminal (`ep0ch agent start`, src/desk/named-agent.ts): the drawer attaches, or
+//   shows a card. The old Herdr launcher is gone. `agentConfig` remains for a pane `ep0ch where` still names.
 //
 // The Outliner's Claude mod reads these once, as a session starts: it registers its `door_*` tools only when
 // EP0CH_CONTROL is set, and its `ep0ch where` context needs EP0CH_NEST and EP0CH_TILE. A running Claude never

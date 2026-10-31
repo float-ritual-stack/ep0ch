@@ -91,7 +91,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
   }),
   "tile.herdr": def({
     words: "show an agent that lives in a Herdr pane in this terminal tile",
-    summary: "terminal tile=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). Said by scripts/door-agent-herdr.ts, the program in the tile, while it attaches: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
+    summary: "terminal tile=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). The daily launcher that used to call this is gone. A tile that already recorded a pane can still say it: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
     // Flagged, quitting the door doesn't warn that it ends the program: never set by an agent on the terminal the
     // person types in. Cleared (on=false), the warning comes back: anyone, any time.
     touches: "tile", touchesWith: a => (a.on === false ? "nothing" : "tile"), while: "typing", way: "an agent doesn't flag the terminal they're typing in (quitting would no longer warn that it ends its program)",

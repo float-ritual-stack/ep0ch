@@ -610,9 +610,10 @@
     },
     {
       "id": "door.herdragent", "name": "Herdr agent tile", "group": "door", "chapter": "terminal", "ladder": "provisional", "dependsOn": ["door.pty", "kept.herdr", "door.control"],
-      "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches. The App owns that one tile (PIE-498), the first tab of your drawer, on the host layer (PIE-513): a layout on the one layout engine above every screen, pulled up from the status bar's chip over or beside a screen, as the screen's policy says. No screen has a copy of it.",
-      "built": "scripts/door-agent-herdr.ts finds or creates the pane under a lock, attaches, and tells the door with tile.herdr over the control socket, as its tile. No title matching.",
+      "does": "A named agent is one hc terminal the drawer attaches to, or a card when it is down (ep0ch agent start). The drawer never starts that process. Herdr pane helpers remain for ep0ch where and a tile that already recorded a pane. The App owns the drawer tab (PIE-498), on the host layer (PIE-513): a layout on the one layout engine above every screen, pulled up from the status bar's chip over or beside a screen, as the screen's policy says. No screen has a copy of it.",
+      "built": "src/desk/named-agent.ts is the one hc run line. The drawer attaches with hc attach or shows NamedAgentCard. The daily launcher script is gone. tile.herdr remains for a recorded Herdr pane.",
       "refs": [
+        { "r": "door", "p": "src/desk/named-agent.ts", "l": 62, "m": "export function hcRunArgv" },
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 443, "m": "export async function main" },
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 370, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 92, "m": "\"tile.herdr\": def({" },

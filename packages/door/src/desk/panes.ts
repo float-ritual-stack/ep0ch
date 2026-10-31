@@ -225,6 +225,8 @@ export interface Pane {
   beside?(): number;
   /** Its kind in the tile-kind registry; "exhibit" (unregistered): a pane a host gives a screen of its own (the showcase's exhibits), never saved to desk.json. */
   readonly kind: TileKindName;
+  /** Left out of the saved layout. A named-agent card sets this: the next door asks hc again instead of restoring a dead tile. */
+  readonly transient?: boolean;
   title(): string;
   /** The note a written tile title reads values from, when it differs from the selection. */
   readonly titleNote?: Msg | null;

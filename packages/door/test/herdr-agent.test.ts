@@ -1,14 +1,11 @@
-// The daily agent in Herdr (scripts/door-agent-herdr.ts): finding or making the agent's pane, naming it,
-// attaching, and running the agent directly where there's no Herdr. Herdr here is a fake `herdr` that
-// answers from canned JSON and records what it was asked; no Herdr server is touched.
+// Herdr window-host helpers (src/desk/herdr-agent.ts). The daily launcher script is gone: these tests call the
+// library, not a script. Herdr here is a fake `herdr` that answers from canned JSON. No Herdr server is touched.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { agentConfig, launchArgs, sessionSlug, closeSessionPane, attachOutcome, doorScope, SCOPED_REFUSAL, attachTitle, findOrCreate, herdrRunner, nameWhenReady, paneAgentPid, pointLink, releaseLink, tellDoor, withLock, type AgentConfig } from "../src/desk/herdr-agent";
+import { join } from "node:path";
+import { agentConfig, launchArgs, sessionSlug, closeSessionPane, attachOutcome, doorScope, attachTitle, findOrCreate, herdrRunner, nameWhenReady, paneAgentPid, pointLink, releaseLink, tellDoor, withLock, type AgentConfig } from "../src/desk/herdr-agent";
 import { PtyPane } from "../src/desk/pty";
-
-const SCRIPT = resolve(import.meta.dir, "../scripts/door-agent-herdr.ts");
 
 let dir = "";
 let fake = "";
@@ -44,8 +41,6 @@ esac
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 // The person's own door: the default state dir (XDG_STATE_HOME/ep0ch-door) and its control socket in it.
-const ownSock = () => join(dir, "ep0ch-door", "door.sock");
-
 const cfg = (more: Partial<AgentConfig> = {}): AgentConfig => ({
   pane: "door-claude", name: "door", workspace: "door", cwd: "/tmp/garden", agent: ["claude"], cmd: "claude",
   env: { EP0CH_TILE: "claude", EP0CH_CONTROL: join(dir, "agent.sock") }, unset: [], link: join(dir, "agent.sock"), lock: join(dir, "agent.sock.lock"), ...more,
@@ -219,105 +214,6 @@ describe("a test door never reaches the person's agent pane", () => {
     expect(new Set([a, b, c]).size).toBe(1);
   });
 
-  test("end to end, by default: a test door starts no Herdr agent at all, and says why", async () => {
-    answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_person" }] } });
-    const p = Bun.spawn([process.execPath, SCRIPT], {
-      env: { PATH: process.env.PATH!, HOME: dir, EP0CH_STATE: join(dir, "test-door"), EP0CH_HERDR_BIN: fake },
-      stdin: "ignore", stdout: "pipe", stderr: "pipe",
-    });
-    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
-    expect(code).toBe(1);
-    expect(calls()).toEqual([]);
-    expect(out).toBe("");
-    expect(err).toContain(SCOPED_REFUSAL);
-  });
-
-  test("end to end, asked to (EP0CH_HERDR_SCOPED=1): a test door finds the person's door-claude pane and makes its own instead", async () => {
-    answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_person" }] } });
-    answer("spaces", { result: { workspaces: [{ workspace_id: "w4", label: "door" }] } });
-    const p = Bun.spawn([process.execPath, SCRIPT], {
-      env: { PATH: process.env.PATH!, HOME: dir, EP0CH_STATE: join(dir, "test-door"), EP0CH_CONTROL: join(dir, "test-door", "door.sock"), EP0CH_HERDR_BIN: fake, EP0CH_HERDR_SCOPED: "1" },
-      stdin: "ignore", stdout: "pipe", stderr: "pipe",
-    });
-    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
-    expect(out).not.toContain("term_person");
-    expect(calls().join("\n")).not.toContain("term_person");
-    expect(calls().some(c => c.startsWith("workspace create") && /--label door-[0-9a-f]{8}\b/.test(c))).toBe(true);
-    expect(calls().some(c => /^pane rename w9:p1 door-claude-[0-9a-f]{8}$/.test(c))).toBe(true);
-    expect(out).toContain("attached term_new");
-    expect(err).toContain("its own Herdr pane door-claude-");
-  });
-});
-
-describe("the wrapper, end to end", () => {
-  const run = async (env: Record<string, string>) => {
-    const p = Bun.spawn([process.execPath, SCRIPT, "--agent", "echo", "agent ran directly"], {
-      env: { PATH: process.env.PATH!, HOME: dir, XDG_STATE_HOME: dir, EP0CH_STATE: join(dir, "ep0ch-door"), SHELL: "sh", ...env },
-      stdin: "ignore", stdout: "pipe", stderr: "pipe",
-    });
-    const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
-    return { out, code };
-  };
-
-  test("with Herdr: attaches to the agent's pane without --takeover, and points the link at its door", async () => {
-    answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_agent" }] } });
-    writeFileSync(join(dir, "named"), "");
-    const r = await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: ownSock() });
-    expect(r.code).toBe(0);
-    expect(r.out).toContain("attached term_agent");
-    expect(r.out).not.toContain("--takeover");
-    // While attached, the link named this door (the fake attach read it).
-    expect(r.out).toContain(`link=${ownSock()}`);
-  });
-
-  test("detached (or the door went): the link no longer names this door", async () => {
-    answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_agent" }] } });
-    writeFileSync(join(dir, "named"), "");
-    await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: ownSock() });
-    expect(() => readlinkSync(join(dir, "ep0ch-door", "agent-door-claude.sock"))).toThrow();
-  });
-
-  test("refused, with no door having had it before: no link is left pointing at this watching door", async () => {
-    answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_agent" }] } });
-    writeFileSync(join(dir, "named"), "");
-    writeFileSync(join(dir, "busy"), "");
-    await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: ownSock() });
-    expect(() => readlinkSync(join(dir, "ep0ch-door", "agent-door-claude.sock"))).toThrow();
-  });
-
-  test("refused because another door has it: the link stays that door's", async () => {
-    answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_agent" }] } });
-    writeFileSync(join(dir, "named"), "");
-    writeFileSync(join(dir, "busy"), "");
-    const link = join(dir, "ep0ch-door", "agent-door-claude.sock");
-    pointLink(link, "/run/other-door.sock");
-    // No terminal here, so the watch ends at once; what matters is where the link points.
-    await run({ EP0CH_HERDR_BIN: fake, EP0CH_CONTROL: ownSock() });
-    expect(readlinkSync(link)).toBe("/run/other-door.sock");
-  });
-
-  test("no server answering: the agent runs in the tile directly", async () => {
-    writeFileSync(join(dir, "down"), "");
-    const r = await run({ EP0CH_HERDR_BIN: fake });
-    expect(r.out).toContain("agent ran directly\n");
-    expect(r.out).toContain("echo exited (0) · this is your shell");     // then the person's shell, not a dead tile
-  });
-
-  test("Herdr can't make the pane: the agent runs in the tile directly, and the tile says why", async () => {
-    writeFileSync(join(dir, "nocreate"), "");
-    const p = Bun.spawn([process.execPath, SCRIPT, "--agent", "echo", "agent ran directly"], {
-      env: { PATH: process.env.PATH!, HOME: dir, XDG_STATE_HOME: dir, EP0CH_STATE: join(dir, "ep0ch-door"), SHELL: "sh", EP0CH_HERDR_BIN: fake },
-      stdin: "ignore", stdout: "pipe", stderr: "pipe",
-    });
-    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
-    expect(out).toContain("agent ran directly\n");
-    expect(err).toContain("running the agent here");
-  });
-
-  test("no Herdr installed: the agent runs in the tile directly", async () => {
-    const r = await run({ PATH: "/usr/bin:/bin", EP0CH_HERDR_BIN: "" });
-    expect(r.out).toContain("agent ran directly\n");
-  });
 });
 
 describe("quitting the door", () => {

@@ -155,7 +155,7 @@ export async function serve(args: string[]): Promise<never> {
     // Ended for good: nothing to restore next time, and the programs end with it.
     checkpoints?.clear();
     host.endAll();
-    // The session's own agent pane in Herdr closes with it (named for this session: never another's).
+    // A named hc terminal is not this session's child. closeOwnPane does not kill it.
     app.drawer.closeOwnPane();
     const ending = guard.ending();
     writeLastCall(loggedOnAt);

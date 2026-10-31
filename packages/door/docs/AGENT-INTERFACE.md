@@ -38,8 +38,8 @@ start a program in a terminal tile (`tile.open kind=pty cmd=…`), and `as=` is 
 0600 from the moment it is created, in a folder that is the user's alone (0700, owner checked, the nvim sockets' check); in a folder anyone
 else can reach, the door serves no socket and says why. A request line longer than 16 Mi characters is refused and cut off (well above any note's whole text for `edit.text`). Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, its tile's name as
 `EP0CH_TILE` and its id as `EP0CH_TILE_ID`, so a program in a tile
-reaches the door it runs in (for the daily agent in Herdr, the socket of the door attached to it; see the
-README's "The daily agent in Herdr"). It is also told its outline's session folder as `EP0CH_PLACE` (PIE-604), so it
+reaches the door it runs in (for a named agent, the door that ran `hc attach`; see the
+README's "A named agent"). It is also told its outline's session folder as `EP0CH_PLACE` (PIE-604), so it
 follows its door through a handover or restart: `ep0ch act|peek|open|where` and the outliner's `door-open` (so the
 Claude mod) take `EP0CH_CONTROL` while it answers from that folder, else the outline's `door.sock` there, never another
 outline's door (outline-core's `door-reach.ts`, the one rule). An `EP0CH_CONTROL` outside that folder that answers nothing is refused, naming it and `scripts/agent-env`: no door is reached, never the place's (PIE-1363). `ep0ch where` says when the environment is stale and
@@ -106,13 +106,13 @@ characters (past that, the oldest layers after the first become one `…`). `src
 | a Herdr pane | the door, from `HERDR_PANE_ID` before it drops it, unless the nest already ends in a Herdr layer | `herdr:w1:p1` |
 | a door tile | the door, for each terminal tile (`tileEnv`) | `door:<pid>/<layout or view>/<tile id>:<tile name>` |
 | the drawer | the door, for each terminal tab started in it (PIE-498), an agent tab too; a terminal put in it from a screen keeps the layer it started with | `door:<pid>/drawer/<tile id>:claude` |
-| the daily agent's Herdr pane | the Herdr launcher (`scripts/door-agent-herdr.ts`), for the pane it makes | `herdr:door-<outline>-<hash>` (the pane's label) |
+| a recorded Herdr pane | `tile.herdr`, for a tile that already recorded one. The daily launcher is gone | `herdr:<pane label>` |
 
 The three routes:
 
     ssh:pts/5 › door:1388380/desk/t1:claude                               # plain ssh: a door, a tile
     ssh:pts/5 › herdr:w1:p1 › door:1388380/desk/t1:claude                 # the door in a Herdr pane
-    ssh:pts/5 › herdr:w1:p1 › door:1388380/drawer/drawer.agent:claude › herdr:door-pie   # the drawer's agent in Herdr, the pie session's own pane
+    ssh:pts/5 › herdr:w1:p1 › door:1388380/drawer/drawer.agent:claude                   # the drawer's tab, attaching with hc attach when the persona is named
 
 The nest says how the program was started, not what is true now: a tile moved to another layout keeps its
 launch place, and the agent's Herdr pane keeps the door that made it while another door shows it.
@@ -129,8 +129,8 @@ launch place, and the agent's Herdr pane keeps the door that made it while anoth
 - **the keys:** whether the person is typing in this tile, has it focused without typing, is on another tile,
   or is on another screen than the desk.
 
-In the daily agent's Herdr pane, `EP0CH_CONTROL` is the link to whichever door is attached, so `where` names
-the tile that shows the pane now, in that door, and marks the door that made it `✗` when it has gone. With no
+A named agent's process keeps the environment it was started with. `hc attach` is a viewer: `where` from
+inside that process names the door only when the process itself has `EP0CH_CONTROL`. With no
 `EP0CH_NEST` and no `EP0CH_CONTROL` it answers `not in a door`, with the ssh and Herdr layers the environment
 shows. A door older than these fields is still read: what it can't check is `?`, never guessed.
 
@@ -643,7 +643,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `tile.type`, `tile.restart` (both `touches: tile`, `while: typing`) | `tile` (default: the focused terminal, or the only one; with several and none focused, refused until one is named), `text` | never into the terminal the person is in (the desk's `claude` tile included while they type in it in the drawer) |
 | `tab.select` | `tile`, `by` | never hides the person's tab |
 | `open` | `id`, `reader`, or `from=<tile>` | shows the note in that tile, or with `from`, where that tile's opens land (its link; unlinked, where an agent's open naming neither puts it: where the focused tile's opens land, never a reader the person types in). The board takes `from` too (unlinked, its detail). A program in a tile passes `from=$EP0CH_TILE_ID` (or `from=$EP0CH_TILE`) and never names a reader. `ep0ch open <id>` is this action. The person's own open gives the tile the keys, an agent's never does. On the welcome and the brief (desks) an agent's lands their own way (the welcome's preview, the brief's step). A screen with no `open` of its own (the menu, a list, a message reader) has the shell's: a message reader opens over it once the person is idle, as for any screen change |
-| `tile.herdr` | `tile`, `pane` (the Herdr pane's label), `on=false` | the terminal tile shows an agent that lives in Herdr: quitting the door ends only the attach. `scripts/door-agent-herdr.ts` calls it as it attaches; cleared when the program exits. Setting it is refused on the terminal the person is typing in (quitting would no longer warn that it ends its program); `on=false` is anyone's |
+| `tile.herdr` | `tile`, `pane` (the Herdr pane's label), `on=false` | the terminal tile shows an agent that lives in Herdr: quitting the door ends only the attach. The daily launcher is gone. A tile that already recorded a pane can still say it; cleared when the program exits. Setting it is refused on the terminal the person is typing in (quitting would no longer warn that it ends its program); `on=false` is anyone's |
 | `view.scrollTo` | `tile`, `line` or `text`, `block` | scrolls a reader's view; never the person's [ ] position, selection or keys, and never their edit |
 | `block.mark` | `id` (default: the note `tile` shows), or `line` for an nvim tile; `reason` | framed and labelled in every tile showing it, or an nvim extmark |
 | `block.unmark` | `n`, or `id`, or neither (the focused tile's) | |

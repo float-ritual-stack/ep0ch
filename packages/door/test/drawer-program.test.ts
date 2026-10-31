@@ -62,19 +62,24 @@ describe("the drawer's agent: chosen per session, detected, started inside the p
     expect(program()).toMatchObject({ cmd: ["pi"], name: "pi", from: "default", programWhy: "your default (pi)" });
     writeFileSync(join(session, "drawer-agent.json"), JSON.stringify({ agent: "codex", herdr: true }));
     const p = program();
-    expect(p).toMatchObject({ name: "codex", herdr: true, from: "session", programWhy: "chosen for allotment (codex in Herdr)" });
-    // In Herdr: the launcher, told this session (its own pane) and the agent, plain.
-    expect(p.cmd.slice(1)).toEqual(["--session", "allotment", "--agent", "codex"]);
+    expect(p.herdr).toBe(false);
+    expect(p.cmd).toEqual(["/bin/zsh"]);
+    expect(p.name).toBe("shell");
+    expect(p.from).toBe("session");
+    expect(p.programWhy).toContain("ep0ch agent start");
+    expect(p.programWhy).toContain("codex");
     expect(program({ EP0CH_DAILY_AGENT: "claude" })).toMatchObject({ cmd: ["claude"], from: "env" });
-    // The launcher named outright is still told this session.
-    expect(program({ EP0CH_DAILY_AGENT: "/x/scripts/door-agent-herdr.ts" }).cmd).toEqual(["/x/scripts/door-agent-herdr.ts", "--session", "allotment"]);
+    // The deleted launcher is not executed.
+    const launched = program({ EP0CH_DAILY_AGENT: "/x/scripts/door-agent-herdr.ts" });
+    expect(launched.cmd).toEqual(["/bin/zsh"]);
+    expect(launched.programWhy).toContain("gone");
   });
 
-  test("the agents offered: a shell first, then those on PATH, each in Herdr too when Herdr is installed", () => {
+  test("the agents offered: a shell first, then those on PATH. The Herdr launcher is not a choice", () => {
     const on = new Set(["claude", "pi", "herdr"]);
     const a = detectAgents({ env, which: c => (on.has(c) ? `/usr/bin/${c}` : null), session: "allotment@far" });
-    expect(a.map(x => `${x.name}${x.herdr ? "/herdr" : ""}`)).toEqual(["shell", "claude", "pi", "claude/herdr", "pi/herdr"]);
-    expect(a.find(x => x.name === "pi" && x.herdr)!.cmd.slice(1)).toEqual(["--session", "allotment@far", "--agent", "pi"]);
+    expect(a.map(x => x.name)).toEqual(["shell", "claude", "pi"]);
+    expect(a.some(x => x.herdr)).toBe(false);
     expect(detectAgents({ env, which: () => null }).map(x => x.name)).toEqual(["shell"]);
   });
 
@@ -95,12 +100,24 @@ describe("the drawer's agent: chosen per session, detected, started inside the p
   });
 });
 
-describe("the Herdr launcher named outright", () => {
-  test("EP0CH_DAILY_AGENT=\"bun …/door-agent-herdr.ts\": the session goes after the script, where the launcher reads it, not to bun", () => {
-    const p = drawerProgram({ env: { EP0CH_DAILY_AGENT: "bun /x/scripts/door-agent-herdr.ts --agent codex", EP0CH_OUTLINES: outlines }, outline: "allotment", start: root, home });
-    expect(p.cmd).toEqual(["bun", "/x/scripts/door-agent-herdr.ts", "--session", "allotment", "--agent", "codex"]);
-    const bare = drawerProgram({ env: { EP0CH_DAILY_AGENT: "/x/scripts/door-agent-herdr.ts", EP0CH_OUTLINES: outlines }, outline: "allotment", start: root, home });
-    expect(bare.cmd).toEqual(["/x/scripts/door-agent-herdr.ts", "--session", "allotment"]);
+describe("a named agent, and the deleted launcher", () => {
+  test("EP0CH_DAILY_AGENT naming the launcher is a shell, and sh still wins over agents.toml", () => {
+    const p = drawerProgram({ env: { EP0CH_DAILY_AGENT: "bun /x/scripts/door-agent-herdr.ts --agent codex", SHELL: "/bin/zsh", EP0CH_OUTLINES: outlines }, outline: "allotment", start: root, home });
+    expect(p.cmd).toEqual(["/bin/zsh"]);
+    expect(p.herdr).toBe(false);
+    expect(p.programWhy).toContain("gone");
+    const named = join(root, "named");
+    mkdirSync(join(named, ".ep0ch"), { recursive: true });
+    writeFileSync(join(named, ".ep0ch", "config.toml"), 'ws = "allotment"\nagent = "loki"\n');
+    writeFileSync(join(named, ".ep0ch", "agents.toml"), '[[agent]]\npersona = "loki"\nmachine = "float-box"\nfolder = "~/projects/ep0ch"\nprogram = "claude"\n');
+    const row = drawerProgram({ env: { SHELL: "/bin/zsh", EP0CH_OUTLINES: outlines }, outline: "allotment", start: named, home });
+    expect(row.from).toBe("named");
+    expect(row.name).toBe("loki");
+    expect(row.cmd).toEqual(["hc", "attach", "float-box/loki"]);
+    expect(row.cwd).toBe(join(home, "projects", "ep0ch"));
+    expect(row.named?.persona).toBe("loki");
+    // A test door's shell still wins, so it never attaches a real agent.
+    expect(drawerProgram({ env: { EP0CH_DAILY_AGENT: "sh", EP0CH_OUTLINES: outlines }, outline: "allotment", start: named, home }).cmd).toEqual(["sh"]);
   });
 });
 

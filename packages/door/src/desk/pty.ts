@@ -188,8 +188,8 @@ export class PtyPane implements Pane {
   programTitle = "";
   /**
    * It shows an agent that lives in this Herdr pane: quitting the door ends only the attach, not the agent.
-   * Set by `tile.herdr`, which scripts/door-agent-herdr.ts calls over the control socket as it attaches (PIE-491:
-   * a typed field, not what the program puts in its title); cleared when the program starts again or exits.
+   * Set by `tile.herdr` (PIE-491: a typed field, not what the program puts in its title). The daily launcher
+   * that used to call it is gone. A tile that already recorded a pane can still say it. Cleared when the program starts again or exits.
    */
   get herdr(): { pane: string; name?: string } | null { return this.herdrPane; }
   set herdr(h: { pane: string; name?: string } | null) { this.herdrPane = h; this.remember(); }

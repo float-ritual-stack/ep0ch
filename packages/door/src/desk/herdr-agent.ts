@@ -1,6 +1,6 @@
-// The daily tile's agent, run inside Herdr (scripts/door-agent-herdr.ts is its command): the agent lives in a
-// Herdr pane, so Herdr lists it, other agents message it (`herdr agent prompt door …`) and it outlives the
-// door; the tile is a client attached to that pane (`herdr terminal attach`), not the agent's owner.
+// Window-host helpers, and the old Herdr-pane helpers. The daily launcher script is gone.
+// A named agent is an hc terminal (`ep0ch agent start`, src/desk/named-agent.ts): the drawer attaches
+// by name or shows a card, and never starts it. This file still serves `ep0ch where` and the clip shim.
 //
 // - The pane is the outline session's own (`sessionSlug`: `door-<outline>[--<machine>]-<hash>`, from `--session`), found by
 //   the pane id written down when it was made (`record`), else by its label, on the default Herdr server (HERDR_SOCKET_PATH, else Herdr's own default). Missing, it is made: a tab so

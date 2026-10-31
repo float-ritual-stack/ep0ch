@@ -23,6 +23,7 @@ import { sshBin } from "../machine";
 import { copyName, type CopyUpdate, newsWords, removeCommand } from "@ep0ch/outliner/extension-update";
 import { prepareInstallBackups, pruneInstallBackups } from "./install-backups";
 import { startDeployRecord } from "./deploy-record";
+import { ensureNamedAgents } from "../desk/named-agent";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--ws <outline>] [--machine <ssh-name>] [--machine-name <name>] [--dials-in | --no-dials-in] [--no-allow] [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client] [--sha <origin-main-sha>]";
@@ -814,6 +815,13 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
         linked.push(line); say(`    ${line}`);
       }
     } else { linked.push("machine links: checkout is not verified on origin/main; nothing sent"); say(`    ! ${linked[0]}`); }
+  }
+  // Named agents on this machine that are down. A live terminal is left alone, so a phone session is not dropped.
+  // A failure here is a line: the checkout has already moved.
+  const here = facts.machineName?.chosen || facts.machineName?.configured || facts.machineName?.env || "";
+  for (const line of ensureNamedAgents({ home: facts.home, here, extra: [facts.repo.root], env }).lines) {
+    const ok = line.startsWith("started ") || line.includes("already live");
+    say(`    ${ok ? "·" : "!"} ${line}`);
   }
   status?.report({ state: "done", msg: results.some(s => s.done) ? `installed${waiting.length ? `; ${waiting.length} step${waiting.length === 1 ? "" : "s"} left for you` : ""}` : "nothing to do" });
   if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: !clientBlocked, steps: results, linked, notDone: [...waiting.map(s => `${s.title}: ${s.why}`), ...sessionFailures], notes: plan.notes }, null, 2));
