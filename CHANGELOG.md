@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Collection cards peek while you browse (PIE-849)
+
+- A collection with `open=float` previews each pick in a following float while the gallery keeps your keys. Enter reads it, Esc closes it, and its ⤢ lands it beside the view.
+- Cards have visible edges and a lit selection. `h l` cross columns or lanes, `H L` cross groups, and clickable page arrows turn your page without editing the note. Agents keep their own pick and page. Try **peek** in the kitchen sink.
+- **Run:** after the protocol update, the deployer runs `ep0ch install --apply` on float-2 and the laptop. No schema change.
+
 - Saved view pages on the web draw their table, gallery, feed or board layout through the same renderer as inline views, keeping public members and linked titles within the page's visibility (PIE-1477).
 ### Words on a query line become a proposed filter (PIE-1238)
 

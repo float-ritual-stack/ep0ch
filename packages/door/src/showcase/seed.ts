@@ -1,4 +1,5 @@
 import { QUERY_WORDS, QUERY_TRELLIS, QUERY_FENCE } from "./seed/query-words";
+import { PEEK } from "./seed/peek";
 import { shellLineDemo } from "./seed/sh-lines";
 import { BUTTON_LOOKS, BUTTON_SEQUENCES } from "./seed/button-sequences";
 import { PICK_A_TILE } from "./seed/pick-a-tile";
@@ -455,6 +456,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "});",
     "```",
   ].join("\n"));
+  notes.peek = await make(notes.root.id, PEEK);
   notes.collection = await make(notes.root.id, [
     `${SEED.collection} [type::virtual-branch] [query::collection=garden] [layout::table, gallery, feed, board]`,
     "[summary-properties::title, owner, stage] [sort::title] [direction::asc] [group::area] [gallery.card::large] [cover::cover, img]",
