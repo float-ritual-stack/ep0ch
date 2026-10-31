@@ -28,7 +28,7 @@ import { listenLive, liveBoard, liveSettled, liveSource, setLiveSource } from ".
 import { linksSource, listenLinks, setLinksSource } from "./links";
 import { resolveTarget } from "./discover";
 import { redundantLabel } from "./authored";
-import { forwardTo } from "./machine";
+import { forwardSaying, forwardTo } from "./machine";
 import { readMissing } from "./outlines";
 import { sh } from "./setup/links";
 import { summarySegments } from "./props";
@@ -227,6 +227,8 @@ export async function boardFor(args: string[], command?: readonly string[]): Pro
   const missing = await readMissing({ outline: target.outline, path: target.path, ...(target.machine ? { machine: target.machine } : {}), ...(command ? { command } : {}) });
   if (missing) return { error: missing };
   const board = new SocketBoard(target.path, undefined, target.outline) as NotesBoard;
+  const machine = target.machine;
+  if (machine) board.prepare = async () => forwardSaying(machine, await forwardTo(machine));
   board.address = { outline: target.outline, machine: target.machine ?? canonicalLocalMachineName() };
   try { await board.info(); }
   catch (e) { board.close(); return { error: `no carrier on ${target.path}\n  ${(e as Error).message.replaceAll("\n", "\n  ")}` }; }

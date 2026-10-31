@@ -1123,17 +1123,22 @@ export class SocketBoard implements Board {
   /** Every matching id in service order, following blocks.query's continuation. */
   async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string; sort?: { field: string; direction: string }; propertyScope?: string; machinery?: MachineryMode; countMachinery?: boolean }): Promise<{ ids: string[]; hint?: string; matches?: Map<string, PropertyMatch[]>; machineryLeftOut?: MachineryLeftOut }> {
     const { expression: where, ...narrow } = q;
-    const ids: string[] = [], matches = new Map<string, PropertyMatch[]>();
-    let hint: string | undefined, machineryLeftOut: MachineryLeftOut | undefined;
-    for (let offset = 0; ;) {
-      const r = await this.request<{ blocks: { id: string; propertyMatches?: PropertyMatch[] }[]; nextOffset?: number; hint?: string; machineryLeftOut?: MachineryLeftOut }>("blocks.query", { query: { ...narrow, where, limit: 1000, offset }, fields: ["id"] });
-      ids.push(...r.blocks.map(b => b.id));
-      for (const b of r.blocks) if (b.propertyMatches?.length) matches.set(b.id, b.propertyMatches);
-      hint ??= r.hint; machineryLeftOut ??= r.machineryLeftOut;
-      if (r.nextOffset === undefined) break;
-      offset = r.nextOffset;
+    for (;;) {
+      const start = (await this.changesSince(0, 1)).sequence;
+      const ids: string[] = [], matches = new Map<string, PropertyMatch[]>();
+      let hint: string | undefined, machineryLeftOut: MachineryLeftOut | undefined;
+      for (let offset = 0; ;) {
+        const r = await this.request<{ blocks: { id: string; propertyMatches?: PropertyMatch[] }[]; nextOffset?: number; hint?: string; machineryLeftOut?: MachineryLeftOut }>("blocks.query", { query: { ...narrow, where, limit: 1000, offset }, fields: ["id"] });
+        ids.push(...r.blocks.map(b => b.id));
+        for (const b of r.blocks) if (b.propertyMatches?.length) matches.set(b.id, b.propertyMatches);
+        hint ??= r.hint; machineryLeftOut ??= r.machineryLeftOut;
+        if (r.nextOffset === undefined) break;
+        offset = r.nextOffset;
+      }
+      // A delete or move shifts offsets, omitting an unchanged note the change feed cannot restore.
+      if ((await this.changesSince(start, 1)).sequence === start)
+        return { ids, hint, machineryLeftOut, ...(matches.size ? { matches } : {}) };
     }
-    return { ids, hint, machineryLeftOut, ...(matches.size ? { matches } : {}) };
   }
 
   /** Blocks as records (`blocks.records`, outline-core's block-record.ts), in the order asked, 200 a request (the service's most; each request is one backlink pass over the outline). */

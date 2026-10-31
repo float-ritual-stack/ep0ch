@@ -1,7 +1,8 @@
 // PIE-534: `ep0ch find --query/--view/--under` and `ep0ch export`, on a scratch host. The outline evaluates every
 // selection; the door only asks. Exports go to temp dirs. Fictional notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readNoteFile } from "@ep0ch/outline-core/header-line";
@@ -10,6 +11,7 @@ import { exportFiles, fileName, resolveLinks } from "../src/export";
 import { selectionOf, selectionQuery, type BoardAddress } from "../src/notes-cli";
 import { queryPage } from "../src/mcp-query";
 import { SocketBoard } from "../src/socket";
+import { JsonLines, jsonLine } from "../src/jsonl";
 import { outliner, Scratch, until } from "./scratch";
 
 const MAIN = join(import.meta.dir, "../src/main.ts");
@@ -325,5 +327,143 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     const view = await run(["find", "--view", "00000000-0000-4000-8000-000000000000"], env);
     expect([view.code, plain(view.err)]).toEqual([1, expect.stringContaining("ep0ch find --query type=virtual-branch")]);
     expect((await run(["find", "--tree", "--query", "type=errand"], env)).code).toBe(2);
+  }, 30_000);
+});
+
+describe.skipIf(!outliner)("mirror interrupted snapshots and forwards", () => {
+  const scratch = new Scratch();
+  const notes = new Map<string, string>();
+  let board: SocketBoard;
+  let serial = 0;
+  const directory = () => join(scratch.root, `mirror-${++serial}`);
+  beforeAll(async () => {
+    await scratch.start();
+    board = new SocketBoard(scratch.sock, undefined, scratch.name);
+    for (const root of await board.roots()) await board.trash(root.id);
+    for (let i = 0; i < 1001; i++) {
+      const text = `Orchard packet ${i}\nSeeds for row ${i}.`;
+      notes.set((await board.createBlock(null, text)).id, text);
+    }
+  }, 60_000);
+  afterAll(async () => { board?.close(); await scratch.dispose(); });
+
+  function mirror(dir: string, args: string[] = [], env: NodeJS.ProcessEnv = {}) {
+    const child = Bun.spawn([process.execPath, MAIN, "mirror", dir, "--ws", scratch.name, ...args], {
+      env: { ...process.env, ...scratch.env, EP0CH_SOCKET: scratch.sock, ...env }, stdout: "ignore", stderr: "pipe",
+    });
+    let errors = "";
+    const drained = (async () => { for await (const chunk of child.stderr) errors += Buffer.from(chunk).toString(); })();
+    return {
+      child, errors: () => errors,
+      manifest: () => JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as { files: string[]; leftOut: unknown[]; sequence: number },
+      async ready() {
+        await until(() => existsSync(join(dir, "manifest.json")) || child.exitCode !== null, "mirror snapshot after interruption", 10_000);
+        expect(child.exitCode, errors).toBeNull();
+      },
+      async stop() { if (child.exitCode === null) child.kill(); await child.exited; await drained; },
+    };
+  }
+
+  // Hold a real host reply so the concurrent change lands at the page/read boundary, without replacing the service.
+  async function relay(beforeReply: (action: string, reply: any) => Promise<void>) {
+    const path = join(scratch.root, `relay-${++serial}.sock`), sockets = new Set<Socket>();
+    let failure: unknown;
+    const server = createServer(client => {
+      const host = connect(scratch.sock), requests = new Map<string, string>();
+      sockets.add(client); sockets.add(host);
+      const end = () => { client.destroy(); host.destroy(); sockets.delete(client); sockets.delete(host); };
+      for (const socket of [client, host]) { socket.on("error", end); socket.on("close", end); }
+      const outgoing = new JsonLines(request => requests.set(request.id, request.action));
+      client.on("data", data => outgoing.feed(data));
+      client.pipe(host);
+      let pending = Promise.resolve();
+      const incoming = new JsonLines(reply => {
+        const action = requests.get(reply.id) ?? "";
+        requests.delete(reply.id);
+        pending = pending.then(async () => { await beforeReply(action, reply); client.write(jsonLine(reply)); })
+          .catch(error => { failure = error; end(); });
+      });
+      host.on("data", data => incoming.feed(data));
+    });
+    await new Promise<void>(resolve => server.listen(path, resolve));
+    return { path, async close() {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      if (failure) throw failure;
+    } };
+  }
+
+  test("mirror exports every remaining note when a deletion shifts the second page", async () => {
+    let deleted = "";
+    const proxy = await relay(async (action, reply) => {
+      if (!deleted && action === "blocks.query" && reply.result?.nextOffset !== undefined) {
+        deleted = reply.result.blocks[0].id;
+        await board.trash(deleted);
+        notes.delete(deleted);
+      }
+    });
+    const dir = directory(), copy = mirror(dir, ["--once"], { EP0CH_SOCKET: proxy.path });
+    try {
+      expect(await copy.child.exited, copy.errors()).toBe(0);
+      expect(deleted).not.toBe("");
+      const manifest = copy.manifest();
+      expect(manifest.leftOut).toEqual([]);
+      expect(manifest.files).toHaveLength(notes.size);
+      const contents = manifest.files.map(file => readFileSync(join(dir, file), "utf8"));
+      for (const [id, text] of notes) expect(contents.some(content => content.includes(`id: "${id}"`) && content.includes(text)), id).toBe(true);
+    } finally { await copy.stop(); await proxy.close(); }
+  }, 30_000);
+
+  test("mirror retries its first snapshot after the host restarts during its first record read", async () => {
+    let restarting: Promise<void> | undefined;
+    const proxy = await relay(async action => {
+      if (action === "blocks.records" && !restarting) {
+        restarting = (async () => { board.close(); await scratch.stop(100); await scratch.start(); })();
+        await restarting;
+      }
+    });
+    const dir = directory(), copy = mirror(dir, [], { EP0CH_SOCKET: proxy.path });
+    try {
+      await copy.ready();
+      expect(copy.errors()).toContain("connection lost");
+      expect(copy.errors()).toContain("caught up");
+      const exported = new Map(copy.manifest().files.map(file => {
+        const note = readNoteFile(readFileSync(join(dir, file), "utf8"))!;
+        return [note.identity.id, note.text.trimEnd()];
+      }));
+      for (const [id, text] of notes) expect(exported.get(id), id).toBe(text);
+    } finally { await copy.stop(); await restarting; await proxy.close(); }
+  }, 30_000);
+
+  test("mirror recreates a dead ssh forward and catches up the remote outline", async () => {
+    const here = directory(), bin = join(here, "bin"), outlines = join(here, "outlines");
+    for (const dir of [bin, outlines, join(here, "far-home")]) mkdirSync(dir, { recursive: true });
+    for (const [name, entry] of [["ssh", join(outliner!, "test/fake-ssh.ts")], ["ep0ch", MAIN]]) {
+      const path = join(bin, name!);
+      writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${entry}" "$@"\n`);
+      chmodSync(path, 0o755);
+    }
+    const env = {
+      EP0CH_SOCKET: undefined, EP0CH_OUTLINES: outlines, EP0CH_STATE: join(here, "state"), EP0CH_SSH: join(bin, "ssh"),
+      FAKE_SSH_HOME: join(here, "far-home"), FAKE_SSH_OUTLINES: scratch.outlines, FAKE_SSH_BIN: bin,
+    };
+    const ctl = join(outlines, ".remote/box-a.ctl"), dir = directory(), copy = mirror(dir, ["--machine", "box-a"], env);
+    const stopForward = async () => {
+      if (!existsSync(ctl)) return;
+      const pid = Number(readFileSync(ctl, "utf8"));
+      process.kill(pid, "SIGTERM");
+      await until(() => !existsSync(ctl), "the test's forward to stop");
+    };
+    try {
+      await copy.ready();
+      const previous = Number(readFileSync(ctl, "utf8"));
+      await stopForward();
+      const id = [...notes.keys()].at(-1)!;
+      const note = await board.get(id);
+      await board.request("update", { blockId: id, text: "Orchard packet\nFresh words after the forward died.", expectedRevision: note!.revision, mutation: { author: "user" } });
+      await until(() => existsSync(ctl), "mirror to recreate its dead ssh forward", 10_000);
+      expect(Number(readFileSync(ctl, "utf8"))).not.toBe(previous);
+      await until(() => copy.manifest().files.some(file => file.endsWith(`-${id.slice(0, 8)}.md`) && readFileSync(join(dir, file), "utf8").includes("Fresh words after the forward died.")), "remote mirror catch-up");
+    } finally { await copy.stop(); await stopForward(); }
   }, 30_000);
 });

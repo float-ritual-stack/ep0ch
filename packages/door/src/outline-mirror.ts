@@ -30,7 +30,7 @@ export async function mirrorCommand(argsIn: string[], io: Out = { out: console.l
   const manifestPath = join(dir, "manifest.json");
   let records = new Map<string, BlockRecord>(), sequence = 0;
   let written = new Map<string, string>(), previousFiles: string[] = [];
-  let dirty = false, full = true, connected = true, stopped = false;
+  let dirty = false, full = true, connected = true, stopped = false, announced = false;
   let active: Promise<void> | undefined, timer: ReturnType<typeof setTimeout> | undefined;
   let finish: (code: number) => void = () => {};
   const done = new Promise<number>(resolve => { finish = resolve; });
@@ -68,19 +68,27 @@ export async function mirrorCommand(argsIn: string[], io: Out = { out: console.l
     atomicFile(manifestPath, recordJson({ outline: board.address.outline, machine: board.address.machine, outlineInstanceId: board.outlineInstanceId,
       format: "md", asOf: new Date().toISOString(), sequence, files: [...next.keys()], leftOut: [] }));
     written = next; previousFiles = [...next.keys()];
+    if (!announced) {
+      announced = true;
+      io.err(`ep0ch: mirrored ${written.size} notes in ${dir}${once ? "" : " · following changes"}`);
+    }
   };
   const drain = async () => {
     while (dirty && connected && !stopped) { dirty = false; await sync(); }
+  };
+  const runDrain = () => {
+    active = drain().catch(e => {
+      if (connected) { io.err(`ep0ch mirror: ${(e as Error).message}`); stopped = true; finish(1); }
+      else dirty = true;
+    }).finally(() => { active = undefined; if (dirty) wake(); });
+    return active;
   };
   const wake = () => {
     dirty = true;
     if (active || timer || !connected || stopped) return;
     timer = setTimeout(() => {
       timer = undefined;
-      active = drain().catch(e => {
-        if (connected) { io.err(`ep0ch mirror: ${(e as Error).message}`); stopped = true; finish(1); }
-        else dirty = true;
-      }).finally(() => { active = undefined; if (dirty) wake(); });
+      void runDrain();
     }, 25);
   };
   try {
@@ -95,9 +103,8 @@ export async function mirrorCommand(argsIn: string[], io: Out = { out: console.l
       process.once("SIGINT", stop); process.once("SIGTERM", stop);
     }
     dirty = true;
-    active = drain(); await active; active = undefined;
-    io.err(`ep0ch: mirrored ${written.size} notes in ${dir}${once ? "" : " · following changes"}`);
-    return once ? 0 : await done;
+    await runDrain();
+    return once && !stopped ? 0 : await done;
   } catch (e) { io.err(`ep0ch mirror: ${(e as Error).message}`); return 1; }
   finally {
     stopped = true;
