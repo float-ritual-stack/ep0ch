@@ -20,6 +20,7 @@ are its record. The outliner's entries from then are kept below, under
 ### A saved view page on the web draws its layouts (PIE-1477)
 
 - Saved view pages on the web draw their table, gallery, feed or board layout through the same renderer as inline views, keeping public members and linked titles within the page's visibility (PIE-1477).
+
 ### Words on a query line become a proposed filter (PIE-1238)
 
 - **Say what to find:** facets, query properties, figures, the power bar and its query prompts, Detail and web search offer a ghost query. Tab or a click accepts, Esc drops, and accepted words teach an editable alias. Grammar completion stays in code; Jev chooses among the outline's keys and values. MCP exposes `query_suggest`.
