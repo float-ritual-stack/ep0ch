@@ -91,7 +91,7 @@ export class QuerySuggester {
     const census = await this.client.request<{ actors: { key: string }[] }>({ action: "blocks.census" });
     const people = census.actors.map(a => a.key).filter(a => a !== "unknown");
     axes.push({ key: "by", candidates: [...new Set(["user", ...people])].map(value => ({ value, clause: `by:${value}`, widens: false })) });
-    const views = await this.notes("query");
+    const views = await this.notes("type=virtual-branch query");
     if (views.length) axes.push({ key: "view", candidates: views.map(v => ({ value: props(v.text, "page")[0] ?? blockDisplayTitle(v), clause: props(v.text, "query")[0]!, widens: false })) });
     const signature = JSON.stringify([text, base, zone, axes, aliases, dates]);
     const cached = this.cache.get(signature);
@@ -215,8 +215,16 @@ export class QuerySuggester {
 
   private async finish(request: QuerySuggestRequest): Promise<QueryWords> {
     const suggestion = request.suggestion!;
+    const warnings: string[] = [];
     if (request.outcome === "accepted" || request.corrections) {
-      const mappings = request.corrections ?? suggestion.clauses.filter(c => c.learn !== false).map(c => ({ from: c.from, clause: c.clause }));
+      const mappings = (request.corrections ?? suggestion.clauses.filter(c => c.learn !== false).map(c => ({ from: c.from, clause: c.clause }))).filter(mapping => {
+        const from = mapping.from.join(" ");
+        let reason: string | undefined;
+        if (/[\]=\r\n]/.test(from)) reason = "alias words cannot contain ], = or line breaks";
+        else try { parseQueryExpression(mapping.clause); } catch (error) { reason = `the clause does not parse: ${(error as Error).message}`; }
+        if (reason) warnings.push(`Skipped learning ${JSON.stringify(from)}: ${reason}.`);
+        return !reason;
+      });
       if (mappings.length) {
         const note = (await this.notes("rule-name=query-words"))[0];
         let text = note?.text ?? "Query words [type::rule] [rule-name::query-words]\nAccepted words and their queries. Edit an alias to teach the next completion.\n";
@@ -232,7 +240,7 @@ export class QuerySuggester {
       }
     }
     await recordQueryWords(this.client, { ...suggestion, where: request.acceptedWhere ?? suggestion.where }, request.outcome!, request.mutation?.actorId ?? "user", undefined, this.records);
-    return suggestion;
+    return { ...suggestion, ...(warnings.length ? { warning: warnings.join("\n") } : {}) };
   }
 }
 

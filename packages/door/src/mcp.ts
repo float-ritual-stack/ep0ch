@@ -446,6 +446,8 @@ async function suggestQuery(outlines: McpOutlines, args: Record<string, unknown>
   if ("error" in target) return toolError(target.error);
   const status = await requireReadAccess(outlines, target);
   if ("error" in status) return toolError(status.error);
+  const level = levelFor(status, caller, undefined, target.board.address);
+  if (writesAt(level) !== "applied") return toolError(writeRefusal(outlines, target, level));
   return toolText(await target.board.querySuggest({ text: stringField(args, "text")!, where: stringField(args, "where"), zone: stringField(args, "zone"), mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" } }));
 }
 

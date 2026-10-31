@@ -682,7 +682,7 @@ class ExpressionParser {
 
 /** The facet pick a query clause names, including a learned alias or a corrected suggestion. */
 export function queryClausePick(expression: QueryExpression, mode: Clause["mode"] = "include"): Clause | undefined {
-  if (expression.kind === "not") return queryClausePick(expression.operand, "exclude");
+  if (expression.kind === "not") return queryClausePick(expression.operand, mode === "include" ? "exclude" : "include");
   if (expression.kind === "tag") return { key: "tag", value: expression.tag, mode };
   if (expression.kind === "property" && !expression.relation && !expression.from) return { key: expression.key, value: expression.value, mode };
 }

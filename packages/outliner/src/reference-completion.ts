@@ -25,6 +25,7 @@ export interface ReferenceCompletionItem extends Omit<SourceRow,"insert"> {
 }
 export interface ReferenceCompletionState {
   queryWords?:boolean;
+  moved?:boolean;
   start:number;end:number;index:number;items:ReferenceCompletionItem[];
   truncatedLimit?:number|null;
   incompleteness?:string;
@@ -87,19 +88,26 @@ export class ReferenceCompletionSession {
   private generation=0;
   private accepting=false;
   private wordsTimer?:ReturnType<typeof setTimeout>;
+  private offered?:QueryWords;
   private accepted?:{suggestion:QueryWords;text:string};
   private unavailableSaid=false;
   private selectedInsertion?:string;
   private snapshot?:{text:string;row:number;column:number;buffer:TextBuffer};
   constructor(private provider:ReferenceCompletionProvider,private buffer:()=>TextBuffer,private changed:()=>void,private active:()=>boolean,private draft:()=>CompletionDraft|undefined=()=>undefined){}
-  dismiss():void {clearTimeout(this.wordsTimer);if(!this.accepting)this.ignore();this.generation++;this.state=null;this.snapshot=undefined;this.changed();}
-  private ignore():void {const suggestion=this.state?.items.find(i=>i.querySuggestion)?.querySuggestion;if(suggestion)void this.provider.querySuggest?.({text:suggestion.input,outcome:'ignored',suggestion}).catch(()=>{});}
+  dismiss():void {clearTimeout(this.wordsTimer);if(!this.accepting)this.ignore();this.offered=undefined;this.generation++;this.state=null;this.snapshot=undefined;this.changed();}
+  private ignore():void {const suggestion=this.offered;this.offered=undefined;if(suggestion)void this.provider.querySuggest?.({text:suggestion.input,outcome:'ignored',suggestion}).catch(()=>{});}
+  private show(state:ReferenceCompletionState):void {
+    const suggestion=state.items.find(i=>i.querySuggestion)?.querySuggestion;
+    if(!this.accepting&&this.offered&&(this.offered.input!==suggestion?.input||this.offered.where!==suggestion?.where))this.ignore();
+    this.offered=suggestion;this.state=state;this.changed();
+  }
   private current(generation:number):boolean {
     const b=this.buffer(),s=this.snapshot;
     return this.active()&&generation===this.generation&&!!s&&s.buffer===b&&s.text===b.text&&s.row===b.row&&s.column===b.column;
   }
   async refresh():Promise<void>{
-    clearTimeout(this.wordsTimer);this.ignore();
+    if(this.accepting)return;
+    clearTimeout(this.wordsTimer);
     const b=this.buffer(),target=completionTargetAtCursor(b.lines[b.row]??'',b.column,b.lines,b.row);
     if(!this.active()||!target){this.dismiss();return;}
     const generation=++this.generation,selected=this.state?.items[this.state.index]?.insertion??this.selectedInsertion;
@@ -114,14 +122,18 @@ export class ReferenceCompletionSession {
       // A new page alone on the list is chosen on purpose (↓, a click, tab): ⏎ stays the editor's until then.
       if(result.items.length===1&&result.items[0]!.newPage)result.lone=true;
       this.selectedInsertion=result.items[result.index]?.insertion;
-      result.generation=generation;this.state=result;this.changed();void this.enrich(generation);
+      result.generation=generation;this.show(result);void this.enrich(generation);
       if(result.queryWords)this.wordsTimer=setTimeout(async()=>{
         const words=await lookupReferenceCompletion(this.provider,target,this.draft(),true);
-        if(!this.current(generation))return;
+        if(!this.current(generation)||this.accepting)return;
+        const selected=this.state?.items[this.state.index]?.insertion;
+        const index=this.state?.moved?words.items.findIndex(item=>item.insertion===selected):0;
+        if(index<0)return;
         if(words.message&&!words.items.length){if(this.unavailableSaid)words.message='';else this.unavailableSaid=true;}
-        this.state={...words,generation};this.changed();
+        this.selectedInsertion=words.items[index]?.insertion;
+        this.show({...words,index,generation,moved:this.state?.moved});
       },QUERY_WORDS_PAUSE_MS);
-    }catch(error){if(this.current(generation)){this.state={start:target.start,end:target.end,index:0,items:[],message:`Lookup failed: ${error instanceof Error?error.message:String(error)}`};this.changed();}}
+    }catch(error){if(this.current(generation))this.show({start:target.start,end:target.end,index:0,items:[],message:`Lookup failed: ${error instanceof Error?error.message:String(error)}`});}
   }
   private async enrich(generation=this.generation):Promise<void>{
     const item=this.state?.items[this.state.index];if(!item?.blockId)return;
@@ -133,7 +145,7 @@ export class ReferenceCompletionSession {
   }
   /** Whether ⏎ inserts the lit row: there is one, and it isn't a lone new page nobody chose on purpose (↓ first, PIE-592). */
   get chooses():boolean{return !!this.state?.items.length&&!this.state.lone;}
-  move(delta:number):void{if(!this.state)return;this.state.lone=false;this.state.index=Math.max(0,Math.min(this.state.items.length-1,this.state.index+delta));this.selectedInsertion=this.state.items[this.state.index]?.insertion;this.changed();void this.enrich();}
+  move(delta:number):void{if(!this.state)return;this.state.lone=false;this.state.moved=true;this.state.index=Math.max(0,Math.min(this.state.items.length-1,this.state.index+delta));this.selectedInsertion=this.state.items[this.state.index]?.insertion;this.changed();void this.enrich();}
   async accept(index=this.state?.index??0,renderedGeneration?:number):Promise<boolean>{
     const state=this.state,item=state?.items[index],generation=this.generation;
     if(this.accepting||!state||!item||(renderedGeneration!==undefined&&renderedGeneration!==generation)||!this.current(generation))return false;

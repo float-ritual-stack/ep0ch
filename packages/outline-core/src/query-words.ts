@@ -22,6 +22,8 @@ export interface QueryWords {
   replacement?: string;
   grammar?: true;
   pending?: true;
+  /** Acceptance was recorded, but some words could not be learned as aliases. */
+  warning?: string;
 }
 
 export type QuerySuggestAnswer = QueryWords | { unavailable: string };
@@ -41,7 +43,8 @@ export interface QuerySuggestRequest {
 
 export const QUERY_WORDS_PAUSE_MS = 650;
 export function queryWordsWhere(base: string, clauses: readonly QueryWordClause[]): string {
-  const query = selectionQuery(clauses.flatMap(c => c.pick ? [c.pick] : []), clauses.filter(c => !c.pick).map(c => c.clause).join(" AND "));
+  const raw = clauses.filter(c => !c.pick);
+  const query = selectionQuery(clauses.flatMap(c => c.pick ? [c.pick] : []), raw.map(c => raw.length > 1 ? `(${c.clause})` : c.clause).join(" AND "));
   return [base && `(${base})`, query && `(${query})`].filter(Boolean).join(" AND ");
 }
 export const queryWhy = (suggestion: QueryWords): string => suggestion.clauses.map(c =>

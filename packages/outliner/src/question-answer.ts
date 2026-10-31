@@ -1,4 +1,4 @@
-import { matchesSearchText } from "@ep0ch/outline-core/search-match";
+import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 // What a question answers besides its rows (ADR 0004 contract 1): its groups and facets, counted over every match,
 // and the hint for a key no note carries. The service computes them once, here, so no client narrows, groups or
 // counts rows itself and every terminal gets the same answer. Pure: the store passes the matches and how to read a
@@ -110,11 +110,17 @@ export function questionFacets(matches: readonly Block[], keys: true | readonly 
       }
     }
   });
+  const words = search.split(/\s+/).filter(Boolean).map(prepareSearchQuery);
+  const hits = new Map<string, boolean>();
+  const hit = (value: string): boolean => {
+    if (!words.length) return false;
+    let found = hits.get(value);
+    if (found === undefined) hits.set(value, found = words.some(word => matchesSearchText(word, [value])));
+    return found;
+  };
   // Keys are ranked before their values are sorted: only the keys kept pay for it.
   return [...tally].sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0])).slice(0, keyCap).map(([key, { count, counts }]): QuestionFacet => {
     const order = valueOrder(key);
-    const words = search.split(/\s+/).filter(Boolean);
-    const hit = (value: string) => words.some(word => matchesSearchText(word, [value]));
     const values = [...counts].sort((a, b) => Number(hit(b[0])) - Number(hit(a[0])) || b[1].n - a[1].n || order(a[0], b[0])).map(([value, seen]) => ({ value, count: seen.n, last: seen.last }));
     return { key, count, values: values.slice(0, valueCap), ...(values.length > valueCap ? { more: values.length - valueCap } : {}) };
   });
