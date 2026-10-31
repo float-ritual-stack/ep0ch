@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "ep0ch",
+      "devDependencies": {
+        "typescript": "^5.6.0",
+      },
     },
     "packages/claude-mod": {
       "name": "@ep0ch/claude-mod",

@@ -10,6 +10,8 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+- `bun run check` names added copy patterns and growing large files; the repository mod hands loki one Code health pass each Sunday evening in Toronto (PIE-1378).
+
 - Removing an extension switches its kept rule notes off with attribution; reinstalling switches them back on, with the counts shown in the door and CLI (PIE-1368).
 
 - `ep0ch trace on`, then `trace show <action>`, proves which probes answered an action and which code revision the door runs; the service mirror names multiple agent handlers on one ask (PIE-1377).

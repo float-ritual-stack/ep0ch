@@ -83,6 +83,11 @@ Two parts (`hooks/scratch.ts`, `scripts/scratch-clean`):
 - **One at a time:** a submitted prompt only queues, so no tick runs until a main-loop turn has ended since the last;
   a dropped one is said once in a toast and the next tick tries again.
 
+The same clock checks the weekly **Code health** pass for loki, independently of the drain's on/off setting:
+Sunday at or after 18:00 Toronto, once per ISO week in the persistent plugin store (`hooks/health.ts`, PIE-1378).
+It hands the session a prompt to read main's metrics and write one note under PIE-1376, or one gurgle line when
+there is nothing to report. See [Code health](../../../CONTRIBUTING.md#code-health) for the ratchet and report commands.
+
 ## Package rules for commands
 
 Claude Code loads a path-scoped rule (`.claude/rules/*.md`) when an agent reads a file its `paths:` match. It never
