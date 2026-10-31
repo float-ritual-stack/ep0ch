@@ -1,10 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const script = resolve(import.meta.dir, "../../../scripts/health-ratchet.ts");
-const cleanup = resolve(import.meta.dir, "../../../scripts/scratch-clean");
 const scratch: string[] = [];
 const file = "packages/door/src/drawing.ts";
 const original = readFileSync(resolve(import.meta.dir, "../src/text.ts"), "utf8");
@@ -28,12 +27,8 @@ function run(dir: string, ...args: string[]) {
   return { code: result.exitCode, text: result.stdout.toString() + result.stderr.toString() };
 }
 
-afterEach(() => {
-  for (const dir of scratch.splice(0)) {
-    const result = Bun.spawnSync([cleanup, dir]);
-    if (result.exitCode !== 0) throw Error(result.stderr.toString());
-  }
-});
+// The test owns these folders under the system tmpdir, which scratch-clean refuses outside agent-env.
+afterEach(() => { for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 test("a builder gets the added width site's location and owner, then must lower the baseline after deleting a copy", () => {
   const dir = repo();
