@@ -1,4 +1,3 @@
-import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 // `completion.rows` and `completion.picked` (PIE-1340): the service's completion sources and an extension's, on one
 // row contract, merged by outline-core's one matcher, with picks kept by the host. Scratch service in a temp folder;
 // every note and issue is made up.
