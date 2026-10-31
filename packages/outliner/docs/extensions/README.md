@@ -376,7 +376,8 @@ CHANGELOG or demo changed.
 
 - **The hub** lists what's installed (each a link to its page, its version and description), what was removed but left
   notes behind, and what the repo's `extensions/` has that isn't installed, each with its description. `extensions.list`
-  says `hub`, `pages` (extension id to its page) and `available` (`{ id, name, version, description, scripts? }`).
+  says `hub`, `pages` (extension id to its page), `disabledRules` (extension id to its kept rule count) and `available`
+  (`{ id, name, version, description, scripts? }`).
 - **A page** (`<name> [ext.page::<id>] [page::ext-<id>]`, under the hub) holds the description, the version and state,
   the README as the note's body (its first `# ` heading is the page's title, its hard-wrapped paragraphs joined), **What
   it adds** from the manifest (handlers, actions with their keys, schedules, tiles, rules, agents, bar sources,
@@ -402,6 +403,11 @@ extensions/notify/demo/
 - **Once.** The service keeps, in the outline's metadata, which demo notes it wrote and at which revision. A reinstall
   or an update writes none of them again (wherever you moved them, whatever you changed); a demo note added in a later
   version is written by itself. A deleted one stays deleted.
+- **Kept rules switch off.** Removing an extension renames every kept block-scoped `rule-on`, `rule-on-stop` and
+  `rule-on-change` naming it to `rule-was-on`, `rule-was-on-stop` and `rule-was-on-change`, including edited demos and rules you wrote elsewhere. The edit is attributed to `ext:<id>`; its
+  removal receipt and the Extensions page say how many switched off. Reinstalling restores `rule-on` and reports
+  how many came back, preserving the rest of each note. Switched-off notes produce no missing-extension warning;
+  an active `rule-on` naming an extension that is absent still warns. `ep0ch ext install` also accepts `ext add`'s arguments.
 - **Uninstalling asks.** `extensions.uninstall` needs `demo: "keep"` (they stay under the page) or `"remove"` (to Trash:
   each one nobody changed since it was written, with nothing but such notes under it; one you edited, or put a note
   under, is kept and named). From a shell, `ep0ch ext remove <id>` keeps them and says so; `--demo remove` takes them

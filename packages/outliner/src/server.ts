@@ -722,10 +722,10 @@ export class OutlinerServer {
   }
 
   /** `extensions.list`'s page fields: the hub, each extension's page, how many demo notes each has left, and the repo's extensions not installed here. */
-  private extensionPagesListed(): { hub?: string; pages: Record<string, string>; demos: Record<string, number>; available: readonly import("./extension-pages").AvailableExtension[]; pagesProblem?: string } {
+  private extensionPagesListed(): { hub?: string; pages: Record<string, string>; demos: Record<string, number>; disabledRules: Record<string, number>; available: readonly import("./extension-pages").AvailableExtension[]; pagesProblem?: string } {
     const hub = this.extensionPages.hub();
     return {
-      ...(hub ? { hub } : {}), pages: this.extensionPages.pages(), demos: this.extensionPages.demoCounts(), available: this.extensionPages.availableNow(),
+      ...(hub ? { hub } : {}), pages: this.extensionPages.pages(), demos: this.extensionPages.demoCounts(), disabledRules: this.extensionPages.disabledRules(), available: this.extensionPages.availableNow(),
       ...(this.extensionPages.problem ? { pagesProblem: this.extensionPages.problem } : {}),
     };
   }
@@ -781,19 +781,22 @@ export class OutlinerServer {
    * (every outline this host serves) or, with `where: "outline"` or when the host reads no user folder, this outline's
    * own; then the registry reads it, and its page and demo notes are written before this answers.
    */
-  private async installExtension(id: string, where: "user" | "outline" | undefined): Promise<{ id: string; lines: string[]; page?: string; hub?: string; state?: string; error?: string }> {
+  private async installExtension(id: string, where: "user" | "outline" | undefined): Promise<{ id: string; lines: string[]; page?: string; hub?: string; state?: string; error?: string; rulesEnabled?: number }> {
     if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("extensions.install takes id: a built-in's name, such as moon (extensions.list's available)");
     const available = this.extensionPages.availableNow().map((entry) => entry.id);
     if (!existsSync(join(BUILT_IN_EXTENSIONS, id, "extension.json"))) {
       throw new Error(`No extension ${id} in the repo's folder${available.length ? ` (available: ${available.join(", ")})` : ""}`);
     }
     const outline = where === "outline" || (where === undefined && !userExtensionsFolderInUse());
+    const disabled = this.extensionPages.disabledRules()[id] ?? 0;
     const lines = await addExtension(id, outline ? { outlineFolder: this.store.workspaceRoot } : {});
     await this.extensionRegistry.reload();
     await this.syncExtensionPages(true);
     const entry = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
     const page = this.extensionPages.pages()[id], hub = this.extensionPages.hub();
-    return { id, lines, ...(page ? { page } : {}), ...(hub ? { hub } : {}), ...(entry ? { state: entry.state } : {}), ...(entry?.error ? { error: entry.error } : {}) };
+    const rulesEnabled = disabled - (this.extensionPages.disabledRules()[id] ?? 0);
+    if (rulesEnabled) lines.push(`${rulesEnabled} ${rulesEnabled === 1 ? "rule" : "rules"} switched back on`);
+    return { id, lines, rulesEnabled, ...(page ? { page } : {}), ...(hub ? { hub } : {}), ...(entry ? { state: entry.state } : {}), ...(entry?.error ? { error: entry.error } : {}) };
   }
 
   /**
@@ -801,13 +804,13 @@ export class OutlinerServer {
    * and its demo notes kept or moved to Trash, as `demo` says: there is no default, so they never go silently. With the
    * folder already gone it does the demo part alone.
    */
-  private async uninstallExtension(id: string, demo: "keep" | "remove", requestedBy: MutationProvenance | undefined): Promise<{ id: string; lines: string[]; removed: boolean; demo: { trashed: number; kept: readonly string[]; left: number } }> {
+  private async uninstallExtension(id: string, demo: "keep" | "remove", requestedBy: MutationProvenance | undefined): Promise<{ id: string; lines: string[]; removed: boolean; rulesDisabled?: number; demo: { trashed: number; kept: readonly string[]; left: number } }> {
     if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("extensions.uninstall takes id: an installed extension's name");
     if (demo !== "keep" && demo !== "remove") throw new Error("extensions.uninstall needs demo: keep (its demo notes stay) or remove (to Trash, unless you changed one)");
     const entry = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
     const lines: string[] = [];
     if (entry) lines.push(...await removeExtension(id, entry.origin === "outline" ? { outlineFolder: this.store.workspaceRoot } : {}));
-    else if (!this.extensionPages.demoCount(id) && !this.extensionPages.pages()[id]) throw new Error(`No extension ${id} is installed here, and none of its demo notes are left`);
+    else if (!this.extensionPages.demoCount(id) && !this.extensionPages.pages()[id] && !this.extensionPages.hasActiveRules(id)) throw new Error(`No extension ${id} is installed here, and none of its demo notes are left`);
     await this.extensionRegistry.reload();
     // Another copy (the user folder's, shadowed by the outline's) may serve it now: then it's still installed, and its demo stays.
     const still = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
@@ -818,11 +821,13 @@ export class OutlinerServer {
     }
     await this.extensionRuntime.whenIdle(id);
     const removal = demo === "remove" ? this.extensionPages.removeDemo(id, requestedBy) : { trashed: 0, kept: [] };
+    const rulesDisabled = this.extensionPages.disableRules(id, requestedBy);
     await this.syncExtensionPages(true);
     const left = this.extensionPages.demoCount(id);
     if (demo === "remove") lines.push(`moved ${removal.trashed} demo ${removal.trashed === 1 ? "note" : "notes"} to Trash${removal.kept.length ? `; kept ${removal.kept.length} you changed: ${removal.kept.join(", ")}` : ""}`);
     else if (left) lines.push(`kept its ${left} demo ${left === 1 ? "note" : "notes"} under its page: ep0ch ext remove ${id} --demo remove moves them to Trash`);
-    return { id, lines, removed: !!entry, demo: { ...removal, left } };
+    if (rulesDisabled) lines.push(`${rulesDisabled} ${rulesDisabled === 1 ? "rule" : "rules"} switched off`);
+    return { id, lines, removed: !!entry, rulesDisabled, demo: { ...removal, left } };
   }
 
   /**

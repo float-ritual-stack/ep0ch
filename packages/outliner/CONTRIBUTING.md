@@ -75,6 +75,8 @@ source evidence or distinguish authored glyphs from controls.
 - `src/store.ts` owns persistence and canonical graph invariants.
 - `src/extension-pages.ts` owns extension pages and removal of demos and explicitly marked generated output;
   the store's `extensionGeneratedNotes` and `hasOtherTextWriter` keep another writer's additions out of cleanup.
+  It switches kept rules off on removal and back on during installation, using `extension-rules.ts`'s
+  `extensionRuleNotes` to read their scoped action references and the ordinary attributed property writer.
 - `src/server.ts` owns protocol dispatch, sequence, and subscriptions.
 - `src/note-move.ts` owns the service’s `move`: check the read revision, resolve destination intent and place the note
   in one SQLite transaction. Tree, the door, CLI and agent tools send that intent; `store.move` is the internal graph write.

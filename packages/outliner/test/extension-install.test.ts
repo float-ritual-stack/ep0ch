@@ -6,6 +6,94 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addExtension } from "../src/extension-install";
 import { ResourceExtensionRuntime } from "../src/resource-extensions";
+import { OutlinerClient } from "../src/client";
+import { OutlinerServer } from "../src/server";
+import { OutlinerStore } from "../src/store";
+import type { Block, ChangeFeedPage } from "../src/types";
+import type { RuleListEntry } from "../src/extension-rules";
+
+test("kept extension rules switch off without warnings on reopen, and reinstall restores their triggers", async () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-ext-rules-"));
+  const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
+  process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
+  process.env.OUTLINER_RESOURCE_EXTENSIONS = join(root, "no-registry.json");
+  const outline = join(root, "outline"), socket = join(root, "outline.sock"), database = join(root, "outline.sqlite");
+  mkdirSync(outline);
+  let store = new OutlinerStore(database, { workspaceRoot: outline });
+  const open = async () => {
+    const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, ruleQuietMs: 10, stateDirectory: join(root, "state") });
+    await server.start();
+    return server;
+  };
+  let server = await open();
+  const client = new OutlinerClient(socket);
+  const list = () => client.request<{ rules: RuleListEntry[]; ruleProblems: string[]; hub: string }>({ action: "extensions.list", reload: true });
+  try {
+    await client.request({ action: "extensions.install", extension: "intake", where: "outline" });
+    const rule = store.queryBlocks({ filters: [{ key: "rule-name", value: "intake-demo" }] }).blocks[0]!;
+    const inbox = store.children(rule.parentId!).find(block => block.text === "Inbox (demo)")!;
+    const edited = rule.text.replace(" [rule-batch::30s]", "") + "\n\nMy garden requests.";
+    await client.request({ action: "update", blockId: rule.id, expectedRevision: rule.revision, text: edited, mutation: { author: "user" } });
+    const removed = await client.request<{ rulesDisabled?: number; lines: string[] }>({ action: "extensions.uninstall", extension: "intake", demo: "keep" });
+    expect(store.require(rule.id).text).toBe(edited.replace("[rule-on::", "[rule-was-on::"));
+    expect(store.require(rule.id)).toMatchObject({ author: "agent", actorId: "ext:intake" });
+    expect(removed.rulesDisabled).toBe(1);
+    expect(removed.lines.join("\n")).toContain("1 rule switched off");
+    await server.close(); store.close();
+    store = new OutlinerStore(database, { workspaceRoot: outline });
+    server = await open();
+    const reopened = await list();
+    expect(reopened.ruleProblems).toEqual([]);
+    expect(store.require(reopened.hub).text).toContain("1 rule switched off");
+    const back = await client.request<{ rulesEnabled?: number; lines: string[] }>({ action: "extensions.install", extension: "intake", where: "outline" });
+    expect(store.require(rule.id).text).toBe(edited);
+    expect(store.require(rule.id)).toMatchObject({ author: "agent", actorId: "ext:intake" });
+    expect(back.rulesEnabled).toBe(1);
+    expect(back.lines.join("\n")).toContain("1 rule switched back on");
+    await list();
+    const request = await client.request<Block>({ action: "create", parentId: inbox.id, text: "The hose reel jams [type::request]", author: "user" });
+    const deadline = Date.now() + 10_000;
+    while (!store.children(request.id).length && Date.now() < deadline) await Bun.sleep(25);
+    expect(store.children(request.id).map(block => block.text)).toEqual([expect.stringContaining("Prior art and related [type::prior-art]")]);
+    expect((await list()).rules.find(entry => entry.source.kind === "note" && entry.source.blockId === rule.id)?.ranToday).toBe(1);
+    const feed = await client.request<ChangeFeedPage>({ action: "changes.since", sequence: 0, limit: 1000 });
+    if (feed.kind !== "changes") throw new Error("expected changes");
+    expect(feed.changes.filter(change => change.blockId === rule.id && ["ext.intake.uninstall", "ext.intake.install"].includes(change.action)).map(change => change.actor))
+      .toEqual([{ author: "agent", actorId: "ext:intake" }, { author: "agent", actorId: "ext:intake" }]);
+    const own = await client.request<Block>({ action: "create", text: "My rule [rule-name::my-intake] [rule-match::type=idea] [rule-on::intake/prior-art]", author: "user" });
+    const quoted = await client.request<Block>({ action: "create", text: "Rule examples\n\n`[rule-on::intake/prior-art]`\n\nAn inline [rule-on::intake/prior-art] example.", author: "user" });
+    const cli = async (...args: string[]) => {
+      const child = Bun.spawn([process.execPath, join(import.meta.dir, "../../door/src/main.ts"), "ext", ...args, "--outline-folder", outline], {
+        cwd: root, env: { ...process.env, EP0CH_WS: "rules-scratch", EP0CH_SOCKET: socket, EP0CH_OUTLINES: join(root, "outlines") }, stdout: "pipe", stderr: "pipe",
+      });
+      const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect({ code, err }).toMatchObject({ code: 0 });
+      return out;
+    };
+    const onChange = await client.request<Block>({ action: "create", text: "Re-sort on edit [rule-name::resort] [rule-match::type=idea] [rule-on-change::intake/prior-art]", author: "user" });
+    expect(await cli("rm", "intake", "--demo", "remove")).toContain("3 rules switched off");
+    expect(store.require(onChange.id).text).toContain("[rule-was-on-change::intake/prior-art]");
+    expect(store.require(rule.id).text).toContain("[rule-was-on::intake/prior-art]");
+    expect(store.require(own.id).text).toContain("[rule-was-on::intake/prior-art]");
+    expect(store.require(quoted.id).text).toBe(quoted.text);
+    expect(await cli("install", "intake")).toContain("3 rules switched back on");
+    expect(store.require(onChange.id).text).toBe(onChange.text);
+    expect(store.require(rule.id).text).toBe(edited);
+    expect(store.require(own.id).text).toBe(own.text);
+    await client.request({ action: "extensions.install", extension: "done-stamp", where: "outline" });
+    const standalone = await client.request<Block>({ action: "create", text: "Stamp ideas [rule-name::stamp-ideas] [rule-match::type=idea] [rule-on::done-stamp/stamp]", author: "user" });
+    expect(await cli("rm", "done-stamp")).toContain("1 rule switched off");
+    expect(store.require(standalone.id).text).toContain("[rule-was-on::done-stamp/stamp]");
+    await client.request({ action: "create", text: "Missing extension [rule-name::missing] [rule-match::type=request] [rule-on::absent/run]", author: "user" });
+    expect((await list()).ruleProblems.join("\n")).toContain("rule-on names absent/run, but absent isn't installed here");
+  } finally {
+    await server.close(); store.close();
+    for (const [key, value] of [["OUTLINER_EXTENSIONS_DIR", previous.dir], ["OUTLINER_RESOURCE_EXTENSIONS", previous.registry]] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 30_000);
 
 test("ext add copies the Jira extension and keeps the old registry's email and keychain reference, never a secret", async () => {
   const root = mkdtempSync(join(tmpdir(), "outliner-ext-add-"));

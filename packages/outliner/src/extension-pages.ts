@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { namesDemoIds, readDemo, rewriteDemoReferences, type Demo } from "./extension-demo";
 import { loadExtensionManifest, manifestSources, type ExtensionManifest, type LoadedExtension } from "./extension-manifest";
 import { cleanExtensionText, extensionActorId } from "./extension-records";
+import { extensionRuleNotes, ruleTriggerKeyFlipped, ruleTriggerKeys, type RuleTriggerState } from "./extension-rules";
+import { patchPropertyText } from "./properties";
 import { overrideWords, type ExtensionEntry, type ExtensionRegistry } from "./extension-registry";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance } from "./types";
@@ -265,6 +267,16 @@ export class ExtensionPages {
   }
 
   private lastPrint = "";
+  private ruleNotesCache = new Map<string, { stamp: string; notes: ReturnType<typeof extensionRuleNotes> }>();
+
+  private ruleNotes(state: RuleTriggerState): ReturnType<typeof extensionRuleNotes> {
+    const stamp = ruleTriggerKeys(state).map(key => this.store.propertyDependencyStamp(key)).join("|");
+    const cached = this.ruleNotesCache.get(state);
+    if (cached?.stamp === stamp) return cached.notes;
+    const notes = extensionRuleNotes(this.store, state);
+    this.ruleNotesCache.set(state, { stamp, notes });
+    return notes;
+  }
 
   /**
    * What the pages are made from, cheaply: the registry's generation, each folder's README, CHANGELOG and demo files
@@ -334,6 +346,10 @@ export class ExtensionPages {
     const listed = this.registry.list().extensions.filter((entry) => entry.state !== "shadowed" && !entry.partOf);
     this.available = this.readAvailable(new Set(listed.map((entry) => entry.id)));
     const state = this.read();
+    const restored = this.ruleNotes("was-on");
+    for (const id of new Set(restored.map(note => note.extension))) {
+      if (listed.some(entry => entry.id === id)) this.switchRules(state, id, true, restored);
+    }
     const installed = listed.map((entry) => ({ entry, loaded: this.registry.loaded(entry.id) }));
     // An outline with no extension, and no hub yet, gets none.
     if (!installed.length && !this.live(state.hub) && !Object.keys(state.pages).length) return;
@@ -485,6 +501,39 @@ export class ExtensionPages {
     return { trashed, kept };
   }
 
+  disabledRules(): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const note of this.ruleNotes("was-on")) counts[note.extension] = (counts[note.extension] ?? 0) + 1;
+    return counts;
+  }
+
+  hasActiveRules(id: string): boolean {
+    return this.ruleNotes("on").some(note => note.extension === id);
+  }
+
+  disableRules(id: string, requestedBy?: MutationProvenance): number {
+    const state = this.read();
+    const count = this.switchRules(state, id, false, this.ruleNotes("on"), requestedBy);
+    this.write(state);
+    return count;
+  }
+
+  private switchRules(state: PagesState, id: string, enabled: boolean, notes: ReturnType<typeof extensionRuleNotes>, requestedBy?: MutationProvenance): number {
+    const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(id) };
+    const matching = notes.filter(note => note.extension === id);
+    this.store.changes.run(this.store.changes.attribution({ action: `ext.${id}.${enabled ? "install" : "uninstall"}`, actor, ...(requestedBy ? { requestedBy } : {}) }), () => {
+      for (const note of matching) {
+        const block = this.store.require(note.block.id), properties = note.properties;
+        const text = patchPropertyText(block.text, properties.map(property => ({ op: "replace", ordinal: property.ordinal, key: ruleTriggerKeyFlipped(property.key), value: property.value })));
+        const written = this.store.update(block.id, text, block.revision, actor);
+        const seeded = Object.values(state.demos[id]?.notes ?? {}).find(note => note.id === block.id);
+        // Switching a pristine demo off and back on isn't a person's edit; it can still be removed later.
+        if (seeded?.revision === block.revision) seeded.revision = written.revision;
+      }
+    });
+    return matching.length;
+  }
+
   /** Each extension with demo notes still in the outline, and how many. */
   demoCounts(): Record<string, number> {
     return Object.fromEntries(Object.keys(this.read().demos).flatMap((id) => { const count = this.demoCount(id); return count ? [[id, count]] : []; }));
@@ -528,9 +577,10 @@ export class ExtensionPages {
   }
 
   private removedText(id: string, name: string): string {
+    const rules = this.disabledRules()[id] ?? 0;
     return [
       `${words(name) || id} [ext.page::${id}] [page::ext-${id}]`,
-      `\`${id}\` · not installed. What was under its page is kept below.`,
+      `\`${id}\` · not installed. What was under its page is kept below.${rules ? ` ${rules} ${rules === 1 ? "rule" : "rules"} switched off by ${id}; reinstalling switches them back on.` : ""}`,
       "",
       `Install it again: \`ep0ch ext add ${id}\` (its demo notes aren't added twice), or in the door the power bar's extensions (ctrl+k then &).`,
     ].join("\n");
@@ -555,7 +605,8 @@ export class ExtensionPages {
     const gone = Object.entries(state.pages).filter(([id]) => !present.has(id));
     if (gone.length) {
       lines.push("", "## Removed, notes kept", "");
-      for (const [id, page] of gone) lines.push(`- ((${page.block}|${(words(page.name) || id).replaceAll("|", "/").replaceAll(")", "]")})) \`${id}\``);
+      const disabled = this.disabledRules();
+      for (const [id, page] of gone) lines.push(`- ((${page.block}|${(words(page.name) || id).replaceAll("|", "/").replaceAll(")", "]")})) \`${id}\`${disabled[id] ? ` · ${disabled[id]} ${disabled[id] === 1 ? "rule" : "rules"} switched off` : ""}`);
     }
     lines.push("", "## Available", "");
     if (!this.available.length) lines.push("Every extension in the repo's folder is installed.");
