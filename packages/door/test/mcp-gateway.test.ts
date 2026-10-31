@@ -517,8 +517,8 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     expect(read.record).toMatchObject({ id: made.id, title: "Kettle log", body: expect.stringContaining("Descaled again"), properties: [{ key: "shelf", values: ["top"] }] });
     expect(read.record).not.toHaveProperty("text");
     expect(read.record).not.toHaveProperty("header");
-    expect(read.record.links.map((l: { target: string }) => l.target)).toEqual([note.id]);
-    expect(read.record.links[0]).not.toHaveProperty("spans");
+    expect(read.record.links).toEqual([note.id]);
+    expect(read.record.fields).toBeUndefined();
     expect(read.record.backlinks).toEqual([]);
     const links = JSON.parse((await tool("outline_links", { uri })).text);
     expect(links.links.map((l: { target: string }) => l.target)).toEqual([note.id]);
@@ -585,13 +585,13 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     for (const id of [source.id, proof.id, oneWay.id]) {
       const [record, linked] = [await read(id), await links(id)];
       expect(linked.backlinks.map((b: { blockId: string }) => b.blockId).sort()).toEqual(record.backlinks);
-      expect(linked.links.map((l: { target: string }) => l.target)).toEqual(record.links.map((l: { target: string }) => l.target));
+      expect(linked.links.map((l: { target: string }) => l.target)).toEqual(record.links);
     }
     expect((await read(source.id)).backlinks.sort()).toEqual([proof.id, oneWay.id].sort());
     expect((await read(proof.id)).backlinks).toEqual([source.id]);
     // A note that only links out has no backlinks: its link target is never one.
     expect((await read(oneWay.id)).backlinks).toEqual([]);
-    expect((await read(oneWay.id)).links.map((l: { target: string }) => l.target)).toEqual([source.id]);
+    expect((await read(oneWay.id)).links).toEqual([source.id]);
   });
 
   test("outline_links cuts each group at limit and says per group whether it is whole, what it shows and the total", async () => {

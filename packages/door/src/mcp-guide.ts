@@ -20,11 +20,12 @@ import { skillRoots, skillsIn, type Skill } from "./skills";
 
 /** The gateway's tool lines in the guide: how to orient, where an outline's own components are, where the skills are. */
 export const GATEWAY_GUIDE_TOOLS = [
-  "- Orient first: `list_outlines` names each outline and your access to it; `outline_query` with `updated >= -1d NOT type=peer-message`, sort `updated desc` and `fold: true` says what changed lately; fetched notifications and bookkeeping are left out, counted in `machineryOmitted`. Pass one `call` id on every request.",
-  "- On note write tools, pass `persona: \"loki\"` when an agent other than the connector's owner writes through it. The receipt's `by` says who was recorded (persona and client). Omit to keep the connection's mapping; principal and access, including a named path's cap, stay the same. To follow a queued write, pass the same persona to `outline_write_status`.",
-  "- Each outline adds its own components (its heading styles, callout types and extensions' components): `outline_components` with `outline` lists them. A write answers with the `components` the note now holds, its `warnings` and the `next` check; `outline_read` reads it back.",
-  "- To make the outline do something new (a button, a rule, a script, an extension), use the ep0ch-extend skill (`ep0ch://skills/ep0ch-extend`); references: `ep0ch://docs/scripts` and `ep0ch://docs/extensions`.",
-  "- The skills (ep0ch-outline: working in someone's outline, and the rest) are this server's prompts, and resources at `ep0ch://skills/<name>`.",
+  "- Text: `outline_find` gives matching lines and context, quoted phrases first; `outline_grep` scans every note by regex, uncapped unless you pass `limit`. Structure/properties: `outline_query`. `outline_read` gives body, properties and link IDs; `detail: true` adds offsets and spans.",
+  "- Orient: `list_outlines` names outlines and access. `outline_query` with `updated >= -1d NOT type=peer-message`, sort `updated desc`, `fold: true` reads recent changes; `machineryOmitted` counts excluded bookkeeping. Keep one `call` id across requests.",
+  "- Writes: `persona: \"loki\"` attributes another agent; omit for the connection's mapping. Receipt `by` names persona and client. Principal, access and path caps stay the same. Use the same persona for `outline_write_status`.",
+  "- `outline_components` with `outline` lists its components, including heading styles and callout types. Writes return `components`, `warnings` and the `next` check; read back with `outline_read`.",
+  "- For buttons, rules, scripts or extensions use `ep0ch://skills/ep0ch-extend`; references: `ep0ch://docs/scripts`, `ep0ch://docs/extensions`.",
+  "- Skills are prompts and `ep0ch://skills/<name>` resources; ep0ch-outline covers working in someone's outline.",
 ];
 
 /** Claude Code reads at most this much of a server's instructions (CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH changes it). */

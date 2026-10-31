@@ -20,7 +20,7 @@ export interface SearchContext {
 /** Why a note is in the list an empty query opens on. */
 export type ContextReason = "linked" | "near" | "yours";
 
-export function ancestorPath(block: Block, byId: ReadonlyMap<string, Block>): string {
+export function ancestorPath(block: Block, byId: { get(id: string): Block | null | undefined }): string {
   const ancestors: string[] = [];
   const seen = new Set([block.id]);
   let parent = block.parentId;

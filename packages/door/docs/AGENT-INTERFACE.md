@@ -217,6 +217,19 @@ service's whole answer for its `{{ }}`: each placeholder's values or problem and
 was computed from, which is what `outline_read` returns as `site`). Both take `--ws` and `--machine`. `ep0ch find --query "<expression>"` (`--view
 <id>`, `--under <id>`, `--ids`, `--json` for block records) lists what the outline says a query holds for, and `ep0ch
 export` writes notes out as Markdown or JSON (PIE-534; the door README has the flags).
+`ep0ch export --all --split --out garden --manifest` writes every live note in its ancestor tree, paging
+selections without a cap. Each file has a `path:` breadcrumb and one-line property lists; the manifest names any
+extension pages outside the selection. `ep0ch mirror garden` writes the same source files and follows the change
+feed: edits replace files atomically, renames move them, and trash removes them. The manifest records `asOf` and
+the last `sequence`; a restarted host reconnects and catches up. `--once` writes one pass and exits.
+
+For text through MCP, use `outline_find({query: '\"amber moon\"'})` for ranked notes with matching source lines
+and one line of context on either side; quoted phrases come first. Use `outline_grep({pattern: "amber.*moon",
+flags: "i"})` for every matching line across the live outline, including its note ID, title and one-based line
+number. There is no default cap: an optional `limit` returns `more` and `nextOffset`, passed back as `offset`.
+Use `outline_query` for structure, properties and saved views. `outline_read` returns body, properties and link
+IDs by default; `detail: true` includes field offsets and link spans for inspection. `outline_links` still gives
+link objects when their kind, label or location matters.
 
 An MCP client reads the same outline with no door either: `ep0ch mcp` (stdio, for a local harness) and `ep0ch mcp
 serve --http` (the remote gateway, for claude.ai, behind Clerk OAuth) answer `outline_read`, `outline_threads`, `outline_find`,

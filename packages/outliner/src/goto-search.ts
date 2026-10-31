@@ -1,3 +1,5 @@
+import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
+import { matchingLines, quotedPhrases } from "@ep0ch/outline-core/text-search";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { rankBlockFocusMatches } from "./block-focus";
 import { type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
@@ -27,13 +29,16 @@ export function gotoCandidates(blocks: readonly Block[], query: string, options:
   const live = blocks.filter(block => !block.effectiveDeletedRootId && !block.deletedAt);
   const byId = new Map(live.map(block => [block.id, block]));
   const context = searchContext(byId, options.contextBlockId);
+  const phrases = quotedPhrases(query);
+  const phraseMatch = (block: Block) => phrases.length > 0 && phrases.every(phrase => block.text.toLowerCase().includes(phrase));
   let ranked: { block: Block; title: string; kind: string; reason?: ContextReason }[];
   if (query.trim() && context) ranked = live.length ? sortByContext(rankBlockFocusMatches(live, query.trim(), live.length), context) : [];
-  else if (query.trim()) ranked = rankBlockFocusMatches(live, query.trim(), limit + 1);
+  else if (query.trim()) ranked = rankBlockFocusMatches(live, query.trim(), phrases.length ? Math.max(1, live.length) : limit + 1);
   else if (context) ranked = contextList(live, byId, context, limit + 1, options.resolveAddress ?? (() => undefined))
     .map(({ block, reason }) => ({ block, title: blockDisplayTitle(block), kind: "recent", reason }));
   else ranked = [...live].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
     .slice(0, limit + 1).map(block => ({ block, title: blockDisplayTitle(block), kind: "recent" }));
+  if (phrases.length) ranked.sort((a, b) => Number(phraseMatch(b.block)) - Number(phraseMatch(a.block)));
   const address = options.exactAddressId ? byId.get(options.exactAddressId) : undefined;
   if (address && ranked[0]?.kind !== "exact-id") {
     const index = ranked.findIndex(match => match.block.id === address.id);
@@ -41,11 +46,11 @@ export function gotoCandidates(blocks: readonly Block[], query: string, options:
     ranked.unshift({ block: address, title: blockDisplayTitle(address), kind: "exact-address" });
   }
   // The words of the query (split as blocks.query splits it), for the snippet.
-  const terms = searchTextTerms(query).filter(term => term.length >= 3);
+  const terms = phrases.length ? phrases : searchTextTerms(query);
   return {
     matches: ranked.slice(0, limit).map(({ block, title, kind, reason }) => ({
       ...gotoMatch(block, byId, terms, title),
-      exact: kind === "exact-id" || kind === "exact-address" || kind === "id-prefix" || kind === "exact-title",
+      exact: phraseMatch(block) || kind === "exact-id" || kind === "exact-address" || kind === "id-prefix" || kind === "exact-title",
       ...(reason ? { reason } : {}),
     })),
     completeness: ranked.length > limit ? { kind: "truncated", limit } : { kind: "complete" },
@@ -61,6 +66,7 @@ export function gotoMatch(block: Block, byId: ReadonlyMap<string, Block>, terms:
     block: { id: block.id, revision: block.revision }, title: headedTitle(title, workIdOf(block)).slice(0, 250), subtitle: subtitleOf(block),
     path: ancestorPath(block, byId),
     snippet: snippetOf(block.text, terms),
+    lines: matchingLines(block.text, terms),
     // What Jev reads beside the text (PIE-1199): a long log that mentions the subject isn't the note about it.
     facts: { ...(type ? { type } : {}), length: block.text.length, updated: block.updatedAt.slice(0, 10) },
     exact: false,
@@ -98,3 +104,11 @@ export function visibleGotoResults(result: GotoSearchCollection, limit = GOTO_RE
 }
 
 export {rankSearchWithJev as rankGotoWithJev} from './search-ranking';
+
+/** Both dispatch paths validate a search at the service boundary. */
+export function readGoto(source: { searchTree(query: string, context?: string, machinery?: MachineryMode, limit?: number): GotoSearchCollection }, request: { query: string; contextBlockId?: string; machinery?: MachineryMode; semantic?: boolean; deep?: boolean; limit?: number }): GotoSearchCollection {
+  if (request.semantic !== undefined && typeof request.semantic !== "boolean") throw new Error("semantic must be a boolean");
+  if (request.deep !== undefined && (typeof request.deep !== "boolean" || (request.deep && !request.semantic))) throw new Error("deep is a boolean, and asks for semantic: true too");
+  if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive integer");
+  return source.searchTree(request.query, request.contextBlockId, parseMachineryMode(request.machinery), request.limit);
+}

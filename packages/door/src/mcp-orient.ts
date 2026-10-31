@@ -143,7 +143,7 @@ export class ResponseScope {
   rpc: string | number | null = null;
   private sent = new Map<string, string>();
   /** Where this block's body already went in this response, or null (and now it is: the caller sends it at `where`). */
-  claim(outline: string, id: string, revision: number, form: "full" | "pointer", where: string): string | null {
+  claim(outline: string, id: string, revision: number, form: "full" | "pointer" | "detail", where: string): string | null {
     // The outline is in the key (an imported or mirrored copy can share id@revision), and so is the form: a pointer is not the stored body.
     const key = `${outline}/${pairOf(id, revision)}/${form}`, first = this.sent.get(key);
     if (first) return first;

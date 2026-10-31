@@ -8,6 +8,7 @@ import { outlinerReferenceOccurrences, propertyReferenceOccurrences, type Outlin
 import { parsePropertyRecords, type PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { maskOutputRegions } from "@ep0ch/outline-core/output-region";
+import { ancestorPath } from "./search-context";
 import { blockDisplayTitle } from "./references";
 import type { Block } from "./types";
 
@@ -113,6 +114,7 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
     records.push(blockRecord({
       block,
       title: blockDisplayTitle(block),
+      path: ancestorPath(block, source),
       properties,
       literal: scanPropertyLiteralRanges(text),
       children: source.children(id).map(child => child.id),

@@ -64,7 +64,7 @@ import {
   compileQueryExpression,
   bindThis,
   queryReach,
-  normalizeBlockSearchQuery,
+  normalizeBlockSearchQuery, blockQueryPage,
   type ValueBinder,
   type QueryRelations,
   parseSearchExpression,
@@ -4427,21 +4427,15 @@ export class OutlinerStore {
       propertyScope: query.propertyScope,
       subtreeRootId: query.subtreeRootId,
       text: query.text,
-      stopAfterMatches: query.sort || ranked || counted || options.select ? undefined : query.limit + 1,
+      stopAfterMatches: query.sort || ranked || counted || options.select ? undefined : (query.offset ?? 0) + query.limit + 1,
       deletedMode,
     });
     if (options.select) blocks = options.select(blocks);
     if (query.sort) sortQueriedBlocks(blocks, query.sort, scopedValue(graph, query.propertyScope));
     // Same order as ranked SQL: manual ranks first, then canonical preorder.
     if (ranked) sortByOccurrenceRank(blocks, this.virtualOccurrenceRanksFromCurrentRead().filter(entry => entry.viewId === ranked));
-    const rows = blocks.length <= query.limit ? blocks : blocks.slice(0, query.limit);
-    // Every match was read when nothing stopped the walk early: then the count is exact.
-    const everyMatch = !!(query.sort || ranked || counted || options.select);
-    const answer: VisibleBlockCollection = {
-      blocks: rows,
-      completeness: blocks.length <= query.limit ? { kind: "complete" }
-        : { kind: "truncated", limit: query.limit, ...(everyMatch ? { matched: blocks.length } : {}) },
-    };
+    const answer: VisibleBlockCollection = blockQueryPage(blocks, query, !!(query.sort || ranked || counted || options.select));
+    const rows = answer.blocks;
     if (counted || questionKeys(query).length) {
       const scope = query.propertyScope ?? "block";
       const records = (block: Block) => (graph.propertyRecordsByBlock.get(block.id) ?? []).filter(record => scope === "all" || record.scope === scope);
@@ -5095,18 +5089,9 @@ export class OutlinerStore {
     const { sql, parameters } = this.rankedMatchStatement(query, rankViewId);
     const rows = this.database
       .query(`${sql} LIMIT ?`)
-      .all(...parameters, query.limit + 1) as VisibleBlockRow[];
-    const blocks = this.hydrateVisibleRowsFromCurrentRead(
-      rows.slice(0, query.limit),
-      query.filters ?? [],
-      query.propertyScope ?? "block",
-    );
-    return {
-      blocks,
-      completeness: rows.length > query.limit
-        ? { kind: "truncated", limit: query.limit }
-        : { kind: "complete" },
-    };
+      .all(...parameters, (query.offset ?? 0) + query.limit + 1) as VisibleBlockRow[];
+    const page = blockQueryPage(rows, query);
+    return { ...page, blocks: this.hydrateVisibleRowsFromCurrentRead(page.blocks, query.filters ?? [], query.propertyScope ?? "block") };
   }
 
   /**
