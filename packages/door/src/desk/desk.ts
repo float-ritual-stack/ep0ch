@@ -284,9 +284,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * into a tile of its own where the drop zones say.
    */
   private elementDrag: { src: number; line: number; x: number; y: number; target: { kind: "into"; tile: number; note: string; line: number; label: string; bar: Rect | null; draft: boolean } | { kind: "detach"; drop: Drop<number>; label: string } | null } | null = null;
-  /** Where a drag or a release lands in the pressed reader: padding held to the nearest content cell, the gutter kept separate, its row free (past an edge scrolls). */
+  /** Pointer coordinates share the reading measure and full-width rows; a held pointer's row stays free to scroll past an edge. */
   private pressedAt(p: { frame?: Rect; gutter?: Rect; pane?: ReaderPane; col: number; row: number; cols: number }, k: { x: number; y: number }) {
-    if (p.frame || p.pane?.surface.figureSizing.drag) return { x: k.x - p.col, y: k.y - p.row };
+    if (p.frame || p.pane && (p.pane.surface.figureSizing.drag || this.views.get(this.idOf(p.pane)!)?.view.wide?.some(r => r.row === k.y - p.row))) return { x: k.x - p.col, y: k.y - p.row };
     if (p.gutter && k.x >= p.gutter.col && k.x < p.gutter.col + p.gutter.cols)
       return { x: k.x - p.gutter.col - p.gutter.cols, y: k.y - p.row };
     return { x: Math.max(0, Math.min(p.cols - 1, k.x - p.col)), y: k.y - p.row };
@@ -7398,10 +7398,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const c = this.origin(id, r), gutter = this.gutters.get(id);
     const popup = this.views.get(id)?.view.completion?.drawn;
     const pane = this.panes.get(id);
-    if (this.views.get(id)?.view.wide?.some(r => r.row === y - c.row) || pane instanceof ReaderPane && pane.surface.floatAt(x - c.col, y - c.row)) return { x: x - c.col, y: y - c.row };
+    if (pane instanceof ReaderPane && pane.surface.floatAt(x - c.col, y - c.row)) return { x: x - c.col, y: y - c.row };
     if (popup && y - c.row >= popup.row && y - c.row < popup.row + popup.items.length) return { x: x - c.col, y: y - c.row };
-    if (gutter && x >= gutter.col && x < gutter.col + gutter.cols) return { x: x - gutter.col - gutter.cols, y: y - c.row };
-    return { x: Math.max(0, Math.min(c.cols - 1, x - c.col)), y: Math.max(0, Math.min(c.rows - 1, y - c.row)) };
+    const at = this.pressedAt({ ...c, gutter, pane: pane instanceof ReaderPane ? pane : undefined }, { x, y });
+    return { x: at.x, y: Math.max(0, Math.min(c.rows - 1, at.y)) };
   }
 
   /** Whether cell (x, y) is in tile `id`'s body, inside its frame at `r` (a tile with a screen in it runs to its edges: only its header row is frame). */

@@ -16,7 +16,7 @@ import { artifactFacts, type ArtifactFacts } from "./artifacts";
 import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
-import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv, type RowInline } from "./graphs";
+import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FigureInfo, type FiguresEnv, type RowInline } from "./graphs";
 import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
 import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
 import { ifProblemLines, ifState, renderFields, type FieldsDrawing } from "./site-blocks";
@@ -440,6 +440,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const src = raw.map((l, i) => (rawStructure[i] === -1 ? withoutFragmentAnchor(l) : l));
   const mediaAt = mediaLines(src);
   const source: number[] = [], heads: Doc["heads"] = [], parts: DocPart[] = [];
+  const figurePart = (info: FigureInfo | undefined, line: number, rows: number) => parts.push({ kind: "figure", row: out.length, line, col: Math.max(16, info?.cols ?? W) - 3, figure: info?.key, rows, cols: info?.cols ?? W, full: info?.size.width === "full" });
   const trims = new Map<number, DocTrim>(), blocks: DocBlock[] = [];
   const cut = (row: number, ...cuts: [number, number, string?][]) => { const t = trims.get(row); if (t) t.cuts.push(...cuts); else trims.set(row, { cuts }); };
   const edge = (row: number) => trims.set(row, { cuts: [[0, Infinity]], edge: true });
@@ -661,8 +662,12 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // to its `::`, drawn with the links tile's rows in a figure's frame, each row a link the reader opens.
     const component = componentAt.get(i), collection = component && viewSpec(component, src);
     if (collection) {
-      const rows = renderCollection(collection, env.note, W, env.linkBlocks, env.tag, env.site);
-      out.push(...(env.inlineList ? env.inlineList(rows, W) : rows));
+      let info: FigureInfo | undefined;
+      if (env.figures) env.figures.drawn ??= { n: 0, titles: new Map() };
+      const figures = component!.name === "graph-table" ? { ...env.figures, line: i, seen: (f: FigureInfo) => { info = f; env.figures?.seen?.(f); } } : undefined;
+      const rows = renderCollection(collection, env.note, W, env.linkBlocks, env.tag, env.site, figures);
+      if (figures) figurePart(info, i, rows.length);
+      out.push(...(!figures && env.inlineList ? env.inlineList(rows, W) : rows));
       i = component!.end;
       continue;
     }
@@ -728,9 +733,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const tunedLines = look?.lists?.(i, componentRowFields(figure.attrs ?? ""))["rows.lines"];
       if (tunedLines !== undefined) source.yaml = source.yaml.replace(/^lines:.*$/m, "") + `\nlines: ${tunedLines}`;
       if (env.figures) env.figures.drawn ??= { n: 0, titles: new Map() };
-      let info: import("./graphs").FigureInfo | undefined;
+      let info: FigureInfo | undefined;
       const graph = renderGraph(gk, source, W, env.link, { ...env.figures, line: i, lines: componentLines(i, figure.attrs), seen: f => { info = f; env.figures?.seen?.(f); } }, rows, env.site);
-      parts.push({ kind: "figure", row: out.length, line: i, col: Math.max(16, info?.cols ?? W) - 3, figure: info?.key, rows: graph.length, cols: info?.cols ?? W, full: info?.size.width === "full" });
+      figurePart(info, i, graph.length);
       out.push(...graph);
       i = figure.end;
       continue;

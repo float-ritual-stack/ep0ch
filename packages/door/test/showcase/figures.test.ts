@@ -111,6 +111,19 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect((await board.get(note.id))!.text).toContain("width: full");
   });
 
+  test("a live table keeps its resize controls when its rows come from a collection", async () => {
+    const { note, surface, host, bottom, draw } = await sizingReader(timeline.replace("graph-timeline", "graph-table").replace("date: landed", "columns: title\nsort: title asc").replace("height: 4", "height: 8"));
+    const { x, y } = bottom();
+    surface.press(x, y, host); surface.drag(x, y + 2, host); surface.release(x, y + 2, host);
+    await until(() => !surface.figureSizing.drag, "the table's height is saved");
+    await surface.inTurn(async () => {});
+    expect((await board.get(note.id))!.text).toContain("height: 10");
+    const rows = draw(), footer = rows.findIndex(l => l.includes("↔ fit")), toggle = rows[footer]!.indexOf("↔ fit") + 2;
+    surface.press(toggle, footer, host); surface.release(toggle, footer, host);
+    await surface.inTurn(async () => {});
+    expect((await board.get(note.id))!.text).toContain("width: full");
+  });
+
   test("review 5: shifted arrows scroll inside a figure and keep the reading position", async () => {
     const { surface, host, draw } = await sizingReader(timeline);
     const elements = (await surface.act("elements", {}, host, USER) as any).elements;

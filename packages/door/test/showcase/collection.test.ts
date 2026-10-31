@@ -254,12 +254,20 @@ describe("showcase: a collection record (PIE-1281)", () => {
     const end = await h.board.createBlock(null, "Cedar handbook");
     const middle = await h.board.createBlock(null, `Birch record [collection::review-link] [note::${end.id}]`);
     await h.board.createBlock(null, `Aster record [collection::review-link] [note::${middle.id}]`);
-    await show('Linked records\n::graph-table{query="collection=review-link" columns="note" sort="title asc" link=note}\n::');
+    await show('Linked records\n::graph-table{query="collection=review-link" columns="note" sort="title asc" link=note width=full}\n::');
     const cells = (await act("elements")).elements;
     const cell = cells.find((e: any) => e.label.trim() === "Birch record");
     expect(cell).toBeDefined();
-    const result = await act("element.open", { n: cell.n });
-    expect(result.opened).toBe(middle.id);
+    expect(stage().layoutGet().tiles.some((t: any) => t.showing?.id === middle.id)).toBe(false);
+    const drawn = h.screen().split("\n"), y = drawn.findIndex(line => line.includes("Birch record")), x = drawn[y]!.indexOf("Birch record") + 2;
+    const click = () => {
+      h.press({ kind: "mouse", action: "down", button: 0, x, y });
+      h.press({ kind: "mouse", action: "up", button: 0, x, y });
+    };
+    click();
+    expect((await act("elements")).elements.find((e: any) => e.current)?.label).toBe("Birch record");
+    h.screen(); click();
+    await until(() => stage().layoutGet().tiles.some((t: any) => t.showing?.id === middle.id), "the full-width cell opens its target");
   }, 20_000);
 
   test("review: sorting after a page change keeps the selected note on the drawn page", async () => {

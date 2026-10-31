@@ -1,7 +1,7 @@
 import type { ViewSpec } from "@ep0ch/outline-core/view-spec";
 import type { SiteProduced } from "@ep0ch/outline-core/site";
 import { actionLine } from "@ep0ch/outline-core/action-line";
-import { frame } from "./graphs";
+import { figureFrame, frame, type FiguresEnv } from "./graphs";
 import { liveSource, siteProduced, type LiveSite } from "./live";
 import { watchedOn } from "./watched";
 import type { LinkBlocksEnv } from "./links";
@@ -16,7 +16,7 @@ import { rowLines } from "./text";
 // A changed query has no first answer yet. Keep the list and its input mounted while that answer arrives.
 const shown = new WeakMap<ListView, Extract<SiteProduced, { kind: "view" }>>();
 
-export function renderCollection(spec: ViewSpec, note: string | undefined, width: number, blocks?: LinkBlocksEnv, tag?: (to: LinkTarget, text: string) => string, site?: LiveSite): string[] {
+export function renderCollection(spec: ViewSpec, note: string | undefined, width: number, blocks?: LinkBlocksEnv, tag?: (to: LinkTarget, text: string) => string, site?: LiveSite, figures?: FiguresEnv): string[] {
   site = { ...site, args: { ...site?.args, ...spec.args } };
   const n = ++(blocks ? blocks.drawn ??= { n: 0 } : { n: 0 }).n;
   const key = spec.key ?? `#${n}`, view = blocks?.list?.(key, "view") ?? new ListView(key, false);
@@ -27,6 +27,8 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   const answer = value ?? (read?.state === "loading" ? shown.get(view) : undefined);
   if (spec.error) return frame("Collection", [fg(C.lred) + spec.error + RESET], width);
   if (!answer || answer.kind !== "view") return frame("Collection", [read?.state === "error" ? read.error : "Reading the collection…"], width);
+  const sizing = figures && figureFrame("table", { ...spec.props, title: answer.title }, width, figures, note);
+  width = sizing?.width ?? width;
   const entered = blocks?.entered?.(key) ?? false;
   view.set(listRowsOf(answer.view));
   for (const [who, state] of view.settings) if (who !== PERSON) {
@@ -70,5 +72,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   const controls = [press("list.sort", {}, "sort"), press("list.group", {}, "group"),
     ...(pages > 1 ? [press("list.page", { by: "-1" }, "‹"), `${view.page + 1}/${pages}`, press("list.page", { by: "1" }, "›")] : [])].join(" · ");
   const warning = answer.error ?? (answer.view.rows.length ? answer.hint : undefined);
-  return frame(answer.title, [...tabs, controls, ...(warning ? rowLines(warning, Math.max(8, width - 4)).map(line => fg(C.lred) + line + RESET) : []), ...drawing.lines], width, footer, blocks?.control?.(key, entered ? "esc out" : "⏎ in"));
+  const body = [...tabs, controls, ...(warning ? rowLines(warning, Math.max(8, width - 4)).map(line => fg(C.lred) + line + RESET) : []), ...drawing.lines];
+  const control = blocks?.control?.(key, entered ? "esc out" : "⏎ in");
+  return sizing ? sizing.finish(body, footer, control) : frame(answer.title, body, width, footer, control);
 }
