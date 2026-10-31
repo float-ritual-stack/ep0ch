@@ -241,7 +241,7 @@ export const VIEW: ComponentSchema = {
     { key: "body", where: "note", type: "int", min: 0, max: 100, meaning: "body lines per card; feed defaults to 6, gallery to 0", samples: ["0", "6"] },
     { key: "page", where: "note", type: "int", min: 1, max: 200, default: "200", meaning: "rows per page; the page being read is viewer state" },
     { key: "cover", where: "note", type: "list", meaning: "property names to read in order for a card's cover", samples: ["cover, img"] },
-    { key: "open", where: "note", type: "enum", default: "current", meaning: "where opening a row lands, after the tile's wires", values: enumOf({ current: "the current reader", beside: "a reader beside", float: "a floating reader", full: "a full reader" }) },
+    { key: "open", where: "note", type: "enum", default: "current", meaning: "where opening a row lands, after the tile's wires", values: enumOf({ current: "the current reader", beside: "a reader beside", float: "a pick previews in a follower float; Enter enters, Esc closes, ⤢ lands beside", full: "open in the current reader and zoom it to fill the screen" }) },
     { key: "create", where: "note", type: "query", meaning: "the property a new member is born with", samples: ["type=chore"] },
     { key: "create-parent", where: "note", type: "ref", meaning: "this (the host of an inline view, or a view note's parent), inbox, or ((id))", samples: ["this", "inbox", "((7c1e0b2a-0000-4000-8000-000000000001))"] },
     { key: "sort", where: "note", type: "property", meaning: "what the rows are sorted by: created, updated, or any property's name", samples: ["updated", "priority"] },

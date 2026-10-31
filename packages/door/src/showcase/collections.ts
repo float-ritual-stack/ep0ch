@@ -1,9 +1,11 @@
 import { ReaderPane } from "../desk/panes";
+import { PEEK_SECTION } from "./peek";
 import { BacklinksPane } from "../desk/backlinks-pane";
 import { leaf, pair } from "../desk/screen-layout";
 import { deskOf, type Section } from "./showcase";
 
 export const COLLECTION_SECTIONS: Section[] = [
+  PEEK_SECTION,
   {
     key: "collection", need: "draw a saved query as a table, gallery, feed or board, inline too", part: "VIEW schema → site.answer → list primitive → ListView over RowView", files: "src/collections.ts, src/surface/list-view.ts, outline-core/src/view-spec.ts, outliner/src/site-producers.ts",
     aside: "one garden record, four layouts · enter the list then tab changes layouts; click a table header to cycle sort · j k pick; Enter opens · / filters with the query grammar · act list.layout layout=board, list.group by=area,owner, list.sort by=owner · NONE is last · a narrow table becomes record cards, a narrow board offers lane tabs · the saved note's keys and inline ::view blocks are the same record",

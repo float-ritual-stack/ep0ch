@@ -511,8 +511,8 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await app.act({ action: "list.filter", tile: "reader", args: { list: "2", words: "titles" }, as: "test-agent" });
     const after = await blocks();
     expect(after[0].rows.find((r: any) => r.selected).n).toBe(was);
-    expect(after[0].yours).toEqual({ picked: expect.any(String) });
-    expect(after[1].yours).toEqual({ filter: "titles", rows: 1 });
+    expect(after[0].yours).toMatchObject({ picked: expect.any(String) });
+    expect(after[1].yours).toMatchObject({ filter: "titles", rows: 1 });
     // Its rows are numbered as it sees them: row 1 of its narrowed list is the one its filter leaves.
     expect(after[1].rows.map((r: any) => [r.n, r.text])).toEqual([[1, "Copy the letters' titles"]]);
     // What the person sees of it: each list says who else has picked or filtered.

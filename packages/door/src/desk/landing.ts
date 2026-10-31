@@ -32,6 +32,7 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" |
   if (into !== undefined && into !== id) return { to: into };
   // A container by its key (the board's readers row): a tile opened into it holds the note.
   if (into === undefined && e.opensInto && node(s.tree, e.opensInto)) return { into: e.opensInto };
+  preferred ??= e.opens === "float" || e.opens === "full" ? e.opens : undefined;
   if (preferred === "current" || preferred === "full") return { to: id, ...(preferred === "full" ? { full: true } : {}) };
   if (preferred === "beside") return { beside: id };
   if (preferred === "float") return { float: true };

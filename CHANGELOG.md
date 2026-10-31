@@ -16,6 +16,13 @@ are its record. The outliner's entries from then are kept below, under
 - **Keep the completed answer:** Tab on a settings-card query refreshes the answer row immediately, so Enter saves the completed clause even before the next repaint.
 - **Run:** try the kitchen sink's settings, facets and library sections. No protocol, grammar or schema change.
 
+### Collection cards peek while you browse (PIE-849)
+
+- A collection with `open=float` previews each pick in a following float while the gallery keeps your keys. Enter reads it, Esc closes it, and its ⤢ lands it beside the view.
+- Cards have visible edges and a lit selection. `h l` cross columns or lanes, `H L` cross groups, and clickable page arrows turn your page without editing the note. Agents keep their own pick and page. Try **peek** in the kitchen sink.
+- An agent changing or closing the gallery leaves the peek you're reading or editing as your own float. Other select-wired readers keep following; ordinary put-back keeps the follower, and undo restores every select destination.
+- **Run:** after the protocol update, the deployer runs `ep0ch install --apply` on float-2 and the laptop. No schema change.
+
 ### Completion reads and inserts the same in the door and Detail (PIE-1478, PIE-1344)
 
 - **Read before inserting:** each completion row shows its kind and a separate dim detail, with wrapped docs beside the list when there is room or below it. Ten choices, a scroll thumb and `n/total` keep your place; Shift+↑/↓, PgUp/PgDn and the wheel scroll docs.
@@ -23,7 +30,10 @@ are its record. The outliner's entries from then are kept below, under
 - **One source:** Detail reads components, properties and callout types from the service and the same trigger detector as the door. Component docs come from schemas, property counts from facets, and references read their notes lazily. Try the kitchen sink's completion section at wide and narrow sizes.
 - **Run:** loki sets PROTOCOL to main's plus one at the final rebase, then runs `ep0ch install --apply` on each machine. No schema or trigger grammar change.
 
+### A saved view page on the web draws its layouts (PIE-1477)
+
 - Saved view pages on the web draw their table, gallery, feed or board layout through the same renderer as inline views, keeping public members and linked titles within the page's visibility (PIE-1477).
+
 ### Words on a query line become a proposed filter (PIE-1238)
 
 - **Say what to find:** facets, query properties, figures, the power bar and its query prompts, Detail and web search offer a ghost query. Tab or a click accepts, Esc drops, and accepted words teach an editable alias. Grammar completion stays in code; Jev chooses among the outline's keys and values. MCP exposes `query_suggest`.

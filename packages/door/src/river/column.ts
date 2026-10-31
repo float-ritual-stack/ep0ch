@@ -252,11 +252,11 @@ export class RiverColumn extends ReaderPane {
   focused(desk: DeskApi) { this.justFocused = true; this.desk = desk; }
 
   /** A note opened into this column (an open from the column before it): it becomes that note's column. */
-  override hold(m: Msg, desk: DeskApi) {
+  override hold(m: Msg, desk: DeskApi, by: Actor = USER) {
     this.desk = desk;
     this.source = { kind: "block", id: m.id };
     this.root = m; this.items = null; this.sel = 0; this.top = 0; this.matched = null; this.asked++; this.fold.clear();
-    this.show(m, desk);
+    this.show(m, desk, by);
     this.load(desk);
   }
 
@@ -1099,7 +1099,7 @@ export function riverColumnKind(): TileKind {
     // A swipe sideways steps to the column beside, as h and l do.
     sideways: (_p, dir) => modeBinding(FLOW_KEYS, { kind: dir < 0 ? "left" : "right" }) ?? null,
     accepts: { notes: true },
-    take: (p, m, desk) => { const c = p as RiverColumn; if (c.holdsKeys || c.editing) return holdsEdit("the column"); c.hold(m, desk); return null; },
+    take: (p, m, desk, by) => { const c = p as RiverColumn; if (c.holdsKeys || c.editing) return holdsEdit("the column"); c.hold(m, desk, by); return null; },
     holdsWork: p => (p as RiverColumn).unsaved() || (p as RiverColumn).editing,
     shows: p => (p as RiverColumn).noteOf() ?? null,
     opensNext: (_p, m) => ({ t: "leaf", kind: "river.column", source: `block:${m.id}` } as TileSpec),

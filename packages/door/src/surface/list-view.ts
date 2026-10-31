@@ -1,3 +1,4 @@
+import { BORDER_BOXES, stringFrame } from "../canvas";
 // The door's one list (PIE-747, ADR 0004 contract 3): `ListView` is what the `list` primitive, the inline `::links`
 // component and the links tile all draw and step through. It owns the rows it was last given, each actor's pick and
 // filter (the person's drawn as the selection, an agent's in its tint, never moving the person's), the person's typed
@@ -92,11 +93,15 @@ export function listRowLines<S>(r: ListViewRow<S>, o: RowDraw<S>): string[] {
  * under it. A row with no mark is a dot, or a square when it does nothing (a header the view wrote itself).
  */
 export function listRowsOf<S = unknown>(node: Pick<ListPrimitive, "rows" | "groups" | "arrange">): ListViewRow<S>[] {
-  if (node.arrange && node.arrange !== "lanes") return node.rows.map(r => ({ ...r }));
-  return listSections(node).flatMap(({ head, rows }) => [
+  const grouped = listSections(node).flatMap(({ head, rows }) => [
     ...(head ? [{ id: `\u0000group:${head.name ?? head.label}`, label: listHead(head), mark: "▾", tone: "warn" as const, pick: false, group: head.name ?? head.label, ...(head.note ? { detail: head.note } : {}) }] : []),
     ...rows.map((r): ListViewRow<S> => ({ ...r, ...(head ? { group: head.name ?? head.label } : {}), mark: r.mark ?? (r.do ? "·" : "■"), depth: head ? 1 : 0 })),
   ]);
+  if (!node.arrange || node.arrange === "lanes") return grouped;
+  // Keep the sorted row order while retaining the service's separate group occurrences.
+  const byId = new Map<string, ListViewRow<S>[]>();
+  for (const row of grouped) byId.set(row.id, [...(byId.get(row.id) ?? []), row]);
+  return node.rows.flatMap(row => byId.get(row.id) ?? []);
 }
 
 /** What a list says it holds, for `list.blocks` and `peek`: one row as an agent reads it. */
@@ -117,6 +122,7 @@ export interface ListDrawOpts<S> {
   header?: (key: string, text: string) => string;
   link?: (id: string, text: string, revision?: number) => string;
   lane?: (name: string, text: string) => string;
+  pageControl?: (by: number, text: string) => string;
   /** The width of the list and its preview together. */
   cols: number;
   lines?: number;
@@ -163,11 +169,15 @@ export class ListView<S = unknown> {
   private readonly agentPages = new Map<string, number>();
   private pageSize = 200;
   private lanes: ListViewRow<S>[][] = [];
+  private shapes = new Map<string, ListPrimitive>();
+  private columns = 1;
+
+  pageOf(who = PERSON): number { return who === PERSON ? this.page : this.agentPages.get(who) ?? 0; }
 
   pageCount(who: string): number { return Math.max(1, Math.ceil(this.pickable(who).length / this.pageSize)); }
 
   turnPage(who: string, by: number, pages: number): number {
-    const current = who === PERSON ? this.page : this.agentPages.get(who) ?? 0;
+    const current = this.pageOf(who);
     const next = Math.max(0, Math.min(pages - 1, current + by));
     const first = this.pickable(who)[next * this.pageSize];
     if (first) this.pick(who, first.id, first.group);
@@ -180,7 +190,8 @@ export class ListView<S = unknown> {
     if (who === PERSON) this.lane = lane;
   }
 
-  setAnswer(who: string, rows: ListViewRow<S>[]) {
+  setAnswer(who: string, rows: ListViewRow<S>[], shape?: ListPrimitive) {
+    if (shape) this.shapes.set(who, shape);
     if (who === PERSON) this.set(rows);
     else { this.answered.set(who, rows); this.reconcilePage(who); }
   }
@@ -275,9 +286,23 @@ export class ListView<S = unknown> {
     return row;
   }
   /** Move `who`'s pick `by` rows among those that can be selected; null where there's no row that way. */
-  step(who: string, by: number): ListViewRow<S> | null {
-    const rows = this.pickable(who), at = rows.indexOf(this.picked(who)!);
-    const to = (at < 0 ? (by > 0 ? -1 : rows.length) : at) + Math.trunc(by);
+  step(who: string, by: number, axis: "row" | "column" | "group" = "row"): ListViewRow<S> | null {
+    const rows = this.pickable(who), picked = this.picked(who), at = rows.indexOf(picked!);
+    const shape = this.shapes.get(who) ?? this.shapes.get(PERSON);
+    let to = (at < 0 ? (by > 0 ? -1 : rows.length) : at) + Math.trunc(by);
+    if (axis === "group" || axis === "column" && shape?.arrange === "lanes") {
+      const groups = shape?.groups?.length ? axis === "column"
+        ? shape.groups.map(g => rows.filter(r => r.group === g.name || r.group?.startsWith(g.name + "/")))
+        : listSections(shape).map(({ head }) => rows.filter(r => r.group === (head?.name ?? head?.label)))
+        : [...new Set(rows.map(r => r.group))].map(g => rows.filter(r => r.group === g));
+      const from = groups.findIndex(g => g.includes(picked!)), next = groups[(from < 0 ? -1 : from) + Math.trunc(by)];
+      const index = axis === "column" ? Math.max(0, groups[from]?.indexOf(picked!) ?? 0) : 0;
+      to = next?.length ? rows.indexOf(next[Math.min(index, next.length - 1)]!) : at;
+    } else if (shape?.arrange === "grid") {
+      if (axis === "row") to = at < 0 ? 0 : at + Math.trunc(by) * this.columns;
+      else if (at >= 0 && Math.floor((at % this.pageSize) / this.columns) !== Math.floor((to % this.pageSize) / this.columns)) to = at;
+    } else if (axis === "column") to = at;
+    if (to === at) return null;
     const row = rows[Math.max(0, Math.min(rows.length - 1, to))];
     if (!row || (to < 0 || to >= rows.length) && at >= 0 && rows[at] === row) return null;
     this.setPick(who, row.id, row.group);
@@ -319,6 +344,7 @@ export class ListView<S = unknown> {
    */
   draw(o: ListDrawOpts<S>): ListDrawn<S> {
     this.selectionStyle = o.primitive?.arrange ? "frame" : "row";
+    if (o.primitive) this.shapes.set(PERSON, o.primitive);
     if (o.primitive?.arrange) {
       const drawn = this.arranged(o, o.primitive), filter = o.filterLine === false ? null : this.filterRow(o.cols);
       return filter === null ? drawn : { ...drawn, lines: [filter, ...drawn.lines], rowAt: [null, ...drawn.rowAt] };
@@ -411,7 +437,9 @@ export class ListView<S = unknown> {
     const card = (row: ListViewRow<S>, cols: number, record = false): string[] => {
       const cell = record ? row.cells?.[titleAt] ?? row.label : row.label;
       const title = typeof cell === "object" && cell.link ? o.link?.(cell.link, cell.text, cell.revision) ?? cell.text : listCellText(cell);
-      const lines = primitiveLines({ type: "card", title: `${sameRow(row, mine) ? "▸ " : ""}${title}`,
+      const selected = sameRow(row, mine), agent = this.others().some(a => sameRow(a.row, row));
+      const f = stringFrame(cols, { glyphs: selected ? BORDER_BOXES.heavy : BORDER_BOXES.line, ink: fg(selected ? C.lcyan : agent ? C.lmagenta : C.dark) + (selected ? BOLD : ""), pad: 0 });
+      const content = primitiveLines({ type: "card", title: `${sameRow(row, mine) ? "▸ " : ""}${title}`,
       ...(record ? {} : { subtitle: row.detail }), children: [
         ...(!record && row.cover ? [{ type: "image", src: row.cover, caption: false, height: node.size === "large" ? 8 : 4 }] : []),
         ...(record ? (node.columns ?? []).flatMap((key, i) => {
@@ -420,7 +448,8 @@ export class ListView<S = unknown> {
           return [{ type: "text", ...(typeof cell === "object" ? cell : {}), text: rowLines(`${node.headers?.[i] ?? key}: ${listCellText(cell)}`, Math.max(8, cols - 2), sameRow(row, expanded) ? Infinity : 4).join("\n") }];
         }) : []),
         ...(row.body ?? []).map(text => ({ type: "text", text })),
-      ] }, cols, { link: o.link });
+      ] }, f.inner, { link: o.link });
+      const lines = [f.top(), ...content.map(f.row), f.bottom()];
       if (!o.tag) return lines;
       const [before, after] = o.tag(row, "\u0000").split("\u0000");
       return lines.map(line => before + line + after);
@@ -441,6 +470,7 @@ export class ListView<S = unknown> {
           ...(shown.length < keys.length ? [fg(C.dark) + `+ ${keys.length - shown.length} columns · widen to see them` + RESET] : [])];
       }
       const per = arrange === "grid" && tier(cols) !== "narrow" ? Math.max(1, Math.floor(cols / (node.size === "large" && tier(cols) === "wide" ? 44 : 29))) : 1;
+      if (arrange === "grid") this.columns = per;
       const cw = Math.floor((cols - 2 * (per - 1)) / per), out: string[] = [];
       for (let i = 0; i < own.length; i += per) out.push(...combine(own.slice(i, i + per).map(row => card(row, cw, arrange === "table")), cw), "");
       return out;
@@ -470,7 +500,9 @@ export class ListView<S = unknown> {
       ];
     } else lines = drawRows(ordered, o.cols, node.arrange);
     if (!ordered.length) lines.push(fg(C.dark) + (node.empty ?? "No matching notes") + RESET);
-    for (const other of this.others()) if (other.row || other.filter) lines.push(fg(C.lmagenta) + `${other.who}: ${other.row?.label ?? ""}${other.filter ? ` / ${other.filter}` : ""}` + RESET);
+    const pages = this.pageCount(PERSON);
+    if (pages > 1) lines.push(`${o.pageControl?.(-1, "◀") ?? "◀"} ${this.page + 1}/${pages} ${o.pageControl?.(1, "▶") ?? "▶"}`);
+    for (const other of this.others()) if (other.row || other.filter) lines.push(fg(C.lmagenta) + `${other.who}: page ${this.pageOf(other.who) + 1}/${this.pageCount(other.who)} · ${other.row?.label ?? ""}${other.filter ? ` / ${other.filter}` : ""}` + RESET);
     return { lines, rowAt: lines.map(() => null), previewed: null, beside: false, listCols: o.cols };
   }
 }
