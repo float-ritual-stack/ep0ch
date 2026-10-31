@@ -96,7 +96,9 @@ export async function drawNoteComponents(
 }
 
 async function drawCollection(host: LiveHost, note: string, spec: ViewSpec): Promise<string> {
-  const answer = await produced(host, note, { kind: "view", props: spec.props }, spec.args);
+  let answer: SiteProduced;
+  try { answer = await produced(host, note, { kind: "view", props: spec.props }, spec.args); }
+  catch (error) { return figureFrame("view", String(spec.props.title ?? "Collection"), "", "live", trouble(error)); }
   if (answer.kind !== "view") return "";
   const html = renderComponent({ data: null, view: answer.view }, "html").body.replace(/<span data-collection-open="([^"]+)">([\s\S]*?)<\/span>/g, (_, id: string, label: string) => {
     const href = host.href(id);
