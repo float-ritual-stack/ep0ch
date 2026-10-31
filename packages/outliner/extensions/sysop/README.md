@@ -16,11 +16,12 @@ The boring infrastructure monk watches your machines and leaves one health note 
 
 ## Good to know
 
-- **Every minute, once per host:** machines run in parallel, with an eight-second deadline each.
+- **Every minute, once per host:** samples run in parallel, with an eight-second deadline each.
 - **One alert per crossing:** changing numbers during the same trip do not page again.
 - **The day's worst stays:** recovery clears `needs` and the warning band, but keeps a degraded day's glyph.
 - **Sleeping is normal:** a missed sample says “asleep since” the first miss, including across midnight.
 - **Your words stay:** ticks replace the generated figures and owned properties, preserving your other text.
+  - Prose between figures stays; properties can move onto metadata lines.
 
 ## Setup
 
@@ -31,6 +32,7 @@ The boring infrastructure monk watches your machines and leaves one health note 
 - **Warning bands:** install `shout` with `ep0ch ext add shout`; the warning text is readable without it.
 - **Remove:** `ep0ch ext remove sysop --demo remove` trashes its unchanged output and demos.
   - A note you edited or added children under stays, and the removal answer names it.
+  - A running call finishes before cleanup, so it cannot leave new notes behind.
 
 ## How it works
 
@@ -40,6 +42,8 @@ The boring infrastructure monk watches your machines and leaves one health note 
 - **macOS:** reads `sysctl`, `vm_stat`, `df` and RSS; memory free includes inactive pages.
   - macOS has no systemd user units; this watch does not invent an equivalent failure state.
 - **A restart:** the recorded user unit or Docker container only; it never kills a pid.
+  - Calm waits up to 35 seconds, then samples again; invalid thresholds stay visible and no restart runs.
+- **Local user units:** inherit the host's systemd session; a failed query is an unavailable sample.
 - **Attribution:** the extension grant records `ext:sysop`, with whoever asked for `calm` beside it.
 - **Door messages:** a manual action answers in that door's message line.
   - A scheduled run writes the page's warning and `needs`; it cannot broadcast a transient message to every door.

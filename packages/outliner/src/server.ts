@@ -315,7 +315,7 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
 const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "outputs.place", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch"]);
 const EXTENSION_READS: ReadonlySet<string> = new Set([
   "children", "blocks.read", "blocks.context", "block.revisions", "proposals.outcomes", "blocks.authored-links", "changes.since", "activity.recent",
-  "annotations.get", "fragments.read", "fragments.at", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
+  "annotations.get", "fragments.read", "fragments.at", "fragments.candidates", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
   "properties.preview", "properties.catalog", "components.schemas", "components.usage", "headings.styles", "callouts.types", "styles.list",
   "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address", "site.answer", "site.sources", "template.use", "template.props",
 ]);
@@ -816,6 +816,7 @@ export class OutlinerServer {
       await this.syncExtensionPages(true);
       return { id, lines, removed: !!entry, demo: { trashed: 0, kept: [], left: this.extensionPages.demoCount(id) } };
     }
+    await this.extensionRuntime.whenIdle(id);
     const removal = demo === "remove" ? this.extensionPages.removeDemo(id, requestedBy) : { trashed: 0, kept: [] };
     await this.syncExtensionPages(true);
     const left = this.extensionPages.demoCount(id);

@@ -37,6 +37,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   test("sysop shows a machine trip and calm updates the page through its real action", async () => {
     await app.act({ action: "section", args: { name: "sysop" }, as: "test-agent" });
     await until(() => screen().includes("kiln") && screen().includes("TEMPO"), "the sysop warning band");
+    expect(screen()).not.toContain("::box");
     const result = await app.act({ action: "ext.sysop.calm", args: { machine: "kiln" }, as: "test-agent" });
     expect(JSON.stringify(result)).toContain("docker restart kiln-tempo");
     await until(() => screen().includes("8.0G"), "the reading after calm");

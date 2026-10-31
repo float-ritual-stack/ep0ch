@@ -1593,7 +1593,9 @@ available to other extensions through `site.answer`.
 ### Writes anywhere, through the normal paths
 
 Over its connection an extension may **read** (`get`, `children`, `pages.resolve`, `blocks.query`, `tree.search`,
-`annotations.list`, `changes.since`, `notes.address`, `notes.render`, …) and **write** through the paths a person's or an agent's writes take:
+`annotations.list`, `changes.since`, `notes.address`, `notes.render`, …) and **write** through the paths a person's or an agent's writes take.
+Use `fragments.candidates` with `blockIds` and `fragments.read` to locate generated components without replacing
+nearby prose; `properties.preview` returns the shared parser's token offsets and scopes for property edits.
 
 | Write | Request | What holds |
 |---|---|---|

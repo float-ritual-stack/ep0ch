@@ -339,6 +339,11 @@ export interface ExtensionRunStatus {
 
 export class ResourceExtensionRuntime {
   private readonly runs = new Map<string, ExtensionRunStatus>();
+  private readonly active = new Map<string, Set<Promise<ExtensionResult>>>();
+  /** Uninstall waits for outstanding writes before it removes generated notes. */
+  async whenIdle(extensionId: string): Promise<void> {
+    await Promise.allSettled(this.active.get(extensionId) ?? []);
+  }
   /** What an extension's last call did (absent before its first). */
   lastRun(extensionId: string): ExtensionRunStatus | undefined {
     return this.runs.get(extensionId);
@@ -527,14 +532,21 @@ export class ResourceExtensionRuntime {
     unchanged: () => Promise<boolean>,
   ): Promise<ExtensionResult> {
     const call = callFor.label ?? `ext.${loaded.manifest.id}.${operation}`;
+    const active = this.active.get(provider) ?? new Set<Promise<ExtensionResult>>();
+    this.active.set(provider, active);
+    const pending = this.invokeProcess(provider, loaded, operation, input, signal, deadlineMs, callFor, unchanged);
+    active.add(pending);
     try {
-      const result = await this.invokeProcess(provider, loaded, operation, input, signal, deadlineMs, callFor, unchanged);
+      const result = await pending;
       this.runs.set(loaded.manifest.id, { at: new Date().toISOString(), call, ok: true });
       return result;
     } catch (error) {
       const reason = error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error);
       this.runs.set(loaded.manifest.id, { at: new Date().toISOString(), call, ok: false, error: reason });
       throw error;
+    } finally {
+      active.delete(pending);
+      if (!active.size) this.active.delete(provider);
     }
   }
 

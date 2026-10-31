@@ -39,7 +39,7 @@ export const SNIPPET = [
   "echo @@load; cat /proc/loadavg",
   "echo @@cpus; nproc",
   "echo @@disk; df -B1 -P /",
-  "echo @@failed; systemctl --user --failed --no-pager --plain --no-legend 2>/dev/null",
+  "echo @@failed; systemctl --user --failed --no-pager --plain --no-legend || exit 1",
   "echo @@top; ps -eo pid,rss,args --sort=-rss --no-headers 2>/dev/null | head -3",
   "echo @@cgroup; for p in $(ps -eo pid --sort=-rss --no-headers 2>/dev/null | head -3); do echo \"$p $(head -1 /proc/$p/cgroup 2>/dev/null)\"; done",
   "fi",
@@ -191,18 +191,6 @@ export const statusOf = (value: string | undefined): Status => (value === "degra
 
 /** A property value holds no `]` and no newline. */
 export const value = (text: string): string => text.replace(/[\]\r\n]+/g, " ").trim();
-
-/** The first line of `text` with these properties set (or taken out, null): the one place a line's tokens are edited. */
-export function withProps(text: string, changes: Record<string, string | null>): string {
-  const lines = text.split("\n");
-  let line = lines[0] ?? "";
-  for (const [key, next] of Object.entries(changes)) {
-    line = line.replace(new RegExp(`\\s?\\[${key.replace(/[.-]/g, "\\$&")}::[^\\]\\n]*\\]`, "g"), "");
-    if (next !== null) line += ` [${key}::${value(next)}]`;
-  }
-  lines[0] = line;
-  return lines.join("\n");
-}
 
 /** The machines the page names: `[machines::float-2, float-box, laptop]`. */
 export const machinesOf = (text: string | undefined): string[] => (text ?? "").split(",").map((m) => m.trim()).filter(Boolean);
