@@ -131,6 +131,7 @@ export const marks: Record<string, string[]> = {
   // Line chips (PIE-1277): the header-only view and the one that reads every line, which says the line.
   "line-asks": ["Club asks, header only", "Club asks, any line", "line 12 to do"],
   runbook: ["Try a terminal runbook", "[run]"],
+  "sh-lines": ["Shell lines keep their output", "ls | as files"],
   // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
   "ext-pages": ["Extensions", "## Installed", "Notifications hub", "Your GitHub notifications"],
   "ext-settings": ["Agents can't set each other off"],
