@@ -134,14 +134,21 @@ export function componentAttrs(attrs: string): { classes: string[]; pairs: { key
   return { classes, pairs };
 }
 
-/** The attribute name or value being written; closed quotes and braces leave completion. */
+/**
+ * The attribute name or value being written; closed quotes and braces leave completion. A component call
+ * (`::board{where="…"`) and a handler line (`board:: where="…"`, PIE-1472) are two spellings of one call to a script, so both
+ * read here and `component` is the script's name either way.
+ */
 export function componentAttributeAtCursor(line: string, column: number): {
   component: string; kind: "attribute" | "attribute-value"; start: number; end: number; query: string;
   key?: string; quote?: string; existingValue?: boolean; attrs: { key: string; value: string }[];
 } | null {
-  const opening = /^ {0,3}::([a-z][a-z0-9-]*)\{/.exec(line);
+  const opening = /^ {0,3}(?:::([a-z][a-z0-9-]*)\{|(?:[-*+] {1,3})?([a-z][a-z0-9-]*):: )/.exec(line);
   if (!opening || column < opening[0].length) return null;
+  const name = opening[1] ?? opening[2]!, braced = opening[1] !== undefined;
   const from = opening[0].length, before = line.slice(from, column);
+  // A property chip inside a handler line (`img:: /tmp/a.jpg [size::4`) is the property's to complete, not a slot's.
+  if (!braced && /\[[^\]]*$/.test(before)) return null;
   const words = splitWords(before, false, false).flat();
   const last = words.at(-1);
   const active = last && before.endsWith(last.raw) ? last : null;
@@ -155,9 +162,9 @@ export function componentAttributeAtCursor(line: string, column: number): {
   // Exclude the active word, but keep the producer and used keys on either side of it.
   const after = line.slice(wordEnd).replace(/}\s*$/, "");
   const attrs = componentAttrs(before.slice(0, start - from) + " " + after).pairs;
-  if (words.some(w => w.raw.endsWith("}") && !w.raw.endsWith("}}") && !w.quote)) return null;
+  if (braced && words.some(w => w.raw.endsWith("}") && !w.raw.endsWith("}}") && !w.quote)) return null;
   if (eq < 0) {
-    return { component: opening[1]!, kind: "attribute", start, end: keyEnd, query: active?.value ?? "", existingValue: line[keyEnd] === "=", attrs };
+    return { component: name, kind: "attribute", start, end: keyEnd, query: active?.value ?? "", existingValue: line[keyEnd] === "=", attrs };
   }
   const key = raw.slice(0, eq), value = raw.slice(eq + 1), quote = QUOTES[value[0]!];
   if (quote && !active?.quote) return null;
@@ -166,7 +173,7 @@ export function componentAttributeAtCursor(line: string, column: number): {
   let remaining = quote ? tail.indexOf(quote) : tail.search(/[\s}]/);
   while (quote && remaining >= 0 && isEscapedAt(line, column + remaining)) remaining = tail.indexOf(quote, remaining + 1);
   const end = remaining < 0 ? line.length : column + remaining + Number(!!quote);
-  return { component: opening[1]!, kind: "attribute-value", start: valueStart, end, query: active!.value.slice(key.length + 1), key, quote, attrs };
+  return { component: name, kind: "attribute-value", start: valueStart, end, query: active!.value.slice(key.length + 1), key, quote, attrs };
 }
 
 /** A component block found in a note's lines: its name, its arguments, and its first and last line (inclusive). */

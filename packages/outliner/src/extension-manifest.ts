@@ -202,7 +202,7 @@ const Action = Type.Object(
     schedule: Type.Optional(ScheduleSchema),
     deadline: Type.Optional(Duration),
     /** What it asks for (PIE-784): a client prompts for them, `act` takes them, agents see them. */
-    args: Type.Optional(Type.Array(ActionArg, { maxItems: 8 })),
+    args: Type.Optional(Type.Array(ActionArg, { maxItems: 16 })),
     /**
      * `block` (PIE-828): it also asks for the fields the block it runs on declares, as `[form-field::<name> <type> …]`
      * chips (outline-core's form-fields.ts), after its own `args`; the service checks them as it checks those. One

@@ -181,3 +181,39 @@ test("group= offers the keys where='s rows carry, most carried first; where=\" c
   expect(where.length).toBeGreaterThan(0);
   expect(where.some(r => r.label.startsWith("type"))).toBe(true);
 });
+
+test("[query:: completes the grammar (atoms, this, NOT, dates) beside the keys and values the notes have", async () => {
+  const { create, rows } = await setup([]);
+  await create("Planning call [type::meeting] [when::2031-03-02]");
+  const values = async (query: string) => merged(await rows("value", query, { key: "query" }), query).map(row => insertText(row.insert));
+  expect(await values("type=meeting AND under:t")).toContain("type=meeting AND under:this]");
+  expect(await values("")).toEqual(expect.arrayContaining(["under:", "NOT", "type=meeting]"]));
+  expect(await values("when>=-")).toContain("when>=-7d]");
+  // A key that isn't a query gets none of it.
+  expect(merged(await rows("value", "under:", { key: "status" }), "under:").map(row => insertText(row.insert))).not.toContain("under:this]");
+});
+
+test("a handler line completes the slots its script declares: names with their words, then a query slot's grammar (PIE-1472)", async () => {
+  const { list, rows, create } = await setup(["lens"]);
+  await list(true);
+  await create("Planning call [type::meeting] [when::2031-03-02]");
+  const slots = await rows("attribute", "", { component: "lens", attrs: [{ key: "columns", value: "title" }] });
+  const names = merged(slots, "").map(r => r.label);
+  expect(names).toEqual(expect.arrayContaining(["query", "view", "edit", "sort", "dir", "avg", "title"]));
+  expect(names).not.toContain("columns");
+  expect(merged(slots, "").find(r => r.label === "query")!.docs).toContain("grammar");
+  const query = (text: string) => rows("attribute-value", text, { component: "lens", key: "query", quote: '"', attrs: [] });
+  expect(merged(await query("type=meeting AND un"), "").map(r => r.label)).toEqual(expect.arrayContaining(["type=meeting AND under:", "type=meeting AND unread:"]));
+  // A slot that names properties offers the keys the line's own query rows carry.
+  const sort = await rows("attribute-value", "wh", { component: "lens", key: "sort", quote: '"', attrs: [{ key: "query", value: "type=meeting" }] });
+  expect(merged(sort, "").map(r => r.label)).toContain("when");
+});
+
+test("a figure's query: written in YAML quotes still completes the grammar; the quote is decoded, not offered (PIE-1472)", async () => {
+  const { rows } = await setup([]);
+  const labels = async (query: string) => merged(await rows("yaml-value", query, { component: "graph-tabs", key: "query" }), query).map(r => insertText(r.insert));
+  // The first pick wrote `"#garden AND under:"`; the next lookup is asked from inside that quote.
+  expect(await labels('"#garden AND un')).toEqual(expect.arrayContaining(['"#garden AND under:"', '"#garden AND unread:"']));
+  expect(await labels('"#garden AND under:t')).toContain('"#garden AND under:this"');
+  expect(await labels("'#garden AND under:t")).toContain('"#garden AND under:this"');
+});

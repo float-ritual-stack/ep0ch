@@ -167,6 +167,19 @@ export function readDateBound(text: string, now = wallClock(Date.now())): When |
   return readDate(text, now);
 }
 
+/** The bounds `readDateBound` reads, each with what it means: what a query's completion offers after `updated >=`. Every word here reads (dates.test.ts). */
+export const QUERY_DATE_HELP: readonly { word: string; means: string }[] = [
+  { word: "today", means: "the whole of today" },
+  { word: "yesterday", means: "the whole of yesterday" },
+  { word: "tomorrow", means: "the whole of tomorrow" },
+  { word: "now", means: "this moment" },
+  { word: "-7d", means: "that calendar day, seven days ago (d and w count whole days)" },
+  { word: "+3d", means: "that calendar day, three days ahead" },
+  { word: "-1w", means: "that day, a week ago" },
+  { word: "-2h", means: "that moment, two hours ago (m and h count from now)" },
+  { word: "-30m", means: "that moment, half an hour ago" },
+];
+
 /**
  * Whether `subject` (a value's date) stands `op` to `bound`, any day of a span counting: `<` starts before the bound
  * does, `<=` starts by its end, `>` ends after its end, `>=` ends at or after its start, `=` shares a moment with it.

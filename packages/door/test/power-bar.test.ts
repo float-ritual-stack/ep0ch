@@ -554,6 +554,24 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(answered!).toEqual({ name: "the bean row" });
   });
 
+  test("a suggestion that starts a clause fills the input and goes on; a whole one answers (PIE-1472)", async () => {
+    let answered: Record<string, string> | null = null;
+    const suggest = async () => [{ value: "under:", open: true as const, detail: "the target and everything under it" }, { value: "type=meeting" }];
+    await askInBar(app as any, "Narrow", [{ name: "query", type: "text", free: true, suggest }], {}, USER, async a => { answered = a; });
+    type("un");
+    await (app as any).bar.settled();
+    const rows = peek().bar.rows.map((r: any) => r.label);
+    key({ kind: "down" });
+    expect(peek().bar.rows[peek().bar.selected - 1].label).toBe("under:");
+    key({ kind: "enter" });
+    await until(() => answered !== null || peek().bar?.query === "under:", "the pick taken", 3000);
+    // Not submitted: the input holds the clause so far, and the question is still open.
+    expect(answered).toBeNull();
+    expect(peek().bar).toMatchObject({ scope: "ask", query: "under:" });
+    expect(rows).toContain("under:");
+    closeBar();
+  });
+
   test("an action line is offered first in any scope, and ⏎ there runs it; never in an argument's answer (PIE-856)", async () => {
     // In the notes scope: the line's row first, under the actions heading, then the notes found.
     key(ctrlK); type('/tile.open kind=query query="#seed-list"');

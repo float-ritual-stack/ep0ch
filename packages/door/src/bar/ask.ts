@@ -70,7 +70,8 @@ export interface AskForm {
 }
 
 /** One answer a question's `suggest` offers: the whole value, and how it's shown. */
-export interface BarSuggestion { value: string; label?: string; detail?: string }
+/** `open`: the value starts a longer answer (a query's `under:`): picked, it fills the input and asks again instead of answering. */
+export interface BarSuggestion { value: string; label?: string; detail?: string; open?: true }
 
 const ASK_SCOPE = "ask";
 /**
@@ -289,7 +290,7 @@ const ASK_SOURCE: BarSource = {
       const typedRow = q.free && typed ? [{ key: `answer:${typed}`, label: typed, detail: "as typed", group: head, data: typed }] : [];
       const nowRow = !typed && q.value !== undefined ? [{ key: `answer:${q.value}`, label: q.value, detail: "now", group: head, data: q.value }] : [];
       const rows = (found: readonly BarSuggestion[]): BarRow[] => [...typedRow, ...nowRow, ...found.filter(f => f.value !== typed && !(nowRow.length && f.value === q.value))
-        .map(f => ({ key: `answer:${f.value}`, label: f.label ?? f.value, ...(f.detail ? { detail: f.detail } : {}), group: head, data: f.value }))];
+        .map(f => ({ key: `${f.open ? "open" : "answer"}:${f.value}`, label: f.label ?? f.value, ...(f.detail ? { detail: f.detail } : {}), group: head, data: f.value }))];
       return Promise.resolve(q.suggest(query)).then(rows, () => rows([]));
     }
     // A question of a kind (a note, a screen, a file) lists that kind's values, as the same field in a form does (PIE-1298: a
@@ -338,6 +339,7 @@ const ASK_SOURCE: BarSource = {
     const q = question();
     if (!q || !waiting) throw new ActionRefused("nothing is waiting on an answer");
     if (row.data === undefined) throw new ActionRefused(`type the ${q.label ?? q.name} first, then ⏎`);
+    if (row.key.startsWith("open:")) return host.dispatch.press("bar.open", { scope: ASK_SCOPE, query: String(row.data) });
     waiting.answers[q.name] = String(row.data);
     if (question()) return how.actor.kind === "agent" ? { asking: question()!.name } : host.dispatch.press("bar.open", { scope: ASK_SCOPE });
     const done = waiting;

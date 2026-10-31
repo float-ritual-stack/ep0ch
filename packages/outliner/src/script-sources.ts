@@ -67,10 +67,15 @@ export function propsUsed(code: string): string[] {
  * button's empty slot is asked in that kind and the power bar lists it the same way.
  */
 export function declaredSlots(script: Pick<ScriptSource, "code" | "fields" | "file">): ExtensionActionArg[] {
-  const values = script.fields ?? (script.file ? parsePropertyRecords(leadingComments(script.code)).filter(p => p.key === FORM_FIELD_KEY).map(p => p.value) : []);
+  const comments = script.file ? leadingComments(script.code) : "";
+  const values = script.fields ?? (script.file ? parsePropertyRecords(comments).filter(p => p.key === FORM_FIELD_KEY).map(p => p.value) : []);
+  // A file script's slot says what it means after its chip (`// [form-field::sort property]: the column the rows are sorted by`).
+  const said = new Map<string, string>();
+  for (const m of comments.matchAll(/\[form-field::([a-z][a-z0-9_-]*)[^\]]*\]\s*:\s*(.+)$/gm)) said.set(m[1]!, m[2]!.trim().slice(0, 200));
   // A name the run's request already uses (block, tile, …) is no declared slot: the door would read it as the request's own.
   // A `property:<key>` (a value of that property) has no run-argument type: it stays text rather than read as a property's name.
   return formFields(values).fields.map(f => ({ name: f.name, type: (FORM_FIELD_TYPES as readonly string[]).includes(f.type) ? f.type as ExtensionActionArg["type"] : "text",
+    ...(said.has(f.name) ? { description: said.get(f.name)! } : {}),
     ...(f.options ? { options: f.options } : {}), ...(f.required ? { required: true } : {}), ...(f.default !== undefined ? { default: f.default } : {}) }));
 }
 const leadingComments = (code: string) => {

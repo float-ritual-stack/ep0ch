@@ -56,19 +56,38 @@ export class QueryAtomError extends Error {
 }
 
 /** The atoms, for docs, `--help-query` and the skill: generated from here so nobody learns a stale grammar. */
-export const QUERY_ATOM_HELP: readonly { atom: string; means: string; example: string }[] = [
-  { atom: "#tag", means: "blocks carrying the tag; #jazz also matches nested tags like jazz/hands", example: "#jazz" },
-  { atom: "links:<target>", means: "blocks whose text or properties link to the target (the backlink index)", example: "links:[[garden]]  links:((8f3a2c1d))  links:PIE-123  links:this" },
-  { atom: "linkedfrom:<target>", means: "blocks the target links to (its outlinks that are blocks): the counterpart of links:", example: "linkedfrom:[[garden]]  links:this NOT linkedfrom:this" },
-  { atom: "under:<target>", means: "blocks in the target's subtree, the target itself included", example: "under:[[projects]]  under:((8f3a2c1d))" },
-  { atom: "parent:<target>", means: "the target's direct children (under: is the whole subtree)", example: "parent:[[projects]]  parent:this" },
-  { atom: "this", means: "as a target, the block the question is asked for: the note a component sits in, the note a tile is aimed at", example: "links:this  parent:this" },
-  { atom: "title~text", means: "blocks whose title contains the text, ignoring case; quote it for spaces", example: 'title~roadmap  title~"weekly review"' },
-  { atom: "call:<id>", means: "blocks whose latest change (else their creation) came from that call (an MCP caller's visit; the id list_outlines tells a caller, recorded with every write it makes; the MCP server also takes its readable handle and swaps in the id)", example: "call:c-7f3a1c" },
-  { atom: "text~text", means: "blocks whose whole text contains the text, ignoring case", example: 'text~"watering can"' },
-  { atom: "unread:<reader>", means: "blocks the reader hasn't read at their current revision (never opened, or changed since); me is the person, and an agent names its own actor id", example: "unread:me  type=annotation-reply unread:me" },
-  { atom: "by:<who>", means: "blocks whose latest write was by who: an author (user, agent, system) or an actor id (claude-code@float-2, loki, ext:jira); with revision >= 2 and NOT machine, what people wrote", example: "by:user  by:agent NOT machine  by:loki updated >= today  revision >= 2" },
-  { atom: "thread:<reader>", means: "comments and replies in the threads the reader started or wrote in; me is the person, an agent names its actor id", example: "type=annotation-reply thread:me NOT annotation-source=user" },
+export const QUERY_ATOM_HELP: readonly { atom: string; means: string; example: string; gist: string }[] = [
+  { atom: "#tag", gist: "blocks carrying the tag", means: "blocks carrying the tag; #jazz also matches nested tags like jazz/hands", example: "#jazz" },
+  { atom: "links:<target>", gist: "blocks that link to the target", means: "blocks whose text or properties link to the target (the backlink index)", example: "links:[[garden]]  links:((8f3a2c1d))  links:PIE-123  links:this" },
+  { atom: "linkedfrom:<target>", gist: "blocks the target links to", means: "blocks the target links to (its outlinks that are blocks): the counterpart of links:", example: "linkedfrom:[[garden]]  links:this NOT linkedfrom:this" },
+  { atom: "under:<target>", gist: "the target and everything under it", means: "blocks in the target's subtree, the target itself included", example: "under:[[projects]]  under:((8f3a2c1d))" },
+  { atom: "parent:<target>", gist: "the target's direct children", means: "the target's direct children (under: is the whole subtree)", example: "parent:[[projects]]  parent:this" },
+  { atom: "this", gist: "the note the question is asked for", means: "as a target, the block the question is asked for: the note a component sits in, the note a tile is aimed at", example: "links:this  parent:this" },
+  { atom: "title~text", gist: "title contains the text", means: "blocks whose title contains the text, ignoring case; quote it for spaces", example: 'title~roadmap  title~"weekly review"' },
+  { atom: "call:<id>", gist: "changed by that MCP call", means: "blocks whose latest change (else their creation) came from that call (an MCP caller's visit; the id list_outlines tells a caller, recorded with every write it makes; the MCP server also takes its readable handle and swaps in the id)", example: "call:c-7f3a1c" },
+  { atom: "text~text", gist: "text contains the text", means: "blocks whose whole text contains the text, ignoring case", example: 'text~"watering can"' },
+  { atom: "child:<clause>", gist: "a direct child has the property", means: "blocks with a direct child that matches the clause; child>=2: wants at least two such children", example: "child:type=virtual-branch  child>=2:status=open" },
+  { atom: "{{this.key}}", gist: "this note's own value for key", means: "as a value, what the note the question is asked for has for key; {{this.page}} is its page address (a daily note's date): one line serves every note", example: "owner={{this.owner}}  when={{this.page}}" },
+  { atom: "unread:<reader>", gist: "blocks the reader hasn't read", means: "blocks the reader hasn't read at their current revision (never opened, or changed since); me is the person, and an agent names its own actor id", example: "unread:me  type=annotation-reply unread:me" },
+  { atom: "by:<who>", gist: "last written by user, agent or an actor id", means: "blocks whose latest write was by who: an author (user, agent, system) or an actor id (claude-code@float-2, loki, ext:jira); with revision >= 2 and NOT machine, what people wrote", example: "by:user  by:agent NOT machine  by:loki updated >= today  revision >= 2" },
+  { atom: "thread:<reader>", gist: "comments in the reader's threads", means: "comments and replies in the threads the reader started or wrote in; me is the person, an agent names its actor id", example: "type=annotation-reply thread:me NOT annotation-source=user" },
+];
+
+/** `AND`, `OR`, `NOT` and the group: how clauses combine, described here so completion reads them from the grammar's table. */
+export const QUERY_CONNECTIVE_HELP: readonly { word: string; means: string }[] = [
+  { word: "AND", means: "both clauses hold (writing two clauses side by side means the same)" },
+  { word: "OR", means: "either clause holds" },
+  { word: "NOT", means: "the next clause does not hold" },
+  { word: "(", means: "group clauses so AND and OR combine as you mean" },
+];
+
+/** What `by:` takes besides an actor id. */
+export const QUERY_BY_AUTHORS: readonly string[] = ["user", "agent", "system"];
+
+/** The range keys every block has: compared to a date (`updated >= -7d`), see QUERY_DATE_HELP in dates.ts. */
+export const QUERY_RANGE_HELP: readonly { key: string; means: string }[] = [
+  { key: "updated", means: "when the block last changed" },
+  { key: "created", means: "when the block was made" },
 ];
 
 const ATOM_HEAD = /^(?:#|(?:links|linkedfrom|under|parent|call|unread|thread|by):|(?:title|text)~)/i;
