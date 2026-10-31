@@ -402,7 +402,8 @@ const USAGE = `usage: outliner ext ls [--long] [--json]
   shows its diff and asks (--yes takes it, your files kept in extensions-forks/ beside the folder first; --keep-forked
   only lists it). Without --outline-folder it looks in the user folder and every outline's own.
   Folders are watched: add and remove apply without a restart. Installing writes the extension's page under the
-  outline's Extensions hub, with its demo notes once; remove keeps the demo notes unless --demo remove.
+  outline's Extensions hub, with its demo notes once; install is another name for add. Remove keeps the demo notes
+  unless --demo remove, switches off their rule-on notes, and reinstalling switches them back on.
   Extensions are trusted code, not a sandbox: they run as the service user.`;
 
 export interface ExtClient { request<T>(input: Record<string, unknown>): Promise<T> }
@@ -430,7 +431,8 @@ function print(line: string): void {
 }
 
 export async function runExtCommand(args: readonly string[], connect: () => Promise<ExtClient | null> = serviceClient): Promise<number> {
-  const [operation, ...rest] = args;
+  const [verb, ...rest] = args;
+  const operation = verb === "install" ? "add" : verb;
   try {
     if (operation === "add" || operation === "remove" || operation === "rm") {
       const { values, positionals } = parseArgs({
@@ -444,6 +446,8 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
       }
       const outlineFolder = values["outline-folder"] ? resolve(values["outline-folder"]) : undefined;
       const client = await connect();
+      const before = operation === "add" && client
+        ? await client.request<{ disabledRules?: Record<string, number> }>({ action: "extensions.list" }) : undefined;
       // `remove <name> --demo remove` with the folder already gone takes out only what it left in the outline.
       const folderGone = operation !== "add" && !!client && values.demo === "remove" && (() => {
         try { return !existsSync(join(targetRoot(outlineFolder), name, "extension.json")); } catch { return false; }
@@ -454,13 +458,15 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
       for (const line of lines) print(line);
       // Say what the service made of it when one is running here.
       if (client) {
-        const list = await client.request<ExtensionsListResult & { pages?: Record<string, string> }>({ action: "extensions.list", reload: true });
+        const list = await client.request<ExtensionsListResult & { pages?: Record<string, string>; disabledRules?: Record<string, number> }>({ action: "extensions.list", reload: true });
         const id = operation === "add" ? lines[0]!.split(" ")[1]! : name;
         const entry = list.extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
         if (operation === "add") {
           print(entry ? `service: ${id} is ${entry.state}${entry.error ? `: ${entry.error}` : ""}` : `service: ${id} isn't in a folder this outline reads (${list.roots.map((root) => root.path).join(", ")})`);
           // Its page, with its README and demo notes (src/extension-pages.ts).
           if (list.pages?.[id]) print(`its page: ${list.pages[id]} (ep0ch show ${list.pages[id]})`);
+          const rulesEnabled = (before?.disabledRules?.[id] ?? 0) - (list.disabledRules?.[id] ?? 0);
+          if (rulesEnabled) print(`${rulesEnabled} ${rulesEnabled === 1 ? "rule" : "rules"} switched back on`);
         } else if (entry) {
           print(`service: still has ${id} (${entry.directory})`);
         } else {

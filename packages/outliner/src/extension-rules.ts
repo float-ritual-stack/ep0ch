@@ -6,6 +6,7 @@ import {
   compileRulePattern,
   defaultPlace,
   parseKindSpec,
+  parseActionRef,
   DEFAULT_RULE_FROM,
   parseRuleCap,
   parseRuleWriters,
@@ -38,7 +39,23 @@ import { noteValues } from "@ep0ch/outline-core/resolve-path";
 import type { Site } from "@ep0ch/outline-core/site";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { ExtensionOutputRow, OutlinerStore } from "./store";
-import type { Block, MutationProvenance } from "./types";
+import type { Block, MutationProvenance, PropertyRecord } from "./types";
+
+/** The lifecycle reads the same scoped properties and action references as the rule engine. */
+export function extensionRuleNotes(store: OutlinerStore, key: "rule-on" | "rule-was-on"): { block: Block; extension: string; properties: PropertyRecord[] }[] {
+  return store.liveBlocks().filter(block => block.properties.some(property => property.key === key)).flatMap(block => {
+    const byExtension = new Map<string, PropertyRecord[]>();
+    for (const property of parsePropertyRecords(block.text)) {
+      if (property.scope !== "block" || property.key !== key) continue;
+      const ref = parseActionRef(property.value);
+      if ("problem" in ref) continue;
+      const properties = byExtension.get(ref.extension) ?? [];
+      properties.push(property);
+      byExtension.set(ref.extension, properties);
+    }
+    return [...byExtension].map(([extension, properties]) => ({ block, extension, properties }));
+  });
+}
 
 /**
  * User-land rules (PIE-600): "when a block matches this, draw this, or run this".

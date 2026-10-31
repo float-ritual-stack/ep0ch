@@ -448,10 +448,11 @@ export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules:
     }
     const skip = prop("rule-skip");
     if (skip) { guards.push("rule-skip"); on.skip = skip; }
-    if (!runs && guards.length) problems.push(`${where}: ${guards.join(", ")} guard${guards.length === 1 ? "s" : ""} a rule that runs something: add rule-on`);
+    const switchedOff = prop("rule-was-on") !== undefined;
+    if (!runs && guards.length && !switchedOff) problems.push(`${where}: ${guards.join(", ")} guard${guards.length === 1 ? "s" : ""} a rule that runs something: add rule-on`);
     if (runs && broken) { problems.push(`${where}: rule ${name} runs nothing until its guards are fixed`); runs = false; }
     if (!decorate && !runs) {
-      if (!broken) problems.push(`${where}: rule ${name} draws nothing and runs nothing: add rule-decorate or rule-on`);
+      if (!broken && !switchedOff) problems.push(`${where}: rule ${name} draws nothing and runs nothing: add rule-decorate or rule-on`);
       continue;
     }
     const placeRaw = prop("rule-place")?.toLowerCase();
@@ -468,4 +469,4 @@ export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules:
 
 /** The `rule-*` keys (and `property-scope`, which a rule note reads as a view does) a rule note writes: its own words, never matched as the block's own properties by a card. */
 export const RULE_KEYS = ["rule-name", "rule-match", "rule-view", "rule-under", "rule-text", "rule-kind", "rule-decorate", "rule-place", "rule-label", "rule-tone", "rule-fields", "rule-pattern", "rule-align", "rule-style",
-  "rule-on", "rule-on-stop", "rule-on-change", "rule-quiet", "rule-from", "rule-batch", "rule-cap", "rule-skip", "property-scope"] as const;
+  "rule-on", "rule-was-on", "rule-on-stop", "rule-on-change", "rule-quiet", "rule-from", "rule-batch", "rule-cap", "rule-skip", "property-scope"] as const;

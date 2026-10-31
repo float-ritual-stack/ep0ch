@@ -130,6 +130,15 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await expect(app.act({ action: "extensions.uninstall", args: { id: "horoscope" }, as: "test-agent" })).rejects.toThrow(/demo/);
     await app.act({ action: "extensions.uninstall", args: { id: "horoscope", demo: "keep" }, as: "test-agent" });
     expect((await board.listExtensions(true)).pages?.horoscope).toBeUndefined();
+    const intake = await app.act({ action: "extensions.install", args: { id: "intake" }, as: "test-agent" }) as { page: string };
+    await app.act({ action: "extensions.uninstall", args: { id: "intake", demo: "keep" }, as: "test-agent" });
+    expect(app.describe().messages.some(m => m.message.includes("1 rule switched off"))).toBe(true);
+    await app.act({ action: "extensions.install", args: { id: "intake" }, as: "test-agent" });
+    expect(app.describe().messages.some(m => m.message.includes("1 rule switched back on"))).toBe(true);
+    // A lifecycle edit must not turn a pristine demo into one cleanup claims the person changed.
+    await app.act({ action: "extensions.uninstall", args: { id: "intake", demo: "remove" }, as: "test-agent" });
+    expect((await board.listExtensions(true)).pages?.intake).toBeUndefined();
+    expect(await board.get(intake.page)).toMatchObject({ deleted: true });
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 

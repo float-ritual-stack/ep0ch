@@ -37,6 +37,46 @@ async function until(ok: () => boolean, ms = 30_000): Promise<void> {
 
 const graphOf = (store: OutlinerStore) => (store as unknown as { loadGraph(): { byId: Map<string, Block> } }).loadGraph();
 
+test("switching an extension's kept rules leaves a large outline's watching reader responsive", async () => {
+  const { root, store, done } = scratch("extension-rule-load");
+  const server = new OutlinerServer(store, join(root, "host.sock"));
+  const client = new OutlinerClient(join(root, "host.sock")), reader = new OutlinerClient(join(root, "host.sock"));
+  let running = true;
+  let pinging: Promise<void> | undefined;
+  try {
+    store.database.transaction(() => {
+      for (let i = 0; i < 11_000; i++) store.create(`Seed packet ${i} [type::packet] [bed::b${i % 40}]\n\nSown in row ${i % 12}.`, null, "user");
+      for (let i = 0; i < 5; i++) store.create(`Garden rule ${i} [rule-name::garden-${i}] [rule-match::type=request] [rule-on::intake/prior-art]`, null, "user");
+    })();
+    await server.start();
+    await client.request({ action: "extensions.install", extension: "intake", where: "outline" });
+    await reader.request({ action: "blocks.query", query: { where: "rule-name", limit: 50 }, watch: "rules" } as never);
+    const pings: number[] = [];
+    pinging = (async () => {
+      while (running) {
+        const at = performance.now();
+        await reader.request({ action: "ping" });
+        pings.push(performance.now() - at);
+        await Bun.sleep(25);
+      }
+    })();
+    await client.request({ action: "extensions.uninstall", extension: "intake", demo: "keep" });
+    await client.request({ action: "extensions.install", extension: "intake", where: "outline" });
+    for (let i = 0; i < 10; i++) await client.request({ action: "extensions.list" });
+    running = false;
+    await pinging;
+    const sorted = pings.sort((a, b) => a - b);
+    const at = (fraction: number) => Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))]!);
+    console.log(`extension rule lifecycle, 11000 notes: ping p50=${at(0.5)}ms p95=${at(0.95)}ms p99=${at(0.99)}ms max=${at(1)}ms`);
+    expect({ p95: at(0.95) < 200, max: at(1) < 1000 }).toEqual({ p95: true, max: true });
+  } finally {
+    running = false;
+    await pinging;
+    await server.close();
+    done();
+  }
+}, 120_000);
+
 test("a write's fan-out in a 50,000-block outline leaves another outline responsive (PIE-1001)", async () => {
   const { root, store, done } = scratch("fanout-latency");
   const small = new OutlinerStore(join(root, "small.sqlite"));
