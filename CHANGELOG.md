@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An empty links tile names its source, and `%name` ranks whole in a reopened bar (PIE-1465)
+
+- **The empty links tile's body names the tile it follows:** "the links of what activity shows land here", the name the `/` message already gave, no longer the tile's id.
+- **`%tree` in a bar reopened in the tiles scope lists the tile named tree first:** the bar's row filter takes the scope's prefix off before it compares a whole name.
+- **Run:** nothing to run.
+
 ### The component library lists `property-scope` for rule notes (PIE-1466)
 
 - **A rule note's `[property-scope::…]` is among the keys the library says it takes:** `RULE_KEYS` now names it, so the rule's entry and the keys a card ignores as the rule's own agree.

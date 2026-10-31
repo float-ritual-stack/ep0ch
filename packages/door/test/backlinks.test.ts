@@ -166,6 +166,18 @@ describe("a list that names its stages (stages=, PIE-819)", () => {
   });
 });
 
+test("an empty links tile names the tile it follows, never its id (PIE-1465)", () => {
+  new Desk();
+  const p = tileKind("backlinks")!.make({ kind: "backlinks", name: "links", source: "tile:t-d3c7d0f7-0000-4000-8000-000000000000" } as any) as BacklinksPane;
+  const desk: any = { pane: () => ({}), pathTo: () => "activity", nameOfPane: () => "activity", tileShowing: () => null };
+  p.init(desk);
+  for (const w of [177, 44]) {
+    const body = (p.render(w, 3, false, desk).lines as string[]).join("\n").replace(/\x1b\[[\d;]*m/g, "");
+    expect(body).toContain("the links of what activity shows");
+    expect(body).not.toContain("t-d3c7");
+  }
+});
+
 describe.skipIf(!outliner)("the view is Detail's: parity with pi-herdr-outliner's backlink-view.ts", () => {
   let theirs: any;
   beforeAll(async () => { theirs = await import(join(outliner!, "src/backlink-view.ts")); });
