@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The component library lists `property-scope` for rule notes (PIE-1466)
+
+- **A rule note's `[property-scope::…]` is among the keys the library says it takes:** `RULE_KEYS` now names it, so the rule's entry and the keys a card ignores as the rule's own agree.
+- **Run:** nothing to run.
+
 ### A drawn board and a workbench stay live, and say what changed (PIE-1463, PIE-1467)
 
 - **A board redraws when a count changes:** a `::board`, lens or any render script that asks with `q()` or `query()` is redrawn when a note it matches but didn't list appears, goes, or changes the counts in its groups and facets; before, only a listed row did it.
