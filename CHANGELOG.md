@@ -15,6 +15,13 @@ are its record. The outliner's entries from then are kept below, under
 - **A rule note's `[property-scope::…]` is among the keys the library says it takes:** `RULE_KEYS` now names it, so the rule's entry and the keys a card ignores as the rule's own agree.
 - **Run:** nothing to run.
 
+### A drawn board and a workbench stay live, and say what changed (PIE-1463, PIE-1467)
+
+- **A board redraws when a count changes:** a `::board`, lens or any render script that asks with `q()` or `query()` is redrawn when a note it matches but didn't list appears, goes, or changes the counts in its groups and facets; before, only a listed row did it.
+- **One owner for watches:** a query-fed handler (the workbench) and a render script now hold their watched questions in one place; before, two lists kept them and a trashed parent's child lines stayed watched until a restart.
+- **Trash, restore and a lost property:** trashing a note ends the watches of the lines under it, restoring it watches them again, and a workbench whose `[query::]` was removed releases its old question and draws live again when it is put back.
+- **At the host's cap the figure says so:** when the host's 512 watches are full and the oldest is dropped, that line shows "live updates paused" until its note is saved or `r` is pressed, instead of showing an old answer as live.
+- **Run:** `ep0ch install --apply` on float-2, then open a note with a `lens::` line and a `workbench::` line on a scratch outline and trash a source note.
 
 ### Note components: a render script is a `::component`, found by people and agents
 

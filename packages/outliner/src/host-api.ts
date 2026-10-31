@@ -20,6 +20,7 @@ import { applyWrite, type McpWriteTool } from "./mcp-write";
 import type { McpAccessLevel, QuestionFacet } from "@ep0ch/outline-core/protocol";
 import type { AnnotationRecord, AnnotationThread, VisibleBlock, VisibleBlockCollection } from "./types";
 import { WorkToolRefusal } from "./work-tools";
+import { answerShape, shapeOfAnswer, type ScriptQueryRecord } from "./line-watches";
 
 export type HostTool = (input?: Record<string, unknown>) => Promise<unknown>;
 
@@ -58,7 +59,7 @@ export interface HostApiOptions {
   /** The run saw more than could be listed (`Reads.untracked`): what it drew depends on notes it can't name. */
   onUntracked?(): void;
   /** A `q(query)` and the rows it found, so a render can be drawn again when the query's answer changes (a new match, not only an edit of a row). */
-  onQuery?(query: { query: string; limit: number; ids: readonly string[] }): void;
+  onQuery?(query: ScriptQueryRecord): void;
   /** Deferred to a microtask, never awaited; errors are ignored. Keep callbacks brief: they share the host event loop. */
   onStep?(step: HostStep): void;
 }
@@ -300,7 +301,10 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
   };
   const q = async (query: string, opts: { under?: string; limit?: number; properties?: boolean } = {}) => {
     const found = await call("outline_find", { query, ...opts }) as { blocks?: { id?: unknown }[] } | null;
-    if (options.onQuery && opts.under === undefined && Array.isArray(found?.blocks)) options.onQuery({ query, limit: opts.limit ?? 20, ids: found.blocks.flatMap(row => typeof row.id === "string" ? [row.id] : []) });
+    if (options.onQuery && opts.under === undefined && Array.isArray(found?.blocks)) {
+      const ids = found.blocks.flatMap(row => typeof row.id === "string" ? [row.id] : []);
+      options.onQuery({ query, limit: opts.limit ?? 20, ids, shape: answerShape({ ids, complete: (found as { complete?: boolean }).complete !== false }) });
+    }
     return found;
   };
   const read = async (ref: string | readonly string[], opts: { depth?: number; limit?: number } = {}): Promise<unknown> => {
@@ -336,11 +340,10 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
         total: found.completeness.kind === "truncated" ? found.completeness.matched ?? rows.length : rows.length, complete,
       };
       step({ tool: "query", writes: false, phase: "done", input, result: { rows: rows.length, total: answer.total } }, seq);
-      // A render is drawn again when the question's answer changes: recorded as q()'s are, in the order a plain ask lists
-      // them (the redraw check asks without a sort, so a sorted answer's order is asked once more here).
+      // A render is drawn again when the question's answer changes (its rows, the counts over every match, whether the
+      // list was complete): the question is recorded whole, with the shape of this answer, and asked again to compare.
       if (options.onQuery) {
-        const listed = input.sort ? (await ask({ where, limit })).blocks.map(b => b.id) : rows.map(r => r.id);
-        options.onQuery({ query: where, limit, ids: listed });
+        options.onQuery({ query: where, limit, ids: rows.map(r => r.id), shape: shapeOfAnswer(found), ...(input.group ? { group: input.group } : {}), ...(input.sort ? { sort: input.sort } : {}), ...(input.facets ? { facets: input.facets } : {}) });
       }
       if (options.onRead) {
         options.onRead(rows.map(r => r.id));
