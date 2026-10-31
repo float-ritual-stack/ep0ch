@@ -337,6 +337,12 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     // A slot naming a page or a tile nobody has is said in the run's answer, never a quiet default.
     const said = JSON.stringify(await app.act({ action: "neat", args: { page: "[[no such page]]", right: "%no-such-tile" }, as: agent.id }));
     expect(said).toMatch(/2 steps failed.*no page no such page.*no tile no-such-tile/);
+    // The run ends done with its words, and also says which steps failed (PIE-1469): what a shell's exit is made from.
+    const ran = await app.act({ action: "neat", args: { page: "[[no such page]]", right: "%no-such-tile" }, as: agent.id }) as { state: string; failed?: string[] };
+    expect(ran.state).toBe("done");
+    expect(ran.failed?.map(f => f.split(":")[0])).toEqual(["[[no such page]]", "tile.info"]);
+    // The call is a running script's own.
+    await expect(app.act({ action: "script.failed", args: { steps: "x: y" }, as: agent.id })).rejects.toThrow(/running script's own call/);
   });
 
   test("a tile named like a kind is that tile, and a group holding a terminal is left alone", async () => {

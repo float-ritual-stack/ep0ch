@@ -9,6 +9,7 @@
 // The socket is the door's shell: whoever can connect can do what the person can, including start a program in
 // a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
+import { runExit } from "./cli-words";
 import { referenceConflict, type ToolArgsSpec } from "@ep0ch/outline-core/tool-args";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
@@ -275,7 +276,7 @@ export function peekOutput(result: { screen: Record<string, any>; text: string[]
 }
 
 /** Client side: send one command to a running door and print the reply. */
-export async function controlClient(args: string[]): Promise<number> {
+export async function controlClient(args: string[], answered?: { ran?: true }): Promise<number> {
   let commandArgs = args.filter(a => a !== "--json");
   const wantsJson = args.includes("--json");
   const [cmd] = commandArgs;
@@ -369,6 +370,9 @@ export async function controlClient(args: string[]): Promise<number> {
     console.log(JSON.stringify({ ...base, ...(receiver ? { receiver } : {}), opened: true }));
   }
   else console.log(JSON.stringify(r.result));
+  // A script run that said steps failed is the refusal an act gives (PIE-1469); its text is printed above, as before, and `answered` says the door ran it (the script exists: main.ts adds no "no such command").
+  const ran = cmd === "act" ? runExit(r.result) : null;
+  if (ran) { answered && (answered.ran = true); console.error(`ep0ch: ${ran.err}`); return ran.code; }
   return 0;
 }
 

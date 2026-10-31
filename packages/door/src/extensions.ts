@@ -453,6 +453,21 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
  * theirs, an agent's is attributed to it, and a repeated slot is a list (`props.page`) exactly as a button's line reads it.
  */
 export const SCRIPT_RUN_ACTIONS = actionSet<ExtOn>()("script-run", {
+  "script.failed": def({
+    words: "a running script says which of its steps failed",
+    summary: "for a script that reports a refused step and goes on (neat's `step`/`failed`): name the steps it could not do, one per line in steps=. The run still ends done with its own words; its answer also carries `failed` (the steps), and `ep0ch <script> …` in a shell exits 1 with each step on stderr. Only a running script's own call: nothing else has a run to say it for",
+    touches: "nothing", replay: "ask",
+    args: { steps: { type: "string", about: "the failed steps, one per line, in the door's own words (`<action>: <why>`)" } },
+    examples: [{ act: "script.failed steps='tile.info: no tile no-such-tile'", does: "from a script: marks its run as having one failed step" }],
+    async run(given, _on, actor) {
+      const run = actor.kind === "agent" ? actor.run : undefined;
+      if (!run) throw new ActionRefused("script.failed is a running script's own call (act('script.failed', { steps })); there is no run here to say it for");
+      const steps = String(given.steps).split("\n").map(l => l.trim()).filter(Boolean);
+      if (!steps.length) throw new ActionRefused("script.failed needs steps=<one failed step per line>");
+      FAILED_STEPS.set(run, [...(FAILED_STEPS.get(run) ?? []), ...steps]);
+      return { noted: steps.length };
+    },
+  }),
   "script.run": def({
     words: "run a script by its name with a button's slots",
     summary: "run the script note or installed script called of=<name> with the words after it as its slots, as a ::button{of=<name> k=v…} passes them (props.<k>, a key written twice is a list). Typing the script's name first does the same: `neat page=[[a]] page=[[b]]`. Its writes and layout changes are the script's own, one undo step; an agent's run is attributed to the agent",
@@ -483,6 +498,21 @@ export const SCRIPT_RUN_ACTIONS = actionSet<ExtOn>()("script-run", {
 });
 
 /**
+ * The steps a running script said it could not do (PIE-1469), by run: `script.failed` records them, and the run's answer
+ * takes them (`runExtensionAction`) as `failed`, so a shell sees what the text alone said. A script that reports and goes
+ * on (neat's `step`/`failed`) ends "done" by design; this is how it says some steps weren't.
+ */
+const FAILED_STEPS = new Map<string, string[]>();
+
+/** What a run said it could not do, taken once (an answer that has none gives undefined). */
+const takeFailedSteps = (run: string | undefined): string[] | undefined => {
+  if (!run) return undefined;
+  const steps = FAILED_STEPS.get(run);
+  FAILED_STEPS.delete(run);
+  return steps?.length ? steps : undefined;
+};
+
+/**
  * Run an extension's action through the service (`extensions.act`) and say what it did. Its writes are the
  * extension's (`ext:<id>`), whoever asked; an agent's run is said as the agent's on the status bar.
  */
@@ -507,7 +537,7 @@ export function scriptPressMessage(message: string, undo: boolean): string {
   return `${oneLine(message)}${undo ? " · ctrl+z undoes" : ""}`;
 }
 
-export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; slots?: string; passage?: Passage; invitation?: string; button?: { block: string; line?: number } }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
+export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; slots?: string; passage?: Passage; invitation?: string; button?: { block: string; line?: number } }, actor: Actor): Promise<ExtensionActResult & { said: string; failed?: string[] }> {
   connectScriptActions(ctx);
   const say = asActor(ctx, actor);
   const entry = extensionNamed(extension);
@@ -533,7 +563,8 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
     if (r.open && ctx.dispatch) await ctx.dispatch.act({ action: "open", args: isResourceRef(r.open) ? { resource: r.open } : { id: r.open } }, actor)
       .catch((e: Error) => say.flash(`${name}: couldn't open ${oneLine(r.open)}: ${oneLine(e.message)}`, undefined, errorDetails(e)));
     ctx.redraw();
-    return { ...r, ...(message !== undefined ? { message } : {}), said };
+    const failed = script ? takeFailedSteps(r.undo) : undefined;
+    return { ...r, ...(message !== undefined ? { message } : {}), ...(failed ? { failed } : {}), said };
   } catch (e) {
     say.flash(`${name}: ${a.label.toLowerCase()} refused: ${oneLine(e instanceof Error ? e.message : String(e))}`, undefined, errorDetails(e));
     ctx.redraw();

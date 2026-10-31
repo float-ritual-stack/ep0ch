@@ -16,6 +16,12 @@ are its record. The outliner's entries from then are kept below, under
 - **Workbench's handler line is one point:** its description says "Draws this view's matches as table, cards and list"; the controls moved to the page.
 - **Run:** `ep0ch install --apply` refreshes the installed pages.
 
+### `ep0ch neat …` in a shell exits 1 when steps failed (PIE-1469)
+
+- **A script run with failed steps is a refusal in a shell:** `ep0ch neat 'page=[[Bike shd]]' right=%nothing` exits 1 and names each failed step on stderr (`ep0ch: 2 steps failed:` then one line each, in the door's own words); a run whose steps all passed exits 0. It exited 0 either way, with the failures only in the answer text.
+- **The text is unchanged:** the answer still prints on stdout; a press in the door and an agent's `act` keep their words, and an agent's answer also carries `failed` (the steps). A script that reports a refused step and goes on says so with the new `script.failed steps=…` (neat does; its README and `docs/scripts.md` say how).
+- **Run:** nothing; restart your door to get it.
+
 ### A failed handler line says why in one short line (PIE-1471)
 
 - **The kept drawing's notice is plain words:** `workbench: no `query` on this note; showing the drawing from 11:25 PM` instead of the raw error with `{{this.query}}` and a UTC stamp. The time is the machine's local clock (`Oct 30, 11:25 PM` on an earlier day); the door, Detail and the web page read the same line from the one helper (`keptNotice`).

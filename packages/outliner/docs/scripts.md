@@ -96,10 +96,10 @@ A note's `[script::y]` script is its first eligible fence with no `script=` name
 |---|---|---|---|
 | `script` | `[script::name]` | The script's name: its power-bar name, its `name::` handler line, its `@name` responder (an `@name` responder only when it starts with a lower-case letter and is lower case, digits and hyphens, up to 32). | `packages/outliner/src/script-sources.ts:53` |
 | the fence | a closed `js`, `ts` or `tsx` fence | The matching named fence, or the first unnamed `js`, `javascript`, `ts`, `typescript`, `tsx`, `jsx` or `actions` fence, is the code. TypeScript is stripped, not type-checked. For the note form, only that fence counts; if it is unclosed the script is empty (nothing runs, nothing is refused). | `packages/outliner/src/script-sources.ts:59` |
-| `mode` | `[mode::render]` | A handler: a line `name::` or `::name{}` draws what the script returns. See [Modes](#modes). `[mode::module]` is imported only. | `packages/outliner/src/script-sources.ts:143` |
+| `mode` | `[mode::render]` | A handler: a line `name::` or `::name{}` draws what the script returns. See [Modes](#modes). `[mode::module]` is imported only. | `packages/outliner/src/script-sources.ts:148` |
 | `effects` | `[effects::write]` | Describes writes to readers and the restart replay rule. Absent: `read`. | `packages/outliner/src/script-sources.ts:47` |
-| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:146` |
-| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:158` |
+| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:151` |
+| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:163` |
 
 Other ways a script exists: a file `<outline folder>/.ep0ch/scripts/name.js` or `.ts` whose first line is
 `// ep0ch-script` (settings after it: `effects=write`, `mode=render`, as in `// ep0ch-script mode=render`); an `actions` fence, which is one door action per line rather
@@ -133,7 +133,7 @@ Without slots it arranges this outline's welcome/home and the reader with the pe
 tile by the name `layout.get` and the tile menu show (`%tree`, `tile:cowboy`, copied with "copy tile reference"), or a kind
 (`terminal`, `agent`) for every tile of it. `page=` stays the first left and the first right. Terminals, agents, pinned tiles and
 (with edges) the tile you are in are never folded unless named; `fold=terminal` or `fold=agent` asks for it. From a shell:
-`ep0ch neat page=[[Garden plan]] right=%tree`; in a note: `::button{label="tidy" of=neat left=[[today]] right=tile:agent}`.
+`ep0ch neat page=[[Garden plan]] right=%tree` (exit 1, steps on stderr, when some failed: a script says so with `act('script.failed', { steps })`); in a note: `::button{label="tidy" of=neat left=[[today]] right=tile:agent}`.
 
 Script lookup uses the invoking note and its nearest ancestors first, then other outline
 script notes, outline files, then the scripts declared by installed extensions. An outline's
@@ -375,7 +375,7 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:66` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1004` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1011` |
 | `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:460` |
 
 ## A render script is a component

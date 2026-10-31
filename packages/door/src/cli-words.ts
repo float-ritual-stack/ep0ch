@@ -173,3 +173,16 @@ export function scriptCall(argsIn: readonly string[]): { args: string[]; ws?: st
   if (name === undefined) return null;
   return { args: [name, ...rest, ...keep, ...argsIn.slice(words.length)], ...out };
 }
+
+/**
+ * A script run's answer as a shell's exit (PIE-1469): a run that said steps failed (`failed`, from the script's own
+ * `script.failed`; neat reports a refused step and goes on, so the run itself ends "done") is the refusal `act` gives, exit 1,
+ * each step on stderr in the door's own words; every other answer exits 0. The one place the CLI turns a run's answer into an
+ * exit; a press and an agent's `act` read the same answer for its text.
+ */
+export function runExit(result: unknown): { code: number; err: string } | null {
+  const failed = (result as { failed?: unknown } | null)?.failed;
+  if (!Array.isArray(failed) || !failed.length) return null;
+  const steps = failed.map(String);
+  return { code: 1, err: `${steps.length} ${steps.length === 1 ? "step" : "steps"} failed:\n${steps.map(s => `  ${s}`).join("\n")}` };
+}
