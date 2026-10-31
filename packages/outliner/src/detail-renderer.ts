@@ -16,7 +16,7 @@ import {
 } from "./attention-render";
 import { currentAttentionMark } from "./attention";
 import { buildDetailAnnotationView } from "./detail-annotations";
-import { renderReferenceCompletion } from "./reference-completion-renderer";
+import { COMPLETION_ROWS, renderReferenceCompletion } from "./reference-completion-renderer";
 import { outlinerLinkUri } from "./outliner-links";
 import { filterPropertyInspectorEntries, findPropertyInspectorEntry } from "./property-inspector";
 import { blockDisplayTitle } from "./references";
@@ -293,11 +293,12 @@ function appendCompletion(
   state: Readonly<DetailState>,
   width: number,
   height: number,
-  help?: string,
 ): void {
   const completion = state.completion;
   if (!completion) return;
-  output.push(...renderReferenceCompletion(completion,width,Math.min(8,Math.max(0,height-output.length-2)),"completion.choose",help ?? DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("detail",["completion"])));
+  const start=output.length;
+  output.push(...renderReferenceCompletion(completion,width,Math.min(COMPLETION_ROWS,Math.max(0,height-output.length-2))));
+  if(completion.docsRect)completion.docsRect.row+=start;
 }
 
 export function propertyInspectorHint(state: Readonly<DetailState>, keymap: OutlinerActionKeymap): string {
@@ -360,7 +361,7 @@ export function renderDetailLines(
     visibleRows.forEach((row, index) => {
       output.push(renderTextBufferEditorRow(layout, row, state.editorVisualOffset + index));
     });
-    appendCompletion(output, state, width, height, options.helpText);
+    appendCompletion(output, state, width, height);
   } else if (state.propertyInspector.model &&
       (state.propertyInspector.expanded || state.propertyInspector.presentation === "dedicated")) {
     const inspector = state.propertyInspector;

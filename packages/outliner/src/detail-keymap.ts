@@ -1,3 +1,4 @@
+import { referenceEnterKeeps } from "./reference-completion";
 import {
   DEFAULT_OUTLINER_ACTION_KEYMAP,
   type OutlinerActionKeymap,
@@ -418,6 +419,11 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
       case "detail.completion.next":
         await dispatch({type:"completion.move",delta:actionId.endsWith("previous")?-1:1});
         return true;
+      case "detail.completion.docs.up":
+      case "detail.completion.docs.down":
+      case "detail.completion.docs.pageup":
+      case "detail.completion.docs.pagedown":
+        await dispatch({type:"completion.docs",by:(actionId.endsWith("up")?-1:1)*(actionId.includes("page")?8:1)});return true;
       case "detail.completion.accept":
         await dispatch({type:"completion.accept"});
         return true;
@@ -606,7 +612,7 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
     const resolved = actionKeymap.resolve("detail", activeScopes(), str, key);
     if (resolved.suppressed) return;
     // A lone new page (PIE-592) isn't taken by ⏎ until it's chosen: the key is the editor's, a new line.
-    const loneEnter = resolved.actionId === "detail.completion.accept" && key.name === "return" && !!controller.state.completion?.lone;
+    const loneEnter = resolved.actionId === "detail.completion.accept" && key.name === "return" && !!controller.state.completion && !!referenceEnterKeeps(controller.state.completion);
     if (resolved.actionId && !loneEnter) {
       await invokeAction(resolved.actionId);
       return;

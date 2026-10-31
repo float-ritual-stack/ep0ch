@@ -122,8 +122,8 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     expect(screen()).toContain("» @seed-count");
     const definition = pop()!.previewLines!.map(plain).join("\n");
     expect(definition).toContain("[g] Seed count");
-    expect(definition).toContain("```js");
-    expect(definition).toContain("return (await q('script')).blocks.length;");
+    expect(definition).toContain("╭ js");
+    expect(definition.replace(/\n│ /g, "")).toContain("return (await q('script')).blocks.length;");
     const jump: any = await desk.dispatch.act({ action: "complete.definition", args: {}, tile }, { kind: "agent", id: "test-agent" });
     expect((await board.get(jump.blockId))!.text).toStartWith("Seed count [script::seed-count]");
     press({ kind: "down" }); press({ kind: "up" });
