@@ -2818,6 +2818,22 @@ export class OutlinerStore {
     return { savedAt: row.edited_at, author: row.author, ...(row.actor_id ? { actorId: row.actor_id } : {}), ...(row.task_id ? { taskId: row.task_id } : {}) };
   }
 
+  /** Uninstall must keep a person's edits even after a later scheduled write and the revision cache have moved on. */
+  hasOtherTextWriter(blockId: string, actorId: string): boolean {
+    return !!this.database.query(`SELECT 1 FROM block_edit_activity WHERE block_id = ?
+      AND kind IN (${BLOCK_EDIT_ACTIVITY_KINDS.map(() => "?").join(", ")})
+      AND (author <> 'agent' OR actor_id IS NULL OR actor_id <> ?) LIMIT 1`)
+      .get(blockId, ...BLOCK_EDIT_ACTIVITY_KINDS, actorId);
+  }
+
+  /** Only explicitly marked output created by that extension participates in uninstall. */
+  extensionGeneratedNotes(id: string): Block[] {
+    const rows = this.database.query(`SELECT DISTINCT b.id FROM blocks b JOIN block_properties p ON p.block_id = b.id
+      WHERE b.author = 'agent' AND b.actor_id = ? AND b.effective_deleted_root_id IS NULL
+      AND p.scope = 'block' AND p.key = 'ext.generated' AND p.value = ?`).all(`ext:${id}`, id) as { id: string }[];
+    return rows.map(row => this.require(row.id));
+  }
+
   /**
    * A block's earlier texts (PIE-621), newest first, after its current one: each revision, when it was saved and by
    * whom (its edit activity, where one was recorded), and its size and first line. `revision`: that one's whole text.

@@ -168,7 +168,7 @@ export async function removeExtension(id: string, options: { outlineFolder?: str
   await rm(target, { recursive: true, force: true });
   return [
     `removed ${target}`,
-    "The service drops its handlers, actions and tiles now. Records it wrote stay as blocks; lines that used it say no extension handles them.",
+    "The service drops its handlers, actions and tiles now. --demo remove also trashes unchanged demos and marked output; lines that used it say no extension handles them.",
   ];
 }
 

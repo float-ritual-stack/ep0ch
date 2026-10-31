@@ -28,6 +28,13 @@ export interface Process {
 
 /** The snippet runs every read in one shell, each part under a `@@name` line, so a machine is one ssh per tick. */
 export const SNIPPET = [
+  "if [ \"$(uname -s)\" = Darwin ]; then",
+  "echo @@macmem; sysctl -n hw.memsize; vm_stat",
+  "echo @@load; sysctl -n vm.loadavg | tr -d '{}'",
+  "echo @@cpus; sysctl -n hw.ncpu",
+  "echo @@macdisk; df -k -P /",
+  "echo @@top; ps -axo pid=,rss=,args= | sort -k2nr | head -3",
+  "else",
   "echo @@mem; free -b",
   "echo @@load; cat /proc/loadavg",
   "echo @@cpus; nproc",
@@ -35,9 +42,10 @@ export const SNIPPET = [
   "echo @@failed; systemctl --user --failed --no-pager --plain --no-legend 2>/dev/null",
   "echo @@top; ps -eo pid,rss,args --sort=-rss --no-headers 2>/dev/null | head -3",
   "echo @@cgroup; for p in $(ps -eo pid --sort=-rss --no-headers 2>/dev/null | head -3); do echo \"$p $(head -1 /proc/$p/cgroup 2>/dev/null)\"; done",
-  "echo @@docker; docker ps --no-trunc --format '{{.ID}} {{.Names}}' 2>/dev/null",
+  "fi",
+  "echo @@docker; if command -v docker >/dev/null 2>&1; then docker ps --no-trunc --format '{{.ID}} {{.Names}}' 2>/dev/null; fi",
   "echo @@end",
-].join("; ");
+].join("\n");
 
 /** The snippet's output split at its `@@name` lines. */
 export function sections(output: string): Record<string, string[]> {
@@ -59,12 +67,18 @@ export function parseReading(output: string): Reading {
   const s = sections(output);
   if (!s.end) throw new Error("the sample didn't finish: no @@end in the output");
   const mem = (s.mem ?? []).find((l) => /^Mem:/.test(l))?.split(/\s+/) ?? [];
-  const memoryTotal = Number(mem[1]) || 0;
-  const memoryFree = Number(mem[6] ?? mem[3]) || 0;
-  const load = Number((s.load?.[0] ?? "").split(/\s+/)[0]) || 0;
-  const cpus = Number(s.cpus?.[0]) || 1;
-  const disk = (s.disk ?? []).find((l) => /\s\/$/.test(l))?.split(/\s+/) ?? [];
-  const diskTotal = Number(disk[1]) || 0, diskFree = Number(disk[3]) || 0;
+  const mac = s.macmem?.join("\n");
+  const pageSize = Number(mac?.match(/page size of (\d+) bytes/)?.[1]);
+  const pages = (kind: string) => Number(mac?.match(new RegExp(`Pages ${kind}:\\s+(\\d+)`))?.[1]);
+  const memoryTotal = mac ? Number(s.macmem![0]) : Number(mem[1]);
+  const memoryFree = mac ? (pages("free") + pages("inactive")) * pageSize : Number(mem[6]);
+  const load = Number(s.load?.[0]?.trim().split(/\s+/)[0]);
+  const cpus = Number(s.cpus?.[0]);
+  const disk = (s.macdisk ?? s.disk ?? []).find((l) => /\s\/$/.test(l))?.trim().split(/\s+/) ?? [];
+  const diskTotal = Number(disk[1]) * (mac ? 1024 : 1), diskFree = Number(disk[3]) * (mac ? 1024 : 1);
+  if (![memoryTotal, memoryFree, load, cpus, diskTotal, diskFree].every(Number.isFinite) || memoryTotal <= 0 || diskTotal <= 0 || cpus <= 0) {
+    throw new Error("sample has no usable memory, load or disk reading; check the machine's free/sysctl and df commands");
+  }
   const failedUnits = (s.failed ?? []).map((l) => l.trim().split(/\s+/)[0]!).filter((u) => /\.(service|timer|socket|mount|path|scope|slice|target)$/.test(u));
   const cgroups = new Map<number, string>();
   for (const line of s.cgroup ?? []) { const m = line.match(/^(\d+)\s+(.*)$/); if (m) cgroups.set(Number(m[1]), m[2]!); }
@@ -90,8 +104,8 @@ export function parseReading(output: string): Reading {
  */
 export function commandFor(cgroup: string, containers: ReadonlyMap<string, string>): string | undefined {
   const user = cgroup.match(/\/user@\d+\.service\/(?:[^/]+\/)*([A-Za-z0-9@._-]+)\.service$/);
-  if (user && !/^(init|dbus|pipewire|wireplumber|gnome|plasma)/.test(user[1]!) && !user[1]!.startsWith("app-")) return `systemctl --user restart ${user[1]}`;
-  const docker = cgroup.match(/docker-([0-9a-f]{12,64})\.scope/);
+  if (user) return `systemctl --user restart ${user[1]}.service`;
+  const docker = cgroup.match(/(?:docker-|\/docker\/)([0-9a-f]{12,64})(?:\.scope|$)/);
   if (docker) { const name = containers.get(docker[1]!); if (name) return `docker restart ${name}`; }
   return undefined;
 }
@@ -154,7 +168,7 @@ export function crossings(r: Reading, t: Thresholds): Crossing[] {
   }
   if (r.failedUnits.length) {
     const unit = r.failedUnits[0]!;
-    out.push({ kind: "failed", number: `${r.failedUnits.length} failed ${r.failedUnits.length === 1 ? "unit" : "units"}: ${r.failedUnits.join(", ")}`, command: `systemctl --user restart ${unit.replace(/\.service$/, "")}` });
+    out.push({ kind: "failed", number: `${r.failedUnits.length} failed ${r.failedUnits.length === 1 ? "unit" : "units"}: ${r.failedUnits.join(", ")}`, command: `systemctl --user restart ${unit}` });
   }
   return out;
 }

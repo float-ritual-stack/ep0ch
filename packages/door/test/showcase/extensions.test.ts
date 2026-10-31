@@ -34,6 +34,15 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+  test("sysop shows a machine trip and calm updates the page through its real action", async () => {
+    await app.act({ action: "section", args: { name: "sysop" }, as: "test-agent" });
+    await until(() => screen().includes("kiln") && screen().includes("TEMPO"), "the sysop warning band");
+    const result = await app.act({ action: "ext.sysop.calm", args: { machine: "kiln" }, as: "test-agent" });
+    expect(JSON.stringify(result)).toContain("docker restart kiln-tempo");
+    await until(() => screen().includes("8.0G"), "the reading after calm");
+    expect((await board.get(seeded.notes.sysop!.id))!.text).not.toContain("RSS 47.0G");
+  });
+
   test("the collection workbench showcase opens one live saved view through shared table, cards and list", async () => {
     expect(await app.act({ action: "section", args: { name: "workbench" }, as: "test-agent" })).toMatchObject({ key: "workbench" });
     await until(() => screen().includes("Garden collection workbench") && screen().includes("Table") && screen().includes("Cards") && screen().includes("List"), "the workbench's three presentations", 10_000);

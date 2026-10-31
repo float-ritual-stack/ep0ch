@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The sysop monk watches every machine and records a calm restart (PIE-1476)
+
+- **Open `sysop`:** current memory, load, disk and failed user units, with a daily health glyph per machine and “asleep since” for a missed sample.
+- **A trip names the fix:** a `needs` note and warning band identify the process and its restart command once per crossing; `ext.sysop.calm machine=<name>` runs it with attribution and records the reading after.
+- **Your edits stay:** ticks update their figures and properties; removing the extension with `--demo remove` keeps notes another writer edited or added children under.
+- **Run:** install `sysop` in the outline that should hold the page, and `shout` for warning bands; edit the page's machines and threshold properties.
+
 ### The Lens and Workbench extension pages read in ten seconds (PIE-1474)
 
 - **Both pages lead with what you can do:** one point per line and no paragraph past three sentences, so `extension-page-shape` passes again on main. Nothing was added or dropped.
