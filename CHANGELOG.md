@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A handler line whose run failed says so first (PIE-1468)
+
+- **The kept drawing of a failed run** (a workbench with its `[query::]` removed, a table, cards or a list a line drew before) leads with "the last run failed: …; the kept drawing is from <time>" as its first row, in the door at any tile size, in Detail and on the published page. It used to come last, below the old drawing, where a short tile never showed it and read the old drawing as live.
+- **One notice, from the service:** the failure is added where the service keeps the old output, so a line `reason` no longer repeats it after the drawing; `fetchError` still holds the bare error.
+- **Run:** nothing to run; restart your door and the outline host to get it.
+
 ### ctrl+z takes back a run's layout on every desk it changed (PIE-1230)
 
 - **ctrl+z after a script run that put a tile in the drawer** (neat's links tile, with your keys left there) took back only the drawer's part and left the screen as the run arranged it: one ctrl+z, from the bar or after Esc, now puts back the whole run, the screen and the drawer together, and the status line says the steps of both.

@@ -525,6 +525,29 @@ process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? {
     await until(() => !EXT_ACTIONS.has("ext.noisy.shout"), "noisy gone", 15_000);
   }, 40_000);
 
+  test("a workbench whose run failed leads with the failure in a 9-row tile at 44 columns, before the drawing it kept (PIE-1468)", async () => {
+    install("workbench");
+    await app.loadExtensions(true);
+    await board.createBlock(null, "Pea [type::tile-pea] [stage::ready]");
+    const bed = await board.createBlock(null, "Beds [query::type=tile-pea]\nworkbench::");
+    const s = new NoteSurface();
+    s.show((await board.get(bed.id))!, host);
+    const tile = () => s.render(44, 9, host).lines.map(plain);
+    await until(() => tile().join("\n").includes("matches  1"), "the workbench drawing", 20_000);
+    expect(tile().join("\n")).not.toContain("the last run failed");
+    await board.update(bed.id, "Beds\nworkbench::", (await board.get(bed.id))!.revision!);
+    s.show((await board.get(bed.id))!, host);
+    await until(() => tile().join("\n").includes("the last run failed"), "the failure said", 20_000);
+    const rows = tile();
+    expect(rows.length).toBe(9);
+    // The notice leads the figure (row 1 is the note's own title), and the kept drawing comes after it.
+    const at = rows.findIndex(r => r.includes("the last run failed"));
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(at - rows.findIndex(r => r.includes("workbench::"))).toBeLessThanOrEqual(2);
+    const kept = rows.findIndex(r => r.includes("matches  1"));
+    if (kept >= 0) expect(kept).toBeGreaterThan(at);
+  }, 60_000);
+
   test("a tile kind the registry refuses is said, and never stops the other kinds binding", () => {
     const list = extensionList()!;
     const bad = { ...list.tileKinds[0]!, kind: "9 not a kind", name: "Broken" };
