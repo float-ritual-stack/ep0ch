@@ -99,6 +99,7 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@xterm/headless": "6.0.0",
+    "happy-dom": "21.0.4",
     "typescript": "^5.9.3"
   }
 }

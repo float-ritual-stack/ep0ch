@@ -380,7 +380,7 @@ export const hasCollectionLayout = (view: { properties?: BlockProperty[] }): boo
   isVirtualBranchDefinition({ properties: view.properties ?? [] }) && property(view.properties, "layout") !== undefined;
 
 export async function drawViewPage(host: LiveHost, view: { id: string; properties?: BlockProperty[] }, title: string): Promise<string> {
-  if (hasCollectionLayout(view)) return drawCollection(host, view.id, { props: { of: `((${view.id}))` } });
+  if (hasCollectionLayout(view)) return `<section class="inside view">${await drawCollection(host, view.id, { props: { of: `((${view.id}))` } })}</section>\n`;
   const lane = await readViewLane(host, view, title);
   return `<section class="inside view"><h2>Rows <span class="dim">${lane.count}${lane.truncated ? "+" : ""}</span></h2>\n${viewRowsHtml(lane)}</section>\n`;
 }
