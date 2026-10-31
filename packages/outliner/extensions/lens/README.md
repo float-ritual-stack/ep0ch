@@ -1,8 +1,11 @@
 # Lens
 
-One line in any note draws a live table of what a query holds, relative to that note. The query is the outline's one
-grammar, so it reads `this`; the shape is the line's: columns, computed columns, sort, group, sums, and cells you press
-to change a property. The spike for PIE-1461: what Datacore reaches for, on the parts ep0ch already had.
+Write one line in any note and it draws a live table of what a query holds, relative to that note.
+
+- **The query:** the outline's one grammar, so it reads `this`.
+- **The shape:** the line's own: columns, computed columns, sort, group, sums.
+- **Press a cell:** it changes a property.
+- **Why it exists:** the spike for PIE-1461, what Datacore reaches for, on the parts ep0ch already had.
 
 ```text
 lens:: query="type=meeting when={{this.page}}" columns=title,who,status edit=status sort=when
@@ -12,10 +15,13 @@ lens:: view="[[open-jobs]]" group=priority edit=stage choices-stage="todo|doing|
 
 ## Where to look
 
-- **The lab:** installed with the extension, under its page. Two day notes share one line and show different meetings; a
-  seed order has a computed `cost` and its sum; jobs are grouped by priority with a pressable stage.
-- **Your own notes:** write a `lens::` line anywhere. The power bar (`lens`) offers its slots; `columns=`, `edit=`,
-  `sort=` and `group=` pick from the properties the outline has.
+- **The lab:** installed with the extension, under its page.
+  - Two day notes share one line and show different meetings.
+  - A seed order has a computed `cost` and its sum.
+  - Jobs are grouped by priority with a pressable stage.
+- **Your own notes:** write a `lens::` line anywhere.
+  - The power bar (`lens`) offers its slots.
+  - `columns=`, `edit=`, `sort=` and `group=` pick from the properties the outline has.
 
 ## The line
 
@@ -34,8 +40,9 @@ lens:: view="[[open-jobs]]" group=priority edit=stage choices-stage="todo|doing|
 | `limit=n` | the most rows (200); a cut table says so |
 | `title="…"` · `empty="…"` · `link=col\|none` | a band with the count; what to say when nothing holds; which column opens the row's note (title) |
 
-A press runs `lens-set note=<id> key=<col> next=1 [choices=…]`: one attributed, undoable write of that note's first line,
-and the table redraws from the change. An agent runs the same line, or `lens-set note=<id> key=stage value=done`.
+- **A press** runs `lens-set note=<id> key=<col> next=1 [choices=…]`.
+  - It is one attributed, undoable write of that note's first line, and the table redraws from the change.
+- **An agent** runs the same line, or `lens-set note=<id> key=stage value=done`.
 
 ## How it's made
 
@@ -50,10 +57,16 @@ and the table redraws from the change. An agent runs the same line, or `lens-set
 | The slots | `[form-field::…]` declarations in the script's leading comments (PIE-1298): the power bar's form and an agent's `args` |
 | Install and remove | an extension with `scripts:` and a `demo/`, as `neat` and the wyrm |
 
-What it found, filed on PIE-1461: an action declares at most 8 slots (the lens has 13; five work undeclared); query
-completion offers only `key=value` pairs, so `{{this.page}}`, `under:this` and `NOT` have to be known; a `q` row's
-revision is tracked but a table over a changing outline redraws whole, there is no cell-level diff; a computed column is
-this script's JavaScript, so the service can't offer it to a `::graph-table` without a second evaluator.
+## What it found
 
-Tests: `packages/outliner/test/lens-extension.test.ts` (install, each lens, a press and the redraw, the line's refusals,
-uninstall) and the showcase's **lens** section, `packages/door/test/showcase/lens.test.ts` (pressed in a real door).
+Filed on PIE-1461:
+
+- **Slots:** an action declares at most 8 slots; the lens has 13, and five work undeclared.
+- **Completion:** it offers only `key=value` pairs, so `{{this.page}}`, `under:this` and `NOT` have to be known.
+- **Redraw:** a `q` row's revision is tracked, but a table over a changing outline redraws whole, with no cell-level diff.
+- **Computed columns:** they are this script's JavaScript, so the service can't offer them to a `::graph-table` without a second evaluator.
+
+## Tests
+
+- **The extension:** `packages/outliner/test/lens-extension.test.ts` covers install, each lens, a press and the redraw, the line's refusals and uninstall.
+- **The demo:** the showcase's **lens** section, `packages/door/test/showcase/lens.test.ts`, is pressed in a real door.

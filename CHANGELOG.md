@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The Lens and Workbench extension pages read in ten seconds (PIE-1474)
+
+- **Both pages lead with what you can do:** one point per line and no paragraph past three sentences, so `extension-page-shape` passes again on main. Nothing was added or dropped.
+- **Workbench's handler line is one point:** its description says "Draws this view's matches as table, cards and list"; the controls moved to the page.
+- **Run:** `ep0ch install --apply` refreshes the installed pages.
+
 ### `ep0ch neat …` in a shell exits 1 when steps failed (PIE-1469)
 
 - **A script run with failed steps is a refusal in a shell:** `ep0ch neat 'page=[[Bike shd]]' right=%nothing` exits 1 and names each failed step on stderr (`ep0ch: 2 steps failed:` then one line each, in the door's own words); a run whose steps all passed exits 0. It exited 0 either way, with the failures only in the answer text.
