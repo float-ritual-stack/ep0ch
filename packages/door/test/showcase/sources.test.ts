@@ -79,4 +79,18 @@ describe.skipIf(!outliner)("showcase: completion sources (PIE-1340)", () => {
     expect((await ask("[query::updated >= -")).items.map(i => i.insertion)).toContain("updated >= -7d]");
     expect((await ask("[query::owner={{")).items.map(i => i.insertion)).toContain("owner={{this.owner}}]");
   }, 60_000);
+
+  test("a lens:: line typed in a note completes its script's slots and its query's grammar (PIE-1472)", async () => {
+    await h.app.dispatch.act({ action: "extensions.install", args: { id: "lens" } }, agent);
+    await h.app.loadExtensions(true);
+    const ask = async (text: string) => await h.app.act({ action: "complete", args: { text }, as: "test-agent" }) as { kind: string; items: { insertion: string; label: string; docs?: string }[] };
+    const slots = await ask("lens:: ");
+    expect(slots.kind).toBe("attribute");
+    expect(slots.items.map(i => i.label)).toEqual(expect.arrayContaining(["query", "columns", "sort", "dir"]));
+    expect(slots.items.find(i => i.label === "query")!.docs).toContain("grammar");
+    const query = await ask('lens:: query="type=meeting AND un');
+    expect(query.kind).toBe("attribute-value");
+    expect(query.items.map(i => i.label)).toEqual(expect.arrayContaining(["type=meeting AND under:", "type=meeting AND unread:"]));
+    await h.app.dispatch.act({ action: "extensions.uninstall", args: { id: "lens", demo: "keep" } }, agent);
+  }, 60_000);
 });

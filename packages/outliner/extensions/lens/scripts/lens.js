@@ -8,7 +8,12 @@
 // [form-field::group property]: a box per value of this column
 // [form-field::sum property]: columns summed in a footer, comma-separated
 // [form-field::limit number]: the most rows (200)
-// (an action declares at most 8 slots; dir=asc|desc, avg=, title=, empty=, link= and <name>="<expression>" work undeclared)
+// [form-field::dir choice asc|desc]: the sort direction
+// [form-field::avg property]: columns averaged in the footer, comma-separated
+// [form-field::title text]: a heading over the table
+// [form-field::empty text]: what is drawn when the query holds nothing
+// [form-field::link property]: the column whose cells open the row's note
+// (<name>="<expression>" works undeclared: every other slot word is a computed column)
 //
 //   lens:: query="type=meeting when={{this.page}}" columns=title,when,who,status edit=status sort=when
 //   lens:: query="type=line" columns=title,qty,price,cost cost="qty * price" sum=cost,qty

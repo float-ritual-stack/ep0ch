@@ -383,7 +383,7 @@ export const SOURCES = [
   "- **What a row is:** its kind at the right (`page`, `issue`), a dim detail, and its docs beside the list.",
   "- **Picks come first:** choose an issue twice and it rises among equals, here, in Detail and in every door on this outline (the host keeps the picks).",
   "- **Its own key:** `[issue::` lists the open issues too; `[issue::21` finds #21 by its number.",
-  "- **A query completes the grammar (PIE-1472):** in a view note's `[query::`, a lens line's `query=\"`, a figure's `query:` or a settings field, Tab offers `under:this`, `parent:`, `links:`, `#tag`, `NOT`/`AND`/`OR`, `{{this.page}}` and, after `updated >=`, `-7d` or `today`, each with the grammar's own words beside it, then the keys and values the notes have.",
+  "- **A query completes the grammar (PIE-1472):** in a view note's `[query::`, a handler line's `lens:: query=\"` (install **Lens** from `&lens`; `lens:: ` lists its slots), a figure's `query:` or a settings field, Tab offers `under:this`, `parent:`, `links:`, `#tag`, `NOT`/`AND`/`OR`, `{{this.page}}` and, after `updated >=`, `-7d` or `today`, each with the grammar's own words beside it, then the keys and values the notes have.",
   "- **Take it away:** remove Issues in the power bar (`&issues`): the issue rows go, the pages stay. Install it again from the same row.",
 ].join("\n");
 

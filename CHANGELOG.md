@@ -14,7 +14,8 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Typing a query offers what the grammar can say:** the atoms (`under:`, `parent:`, `links:`, `linkedfrom:`, `child:`, `#tag`, `title~`, `text~`, `by:`, `call:`), `this` after a relation (`under:this`), `NOT`/`AND`/`OR`, `{{this.page}}` and `{{this.<key>}}` after `=`, and `-7d`, `today`, `+3d` after `updated >=` or any comparison, beside the keys and values the notes have. Each row says in a few words what it means, from the grammar's own tables in outline-core (`QUERY_ATOM_HELP`, `QUERY_CONNECTIVE_HELP`, `QUERY_DATE_HELP`).
 - **One source, every place a query is typed:** a view note's `[query::`, a `::if{where=`, a figure's `query:`, a settings field and a script's `[form-field::name query]` slot all ask outline-core's `querySuggestions`; a row that starts a clause (`under:`) stays open for the rest.
-- **The lens's `query` slot is a query field,** so its form completes the grammar. A `lens::` line typed in a note still has no completion of its own.
+- **A handler line completes in a note:** `lens:: ` offers the script's declared slots with what each means, and `lens:: query="type=meeting AND un` offers `under:`/`unread:`. One trigger (`name:: slot=value`, the same reader as `::name{…}`) and one lookup (the extension's declared slots) serve every script that declares slots; a `property` slot offers the keys the line's own `query=` rows carry.
+- **Lens declares all 13 of its slots** (an action may now declare 16, was 8), each with its meaning from the script's header comment.
 - **Run:** restart your door and the outline host to get it.
 
 ### A note a script creates says who ran it and "via script" (PIE-1464)

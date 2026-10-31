@@ -192,3 +192,19 @@ test("[query:: completes the grammar (atoms, this, NOT, dates) beside the keys a
   // A key that isn't a query gets none of it.
   expect(merged(await rows("value", "under:", { key: "status" }), "under:").map(row => insertText(row.insert))).not.toContain("under:this]");
 });
+
+test("a handler line completes the slots its script declares: names with their words, then a query slot's grammar (PIE-1472)", async () => {
+  const { list, rows, create } = await setup(["lens"]);
+  await list(true);
+  await create("Planning call [type::meeting] [when::2031-03-02]");
+  const slots = await rows("attribute", "", { component: "lens", attrs: [{ key: "columns", value: "title" }] });
+  const names = merged(slots, "").map(r => r.label);
+  expect(names).toEqual(expect.arrayContaining(["query", "view", "edit", "sort", "dir", "avg", "title"]));
+  expect(names).not.toContain("columns");
+  expect(merged(slots, "").find(r => r.label === "query")!.docs).toContain("grammar");
+  const query = (text: string) => rows("attribute-value", text, { component: "lens", key: "query", quote: '"', attrs: [] });
+  expect(merged(await query("type=meeting AND un"), "").map(r => r.label)).toEqual(expect.arrayContaining(["type=meeting AND under:", "type=meeting AND unread:"]));
+  // A slot that names properties offers the keys the line's own query rows carry.
+  const sort = await rows("attribute-value", "wh", { component: "lens", key: "sort", quote: '"', attrs: [{ key: "query", value: "type=meeting" }] });
+  expect(merged(sort, "").map(r => r.label)).toContain("when");
+});

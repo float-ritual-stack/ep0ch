@@ -80,3 +80,15 @@ test("one detector: a reference keeps a title's own parentheses, and a hashtag i
   expect(hashtagAtCursor("see #gard", 9)).toMatchObject({ query: "gard" });
   expect(hashtagAtCursor("((note#gard", 11)).toBeNull();
 });
+
+test("a handler line (`name:: slot=value`) is an attribute trigger like a component call's (PIE-1472)", async () => {
+  const { completionTargetAtCursor } = await import("../src/completion-triggers");
+  const line = 'lens:: query="type=meeting AND un';
+  expect(completionTargetAtCursor(line, line.length)).toMatchObject({ kind: "attribute-value", component: "lens", key: "query", query: "type=meeting AND un", quote: '"' });
+  expect(completionTargetAtCursor("lens:: ", 7)).toMatchObject({ kind: "attribute", component: "lens", query: "" });
+  expect(completionTargetAtCursor("- lens:: col", 12)).toMatchObject({ kind: "attribute", component: "lens", query: "col" });
+  expect(completionTargetAtCursor('lens:: query="x" colu', 21)).toMatchObject({ kind: "attribute", query: "colu", attrs: [{ key: "query", value: "x" }] });
+  // A closed quote is finished; a property or prose line is no handler line.
+  expect(completionTargetAtCursor('lens:: query="x"', 16)).toBeNull();
+  expect(completionTargetAtCursor("Notes about lens:: foo", 22)).toBeNull();
+});
