@@ -73,3 +73,45 @@ test("a watch the service drops at its cap says so on the figure instead of goin
   for (let i = 0; i < 520; i++) server.watches.ask({ write: () => {} }, { id: "x", action: "blocks.query", watch: "crowd", query: { where: `type=line-${i}` } } as never);
   await until("the figure says its watch was dropped", async () => /live updates (paused|stopped)/.test(await shown(board.id)));
 }, 60_000);
+
+const FEWER = '::= (async () => { const a = await q("type=lw-a"); let out = "a" + a.blocks.length; if (a.blocks.length > 1) out += " b" + (await q("type=lw-b")).blocks.length; return out; })()';
+
+test("a script that asks fewer questions keeps watching the one it still asks", async () => {
+  const { create, store, draw, redrawn, client } = await lab();
+  const [first] = [create("A1 [type::lw-a]"), create("A2 [type::lw-a]"), create("B1 [type::lw-b]")];
+  const board = create(`Fewer\n${FEWER}`);
+  await draw(board.id);
+  await redrawn(board.id, "a2 b1");
+  await client.request({ action: "delete", blockId: first.id });
+  await redrawn(board.id, '"markdown":"a1"');
+  create("A3 [type::lw-a]");
+  await redrawn(board.id, "a2 b1");
+  expect(store.get(board.id)).toBeTruthy();
+}, 60_000);
+
+test("restoring a note watches the figures under it even past two hundred tagged notes", async () => {
+  const { create, client, draw, redrawn, watched } = await lab();
+  create("Pea [type::lw-seed]");
+  const parent = create("Shelf");
+  for (let i = 0; i < 205; i++) create(`Tag ${i} [kind::lw-tag]`, parent.id);
+  const board = create("Seeds [type::virtual-branch] [query::type=lw-seed]\nworkbench::", parent.id);
+  await draw(board.id);
+  await redrawn(board.id, "Pea");
+  const before = watched();
+  await client.request({ action: "delete", blockId: parent.id });
+  await until("released", () => watched() < before);
+  await client.request({ action: "trash.restore", blockId: parent.id });
+  await until("watched again", () => watched() === before);
+}, 60_000);
+
+test("a script line whose watch the service drops keeps what it read, so a reader cut still applies", async () => {
+  const { create, store, server, draw, redrawn, shown } = await lab();
+  create("Pea [type::lw-seed]");
+  const board = create('Seeds\n::= "peas " + (await q("type=lw-seed")).blocks.length');
+  await draw(board.id);
+  await redrawn(board.id, "peas 1");
+  const readBefore = (store.extensionOutputs(board.id)[0]!.request as { reads: unknown[] }).reads.length;
+  for (let i = 0; i < 520; i++) server.watches.ask({ write: () => {} }, { id: "x", action: "blocks.query", watch: "crowd", query: { where: `type=lw-crowd-${i}` } } as never);
+  await until("the line says so", async () => /live updates paused/.test(await shown(board.id)));
+  expect((store.extensionOutputs(board.id)[0]!.request as { reads: unknown[] }).reads.length).toBe(readBefore);
+}, 60_000);

@@ -571,7 +571,7 @@ export class ExtensionCalls {
   /** A note was restored: its lines, and those of the notes under it, watch again. */
   restored(blockId: string): void {
     if (this.stopped) return;
-    for (const row of this.store.queryBlocks({ where: 'text~"::"', subtreeRootId: blockId, limit: 200 }).blocks) {
+    for (const row of this.store.queryBlocks({ where: 'text~"::"', subtreeRootId: blockId, limit: 1000 }).blocks) {
       const block = this.store.get(row.id);
       if (block && mayHaveHandlerLines(block.text)) void this.refreshOutput(row.id, "open").catch(() => {});
     }
@@ -906,13 +906,12 @@ export class ExtensionCalls {
   private watchScript(block: Block, callKey: string, queries: readonly Partial<ScriptQueryRecord>[]): void {
     const lines = this.options.lines;
     if (!lines) return;
-    const slots = new Set<string>();
+    // A script that now asks fewer questions starts its line's watches again from the ones it asks.
+    lines.keepOnly(block.id, callKey, new Set(queries.flatMap((q, index) => typeof q.query === "string" ? [`q${index}`] : [])));
     queries.forEach((q, index) => {
       if (typeof q.query !== "string") return;
-      const slot = `q${index}`;
-      try { lines.ask(block.id, callKey, slot, scriptQuestion(block, q as ScriptQueryRecord)); slots.add(slot); } catch { /* a question that no longer binds is redrawn with its error */ }
+      try { lines.ask(block.id, callKey, `q${index}`, scriptQuestion(block, q as ScriptQueryRecord)); } catch { /* a question that no longer binds is redrawn with its error */ }
     });
-    lines.keepOnly(block.id, callKey, slots);
   }
 
   private deadline(extension: LoadedExtension, handlerKey?: string): number {
@@ -992,7 +991,11 @@ export class ExtensionCalls {
     let untracked = false;
     let queried: { answer: VisibleBlockCollection; hash: string; question: BlockSearchQuery } | undefined;
     try {
-      if (lost) throw new Error(lost);
+      // A script keeps saying what it read, so a retained result stays cut the way it was when readers can't see all of it.
+      if (lost) {
+        const prior = this.store.extensionOutputs(block.id).find(row => row.callKey === call.callKey)?.request as { reads?: unknown; queries?: unknown } | null | undefined;
+        throw Object.assign(new Error(lost), extension.script && prior ? { reads: prior.reads, queries: prior.queries } : {});
+      }
       const template = extension.manifest.handlers?.find(handler => handler.key === call.handlerKey)?.query;
       queried = template ? this.queryInput(block, call, template) : undefined;
       let answer: { value: unknown };

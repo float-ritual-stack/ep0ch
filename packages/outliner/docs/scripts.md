@@ -362,7 +362,7 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:66` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1001` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1004` |
 | `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:460` |
 
 ## A render script is a component
