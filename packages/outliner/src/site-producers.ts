@@ -23,6 +23,7 @@ import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/out
 import type { BlockSearchQuery, SavedViewReadResult, TreeIndexBlock, VisibleBlock, VisibleBlockCollection } from "./types";
 import type { Bound } from "./site-answer";
 import { queryRelations, type QueryRelationKind, type ValueBinder } from "./block-query";
+import { parseVirtualBranchConfig, virtualBranchMembershipQuery } from "./virtual-branches";
 import { StillCounting } from "./site-budget";
 
 type Props = Record<string, any>;
@@ -189,7 +190,7 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
   const error = done.error ? `done: ${done.error}` : now.error ? `now: ${now.error}` : undefined;
   const titles = kind === "timeline" && p.meta === "parent"
     ? Object.fromEntries([...new Set(a.blocks.flatMap(b => b.parentId ? [b.parentId] : []))].flatMap(id => { const parent = store.get(id); return parent ? [[id, displayTitleOfText(parent.text) ?? id]] : []; }))
-    : kind === "table" || kind === "tabs" ? cellTitles(store, a.blocks, Array.isArray(p.columns) ? p.columns.map(String) : undefined) : undefined;
+    : kind === "table" || kind === "tabs" ? cellTitles(tools, a.blocks, Array.isArray(p.columns) ? p.columns.map(String) : undefined) : undefined;
   // (A `link:` property's notes are the rows' links; they need no title.)
   return {
     kind: "figure", blocks: a.blocks, truncated: a.truncated, ...(a.total !== undefined ? { total: a.total } : {}), ...(titles ? { titles } : {}),
@@ -201,7 +202,7 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
 
 /** The collection record compiles here; clients receive rows, groups and cells, never a query to interpret. */
 function collection(store: ProducerStore, bound: Bound, tools: SiteTools, written: Props, state: Props = {}): Extract<SiteProduced, { kind: "view" }> {
-  let p: Props = written, title = "Collection", source: string | undefined;
+  let p: Props = { sort: "updated", ...written }, title = "Collection", source: string | undefined;
   const empty = (error: string): Extract<SiteProduced, { kind: "view" }> => ({ kind: "view", title, layout: "table", layouts: ["table"], question: {}, view: { type: "list", rows: [], empty: error }, truncated: false, error });
   try {
     if (written.of) {
@@ -233,22 +234,20 @@ function collection(store: ProducerStore, bound: Bound, tools: SiteTools, writte
     }
     title = String(p.title ?? title);
     if (title.includes("{{")) title = interpolate(title, span => { const value = tools.read(span.expression); return value.values && !value.hidden ? value.values : undefined; });
-    const where = [p.query, p.where].filter(Boolean).map(w => `(${w})`).join(" AND ");
-    if (!where) return empty('a view needs query="type=chore" or of=((saved-view))');
+    const compiled = parseVirtualBranchConfig({ id: source ?? "", properties: Object.entries({ type: "virtual-branch", ...p }).map(([key, value]) => ({ key, value: Array.isArray(value) ? value.join(",") : String(value) })) }, []);
+    if (!compiled.config) return empty(compiled.configurationErrors.join("; "));
     const question: BlockSearchQuery = {
-      where, ...(bound.site.this ? { this: bound.site.this.id } : {}),
-      ...(p.group ? { group: viewWords(p.group).join(",") } : {}),
-      ...(p.sort ? { sort: /\s+(asc|desc)$/.test(String(p.sort)) ? String(p.sort) : `${p.sort} ${p.direction ?? "desc"}` } : source ? { rankViewId: source } : { sort: "updated desc" }),
-      limit: Number(p.limit ?? 200), facets: true, machinery: p.machinery ?? DEFAULT_MACHINERY,
-      ...(p["property-scope"] ? { propertyScope: p["property-scope"] } : {}),
+      ...virtualBranchMembershipQuery(source ?? "", compiled.config, compiled.config.limit),
+      ...(bound.site.this ? { this: bound.site.this.id } : {}), facets: true,
     };
     const answer = store.queryBlocks(question, tools.binder);
     // Excluding the record must keep the question's warnings; a publication cut still owns which hints it reveals.
     const found = source ? { ...store.queryBlocks(question, tools.binder, blocks => blocks.filter(block => block.id !== source)), ...(answer.hint ? { hint: answer.hint } : {}) } : answer;
-    const columns = viewWords(p["summary-properties"] ?? p.columns ?? "title, updated");
-    const titles = cellTitles(store, found.blocks, columns);
     const items = found.blocks.map(block => ({ ...block, properties: recordProperties(block.properties), author: block.author ?? null, title: displayTitleOfText(block.text) ?? block.id, createdAt: Date.parse(block.createdAt), updatedAt: Date.parse(block.updatedAt) }));
-    const table = tableOf({ ...p, columns }, items, titles);
+    const writtenColumns = p["summary-properties"] ?? p.columns;
+    const table = tableOf({ ...p, ...(writtenColumns ? { columns: viewWords(writtenColumns) } : {}) }, items);
+    const columns = table.columns;
+    const titles = cellTitles(tools, found.blocks, columns);
     const bodyLines = Number(p.body ?? (layout === "feed" ? 6 : 0));
     const rowValue = (block: VisibleBlock, key: string, label: string, body: string[]) => {
       if (key === "description") return valuesOf(block, key).join(", ") || body[0] || "";
@@ -274,8 +273,8 @@ function collection(store: ProducerStore, bound: Bound, tools: SiteTools, writte
       ...(group.groups ? { groups: groups(group.groups, `${parent}/${group.value ?? "\u0000"}`) } : {}),
     }));
     const arrange: Record<string, NonNullable<ListPrimitive["arrange"]>> = { table: "table", gallery: "grid", feed: "rows", board: "lanes" };
-    return { kind: "view", title, layout, layouts, question, view: {
-      type: "list", rows, arrange: arrange[layout], size: p.card ?? "small", columns, page: Number(p.page ?? 200),
+    return { kind: "view", title, layout, layouts, question: { ...question, where: compiled.config.query, ...(compiled.config.sort ? { sort: `${compiled.config.sort.field} ${compiled.config.sort.direction}` } : {}) }, view: {
+      type: "list", rows, arrange: arrange[layout], size: p.card ?? "small", columns, headers: table.headers, page: Number(p.page ?? 200),
       ...(found.groups ? { groups: groups(found.groups) } : {}), empty: found.hint ?? "No matching notes",
     }, ...(found.groups ? { groups: found.groups } : {}), ...(found.facets ? { facets: found.facets } : {}),
       ...(found.hint ? { hint: found.hint } : {}), truncated: found.completeness.kind === "truncated" };
@@ -289,7 +288,7 @@ const MAX_CELL_TITLES = 500;
  * The titles of the notes a table's rows name by id in their properties (PIE-1388: a record's `note::<uuid>`), so every
  * reader draws the title, linked, where the value is a uuid. Ids of notes that aren't there are left as written.
  */
-function cellTitles(store: ProducerStore, blocks: readonly { properties?: { key: string; value: string }[] }[], columns?: readonly string[]): Record<string, string> | undefined {
+function cellTitles(tools: SiteTools, blocks: readonly { properties?: { key: string; value: string }[] }[], columns?: readonly string[]): Record<string, string> | undefined {
   const out: Record<string, string> = {};
   let n = 0;
   // Only the columns the table draws (a table that names none draws title and updated: no property cells).
@@ -298,8 +297,8 @@ function cellTitles(store: ProducerStore, blocks: readonly { properties?: { key:
     if (!columns.includes(property.key)) continue;
     const id = cellBlockId(property.value ?? "");
     if (!id || id in out || n++ >= MAX_CELL_TITLES) continue;
-    const named = store.get(id);
-    if (named) out[id] = displayTitleOfText(named.text) ?? id;
+    const named = tools.read(`((${id})).title`);
+    if (!named.hidden && named.values?.[0]) out[id] = named.values[0];
   }
   return Object.keys(out).length ? out : undefined;
 }

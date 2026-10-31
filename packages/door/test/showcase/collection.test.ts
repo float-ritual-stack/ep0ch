@@ -178,4 +178,53 @@ describe("showcase: a collection record (PIE-1281)", () => {
     expect(stage().pane("garden").surface.msg?.id).toBe(note.id);
     expect(refusal).toMatch(/agent|focus|zoom/i);
   }, 20_000);
+  test.each(["table", "board"])("PageDown moves the %s pick and lane before Enter, independently for each actor", async (layout) => {
+    const flowers: { id: string }[] = [];
+    for (const [title, bed] of [["Aster", "A"], ["Bluebell", "A"], ["Clover", "B"], ["Daisy", "B"]]) flowers.push(await h.board.createBlock(null, `${title} [collection::paging-${layout}] [bed::${bed}]`));
+    await show(`Flowers\n::view{query="collection=paging-${layout}" layout=${layout} group=bed sort="title asc" page=2}`, 44);
+    await agent("list.page", { by: 1 });
+    expect((await agent("list.blocks")).lists[0].yours.picked).toBe(flowers[2]!.id);
+    expect(lists()[0].view.picked().id).toBe(flowers[0]!.id);
+    await agent("list.filter", { words: "title~Aster" });
+    expect(await agent("list.page", { by: 1 })).toMatchObject({ page: 1, pages: 1 });
+    await act("list.enter", { on: true });
+    h.press({ kind: "pgdn" });
+    await until(() => lists()[0].view.page === 1, "page two", 4000);
+    expect(h.screen()).toContain("Clover");
+    expect(lists()[0].view.picked().id).toBe(flowers[2]!.id);
+    h.press({ kind: "enter" });
+    await until(() => stage().pane("garden").surface.msg?.id === flowers[2]!.id, "Enter opens the page-two pick", 4000);
+  }, 20_000);
+
+  test("a narrow table's leading linked cell opens that note at the recorded revision", async () => {
+    const notebook = await h.board.createBlock(null, "Flower notebook\n\nBefore the rain.");
+    await h.board.request("update", { blockId: notebook.id, text: "Flower notebook\n\nAfter the rain.", expectedRevision: notebook.revision, mutation: { author: "user" } });
+    await h.board.createBlock(null, `Notebook review [collection::leading-cell] [note::${notebook.id}] [revision::1] [rubric::clear]`);
+    await show('Review table\n::graph-table{query="collection=leading-cell" columns="note, rubric"}\n::', 44);
+    const cell = (await act("elements")).elements.find((e: any) => e.label.includes("Flower notebook"));
+    expect(cell).toBeDefined();
+    await act("element.open", { n: cell.n });
+    await until(() => stage().pane("garden").surface.msg?.id === notebook.id, "the leading cell opens the notebook", 4000);
+    await show('Review with a revision\n::graph-table{query="collection=leading-cell" columns="note, rubric" link=note at=revision}\n::', 44);
+    const recorded = (await act("elements")).elements.find((e: any) => e.label.includes("Flower notebook"));
+    await act("element.open", { n: recorded.n });
+    const reader = () => [...stage().panes.values()].find((pane: any) => pane.surface?.msg?.id === notebook.id) as any;
+    await until(() => !!reader()?.surface.revisionMode, "the recorded revision is shown", 4000);
+    expect(reader().surface.revisionMode.describe()).toMatchObject({ revision: 1, to: 2 });
+    h.press({ kind: "esc" });
+  }, 20_000);
+
+  test("Tab belongs to the editor opened from an entered collection", async () => {
+    await show('Editing flowers\n::view{query="collection=garden" layout="table, gallery"}');
+    await act("list.enter", { on: true });
+    await act("edit");
+    const surface = stage().pane("garden").surface;
+    const before = surface.draft.text;
+    h.press({ kind: "tab" });
+    expect(surface.draft.text).not.toBe(before);
+    h.press({ kind: "esc" });
+    await until(() => !surface.draft, "editor closes", 4000);
+    expect(lists()[0].detail.layout).toBe("table");
+  }, 20_000);
+
 });

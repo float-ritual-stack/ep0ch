@@ -456,3 +456,30 @@ test("published Sources omits outputs inside a false conditional, including down
   expect(html).not.toContain("HIDDEN_HARVEST");
   expect(html).not.toContain('download="Winter.');
 });
+
+test("a public collection never resolves an unpublished linked note's title", async () => {
+  const { store, publisher } = await setup();
+  const hidden = store.create("Secret notebook title [publish::never]");
+  const visible = store.create("Open notebook [publish::public]");
+  store.create(`Hidden review [type::flower-review] [publish::public] [note::${hidden.id}]`);
+  store.create(`Open review [type::flower-review] [publish::public] [note::${visible.id}]`);
+  const page = store.create('Reviews [publish::public]\n::graph-table{query="type=flower-review" columns="title, note"}\n::');
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${page.id}?view=html`), "public");
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).toContain("Open notebook");
+  expect(html).not.toContain("Secret notebook title");
+});
+
+test.each(["automatic subtitle", "authored headers"])("graph-table keeps its %s", async (setting) => {
+  const { store, page } = await setup();
+  store.create("Aster [type::table-flower] [subtitle::Blooms in autumn]");
+  const options = setting === "authored headers" ? '\ncolumns: [title, subtitle]\nheaders: [Flower, Season]' : "";
+  const note = store.create(`Flower catalogue\n::graph-table\n---\nquery: type=table-flower${options}\n---\n::`);
+  const html = (await page(`/p/${note.id}?view=html`)).match(/<figure[\s\S]*?<\/figure>/)![0];
+  expect(html).toContain("Blooms in autumn");
+  if (setting === "authored headers") {
+    expect(html).toContain(">Flower</th>");
+    expect(html).toContain(">Season</th>");
+  }
+});

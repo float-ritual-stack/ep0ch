@@ -253,23 +253,23 @@ has. The tone is one of `default`, `good`, `warn`, `bad`, `dim`, `accent`.
 
 | Builder | Fields (anything else is refused) | Source |
 |---|---|---|
-| `view.text` | `text`, `tone`, `strong`, `act`, `link`, `revision` | `packages/outliner/src/component-primitives.ts:391` |
-| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:397` |
-| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:400` |
-| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:407` |
-| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:414` |
-| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:421` |
-| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:447` |
-| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:458` |
-| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:464` |
-| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:482` |
-| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:485` |
-| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:488` |
-| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:493` |
-| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:509` |
-| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:516` |
-| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:404` |
-| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty`, `arrange`, `size`, `columns`, `page` | `packages/outliner/src/component-primitives.ts:530` |
+| `view.text` | `text`, `tone`, `strong`, `act`, `link`, `revision` | `packages/outliner/src/component-primitives.ts:392` |
+| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:398` |
+| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:401` |
+| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:408` |
+| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:415` |
+| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:422` |
+| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:448` |
+| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:459` |
+| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:465` |
+| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:483` |
+| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:486` |
+| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:489` |
+| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:494` |
+| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:510` |
+| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:517` |
+| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:405` |
+| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty`, `arrange`, `size`, `columns`, `headers`, `page` | `packages/outliner/src/component-primitives.ts:531` |
 
 <!-- generated:view:end -->
 
@@ -451,10 +451,10 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 |---|---|
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:306` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:795` |
-| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1833` |
+| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1839` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:218` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4825` |
-| `viaYolo` | `packages/outliner/src/server.ts:4848` |
+| `viaYolo` | `packages/outliner/src/server.ts:4855` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:577` |
 
 ## Lifecycle

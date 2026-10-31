@@ -46,7 +46,7 @@ export const PRIMITIVE_FIELDS = {
   band: ["text", "level", "style", "pattern", "align", "row", "tone"],
   track: ["style", "pattern", "tone"],
   image: ["src", "alt", "size", "fit", "height", "caption"],
-  list: ["rows", "groups", "preview", "filter", "enter", "empty", "arrange", "size", "columns", "page"],
+  list: ["rows", "groups", "preview", "filter", "enter", "empty", "arrange", "size", "columns", "headers", "page"],
 } as const satisfies Record<typeof PRIMITIVE_TYPES[number], readonly string[]>;
 
 export const RENDER_TARGETS = ["terminal", "markdown", "blockdown", "html", "json", "csv"] as const;
@@ -367,6 +367,7 @@ function listPrimitive(node: Record<string, unknown>, path: string): ListPrimiti
     ...(node.arrange !== undefined ? { arrange: node.arrange as ListPrimitive["arrange"] } : {}),
     ...(node.size !== undefined ? { size: node.size as ListPrimitive["size"] } : {}),
     ...(node.columns !== undefined ? { columns: strings(node.columns, `${path}.columns`) } : {}),
+    ...(node.headers !== undefined ? { headers: strings(node.headers, `${path}.headers`) } : {}),
     ...(node.page !== undefined ? { page: node.page as number } : {}),
     ...(groups ? { groups } : {}),
     ...(node.preview !== undefined ? { preview: node.preview as ListPrimitive["preview"] } : {}),
@@ -635,7 +636,7 @@ function terminalLines(node: Primitive): string[] {
 
 
 function listContent(node: ListPrimitive): Primitive {
-  if (node.arrange === "table") return { type: "table", columns: node.columns ?? ["title"], rows: node.rows.map(r => r.cells ?? [r.label]) };
+  if (node.arrange === "table") return { type: "table", columns: node.headers ?? node.columns ?? ["title"], rows: node.rows.map(r => r.cells ?? [r.label]) };
   const cards = (rows: readonly ListRow[]): Primitive[] => rows.map(r => ({ type: "card", title: r.label, subtitle: r.detail,
     children: [...(r.cover ? [{ type: "text" as const, text: r.cover }] : []), ...(r.body ?? []).map(text => ({ type: "text" as const, text }))] }));
   if (node.arrange === "lanes" && node.groups?.length) return { type: "row", minWidth: 24, children: node.groups.map(group => ({ type: "box", title: listHead(group), children: listSections({ rows: node.rows, groups: [group] }).flatMap(section => [
@@ -775,7 +776,7 @@ function htmlOf(node: Primitive, count = { images: 0 }): string {
         const link = (ref: string, label: string) => `<span data-collection-open="${html(ref)}">${html(label)}</span>`;
         const open = (r: ListRow, label: string) => link(openedRef(r) ?? r.id, label);
         const card = (r: ListRow) => `<article class="ext-card"><h4>${open(r, r.label)}</h4>${r.cover ? `<div class="ext-cover">${html(r.cover)}</div>` : ""}<p>${html(r.detail ?? "")}</p>${(r.body ?? []).map(line => `<p>${html(line)}</p>`).join("")}</article>`;
-        if (node.arrange === "table") return `<table class="ext-table"><thead><tr>${(node.columns ?? ["title"]).map(key => `<th>${html(key)}</th>`).join("")}</tr></thead><tbody>${node.rows.map(r => `<tr>${(r.cells ?? [r.label]).map((cell, i) => `<td>${typeof cell === "object" && cell.link ? link(cell.link, cellText(cell)) : i === 0 ? open(r, cellText(cell)) : html(cellText(cell))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+        if (node.arrange === "table") return `<table class="ext-table"><thead><tr>${(node.headers ?? node.columns ?? ["title"]).map(key => `<th>${html(key)}</th>`).join("")}</tr></thead><tbody>${node.rows.map(r => `<tr>${(r.cells ?? [r.label]).map((cell, i) => `<td>${typeof cell === "object" && cell.link ? link(cell.link, cellText(cell)) : i === 0 ? open(r, cellText(cell)) : html(cellText(cell))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
         const style = `display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,${node.size === "large" ? 28 : 18}rem),1fr))`;
         if (node.arrange === "lanes" && node.groups?.length) return `<div class="ext-collection-lanes" style="${style}">${node.groups.map(g => `<section><h3>${html(listHead(g))}</h3>${listSections({ rows: node.rows, groups: [g] }).map(s => `${g.groups?.length && s.head ? `<h4>${html(listHead(s.head))}</h4>` : ""}${s.rows.map(card).join("")}`).join("")}</section>`).join("")}</div>`;
         return `<div class="ext-collection-${node.arrange}"${node.arrange === "grid" ? ` style="${style}"` : ""}>${node.rows.map(card).join("")}</div>`;

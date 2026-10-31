@@ -301,3 +301,26 @@ describe("an answer past its time budget (PIE-1047)", () => {
     expect(queryRequestProblem(stopped)).toMatchObject({ code: "still-counting" });
   });
 });
+
+test("saved-view where narrows the collection, service reads and write planning together", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "collection-membership-"));
+  const store = new OutlinerStore(join(directory, "outline.sqlite"));
+  const socket = join(directory, "outline.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  cleanups.push(async () => { await server.close(); store.close(); rmSync(directory, { recursive: true, force: true }); });
+  const client = new OutlinerClient(socket);
+  const ready = store.create("Aster [type::flower] [stage::ready]");
+  const later = store.create("Bluebell [type::flower] [stage::later]");
+  const view = store.create("Ready flowers [type::virtual-branch] [query::type=flower] [where::stage=ready] [sort::title] [direction::asc]");
+  const produced = (await client.request<SiteAnswer>({ action: "site.answer", blockId: view.id, produce: { kind: "view", props: { of: view.id } } })).produced;
+  expect(produced?.kind).toBe("view");
+  if (produced?.kind !== "view") throw new Error("Expected collection");
+  expect(produced.view.rows.map(row => row.id)).toEqual([ready.id]);
+  for (const format of ["full", "tree"] as const) {
+    const read = await client.request<import("../src/types").SavedViewReadResult>({ action: "views.read", viewId: view.id, format });
+    expect(read.blocks.map(block => block.id)).toEqual([ready.id]);
+  }
+  const plan = await client.request<import("../src/types").ViewWritePlanResult>({ action: "views.planWrite", viewIds: [view.id], blockId: later.id });
+  expect(plan.plans[0]!.plan).toMatchObject({ kind: "patch", changes: [{ key: "stage", from: "later", to: "ready" }] });
+});

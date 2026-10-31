@@ -61,6 +61,7 @@ export interface ListPrimitive {
   arrange?: "table" | "rows" | "grid" | "lanes";
   size?: "small" | "large";
   columns?: string[];
+  headers?: string[];
   page?: number;
   groups?: ListGroup[];
   /** Where the selected row's preview goes; default none. */

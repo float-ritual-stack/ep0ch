@@ -91,7 +91,7 @@ const kids = (n: Node): unknown[] => (Array.isArray(n.children) ? n.children : [
 
 /** What the reader lends a view's drawing. */
 export interface PrimitiveDraw {
-  header?: (key: string, text: string) => string;
+  header?: (key: string, text: string, column: number) => string;
   /**
    * Tags `text` as a press (PIE-957): a primitive that carries an action line (`act`). The reader's `[ ]` stops on it, ⏎
    * and a click run the line as the person. Without it (a page, a draft's preview) the primitive is drawn as it is.
@@ -185,7 +185,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       }
       const line = (cells: string[]) => cells.map((c, i) => (i === cells.length - 1 ? pad(c, widths[i]!).trimEnd() : pad(c, widths[i]!))).join("  ");
       return [
-        fg(C.grey) + BOLD + columns.map((c, i) => { const cell = pad(c, widths[i]!); return draw.header ? draw.header(c, cell) : cell; }).join("  ") + UNBOLD + RESET,
+        fg(C.grey) + BOLD + columns.map((c, i) => { const cell = pad(c, widths[i]!); return draw.header ? draw.header(c, cell, i) : cell; }).join("  ") + UNBOLD + RESET,
         fg(C.dark) + widths.map(x => "─".repeat(x)).join("  ") + RESET,
         ...rows.flatMap((r, k) => {
           const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!));

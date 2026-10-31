@@ -160,10 +160,13 @@ export class ListView<S = unknown> {
   private pageSize = 200;
   private lanes: string[][] = [];
 
+  pageCount(who: string): number { return Math.max(1, Math.ceil(this.pickable(who).length / this.pageSize)); }
+
   turnPage(who: string, by: number, pages: number): number {
     const current = who === PERSON ? this.page : this.agentPages.get(who) ?? 0;
     const next = Math.max(0, Math.min(pages - 1, current + by));
-    if (who === PERSON) this.page = next; else this.agentPages.set(who, next);
+    const first = this.pickable(who)[next * this.pageSize];
+    if (first) this.pick(who, first.id);
     return next + 1;
   }
 
@@ -238,10 +241,9 @@ export class ListView<S = unknown> {
   setPick(who: string, id: string | null) {
     if ((this.picks.get(who) ?? null) === id) return;
     if (id === null) this.picks.delete(who); else this.picks.set(who, id);
-    if (who === PERSON) {
-      this.page = Math.max(0, Math.floor(this.pickable(who).findIndex(r => r.id === id) / this.pageSize));
-      this.view.reveal();
-    }
+    const page = Math.max(0, Math.floor(this.pickable(who).findIndex(r => r.id === id) / this.pageSize));
+    if (who === PERSON) { this.page = page; this.view.reveal(); }
+    else this.agentPages.set(who, page);
   }
   /** The rows `who` can pick among those they see, numbered from 1 by `list.blocks` and `list.pick n=`. */
   pickable(who: string = PERSON): ListViewRow<S>[] { return this.visible(who).filter(selectable); }
@@ -395,14 +397,15 @@ export class ListView<S = unknown> {
     };
     const titleAt = Math.max(0, node.columns?.indexOf("title") ?? 0);
     const card = (row: ListRow, cols: number, record = false): string[] => {
-      const title = record ? listCellText(row.cells?.[titleAt] ?? row.label) : row.label;
+      const cell = record ? row.cells?.[titleAt] ?? row.label : row.label;
+      const title = typeof cell === "object" && cell.link ? o.link?.(cell.link, cell.text, cell.revision) ?? cell.text : listCellText(cell);
       const lines = primitiveLines({ type: "card", title: `${row.id === mine ? "▸ " : ""}${title}`,
       ...(record ? {} : { subtitle: row.detail }), children: [
         ...(!record && row.cover ? [{ type: "image", src: row.cover, caption: false, height: node.size === "large" ? 8 : 4 }] : []),
         ...(record ? (node.columns ?? []).flatMap((key, i) => {
           if (i === titleAt) return [];
           const cell = row.cells?.[i] ?? "";
-          return [{ type: "text", ...(typeof cell === "object" ? cell : {}), text: rowLines(`${key}: ${listCellText(cell)}`, Math.max(8, cols - 2), 4).join("\n") }];
+          return [{ type: "text", ...(typeof cell === "object" ? cell : {}), text: rowLines(`${node.headers?.[i] ?? key}: ${listCellText(cell)}`, Math.max(8, cols - 2), 4).join("\n") }];
         }) : []),
         ...(row.body ?? []).map(text => ({ type: "text", text })),
       ] }, cols, { link: tag });
@@ -414,11 +417,14 @@ export class ListView<S = unknown> {
     const combine = (parts: string[][], cols: number) => Array.from({ length: Math.max(0, ...parts.map(p => p.length)) }, (_, line) => parts.map(p => pad(p[line] ?? "", cols)).join("  "));
     const drawRows = (own: readonly ListRow[], cols: number, arrange: ListPrimitive["arrange"]): string[] => {
       if (arrange === "table" && tier(cols) !== "narrow") {
-        const columns = node.columns ?? ["title"];
-        const shown = [...columns];
-        if (tier(cols) === "cozy") while (shown.length > 2 && shown.reduce((n, key) => n + Math.max(8, width(key)), 0) + 2 * (shown.length - 1) > cols) shown.pop();
-        return [...primitiveLines({ type: "table", columns: shown, rows: own.map(r => r.cells?.slice(0, shown.length) ?? [r.label]), links: own.map(r => r.id) }, cols, { link: tag, header: o.header }),
-          ...(shown.length < columns.length ? [fg(C.dark) + `+ ${columns.length - shown.length} columns · widen to see them` + RESET] : [])];
+        const keys = node.columns ?? ["title"];
+        const shown = [...keys];
+        if (tier(cols) === "cozy") while (shown.length > 2) {
+          if (width(shown.map((key, i) => pad(node.headers?.[i] ?? key, 8)).join("  ")) <= cols) break;
+          shown.pop();
+        }
+        return [...primitiveLines({ type: "table", columns: shown.map((key, i) => node.headers?.[i] ?? key), rows: own.map(r => r.cells?.slice(0, shown.length) ?? [r.label]), links: own.map(r => r.id) }, cols, { link: tag, header: (_label, text, i) => o.header?.(shown[i]!, text) ?? text }),
+          ...(shown.length < keys.length ? [fg(C.dark) + `+ ${keys.length - shown.length} columns · widen to see them` + RESET] : [])];
       }
       const per = arrange === "grid" && tier(cols) !== "narrow" ? Math.max(1, Math.floor(cols / (node.size === "large" && tier(cols) === "wide" ? 44 : 29))) : 1;
       const cw = Math.floor((cols - 2 * (per - 1)) / per), out: string[] = [];
@@ -431,12 +437,14 @@ export class ListView<S = unknown> {
     const ordered = all.slice(this.page * this.pageSize, (this.page + 1) * this.pageSize);
     let lines: string[];
     if (node.arrange === "lanes" && node.groups?.length) {
-      const lanes = node.groups, narrow = tier(o.cols) === "narrow" || o.cols / lanes.length < 24;
+      const lanes = node.groups, laneCount = lanes.length;
+      const narrow = tier(o.cols) === "narrow" || o.cols / laneCount < 24;
       this.lanes = lanes.map(group => group.ids ?? listSections({ rows: ordered, groups: [group] }).flatMap(section => section.rows.map(row => row.id)));
       const pickedLane = this.lanes.findIndex(ids => mine !== undefined && ids.includes(mine));
       if (pickedLane >= 0) this.lane = pickedLane;
       const drawn = narrow ? [lanes[Math.min(this.lane, lanes.length - 1)]!] : lanes;
-      const cols = Math.floor((o.cols - 2 * (drawn.length - 1)) / drawn.length);
+      const count = drawn.length;
+      const cols = Math.floor((o.cols - 2 * (count - 1)) / count);
       lines = [
         ...(narrow ? [lanes.map((g, i) => o.lane ? o.lane(String(i), `${i === this.lane ? "▸ " : ""}${g.label}`) : g.label).join(" · ")] : []),
         ...combine(drawn.map(group => [fg(C.yellow) + `${group.label} (${group.count})` + RESET,

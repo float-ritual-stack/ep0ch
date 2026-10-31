@@ -260,3 +260,11 @@ export function linePrompt<H>(o: { name: string; title: string; text: string; pr
 export const pickRow = (text: string, on: boolean, w: number, ink: number = C.grey) => on ? floatSelectedRow(text, w) : fg(ink) + pad(text, w) + RESET;
 
 export const pickRows = (text: string, on: boolean, w: number, ink: number = C.grey) => rowLines(text, w - (on && !text.startsWith(" ") ? 1 : 0)).map(line => pickRow(line, on, w, ink));
+
+/** Choosing a facet sends its property name through the same list action as keys and act. */
+export function listFieldPicker(title: string, action: "list.sort" | "list.group", keys: string[], choose: (by: string) => void) {
+  return new ListPicker<string, unknown>({ name: action, items: () => keys, clickChooses: true,
+    row: (key, _i, on, w) => [pickRow(key || "no grouping", on, w)], choose,
+    frame: (a, n) => ({ rect: centred(a, Math.min(50, a.cols - 2), Math.min(n + 2, a.rows)), title: `${action} · ${title}` }),
+  });
+}

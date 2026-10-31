@@ -1,3 +1,4 @@
+import { sourceLines } from "@ep0ch/outline-core/code-ranges";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { viewSpec } from "@ep0ch/outline-core/view-spec";
 import type { Decoration } from "./extension-rules";
@@ -792,14 +793,14 @@ async function withSiteValues(requester: DetailEmbedRequester, hostBlockId: stri
 }
 
 async function withCollections(requester: DetailEmbedRequester, hostBlockId: string | undefined, source: MappedDocument, site: { chain?: SiteLink[]; props?: Record<string, string[]> }): Promise<MappedDocument> {
-  const lines = source.text.split("\n"), parts: MappedDocument[] = [];
+  const lines = source.text.split("\n"), offsets = sourceLines(source.text), parts: MappedDocument[] = [];
   let cursor = 0;
   for (const block of componentBlocks(lines)) {
     const spec = viewSpec(block, lines);
     if (!spec) continue;
-    const start = lines.slice(0, block.start).reduce((n, line) => n + line.length + 1, 0);
+    const start = offsets[block.start]!.start;
     if (start < cursor) continue;
-    const end = start + lines.slice(block.start, block.end + 1).join("\n").length;
+    const end = offsets[block.end]?.contentEnd ?? source.text.length;
     const props = { ...site.props, ...Object.fromEntries(Object.entries(spec.args ?? {}).map(([key, value]) => [key, [value]])) };
     const answer = await requester.request<SiteAnswer>({ action: "site.answer", blockId: hostBlockId, ...site, props, produce: { kind: "view", props: spec.props } });
     if (answer.produced?.kind !== "view") continue;

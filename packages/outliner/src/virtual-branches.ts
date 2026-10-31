@@ -12,6 +12,8 @@ import {
 } from "./block-query";
 import { matchesFilters, patchPropertyText } from "./properties";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
+import { viewWords } from "@ep0ch/outline-core/view-spec";
 import { parsePropertySummaryKeys } from "./property-summary";
 import type {
   BlockQuerySort,
@@ -84,6 +86,7 @@ export interface VirtualBranchConfig {
   /** Present when the query uses OR, NOT, groups or created/updated ranges. */
   where?: QueryExpression;
   sort: BlockQuerySort | null;
+  group?: string;
   /** The view's `[sort::]` and `[direction::]` as written, for the refusal that names them (handOrderRefusal). */
   sortWritten?: string[];
   /** The view's `[machinery::]`: hide (the default), only or show. */
@@ -241,8 +244,8 @@ export function buildPhysicalTreeRows<T extends ProjectionBlock>(
 }
 
 export function parseVirtualBranchConfig(
-  definition: Pick<Block, "id" | "properties">,
-  physicalBlocks: readonly Pick<Block, "id">[],
+  definition: Pick<Block, "id" | "properties"> & Partial<Pick<Block, "parentId">>,
+  physicalBlocks: readonly (Pick<Block, "id"> & Partial<Pick<Block, "properties">>)[],
 ): VirtualBranchConfigResult {
   const configurationErrors: string[] = [];
   const creationErrors: string[] = [];
@@ -259,11 +262,12 @@ export function parseVirtualBranchConfig(
   }
 
   const queryProperty = singleProperty(definition, "query", true, configurationErrors);
+  const whereProperty = singleProperty(definition, "where", false, configurationErrors);
   let query = "";
   let filters: PropertyFilter[] = [];
   let where: QueryExpression | undefined;
   if (queryProperty) {
-    query = queryProperty.value;
+    query = whereProperty?.value ? `(${queryProperty.value}) AND (${whereProperty.value})` : queryProperty.value;
     try {
       ({ filters, where } = parseSearchExpression(query));
       if (filters.length === 0 && !where) configurationErrors.push("Virtual branch query cannot be empty");
@@ -281,8 +285,9 @@ export function parseVirtualBranchConfig(
     configurationErrors.push("Virtual branch direction requires a sort property");
   }
   if (sortProperty) {
-    const field = normalizeSortField(sortProperty.value);
-    const direction = directionProperty?.value.trim().toLowerCase() ?? "desc";
+    const written = /^(.*?)\s+(asc|desc)$/i.exec(sortProperty.value);
+    const field = normalizeSortField(written?.[1] ?? sortProperty.value);
+    const direction = written?.[2]?.toLowerCase() ?? directionProperty?.value.trim().toLowerCase() ?? "desc";
     if (field === null) configurationErrors.push(`Virtual branch: ${sortFieldProblem(sortProperty.value)}`);
     if (direction !== "asc" && direction !== "desc") {
       configurationErrors.push(`Virtual branch direction must be asc or desc, not ${directionProperty?.value}: write [direction::asc] or [direction::desc]`);
@@ -374,11 +379,14 @@ export function parseVirtualBranchConfig(
   );
   let createParentId: string | null = null;
   if (createParentProperty) {
-    const candidate = createParentProperty.value;
+    const written = createParentProperty.value;
+    const candidate = written === "this" ? definition.parentId
+      : written === "inbox" ? physicalBlocks.find(block => block.properties?.some(p => p.key === "system-view" && p.value === "inbox"))?.id
+      : referencedBlock(written)?.blockId ?? written;
     if (physicalBlocks.some((block) => block.id === candidate)) {
-      createParentId = candidate;
+      createParentId = candidate!;
     } else {
-      creationErrors.push(`Virtual branch create-parent block does not exist: ${candidate}`);
+      creationErrors.push(`Virtual branch create-parent block does not exist: ${written}`);
     }
   }
 
@@ -394,6 +402,7 @@ export function parseVirtualBranchConfig(
       filters,
       ...(where ? { where } : {}),
       sort,
+      ...(propertiesNamed(definition, "group")[0] ? { group: viewWords(propertiesNamed(definition, "group")[0]!.value).join(",") } : {}),
       ...(sortWritten ? { sortWritten } : {}),
       ...(machineryProperty ? { machinery } : {}),
       ...(propertyScope && propertyScope !== "block" ? { propertyScope } : {}),
@@ -696,14 +705,15 @@ interface ProjectedVirtualBranch<T extends ProjectionBlock = VisibleBlock> {
 /** The canonical query whose results a saved view ranks, deduplicates and bounds. */
 export function virtualBranchMembershipQuery(
   viewId: string,
-  config: Pick<VirtualBranchConfig, "filters" | "where" | "sort" | "machinery" | "propertyScope">,
+  config: Pick<VirtualBranchConfig, "query" | "filters" | "where" | "sort" | "group" | "machinery" | "propertyScope">,
   limit: number = MAX_BLOCK_QUERY_LIMIT,
 ): BlockSearchQuery {
   return {
     filters: config.filters,
     machinery: config.machinery ?? DEFAULT_MACHINERY,
     ...(config.propertyScope ? { propertyScope: config.propertyScope } : {}),
-    ...(config.where ? { predicate: config.where } : {}),
+    ...(config.where ? { where: config.query } : {}),
+    ...(config.group ? { group: config.group } : {}),
     ...(config.sort ? { sort: config.sort } : { rankViewId: viewId }),
     limit,
   };

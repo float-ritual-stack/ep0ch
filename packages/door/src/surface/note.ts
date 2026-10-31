@@ -1,3 +1,4 @@
+import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
@@ -26,8 +27,8 @@ import { HEADER_VALUES } from "@ep0ch/outline-core/component-schemas-blocks";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { InlineList, inlineRowKey } from "./inline-list";
 import { LISTVIEW_ACTIONS, listNamed, type ListHost } from "./list-actions";
-import { ListView, listRowLines, listRowsOf, PERSON, selectable, type ListHandle, type ListViewRow } from "./list-view";
-import { activationOf, type ListPrimitive } from "@ep0ch/outline-core/list-row";
+import { ListView, PERSON, selectable, type ListHandle, type ListViewRow } from "./list-view";
+import type { ListPrimitive } from "@ep0ch/outline-core/list-row";
 import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -155,7 +156,7 @@ import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { MOUSE_ALT, RowPresses } from "../scroll";
 import { readState, writeState } from "../state";
 import { menuRow } from "../desk/tile-menu";
-import { centred, ListPicker, pickRow } from "./picker";
+import { centred, listFieldPicker, ListPicker, pickRow } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
@@ -4248,37 +4249,8 @@ export class NoteSurface {
 
   // ── the inline lists (PIE-693, PIE-747): a ::links component, an extension's list view; their rows, picks, the person in one ──
 
-  /**
-   * An extension's `list` view drawn (PIE-747): the rows are the primitive's, the view is this reader's (`#n` among the
-   * lists the note draws), and each row is the element its one activation makes it: a block or Resource it opens, an
-   * action line it presses, text it copies or puts in the person's draft.
-   */
   private viewList(node: ListPrimitive, width: number, run: (act: string) => LinkTarget, lb: LinkBlocksEnv | undefined, drawn: Link[], markdown: (text: string) => string[]): string[] {
-    if (!lb) return listRowsOf(node).flatMap(r => listRowLines(r, { cols: width, lines: 2 }));
-    const n = ++(lb.drawn ??= { n: 0 }).n, key = `#${n}`;
-    const view = this.listFor(key, true, "list"), entered = this.listIn === key;
-    view.set(listRowsOf(node));
-    const previewing = node.preview !== undefined && node.preview !== "none" && view.rows.some(r => r.preview);
-    const tag = (row: ListViewRow, x: string): string => {
-      const a = activationOf(row);
-      if (!a) return x;
-      const at = { listRow: { key, row: row.id } };
-      const to: LinkTarget = a.kind === "open" ? listOpenTarget(row)!
-        : a.kind === "run" ? run(actionLine({ action: (a.value as { action: string }).action, args: (a.value as { args?: Record<string, string> }).args }))
-        : { role: "row", label: row.label, listText: a.kind === "copy" ? { copy: a.value as string } : { insert: a.value as string } };
-      return tagged(drawn, { ...to, ...at }, x);
-    };
-    const drawing = view.draw({
-      primitive: node, cols: width, focused: entered, selection: entered || previewing, tag, empty: node.empty ?? "nothing here",
-      ...(previewing ? { preview: { side: node.preview!, of: (row: ListViewRow, w: number) => {
-        const p = row.preview;
-        return !p ? null : "block" in p ? lb.preview?.(p.block, w) ?? null : markdown(p.markdown);
-      } } } : {}),
-    });
-    lb.seen?.({ n, key, title: `list ${n}`, view, entered, detail: { preview: null } });
-    // The frame's control, above the rows: ⏎ in (or esc out), unless the view said the list takes no keys.
-    const control = node.enter !== false && lb.control ? [" ".repeat(Math.max(0, width - 7)) + lb.control(key, entered ? "esc out" : "⏎ in")] : [];
-    return [...control, ...drawing.lines];
+    return renderPrimitiveList(this, node, width, run, lb, (to, text) => tagged(drawn, to, text), markdown);
   }
 
   /** The list the reader keeps for component `key`, made when first drawn. `narrows`: whether the view narrows its rows by a typed filter (a links component's model does that itself). */
@@ -4433,14 +4405,7 @@ export class NoteSurface {
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
       enter: (l, on) => { if (on || this.listIn === l.key) this.enterList(l, on); },
       type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(filterLine); },
-      choose: (l, action, keys) => {
-        const h = here();
-        h.overlay?.(new ListPicker<string, unknown>({ name: action, items: () => keys, clickChooses: true,
-          row: (key, _i, on, w) => [pickRow(key || "no grouping", on, w)],
-          choose: by => { void this.runList(action, { list: l.key, by }, h); },
-          frame: (a, n) => ({ rect: centred(a, Math.min(50, a.cols - 2), Math.min(n + 2, a.rows)), title: `${action} · ${l.title}` }),
-        }));
-      },
+      choose: (l, action, keys) => here().overlay?.(listFieldPicker(l.title, action, keys, by => { void this.runList(action, { list: l.key, by }, here()); })),
       redraw: () => host?.redraw(),
     };
   }

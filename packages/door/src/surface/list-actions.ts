@@ -184,9 +184,9 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
     summary: "turn a collection's page without changing its note", keys: "PageUp PageDown in a collection; click ‹ ›", touches: "nothing", replay: "safe",
     args: { list: LIST_ARG, by: { type: "number", optional: true, about: "pages to turn, default 1" } },
     run({ list, by }, { host, standing }, actor) {
-      const l = listNamed(host, list);
-      const pages = Number(l.detail?.pages ?? 1);
-      const page = l.view.turnPage(standing ? PERSON : actorKey(actor), by ?? 1, pages);
+      const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
+      const pages = l.view.pageCount(who);
+      const page = l.view.turnPage(who, by ?? 1, pages);
       host.redraw(); return { page, pages };
     },
   }),
