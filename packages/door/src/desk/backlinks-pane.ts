@@ -23,7 +23,7 @@ import { outlineBoards, readTarget } from "./outline-boards";
 // line by `layoutLinksStatus`. One model and one drawing, not three.
 import { BASE_STYLE } from "@ep0ch/outline-core/style-cascade";
 import { isOutlineNote, type AuthoredLinksSnapshot } from "../authored";
-import { ALL_LINK_GROUPS, describeLinkRow, isLinkEntry, isLinkGroup, LINK_GROUPS, linkAcross, linkBlock, linkListRow, linkNote, linkTargetOf, linkRows, readChildren, type ChildLink, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
+import { DEFAULT_LINK_GROUPS, ALL_LINK_GROUPS, describeLinkRow, isLinkEntry, isLinkGroup, LINK_GROUPS, linkAcross, linkBlock, linkListRow, linkNote, linkTargetOf, linkRows, readChildren, type ChildLink, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { headedTitle, subject, type Msg } from "../board";
 import {
   backlinkOptionsFrom, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
@@ -122,7 +122,8 @@ export class BacklinksPane implements Pane {
   /** The groups (Outlinks, Resources, Backlinks, Children) folded to their header. */
   shut = new Set<LinkGroupName>();
   /** The groups this tile lists (PIE-693), in the model's order: every one unless its spec names some. */
-  groups: LinkGroupName[] = [...ALL_LINK_GROUPS];
+  groups: LinkGroupName[] = [...DEFAULT_LINK_GROUPS];
+  parents: Load<ChildLink[]> = { kind: "loading" };
   /** The notes under the target, with their facets, while Children is listed (read only then). */
   children: Load<ChildLink[]> = { kind: "loading" };
   /** Children's own reads: only the latest one lands (it can be asked again without the rest, as its group comes on). */
@@ -175,7 +176,7 @@ export class BacklinksPane implements Pane {
   private landed: string | null = null;
 
   /** Every group listed (the tile's default), or only some. */
-  private get every() { return this.groups.length === ALL_LINK_GROUPS.length; }
+  private get every() { return this.groups.length === DEFAULT_LINK_GROUPS.length && !this.groups.includes("parents"); }
   /** Children alone: the replies of a thread, as the thread tile was. */
   private get childrenOnly() { return this.groups.length === 1 && this.groups[0] === "children"; }
 
@@ -212,6 +213,7 @@ export class BacklinksPane implements Pane {
     // Backlinks coming on are read (a tile without them never asked); Children alone is read on its own.
     if (this.target && !had.has("backlinks") && this.groups.includes("backlinks")) void this.load(this.target, desk, true);
     else if (this.target && !had.has("children") && this.groups.includes("children")) void this.loadChildren(this.target, desk);
+    if (this.target && !had.has("parents") && this.groups.includes("parents")) void this.loadParents(this.target, desk);
     desk.redraw();
   }
 
@@ -317,8 +319,9 @@ export class BacklinksPane implements Pane {
     if (!m) return;
     const board = m.address ? (await outlineBoards(desk.ctx).on(m.address)).board : desk.ctx.board;
     if (n !== this.asked) return;
-    if (!keepSel) this.children = { kind: "loading" };
+    if (!keepSel) { this.children = { kind: "loading" }; this.parents = { kind: "loading" }; }
     if (this.groups.includes("children")) void this.loadChildren(m, desk);
+    if (this.groups.includes("parents")) void this.loadParents(m, desk);
     // Its authored links (Outlinks, Resources) come beside the backlinks; the list draws each as it lands.
     void board.authoredLinks(m.id).then(v => {
       if (n !== this.asked) return;
@@ -360,6 +363,15 @@ export class BacklinksPane implements Pane {
     }, (e: Error) => { if (current()) { this.children = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
   }
 
+  private async loadParents(m: Msg, desk: DeskApi) {
+    const board = m.address ? outlineBoards(desk.ctx).peek(m.address)!.board : desk.ctx.board;
+    await board.ancestors(m.id).then(ancestors => {
+      if (this.target?.id !== m.id) return;
+      this.keepSel(() => { this.parents = { kind: "ready", value: ancestors.map(block => ({ block })) }; });
+      desk.redraw();
+    }, (e: Error) => { if (this.target?.id === m.id) { this.parents = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
+  }
+
   /** Given the keys: its selection fills a preview that shows nothing yet, and never replaces what one shows (PIE-1426). */
   focused(desk: DeskApi, actor: Actor) { if (desk.previewsEmpty?.(this)) this.showSelected(desk, actor); }
 
@@ -389,10 +401,10 @@ export class BacklinksPane implements Pane {
   }
   /** What the service sent, as the shared model reads it. */
   private linkData(): LinkData {
-    return { links: this.authored, backlinks: this.data ? { kind: "ready", value: this.data } : { kind: "loading" }, ...(this.groups.includes("children") ? { children: this.children } : {}) };
+    return { links: this.authored, backlinks: this.data ? { kind: "ready", value: this.data } : { kind: "loading" }, ...(this.groups.includes("children") ? { children: this.children } : {}), ...(this.groups.includes("parents") ? { parents: this.parents } : {}) };
   }
   /** The groups listed, as the model's `only` (left out when every one is). */
-  private only(): ReadonlySet<LinkGroupName> | undefined { return this.every ? undefined : new Set(this.groups); }
+  private only(): ReadonlySet<LinkGroupName> | undefined { return new Set(this.groups); }
   /** The rows as shown: the groups this tile lists (the shared links model), each folding, the filter on all of them. */
   rows(): LinkRow[] {
     const only = this.only();
@@ -745,12 +757,12 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
     },
   }),
   "backlinks.groups": def({
-    summary: "which groups a links tile lists (PIE-693): show=<groups> (outlinks, resources, backlinks, children, comma-separated, or all), toggle=<group> one on or off, choose=true opens the person's list of them (a click on a row switches one). Saved with the layout. A tile with children alone is the thread tile's replies. At least one group stays",
+    summary: "which groups a links tile lists: show=<groups> (outlinks, resources, backlinks, children, parents, comma-separated, or all), toggle=<group> one on or off, choose=true opens the person's list of them. Parents lists the ancestor path and starts off. Saved with the layout. Children alone is the thread tile's replies. At least one group stays",
     keys: "v, a click on N sources or the counters (→ ♦ ← ↓); in its list ⏎ or a click switches one",
     touches: "tile", replay: "safe", way: "an agent changes the groups of a links tile the person isn't in", says: r => (r.groups ? `links tile lists ${(r.groups as string[]).join(", ")}` : null),
     menu: { label: "choose its groups", group: "Links", key: "v", args: { choose: true } },
     args: {
-      show: { type: "string", optional: true, about: "the groups, comma-separated (outlinks, resources, backlinks, children), or all" },
+      show: { type: "string", optional: true, about: "the groups, comma-separated (outlinks, resources, backlinks, children, parents), or all" },
       toggle: { type: "string", optional: true, about: "one group to switch on or off" },
       choose: { type: "boolean", optional: true, about: "open the list of groups (the person's)" },
     },

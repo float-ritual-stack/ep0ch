@@ -220,7 +220,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     test(`lift mouse: the hint row outside the column in ${place} receives its click`, () => withLift(async (owner, mouse) => {
       await owner.dispatch.act({ action: "tile.zoom", tile: "brief", args: { reach: "column", on: true } }, USER);
       (app as any).paint(true);
-      const hint = owner.keySpots.find((s: any) => s.key.kind === "char" && s.key.ctrl && s.key.ch === "w");
+      const hint = owner.keySpots.find((s: any) => s.key?.kind === "char" && s.key.ctrl && s.key.ch === "w");
       expect(hint).toBeDefined();
       expect(hint.from).toBeLessThan(owner.liftedRect.col);
       mouse(0, hint.from, hint.y); mouse(0, hint.from, hint.y, true);
@@ -872,11 +872,11 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     expect(hyperOn()).toBe(false);
     expect(sent("\x1b[45;16u")).toEqual([{ kind: "super", ch: "-" }]);
     expect(tile(reader).collapsed).toBeUndefined();
-    expect(stage().hyperChip).toBeNull();
+    (app as any).paint(true); expect(h.painted.map(plain).join("\n")).not.toContain("✦ hyper");
     // On: ✦- folds the focused tile, ✦= opens it; the chip is on the hint row.
     useHyper(true);
     try {
-      app.redraw(); screen(); expect(stage().hyperChip).not.toBeNull();
+      (app as any).paint(true); expect(h.painted.map(plain).join("\n")).toContain("✦ hyper");
       const focused = tiles().find(x => x.focused).name;
       expect(sent("\x1b[45;16u")).toEqual([{ kind: "hyper", ch: "-" }]);
       expect(tile(focused).collapsed).toBe(true);

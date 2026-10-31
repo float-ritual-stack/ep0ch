@@ -15,51 +15,16 @@ export interface StatusItem {
   id: string;
   text: string;
   place: "left" | "right";
-  before?: string;
-  after?: string;
   click?: ActRequest;
   alt?: ActRequest;
   lastCell?: ActRequest;
   /** A note's `::button` (its label is `text`): drawn by the button part, in its press's state, one row high. */
   button?: { look: ButtonLookWords; line: number };
-  /** How long it stays when the bar is narrow (`RANK`, PIE-1213): the lowest goes into the overflow first. */
-  rank?: number;
-  /** Its words when the bar is narrow (the drawer chip without what it's doing, `+3` for `+3 machine`): used before anything goes. */
-  short?: string;
-  /** Shorter still, taken only before a pinned item would go (the drawer chip's arrow). */
-  tiny?: string;
 }
 export interface StatusHit { item: StatusItem; from: number; to: number }
 
-/** Position the same records that are drawn, excluding separators and clipped or displaced text. */
-export function statusHits(items: StatusItem[], from: number, limit: number): StatusHit[] {
-  const hits: StatusHit[] = [];
-  let x = from;
-  for (const item of items) {
-    x += width(item.before ?? "");
-    const to = x + width(item.text);
-    if (x >= 0 && to <= limit) hits.push({ item, from: x, to });
-    x = to + width(item.after ?? "");
-  }
-  return hits;
-}
-export const statusText = (items: StatusItem[]) => items.map(i => (i.before ?? "") + i.text + (i.after ?? "")).join("");
-
 /** The bar's own colours: what a drawn part that ends in RESET (a button) is followed by, so the band goes on. */
 export const STATUS_INK = bg(C.blue) + fg(C.lcyan);
-
-/** The bar's separator between items on its right. */
-export const RIGHT_AFTER = ` ${fg(C.lcyan)}│ `;
-
-/**
- * One side's items with the bar's separators where the note put an item next to one that leaves no gap: on the left, an
- * item after one with no `after` (the location) is set off by `│`; on the right, every item but the last ends in `│` and
- * the last in a space, so a button pinned after the clock reads `16:12 │ Collapse`.
- */
-export function separated(items: StatusItem[], side: "left" | "right"): StatusItem[] {
-  if (side === "left") return items.map((item, i) => i > 0 && !items[i - 1]!.after && !item.before ? { ...item, before: " │ " } : item);
-  return items.map((item, i) => i === items.length - 1 ? { ...item, after: " " } : (item.after ?? "").includes("│") ? item : { ...item, after: RIGHT_AFTER });
-}
 
 /** One entry of the status-bar note as read: a built-in by id, a button, or a group of entries; `line` is its line (from 0). */
 export type StatusEntry =
@@ -144,9 +109,6 @@ export function readStatusNote(text: string, builtinIds: readonly string[]): { e
   return { entries, problems: problems.sort((a, b) => a.line - b.line) };
 }
 
-/** Ranks on the bar (PIE-1213): what the person pinned outlasts a built-in they listed, which outlasts one nobody listed. */
-export const RANK = { builtin: 0, listed: 1, pinned: 2 } as const;
-
 /** The note is ordinary outline content: edits, trash and reconnects all read it through the service. */
 export class StatusBarNote {
   note: Msg | null = null;
@@ -193,12 +155,11 @@ export class StatusBarNote {
 
   /** A note entry as a bar item (a group draws its label and opens its children); built-ins are read live. */
   private itemOf(entry: StatusEntry, builtins: StatusItem[], place: "left" | "right", path: string[]): StatusItem | null {
-    const after = place === "right" ? RIGHT_AFTER : " │ ";
-    if (entry.kind === "builtin") { const b = builtins.find(x => x.id === entry.id); return b ? { ...b, rank: RANK.listed } : null; }
-    if (entry.kind === "group") return { id: `group:${entry.line}`, text: `${entry.label} ${fg(C.yellow)}▲${fg(C.lcyan)}`, place, after, rank: RANK.pinned, click: { action: "status.bar.menu", args: { group: [...path, entry.label].join("/") } } };
+    if (entry.kind === "builtin") { const b = builtins.find(x => x.id === entry.id); return b ?? null; }
+    if (entry.kind === "group") return { id: `group:${entry.line}`, text: `${entry.label} ${fg(C.yellow)}▲${fg(C.lcyan)}`, place, click: { action: "status.bar.menu", args: { group: [...path, entry.label].join("/") } } };
     const b = entry.call, line = entry.line, note = this.note!.id;
     const text = buttonText(b.label, { ...b.look, ...pressState(note, line, b.label) }) + STATUS_INK;
-    return { id: `button:${line}`, text, place, after, rank: RANK.pinned, button: { look: b.look, line },
+    return { id: `button:${line}`, text, place, button: { look: b.look, line },
       click: { action: "button.press", args: { note, label: b.label, line: line + 1 } }, ...(b.alt ? { alt: { action: "button.press", args: { note, label: b.label, line: line + 1, alt: true } } } : {}) };
   }
 
@@ -217,7 +178,7 @@ export class StatusBarNote {
     if (bad) {
       const at = out.findLastIndex(i => i.place === "left") + 1;
       const more = this.read.problems.length > 1 ? ` +${this.read.problems.length - 1}` : "";
-      out.splice(at, 0, { id: "problems", text: `${fg(C.yellow)}! line ${bad.line + 1}${more}${fg(C.lcyan)}`, place: "left", after: " │ ", rank: RANK.pinned, click: { action: "status.bar.edit", args: { line: bad.line + 1 } } });
+      out.splice(at, 0, { id: "problems", text: `${fg(C.yellow)}! line ${bad.line + 1}${more}${fg(C.lcyan)}`, place: "left", click: { action: "status.bar.edit", args: { line: bad.line + 1 } } });
     }
     return out;
   }
@@ -290,8 +251,6 @@ interface StatusOn {
   note: StatusBarNote;
   builtins(): StatusItem[];
   items(): unknown;
-  /** What the bar had no room for, in its order (the `+N` chip's). */
-  hidden(): StatusItem[];
   open(id: string, actor: Actor, reveal?: Reveal): Promise<unknown>;
   /**
    * Show the person a menu of `rows` over the screen, above the bar's item `anchor` picks; false when no screen can hold one.
@@ -324,27 +283,21 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
     },
   }),
   "status.bar.menu": def({
-    summary: "open a status-bar group's items as a menu (group=<label>, nested groups as Tools/More), or with overflow=true what the bar has no room for (its +N chip). The person's opens over the screen, each row runs that item's click; an agent's answers the rows (label, action, args) without opening anything",
-    keys: [{ keys: "click", does: "on a status-bar group or on its +N overflow chip" }],
+    summary: "open a status-bar group's items as a menu (group=<label>, nested groups as Tools/More). The person's opens over the screen, each row runs that item's click; an agent's answers the rows (label, action, args) without opening anything. strip.more strip=status lists the whole bar",
+    keys: [{ keys: "click", does: "on a status-bar group" }],
     touches: "nothing", replay: "safe",
     args: {
       group: { type: "string", optional: true, about: "the group's label as the bar shows it; Outer/Inner for a nested group" },
-      overflow: { type: "boolean", optional: true, about: "the items the bar has no room for now" },
     },
     answer: { title: { type: "string", about: "the menu's title" }, rows: { type: "array", about: "each item: label, action and args a click runs (refused: why it can't)" } },
     examples: [
       { act: "status.bar.menu group=Tools", does: "the items nested under - Tools in your status-bar note" },
-      { act: "status.bar.menu overflow=true", does: "what the narrow bar put in its +N chip" },
     ],
-    run({ group, overflow }, on, actor) {
-      const g = overflow ? { label: "not shown: no room", items: on.hidden() } : on.note.group(group ?? "", on.builtins());
-      // A group's group opens beside it; one the +N lists opens on its own (the +N menu has no group to stand beside).
-      const rows = g.items.map(i => menuRowOf(i, g.label, !overflow));
-      // The overflow also opens the note, where the bar is arranged.
-      if (overflow) rows.push({ action: "status.bar.edit", args: {}, tile: "", label: "edit the status bar", group: "the bar" });
-      const title = overflow ? "status bar" : g.label, answer = { title, rows: rows.map(({ tile: _t, group: _g, ...r }) => r) };
+    run({ group }, on, actor) {
+      const g = on.note.group(group ?? "", on.builtins()), rows = g.items.map(i => menuRowOf(i, g.label, true));
+      const title = g.label, answer = { title, rows: rows.map(({ tile: _t, group: _g, ...r }) => r) };
       if (actor.kind === "agent") return answer;
-      if (!on.menu(title, rows, i => (overflow ? i.id === "overflow" : i.click?.action === "status.bar.menu" && opensFrom(String(i.click.args?.group ?? ""), group ?? "")), overflow ? undefined : pathOf(group ?? ""))) on.flash(`${title}: ${rows.map(r => r.label).join(" · ")}`);
+      if (!on.menu(title, rows, i => i.click?.action === "status.bar.menu" && opensFrom(String(i.click.args?.group ?? ""), group ?? ""), pathOf(group ?? ""))) on.flash(`${title}: ${rows.map(r => r.label).join(" · ")}`);
       return answer;
     },
   }),

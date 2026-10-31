@@ -521,6 +521,10 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   await make(notes.swap.id, "Dee: a question about the time [status::answered]\nIs it ten or eleven? Ten, said Ana.");
   // A small checklist under the whiteboard, for the notebook's anchored embed of one step.
   const tap = await make(notes.whiteboard.id, "Kitchen tap\n- [~] fix the dripping tap ^t-7a9c11\n  - [ ] buy a washer\n- [ ] tighten the hinge");
+  notes.strip = await make(notes.root.id, "Strip workshop\nNarrow the reader, then use its tabs, breadcrumbs and docks.");
+  let stripParent = notes.strip;
+  for (const title of ["Garden", "Projects", "Potting shed", "Construction", "Daily records"]) stripParent = await make(stripParent.id, title);
+  notes.stripLog = await make(stripParent.id, "Build logs\nThe roof frame is ready. Open a breadcrumb's links without leaving these notes.");
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));
   notes.glassTitle = await make(notes.root.id, `${SEED.glassTitle}\nThe full title stays readable on the glass.`);
   notes.glass = await make(notes.root.id, `${SEED.glass}
@@ -926,6 +930,11 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
     if (name === "root") continue;
     const hit = kids.get(title);
     if (hit) notes[name] = (await board.get(hit.id)) ?? hit;
+  }
+  for (let level = notes.strip ? [notes.strip] : []; level.length && !notes.stripLog;) {
+    level = (await Promise.all(level.map(m => board.children(m.id)))).flat();
+    const hit = byTitle(level).get(SEED.stripLog);
+    if (hit) notes.stripLog = (await board.get(hit.id)) ?? hit;
   }
   // The dashboard's embed-only note (PIE-1458) is titled by the embed it is.
   const embedded = notes.dashboard && kids.get(`!((${notes.dashboard.id}))`);

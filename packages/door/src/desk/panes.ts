@@ -197,7 +197,7 @@ export interface DeskApi {
    * screen without one, a links tile opens below the reader with a preview following it. The person's keys go to
    * the list; an agent's leaves them where they are.
    */
-  openLinks?(r: Pane, actor: Actor, standing: boolean): Promise<Record<string, unknown>>;
+  openLinks?(r: Pane, actor: Actor, standing: boolean, ancestor?: Msg): Promise<Record<string, unknown>>;
   /** A new tile of `t.kind` in tile `tile`'s place, which goes (the blank tile's rows, PIE-565). */
   replaceTile?(tile: string | undefined, t: { kind: string; view?: string; cmd?: string; name?: string }, actor: Actor): Promise<Record<string, unknown>>;
   /** The person picks what a new tile of `kind` lacks from its kind's `choices` (a query lane's view); `then` opens it. */
@@ -616,8 +616,6 @@ export class ReaderPane implements Pane, AttachedOwner {
       // A #tag opened in it: the notes carrying it, in a list beside it (PIE-800).
       ...(desk.openQuery ? { query: (q: string, how?: OpenHow) => desk.openQuery!(this, q, how?.by ?? USER, how?.standing) } : {}),
       ...(desk.openTag ? { tag: (t: string, how?: OpenHow) => desk.openTag!(this, t, how?.by ?? USER, how?.standing) } : {}),
-      // A click on the crumbs shows the note in the outline (reader.reveal, PIE-794): readers of a screen with one.
-      ...(desk.revealInOutline ? { revealInOutline: () => runOwn(READER_ACTIONS, "reader.reveal", {}, { pane: this, desk }) } : {}),
       // alt+D (PIE-1247): the desk's element.detach on this reader, which places the new tile.
       detach: () => runOwn(READER_ACTIONS, "element.detach", {}, { pane: this, desk }),
       // A row picked in a list drawn in the note shows where this reader's selection goes (PIE-794).
@@ -1079,13 +1077,24 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
   }),
   "reader.reveal": def({
     summary: "show a reader's note in the outline (tile=<a reader>, default the focused one): the outline's cursor moves to its row, unfolding what's over it, and its dock slides open if it's shut, as the outliner's Tree's r does. Nothing else moves: the reader, its pin and the keys stay. A held reader's own navigation never moves the outline (PIE-794); this finds where it is. The person's: the outline's cursor is theirs",
-    keys: "alt+r in a reader, a click on its crumbs (the path above the title)",
+    keys: "alt+r in a reader; alt+click on a breadcrumb",
     touches: "tile", replay: "safe", person: "the outline's cursor is the person's; an agent reads where a note sits with outline_read or peek",
     menu: { label: "show in the outline", group: "Reader", key: "alt+r", now: ({ pane }) => (!pane.msg ? { refused: "nothing in that reader to find in the outline" } : null) },
     args: {},
     run(_, { pane, desk }) {
       if (!desk.revealInOutline) throw new ActionRefused("this screen has no outline to show it in");
       return desk.revealInOutline(pane);
+    },
+  }),
+  "reader.crumb": def({
+    summary: "breadcrumb: show its links; aim the links tile at this ancestor, keeping the reader and keys where they are",
+    words: "show a breadcrumb's links",
+    keys: "click a breadcrumb; [ ] then enter", touches: "nothing", replay: "safe",
+    args: { id: { type: "string", about: "the ancestor's note id" } },
+    async run({ id }, { pane, desk }, actor) {
+      const m = await pane.host(desk).ctx.board.get(id);
+      if (!m || !desk.openLinks) throw new ActionRefused("that breadcrumb is no longer in this outline");
+      return desk.openLinks(pane, actor, true, m);
     },
   }),
   "reader.follow": def({

@@ -7,7 +7,8 @@ import { headOf, pad, RESET, selected, tailFrom, visible, width } from "./style"
 export const FULL_START = "\x1b[777;";
 export const FULL_END = "\x1b[778m";
 export const FULL_MARKERS = /\x1b\[(?:777;[01];\d+|778)m/g;
-interface Full { id: number; source: string; reveal?: string; lit?: string }
+export interface StripTarget { id: string; n: number }
+interface Full { id: number; source: string; reveal?: string; lit?: string; strip?: StripTarget; tab?: import("./surface/chip-rows").Tab }
 const values = new Map<string, Full>();
 const byId = new Map<number, Full>();
 let nextId = 0;
@@ -24,10 +25,10 @@ function revealText(value: Full): string {
   return value.reveal = prefix.length < plain.length ? `${prefix}… (${plain.length - prefix.length} more characters)` : plain;
 }
 
-export function fullValue(sequence: string): { readonly text: string; selected: boolean; lit?: string } | null {
+export function fullValue(sequence: string): { readonly text: string; selected: boolean; lit?: string; strip?: StripTarget; tab?: import("./surface/chip-rows").Tab } | null {
   const match = /^\x1b\[777;([01]);(\d+)m$/.exec(sequence);
   const value = match && byId.get(Number(match[2]));
-  return value ? { get text() { return revealText(value); }, selected: match![1] === "1", ...(value.lit !== undefined ? { lit: value.lit } : {}) } : null;
+  return value ? { get text() { return revealText(value); }, selected: match![1] === "1", lit: value.lit, strip: value.strip, tab: value.tab } : null;
 }
 export function fullPlainText(text: string): string {
   return text.replace(/\x1b\[777;[01];(\d+)m[\s\S]*?\x1b\[778m/g,
@@ -36,11 +37,11 @@ export function fullPlainText(text: string): string {
       return value && value.lit === undefined ? fullPlainText(value.source) : drawn.replace(FULL_MARKERS, "");
     });
 }
-export function fullText(text: string, drawn: string, lit?: string): string {
-  const key = lit === undefined ? text : `\0lit\0${lit}`;
+export function fullText(text: string, drawn: string, lit?: string, strip?: StripTarget, tab?: import("./surface/chip-rows").Tab): string {
+  const key = (lit === undefined ? text : `\0lit\0${lit}`) + (strip ? `\0${strip.id}:${strip.n}` : tab ? "\0tab" : "");
   let value = values.get(key);
   if (!value) {
-    value = { id: ++nextId, source: text, ...(lit !== undefined ? { lit } : {}) };
+    value = { id: ++nextId, source: text, lit, strip };
     values.set(key, value); byId.set(value.id, value);
     // Bound retained source references as screens and completions come and go.
     if (values.size > 1024) {
@@ -48,6 +49,7 @@ export function fullText(text: string, drawn: string, lit?: string): string {
       values.delete(oldKey); byId.delete(oldest.id);
     }
   } else { values.delete(key); values.set(key, value); }
+  value.tab = tab;
   return `\x1b[777;0;${value.id}m${drawn.replace(FULL_MARKERS, "")}${FULL_END}`;
 }
 /**
@@ -56,10 +58,10 @@ export function fullText(text: string, drawn: string, lit?: string): string {
  * (not those a float covers) are restyled, wherever the drawing lands.
  */
 export const litText = (drawn: string, lit: string): string => fullText("", drawn, lit);
-export const clipText = (text: string, cells: number): string => width(text) > cells ? fullText(text, headOf(text, cells)) : text;
+export const clipText = (text: string, cells: number): string => width(text) > cells ? text.includes(FULL_START) ? headOf(text, cells) : fullText(text, headOf(text, cells)) : text;
 export const selectFullText = (text: string) => text.replaceAll("\x1b[777;0;", "\x1b[777;1;");
 
-interface Cut { text: string; x: number; y: number; end: number; selected: boolean; lit?: string }
+interface Cut { text: string; x: number; y: number; end: number; selected: boolean; lit?: string; strip?: StripTarget }
 
 /** Clipping travels with the drawn cells, so composing a float also composes its hit targets. */
 export class Overflow {
@@ -75,6 +77,8 @@ export class Overflow {
 
   /** The cut-short value at a cell, if any, as `draw` keys it: one answer for what the pointer reveals and whether that changed. */
   private cutAt(x: number, y: number): Cut | undefined { return this.cuts.find(c => c.y === y && x >= c.x && x < c.end); }
+  stripAt(x: number, y: number): StripTarget | undefined { return this.cutAt(x, y)?.strip; }
+  hoveredStrip(): StripTarget | undefined { return this.pointer ? this.stripAt(this.pointer.x, this.pointer.y) : undefined; }
   targetAt(x: number, y: number): { text: string; rect: { col: number; row: number; cols: number; rows: number } } | null {
     const cut = this.cutAt(x, y);
     return cut && cut.lit === undefined ? { text: cut.text, rect: { col: cut.x, row: cut.y, cols: cut.end - cut.x, rows: 1 } } : null;
@@ -119,7 +123,7 @@ export class Overflow {
       const full = fullValue(part);
       if (full || part === FULL_END) {
         if (open) open.end = x;
-        open = full ? { get text() { return full.text; }, selected: full.selected, ...(full.lit !== undefined ? { lit: full.lit } : {}), x, y, end: x } : undefined;
+        open = full ? { get text() { return full.text; }, selected: full.selected, lit: full.lit, strip: full.strip, x, y, end: x } : undefined;
         if (open) this.cuts.push(open);
         return "";
       }
@@ -133,7 +137,7 @@ export class Overflow {
     const clean = lines.map((line, y) => this.readRow(line, y));
     const p = this.pointer;
     const cut = p ? this.cutAt(p.x, p.y)
-      : this.chosen ? this.cuts.find(c => c.text === this.chosen) : this.keyboard ? [...this.cuts].reverse().find(c => c.selected) : undefined;
+      : this.chosen ? this.cuts.find(c => c.text === this.chosen) : [...this.cuts].reverse().find(c => c.selected && (c.strip ? width(c.text) > c.end - c.x : this.keyboard));
     this.shown = cut;
     const key = Overflow.keyOf(cut);
     if (key !== this.active) { this.active = key; this.since = now; this.step = 0; }

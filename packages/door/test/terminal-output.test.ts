@@ -22,7 +22,7 @@ import { titleOf } from "../src/desk/writes";
 import { EXT_ACTIONS } from "../src/extensions";
 import { vgaCode } from "../src/mirror";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import { ellipsize, fitHint, headOf, pad, visible, width } from "../src/style";
 import { rowBytes } from "../src/term";
 import { paintable, printable, wrap } from "../src/text";
@@ -297,15 +297,14 @@ process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? {
     await until(() => (on as any).msg?.id === wide.id, "the wide note shown");
     const row = desk.render((desk as any).ctx ?? app).lines[ROWS - 2]!;
     expect(cells(row)).toBe(COLS);
-    const plain = visible(row);
-    const chip = (desk as any).lockChip as { from: number; to: number };
-    // The chip's click range covers the chip as drawn, in cells.
-    const atCells = (from: number, to: number) => { let col = 0, out = ""; for (const g of new Intl.Segmenter().segment(plain)) { const w = Bun.stringWidth(g.segment); if (col >= from && col < to) out += g.segment; col += w; } return out; };
-    expect(atCells(chip.from, chip.to)).toMatch(/lock/);
-    // Cut, it says ? more, and ? shows the rest.
-    expect(plain).toMatch(/· \? more/);
-    const more = (desk as any).moreChip as { from: number; to: number };
-    expect(atCells(more.from, more.to)).toBe("? more");
+    app.flush();
+    await app.dispatch.act({ action: "strip.more", args: { strip: "hint" }, tile: desk.keys().address! }, USER);
+    app.flush();
+    const menu = painted.at(-1)!.map(visible), y = menu.findIndex(l => l.includes("□ lock"));
+    expect(y).toBeGreaterThanOrEqual(0);
+    key({ kind: "mouse", action: "down", button: 0, x: menu[y]!.indexOf("□ lock"), y });
+    await until(() => desk.layoutGet().locked === true, "the lock chosen from the hint strip");
+    await app.dispatch.act({ action: "layout.lock", args: { on: false } }, USER);
   });
 
   test("a tile an agent opens is said as its kind's word; the person's own open isn't said at all", async () => {

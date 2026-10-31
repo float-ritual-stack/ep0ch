@@ -14,6 +14,9 @@ import type { LeaveResult } from "../draft-session";
 import type { Actor } from "../socket";
 import type { Key } from "../term";
 import type { Rect } from "../canvas";
+import { tabStrip } from "./chip-rows";
+import { stripWidth } from "./strip-state";
+import { C, fg } from "../style";
 
 /** A binding and its optional short wording, as in W_KEYS. Text input still belongs to the shared editor. */
 export interface ModeKey {
@@ -39,7 +42,10 @@ export function modeHint(keys: readonly ModeKey[], describe: (action: string) =>
     const group = groups.get(label) ?? [];
     group.push(keyCaption(row.key)); groups.set(label, group);
   }
-  return [...groups].map(([label, keys]) => `${keys.join("/")} ${label}`).join(" · ");
+  return tabStrip([...groups].map(([label, caps]) => {
+    const row = effective(keys).find(r => (r.label ?? describe(r.action)?.summary) === label)!;
+    return { label, key: caps.join("/"), hit: { action: row.action, args: row.args } };
+  }), { width: stripWidth(), style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } })[0]!.text;
 }
 
 export function modeActionKeys(tables: readonly (readonly ModeKey[])[], action: string): string | undefined {
@@ -198,10 +204,10 @@ export interface HintPart {
 export const hintKey = (p: HintPart): string | null => keyNow(p.action, p.args ?? {}, p.key) ?? null;
 /** Hint parts as a hint row draws them (`|15key|08 label`, the desk's paint codes): each a key the hint row's click presses. */
 export function partsHint(parts: readonly HintPart[]): string {
-  return parts.flatMap(p => {
+  return tabStrip(parts.flatMap(p => {
     const k = hintKey(p);
     if (k === null) return [];
     const cap = k === "tab" ? "Tab" : keyCaption(k);
-    return [`|15${cap}${k === p.key && p.also ? `/${p.also}` : ""}|08 ${p.label}`];
-  }).join(" · ");
+    return [{ label: p.label, key: cap + (k === p.key && p.also ? `/${p.also}` : ""), hit: { action: p.action, args: p.args } }];
+  }), { width: stripWidth(), style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } })[0]!.text;
 }

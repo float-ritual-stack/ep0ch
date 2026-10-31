@@ -511,16 +511,16 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.slide": def({
     words: "slide this tile's dock open or shut",
-    summary: "slide the dock holding tile=<tile> open (open=true) or shut (open=false); default toggles. A shut dock is a handle at the end of the hint row; a tile dragged onto the handle goes into the dock. Refused when its policy says it isn't collapsible",
-    keys: [{ keys: "^W d", does: "slide a dock" }, { keys: "click", does: "on its handle (⇤ ⇥ ⤒ ⤓ on the hint row)" }, { via: "a dock slides shut when the keys go elsewhere" }],
+    summary: "Show tile=<tile> at its dock edge, replacing the open choice there. beside=true keeps the other choices open beside it. Clicking a lit segment closes it; open=false tucks its dock away. Nothing underneath reflows.",
+    keys: [{ keys: "^W d", does: "slide a dock" }, { keys: "click", does: "on its edge segment; alt-click opens beside" }, { via: "a dock slides shut when the keys go elsewhere" }],
     touches: "shape", replay: "safe", says: r => `${r.open ? "opened" : "shut"} dock ${r.name ?? r.tile}`,
-    args: { open: { type: "boolean", optional: true, about: "true opens it, false shuts it" }, container: { type: "string", optional: true, about: "the dock's id (d<n>), when it isn't the innermost one holding tile=" } },
+    args: { beside: { type: "boolean", optional: true, about: "keep the other choices on this edge open beside this one" }, open: { type: "boolean", optional: true, about: "true opens this tile, false shuts its dock; omitted toggles this segment" }, container: { type: "string", optional: true, about: "the dock's id (d<n>), when it isn't the innermost one holding tile=" } },
     examples: [
       { act: "tile.slide open=true tile=tree", does: "slides the dock holding the tree open over the other tiles" },
-      { act: "tile.slide open=false tile=tree", does: "slides the tree's dock shut to a handle on the hint row" },
+      { act: "tile.slide open=false tile=tree", does: "tucks the tree away, keeping its edge segment reachable" },
     ],
-    run({ open, container }, { d, reader }, actor) {
-      return d.slideTile(reader, open, actor, container);
+    run({ open, container, beside }, { d, reader }, actor) {
+      return d.slideTile(reader, open, actor, container, beside);
     },
   }),
   "tile.preview": def({

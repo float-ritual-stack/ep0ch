@@ -464,8 +464,8 @@ export class WelcomeList implements Pane {
     if (named) this.hits.push({ y0: row, y1: row, from: 2, to: 13, action: "welcome.logo" });
     const lead = rail("[=") + (named ? fg(C.white) + " e p 0 c h " + RESET + rail("=") : "") + " ";
     const [strip] = items.length
-      ? tabStrip(items.slice(0, 10).map((m, i) => ({ label: subject(m), key: TAB_DIGITS[i]!, on: i === at, hit: { action: "welcome.select", args: { n: i + 1, read: true } } })), {
-        width: cols - 2, lead, overflow: "share", more: Math.max(0, items.length - 10), moreHit: { action: "tile.focus" },
+      ? tabStrip(items.map((m, i) => ({ label: subject(m), key: TAB_DIGITS[i], on: i === at, hit: { action: "welcome.select", args: { n: i + 1, read: true } } })), {
+        width: cols - 2, lead, overflow: "share",
         style: { on: chip(C.magenta), off: fg(C.lmagenta), key: fg(C.white), more: fg(C.lcyan), sep: " ", gap: rail(" =") },
       })
       : [{ text: lead + fg(C.dark) + (this.items ? `no welcome notes yet · showing [[${welcomeFallback()}]] ` : "asking the outline… ") + RESET + rail("="), hits: [] }];

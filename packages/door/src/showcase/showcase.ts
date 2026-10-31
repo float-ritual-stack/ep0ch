@@ -1,4 +1,5 @@
 import { completionSection, snippetSection } from "./completion";
+import { STRIP_SECTION } from "./strip";
 import { queryWordSections } from "./query-words";
 import { DropZonesPane } from "./drop-zones";
 import { runbookSections } from "./runbook";
@@ -8,9 +9,7 @@ import { LibraryPane } from "../library/library";
 import { errorDetails } from "../status-log";
 // The showcase (PIE-439): every shared door part, live, on the seeded showcase outline. One section per
 // row of the reuse map (docs/UI-GRAMMAR.md "Before adding a feature"), in the map's order; each is drawn
-// by the part itself, hosted on a desk of its own spec or the real board, never a copy. A parallel version still
-// in the code is shown beside the shared one and labelled, until consolidation removes it.
-//
+// by the part itself, hosted on a desk of its own spec or the real board.
 // It only runs on an outline the showcase seed wrote (src/showcase/seed.ts): `scripts/try-it.sh --showcase`
 // starts one. On any other outline it says so and writes nothing.
 import { nothingToClose, shellKeyOf } from "../shell-keys";
@@ -503,6 +502,7 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "x-ray and hint cards", panes: [source, reader], names: ["source", "reader"] }, show, [[source, n.notebook], [reader, n.shed]], d => { void d.dispatch.press("tile.title", { text: "Allotment notebook: planting, watering and seed orders through the growing season" }, "source"); void d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source"); });
     },
   },
+  STRIP_SECTION,
   {
     key: "panes", need: "open, split, zoom, close tiles; docks; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, docks, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a dock, c a spine, f a float, P the policy; the hint row's □ lock chip locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
     aside: "Drag a tile title over the reader: all six bands show, dim; the pointer lights one. Upper middle makes tabs, lower middle swaps, edges split. The Drop zones tab is a still of this overlay. ^W n or double click a title to rename; ^W N toggles without losing it. Reading {{this.title}} follows the notebook; Visitors is a written tab title. The frame card's close row closes the tile (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",

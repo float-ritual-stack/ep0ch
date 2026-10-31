@@ -473,7 +473,7 @@ export class PowerBar {
     const [scopes] = tabStrip(this.scopes().map(s => {
       const src = s ? barSource(s) : null;
       return { label: src ? `${src.prefix}${src.title}` : "all", on: s === this.scope, hit: { action: "bar.open", args: { scope: s ?? "all", keep: true } } };
-    }), { width: w, at: 1, overflow: "share", style: SCOPE_LOOK });
+    }), { id: "scopes", width: w, at: 1, overflow: "share", style: SCOPE_LOOK });
     const tabs = scopes!.text;
     this.scopeHits = scopes!.hits;
     const busy = this.asking.size ? `${[...this.asking].map(id => barSource(id)?.title ?? id).join(", ")}…` : "";

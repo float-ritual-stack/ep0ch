@@ -1,6 +1,7 @@
 import { drawCompletionFloat } from "../surface/completion-float";
 import { modeBinding, modeHint, partsHint, type HintPart, type ModeKey } from "../surface/modes";
 import { tabStrip } from "../surface/chip-rows";
+import { stripHint, stripSegments, withStripOwner } from "../surface/strip-state";
 import { ZOOM_WHEEL } from "./wkeys";
 import type { ZoomReach } from "./screen-layout";
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
@@ -70,7 +71,7 @@ import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term"
 import { DOCK_DROP, dropAt, dropOp, handleDrop, type Drop, type DropTile, type DropPlace } from "./drop";
 import { drawDrop } from "./drop-drawing";
 import {
-  agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
+  agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
   shape as layoutShapeOf, peekSource, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, WIRE_VERBS, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
@@ -330,20 +331,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private dropped: string[] = [];
   /** The docks sliding over the layout as last drawn, each with its tiles (for the mouse). */
   private slid: PlacedDock<number>[] = [];
-  /** The lock chip at the end of the hint row, as last drawn. */
-  private lockChip: { from: number; to: number } | null = null;
-  /** The drawer's own ▣ chip on this hint row while your drawer is locked (PIE-1346): a click unlocks the drawer. */
-  private drawerLockChip: { from: number; to: number; desk: Desk } | null = null;
-  private hyperChip: { from: number; to: number } | null = null;
-  /** The hint row as composed, when it was too long for the row and was cut ("? more"); where "? more" is on it. */
-  private hintFull: string | null = null;
-  private moreChip: { from: number; to: number } | null = null;
   /** The hint row's parts that start with a key, and the open keys box's: a click on one presses it (`hintSpots`). */
-  private keySpots: { y: number; from: number; to: number; key: Key; run?: () => void }[] = [];
+  private keySpots: { y: number; from: number; to: number; key?: Key; run?: () => void }[] = [];
   /** The tiles' own (PaneView.spots, an empty place's `+ New note`), on the screen; a tile laid over one takes it away. */
   private tileSpots: { y: number; from: number; to: number; key: Key; tile?: number }[] = [];
-  /** The whole hint row shown above it (keys.more: ?, or a click on "? more"), until the next key or click elsewhere. */
-  private hintMoreOpen = false;
   /**
    * The panel a prefix opens after a pause (PIE-1304): every key that can follow it, grouped, clickable, from the key
    * table and the actions' own words (key-panel.ts). `panelSince`: the prefix it waits on and since when.
@@ -604,7 +595,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private headPresses: { id: number; row: number; from: number; to: number; press: () => void }[] = [];
   /** The tiles whose header carries their controls this frame. */
   private headCtl = new Set<number>();
-  private handles: { id: number; from: number; to: number; dock: Dock<number> }[] = [];
+  private dockHits: { id: number; from: number; to: number; row: number; dock: Dock<number> }[] = [];
   private dividers: Divider<number>[] = [];
   private area: Rect = { col: 0, row: 0, cols: 80, rows: 22 };
   /** Attention marks (door-local until PIE-423's service store; only the desk's are saved). */
@@ -2456,9 +2447,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * with none gets one below the reader, with a preview following its selection beside it (tile.open, as ^W o l and
    * ^W o p do), both by the actor: the layout's rules apply, so a locked screen says so.
    */
-  async openLinks(r: Pane, actor: Actor, person: boolean): Promise<Record<string, unknown>> {
+  async openLinks(r: Pane, actor: Actor, person: boolean, ancestor?: Msg): Promise<Record<string, unknown>> {
     const rid = this.idOf(r);
-    const m = r instanceof ReaderPane ? r.msg : null;
+    const m = ancestor ?? (r instanceof ReaderPane ? r.msg : null);
     if (rid === undefined || !m) throw new ActionRefused("that reader isn't on this screen");
     // The screen's list `b` aims (a kind with `aim`: the links tile), one on screen first.
     const lists = this.relatives().flatMap(d => [...d.panes.values()].flatMap(p => {
@@ -2473,13 +2464,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const kind = tileKinds().find(k => k.aim);
       if (!kind) throw new ActionRefused("no kind of tile lists a note's links here");
       const at = this.nameOf(rid);
-      const list = await this.openTile({ kind: kind.kind, source: `tile:${at}` }, at, "down", actor);
-      if (kind.companion) await this.openTile({ kind: kind.companion, source: `tile:${list.tile}` }, list.tile, "right", actor);
+      const list = await this.openTile({ kind: kind.kind, source: `tile:${at}` }, at, "down", actor, ancestor ? { keys: false } : {});
+      if (kind.companion) await this.openTile({ kind: kind.companion, source: `tile:${list.tile}` }, list.tile, "right", actor, ancestor ? { keys: false } : {});
       const made = this.panes.get(this.idNamed(list.tile)!)!;
       L = kind.aim!(made);
       opened = true;
     }
-    if (person) {
+    if (ancestor) {
+      L.source = this.reference(r) ?? L.source; boundSource.set(L, r);
+      owner.revealPane(L, actor);
+      await L.show(m, owner);
+      if (actor.kind === "user") this.revealElsewhere(m, rid, rid);
+    } else if (person) {
       const held = this.dispatch.rule("screen", actor, { host: true });
       if (held) throw new ActionRefused(held);
       await owner.aimBacklinks(L, m, r as ReaderPane, actor);
@@ -2494,7 +2490,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
-   * DeskApi.revealInOutline (`reader.reveal`: alt+r, a click on a reader's crumbs, PIE-794): the outline's cursor moves to
+   * DeskApi.revealInOutline (`reader.reveal`: alt+r, alt+click on a reader's crumbs, PIE-794): the outline's cursor moves to
    * reader `p`'s note, as the outliner's Tree's r does, its dock sliding open if it's shut; an outline in the drawer or
    * the screen beside does when this screen has none. Nothing else moves: not the reader, its pin or the keys. A
    * reader's own navigation never moves the outline: this is how to find where it is.
@@ -3789,6 +3785,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
     else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
+    this.drawDocks(canvas, area);
     if (this.layout.lift) return { lines: canvas.lines(), placements };
     return this.finishFrame(canvas, area, cols, rows, placements, !!host);
   }
@@ -3829,7 +3826,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // is painted over the whole screen (paintLift), and that is the screen's one row.
     if ((this.holder || hideHint) && !this.layout.lift) {
       this.hintRow = -1;
-      this.hintFull = null; this.moreChip = null; this.keySpots = []; this.handles = []; this.lockChip = null; this.drawerLockChip = null; this.hyperChip = null;
+      this.keySpots = [];
       this.hintPanel = null;
       this.hintText();
       if (this.hintPanel && this.drawKeyPanel(canvas, cols, rows)) placements = [];
@@ -3837,10 +3834,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     this.hintRow = rows - 2;
     const hint = this.hints(cols);
-    if (!this.hintFull) this.hintMoreOpen = false;            // the row fits again: nothing is left to show
     if (this.hintPanel && this.drawKeyPanel(canvas, cols, rows)) placements = [];
-    // A chord's cut row shows the rest above it at once (its ? is the chord's next key), but ^W's and ^W o's wait for their pause, then for their panel (PIE-1304).
-    else if (this.hintFull && (this.hintMoreOpen || (this.prefix && (!this.hasPanel() || this.panelOpen())))) { this.drawHintMore(canvas, cols, rows); placements = []; }
     canvas.text(0, rows - 2, hint, cols);
     this.overlayHits.push({ col: 0, row: this.hintRow, cols, rows: 1 });
     // The hint row is chrome: a status message said whole sits above it, never over its chips (PIE-1456).
@@ -3893,7 +3887,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const last = this.views.get(id);
     if (last && this.reflows && !this.reflows.has(id)) return last.view;
     const t0 = performance.now();
-    const view = withRowLimit(this.looks.get(pane)?.values["rows.lines"] ?? 2, () => pane.render(inner.cols, inner.rows, focused, this, typing));
+    const view = withStripOwner(this.tileId(id), inner.cols, () => withRowLimit(this.looks.get(pane)?.values["rows.lines"] ?? 2, () => pane.render(inner.cols, inner.rows, focused, this, typing)));
     const at = performance.now();
     this.views.set(id, { cols: inner.cols, rows: inner.rows, view, ms: at - t0, frame: this.frameNo, at });
     return view;
@@ -4256,9 +4250,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.putStatus(id, put, true);
     if (state) put(`${state} · `, fg(C.dark));
     if (set && set.ids.length > 1) {
-      const [strip] = tabStrip(set.ids.map((t, i) => ({ label: `${this.numLabel(t)}${this.displayTitle(t)}`, on: i === set.active, hit: { action: "tab.select", args: { tile: t } } })), { width: room, at: x, overflow: "share", style: tileTabs() });
-      for (const h of strip!.hits) if (h.from < max) this.heads.push({ id: h.args!.tile as number, from: h.from, to: Math.min(max, h.to), row: r.row });
-      this.headOut += strip!.text; x += width(strip!.text);
+      const stripRoom = room >= 2 * width(this.numLabel(id) + this.displayTitle(id)) ? room : max - x;
+      const [strip] = withStripOwner(this.tileId(id), stripRoom, () => tabStrip(set.ids.map((t, i) => ({ label: this.displayTitle(t), key: this.numLabel(t).trim(), on: i === set.active, hit: { action: "tab.select", tile: this.tileId(t) } })), { id: "tabs", width: stripRoom, at: x, overflow: "share", style: tileTabs() }));
+      for (const h of strip!.hits) if (h.action === "tab.select" && h.from < max) this.heads.push({ id: set.ids.find(t => this.tileId(t) === h.tile)!, from: h.from, to: Math.min(max, h.to), row: r.row });
+      put(strip!.text, "");
+      if (x >= max) return this.headOut;
     } else {
       const named = `${this.numLabel(id)}${this.displayTitle(id)}`;
       // An embed-only note's "· embed" is quiet (PIE-1458): its name is the embedded note's, and where both don't fit
@@ -4285,10 +4281,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return this.headerTail(id, put, xNow, r.row, max, focused, framed);
   }
 
-  /**
-   * A tile folded to a spine: its title turned on its side (the tile's own `spine`, else its name), what it holds
-   * marked above it. A click on it opens it (`expandSpine`).
-   */
   /** How tile `id` shows now, including its lift, if it is in a flow. */
   private cover(id: number) { return this.contentCover(id).cover; }
 
@@ -4562,26 +4554,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     drawDrop(canvas, this.area, drop, name, x, y, drawer, tile, src, to => refusal(this.layout, dropOp(src!, to), this.layoutCtx(USER)));
   }
 
-  /**
-   * The whole hint row, wrapped, in a box just above it: the parts a narrow row cut (keys.more, or a ^W chord's
-   * row, which shows it at once). Each line keeps the colour its first part was written in.
-   */
-  private drawHintMore(canvas: Canvas, cols: number, rows: number) {
-    const lines = wrapHint(this.hintFull!, Math.max(10, cols - 4));
-    const h = Math.min(lines.length + 2, Math.max(3, rows - 4));
-    const r: Rect = { col: 0, row: rows - 3 - h, cols: cols - 1, rows: h };
-    this.overlayHits.push(r);
-    this.raised.menus.push(r);
-    canvas.float(r, "keys", this.prefix ? "" : fg(C.dark) + "any key closes", () => {
-      lines.slice(0, h - 2).forEach((l, i) => {
-        canvas.text(r.col + 2, r.row + 1 + i, l, r.cols - 4);
-        this.keySpots.push(...hintSpots(l, keyStyles()).map(p => ({ y: r.row + 1 + i, from: r.col + 2 + p.from, to: r.col + 2 + p.to, key: p.key })));
-      });
-    }, true, this.focusedPane() ? this.lookAt(this.focusedPane()!, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values);
-  }
-
   /** The hint part pressed, if `k` is a press on one: its key is pressed as typed. */
-  private spotAt(k: Key): { key: Key; tile?: number; run?: () => void } | undefined { return k.kind === "mouse" && k.action === "down" ? [...this.keySpots, ...this.tileSpots].find(s => s.y === k.y && k.x >= s.from && k.x < s.to) : undefined; }
+  private spotAt(k: Key): { key?: Key; tile?: number; run?: () => void } | undefined { return k.kind === "mouse" && k.action === "down" ? [...this.keySpots, ...this.tileSpots].find(s => s.y === k.y && k.x >= s.from && k.x < s.to) : undefined; }
 
   /** Every ^W key with its label and summary, joined from the actions it runs (wkeys.ts): what the keys box and the power bar's ^W list show. */
   wRows(): WRow[] { return wRows(name => this.dispatch.defOf(name)); }
@@ -4597,11 +4571,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
   }
 
-  /** `keys.more`: show the whole hint row above it (or put it away); refused when the row isn't cut. */
-  /**
-   * The panel the pending prefix opens, once the pause has passed (PIE-1304): ^W's keys from the key table, ^W o's
-   * and ^W O's from the tile kinds' own keys. Null before the pause, and with no prefix that has one.
-   */
   private prefixPanel(): { title: string; foot: string; groups: PanelGroup[] } | null {
     const p = this.prefix;
     if (p !== "wm" && p !== "add" && p !== "addtab") { this.panelSince = null; this.stopPanelTimer(); return null; }
@@ -4623,6 +4592,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const kinds = tileKinds().flatMap(k => (k.keys ?? []).map(x => ({ key: x.key, cap: x.key, label: x.label })));
     return { title: p === "add" ? "^W o  open beside" : "^W O  open as a tab", foot: panelFoot(), groups: [{ title: "kinds", keys: kinds }] };
   }
+
 
   /**
    * The tile the person's keys are on, for the ^W panel's own group (PIE-1338): the desk the App's keysScreen names
@@ -4701,7 +4671,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (k.action !== "down") return true;
     const spot = p.spots.find(s => s.y === k.y && k.x >= s.from && k.x < s.to);
     if (spot?.run) spot.run();
-    else if (spot && p.desk.ctx) { p.desk.redraw(); asBoundKey("click", () => p.desk.key(spot.key, p.desk.ctx)); }
+    else if (spot?.key && p.desk.ctx) { const key = spot.key; p.desk.redraw(); asBoundKey("click", () => p.desk.key(key, p.desk.ctx)); }
     return true;
   }
 
@@ -4720,12 +4690,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { prefix, groups: panel.groups };
   }
 
-  keysMore(): { shown: boolean } {
-    if (!this.hintFull) throw new ActionRefused("the hint row shows all its keys already");
-    this.hintMoreOpen = !this.hintMoreOpen;
-    this.redraw();
-    return { shown: this.hintMoreOpen };
-  }
+  keysMore() { return this.ctx.press?.("strip.more", { strip: "hint" }, this.hintDesk().tileId(this.hintDesk().focus)); }
 
   /**
    * The spec's hint for where the keys are (`ScreenSpec.hint`): one string, or one per focused tile's kind. A tile the
@@ -4760,48 +4725,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * desk's row with its own dock handles and lock chip. A mounted desk draws none (it speaks through this).
    */
   private hints(cols: number): string {
-    // The docks slid shut, as handles at the end of the row (its edge, what it holds): a click opens one, and a
-    // tile dropped on one goes into it. Then the lock chip: a click locks or unlocks the screen (layout.lock); then, while your
-    // drawer is locked, its own chip (PIE-1346): each names its layout, so a refusal's "▣ drawer locked" is the one to click.
-    // A dock holding a named container reads by its name (the board's outline); else by its tiles'.
-    const handles = this.shutDocks().map(d => ({ id: leaves(d.kid)[0]!, dock: d, text: ` ${EDGE_GLYPH[d.edge]} ${isLine(d.kid) && d.kid.key ? d.kid.key : shown(d.kid).map(i => this.nameOf(i)).join("+")} ` }));
-    const locked = this.screenLocked();
-    const chip = this.spec.layouts || locked ? (locked ? lockChipText(this.layoutSelf()) : " □ lock ") : "";
+    this.hintPanel = null;
+    const desk = this.hintDesk(), tile = desk.tileId(desk.focus);
+    const text = stripHint() ?? withStripOwner(tile, Infinity, () => desk.hintText());
+    const tabs = stripSegments(text), locked = this.screenLocked();
+    if (this.spec.layouts || locked) tabs.push({ label: locked ? lockChipText(this.layoutSelf()).trim() : "□ lock", hit: { action: "layout.lock", tile: this.tileId(this.focus) } });
     const host = this.ctx?.hostLayer, drawer = host?.desks().find(d => host.isDrawer(d) && d !== this);
-    const drawerChip = drawer?.screenLocked() ? lockChipText(drawer.layoutSelf()) : "";
-    // The hyper layer is on (PIE-699): its chip, a click on it probes what a chord arrives as (keys.probe).
-    const hyper = hyperOn() ? HYPER_CHIP : "";
-    const hw = handles.reduce((a, h) => a + width(h.text) + 1, 0) + (chip ? width(chip) + 1 : 0) + (drawerChip ? width(drawerChip) + 1 : 0) + (hyper ? width(hyper) + 1 : 0);
-    this.handles = [];
-    let x = cols - hw;
-    let tail = "";
-    for (const h of handles) { const hw = width(h.text); this.handles.push({ id: h.id, dock: h.dock, from: x, to: x + hw }); tail += `${chipStyle(C.brown)}${h.text}${RESET} `; x += hw + 1; }
-    this.lockChip = chip ? { from: x, to: x + width(chip) } : null;
-    if (chip) { tail += `${locked ? chipStyle(C.yellow, C.black) : fg(C.dark)}${chip}${RESET} `; x += width(chip) + 1; }
-    this.drawerLockChip = drawerChip && drawer ? { from: x, to: x + width(drawerChip), desk: drawer } : null;
-    if (drawerChip) { tail += `${chipStyle(C.yellow, C.black)}${drawerChip}${RESET} `; x += width(drawerChip) + 1; }
-    this.hyperChip = hyper ? { from: x, to: x + width(hyper) } : null;
-    if (hyper) tail += `${fg(C.magenta)}${hyper}${RESET} `;
-    const room = Math.max(0, cols - hw);
-    // Too long for the row (dock handles take its end): cut between its parts, never inside a key's, and say
-    // "? more": a click on it shows the whole row above it (keys.more), and ? the keys window. A ^W chord's row shows it at once.
-    this.hintFull = null; this.moreChip = null; this.hintPanel = null;
-    const fit = (s: string) => {
-      const f = fitHint(s, room, MORE);
-      if (!f.cut) return s;
-      this.hintFull = s;
-      // A chord's row shows the rest at once, above it: its ? would be the chord's next key.
-      if (this.prefix) return fitHint(s, room, paint("|08 · …")).text;
-      this.moreChip = { from: f.at + 3, to: f.at + MORE_WIDTH };
-      return f.text;
-    };
-    const line = (s: string) => {
-      const t = fit(s);
-      // Its keys, but "? more" (its own chip: ? would be typed into a draft).
-      this.keySpots = hintSpots(t, keyStyles()).filter(p => !this.moreChip || p.from < this.moreChip.from).map(p => ({ ...p, y: this.hintRow }));
-      return pad(t, room) + tail;
-    };
-    return line(this.hintDesk().hintText());
+    if (drawer?.screenLocked()) tabs.push({ label: lockChipText(drawer.layoutSelf()).trim(), hit: { action: "layout.lock", tile: drawer.tileId(drawer.focus) } });
+    if (hyperOn()) tabs.push({ label: HYPER_CHIP, hit: { action: "keys.probe" } });
+    const row = withStripOwner(tile, cols, () => tabStrip(tabs, { id: "hint", width: cols, style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } }))[0]!;
+    this.keySpots = [...row.hits.map(h => ({ ...h, y: this.hintRow, run: () => { void this.ctx?.press?.(h.action, h.args, h.tile); } })), ...hintSpots(row.text, keyStyles()).map(p => ({ ...p, y: this.hintRow }))];
+    return pad(row.text, cols);
   }
 
   /**
@@ -5089,12 +5023,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // While linking (alt+l), a click picks the tile, wherever in it: a tile's own spot (+ New note) doesn't take it.
     const spot = this.overlayOpen() || this.linking ? undefined : this.spotAt(k);
     if (spot) {
-      this.hintMoreOpen = false;
       if (spot.run) return spot.run();
       // A tile's own (its empty state's + New note): pressed in that tile, as a click there focuses it first.
       if (spot.tile !== undefined && spot.tile !== this.focus && !this.holdsKeys()) this.focusTile(this.nameOf(spot.tile), USER);
       this.redraw();
-      return asBoundKey("click", () => this.key(spot.key, ctx));
+      const key = spot.key; return key && asBoundKey("click", () => this.key(key, ctx));
     }
     // ctrl+n reaching the desk (a click on the hint row's ^N; a typed one the App takes first): a new note, the App's `note.new`.
     if (k.kind === "char" && k.ctrl && k.ch === "n" && !this.holdsKeys()) {
@@ -5105,11 +5038,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // ? is the keys window, filtered to the focused tile (keys.open), at once: it lists every key the cut hint row
     // would (PIE-1425: a first ? that only showed the rest of the row read as ? doing nothing). The row's "? more"
     // chip still shows the whole row (keys.more). Never while the person is typing: a draft, a filter, a terminal, a ^W chord.
-    if (ch(k) === "?" && !this.holdsKeys() && !this.prefix && this.ctx.press && this.panes.get(this.focus)?.kind !== "keys") { this.hintMoreOpen = false; void this.ctx.press("keys.open", { filter: this.keysFilter() }); return; }
-    if (this.hintMoreOpen) {
-      const chip = k.kind === "mouse" && this.moreChip && k.y === this.hintRow && k.x >= this.moreChip.from && k.x < this.moreChip.to;
-      if (k.kind !== "mouse" || (k.action === "down" && !chip)) { this.hintMoreOpen = false; this.redraw(); if (k.kind === "esc") return; }
-    }
+    if (ch(k) === "?" && !this.holdsKeys() && !this.prefix && this.ctx.press && this.panes.get(this.focus)?.kind !== "keys") { void this.ctx.press("keys.open", { filter: this.keysFilter() }); return; }
     // A source's model holds the keys while its own overlay is open (the board's composer, pickers), before the screen's.
     const model = !this.overlayOpen() && [...this.models.values()].some(m => m.key?.(k));
     if (!model && !this.boundKey(k)) this.keyIn(k, ctx);
@@ -5123,7 +5052,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A dock sliding over shuts when the keys go elsewhere (tile.slide, as its key and an agent do it); one that takes its room, or can't collapse, stays. */
   private shutLeftDocks() {
     if (!this.dragging && !this.headPress) for (const d of docks(this.root)) {
-      if (!d.open || d.policy?.overlay === false || d.policy?.stays || !leaves(d.kid).length || leaves(d.kid).includes(this.focus)) continue;
+      if (!d.open || d.policy?.overlay === false || d.policy?.stays || !leaves(d.kid).length || leaves(d.kid).includes(this.focus) || dockOf(this.root, this.focus)?.edge === d.edge) continue;
       if (!policyOfNode(this.layout, d).collapsible) continue;
       this.run("tile.slide", { open: false, container: d.id }, this.nameOf(leaves(d.kid)[0]!));
     }
@@ -5721,6 +5650,34 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     walk(this.root);
     return out;
   }
+  /** Every segment describes its own action; the status bar's docks list reads these same choices. */
+  dockChoices(edge?: Dir) {
+    return docks(this.root).filter(d => !edge || d.edge === edge).flatMap(d => leaves(d.kid).map(id => ({
+      label: this.displayTitle(id), on: d.open && visible(dockBody(d)).includes(id),
+      hit: { action: "tile.slide", tile: this.tileId(id), args: { container: d.id } },
+      alt: { action: "tile.slide", tile: this.tileId(id), args: { container: d.id, beside: true } }, id, dock: d,
+    })));
+  }
+  private drawDocks(canvas: Canvas, area: Rect) {
+    this.dockHits = [];
+    const all = this.dockChoices();
+    if (!all.length) return;
+    tabStrip(all, { id: `${this.name}:docks`, width: Infinity, direct: true });
+    for (const edge of ["up", "down", "left", "right"] as const) {
+      const tabs = all.filter(t => t.dock.edge === edge);
+      if (!tabs.length) continue;
+      const vertical = edge === "left" || edge === "right", r = { col: area.col + (edge === "right" ? area.cols - 1 : 0), row: area.row + (edge === "down" ? area.rows - 1 : 0), cols: vertical ? 1 : area.cols, rows: vertical ? area.rows : 1 };
+      const strip = tabStrip(tabs, { id: `${this.name}:docks-${edge}`, about: "click swaps · alt+click beside", direct: true, width: vertical ? r.rows : r.cols, style: { on: chipStyle(C.brown), off: fg(C.grey), pad: " ", sep: "│" } })[0]!;
+      if (vertical) canvas.column(r.col, r.row, strip.text, r.rows); else canvas.text(r.col, r.row, pad(strip.text, r.cols), r.cols);
+      for (const h of strip.hits) {
+        const t = tabs.find(t => t.hit.tile === h.tile);
+        if (!t) continue;
+        if (vertical) for (let y = h.from; y < h.to; y++) this.dockHits.push({ id: t.id, dock: t.dock, from: r.col, to: r.col + 1, row: r.row + y });
+        else this.dockHits.push({ id: t.id, dock: t.dock, from: r.col + h.from, to: r.col + h.to, row: r.row });
+      }
+      this.raised.menus.push(r);
+    }
+  }
   /** A tile's dock, as `layout.get` and `peek` say it. */
   private dockView(id: number) {
     const d = dockOf(this.root, id);
@@ -6304,7 +6261,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(t.id);
     if (moved && this.dispatch.standing(actor) && this.cutTitles.has(t.id) && p instanceof ReaderPane && p.msg) this.ctx.flash(headedTitle(p.msg, p.surface.src));
     // The person's keys back on an edit or comment of theirs left open there: they're in it again (PIE-785, PIE-812).
-    if (moved && this.dispatch.standing(actor)) this.reenter();
+    if (moved && this.dispatch.standing(actor)) { this.reenter(); this.shutLeftDocks(); }
     this.save(); this.redraw();
     return this.tileAnswer(t.id);
   }
@@ -6352,9 +6309,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(t.id), ...docked(r.answer) };
   }
 
-  slideTile(sel: string | undefined, open: boolean | undefined, actor: Actor, container?: string): TileDone {
+  slideTile(sel: string | undefined, open: boolean | undefined, actor: Actor, container?: string, beside?: boolean): TileDone {
     const t = this.tile(sel);
-    const r = this.apply({ op: "slide", tile: t.id, ...(open !== undefined ? { open } : {}), ...(container ? { container } : {}) }, actor);
+    const r = this.apply({ op: "slide", tile: t.id, beside, ...(open !== undefined ? { open } : {}), ...(container ? { container } : {}) }, actor);
     this.save(); this.redraw();
     return { ...r.answer, ...this.tileAnswer(t.id) };
   }
@@ -7913,7 +7870,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private floatDock(id: number, x: number, y: number): Drop<number> | null {
     const refuse = (to: DropPlace<number>) => refusal(this.layout, dropOp(id, to), this.layoutCtx(USER));
-    const handles = this.handles.map(h => ({ from: h.from, to: h.to, row: this.hintRow, shows: shown(h.dock.kid)[0] ?? h.id, edge: h.dock.edge }));
+    const handles = this.dockHits.map(h => ({ from: h.from, to: h.to, row: h.row, shows: shown(h.dock.kid)[0] ?? h.id, edge: h.dock.edge }));
     const onHandle = handleDrop(handles, this.area, x, y, id, refuse);
     if (onHandle) return onHandle;
     const d = dropAt(this.dropTiles(), this.area, x, y, id, true, refuse);
@@ -8173,7 +8130,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (!this.dragging && Math.abs(k.x - h.x) + Math.abs(k.y - h.y) < 1) return;
         // Where it would land (a dock's handle on the hint row first), with the reason policy refuses it, if any.
         const refuse = (to: DropPlace<number>) => refusal(this.layout, dropOp(h.id, to), this.layoutCtx(USER));
-        const handles = this.handles.map(x => ({ from: x.from, to: x.to, row: this.hintRow, shows: shown(x.dock.kid)[0] ?? x.id, edge: x.dock.edge }));
+        const handles = this.dockHits.map(x => ({ from: x.from, to: x.to, row: x.row, shows: shown(x.dock.kid)[0] ?? x.id, edge: x.dock.edge }));
         // Over a group (PIE-696): its own drop zones say where it would land inside; the tile moves in whole.
         const into = handleDrop(handles, this.area, k.x, k.y, h.id, refuse) ? null : this.groupDropAt(k.x, k.y, h.id);
         if (into) { this.dragging = { src: h.id, drop: null, x: k.x, y: k.y, into }; return this.redraw(); }
@@ -8206,15 +8163,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (k.action === "down") {
       // A shut dock's handle, at the end of the hint row; the lock chip after them.
-      if (k.y === this.hintRow) {
-        const h = this.handles.find(h => k.x >= h.from && k.x < h.to);
-        if (h) this.run("tile.slide", { open: true, container: h.dock.id }, this.nameOf(h.id));
-        else if (this.lockChip && k.x >= this.lockChip.from && k.x < this.lockChip.to) this.pressLock();
-        else if (this.drawerLockChip && k.x >= this.drawerLockChip.from && k.x < this.drawerLockChip.to) this.drawerLockChip.desk.pressLock();
-        else if (this.hyperChip && k.x >= this.hyperChip.from && k.x < this.hyperChip.to) void this.ctx.press?.("keys.probe");
-        else if (this.moreChip && k.x >= this.moreChip.from && k.x < this.moreChip.to) this.run("keys.more");
-        return;
-      }
+
       if (this.linking) return this.linkAt(this, k.x, k.y);
       // A right-click in a tile opens its menu at the pointer (tile.menu), unless what's under it takes it itself (a
       // program that asked for the mouse, a step's box: their own choice opens). The tile gets the keys first.
@@ -8404,30 +8353,10 @@ export function refusalHint(r: Refusal): string {
   if (!r.loud) return `${ink}✗ ${r.text}`;
   return `${surfaceBg("amber", SURFACE_STEPS)}${ink}${BOLD} ✗ ${r.text} ${UNBOLD}${RESET}`;
 }
-/** What a cut hint row ends with: ? (or a click on it) shows the rest (keys.more). */
-let MORE = "";
-themed(() => { MORE = paint("|08 · |15?|08 more") + RESET; });
-const MORE_WIDTH = width(MORE);
 /** The hint row's chip while the hyper layer is on (PIE-699): a click probes what a chord arrives as. */
 const HYPER_CHIP = " ✦ hyper ";
 /** How a hint row draws a key (|15; |07 in a ^W chord's row): a click on one presses it (hintSpots). */
 const keyStyles = () => [fg(C.white), fg(C.grey)];
-/**
- * A hint row's parts (split at " · ") put on lines at most `w` wide, a part never split unless it's wider than a
- * line. Each line starts with the colour codes in force where its first part began.
- */
-export function wrapHint(s: string, w: number): string[] {
-  const parts = s.replace(/^((?:\x1b\[[\d;]*m)*)\s+/, "$1").split(" · ");
-  const out: string[] = [];
-  let line = "", sgr = "", lineSgr = "";
-  for (const p of parts) {
-    if (line && width(line) + 3 + width(p) > w) { out.push(lineSgr + line + RESET); line = ""; }
-    if (!line) { lineSgr = sgr; line = p; } else line += " · " + p;
-    for (const m of p.matchAll(/\x1b\[[\d;]*m/g)) sgr = m[0] === RESET ? "" : sgr + m[0];
-  }
-  if (line) out.push(lineSgr + line + RESET);
-  return out;
-}
 const isRect = (r: unknown): r is Rect => !!r && typeof r === "object" && ["col", "row", "cols", "rows"].every(k => typeof (r as Record<string, unknown>)[k] === "number" && Number.isFinite((r as Record<string, number>)[k]));
 const overlaps = (p: Pick<Placement, "col" | "row" | "cols" | "rows">, r: Rect) => p.col < r.col + r.cols && p.col + p.cols > r.col && p.row < r.row + r.rows && p.row + p.rows > r.row;
 /** Where a tile dragged over a group would go in it (PIE-696): the group, the tile of it beside which, and where. */

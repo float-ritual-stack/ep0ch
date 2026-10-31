@@ -1,37 +1,12 @@
-// The status bar: its right part (video, uptime, clock) always shows whole, set apart by a separator.
+// Status segments keep their actions when they shrink into the shared strip's picker.
 import { describe, expect, test, spyOn } from "bun:test";
 import xterm from "@xterm/headless";
 import { rowBytes } from "../src/term";
-import { App, statusLine } from "../src/app";
+import { App } from "../src/app";
 import { visible, width } from "../src/style";
 import { setTheme, theme } from "../src/theme";
 
 const plain = visible;
-const right = "kitty+crt │ on 0m │ 09:13 ";
-
-describe("status bar", () => {
-  test("a location that fills its room exactly doesn't run into the right part", () => {
-    const left = " ep0ch │ board │ float-box:/home/sam/garden";
-    const cols = width(left) + 3 + width(right);            // exactly enough for left, separator, right
-    const line = plain(statusLine(left, "", right, cols));
-    expect(line).toBe(`${left} │ ${right}`);
-    expect(width(line)).toBe(cols);
-  });
-
-  test("a cut-short location ends in … and the separator and right part stay whole", () => {
-    const line = plain(statusLine(" ep0ch │ board │ float-box:/home/sam/a-very-long-garden-path", "", right, 50));
-    expect(line.endsWith(`… │ ${right}`)).toBe(true);
-    expect(width(line)).toBe(50);
-  });
-
-  test("the bar's colours come back after a cut", () => {
-    const line = statusLine(" ep0ch │ board │ float-box:/home/sam/a-very-long-garden-path", "", right, 50);
-    const afterCut = line.slice(line.indexOf("…"));
-    expect(afterCut.indexOf("\x1b[0m")).toBeLessThan(afterCut.indexOf(" │ kitty"));
-    expect(afterCut.slice(afterCut.indexOf("\x1b[0m") + 4)).toMatch(/^\x1b\[4[0-9;]*m/);   // background set again
-  });
-});
-
 describe("the status bar keeps time while the door is idle", () => {
   /** A door on a fake clock and a fake terminal that records what's written, row by row, and every render. */
   function idleDoor(start: number) {
@@ -125,6 +100,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
   afterAll(async () => { app?.quit(); app?.drawer.tile?.kill(); board?.close(); await scratch.dispose(); if (savedState === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = savedState; if (savedAgent === undefined) delete process.env.EP0CH_DAILY_AGENT; else process.env.EP0CH_DAILY_AGENT = savedAgent; });
 
   afterEach(async () => {
+    app.strips.close();
     if (app.drawer.open) await app.dispatch.act({ action: "host.toggle" }, USER);
     await app.drawer.restarting;
     while (app.screens().length > 1) app.pop();
@@ -146,7 +122,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     expect(app.messages.rows.at(-1)?.message).toContain("((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34|Seed order))");
   });
 
-  test("a clipped clickable flash leaves the clock outside its hyperlink", async () => {
+  test("a clipped clickable flash keeps its hyperlink inside the message segment", async () => {
     const url = "https://example.test/" + "garden/".repeat(30);
     for (const cols of [80, 50]) {
       size.cols = cols;
@@ -157,18 +133,17 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
         await new Promise<void>(done => terminal.write(rowBytes(0, painted.at(-1)!, cols), done));
         const row = terminal.buffer.active.getLine(0)!;
         const text = row.translateToString();
-        const clock = text.search(/\d\d:\d\d/);
-        expect(clock).toBeGreaterThanOrEqual(0);
-        expect(Array.from({ length: cols }, (_, x) => (row.getCell(x) as any).extended.urlId).some(Boolean)).toBe(true);
-        for (let x = clock; x < clock + 5; x++) expect((row.getCell(x) as any).extended.urlId).toBe(0);
+        const box = (app as any).statusBoxes.find((h: any) => h.item.id === "message");
+        expect(box).toBeDefined();
+        for (let x = 0; x < cols; x++) if (x < box.from || x >= box.to) expect((row.getCell(x) as any).extended.urlId).toBe(0);
       } finally { terminal.dispose(); }
     }
   });
 
   test("without a config note the current bar and every item's declared gestures agree, including conditional chips", async () => {
-    expect(bar()).toContain("ep0ch ^K");
+    expect(bar()).toContain("ep0ch │ ^K");
     expect(bar()).toContain("kitty+crt │");
-    expect(bar()).toMatch(/on 0m │ \d\d:\d\d /);
+    expect(bar()).toMatch(/on 0m │ \d\d:\d\d/);
     const screen = app.screens().at(-1)!;
     const probes = [
       spyOn(app, "backupAlert").mockReturnValue({ text: "! backup", say: "Scratch backup needs attention" }),
@@ -198,8 +173,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       await force();
       const declared = await items();
       expect(declared.find((i: any) => i.id === "drawer").lastCell.action).toBe("agent.restart");
-      for (const item of declared) {
-        expect(visible(item.text).length).toBeGreaterThan(0);
+      for (const item of declared.filter((i: any) => visible(i.text).length)) {
         for (const gesture of ["click", "alt", "lastCell"] as const) {
           if (!item[gesture]) continue;
           await force();
@@ -254,49 +228,20 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { probe.mockRestore(); reader.close(); }
   });
 
-  test("eight pins at 80 columns keep whole, clickable items in their own sections", async () => {
-    size.cols = 80;
-    app.drawer.active = true;
-    const note = await board.createBlock(null, 'Narrow status [status-bar::true]\n- brand\n- drawer\n- clock');
+  test("a narrow strip keeps every pinned action available by its full label", async () => {
+    const note = await board.createBlock(null, 'Narrow status [status-bar::true]\n- brand\n- clock');
     try {
-      for (let n = 1; n <= 8; n++) await app.dispatch.act({ action: "status.bar.pin", args: { line: `::button{label="Pin ${n}" act="status.log"}` } }, USER);
-      app.flash("");
-      const line = bar();
-      expect(width(line)).toBe(80);
-      // The bar draws each pin as the button part does, one row high (PIE-1287).
-      // Pins append after `- clock`, so they sit after it, on its side (a button sits where its line is).
-      expect(line).toMatch(/\d\d:\d\d │ \[Pin 1\]/);
-      const result = await app.dispatch.act({ action: "status.bar.items" }, USER) as any;
-      const shown = result.items.filter((i: any) => i.from !== undefined);
-      const pins = shown.filter((i: any) => i.id.startsWith("button:"));
-      expect(pins.length).toBeGreaterThan(0);
-      expect(pins.length).toBeLessThan(8);
-      expect(line.indexOf("Pin 1")).toBeGreaterThan(line.indexOf(visible(result.items.find((i: any) => i.id === "drawer").text)));
-      const overflow = shown.find((i: any) => /^\+\d+$/.test(visible(i.text)));
-      expect(overflow).toBeDefined();
-      // The pins outrank the listed brand: it went first, then the last pins.
-      expect(line).not.toContain("ep0ch");
-      expect(Number(visible(overflow.text).slice(1))).toBe(8 - pins.length + 1);
-      for (const item of shown) {
-        expect(line.slice(item.from, item.to)).toBe(visible(item.text));
-        const ran: string[] = [];
-        const stop = traceActions(a => ran.push(a.name));
-        try {
-          press({ kind: "mouse", action: "down", button: 0, x: item.from, y: 39 });
-          await until(() => ran.includes(item.click.action) && (!item.id.startsWith("button:") || ran.includes("status.log")), `click ${visible(item.text)}`);
-        } finally { stop(); }
-        press({ kind: "esc" });
-        while (app.screens().length > 1) app.pop();
-        if (app.drawer.open) await app.dispatch.act({ action: "host.toggle" }, USER);
-        app.flash("");
-        bar();
-      }
-    } finally {
-      await board.trash(note.id, USER);
-      size.cols = 220;
-      if (app.drawer.open) await app.dispatch.act({ action: "host.toggle" }, USER);
-      while (app.screens().length > 1) app.pop();
-    }
+      for (let n = 1; n <= 12; n++) await app.dispatch.act({ action: "status.bar.pin", args: { line: `::button{label="Pin ${n}" act="status.log"}` } }, USER);
+      size.cols = 20; app.flash("");
+      expect(width(bar())).toBe(20);
+      const more = (app as any).statusBoxes.find((h: any) => h.item.id === "overflow");
+      expect(more).toBeDefined();
+      press({ kind: "mouse", action: "down", button: 0, x: more.from, y: 39 });
+      await until(() => { app.flush(); return painted.some(l => visible(l).includes("Pin 8")); }, "the full pinned labels in the picker");
+      const row = painted.findIndex(l => visible(l).includes("Pin 8")), x = visible(painted[row]!).indexOf("Pin 8");
+      press({ kind: "mouse", action: "down", button: 0, x, y: row });
+      await until(() => app.screens().at(-1)?.title === "message log", "the eighth pin still opens the log");
+    } finally { await board.trash(note.id, USER); size.cols = 220; }
   });
 
   test("duplicate pins are refused and hand-written duplicates keep the first with one logged warning", async () => {
@@ -400,7 +345,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       // A long message displaces the location, never the ! item (PIE-1410): still drawn, still a click.
       app.flash("a long message about something that just happened, long enough to push the location off the bar".repeat(2));
       expect(bar()).toContain("! line 3");
-      expect(bar()).not.toContain("ep0ch ");
+      expect(bar()).toContain("a long message");
       expect((await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items.find((i: any) => i.id === "problems").from).toBeDefined();
       app.flash("");
       const now = (await board.get(note.id))!;
@@ -409,32 +354,21 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { await board.trash(note.id, USER); }
   });
 
-  test("a narrow bar shortens and drops built-ins before any pinned button, and its +N lists what it hid by name (PIE-1213)", async () => {
-    app.drawer.active = true;
-    const note = await board.createBlock(null, 'Pinned status [status-bar::true]\n- brand\n- power\n- screen\n- machine\n::button{label="Collapse" act="status.log"}\n::button{label="yolo" act="status.log"}\n::button{label="neat" act="status.log"}\n- drawer\n- theme\n- video\n- uptime\n- clock');
+  test("status chips share the shrink rule and the picker lists all their full names", async () => {
+    const note = await board.createBlock(null, 'Pinned status [status-bar::true]\n- brand\n- power\n- screen\n- machine\n::button{label="Collapse" act="status.log"}\n::button{label="yolo" act="status.log"}\n::button{label="neat" act="status.log"}\n- theme\n- video\n- uptime\n- clock');
     try {
       await until(() => bar().includes("neat"), "the pinned bar");
-      // Evan's desk is 177 wide; the three pins stay down to 50, the drawer chip shrinking to its arrow first.
-      for (const cols of [177, 80, 60, 50]) {
-        size.cols = cols;
-        app.flash("");
-        const line = bar();
-        expect(width(line)).toBe(cols);
-        for (const pin of ["Collapse", "yolo", "neat"]) expect(line).toContain(`[${pin}]`);
-        expect(line).toMatch(/\d\d:\d\d/);
-        expect(line).toMatch(/[▲▼]/);
+      for (const cols of [177, 80, 60, 20]) {
+        size.cols = cols; app.flash("");
+        expect(width(bar())).toBe(cols);
+        expect(bar()).toContain("desk");
+        const all = await app.dispatch.act({ action: "strip.more", args: { strip: "status" } }, { kind: "agent", id: "test" }) as any;
+        for (const pin of ["Collapse", "yolo", "neat"]) expect(all.rows.some((r: any) => r.label === `[${pin}]`)).toBe(true);
       }
-      const menu = await app.dispatch.act({ action: "status.bar.menu", args: { overflow: true } }, { kind: "agent", id: "test" } as any) as any;
-      const hidden = menu.rows.map((r: any) => r.label);
-      expect(hidden).toContain(theme().name);
-      expect(hidden.at(-1)).toBe("edit the status bar");
-      expect(bar()).toContain(`+${hidden.length - 1}`);
-      app.flash("saved; a message that would push the left side off");
-      expect(bar()).toContain(`+${hidden.length - 1}`);
-      app.flash("");
-      // The person's press opens it over the screen, each item by its name.
-      click(`+${hidden.length - 1}`);
-      await until(() => painted.some(l => visible(l).includes(theme().name)) && painted.some(l => visible(l).includes("edit the status bar")), "the overflow menu shows the hidden items");
+      const more = (app as any).statusBoxes.find((h: any) => h.item.id === "overflow");
+      expect(more).toBeDefined();
+      press({ kind: "mouse", action: "down", button: 0, x: more.from, y: 39 });
+      await until(() => { app.flush(); return painted.some(l => visible(l).includes("all choices")); }, "the shared picker");
       press({ kind: "esc" });
     } finally { await board.trash(note.id, USER); size.cols = 220; }
   });
@@ -557,13 +491,15 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       await as("layout.lock", { on: true }, desk().layoutGet().tiles[0].name);
       app.flash(said, 60_000, { kind: "refusal" });
       await until(() => { app.flush(); return painted.some(l => visible(l).includes("closing replies")); }, `the refusal said whole, ${where}`);
-      // The hint row keeps its chip under the message (its ▣ is ◙ in some video modes), and a click on it is the chip's.
-      const rows = painted.slice(0, -1).map(l => visible(l)), y = rows.findLastIndex(l => l.includes("screen locked"));
-      expect(rows.findIndex(l => l.includes("unlocks it")), where).toBeLessThan(y);
+      const rows = painted.slice(0, -1).map(l => visible(l));
+      expect(rows.findIndex(l => l.includes("unlocks it")), where).toBeLessThan(rows.length - 1);
+      await app.dispatch.act({ action: "strip.more", args: { strip: "hint" }, tile: desk().keys().address }, USER);
+      await until(() => { app.flush(); return painted.some(l => visible(l).includes("screen locked")); }, "the lock in the hint strip's picker");
+      const y = painted.findIndex(l => visible(l).includes("screen locked") && !visible(l).includes("closing replies"));
       const ran: string[] = [];
       const stop = traceActions(a => ran.push(a.name));
       try {
-        press({ kind: "mouse", action: "down", button: 0, x: rows[y]!.indexOf("screen locked"), y });
+        press({ kind: "mouse", action: "down", button: 0, x: visible(painted[y]!).indexOf("screen locked"), y });
         await until(() => ran.includes("layout.lock"), `the chip pressed, ${where}`);
         expect(ran, where).not.toContain("status.log");
       } finally { stop(); }
@@ -581,19 +517,23 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { size.cols = 220; app.flash(""); }
   });
 
-  test("a message beside it never hides ^K: a click on it opens the power bar at 177 and 44 columns (PIE-1449)", async () => {
+  test("the power-bar action stays reachable through the status strip at 177 and 44 columns", async () => {
     try {
       for (const cols of [177, 44]) {
         size.cols = cols;
         app.flash("a long message about something that just happened, long enough to push the location off the bar".repeat(2));
         const line = bar();
-        expect(line.trimStart().startsWith("^K ")).toBe(true);
         const power = (await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items.find((i: any) => i.id === "power");
-        expect(line.slice(power.from, power.to)).toBe("^K");
+        if (power.from !== undefined) expect(line.slice(power.from, power.to)).toBe(visible(power.text));
         const ran: string[] = [];
         const stop = traceActions(a => ran.push(a.name));
         try {
-          click("^K");
+          if (power.from !== undefined) press({ kind: "mouse", action: "down", button: 0, x: power.from, y: 39 });
+          else {
+            const all = await app.dispatch.act({ action: "strip.more", args: { strip: "status" } }, { kind: "agent", id: "test" }) as any;
+            const n = all.rows.find((r: any) => r.action === "bar.open").n;
+            await app.dispatch.press("strip.pick", { strip: "status", n });
+          }
           await until(() => ran.includes("bar.open"), "the click on ^K opens the power bar");
           expect(ran).not.toContain("status.log");
         } finally { stop(); }
@@ -611,12 +551,13 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
         size.cols = cols;
         app.flash("a long message about something that just happened, long enough to push the location off the bar".repeat(2));
         const line = bar();
-        const items = (await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items.filter((i: any) => i.from !== undefined);
-        for (const i of items) expect(line.slice(i.from, i.to)).toBe(visible(i.text));
-        // The bar's own +N and ! outlast the message: drawn, or the ! in the +N's menu when the bar has no room for it.
-        const hidden = (await app.dispatch.act({ action: "status.bar.menu", args: { overflow: true } }, { kind: "agent", id: "test" } as any) as any).rows.map((r: any) => r.label);
-        if (hidden.length > 1) expect(line).toMatch(/\+\d/);
-        expect(line.includes("! line 8") || hidden.includes("! line 8")).toBe(true);
+        const declared = (await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items;
+        const items = declared.filter((i: any) => i.from !== undefined);
+        for (const i of items) expect(line.slice(i.from, i.to)).toBe(visible(i.text).replaceAll("…", "·"));
+        // An overflowing message still leaves the warning reachable through the strip's full list.
+        const choices = (await app.dispatch.act({ action: "strip.more", args: { strip: "status" } }, { kind: "agent", id: "test" }) as any).rows.map((r: any) => r.label);
+        if (declared.some((i: any) => i.overflowed)) expect(line).toMatch(/\+\d/);
+        expect(items.some((i: any) => i.id === "problems") || choices.includes("! line 8")).toBe(true);
       }
     } finally { await board.trash(note.id, USER); size.cols = 220; app.flash(""); }
   });

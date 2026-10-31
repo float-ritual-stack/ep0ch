@@ -1,7 +1,7 @@
 import { Canvas, type Rect } from "./canvas";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { pressEnded } from "./surface/button";
-import { RANK, StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
+import { StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, type StatusItem, type StatusHit } from "./status-bar";
 import { OSC8, OSC8_CLOSE } from "./hyperlink";
 import { fullPlainText } from "./overflow";
 import { Overflow } from "./overflow";
@@ -71,6 +71,9 @@ import { overBar, PowerBar } from "./bar/bar";
 import { tilesOf } from "./bar/sources";
 import { rawKey } from "./kbd";
 import type { ListPicker } from "./surface/picker";
+import { StripControls, STRIP_ACTIONS } from "./surface/strip-controls";
+import { tabStrip } from "./surface/chip-rows";
+import { withStrips } from "./surface/strip-state";
 import { BAR_ACTIONS, type BarOn } from "./bar/actions";
 import { onBarSources, type BarHost } from "./bar/source";
 import type { Msg } from "./board";
@@ -1229,9 +1232,16 @@ export class App implements Ctx {
   readonly agentPointers = new AgentPointers();
   keysScreen(): Screen | undefined { return this.hostLayer.desks()[0]?.focusedDesk() ?? this.stack.at(-1); }
   readonly recording = new MacroRecording();
+  readonly strips = new StripControls({
+    press: (action, args, tile) => this.dispatch.press(action, args, tile),
+    act: (req, actor) => this.dispatch.act(req, actor),
+    focused: () => ({ tile: this.keysScreen()?.keys?.().address ?? undefined, strip: this.bar ? "scopes" : undefined }),
+    redraw: () => this.redraw(),
+  });
   recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run); }
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
+    { set: STRIP_ACTIONS, takes: "screen", claims: req => STRIP_ACTIONS.has(req.action), on: at => ({ strips: this.strips, tile: at.tile?.id ?? (at.name ? (this.screenDesk() ?? this.hostLayer.desks()[0])?.dispatch.tile(at.name)?.id : undefined) }) },
     { set: GLASS_ACTIONS, takes: "none", on: () => this.glass },
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && namesAgent(req.tile), on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => this.drawer.agentRef(), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>, tile?: string) => this.dispatch.act({ action: name, args, ...(tile ? { tile } : {}) }, how.actor) }) },
@@ -1243,7 +1253,6 @@ export class App implements Ctx {
     { set: STATUS_BAR_ACTIONS, takes: "none", on: () => ({
       note: this.statusNote, builtins: () => this.statusItems(), items: () => this.describeStatusItems(),
       open: (id: string, actor: Actor, reveal?: Reveal) => this.hostLayer.openOnScreen(id, true, actor, undefined, reveal),
-      hidden: () => this.statusHidden,
       flash: (text: string) => this.flash(text, 12_000),
       // A group's or the overflow's menu (PIE-1224, PIE-1213): the tile menu over the screen, above the bar item it opens from,
       // its rows run on this dispatcher (they are the bar's own clicks).
@@ -1472,6 +1481,8 @@ export class App implements Ctx {
       this.redraw();
       if (confirms(armed, k)) { armed.run(k); return; }
     }
+    if ((this.strips.engaged || this.bar || !tilesOf(this.keysScreen())?.overlaid()) && this.strips.input(k, this.overflow, !this.bar && !!this.keysScreen()?.keys?.().typingIn)) return;
+    w = this.keyLayers();
     // The power bar (PIE-656), while it's open, takes every key and click: esc or a click outside puts it away.
     if (w.over === "bar") {
       // ctrl+z on a kept run answer takes the run back: the bar goes, the key goes on to the screen (Esc, then ctrl+z).
@@ -1588,8 +1599,7 @@ export class App implements Ctx {
   /** A menu or picker over the screen while the person types in the drawer (a status-bar group's): the keys are its until it closes (person()'s `over`). */
   private overDrawer(): boolean {
     if (!this.drawer.entered) return false;
-    // Only a menu the bar opened over the screen (a status-bar group's, +N): one left open on the screen before the person
-    // went into the drawer is the screen's, and their keys stay the drawer's.
+    // A menu left on the screen before entering the drawer keeps its keys there.
     const top = tilesOf(this.stack.at(-1));
     return !!top && top !== this.drawer.made && top.overlaid() && [...this.statusMenus.values()].some(m => !m.ended());
   }
@@ -1600,7 +1610,7 @@ export class App implements Ctx {
    * it all. Nothing else decides it (test/one-owner.test.ts).
    */
   private keyLayers(): KeyLayers {
-    const over = this.bar ? "bar" as const : this.probing ? "probe" as const : this.overDrawer() ? "menu" as const : undefined, program = this.programUnder(!!over);
+    const over = this.strips.engaged ? "menu" as const : this.bar ? "bar" as const : this.probing ? "probe" as const : this.overDrawer() ? "menu" as const : undefined, program = this.programUnder(!!over);
     return { ...(over ? { over } : {}), ...(program ? { program } : {}) };
   }
   /**
@@ -1711,7 +1721,7 @@ export class App implements Ctx {
   private paintStatus(s: Screen) {
     if (this.closed) return;
     const { cols, rows } = this.term.info;
-    const status = this.overflow.updateRow(this.statusBar(s, cols), rows - 1);
+    const status = this.overflow.updateRow(withStrips(this.strips.state, () => this.statusBar(s, cols)), rows - 1);
     if (status.reading || !this.display.showRow(rows - 1, status.line)) this.redraw();
   }
 
@@ -1788,7 +1798,7 @@ export class App implements Ctx {
     paintingScroll(!this.changed);
     this.changed = false;
     this.painting = true;
-    try { this.drawFrame(); } finally { this.painting = false; paintingScroll(false); this.lastPaint = Date.now(); }
+    try { withStrips(this.strips.state, () => this.drawFrame(), true, this.overflow.hoveredStrip()); } finally { this.painting = false; paintingScroll(false); this.lastPaint = Date.now(); }
   }
 
   private drawFrame() {
@@ -1870,7 +1880,7 @@ export class App implements Ctx {
     this.whole = { top: at - said, rows: said };
     lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
-    const readable = this.overflow.draw(lines, cols, Date.now());
+    const readable = this.overflow.draw(this.strips.draw(lines, cols, rows), cols, Date.now());
     if (readable.overlay) placements = uncover(placements, readable.overlay);
     this.display.show(readable.lines, placements);
     this.speed.frame();
@@ -1884,7 +1894,7 @@ export class App implements Ctx {
   get terminalSize() { return this.term.info; }
   private statusItems(s = this.stack.at(-1)): StatusItem[] {
     const [mins, clock] = this.timeShown().split("|");
-    const right = (id: string, text: string, action?: string, args?: Record<string, unknown>): StatusItem => ({ id, text, place: "right", after: ` ${fg(C.lcyan)}│ `, ...(action ? { click: { action, args } } : {}) });
+    const right = (id: string, text: string, action?: string, args?: Record<string, unknown>): StatusItem => ({ id, text, place: "right", ...(action ? { click: { action, args } } : {}) });
     const held = this.whatChanged.machineryCount();
     const ext = held ? `+${held} machine` : this.machineryChanges && this.whatChanged.hasMachinery() ? "machine on" : "";
     const backup = this.backupAlert();
@@ -1894,26 +1904,27 @@ export class App implements Ctx {
     const chip = this.drawer.active ? this.drawer.chips() : null;
     const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() });
     const items: StatusItem[] = [
-      { id: "brand", text: `${fg(C.white)}ep0ch`, place: "left", before: " ", after: " ", click: { action: "status.log" } },
-      { id: "power", text: `${fg(C.yellow)}^K`, place: "left", after: " ", ...(!s?.noDrawer ? { click: { action: "bar.open" } } : {}) },
-      { id: "macro", text: `${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : "⇧⌥Q"}`, place: "left", after: `${fg(C.lcyan)} │ `, ...(!s?.noDrawer ? { click: { action: this.recording.active ? "macro.stop" : "macro.record" } } : {}) },
-      { id: "screen", text: s?.title ?? "", place: "left", after: " │ ", click: { action: "status.log" } },
+      { id: "brand", text: `${fg(C.white)}ep0ch`, place: "left", click: { action: "status.log" } },
+      { id: "power", text: `${fg(C.yellow)}^K`, place: "left", ...(!s?.noDrawer ? { click: { action: "bar.open" } } : {}) },
+      { id: "macro", text: `${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : "⇧⌥Q"}`, place: "left", ...(!s?.noDrawer ? { click: { action: this.recording.active ? "macro.stop" : "macro.record" } } : {}) },
+      { id: "screen", text: s?.title ?? "", place: "left", click: { action: "status.log" } },
       { id: "machine", text: this.location, place: "left", click: { action: "status.log" } },
+      right("docks", this.screenDesk()?.dockChoices().length ? "docks" : "", "strip.more", { strip: `${this.screenDesk()?.name}:docks` }),
       right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
-      { ...right("glass", this.glass.chip(), "glass.toggle"), short: this.glass.chip(), tiny: `◇${this.glass.mode === "off" ? "×" : this.glass.mode === "sticky" ? "◆" : ""}${this.glass.floats().length || ""}`, alt: { action: "glass.clear" } },
+      { ...right("glass", this.glass.chip(), "glass.toggle"), alt: { action: "glass.clear" } },
       right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
-      { ...right("drawer", chip?.whole ?? "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}), ...(chip ? { short: chip.short, tiny: chip.tiny } : {}) },
-      { ...right("waiting", waiting.styled, "host.waiting"), ...(waiting.short ? { short: waiting.short } : {}) },
+      { ...right("drawer", chip?.whole ?? "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}) },
+      right("waiting", waiting.styled, "host.waiting"),
       right("split", split ? `${fg(C.lred)}${split}` : "", "claude.splits"),
       right("offline", this.offline ? `${fg(C.lred)}offline` : "", "status.log"),
       right("slow", slow ? `${fg(C.yellow)}${slow}` : "", "status.speed"),
       right("backup", backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text}` : "", "backups.alert"),
       right("new", count ? `${fg(C.yellow)}+${count} new` : "", "changes.open"),
-      { ...right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"), ...(held ? { short: `${fg(C.dark)}+${held}` } : {}) },
+      right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"),
       right("video", this.video, "video.cycle"),
       right("theme", theme().name, "theme.cycle"),
-      { ...right("uptime", `on ${mins}m`, "status.log"), short: `${mins}m` },
-      { ...right("clock", clock ?? "", "status.log"), after: " " },
+      right("uptime", `on ${mins}m`, "status.log"),
+      right("clock", clock ?? "", "status.log"),
     ];
     return items;
   }
@@ -1933,63 +1944,22 @@ export class App implements Ctx {
 
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
-    const items = this.statusNote.items(this.statusItems(s)).filter(i => width(i.text)), ids = items.map(i => i.id), whole = new Map(items.map(i => [i.id, i]));
-    const hidden: StatusItem[] = [];
-    const overflow = (): StatusItem => ({ id: "overflow", text: `+${hidden.length}`, place: "left", after: " │ ", click: { action: "status.bar.menu", args: { overflow: true } }, alt: { action: "status.bar.edit" } });
-    // Measured as drawn: each side with its separators, the overflow chip last on the left, and the │ between the sides.
-    const drawn = (list: StatusItem[]) => width(statusText(separated(list.filter(i => i.place === "left"), "left"))) + width(statusText(separated(list.filter(i => i.place === "right"), "right")));
-    const over = () => drawn(hidden.length ? [...items, overflow()] : items) + 3 > cols;
-    // Shorten before overflowing. Keep the drawer, glass and clock reachable even on a narrow bar.
-    const order = [...items.keys()].reverse().sort((a, b) => Number(items[a]!.id === "clock") - Number(items[b]!.id === "clock"));
-    for (const j of order) {
-      if (!over()) break;
-      const it = items[j]!;
-      if (it.short !== undefined && width(it.short) < width(it.text)) items[j] = { ...it, text: it.short };
-    }
-    for (const rank of [RANK.builtin, RANK.listed, RANK.pinned]) {
-      // Before a pin goes, the drawer chip is its arrow alone (its colour still says the state).
-      if (rank === RANK.pinned) {
-        for (const [j, it] of items.entries()) if (over() && it.tiny !== undefined) items[j] = { ...it, text: it.tiny };
-      }
-      while (over()) {
-        const last = items.findLastIndex(i => (i.rank ?? RANK.builtin) === rank && i.id !== "clock" && i.id !== "drawer" && i.id !== "glass");
-        if (last < 0) break;
-        hidden.unshift(...items.splice(last, 1));
-      }
-    }
-    // In the bar's own order: the menu lists them as they would stand.
-    hidden.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
-    // Its menu names each in its whole words (`+3 machine`, not the `+3` it was shortened to before it went).
-    this.statusHidden = hidden.map(h => whole.get(h.id) ?? h);
-    if (hidden.length) items.push(overflow());
-    const leftItems = separated(items.filter(i => i.place === "left"), "left"), rightItems = separated(items.filter(i => i.place === "right"), "right");
-    const left = statusText(leftItems), right = statusText(rightItems);
-    // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.
-    const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
-    // A labelled reference in a message reads as its label, as in a reader (the log keeps it whole).
+    const items = this.statusNote.items(this.statusItems(s)).filter(i => width(i.text)).sort((a, b) => Number(a.place === "right") - Number(b.place === "right"));
     const message = referenceWords(this.message) || this.linkLabel;
-    const middle = message ? ` ${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
-    const room = Math.max(0, cols - width(right) - 3);
-    const displaced = !!middle && width(left + middle) > room;
-    // A message that displaces the left side leaves what the person put there and the bar's own `+N` and `!` (PIE-1410),
-    // as many as fit before it with a cell of the message: pins give way from the end, then the `!`, the `+N` (the way to
-    // the rest) last. What is kept here is what is drawn and what a click finds (PIE-1415: a dropped `+N` had left its
-    // hit box behind).
-    // From the items as they were before separating: a dropped neighbour's `│` never leads the kept ones. The ^K stays too
-    // (PIE-1449), the message beside it: the mouse's way to the power bar outlasts everything else here.
-    let held = displaced ? items.filter(i => i.place === "left" && (i.id === "power" || i.id === "overflow" || (i.rank ?? RANK.builtin) >= RANK.pinned)) : [];
-    const goesLast = ["problems", "overflow", "power"], own = (i: StatusItem) => goesLast.includes(i.id);
-    while (held.length && width(statusText(separated(held, "left"))) >= room) {
-      const last = held.findLastIndex(i => !own(i));
-      held = held.toSpliced(last >= 0 ? last : Math.max(0, held.findIndex(i => i.id === goesLast.find(id => held.some(h => h.id === id)))), 1);
-    }
-    const kept = separated(held, "left"), keep = statusText(kept);
-    this.messageCut = !!this.message && width((displaced ? keep : left) + middle) > room;
-    this.statusBoxes = [
-      ...statusHits(displaced ? kept : leftItems, 0, displaced ? room : room - (width(left) > room ? 1 : 0)),
-      ...statusHits(rightItems, Math.max(3, cols - width(right)), cols),
-    ];
-    return statusLine(left, middle, right, cols, keep);
+    const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
+    const messageAt = items.findIndex(i => i.place === "right");
+    if (message) items.splice(messageAt < 0 ? items.length : messageAt, 0, { id: "message", text: `${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${message}${loud ? UNBOLD : ""}`, place: "left", click: { action: "status.log" } });
+    const row = tabStrip(items.map((item, i) => ({ label: item.text, on: item.id === (message ? "message" : "screen"), end: item.place === "right" && items[i - 1]?.place !== "right",
+      hit: item.click ?? { action: "status.log" }, alt: item.alt,
+    })), { id: "status", width: cols, style: { on: STATUS_INK, off: STATUS_INK, key: fg(C.white), sep: " │ " } })[0]!;
+    const drawn = new Set(row.hits.map(h => h.index));
+    this.statusHidden = items.filter((item, i) => !drawn.has(i) && item.id !== "message");
+    this.statusBoxes = row.hits.map(h => ({ from: h.from, to: h.to, item: h.index >= 0 ? { ...items[h.index]!, text: headOf(tailFrom(row.text, h.from), h.to - h.from) } : {
+      id: h.index === -1 ? "overflow" : `strip-${h.index}`, text: h.index === -1 ? `+${this.statusHidden.length}` : h.index === -2 ? "‹" : "›", place: "left", click: { action: h.action, args: h.args }, alt: { action: "status.bar.edit" },
+    } }));
+    const msg = this.statusBoxes.find(h => h.item.id === "message");
+    this.messageCut = !!this.message && (!msg || width(message) > msg.to - msg.from);
+    return STATUS_INK + pad(row.text.replaceAll(RESET, RESET + STATUS_INK), cols) + RESET;
   }
 }
 
@@ -2036,22 +2006,6 @@ export function withWhole(lines: string[], text: string, cols: number, warning =
   }
   rows.forEach((r, i) => { const at = out.length - rows.length + i; if (at >= 0) out[at] = STATUS_INK + fg(warning ? C.yellow : C.lcyan) + pad(` ${r}`, cols) + RESET; });
   return out;
-}
-
-/**
- * The status bar's three parts in `cols` cells: the right part (video, uptime, clock) always shows whole,
- * with a `│` between it and the rest, even when the rest fills its room exactly or is cut short. A
- * message outranks the location: in a narrow pane it replaces it rather than being cut off (`keep` stays before it).
- */
-export function statusLine(left: string, middle: string, right: string, cols: number, keep = ""): string {
-  const sep = " │ ";
-  const room = Math.max(0, cols - width(right) - sep.length);
-  // `keep`: the left items a message never displaces (the overflow, a skipped line's `!`, the person's pins), as the
-  // bar chose them to fit (App.statusBar, whose hit boxes are the same items).
-  const body = pad(middle && width(left + middle) > room ? keep + middle : left + middle, room);
-  // A cut can drop the message's link terminator; RESET restores colours but cannot end a hyperlink.
-  const endLink = OSC8.test(body) ? OSC8_CLOSE : "";
-  return STATUS_INK + body + endLink + STATUS_INK + sep + right + RESET;
 }
 
 /**

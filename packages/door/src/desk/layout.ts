@@ -133,7 +133,15 @@ export type Tabs<I = number> = { t: "tabs"; ids: I[]; active: number; id?: strin
  * its `edge` over the others, or shuts to a handle. It sits in its parent split where it is pinned (its weight is
  * its size when open); `overlay: false` in its policy makes it take that room while open instead.
  */
-export type Dock<I = number> = { t: "dock"; kid: LNode<I>; edge: Dir; open: boolean; id?: string; policy?: Policy };
+export type Dock<I = number> = { t: "dock"; kid: LNode<I>; edge: Dir; open: boolean; view?: I[]; id?: string; policy?: Policy };
+/** The edge's choices overlay the saved arrangement; tucking them away never rearranges its tiles. */
+export function dockBody<I>(d: Dock<I>): LNode<I> { return d.view ? splitOf(d.edge === "left" || d.edge === "right" ? "col" : "row", d.view.map(leaf)) : d.kid; }
+/** Choose the tiles that slide out without changing the dock's saved arrangement. */
+export function chooseDock<I>(d: Dock<I>, id: I, open: boolean, beside: boolean, toggle: boolean): void {
+  if (open) d.view = beside && d.open ? [...new Set([...visible(dockBody(d)), id])] : [id];
+  else if (toggle && d.view && d.view.length > 1) { d.view = d.view.filter(x => x !== id); return; }
+  d.open = open;
+}
 /**
  * A flow (PIE-513): the river's columns as a container. Its kids are columns side by side (a tile, or tiles
  * stacked in a col split), squeezed full, peek or spine around the `anchor` by `flow.ts`, never by weight. It stays
@@ -225,7 +233,7 @@ export function shown<I>(n: LNode<I>): I[] {
 }
 /** The tiles on screen with the shut docks' left out: what has a rectangle now. */
 export function visible<I>(n: LNode<I>): I[] {
-  return n.t === "dock" && !n.open ? [] : n.t === "leaf" || n.t === "tabs" ? shown(n) : kidsOf(n).flatMap(k => visible(k));
+  return n.t === "dock" ? n.open ? visible(dockBody(n)) : [] : n.t === "leaf" || n.t === "tabs" ? shown(n) : kidsOf(n).flatMap(k => visible(k));
 }
 export const has = <I>(n: LNode<I> | null, id: I): boolean => !!n && leaves(n).includes(id);
 const holds = <I>(n: LNode<I>, id: I): boolean => (n.t === "leaf" ? n.id === id : n.t === "tabs" ? n.ids.includes(id) : kidsOf(n).some(k => holds(k, id)));
@@ -272,7 +280,7 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
   if (n.t === "dock") {
     (out.docks ??= []).push({ node: n, rect: r });
     // A dock given no room (sliding over, or shut) places nothing here: its tiles are placed where it slides out.
-    if (r.cols > 0 && r.rows > 0) place(n.kid, r, opts, out);
+    if (r.cols > 0 && r.rows > 0) place(dockBody(n), r, opts, out);
     return out;
   }
   if (n.t === "tabs") {
@@ -404,7 +412,7 @@ export function insert<I>(root: LNode<I>, key: string, add: LNode<I>, weight: nu
 export function remove<I>(n: LNode<I>, id: I): LNode<I> | null {
   if (n.t === "leaf") return n.id === id ? null : n;
   // A dock left with nothing in it is gone too.
-  if (n.t === "dock") { const k = remove(n.kid, id); return k ? { ...n, kid: k } : null; }
+  if (n.t === "dock") { const k = remove(n.kid, id), view = n.view?.filter(t => t !== id); return k ? { ...n, kid: k, view: view?.length ? view : undefined } : null; }
   if (n.t === "tabs") {
     const at = n.ids.indexOf(id);
     if (at < 0) return n;
@@ -588,11 +596,14 @@ export function placeScreen<I>(s: ScreenLayout<I>, r: Rect, opts: PlaceOpts<I> =
     for (const d of open) {
       // Where it lands pinned, the others in this layer as they are (another dock here takes no room).
       const full = place(layer, area, { ...opts, asPinned: x => x === d });
-      const rect = full.docks?.find(x => x.node === d)?.rect ?? area;
+      const own = full.docks?.find(x => x.node === d)?.rect ?? area;
+      const peers = open.filter(x => x.edge === d.edge), vertical = d.edge === "left" || d.edge === "right";
+      const span = vertical ? area.rows : area.cols, i = peers.indexOf(d), start = Math.floor(span * i / peers.length), end = Math.floor(span * (i + 1) / peers.length);
+      const rect = vertical ? { ...own, row: area.row + start, rows: end - start } : { ...own, col: area.col + start, cols: end - start };
       const divider = full.dividers.find(x => x.node.kids[x.i] === d || x.node.kids[x.i + 1] === d) ?? null;
-      const placed = place(d.kid, rect, opts);
+      const placed = place(dockBody(d), rect, opts);
       out.slid.push({ node: d, rect, divider, placed });
-      slide(d.kid, rect);
+      slide(dockBody(d), rect);
     }
   };
   slide(s.root, r);
@@ -695,6 +706,7 @@ export function edge<I>(rest: LNode<I>, src: I, dir: Dir, weight = 0.3): LNode<I
 
 /** Show tile `id` in its tab set. False when it isn't in one. Changes the tree in place. */
 export function activate<I>(root: LNode<I>, id: I): boolean {
+  for (const d of chainOf(root, id)) if (d.t === "dock" && d.view && !d.view.includes(id)) chooseDock(d, id, d.open, false, false);
   const t = tabsOf(root, id);
   if (!t) return false;
   t.active = t.ids.indexOf(id);
@@ -705,8 +717,9 @@ export function activate<I>(root: LNode<I>, id: I): boolean {
 export function cycle<I>(root: LNode<I>, id: I, dir: 1 | -1): I | null {
   const t = tabsOf(root, id);
   if (!t) return null;
-  t.active = (t.active + dir + t.ids.length) % t.ids.length;
-  return t.ids[t.active]!;
+  const next = t.ids[(t.active + dir + t.ids.length) % t.ids.length]!;
+  activate(root, next);
+  return next;
 }
 
 /** Move tab `id` to `index` in its own tab set, still shown. */
@@ -908,7 +921,7 @@ export function forgetIds<I>(n: LNode<I>, gone: (num: number) => boolean): void 
 export function clone<I>(n: LNode<I>): LNode<I> {
   if (n.t === "leaf") return { t: "leaf", id: n.id };
   if (n.t === "tabs") return { t: "tabs", ids: [...n.ids], active: n.active, ...idOf(n) };
-  if (n.t === "dock") return { ...n, kid: clone(n.kid), ...idOf(n) };
+  if (n.t === "dock") return { ...n, kid: clone(n.kid), ...(n.view ? { view: [...n.view] } : {}), ...idOf(n) };
   if (n.t === "flow") return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...(n.held ? { held: [...n.held] } : {}), ...(n.recent ? { recent: [...n.recent] } : {}), ...(n.sides ? { sides: n.sides.map(s => ({ ...s })) } : {}), ...(n.trail ? { trail: n.trail.map(t => ({ ...t })) } : {}), ...idOf(n) };
   return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...idOf(n) } as LNode<I>;
 }
@@ -988,7 +1001,7 @@ export type ColumnsForm<L> = { t: "columns"; kids: NaryForm<L>[]; weights: numbe
 /** A tab set as saved: its tiles and which one is shown. `id` (a split's too): absent in a form saved before PIE-491. */
 export type TabsForm<L> = { t: "tabs"; tabs: L[]; active: number; id?: string; policy?: Policy };
 /** A dock as saved (PIE-505): what it holds, its edge, open or shut. */
-export type DockForm<L> = { t: "dock"; kid: NaryForm<L>; edge: Dir; open: boolean; id?: string; policy?: Policy };
+export type DockForm<L> = { t: "dock"; kid: NaryForm<L>; edge: Dir; open: boolean; view?: number[]; id?: string; policy?: Policy };
 const savedId = (x: any) => ({ ...(typeof x?.id === "string" && x.id ? { id: x.id as string } : {}), ...savedPolicy(x?.policy) });
 const DIRS: readonly Dir[] = ["left", "right", "up", "down"];
 /** The glyph a dock's header, its handle and a drop into it show for the edge it slides from. */
@@ -1028,7 +1041,10 @@ export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L
   if (!s || typeof s !== "object") return { t: "tabs", ids: [], active: 0 };
   if (s.t === "leaf") return leaf(leafOf(s as L));
   const x = s as any;
-  if (x.t === "dock") return { t: "dock", kid: x.kid ? revive(x.kid, leafOf) : { t: "tabs", ids: [], active: 0 }, edge: isDir(x.edge) ? x.edge : "left", open: x.open === true, ...savedId(x) };
+  if (x.t === "dock") {
+    const kid = x.kid ? revive(x.kid, leafOf) : { t: "tabs" as const, ids: [], active: 0 }, ids = leaves(kid);
+    return { t: "dock", kid, edge: isDir(x.edge) ? x.edge : "left", open: x.open === true, ...(Array.isArray(x.view) ? { view: x.view.map((i: number) => ids[i]).filter((id: I | undefined): id is I => id !== undefined) } : {}), ...savedId(x) };
+  }
   if (x.t === "flow") {
     const kids: LNode<I>[] = (Array.isArray(x.kids) ? x.kids : []).map((k: any) => revive(k, leafOf));
     const col = (i: unknown): I | undefined => (Number.isInteger(i) && (i as number) >= 0 && kids[i as number] ? leaves(kids[i as number]!)[0] : undefined);
@@ -1076,7 +1092,7 @@ const empty = <I>(k: LNode<I>): boolean => (k.t === "tabs" && !k.ids.length) || 
 export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): NaryForm<L> {
   if (n.t === "leaf") return leafOf(n.id);
   if (n.t === "tabs") return { t: "tabs", tabs: n.ids.map(leafOf), active: n.active, ...idOf(n) };
-  if (n.t === "dock") return { t: "dock", edge: n.edge, open: n.open, kid: serialize(n.kid, leafOf) as NaryForm<L>, ...idOf(n) };
+  if (n.t === "dock") return { t: "dock", edge: n.edge, open: n.open, ...(n.view ? { view: n.view.map(id => leaves(n.kid).indexOf(id)) } : {}), kid: serialize(n.kid, leafOf) as NaryForm<L>, ...idOf(n) };
   if (n.t === "columns") return { t: "columns", kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.source ? { source: n.source } : {}), ...(n.key ? { key: n.key } : {}), ...idOf(n) };
   if (n.t === "flow") {
     const col = (id: I | undefined) => columnOf(n, id);

@@ -87,7 +87,7 @@ describe("the drawer", () => {
       d.A.stack.pop();
       d.app.push(d.screen("main menu") as any);
       let shown = d.paint();
-      expect(shown.at(-1)).toContain("▲ claude");
+      expect(shown.at(-1)).toContain("▲");
       expect(d.app.drawer.chipText()).toContain("(from EP0CH_DAILY_AGENT)");
       expect(shown[27]).toBe("main menu row 27");
       d.key(ALT("a"));
@@ -100,7 +100,7 @@ describe("the drawer", () => {
       expect(r).toEqual({ col: 0, row: 29 - 14, cols: 100, rows: 14 });
       expect(shown[r.row - 1]).toBe(`main menu row ${r.row - 1}`);
       expect(shown[r.row]).toContain("▼ claude");
-      expect(shown.at(-1)).toContain("▼ claude");
+      expect(shown.at(-1)).toContain("▼");
       // What's typed goes to the agent (cat echoes it).
       await wait(() => d.app.drawer.tile?.running === true);
       d.type("hello drawer\r");
@@ -130,7 +130,7 @@ describe("the drawer", () => {
       d.type("\x1ba");                                          // alt+a, as raw bytes while in it
       expect(d.app.drawer.open).toBe(false);
       d.app.push(d.screen("kanban") as any);
-      expect(d.paint().at(-1)).toContain("▲ claude");
+      expect(d.paint().at(-1)).toContain("▲");
       d.key(ALT("a")); const shown = d.paint();
       expect(d.app.drawer.tile!.pid).toBe(pid);
       await wait(() => d.app.drawer.tile!.text().some(l => l.includes("first")));
@@ -275,16 +275,18 @@ describe("the drawer", () => {
       expect(d.app.drawer.open).toBe(false);
       await d.app.act({ action: "host.toggle", args: { open: true }, as: "claude-7" });
       // A click on YOLO takes it back.
-      const row = d.paint().length - 1, col = d.paint().at(-1)!.indexOf("YOLO");
-      d.key(mouse("down", col, row)); d.key(mouse("up", col, row));
+      const takeBack = async () => {
+        d.paint(); await d.app.dispatch.press("strip.more", { strip: "status" });
+        const rows = d.paint(), row = rows.findIndex(s => s.includes("YOLO")), col = rows[row]!.indexOf("YOLO");
+        d.key(mouse("down", col, row)); d.key(mouse("up", col, row));
+      };
+      await takeBack();
       expect(d.app.agentsYolo).toBe(false);
       expect(d.yoloTold).toEqual([true, false]);
       // Another door's yolo (the service says so) shows here, and lifts this door's guards too; a click takes it back for all.
       d.app.event({ domain: "agents", action: "agents.yolo", yolo: true, sequence: 1 });
       expect(d.app.agentsYolo).toBe(true);
-      expect(d.paint().at(-1)).toContain("YOLO");
-      const again = d.paint().at(-1)!.indexOf("YOLO");
-      d.key(mouse("down", again, row)); d.key(mouse("up", again, row));
+      await takeBack();
       expect(d.yoloTold).toEqual([true, false, false]);
       expect(d.app.agentsYolo).toBe(false);
       expect(d.paint().at(-1)).not.toContain("YOLO");

@@ -27,7 +27,7 @@ import type { Rect } from "../canvas";
 import { byOf, type Actor } from "../socket";
 import { arrive, columnOf, leaving, setAhead, setHeld, setFrom, squeeze, tileOfColumn, travelTarget, widen as widenFlow, type Cover } from "./flow";
 import {
-  activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, dockOf, docks, dockToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
+  activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, dockOf, docks, dockBody, chooseDock, dockToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
   node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, replaceNode, resize, serialize as serializeTree, shown, spineEdge, swapLeaf, tabInto, tabsOf, unwrapDock, visible, wrapDock, wrapNodeDock,
   MIN_COLS, POLICY_KEYS, type Axis, type Container, type Dir, type Dock, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
@@ -36,7 +36,7 @@ import { agentRefusal, type AgentLevel } from "../surface/agent-level";
 
 // ── what the module reads: the tree queries, re-exported so callers import only this module ──
 export {
-  chainOf, columnsOf, dividerAt, pinnedTiles, dragShare, dockOf, docks, EDGE_GLYPH, EDGE_WORD, effective, flowOf, isDir, isLine, kidsOf, leaf, leaves, neighbour, node, nodeById,
+  chainOf, columnsOf, dividerAt, pinnedTiles, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, EDGE_WORD, effective, flowOf, isDir, isLine, kidsOf, leaf, leaves, neighbour, node, nodeById,
   pair, parentNode, parentOf, policyOf, remove as removeLeaf, revive as reviveTree, shown, splitAxis, splitOf, tabsOf, visible, POLICY_KEYS,
 } from "./layout";
 /** A copy of a tree to build on (a screen's preset as it's made); the state's own is never changed in place. */
@@ -241,7 +241,7 @@ export type Op<I = number> =
   | { op: "float"; tile: I; at?: At<I> }
   | { op: "place"; tile?: I; dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }
   | { op: "pin"; tile: I; on?: boolean; edge?: Dir; container?: string }
-  | { op: "slide"; tile: I; open?: boolean; container?: string }
+  | { op: "slide"; tile: I; open?: boolean; container?: string; beside?: boolean }
   | { op: "collapse"; tile: I; on?: boolean; dir?: "v" | "h" }
   /** Growth by room (PIE-794): tile `tile` was just opened beside others; earlier readers in its row fold until it's readable. */
   | { op: "room"; tile: I; before?: ReadonlyMap<I, Rect>; alt?: boolean }
@@ -1073,7 +1073,7 @@ class Step<I> {
         return this.isFloat(op.tile) ? this.land(op.tile, op.at) : this.float(op.tile);
       case "place": return this.place(op);
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
-      case "slide": return this.slide(op.tile, op.open, op.container);
+      case "slide": return this.slide(op.tile, op.open, op.container, op.beside);
       case "collapse": return this.collapse(op.tile, op.on, op.dir);
       case "room": return this.room(op.tile, op.before, op.alt);
       case "alt.hold":
@@ -1717,26 +1717,26 @@ class Step<I> {
     this.d.answer = { pinned: !now, ...(now ? { edge: now.edge, container: now.id, open: now.open } : {}) };
   }
 
-  private slide(id: I, open: boolean | undefined, container?: string) {
+  private slide(id: I, open: boolean | undefined, container?: string, beside = false) {
     this.present(id);
-    const name = this.name(id);
-    // The dock named (a handle's, an outer one holding another dock), else the innermost holding the tile.
-    const nd = container ? nodeById(this.d.tree, container) : null;
+    const name = this.name(id), nd = container ? nodeById(this.d.tree, container) : null;
     if (container && nd?.t !== "dock") refuse(`no dock ${container} in the layout; layout.get gives each dock's id (d<n>)`);
     const dr = nd?.t === "dock" ? nd : dockOf(this.d.tree, id);
     if (!dr) refuse(`${name} isn't docked · tile.dock (^W p) docks it`);
-    const want = open ?? !dr!.open;
+    const want = open ?? !(dr!.open && visible(dockBody(dr!)).includes(id));
     if (want && this.ctx.screenHost === "none" && has(this.d.tree, HOST_SCREEN as unknown as I)) refuse("the screen shown keeps the whole screen (its host policy is none): the host layer comes back on another screen");
     if (!want && !this.ofNode(dr!).collapsible) refuse(`${dr!.id ?? "the dock"} stays open: it doesn't slide shut · ^W P there turns collapsible on`);
-    // Shutting the dock that has the person's keys moves them: the same rule as any move of the keys.
-    const inside = leaves(dr!.kid);
-    if (!want && inside.includes(this.d.focus)) this.mayMoveKeys("shut the dock they have");
+    // A swap inside one dock can hide the person's tile just as shutting that dock does.
+    if (leaves(dr!.kid).includes(this.d.focus) && (!want || !beside && id !== this.d.focus)) this.mayMoveKeys(want ? "swap the dock they have" : "shut the dock they have");
     // The last dock showing anything stays open: shut, the screen would be blank (every tile in a dock).
     if (!want && dr!.open) { dr!.open = false; const none = !visible(this.d.tree).length; dr!.open = true; if (none) refuse(`${dr!.id ?? "the dock"} is all the screen shows: shut, nothing would be left · ^W p on a tile in it undocks it`); }
-    if (dr!.open === want) this.d.changed = false;
-    dr!.open = want;
-    if (want) { if (!this.agent && !this.ctx.person.busy) { this.d.focus = visible(dr!.kid).find(x => x === id) ?? visible(dr!.kid)[0] ?? id; activate(this.d.tree, this.d.focus); } }
-    else if (inside.includes(this.d.focus)) this.d.focus = visible(this.d.tree)[0] ?? this.d.focus;
+    if (want && !beside) for (const other of docks(this.d.tree).filter(d => d !== dr && d.edge === dr!.edge && d.open && d.policy?.overlay !== false && this.ofNode(d).collapsible)) {
+      if (leaves(other.kid).includes(this.d.focus)) this.mayMoveKeys("swap the dock they have");
+      other.open = false;
+    }
+    chooseDock(dr!, id, want, beside, open === undefined);
+    if (want && !this.agent && !this.ctx.person.busy) { this.d.focus = id; activate(this.d.tree, id); }
+    else if (!visible(this.d.tree).includes(this.d.focus)) this.d.focus = visible(this.d.tree)[0] ?? this.d.focus;
     this.d.answer = { open: want, edge: dr!.edge, ...(dr!.id ? { container: dr!.id } : {}) };
   }
 

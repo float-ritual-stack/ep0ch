@@ -115,6 +115,13 @@ export class Canvas {
     this.cells = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ ch: " ", sgr: "" })));
   }
 
+  /** A vertical strip uses the same cells and hit markers as its horizontal row. */
+  column(col: number, row: number, text: string, rows: number): void {
+    const strip = new Canvas(rows, 1);
+    strip.text(0, 0, text, rows);
+    for (let y = 0; y < rows && row + y < this.rows; y++) this.put(this.cells[row + y]!, col, strip.cells[0]![y]!);
+  }
+
   /**
    * Write a styled string at (col,row), clipped to `max` cells. It goes glyph by glyph in terminal cells: a
    * wide one (CJK, an emoji) takes two, the second a spacer; one that wouldn't fit whole leaves a space; a

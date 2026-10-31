@@ -18,6 +18,8 @@ export const SEED = {
   chores: "Chores",
   gardenView: "Garden chores",
   notebook: "Allotment notebook",
+  strip: "Strip workshop",
+  stripLog: "Build logs",
   waitingDecision: "Choose the potting shelter roof",
   waitingCalls: "Potting shelter decisions",
   whiteboard: "Kitchen whiteboard",

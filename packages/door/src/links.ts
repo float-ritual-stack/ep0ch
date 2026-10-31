@@ -37,8 +37,13 @@ import type { LinkTarget } from "./refs";
 import { ActionRefused } from "./surface/actions";
 import { C, drawEllipsized, fg, pad, RESET, selectedRow, width } from "./style";
 
-export { ALL_LINK_GROUPS, blockGroups, isLinkGroup, LINK_BLOCK_KINDS, LINK_GROUPS, linkBlockAt, type LinkBlockKind, type LinkBlockSpec, type LinkGroupName, type LinkPreview } from "@ep0ch/outline-core/link-blocks";
-import { ALL_LINK_GROUPS, blockGroups, LINK_GROUPS, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
+export { blockGroups, LINK_BLOCK_KINDS, linkBlockAt, type LinkBlockKind, type LinkBlockSpec, type LinkPreview } from "@ep0ch/outline-core/link-blocks";
+import { ALL_LINK_GROUPS as DEFAULT_LINK_GROUPS, blockGroups, LINK_GROUPS as CORE_LINK_GROUPS, type LinkBlockSpec, type LinkGroupName as CoreLinkGroupName } from "@ep0ch/outline-core/link-blocks";
+export { DEFAULT_LINK_GROUPS };
+export type LinkGroupName = CoreLinkGroupName | "parents";
+export const LINK_GROUPS: readonly { group: LinkGroupName; glyph: string }[] = [...CORE_LINK_GROUPS, { group: "parents", glyph: "↑" }];
+export const ALL_LINK_GROUPS: readonly LinkGroupName[] = [...DEFAULT_LINK_GROUPS, "parents"];
+export const isLinkGroup = (name: string): name is LinkGroupName => LINK_GROUPS.some(g => g.group === name);
 import { prop } from "./props";
 import { isMarkType } from "@ep0ch/outline-core/annotation-marks";
 import { ListView, listRowLines, type ListHandle, type ListViewRow } from "./surface/list-view";
@@ -55,7 +60,7 @@ export interface ChildLink { block: Msg; facets?: AuthoredTargetFacets }
  * What the service sent for one block: its authored links and its backlinks, each as it came (or why not), and the
  * notes under it where the list reads them (the links tile; the tree's rows are its children already).
  */
-export interface LinkData { links: Load<AuthoredLinksSnapshot>; backlinks: Load<BacklinkCollection>; children?: Load<ChildLink[]>; matches?: Load<ChildLink[]> }
+export interface LinkData { links: Load<AuthoredLinksSnapshot>; backlinks: Load<BacklinkCollection>; children?: Load<ChildLink[]>; matches?: Load<ChildLink[]>; parents?: Load<ChildLink[]> }
 
 /** A comment or its reply is a block under the note too; it lists with Backlinks (kind Comment), never as a child. */
 export const isAnnotationBlock = (m: Msg) => isMarkType(prop(m, "type"));
@@ -219,8 +224,8 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
     const key = prefix + group;
     let count: number | null = null, note = "";
     const entries: LinkRow[] = [];
-    if (group === "children" || group === "matches") {
-      const c = group === "children" ? data.children : data.matches;
+    if (group === "children" || group === "matches" || group === "parents") {
+      const c = data[group];
       // Read only where the list asks for them (the links tile); elsewhere the group isn't there.
       if (!c) continue;
       if (c.kind === "loading") note = "asking the service…";
@@ -228,8 +233,8 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
       else {
         // No children: the group says nothing, as an empty Outlinks doesn't, unless it's all the list shows (the replies).
         if (!c.value.length && !(view.only?.size === 1)) continue;
-        const rows: LinkRow[] = c.value.map(child => ({ kind: group === "children" ? "child" : "match", key: key + SEP + child.block.id, depth: depth + 1, child }));
-        entries.push(...narrowRows(rows, view.backlinks, filter, !!view.sortAll));
+        const rows: LinkRow[] = c.value.map(child => ({ kind: group === "matches" ? "match" : "child", key: key + SEP + child.block.id, depth: depth + 1, child }));
+        entries.push(...narrowRows(rows, view.backlinks, filter, group !== "parents" && !!view.sortAll));
         count = entries.length;
       }
     } else if (group === "backlinks") {
@@ -362,11 +367,11 @@ export function linkAcross(data: LinkData, o: Readonly<BacklinkViewOptions>, onl
       for (const e of g.entries) note(group === "outlinks" ? (e as AuthoredOutlink).resolution.kind === "ready" ? ((e as AuthoredOutlink).resolution as { facets?: AuthoredTargetFacets }).facets : undefined : (e as AuthoredResourceLink).facets);
     }
   }
-  for (const g of ["children", "matches"] as const) {
+  for (const g of ["children", "matches", "parents"] as const) {
     const d = data[g];
     if (!d || !shows(g)) continue;
     if (d.kind !== "ready") { by[g] = null; continue; }
-    const all = d.value.map((child): LinkRow => ({ kind: g === "children" ? "child" : "match", key: child.block.id, depth: 1, child }));
+    const all = d.value.map((child): LinkRow => ({ kind: g === "matches" ? "match" : "child", key: child.block.id, depth: 1, child }));
     const rows = narrowRows(all, o, filter, false);
     by[g] = { matching: rows.length, total: all.length, filtered: all.length - rows.length };
     for (const c of d.value) note(c.facets);
@@ -685,7 +690,7 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   const own = groups.some(g => g !== "matches");
   const of = spec.of ?? note;
   if (own && !blocks?.data && (!of || of.startsWith(RESOURCE_NOTE) || of.startsWith("file:"))) return frame(title, [fg(C.dark) + "a resource or a file has no links here · of: ((block)) names whose" + RESET], W);
-  const has = (g: LinkGroupName) => groups.includes(g);
+  const has = (g: CoreLinkGroupName) => groups.includes(g);
   if (!source && !blocks?.data) return frame(title, [fg(C.dark) + "no outline connection" + RESET], W);
   const links = blocks?.data ?? (has("outlinks") || has("resources") || has("backlinks") ? linksOf(of!)! : { links: { kind: "loading" }, backlinks: { kind: "loading" } } as LinkData);
   const children = blocks?.data ? blocks.data.children : has("children") ? childLinks(source!, of!) : undefined;

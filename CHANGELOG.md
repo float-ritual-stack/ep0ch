@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Narrow strips keep the current choice readable (PIE-923, PIE-1162)
+
+- **One strip:** tabs, breadcrumbs, Tune, power-bar scopes, status chips, hints and dock edges share one shrink rule. The current name keeps its space; `‹ +N ›` and Alt+/ reveal every choice in a picker. Arrows, Enter, numbers and the wheel work through the same actions.
+- **Crumbs are links:** breadcrumbs show an ancestor’s links while the reader keeps its note and keys; Alt-click still reveals the note in the outline. The links tile offers an optional Parents group.
+- **Docks on the edge:** dock segments use tile titles: click swaps, Alt-click opens beside, and clicking a lit segment closes it. The edge stays reachable above an expanded drawer; the status bar’s docks segment lists them all.
+- **Run:** open `ep0ch try --showcase`, choose **strip**, and drag the seven-tab tile narrower. Door only; no protocol, grammar or schema change.
+
 ### Completion follows you and fills whole snippets (PIE-1480)
 
 - **Complete where you type:** one source contract and matcher in notes, the power bar and Detail. Chosen rows rise across clients; the popup lights matched letters and sits at the cursor through the shared screen float placement.

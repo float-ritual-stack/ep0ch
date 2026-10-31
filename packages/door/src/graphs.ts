@@ -393,8 +393,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       return [...wrap(bar, w).map(l => fg(INK) + l + RESET), ...tabs.flatMap(t => ["", fg(ACCENT) + BOLD + `▸ ${t.value.toUpperCase()} · ${t.count}${plus}` + UNBOLD + RESET, ...table(t)])];
     }
     // The bar: each label its value and count, the chosen one lit and underlined; a bar wider than the figure wraps.
-    const bars = tabStrip(tabs.map(t => ({ label: `${t.value} ${t.count}${plus}`, on: t === sel })), {
-      width: w, overflow: "wrap", style: { on: fg(ACCENT) + BOLD, off: fg(INK), sep: fg(DIM) + " · ", under: fg(ACCENT) },
+    const bars = tabStrip(tabs.map(t => ({ label: `${t.value} ${t.count}${plus}`, on: t === sel, hit: { action: "figure.tab", args: { figure: ui?.key, tab: t.value } } })), {
+      width: w, style: { on: fg(ACCENT) + BOLD, off: fg(INK), sep: fg(DIM) + " · ", under: fg(ACCENT) },
       ...(ui?.tag ? { tag: (drawn: string, i: number) => ui.tag!({ figure: ui.key, tab: tabs[i]!.value }, drawn) } : {}),
     }).map(b => ({ text: b.text, under: b.under ?? "" }));
     if (p.truncated) bars.push({ text: fg(DIM) + "more results than one question answers: counts are at least these" + RESET, under: "" });
