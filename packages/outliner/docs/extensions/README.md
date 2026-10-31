@@ -1318,7 +1318,8 @@ local partial and fuzzy guesses; notes keep the service's ranking. The outline h
 - **`completion.rows`** asks the service's sources and the extensions' for a token: `{ "action": "completion.rows",
   "target": { "kind": "page", "query": "seed" }, "near": "<block id>" }` → `{ answers: [{ source, rows, problem? }],
   picks }`; a client merges the answers with outline-core's `mergeSourceAnswers`. `completion.picked` `{ key, insert }`
-  counts a pick. `completion.rows` can carry `turn`; `completion.cancel` with that same `turn` aborts its sources.
+  counts a pick: `key` comes from `pickKey`, and `insert` is `pickId(insertText(row.insert))`, never the insertion text.
+  `completion.rows` can carry `turn`; `completion.cancel` with that same `turn` aborts its sources.
   `extensions.list` lists every serving extension's completion sources as `completionSources`.
 
 The example is [issues](../../extensions/issues): a tracker's open issues (made up, in `issues.json`), read once a

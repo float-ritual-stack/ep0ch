@@ -366,7 +366,7 @@ const properties: ServiceSource = {
   async rows(ask, svc) {
     const schemas = await schemasOf(svc);
     if (ask.kind === "yaml-key") return { rows: yamlKeyCandidates(schemas, ask.component ?? "", "").map(c => candidateRow(schemas, c, ask, "property")) };
-    const catalog = await catalogOf(svc, ask.kind === "value" ? { key: ask.key } : { keys: true }, "");
+    const catalog = await catalogOf(svc, ask.kind === "value" ? { key: ask.key } : { keys: true }, ask.query);
     const rows: SourceRow[] = [], seen = new Set<string>();
     if (ask.kind === "key") {
       // What the notes carry first, most used first, with a schema's meaning where one has it; then the schemas' others.
@@ -410,7 +410,7 @@ const filters: ServiceSource = {
   decl: { id: "filters", title: "properties", triggers: ["filter-key", "filter-value"], priority: 0, by: "service" },
   async rows(ask, svc) {
     const value = ask.kind === "filter-value";
-    const [catalog, schemas] = await Promise.all([catalogOf(svc, value ? { key: ask.key } : { keys: true }, ""), schemasOf(svc).catch(() => [])]);
+    const [catalog, schemas] = await Promise.all([catalogOf(svc, value ? { key: ask.key } : { keys: true }, ask.query), schemasOf(svc).catch(() => [])]);
     const rows: SourceRow[] = [], seen = new Set<string>();
     if (!value) {
       const counts = new Map<string, number>();

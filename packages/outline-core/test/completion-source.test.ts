@@ -1,7 +1,7 @@
 // The one merge every completion list is made with (PIE-1340): sources' rows ranked together by the search matcher,
 // picks first among equals, a source's own order kept, one row per insert. Made-up rows.
 import { expect, test } from "bun:test";
-import { frecency, mergeSourceAnswers, pickKey, recordPick, sourceAnswers, triggerOf, type SourceAnswer } from "../src/completion-source";
+import { frecency, mergeSourceAnswers, pickId, pickKey, recordPick, sourceAnswers, triggerOf, type SourceAnswer } from "../src/completion-source";
 import { searchMatchSpans } from "../src/search-match";
 import { completionTargetAtCursor, hashtagAtCursor, referenceTargetAtCursor } from "../src/completion-triggers";
 
@@ -43,20 +43,20 @@ test("in a ranked source an incidental row never sinks the strong ones after it,
   const ext: SourceAnswer = { source: src("ext"), rows: [{ label: "Old seed packets", insert: "#9" }] };
   expect(labels(mergeSourceAnswers([blocks, ext], "seed"))).toEqual(["Seed swap", "  ^p1  # Prices", "Seed library", "Seed list", "Old seed packets"]);
   const now = new Date("2026-10-26T12:00:00Z");
-  const picks = recordPick({}, "((", "((c))", now)["(("];
+  const picks = recordPick({}, "((", pickId("((c))"), now)["(("];
   expect(labels(mergeSourceAnswers([blocks], "seed", { picks, now })).slice(0, 3)).toEqual(["Seed list", "Seed swap", "  ^p1  # Prices"]);
   // The anchor moves with its note.
-  const swap = recordPick({}, "((", "((a))", now)["(("];
+  const swap = recordPick({}, "((", pickId("((a))"), now)["(("];
   expect(labels(mergeSourceAnswers([blocks], "seed", { picks: swap, now })).slice(0, 2)).toEqual(["Seed swap", "  ^p1  # Prices"]);
 });
 
 test("picked more often and more lately comes first among equals, a preselected row before everything", () => {
   const now = new Date("2026-10-26T12:00:00Z");
   const a: SourceAnswer = { source: src("a"), rows: [{ label: "alpha", insert: "a" }, { label: "beta", insert: "b" }, { label: "gamma", insert: "g", preselect: true }] };
-  let picks = recordPick({}, "key::x", "b", now);
+  let picks = recordPick({}, "key::x", pickId("b"), now);
   expect(labels(mergeSourceAnswers([a], "", { picks: picks["key::x"], now }))).toEqual(["gamma", "beta", "alpha"]);
-  picks = recordPick(picks, "key::x", "a", now); picks = recordPick(picks, "key::x", "a", now);
-  expect(picks["key::x"]!.a!.n).toBe(2);
+  picks = recordPick(picks, "key::x", pickId("a"), now); picks = recordPick(picks, "key::x", pickId("a"), now);
+  expect(picks["key::x"]![pickId("a")]!.n).toBe(2);
   expect(labels(mergeSourceAnswers([a], "", { picks: picks["key::x"], now }))).toEqual(["gamma", "alpha", "beta"]);
   // Two weeks halve a pick.
   expect(frecency({ n: 4, at: "2026-10-12T12:00:00Z" }, now)).toBeCloseTo(2);
@@ -64,7 +64,7 @@ test("picked more often and more lately comes first among equals, a preselected 
     { id: "graph-kpi", label: "KPI", filter: "graph-kpi statistics", insert: "kpi" },
     { id: "graph-stat", label: "Stat", filter: "graph-stat", insert: "stat" },
   ] };
-  expect(mergeSourceAnswers([components], "graph-stat", { now, picks: { kpi: { n: 20, at: now.toISOString() } } })[0]!.label).toBe("Stat");
+  expect(mergeSourceAnswers([components], "graph-stat", { now, picks: { [pickId("kpi")]: { n: 20, at: now.toISOString() } } })[0]!.label).toBe("Stat");
 });
 
 test("an insert two sources both answer is kept once, the better-ranked one", () => {

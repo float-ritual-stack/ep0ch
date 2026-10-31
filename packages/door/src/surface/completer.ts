@@ -33,7 +33,7 @@ import { ActionRefused, shownLine } from "./actions";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { headedTitle, subject, type Msg } from "../board";
 import { completionTargetAtCursor, filterTargetAtCursor, parseFragmentCompletionQuery, type CompletionKind, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
-import { insertSelection, insertSlots, insertText, mergeSourceAnswers, pickKey, triggerOf, sourceAnswers, type SourceAnswer, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
+import { insertSelection, insertSlots, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf, sourceAnswers, type SourceAnswer, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
 import type { SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
 import type { CompletionRowsResult, CompletionSourceAnswer } from "@ep0ch/outline-core/protocol";
 import type { Draft, DraftAction } from "../edit";
@@ -835,7 +835,7 @@ export class Completer {
     try {
       if (!await insertCompletion(this.board, this.d, s.target, item, this.own(), () => this.current(turn))) return false;
       // Counted by the outline host (PIE-1340), so this pick ranks higher next time, here and in every other client.
-      if (s.pickKey) void this.board.completionPicked?.(s.pickKey, item.insertion).catch(() => {});
+      if (s.pickKey) void recordCompletionPick(this.board, s.pickKey, item.insertion);
       // A note picked from a search's list (ranked or not, as the bar's): the words and the note, the eval's label (PIE-1197).
       if ((s.target.kind === "page" || s.target.kind === "block") && item.blockId) this.board.searchPicked?.(s.target.query, item.blockId, index, "complete");
       if (item.querySuggestion) {
@@ -869,6 +869,10 @@ export function completerFor(d: CompletionField, board: unknown, redraw: () => v
   byDraft.set(d, c);
   return c;
 }
+
+/** Ranking history must never turn a successful draft insertion into a reported failure. */
+export const recordCompletionPick = (board: CompletionBoard, key: string, insertion: string) =>
+  board.completionPicked?.(key, pickId(insertion)).catch(() => {});
 
 /** The draft's completer, if it has one. */
 export const completerOf = (d: CompletionField): Completer | null => byDraft.get(d) ?? null;

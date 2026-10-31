@@ -147,7 +147,7 @@ import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outli
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { callSplice, COMPONENTS_PAGE, makeComponent } from "./component-new";
-import { COMPLETION_ACTIONS, COMPLETION_DOCS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_DOCS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, completerFor, completerOf, completionOf, recordCompletionPick, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -1510,7 +1510,8 @@ export class NoteSurface {
     this.innerFrame = host?.innerFrame;
     const view = host ? withFigureBoard(host.ctx.board, () => host.redraw(), () => this.renderOn(w, h, host)) : this.renderOn(w, h);
     if (!this.previewPoint() || this.listPreview.rect || this.editing) this.keepCurrent(host);
-    return this.withPlacementMenu(this.panel?.field ? { ...view, completion: completerOf(this.panel.field.input) ?? undefined } : view, w, h, "reader");
+    const field = this.panel?.field?.input ?? this.writingDraft;
+    return this.withPlacementMenu(field ? { ...view, completion: completerOf(field) ?? undefined } : view, w, h, "reader");
   }
 
   private renderOn(w: number, h: number, host?: SurfaceHost): SurfaceView {
@@ -2070,7 +2071,7 @@ export class NoteSurface {
     this.use(host);
     this.lookAt(m, w, host);
     const covered = this.modes.rows(w, h, host);
-    if (covered) return { ...covered, ...(this.draft ? { placements: this.editPreview.place === "tile" ? [] : this.draft.frame?.preview?.placements } : {}), completion: this.draft ? completerOf(this.draft) ?? undefined : undefined, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
+    if (covered) return { ...covered, ...(this.draft ? { placements: this.editPreview.place === "tile" ? [] : this.draft.frame?.preview?.placements } : {}), ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
@@ -8797,9 +8798,8 @@ export class NoteSurface {
       return true;
     }
     const completion = this.writingDraft && completerOf(this.writingDraft);
-    if (completion?.overPreview(x, y)) {
-      completion.click(y, x, text => host.ctx.copy?.(text, "component preview"));
-      host.redraw(); return true;
+    if (completion?.click(y, x, text => host.ctx.copy?.(text, "component preview"))) {
+      this.gesture.forget(); host.redraw(); return true;
     }
     if (r.click) {
       // A click that did something (a link, a fold, a panel row) isn't the first half of a double click.
@@ -10478,7 +10478,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const spend = invitation !== undefined ? () => ds!.spend(invitation, actor) : undefined;
         if (!await insertCompletion(board, d, target, item, own, still, actor, spend)) throw new Error("the draft changed while the reference was checked; ask again");
       } catch (e) { throw new ActionRefused(`not inserted: ${e instanceof Error ? e.message : String(e)}`); }
-      if (r.pickKey) await board.completionPicked?.(r.pickKey, item.insertion);
+      if (r.pickKey) await recordCompletionPick(board, r.pickKey, item.insertion);
       surface.noteAgent(actor, `inserted ${item.insertion}`);
       host.redraw();
       return { ...out, inserted: item.insertion, dirty: d.dirty };

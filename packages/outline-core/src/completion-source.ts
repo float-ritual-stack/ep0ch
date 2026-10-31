@@ -142,7 +142,7 @@ export interface SourceAnswer<R extends SourceRow = SourceRow> {
 
 /** How often and how lately a row's insert was chosen for a trigger: the outline host keeps these, so every client agrees. */
 export interface PickRecord { n: number; at: string }
-/** Per trigger (`[[`, `key::issue`…), per insert text. */
+/** Per trigger (`[[`, `key::issue`…), per pick identity. */
 export type Picks = Record<string, Record<string, PickRecord>>;
 
 /** The key picks are kept under for an ask: the trigger, and for a value its property key. */
@@ -151,6 +151,12 @@ export const pickKey = (ask: Pick<SourceAsk, "trigger" | "kind" | "key">): strin
 
 /** The text an insert writes. */
 export const insertText = (insert: SourceInsert): string => typeof insert === "string" ? insert : insert.snippet;
+/** Pick history keeps a stable identity, so a large snippet never becomes a metadata key. */
+export function pickId(text: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (let i = 0; i < text.length; i++) hash = BigInt.asUintN(64, (hash ^ BigInt(text.charCodeAt(i))) * 0x100000001b3n);
+  return hash.toString(16);
+}
 /** The span a snippet selects once it's in, if any. */
 export const insertSelection = (insert: SourceInsert): { start: number; end: number } | undefined => typeof insert === "string" ? undefined : insert.select;
 /** Explicit spans select example values; named placeholders share the button's {slot} grammar. */
@@ -204,11 +210,11 @@ export function mergeSourceAnswers<R extends SourceRow>(answers: readonly Source
   const lists: Entry[][] = answers.map(a => {
     const entries: Entry[] = [];
     a.rows.forEach((row, i) => {
-      const text = insertText(row.insert);
+      const text = insertText(row.insert), pick = picks[pickId(text)];
       const m = q ? scoreSearchDocument({ id: row.id ?? text, title: row.label, text: row.filter ?? "" }, q) : null;
       if (q && !m && !a.source.ranked) return;
       const tier = !q ? 0 : m ? TIER[m.kind] : UNPLACED;
-      entries.push({ row: { ...row, from: a.source.id, tier, matches: searchMatchSpans(row.label, query) } as MergedRow<R>, pre: row.preselect ? 0 : row.fallback ? 2 : 1, tier, f: frecency(picks[text], now), at: picks[text]?.at ?? "", p: row.priority ?? a.source.priority ?? 0, score: m?.score ?? 0, i });
+      entries.push({ row: { ...row, from: a.source.id, tier, matches: searchMatchSpans(row.label, query) } as MergedRow<R>, pre: row.preselect ? 0 : row.fallback ? 2 : 1, tier, f: frecency(pick, now), at: pick?.at ?? "", p: row.priority ?? a.source.priority ?? 0, score: m?.score ?? 0, i });
     });
     if (!a.source.ranked) {
       entries.sort((x, y) => x.pre - y.pre || y.p - x.p || x.tier - y.tier || y.f - x.f || y.at.localeCompare(x.at) || y.score - x.score || x.i - y.i);

@@ -760,11 +760,11 @@ export interface SearchPickedRequest { query: string; blockId: string; rank: num
 
 export interface CompletionRowsResult {
   answers: CompletionSourceAnswer[];
-  /** This trigger's picks (`pickKey`): how often and how lately each insert was chosen, on any client. */
+  /** This trigger's picks (`pickKey`), indexed by `pickId`: how often and how lately each insert was chosen. */
   picks: Record<string, PickRecord>;
 }
 
-/** `completion.picked`: a row was chosen. `key` is `pickKey`'s, `insert` the text it wrote. */
+/** `completion.picked`: a row was chosen. `key` is `pickKey`'s, `insert` is its compact `pickId` identity. */
 export interface CompletionPickedRequest { key: string; insert: string }
 
 /** Progress for an ask in a held draft; the line stays authored text. */

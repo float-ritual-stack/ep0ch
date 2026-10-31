@@ -20,7 +20,7 @@ export class CompletionRequests {
     let result: unknown;
     if (request.action === "completion.picked") {
       if (typeof request.key !== "string" || !request.key || request.key.length > 80) throw new Error("completion.picked needs key: the trigger's pick key");
-      if (typeof request.insert !== "string" || !request.insert || request.insert.length > 2000) throw new Error("completion.picked needs insert: the text the row wrote");
+      if (typeof request.insert !== "string" || !request.insert || request.insert.length > 16) throw new Error("completion.picked needs insert: the row’s pick identity");
       if (this.readOnly) throw new Error("This outline is read-only.");
       const next = recordPick(picks, request.key, request.insert, new Date());
       this.store.writeMetadata(PICKS_METADATA_KEY, JSON.stringify(next));

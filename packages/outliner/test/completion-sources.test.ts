@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import { mergeSourceAnswers, insertText } from "@ep0ch/outline-core/completion-source";
+import { mergeSourceAnswers, insertText, pickId } from "@ep0ch/outline-core/completion-source";
 import { completionRows } from "../src/completion-sources";
 import { ReferenceCompletionSession, referenceCompletionProvider } from "../src/reference-completion";
 import { renderReferenceCompletion } from "../src/reference-completion-renderer";
@@ -53,6 +53,23 @@ async function setup(install: string[] = []) {
 }
 
 const merged = (r: CompletionRowsResult, query: string) => mergeSourceAnswers(r.answers, query, { picks: r.picks });
+
+test("exact property keys and values complete beyond the catalog's first hundred, including filters", async () => {
+  const { create, rows } = await setup();
+  const common = Array.from({ length: 105 }, (_, i) => `[bed-${i}::green] [planting::bed-${i}]`).join(" ");
+  await create(`Common beds ${common}`);
+  await create(`More common beds ${common}`);
+  await create("Rare bed [zz-trellis::silver] [planting::zz-moonflower]");
+  for (const [kind, query, expected] of [
+    ["key", "zz-trellis", "[zz-trellis::"],
+    ["filter-key", "zz-trellis", "zz-trellis:"],
+    ["value", "zz-moonflower", "zz-moonflower]"],
+    ["filter-value", "zz-moonflower", "zz-moonflower"],
+  ] as const) {
+    const result = await rows(kind, query, { key: "planting" });
+    expect(merged(result, query).map(row => insertText(row.insert))).toContain(expected);
+  }
+});
 
 test("layout completion belongs to the view note on its title and the hero on its image line", async () => {
   const { client, create } = await setup();
@@ -105,9 +122,9 @@ test("a pick is kept by the host: the next ask of the trigger ranks it first amo
   await list(true);
   const before = merged(await rows("value", "", { key: "issue" }), "");
   expect(insertText(before[0]!.insert)).toBe("#12");
-  await client.request({ action: "completion.picked", key: "key::issue", insert: "#27" });
+  await client.request({ action: "completion.picked", key: "key::issue", insert: pickId("#27") });
   const after = await rows("value", "", { key: "issue" });
-  expect(after.picks["#27"]?.n).toBe(1);
+  expect(after.picks[pickId("#27")]?.n).toBe(1);
   expect(insertText(merged(after, "")[0]!.insert)).toBe("#27");
 });
 
@@ -343,7 +360,7 @@ test("Detail fills a component and an extension button through shared slots, kee
     expect(buffer.undo()).toBe(true);
     expect(buffer.text).toBe(query);
     const result = await client.request<CompletionRowsResult>({ action: "completion.rows", target: { kind: "component", query: "" } });
-    expect(result.picks[insertion]?.n).toBe(1);
+    expect(result.picks[pickId(insertion)]?.n).toBe(1);
     session.dismiss();
   }
 });

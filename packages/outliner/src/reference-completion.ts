@@ -1,5 +1,5 @@
 import {completionTargetAtCursor,type CompletionTarget} from "@ep0ch/outline-core/completion-triggers";
-import {insertSelection,insertSlots,insertText,mergeSourceAnswers,pickKey,triggerOf,type SourceRow} from "@ep0ch/outline-core/completion-source";
+import {insertSelection,insertSlots,insertText,mergeSourceAnswers,pickId,pickKey,triggerOf,type SourceRow} from "@ep0ch/outline-core/completion-source";
 import type {SnippetSlot} from "@ep0ch/outline-core/completion-snippet";
 import type {CompletionRowsRequest,CompletionRowsResult} from "@ep0ch/outline-core/protocol";
 import type {OutlinerRequester} from "./client-target";
@@ -205,7 +205,7 @@ export class ReferenceCompletionSession {
       b.replaceCurrentLine(state.start,state.end,item.insertion);
       });
       if(item.slots?.length)b.startSnippet(item.slots,offset);
-      if(state.pickKey)void this.provider.completionPicked?.(state.pickKey,item.insertion).catch(()=>{});
+      if(state.pickKey)void this.provider.completionPicked?.(state.pickKey,pickId(item.insertion)).catch(()=>{});
       if(item.querySuggestion){this.accepted={suggestion:item.querySuggestion,text:b.text};await this.provider.querySuggest?.({text:item.querySuggestion.input,outcome:item.queryOutcome??'accepted',suggestion:item.querySuggestion,corrections:item.queryCorrections}).catch(error=>{state.message=String(error);});}
       this.dismiss();return true;
     }catch(error){if(this.current(generation)){state.message=error instanceof Error?error.message:String(error);this.changed();}return false;}finally{this.accepting=false;if(!this.state&&item.kind==="property")void this.refresh();}
