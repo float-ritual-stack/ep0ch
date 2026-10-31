@@ -637,6 +637,7 @@ export class ResourceExtensionRuntime {
     const request = JSON.stringify({
       contract: loaded.manifest.contract,
       operation,
+      deadlineAt: Date.now() + deadline,
       input,
       config: loaded.install.config,
       credentials: secrets,
@@ -668,6 +669,7 @@ export class ResourceExtensionRuntime {
       ...passed,
       ...secretEnv,
       ...baseEnv(),
+      NODE_PATH: join(import.meta.dir, "../node_modules"),
       OUTLINER_EXTENSION: loaded.manifest.id,
       EP0CH_EXT_GRANT: grant,
       ...(connection.socket ? { EP0CH_SOCKET: connection.socket } : {}),

@@ -587,9 +587,9 @@ export class SocketBoard implements Board {
    * A note's resource projections (PIE-445): the stored details of each Resource its provider lines and
    * its own provider property name. A read only: the service never registers or fetches for it.
    */
-  readResourceProjections(blockId: string): Promise<ResourceProjectionRead> {
+  readResourceProjections(blockId: string, opened = false): Promise<ResourceProjectionRead> {
     // Opening a note is the one step: the service fetches in the background what isn't fetched or is stale.
-    return this.request<ResourceProjectionRead>("resources.projection.read", { blockId, materialize: true });
+    return this.request<ResourceProjectionRead>("resources.projection.read", { blockId, materialize: true, ...(opened ? { opened: true } : {}) });
   }
 
   /**

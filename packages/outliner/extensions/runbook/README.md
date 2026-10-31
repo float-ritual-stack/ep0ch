@@ -46,6 +46,34 @@ test -n {{secret.token}} && printf 'Token received\n'
 ```
 ````
 
+## Shell handler lines
+
+- **In any note:** type `sh:: ls ~/projects/ep0ch/packages/*/docs/*.md | as files`.
+  - Completion after `::` offers `sh::` and `nu::`, with a worked `ls | sed` demo.
+- **Run:** select the line and press **x**, or click its **run** chip.
+  - `act ext.runbook.run-sh block=<id> line=<zero-based line>` does the same; `run-nu` uses Nushell.
+- **Output:** lands under the command as an owned region, with `sh · as of <time> · run again` above it.
+  - Running again replaces that region; other lines stay where you put them.
+- **Your edits:** the next press asks before replacing them. **Keep as my text** in the line's menu, its button, or **K** detaches the region.
+  - Agents use `ext.runbook.keep-sh` / `keep-nu`, or confirm replacement with the `with=` answer returned by the action.
+- **Format:** append `| as files`, `links`, `tasks`, `list`, `table` or `code`; stages run left to right after the shell pipeline.
+  - These are ordinary `[script::name]` notes under Runbook's page: copy or edit one, and `| as ` completion finds it.
+  - Each gets `props.lines` and `props.cwd[0]`, and returns text. Files become absolute `[file::…]` lines.
+  - Quotes and ordinary shell pipes stay in the command. A missing formatter names the nearest scripts and a close match.
+- **Folder:** nearest `[cwd::…]` or `cwd::` in the note and its ancestors, otherwise the outline's folder.
+  - An `env` fence in the runbook context supplies the same environment as a fence step.
+- **Failures:** exit code and first stderr line appear beside the command, with a run-record link; existing output is kept.
+  - The record holds stderr, exit, cwd and who pressed. Output is capped at 200 lines followed by `+N lines`.
+  - The runbook's five-minute deadline stops a command that never ends.
+- **Nushell:** `nu::` uses `nu -c`; install `nu` on the outline host and put it on PATH.
+  - `sh::` uses `sh -c`. Interactive prompts belong in the terminal runbook fences above.
+- **Live, not copied:** `sh:: cat <path>` still runs and writes a snapshot.
+  - Its hint offers `[file::<path>]`, and `!((ref))` when a note names that file, as the live alternatives.
+- **On open:** append `[run::open]` to the command to run it when the door opens the note. Off by default.
+  - Edited output stays yours; use its run chip to answer the replacement question.
+- **Remove Runbook:** the extensions screen offers whether to keep its demo notes. Written output and run records remain ordinary notes.
+- **Kitchen sink:** open **sh-lines** for files in the showcase's own folder and the run/edit/failure walk.
+
 ## Writing a runbook
 
 - **A runbook** is a `[type::runbook]` note with runnable fences, inline or in child blocks.

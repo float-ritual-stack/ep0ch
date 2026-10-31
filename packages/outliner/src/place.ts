@@ -14,7 +14,7 @@
 import { editDistance } from "@ep0ch/outline-core/tool-args";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { frontMatterLines } from "@ep0ch/outline-core/header-line";
-import { findOutputRegions, outputAnchor, outputRegionText, type OutputRegion } from "@ep0ch/outline-core/output-region";
+import { findOutputRegions, outputAnchor, outputHash, outputRegionText, type OutputRegion } from "@ep0ch/outline-core/output-region";
 import { fragmentAnchors, resolveFragmentSlice, type FragmentAnchor } from "./fragments";
 
 export type PlaceMode = "append" | "prepend" | "replace" | "upsert";
@@ -33,6 +33,8 @@ export interface PlaceRequest {
   here?: number | "end";
   /** `{{` in the output stays literal unless this is true. */
   interpolate?: boolean;
+  /** The caller explicitly agreed to replace this edited body hash. */
+  replaceHash?: string;
   /** More anchors the whole outline has (`ensureFragmentAnchor`'s index): more did-you-mean candidates. */
   otherAnchors?: readonly string[];
 }
@@ -161,7 +163,7 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
   function replaceRegion(r: OutputRegion): PlacePlan {
     const next = outputRegionText({ label, producer: req.producer.id, anchor: r.anchor!, body: req.content, ...(req.interpolate ? { interpolate: true } : {}) });
     const span: DraftPatchSpan = { observed: text.slice(r.start, r.end), range: { start: r.start, end: r.end }, replacement: next };
-    if (r.edited || r.hash === undefined) {
+    if ((r.edited || r.hash === undefined) && req.replaceHash !== outputHash(r.body)) {
       return { ok: false, kind: "proposal", anchor: r.anchor!, spans: [span], mark: markBelow(lines, r.endLine),
         reason: `${label}'s new output is proposed: the region was edited, so it is yours; apply it or dismiss it` };
     }

@@ -1,21 +1,20 @@
 import type { RunbookStep } from "@ep0ch/outline-core/runbook";
 import { outline } from "./outline";
+import { recordText } from "./record";
+import { shellHandler } from "./shell";
 
 interface Block { id: string; text: string; revision: number }
 interface Context { block: Block; line?: { index: number }; ancestors: { id: string }[]; runbook?: { steps: RunbookStep[]; records: Block[] } }
-interface Request { operation: "run" | "act"; input: { action?: string; context: Context; args?: Record<string, string>; target?: { line?: number }; requestedBy?: { author: string; actorId?: string } } }
-const inertFence = (text: string) => { const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map(m => m[0].length + 1))); return `${fence}text\n${text}\n${fence}`; };
+interface Request { deadlineAt: number; operation: "run" | "act"; input: { action?: string; handler?: string; context: Context; args?: Record<string, string>; target?: { line?: number }; requestedBy?: { author: string; actorId?: string } } }
 const say = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, value }));
 const request = await Bun.stdin.json() as Request;
 
-function recordText(step: RunbookStep, args: Record<string, string>, by: string): string {
-  const output = (args.output ?? "").trimEnd().slice(-12000);
-  return `${step.title} [type::run] [machine::runbook] [run.step::^${step.anchor}] [run.status::${args.status}]${args.exit !== undefined ? ` [run.exit::${args.exit}]` : ""} [run.at::${args.at}] [run.by::${by}] [run.owner::${args.owner}] [run.cwd::${(args.cwd ?? "").replace(/[\r\n\]]/g, " ")}] [run.vars::${step.variables.join(",")}]\n` +
-    `Started: ${args.at}\n${args.end ? `Ended: ${args.end}\n` : ""}` +
-    `\nMasking is best-effort. The terminal shows what the program prints.\n\n${inertFence(output || "(no output)")}`;
-}
 
 try {
+  if (["sh", "nu"].includes(request.input.handler ?? "") || /^(run|keep)-(sh|nu)$/.test(request.input.action ?? "")) {
+    say(await shellHandler(request));
+    process.exit(0);
+  }
   const { context, args = {} } = request.input;
   const steps = request.input.action === "record" ? [JSON.parse(args.step!) as RunbookStep] : context.runbook?.steps ?? [];
   const line = request.input.target?.line ?? context.line?.index;

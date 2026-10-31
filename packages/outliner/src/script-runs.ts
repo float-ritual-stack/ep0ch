@@ -1,4 +1,5 @@
 import type { ScriptQueryRecord } from "./line-watches";
+import { closest, editDistance } from "@ep0ch/outline-core/tool-args";
 import { DRAFT_PROPOSAL_TYPE } from "./draft-patch";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
@@ -176,7 +177,7 @@ export class ScriptRuns {
     let untracked = false;
     let hiddenQueryRoot = false;
     const onRead = (ids: readonly string[]) => { for (const id of ids) if (!reads.has(id)) reads.set(id, this.store.get(id)?.revision ?? null); };
-    const props = slotProps(input.argument);
+    const props = { ...input.site?.props, ...slotProps(input.argument) };
     // The script's note supplies self as well as code, so it follows the same visibility cut as an embed.
     if (source.blockId) {
       input.onCandidates?.([source.blockId]);
@@ -241,6 +242,21 @@ export class ScriptRuns {
       // What it read before it failed goes with the error: a change to one of them (a module fixed) draws the line again.
       throw Object.assign(error instanceof Error ? error : new Error(String(error)), { reads: [...reads].map(([id, revision]) => ({ id, revision })), queries });
     } finally { clearTimeout(timer); }
+  }
+
+  /** A formatter is an ordinary script called through the existing read-only renderer. */
+  async format(input: { of: string; blockId: string; line: number; props: Record<string, string[]>; deadlineMs: number }) {
+    await this.registry.reload();
+    const entries = scriptsAt(this.store, this.registry.list().extensions, input).filter(e => e.script);
+    const entry = entries.find(e => e.name === input.of);
+    if (!entry) {
+      const names = entries.map(e => e.name ?? e.id), near = closest(input.of, names);
+      const nearest = [...new Set(names)].sort((a, b) => editDistance(input.of, a) - editDistance(input.of, b) || a.localeCompare(b)).slice(0, 3);
+      throw new Error(`No script called ${input.of}${near ? `; did you mean ${near}?` : ""}. Nearest scripts: ${nearest.join(", ") || "none yet; write a [script::name] note"}`);
+    }
+    const source = this.registry.extension(entry.id)?.script;
+    if (!source) throw new Error(entry.error ?? `${input.of} has no runnable script`);
+    return this.render(source, { blockId: input.blockId, line: input.line, argument: null, site: { props: input.props }, deadlineMs: Math.min(input.deadlineMs, source.deadlineMs ?? MAX_DEADLINE_MS) });
   }
 
   /**

@@ -1,3 +1,4 @@
+import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 // `completion.rows` and `completion.picked` (PIE-1340): the service's completion sources and an extension's, on one
 // row contract, merged by outline-core's one matcher, with picks kept by the host. Scratch service in a temp folder;
 // every note and issue is made up.
@@ -216,4 +217,22 @@ test("a figure's query: written in YAML quotes still completes the grammar; the 
   expect(await labels('"#garden AND un')).toEqual(expect.arrayContaining(['"#garden AND under:"', '"#garden AND unread:"']));
   expect(await labels('"#garden AND under:t')).toContain('"#garden AND under:this"');
   expect(await labels("'#garden AND under:t")).toContain('"#garden AND under:this"');
+});
+
+
+test("shell completion shows its demo and | as finds the outline's own formatter scripts", async () => {
+  const { create, list, rows } = await setup(["runbook"]);
+  await list(true);
+  const handlerTarget = completionTargetAtCursor("::sh", 4)!;
+  const handlers = merged(await rows(handlerTarget.kind, handlerTarget.query), handlerTarget.query);
+  const sh = handlers.find(row => row.label === "sh::")!;
+  expect(sh.example?.use).toContain("| sed 's/^/- [file::/");
+  expect(insertText(sh.insert)).toBe("sh:: ");
+  const line = "sh:: ls | as fi", target = completionTargetAtCursor(line, line.length)!;
+  const files = merged(await rows(target.kind, target.query), target.query).find(row => row.label === "files")!;
+  expect(line.slice(0, target.start) + insertText(files.insert)).toBe("sh:: ls | as files");
+  const own = await create("My formatter [script::plant-labels]\n```js\nreturn props.lines.join(\"\\n\");\n```");
+  await list(true);
+  const custom = merged(await rows("formatter", "plant"), "plant").find(row => row.label === "plant-labels")!;
+  expect(custom.definition).toBe(own.id);
 });

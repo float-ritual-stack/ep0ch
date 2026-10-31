@@ -120,6 +120,8 @@ const Handler = Type.Object(
         name: Type.String({ minLength: 1, maxLength: 40 }),
         pattern: Type.Optional(Type.String({ maxLength: 200 })),
         required: Type.Optional(Type.Boolean()),
+        raw: Type.Optional(Type.Boolean()),
+        example: Type.Optional(Type.String()),
         description: Type.Optional(Type.String({ maxLength: 200 })),
       },
       { additionalProperties: false },

@@ -1,6 +1,7 @@
 import { codeFenceLines, codeBlocks } from "./code-fence";
 import { parsePropertyRecords } from "./property-parse";
 import { PROPERTY_KEY_SOURCE, propertyTokenMatches } from "./property-grammar";
+import { shellLines } from "./shell-line";
 
 export interface RunbookNode { id: string; text: string; children?: RunbookNode[] }
 export interface RunbookField { name: string; variable: string; secret: boolean; choices?: string[] }
@@ -8,6 +9,7 @@ export interface RunbookStep {
   block: string; root: string; anchor: string; line: number; title: string;
   command: string; cwd?: string; env: Record<string, string>; fields: RunbookField[];
   variables: string[]; problems: string[];
+  shell?: "sh" | "nu";
 }
 export interface RunbookPlan { steps: RunbookStep[] }
 export type RunbookStatus = "starting" | "running" | "stopping" | "ok" | "failed" | "stopped" | "failed-to-start" | "lost";
@@ -46,6 +48,13 @@ export function runnableFences(text: string) {
 /** Called by the save path: the address belongs to the authored fence, before any run exists. */
 export function anchorRunbookSteps(text: string, used: Set<string>): string {
   const lines = text.split("\n");
+  for (const line of shellLines(text)) {
+    const base = line.anchor ?? `step-${line.shell}`;
+    let anchor = base, suffix = 2;
+    while (used.has(anchor)) anchor = `${base}-${suffix++}`;
+    used.add(anchor);
+    lines[line.line] = lines[line.line]!.replace(ANCHOR, "") + ` ^${anchor}`;
+  }
   const edits = runnableFences(text).map(f => {
     const base = f.anchor ?? `step-${f.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "command"}`;
     let anchor = base, suffix = 2;
@@ -83,7 +92,6 @@ function commandReferences(text: string, use: (kind: string, name: string) => st
 
 /** The runbook's own text, then children depth first; context follows document order, not ancestry. */
 export function runbookSteps(root: RunbookNode): RunbookStep[] {
-  if (!isRunbook(root.text)) return [];
   const steps: RunbookStep[] = [];
   let cwd = property(root.text, "cwd");
   const env: Record<string, string> = {}, invalid = new Map<string, string>();
@@ -91,15 +99,17 @@ export function runbookSteps(root: RunbookNode): RunbookStep[] {
     if (property(node.text, "type") === "run") return;
     const lines = node.text.split("\n"), fences = codeBlocks(lines).fences;
     const starts = new Map(fences.map(f => [f.start, f]));
-    const runnable = new Map(runnableFences(node.text).map(f => [f.start, f]));
+    const runnable = new Map((isRunbook(root.text) ? runnableFences(node.text) : []).map(f => [f.start, f]));
+    const shell = new Map(shellLines(node.text).map(s => [s.line, s]));
     for (let i = 0; i < lines.length; i++) {
       const f = starts.get(i), line = lines[i]!;
-      if (!f) {
+      const inline = shell.get(i);
+      if (!f && !inline) {
         const folder = /^\s*cwd::\s*(.*)$/.exec(line);
         if (folder) cwd = folder[1]!;
         continue;
       }
-      if (f.fence.info === "env") {
+      if (f?.fence.info === "env") {
         for (const value of lines.slice(f.start + 1, f.end)) {
           if (!value.trim() || /^\s*#/.test(value)) continue;
           const pair = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(value);
@@ -107,7 +117,7 @@ export function runbookSteps(root: RunbookNode): RunbookStep[] {
           env[pair[1]!] = pair[2]!;
         }
       }
-      const step = runnable.get(i);
+      const step = inline ? { anchor: inline.anchor, control: i, title: `${inline.shell}:: ${inline.command}` } : runnable.get(i);
       if (step) {
         const bindings = new Map<string, string>();
         const fields = new Map<string, RunbookField>(), variables = new Set<string>(), problems = [...invalid.values()];
@@ -128,16 +138,16 @@ export function runbookSteps(root: RunbookNode): RunbookStep[] {
           return key;
         };
         const literal = (value: string) => value.replace(REFERENCE, (_, kind: string, name: string) => `{{${use(kind, name)}}}`);
-        const command = commandReferences(lines.slice(f.start + 1, f.end).join("\n"), use);
+        const command = commandReferences(inline ? inline.command : lines.slice(f!.start + 1, f!.end).join("\n"), use);
         const folder = cwd === undefined ? undefined : literal(cwd);
         const values = Object.fromEntries(Object.entries(env).map(([k, v]) => [k, literal(v)]));
-        const flags = step.control < f.start ? lines[step.control]! : "";
+        const flags = f && step.control < f.start ? lines[step.control]! : "";
         const override = /--cwd=(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(flags);
         steps.push({ root: root.id, block: node.id, anchor: step.anchor ?? "", line: step.control, title: step.title,
           command, ...(folder !== undefined || override ? { cwd: override ? literal(override[1] ?? override[2] ?? override[3]!) : folder } : {}),
-          env: { ...values, ...own }, fields: [...fields.values()], variables: [...Object.keys(env), ...variables], problems });
+          env: { ...values, ...own }, fields: [...fields.values()], variables: [...Object.keys(env), ...variables], problems, ...(inline ? { shell: inline.shell } : {}) });
       }
-      i = f.end;
+      if (f) i = f.end;
     }
     for (const child of node.children ?? []) walk(child);
   };

@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Shell lines keep replaceable output beside their command (PIE-1148)
+
+- **Run from the note:** `sh::` and `nu::` work with x, a run chip or act, keep output and run records, and offer six copyable `| as` formatter scripts. Edited output asks before replacement; `[run::open]` opts into running when opened.
+- **Run:** after the host and door are updated, install or update Runbook in the extensions screen; `nu::` also needs Nushell on that machine.
+
 - `bun run check` names added copy patterns and growing large files; the repository mod hands loki one Code health pass each Sunday evening in Toronto (PIE-1378).
 
 - Removing an extension switches its kept rule notes off with attribution; reinstalling switches them back on, with the counts shown in the door and CLI (PIE-1368).

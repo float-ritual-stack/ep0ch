@@ -1060,6 +1060,11 @@ the readers' renderer, so a handler line with no projection reads as written the
 draws a block's (a query, view or place in the outline is taken to hold). The library draws a rule's variations
 with it.
 
+`argument.raw: true` gives a handler the whole argument, including quotes, shell flags and bracket properties;
+`argument.example` supplies the same completion demo to every client. Runbook uses these for `sh::` and `nu::`.
+The process request includes `deadlineAt` (epoch milliseconds); `NODE_PATH` names the host package’s dependencies.
+An installed Bun extension can use `createRequire` from that package to load shared outline-core modules.
+
 ## Actions
 
 An action is one thing an extension can do, declared once, so every client binds the same thing:
@@ -1088,6 +1093,9 @@ actions yet; `r` is its path today.
   --block <id> --quote "<words>" [--near N]`. An action on a block's passage may update the block (through
   `draft.patch`, as below); a Resource's text is stored content, never edited, so on a Resource's passage it writes
   only blocks.
+- `act` may return `confirmation: { message, argument, value }` without writes. The door asks in its compact choice bar,
+  then repeats the same action with that argument only if the person agrees. An agent gets the exact `with=` answer
+  to pass; its request never opens a prompt on the person’s screen.
 - `act` may also return `copy`: text for the person's clipboard (copy with a citation). A client copies it for the
   person; an agent gets it back and the person's clipboard is untouched.
 - `act` may also return `open` (PIE-754): a block id, or a [Resource ref](#opening-a-resource) (`file:/path`,
@@ -1098,7 +1106,7 @@ actions yet; `r` is its path today.
   The door owns private prompts and one terminal tile per press, using the shared PtyBackend. The extension records
   each result as an attributed child block and inserts the existing live-table figure once. Primitive view buttons
   use the same ActionSet path as keys and agents. Private answers remain in the door; records contain variable names
-  and masked plain-text output. There is no walk, host runner, SSH mode or props form.
+  and masked plain-text output. Shell handler lines run on the host, use `scripts.render { of, blockId, line, props, deadlineMs }` for formatter stages, and place their text through `outputs.place`. There is no walk, SSH mode or props form.
 - `effects`: `read` (the default) answers only; `write` may return writes, and lets its process write over its
   connection. `effects` is about the outline, never about the outside world: an action that only writes to an outside
   service (sends a note to Reader, posts a message) and writes nothing in the outline is `read`; one that also writes

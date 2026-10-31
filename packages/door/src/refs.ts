@@ -1,4 +1,5 @@
 import { expandsEmbeds } from "./embed-policy";
+import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import { C, fg, drawEllipsized, ellipsize } from "./style";
 // Links in read mode, as Detail shows them: `((id))` and `[[address]]` become the target's title or the
@@ -414,6 +415,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // question, and a `view: ((id))` or `of: ((id))` in it must still name the id when it's read (src/live.ts,
   // src/links.ts); drawn as a link, the id would be gone.
   const lines = text.split("\n"), typed = noteStructure(lines);
+  for (const line of shellLines(text)) typed[line.line] = line.line;
   const tags = tagsIn(noteText, src);
   // A bare Work ID where the outline uses its prefix (#429): a link to its item, as `[[PIE-795]]` is; one the outline
   // has no item for stays text.

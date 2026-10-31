@@ -1,4 +1,5 @@
 import { runbookPlan } from "./runbook";
+import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { runnableFences, isRunbook } from "@ep0ch/outline-core/runbook";
 import { clockWords } from "@ep0ch/outline-core/age";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
@@ -191,6 +192,7 @@ export interface ExtensionActRequest {
 export const MAX_ACT_DEPTH = 4;
 
 export interface ExtensionActResult {
+  confirmation?: { message: string; argument: string; value: string };
   runbook?: RunbookPlan;
   /** Scripts write as their author and keep run undo on their source (or their run note for files). */
   writtenAs?: string;
@@ -297,7 +299,7 @@ export function blockCallContext(store: OutlinerStore, block: Block, line: numbe
   const kids = context.children.slice(0, MAX_CHILDREN);
   return {
     block: recordWithin(block, MAX_CONTEXT_TEXT, kids.map((child) => child.id)),
-    ...(runnableFences(block.text).length ? { runbook: runbookPlan(store, block) } : {}),
+    ...(runnableFences(block.text).length || shellLines(block.text).length ? { runbook: runbookPlan(store, block) } : {}),
     ...(line !== undefined ? { line: { index: line, text: block.text.split("\n")[line] ?? "" } } : {}),
     children: kids.map((child) => recordWithin(child, MAX_CHILD_TEXT)),
     ancestors: contextAncestors(context.ancestors),
@@ -399,7 +401,7 @@ export function validateRecord(value: unknown, fallbackTitle = "Collection"): Ex
   return { record, members: { records, complete: answer.complete === true } };
 }
 
-function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string; runbook?: RunbookPlan; answer?: string } {
+function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string; runbook?: RunbookPlan; answer?: string; confirmation?: ExtensionActResult["confirmation"] } {
   if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy?, open?, answer? }");
   // What the client opens once the action answers (PIE-754): a block, or a Resource by its ref.
   if (value.open !== undefined) {
@@ -414,8 +416,11 @@ function validateAct(value: unknown, blockOk: (id: string) => boolean): { messag
   // What it answers its caller whole (a script's `act("ext.…")`), when one line of `message` can't hold it.
   if (value.answer !== undefined && (typeof value.answer !== "string" || Buffer.byteLength(value.answer) > MAX_WRITE_TEXT)) throw new Error("answer must be text up to 64 KiB");
   const writes = value.writes ?? [];
+  const confirmation = value.confirmation;
+  if (confirmation !== undefined && (!isObject(confirmation) || ![confirmation.message, confirmation.argument, confirmation.value].every(v => typeof v === "string"))) throw new Error("confirmation needs message, argument and value as text");
   if (!Array.isArray(writes) || writes.length > MAX_WRITES) throw new Error(`writes must be a list of at most ${MAX_WRITES}`);
   return {
+    ...(confirmation ? { confirmation: confirmation as NonNullable<ExtensionActResult["confirmation"]> } : {}),
     ...(typeof value.message === "string" ? { message: cleanExtensionText(value.message) } : {}),
     ...(typeof value.copy === "string" ? { copy: cleanExtensionText(value.copy, true) } : {}),
     ...(typeof value.open === "string" ? { open: value.open } : {}),
@@ -1374,7 +1379,10 @@ export class ExtensionCalls {
       ...(request.scheduled ? { scheduled: request.scheduled } : {}),
       ...(request.trigger ? { trigger: this.triggerInput(request.trigger) } : {}),
     }, durationMs(declared?.deadline) ?? this.deadline(extension), { label: action.name, writes: action.effects === "write", wrote,
-      ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}), ...(request.trigger ? { trigger: request.trigger.rule } : {}) });
+      ...(request.requestedBy ? { requestedBy: request.requestedBy } : {}), ...(request.trigger ? { trigger: request.trigger.rule } : {}) }).catch(async error => {
+        if (wrote.length && block && call?.effects === "read") await this.refreshOutput(block.id, "refresh", { line: call.line });
+        throw error;
+      });
     let parsed: ReturnType<typeof validateAct>;
     try {
       parsed = validateAct(answer.value, (id) => { const b = this.store.get(id); return !!b && !b.effectiveDeletedRootId; });
@@ -1398,11 +1406,12 @@ export class ExtensionCalls {
       change.blockId === block.id || change.parentId === block.id || change.previousParentId === block.id));
     // An action's writes change what a read handler's line reads: run that line again (found again by its
     // call, in case the writes moved it) before answering. A spend or write line waits for r.
-    const again = touched && call?.effects === "read" ? this.calls(block!.id)?.calls.find((candidate) => candidate.callKey === call.callKey) : undefined;
+    const again = (touched || parsed.confirmation) && call?.effects === "read" ? this.calls(block!.id)?.calls.find((candidate) => candidate.callKey === call.callKey) : undefined;
     if (again) await this.refreshOutput(block!.id, "refresh", { line: again.line });
     else if (block && (touched || applied.proposalId)) this.options.changed?.(block.id);
     const said = applied.proposed ?? parsed.message;
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
+      ...(parsed.confirmation ? { confirmation: parsed.confirmation } : {}),
       ...(parsed.answer !== undefined ? { answer: parsed.answer } : {}),
       ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}),
       ...(parsed.open !== undefined ? { open: parsed.open } : {}),
@@ -1685,8 +1694,17 @@ export class ExtensionCalls {
     return done;
   }
 
+  async opened(blockId: string): Promise<void> {
+    if (!this.registry.extension("runbook")) return;
+    const block = this.store.require(blockId);
+    for (const line of shellLines(block.text).filter(line => line.open)) {
+      try { await this.act({ extension: "runbook", action: `run-${line.shell}`, blockId, line: line.line, requestedBy: { author: "agent", actorId: "ext:runbook" } }); }
+      catch { /* The run record and handler row carry the failure. */ }
+    }
+  }
+
   private handlerCalls(block: Block): HandlerCall[] {
-    const calls = handlerCalls(block.text, this.registry).filter(c => c.extensionId !== "runbook");
+    const calls = handlerCalls(block.text, this.registry).filter(c => c.extensionId !== "runbook" || c.handlerKey !== "run");
     const runbook = this.registry.handler("run");
     if (runbook?.extension.id !== "runbook") return calls;
     const context = this.store.blockContext(block.id);

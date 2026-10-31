@@ -91,7 +91,7 @@ export function handlerCalls(text: string, table: HandlerTable): HandlerCall[] {
     const problems: string[] = [];
     for (const { value: word, raw } of words) {
       const option = /^--([a-z][a-z0-9-]{0,31})(?:=(.*))?$/.exec(word);
-      if (!option) {
+      if (!option || handler.argument?.raw) {
         // The argument is the text as written: a quote in it is the person's own (`Bob's`), not an option's.
         positional.push(raw);
         continue;
@@ -109,13 +109,13 @@ export function handlerCalls(text: string, table: HandlerTable): HandlerCall[] {
       const target = spec.scope === "display" ? display : options;
       if (target[name] === undefined && spec.default !== undefined) target[name] = spec.default;
     }
-    const argument = positional.length ? positional.join(" ") : null;
+    const argument = handler.argument?.raw ? line.rawValue : positional.length ? positional.join(" ") : null;
     const name = handler.argument?.name ?? "an argument";
     const argumentProblems: string[] = [];
     if (argument === null && (handler.argument?.required || handler.kind === "data")) argumentProblems.push(`${handler.key}:: needs ${name}`);
     const pattern = handler.kind === "data" ? handler.keyPattern ?? handler.argument?.pattern : handler.argument?.pattern;
     if (argument !== null && pattern && !new RegExp(pattern, "u").test(argument)) argumentProblems.push(`${argument} isn't ${handler.argument?.description ?? `a ${name} ${handler.key}:: knows`}`);
-    if (argument !== null && argument.length > 500) argumentProblems.push(`${name} is longer than 500 characters`);
+    if (!handler.argument?.raw && argument !== null && argument.length > 500) argumentProblems.push(`${name} is longer than 500 characters`);
     problems.push(...argumentProblems);
     const sorted = Object.fromEntries(Object.entries(options).sort(([left], [right]) => left.localeCompare(right)));
     calls.push({

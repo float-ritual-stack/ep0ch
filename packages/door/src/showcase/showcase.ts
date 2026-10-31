@@ -1,3 +1,4 @@
+import { runbookSections } from "./runbook";
 import { tileRegistry } from "../desk/tile-registry";
 import { LibraryPane } from "../library/library";
 import { errorDetails } from "../status-log";
@@ -117,7 +118,7 @@ interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNod
  * A stage as a screen spec (PIE-515) on the desk, its tiles given (the showcase makes its own exhibits): each named by
  * its kind (reader, reader2), laid out as the stage says.
  */
-function stageDesk(st: Stage): Desk {
+export function stageDesk(st: Stage): Desk {
   const names = new Map<number, string>();
   st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p instanceof ReaderPane && p.kind === "reader" && details.has(p) ? "detail" : p.kind)));
   const ids = st.panes.map((_, i) => i);
@@ -141,7 +142,7 @@ function fill(d: Desk, m: Msg, reveal = false) {
   }
 }
 /** A stage whose readers show `notes` (one each, in order) once it opens. */
-function deskOf(st: Stage, show: Shower, readers: [ReaderPane, Msg | undefined][], then?: (d: Desk) => void): Desk {
+export function deskOf(st: Stage, show: Shower, readers: [ReaderPane, Msg | undefined][], then?: (d: Desk) => void): Desk {
   const d = stageDesk(st);
   show(() => {
     for (const [r, m] of readers) if (m) r.show(m, d);
@@ -1091,24 +1092,7 @@ export const SECTIONS: Section[] = [
         layout: ([a, b]) => row(0.5, a!, b!) }, show, [[header, n.lineAsksHeader], [all, n.lineAsksAll]]);
     },
   },
-  {
-    key: "runbook", need: "run a note's steps in a terminal and answer a masked prompt",
-    part: "runbook extension plans and records; compact asks through askInBar and ListPicker; PtyPane through PtyBackend in the desk",
-    files: "src/runbook.ts, src/bar/ask.ts, src/desk/pty.ts, outliner/extensions/runbook",
-    aside: "run each fence by mouse or keyboard; context flows down the note, prompts stay private, and the Runs table keeps each result",
-    stage(_n, show) {
-      const reader = new ReaderPane();
-      const d = stageDesk({ title: "showcase · runbook", panes: [reader], layout: ([a]) => leaf(a!) });
-      show(ctx => void (async () => {
-        const listed = extensionList() ?? await ctx.board.listExtensions();
-        const page = listed.pages?.runbook;
-        const book = page && (await ctx.board.children(page)).find(b => b.text.startsWith("Try a terminal runbook"));
-        if (book) reader.show(book, d);
-        ctx.redraw();
-      })());
-      return d;
-    },
-  },
+  ...runbookSections({ stageDesk, deskOf }),
   {
     key: "sysop", need: "see machine health now and day by day, then restart the process an open trip names",
     part: "the sysop extension's host-wide schedule and attributed actions; NoteSurface draws graph-stat, graph-uptime and shout's warning band",
