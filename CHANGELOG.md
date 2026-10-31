@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A failed handler line says why in one short line (PIE-1471)
+
+- **The kept drawing's notice is plain words:** `workbench: no `query` on this note; showing the drawing from 11:25 PM` instead of the raw error with `{{this.query}}` and a UTC stamp. The time is the machine's local clock (`Oct 30, 11:25 PM` on an earlier day); the door, Detail and the web page read the same line from the one helper (`keptNotice`).
+- **A placeholder that didn't resolve names the key:** the error says `no `query` on this note`, never the braces.
+- **Run:** `ep0ch update` is not needed; the outline host restarts on the next `ep0ch install --apply`.
+
 ### Query completion knows the whole grammar (PIE-1472)
 
 - **Typing a query offers what the grammar can say:** the atoms (`under:`, `parent:`, `links:`, `linkedfrom:`, `child:`, `#tag`, `title~`, `text~`, `by:`, `call:`), `this` after a relation (`under:this`), `NOT`/`AND`/`OR`, `{{this.page}}` and `{{this.<key>}}` after `=`, and `-7d`, `today`, `+3d` after `updated >=` or any comparison, beside the keys and values the notes have. Each row says in a few words what it means, from the grammar's own tables in outline-core (`QUERY_ATOM_HELP`, `QUERY_CONNECTIVE_HELP`, `QUERY_DATE_HELP`).

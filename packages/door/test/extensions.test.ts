@@ -534,14 +534,14 @@ process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? {
     s.show((await board.get(bed.id))!, host);
     const tile = () => s.render(44, 9, host).lines.map(plain);
     await until(() => tile().join("\n").includes("matches  1"), "the workbench drawing", 20_000);
-    expect(tile().join("\n")).not.toContain("the last run failed");
+    expect(tile().join("\n")).not.toContain("showing the drawing from");
     await board.update(bed.id, "Beds\nworkbench::", (await board.get(bed.id))!.revision!);
     s.show((await board.get(bed.id))!, host);
-    await until(() => tile().join("\n").includes("the last run failed"), "the failure said", 20_000);
+    await until(() => tile().join("\n").includes("workbench: no `query` on this note"), "the failure said", 20_000);
     const rows = tile();
     expect(rows.length).toBe(9);
     // The notice leads the figure (row 1 is the note's own title), and the kept drawing comes after it.
-    const at = rows.findIndex(r => r.includes("the last run failed"));
+    const at = rows.findIndex(r => r.includes("workbench: no `query` on this note"));
     expect(at).toBeGreaterThanOrEqual(0);
     expect(at - rows.findIndex(r => r.includes("workbench::"))).toBeLessThanOrEqual(2);
     const kept = rows.findIndex(r => r.includes("matches  1"));
