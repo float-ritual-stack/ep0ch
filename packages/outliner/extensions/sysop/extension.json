@@ -1,0 +1,35 @@
+{
+  "contract": 2,
+  "id": "sysop",
+  "version": 1,
+  "name": "Sysop",
+  "description": "The boring infrastructure monk: every machine's memory, load, disk and failed units on one page, a glyph a day, and a page in the door before the kernel kills anything.",
+  "demo": "demo",
+  "run": ["bun", "sysop.ts"],
+  "deadline": "50s",
+  "env": ["EP0CH_SSH", "SSH_AUTH_SOCK"],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "machines": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The machines the first tick writes on the page's [machines::…] line (default: this host alone); edit the page after" },
+      "self": { "type": "string", "minLength": 1, "description": "This host's own name in that list, sampled without ssh (default: the host's machine-name, else its hostname)" },
+      "outline": { "type": "string", "minLength": 1, "description": "Another outline on this host to keep the page in (default the one it runs for)" },
+      "page": { "type": "string", "minLength": 1, "description": "The page address (default sysop)" }
+    },
+    "additionalProperties": false
+  },
+  "actions": [
+    {
+      "id": "look", "label": "Look at every machine", "on": "outline", "effects": "write",
+      "description": "Samples every machine on the sysop page's [machines::…] line, writes the numbers on the page and the day's health note, and opens a trip note when a threshold is crossed",
+      "schedule": { "every": "1m", "once": "host" }
+    },
+    {
+      "id": "calm", "label": "Calm a machine", "on": "outline", "effects": "write",
+      "description": "Runs the one command the open trip recorded for the machine (a user unit or container restart, never a kill), then looks again and writes what happened on the trip note",
+      "args": [
+        { "name": "machine", "type": "text", "required": true, "label": "Machine", "description": "the machine with an open trip, as the page names it" }
+      ]
+    }
+  ]
+}
