@@ -143,7 +143,7 @@ export class PowerBar {
   /** The bar's line: plain words for every source, so no outline-text completion; a masked answer is never copied. */
   private line(text: string): LineField {
     const l = new LineField(text, false, { complete: this.scope === "ask" ? questionCompletion() ?? { grammar: "act" } : { grammar: !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act" }, id: "power-bar" });
-    l.completed = item => { if (item.querySuggestion) { this.acceptedWhere = item.querySuggestion.where; this.refresh(); } };
+    l.completed = item => { if (item.querySuggestion) this.acceptedWhere = item.querySuggestion.where; this.refresh(); };
     l.copy = t => { if (!(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(t); };
     return l;
   }

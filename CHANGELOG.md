@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Completion shows the example and saves the chosen query (PIE-1479)
+
+- **Preview before inserting:** component completion shows its rendered example before the source, properties and longer docs. The kitchen sink's library picker previews Tabs, copies its drawn text and inserts a variation through the same actions.
+- **Keep the completed answer:** Tab on a settings-card query refreshes the answer row immediately, so Enter saves the completed clause even before the next repaint.
+- **Run:** try the kitchen sink's settings, facets and library sections. No protocol, grammar or schema change.
+
 ### Completion reads and inserts the same in the door and Detail (PIE-1478, PIE-1344)
 
 - **Read before inserting:** each completion row shows its kind and a separate dim detail, with wrapped docs beside the list when there is room or below it. Ten choices, a scroll thumb and `n/total` keep your place; Shift+↑/↓, PgUp/PgDn and the wheel scroll docs.

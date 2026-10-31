@@ -273,8 +273,8 @@ const itemOf = (row: SourceRow, src: ListSource, schemas: readonly ComponentSche
     ...(example ? {
       source: example.use,
       preview: (w: number, h: number) => [
-        ...(row.component ? `[copy] ${example.use}`.split("\n").flatMap(line => rowLines(line, w)) : []),
         ...drawVariation({ values: {}, ...example }, w, src),
+        ...(row.component ? `[copy] ${example.use}`.split("\n").flatMap(line => rowLines(line, w)) : []),
         ...(schema ? drawComponentProps(schema, w) : []),
       ].slice(0, h),
     } : {}),

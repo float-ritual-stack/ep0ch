@@ -824,8 +824,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
       expect(lines[row + 1]).toContain(p.items[p.index]!.detail!);
       expect(lines[row]!.indexOf(label)).toBeLessThan(6);
       expect(lines[row]!.slice(0, p.listWidth).trimEnd()).toEndWith("›");
-      expect(p.previewLines!.map(visible).join("\n")).toContain(label === "Fields" ? "Seed list" : label === "Button" ? "Fold the bottom" : "Properties");
-      expect(p.previewLines!.map(visible)[0]).toContain(label);
+      expect(lines.slice(p.previewRect!.row).map(line => line.slice(p.previewRect!.col)).join("\n")).toContain(label === "Fields" ? "Seed list" : label === "Button" ? "Fold the bottom" : "the tile it goes beside");
     }
   });
 

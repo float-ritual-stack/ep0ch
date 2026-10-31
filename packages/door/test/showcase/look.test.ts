@@ -164,7 +164,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     // An agent includes #frost-jobs and excludes #compost: the notes it leaves are listed, the query is shown as text.
     await app.act({ action: "facets.set", args: { key: "tag", value: "frost-jobs" }, tile: "tags", as: "test-agent" });
     await app.act({ action: "facets.set", args: { key: "tag", value: "compost", mode: "exclude" }, tile: "tags", as: "test-agent" });
-    await until(() => screen().includes("? #frost-jobs NOT #compost") && screen().includes("+ #frost-jobs") && screen().includes("− #compost"), "the picks and their query", 5000);
+    await until(() => screen().includes("where: #frost-jobs NOT #compost") && screen().includes("+ #frost-jobs") && screen().includes("− #compost"), "the picks and their query", 5000);
     expect(screen()).not.toMatch(/#bikes +\d/);
     // The person goes in: ⏎ on the first row steps it, x clears the selection.
     press({ kind: "enter" });

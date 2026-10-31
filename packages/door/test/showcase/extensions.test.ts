@@ -15,6 +15,7 @@ import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { USER, SocketBoard } from "../../src/socket";
 import { extensionNamed } from "../../src/extensions";
+import { lineCompleter } from "../../src/surface/completer";
 import { outliner, Scratch, until } from "../scratch";
 
 /** `until` for an answer that takes a request. */
@@ -633,13 +634,21 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     press({ kind: "enter" });
     await until(() => asked()[0] === "Rules · rule-match · rule-match = type=bay-job", "the question, its value now first", 5000)
       .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
-    // Typing builds the query: the last clause offered from this outline's own properties and values.
-    for (const c of "type=bay-job AND status=t") ch(c);
-    await until(() => asked().includes("Rules · rule-match · rule-match = type=bay-job AND status=todo"), "the clause from the outline's own values", 5000)
-      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    // Enter must submit the completed query even when it follows Tab before the next repaint.
+    const completeQuery = async () => {
+      const clause = "type=bay-job AND status=todo";
+      for (const c of "type=bay-job AND status=t") ch(c);
+      const popup = () => lineCompleter(app.bar!.input)?.shown;
+      await until(() => !!popup()?.items.some(i => i.insertion === clause), "the clause from the outline's own values", 5000);
+      expect(app.bar!.draw(200, 60).lines.map(plain).join("\n")).toContain(clause);
+      const n = popup()!.items.findIndex(i => i.insertion === clause);
+      for (let i = popup()!.index; i < n; i++) press({ kind: "down" });
+      press({ kind: "tab" });
+      await until(() => app.bar!.query === clause, "the completed query in the answer line", 5000);
+    };
+    await completeQuery();
     // Changed elsewhere while the person chose: their answer is refused, never written over the change.
     await app.act({ action: "settings.set", tile: "reader", args: { key: "rule-label", value: "{{this.title}}" }, as: "test-agent" });
-    while (!(app.bar!.items[app.bar!.selected]?.row.label === "type=bay-job AND status=todo")) press({ kind: "down" });
     press({ kind: "enter" });
     await Bun.sleep(500);
     expect(await text()).toContain("[rule-match::type=bay-job]");
@@ -649,9 +658,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => !app.bar || app.bar.ended(), "the bar put away", 3000);
     press({ kind: "enter" });
     await until(() => asked()[0] === "Rules · rule-match · rule-match = type=bay-job", "asked again", 5000);
-    for (const c of "type=bay-job AND status=t") ch(c);
-    await until(() => asked().includes("Rules · rule-match · rule-match = type=bay-job AND status=todo"), "the clause again", 5000);
-    while (!(app.bar!.items[app.bar!.selected]?.row.label === "type=bay-job AND status=todo")) press({ kind: "down" });
+    await completeQuery();
     press({ kind: "enter" });
     for (let i = 0; i < 80 && !(await text()).includes("[rule-match::type=bay-job AND status=todo]"); i++) await Bun.sleep(50);
     expect(await text()).toContain("[rule-match::type=bay-job AND status=todo]");
