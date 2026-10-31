@@ -219,6 +219,7 @@ describe("showcase: a collection record (PIE-1281)", () => {
     await act("list.enter", { on: true });
     await act("edit");
     const surface = stage().pane("garden").surface;
+    expect((await agent("list.blocks")).lists[0].entered).toBe(false);
     const before = surface.draft.text;
     h.press({ kind: "tab" });
     expect(surface.draft.text).not.toBe(before);

@@ -4398,7 +4398,7 @@ export class NoteSurface {
   listHost(host?: SurfaceHost): ListHost {
     const here = () => { if (!host) throw new ActionRefused("this list action needs the reader's host"); return host; };
     return {
-      lists: () => this.listsDrawn,
+      lists: () => this.listsDrawn.map(list => ({ ...list, entered: this.listIn === list.key })),
       current: () => this.listIn ?? this.inView()?.link?.listRow?.key ?? null,
       none: "this note draws no list (a ::links component, or an extension's list view)",
       picked: (l, row) => { this.selectListRow(l, row.id); this.previewRow(here()); },
