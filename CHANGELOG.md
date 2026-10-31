@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Hover opens a post-it that stays above every screen (PIE-1481)
+
+- **Hover and keep:** click ◇ in the status bar, or press `alt+u`, to cycle hover off, on and sticky. Links and cut-off titles open after a short delay in the opposite corner; moving into the post-it keeps it open. Its ←/→ controls and title wheel flip the bounded history. Alt-hover makes one sticky even with hover off; Esc or × dismisses it.
+- **Above every screen:** `tile.float to=glass` (`^W U`) keeps any tile above screen changes, with ordinary float movement, resizing and closing. `glass.pin ref=…` leaves an attributed post-it without taking keys. The glyph counts the glass; alt-click it or press `alt+U` to clear it.
+- **Wire and tune:** `tile.link verb=hover to=…` routes a hover into an existing tile. Tune → Glass adjusts the open, close and grace delays, history cap and pinned soft limit.
+- **Run:** open the kitchen sink's **glass** section (`ep0ch try --showcase`). Door only; no protocol, grammar or schema change.
+
 ### Completion shows the example and saves the chosen query (PIE-1479)
 
 - **Preview before inserting:** component completion shows its rendered example before the source, properties and longer docs. The kitchen sink's library picker previews Tabs, copies its drawn text and inserts a variation through the same actions.

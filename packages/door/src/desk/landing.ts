@@ -8,7 +8,7 @@ import { flowHolding, named, policyAt, type LayoutState, type TileFacts } from "
  * reader), else the open rule: the next column of its flow (`next`), beside it (`beside`), or none (a reader is its own
  * home: the note replaces its own; anything else lands in the first reader that isn't pinned).
  */
-export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt", facts?: TileFacts, tile?: (id: I) => TileFacts, preferred?: ListOpenWhere): { to: I; full?: true } | { float: true } | { into: string } | { next: true } | { beside: I } | { tab: I } | { across: string; rule: AltRule } | null {
+export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt" | "hover", facts?: TileFacts, tile?: (id: I) => TileFacts, preferred?: ListOpenWhere): { to: I; full?: true } | { float: true } | { into: string } | { next: true } | { beside: I } | { tab: I } | { across: string; rule: AltRule } | null {
   const wire = s.wires.find(w => w.from === id && w.verb === verb && s.names.has(w.to));
   if (verb === "alt") {
     const open = landing(s, id, "open", facts, tile);
@@ -27,6 +27,7 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" |
     return { beside: target };
   }
   if (wire) return { to: wire.to };
+  if (verb === "hover") return null;
   const e = policyAt(s, id, facts);
   const into = e.opensInto ? named(s, e.opensInto) : undefined;
   if (into !== undefined && into !== id) return { to: into };
