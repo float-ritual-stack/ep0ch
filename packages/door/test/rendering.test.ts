@@ -18,12 +18,47 @@ import { SocketBoard } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { outliner, Scratch } from "./scratch";
+import { pageReadingText, READING_CELL } from "../src/showcase/seed/figures";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const BOLD = "\x1b[1m", ITALIC = "\x1b[3m", STRIKE = "\x1b[9m";
 const ENV: DocEnv = { width: 60, cellW: 9, cellH: 16, graphics: false, maxImageRows: 4, unfold: false };
 const note = (text: string, props: Record<string, string> = {}): Msg => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, properties: Object.entries(props).map(([key, value]) => ({ key, value })) });
+
+test.each([67, 117])("one garden report's cells wrap without title indentation at %i columns", columns => {
+  const doc = renderDoc(pageReadingText("garden-readings"), { ...ENV, width: columns });
+  const lines = doc.lines.map(plain);
+  const first = lines.findIndex(l => l.includes("PLOT-42"));
+  expect(first).toBeGreaterThan(-1);
+  const continuation = lines[first + 1]!.split("┊")[2]!;
+  expect(continuation).toMatch(/^ \S/);
+  expect(lines[first]).toContain(READING_CELL.slice(0, 15));
+});
+
+test.each([87, 117])("one garden report fits its four stat tiles at %i columns", columns => {
+  const lines = renderDoc(pageReadingText("garden-readings"), { ...ENV, width: columns }).lines.map(plain);
+  expect(lines.find(l => /31\s+17\s+23/.test(l))).toContain("2.8 s");
+});
+
+test("one garden report shares a narrow stat row instead of stranding the fourth value", () => {
+  const lines = renderDoc(pageReadingText("garden-readings"), { ...ENV, width: 67 }).lines.map(plain);
+  expect(lines.find(l => /23\s+2\.8 s/.test(l))).toBeDefined();
+});
+
+test("one garden report keeps the ends of long bar labels at 67 columns", () => {
+  const lines = renderDoc(pageReadingText("garden-readings"), { ...ENV, width: 67 }).lines.map(plain).join("\n");
+  expect(lines).toMatch(/\blit\b/);
+});
+
+test("figure date-time cells use human clocks, dating a column that crosses days", () => {
+  const draw = (other: string) => renderDoc(`::graph-table\n---\nheaders: [Build, merged-at]\nrows: [[Latch, "2026-03-04T03:47:00Z"], [Hinge, "${other}"]]\n---\n::`, { ...ENV, width: 117 }).lines.map(plain).join("\n");
+  const same = draw("2026-03-04T04:47:00Z"), across = draw("2026-03-05T04:47:00Z");
+  expect(same).not.toContain("2026-03-04T");
+  expect(same).toMatch(/\d:\d\d [AP]M/);
+  expect(same).not.toContain("Mar ");
+  expect(across).toContain("Mar ");
+});
 
 test("wrapped shell substitutions draw and copy without added backticks", () => {
   const command = "sh:: echo $(date) `whoami --version`";

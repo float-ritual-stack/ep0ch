@@ -17,23 +17,25 @@ import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
 import { decisionState, type DecisionState } from "@ep0ch/outline-core/figure-props";
 export { decisionState, type DecisionState };
-import { ACCENT, DIM, HI, INK, inlineRows, rowLinks, tier, type Props, type RowInline, type RowLink } from "./palette";
+import { ACCENT, DIM, HI, INK, inlineRows, rowLinks, tier, type Props, type RowInline, type RowLink, type RowExpansion } from "./palette";
 
 const GLYPH: Record<DecisionState, string> = { chosen: "●", rejected: "×", open: "○" };
 
-export function drawDecision(p: Props, w: number, link?: RowLink, ui?: { rows?: RowInline }): string[] {
+export function drawDecision(p: Props, w: number, link?: RowLink, ui?: { rows?: RowInline; expansion?: RowExpansion }): string[] {
   const options: Props[] = p.options ?? [];
+  const expansion = ui?.expansion; if (expansion) w -= 2;
   // Narrow (PIE-581): the reason goes under its option, so neither wraps word by word in a thin column.
   const narrow = tier(w) === "narrow";
   const lw = narrow ? w - 2 : Math.min(Math.max(0, ...options.map(o => vwidth(String(o.label ?? "")))), Math.max(8, Math.floor((w - 4) * 0.45)));
   const out: string[] = [];
-  for (const o of options) {
+  for (const [index, o] of options.entries()) {
+    const first = out.length, limit = expansion?.open(index + 1, o.block) ? Infinity : undefined;
     const state = decisionState(o.state), label = String(o.label ?? "");
     const glyph = (state === "chosen" ? fg(ACCENT) : state === "rejected" ? fg(DIM) : fg(INK)) + GLYPH[state];
     const strong = state === "chosen" ? BOLD : "";
     // Its words, reason and prose through the reader's inline drawing (PIE-864), as a check row's are.
-    const labels = rowLinks(link, o.block, inlineRows(label, lw, state === "chosen" ? HI : state === "rejected" ? DIM : INK, ui?.rows, typeof o.block === "string"));
-    const reason = o.reason ? inlineRows(String(o.reason), narrow ? Math.max(6, w - 6) : Math.max(6, w - lw - 6), DIM, ui?.rows) : [];
+    const labels = rowLinks(link, o.block, inlineRows(label, lw, state === "chosen" ? HI : state === "rejected" ? DIM : INK, ui?.rows, typeof o.block === "string", limit));
+    const reason = o.reason ? inlineRows(String(o.reason), narrow ? Math.max(6, w - 6) : Math.max(6, w - lw - 6), DIM, ui?.rows, false, limit) : [];
     const n = narrow ? labels.length : Math.max(labels.length, reason.length);
     for (let i = 0; i < n; i++) {
       const l = labels[i] ?? "", head = i ? "  " : glyph + RESET + " ";
@@ -41,6 +43,7 @@ export function drawDecision(p: Props, w: number, link?: RowLink, ui?: { rows?: 
       out.push(head + text + (!narrow && reason[i] ? `  ${fg(DIM)}${i ? "  " : "— "}${reason[i]}${RESET}` : ""));
     }
     if (narrow) for (const [i, r] of reason.entries()) out.push(`    ${fg(DIM)}${i ? "  " : "— "}${r}${RESET}`);
+    if (expansion) out.push(...expansion.draw(index + 1, out.splice(first)));
   }
   const prose: string[] = Array.isArray(p.text) ? p.text.map(String) : p.text ? [String(p.text)] : [];
   if (prose.length) { out.push(""); for (const para of prose) out.push(...inlineRows(para, w, INK, ui?.rows), ...(para === prose.at(-1) ? [] : [""])); }

@@ -39,6 +39,21 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
 
   const sizingSurfaces: NoteSurface[] = [];
   afterEach(() => { for (const surface of sizingSurfaces.splice(0)) surface.dispose(); });
+  test("one garden report expands cut table cells and decision rows through selection and act", async () => {
+    const surface = new NoteSurface(); sizingSurfaces.push(surface);
+    const host: SurfaceHost = { ctx: app, redraw() {}, navigate() {} };
+    surface.show(seeded.notes.pageReading, host);
+    const draw = () => surface.render(67, 100, host).lines.map(plain).join("\n");
+    expect(draw()).not.toContain("lantern goes out.");
+    const elements = (await surface.act("elements", {}, host, USER) as any).elements;
+    const row = elements.find((e: any) => e.label === "row 1 · Window facts");
+    expect(row).toBeDefined();
+    await surface.act("element.select", { n: row.n }, host, USER);
+    expect(draw()).toContain("lantern goes out.");
+    await surface.act("figure.row", { figure: "Window decision", row: 1, open: true }, host, { kind: "agent", id: "garden-reader" });
+    expect(draw()).toContain("beside the lantern.");
+    expect(((await surface.act("elements", {}, host, USER) as any).elements).find((e: any) => e.current)?.label).toBe("row 1 · Window facts");
+  });
   const timeline = "::graph-timeline\n---\ntitle: Resize log\nquery: type=showcase-landing\ndate: landed\nheight: 4\n---\n::";
   const sizingReader = async (body: string) => {
     const note = await board.createBlock(null, `Sizing review\n\n${body}`);
@@ -699,7 +714,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     // The reader's lines (the stage, right of the section list): every cell's link reads as its label, as the prose
     // line does; no markup is left.
     const drawn = sc.render(app).lines.map(plain).map(l => l.slice(S().stageRect.col)).filter(l => l.includes("┊") || l.includes("In prose")).join("\n");
-    expect(drawn).toContain("┊ the greenhouse shade cloth");
+    expect(drawn).toContain("the greenhouse shade cloth");
     expect(drawn).not.toMatch(/\[\[|\(\(/);
     expect(drawn).toContain("the greenhouse shade cloth");
     expect(drawn).toContain("door test plan the latch");
@@ -775,7 +790,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     const queued = els.elements.find((e: any) => e.kind === "figure" && e.label.startsWith("queued"));
     expect(await app.act({ action: "element.open", tile: "2", args: { n: queued.n }, as: "test-agent" })).toMatchObject({ tab: "queued" });
     expect(await app.act({ action: "figure.tab", tile: "2", args: { tab: "doing" }, as: "test-agent" })).toMatchObject({ tab: "doing" });
-    // Density aliases choose one, two or three lines, with a hanging indent past the work id.
+    // Density aliases choose one, two or three lines; continuations use the whole cell.
     await app.act({ action: "figure.density", tile: "1", args: { to: "compact" }, as: "test-agent" });
     await until(() => half().includes("PLOT-3 — Mend"), "the review tab");
     expect(half()).toMatch(/PLOT-3 — Mend the netting[^\n]*…/);
@@ -783,8 +798,8 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     await until(() => half().includes("≡ cozy"), "cozy");
     const hang = () => { const rows = half().split("\n"), i = rows.findIndex(r => r.includes("PLOT-3 — Mend")); return { first: rows[i]!, next: rows[i + 1]!, third: rows[i + 2]! }; };
     let h = hang();
-    const textAt = h.first.indexOf("Mend");
-    expect(h.next.slice(0, textAt).replace(/[│║┊ ]/g, "")).toBe("");          // the second line starts under "Mend", past the id
+    const textAt = h.first.indexOf("PLOT-3");
+    expect(h.next.slice(0, textAt).replace(/[│║┊ ]/g, "")).toBe("");          // the second line starts at the cell edge
     expect(h.next.slice(textAt, textAt + 1)).toMatch(/\S/);
     expect(h.next).toContain("…");
     expect(await app.act({ action: "figure.density", tile: "1", as: "test-agent" })).toMatchObject({ density: "comfortable" });

@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Published clocks read in your time zone (PIE-1384)
+
+- **Every displayed instant:** page footers, folders, comments, replies, Sources and figure cells share time elements and the reader script’s formatting pass, with a UTC-labelled fallback.
+- **Run:** the deployer updates the publisher with `ep0ch install --apply`.
+
+### One note reads the same on the web and in the door (PIE-1423)
+
+- **Figures fit:** summary callouts render bold and links, table continuations start at the cell edge, stats pack by their own widths and long bar labels wrap completely.
+- **Read every line:** select a table or decision row, click its ▸ or use `figure.row` to expand it. Try **One garden report, every width** in the kitchen sink’s figures section; its saved-view table keeps `limit: 5`.
+- **Run:** the deployer coordinates the pending grammar update, then `ep0ch install --apply` on each machine.
+
 ### Live figures read in date order and keep the size you give them (PIE-1244, PIE-1246)
 
 - **Timelines:** sort by their date property, show local human times and place each row's parent title or another property beside it.

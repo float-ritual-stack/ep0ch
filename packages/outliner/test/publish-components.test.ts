@@ -11,6 +11,7 @@ import { scratchOutline } from "./scratch-outline";
 import { loadDetailReadPreview } from "../src/detail-read-preview";
 import { renderDetailReadPreview } from "../src/detail-pi-preview";
 import { stripTerminalSequences, type MarkdownTheme } from "@earendil-works/pi-tui";
+import { pageReadingText } from "../../door/src/showcase/seed/page-reading";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -57,6 +58,28 @@ function seed(store: OutlinerStore) {
   const byBed = store.create("By bed [type::virtual-branch] [query::type=chore] [group::bed]");
   return { hub, sowing, harvest, byBed };
 }
+
+test("one garden report renders the summary's bold and link", async () => {
+  const { store, page } = await setup();
+  const note = store.create(pageReadingText("garden-readings"));
+  const html = await page(`/p/${note.id}`);
+  expect(html.match(/class="callout-title">([\s\S]*?)<\/span>/)?.[1]).toContain('<strong>Window readings</strong>');
+  expect(html).toContain('<a href="https://example.org/garden-plan">the garden plan</a>');
+  expect(html).not.toContain('**Window readings**');
+});
+
+test("one garden report's view table shows only the five requested readings", async () => {
+  const { store, page } = await setup();
+  const view = store.create('Readings [page::garden-readings] [type::virtual-branch] [query::type=window-reading] [sort::title]');
+  for (let i = 1; i <= 8; i++) store.create(`Window sample ${i} [type::window-reading] [merged-at::2026-03-04T03:47:00Z]`);
+  for (const ref of [`((${view.id}))`, "garden-readings"]) {
+    const note = store.create(pageReadingText(ref).replace("[page::garden-reading]", ""));
+    const html = await page(`/p/${note.id}`);
+    const table = html.match(/<figure class="fig fig-table"><figcaption>Five recent readings<\/figcaption>([\s\S]*?)<\/figure>/)![1]!;
+    expect(table.match(/<tbody>([\s\S]*?)<\/tbody>/)![1]!.match(/<tr>/g)).toHaveLength(5);
+    expect(table).toContain("Window sample");
+  }
+});
 
 test("a box renders its note's values, bold and day links inside its frame", async () => {
   const { store, page, client } = await setup();

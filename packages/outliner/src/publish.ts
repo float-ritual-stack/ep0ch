@@ -1,4 +1,4 @@
-import { ageSince } from "@ep0ch/outline-core/age";
+import { dateTimeHtml, timeHtml } from "./publish-time";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { type ArtifactDeployState, type ArtifactInfo, type ArtifactReader } from "@ep0ch/outline-core/artifacts";
 import { pageSources, SOURCE_ROUTE, sourceAt, sourceFile, SOURCES_STYLE, visibleSources } from "./publish-sources";
@@ -583,13 +583,13 @@ interface SearchTag { base: string; near?: string; form?: boolean }
 /**
  * A page. `browse`: a tailnet page, with breadcrumbs (`nav` is them) and the folder list's style; `reader` also runs
  * the marginalia reader on it; `search` puts the search box above the breadcrumbs, with its script. Any other page is
- * as it always was: a bar, the body, no script.
+ * a bar and the body; the same reader script formats its time elements without opening marginalia.
  */
 function htmlPage(title: string, body: string, nav: string, options: { reader?: ReaderTag; browse?: boolean; search?: SearchTag; sourcesScript?: string; skin?: { css?: string; warning?: string } } = {}): string {
   const { reader, search } = options;
   const browse = options.browse || !!reader || !!search;
   // The reader first: it sets the polyfill's options, and registers its helpers once both have run.
-  const script = (body.includes('class="sources-panel"') ? `<script src="${escapeHtml(options.sourcesScript ?? (reader?.api ?? `${search?.base ?? ""}${PAGE_ROUTE}`) + "/sources.js")}" defer></script>` : "") + (reader ? `<script src="${escapeHtml(reader.src)}" defer></script>${reader.webmcp ? `<script src="${escapeHtml(reader.webmcp)}" defer></script>` : ""}` : "") +
+  const script = (body.includes('class="sources-panel"') ? `<script src="${escapeHtml(options.sourcesScript ?? (reader?.api ?? `${search?.base ?? ""}${PAGE_ROUTE}`) + "/sources.js")}" defer></script>` : "") + (reader ? `<script src="${escapeHtml(reader.src)}" defer></script>${reader.webmcp ? `<script src="${escapeHtml(reader.webmcp)}" defer></script>` : ""}` : body.includes("<time ") ? `<script src="${escapeHtml(readerScriptPath(search?.base ?? options.sourcesScript?.replace(`${PAGE_ROUTE}/sources.js`, "") ?? ""))}" defer></script>` : "") +
     (search ? `<script src="${escapeHtml(searchScriptPath(search.base))}" defer></script>` : "");
   const box = search && search.form !== false ? searchForm(search.base, search.near ? { near: search.near } : {}) : "";
   const main = reader
@@ -603,18 +603,17 @@ ${options.skin?.warning ? `<p class="dim" role="status">${escapeHtml(options.ski
 </main></body></html>
 `;
 }
-
 const COMMON_HEADERS = {
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
 };
-/** Pages the publisher renders itself run no script and embed nothing but images, and a note's artifacts (PIE-793) from here. */
-const RENDERED_CSP = `default-src 'none'; style-src 'unsafe-inline'; img-src * data:; frame-src 'self' ${process.env.EP0CH_ARTIFACT_ORIGIN ?? ''}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+/** Public pages run the reader’s clock pass and embed images and this publisher’s artifacts. */
+const RENDERED_CSP = `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src * data:; frame-src 'self' ${process.env.EP0CH_ARTIFACT_ORIGIN ?? ''}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 /**
  * A tailnet note's page runs one script, the publisher's own marginalia reader (PIE-774), from this origin, and it
  * talks only to this origin. No inline script, no eval, nothing from elsewhere: the page's own text is Markdown with
- * authored HTML shown as text, so nothing in a note can add a script tag. Public pages keep RENDERED_CSP: no script.
+ * authored HTML shown as text, so nothing in a note can add a script tag. Public pages run the same script for clocks; without marginalia data it stops there.
  */
 const READER_CSP = `default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src * data:; frame-src 'self' ${process.env.EP0CH_ARTIFACT_ORIGIN ?? ''}; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`;
 /** The shares and sessions pages: their forms post only to this origin, and the search box's script runs. */
@@ -1256,9 +1255,9 @@ export class Publisher {
       return await this.options.door.handle(request, path, this.basePath, caller);
     }
     // A tailnet page's marginalia: its script, its threads and the one write route (publish-page.ts). Being on the
-    // tailnet (or signed in at the sign-in listener) is the sign-in; the public listener has none of these.
+    // tailnet (or signed in at the sign-in listener) is the sign-in; public pages only fetch the clock script.
     if (path === `${PAGE_ROUTE}/sources.js`) return new Response(Bun.file(new URL("./publish-sources.js", import.meta.url)), { headers: { "content-type": "text/javascript; charset=utf-8" } });
-    if (audience === "tailnet" && path.startsWith(`${PAGE_ROUTE}/`)) {
+    if ((audience === "tailnet" || path === `${PAGE_ROUTE}/reader.js`) && path.startsWith(`${PAGE_ROUTE}/`)) {
       try {
         return await this.marginalia.handle(request, path.slice(PAGE_ROUTE.length));
       } catch (error) {
@@ -1539,8 +1538,8 @@ export class Publisher {
     const { sessions } = await this.client.request<{ sessions: WebSession[] }>({ action: "web.sessions.list" });
     const rows = sessions.map((session) => {
       const here = session.id === signedIn?.sessionId;
-      return `<tr><td>${escapeHtml(session.device)}${here ? ` <strong>(this browser)</strong>` : ""}<div class="dim">${escapeHtml(session.id)} · ${escapeHtml(session.name ? `${session.name} (${session.subject})` : session.subject)} · signed in ${escapeHtml(session.createdAt.slice(0, 10))}</div></td>` +
-        `<td>${escapeHtml(ageSince(session.lastSeenAt, Date.now(), "ago"))}</td><td>${escapeHtml(session.expiresAt.slice(0, 10))}</td>` +
+      return `<tr><td>${escapeHtml(session.device)}${here ? ` <strong>(this browser)</strong>` : ""}<div class="dim">${escapeHtml(session.id)} · ${escapeHtml(session.name ? `${session.name} (${session.subject})` : session.subject)} · signed in ${timeHtml(session.createdAt)}</div></td>` +
+        `<td>${timeHtml(session.lastSeenAt)}</td><td>${timeHtml(session.expiresAt)}</td>` +
         `<td><form method="post" action="${escapeHtml(`${base}/sessions/revoke`)}"><input type="hidden" name="id" value="${escapeHtml(session.id)}"><button type="submit">${here ? "Sign out" : "Revoke"}</button></form></td></tr>`;
     }).join("\n");
     const list = sessions.length
@@ -1824,9 +1823,9 @@ export class Publisher {
       const quote = /^[A-Z][a-z-]{0,23} on “(.*)”$/.exec((root.text ?? "").split("\n")[0] ?? "")?.[1] ?? "";
       const said = plainBody(extractAnnotationBody(reply.text ?? "")).replace(/\s+/g, " ").trim();
       const href = `${base}${notePath(noteOf.get(noteId) ?? { id: noteId }, index)}#thread=${root.id}`;
-      const meta = [by, (reply.createdAt ?? "").slice(0, 16).replace("T", " "), `on ${noteTitle(titles.get(noteId) ?? "") || "a note"}`].join(" · ");
+      const meta = [escapeHtml(by), reply.createdAt ? timeHtml(reply.createdAt) : "", escapeHtml(`on ${noteTitle(titles.get(noteId) ?? "") || "a note"}`)].join(" · ");
       rows.push(`<li${isNew ? ` class="new"` : ""}><a href="${escapeHtml(href)}"><span class="t">${isNew ? `<span class="dot" aria-label="unread">●</span> ` : ""}${escapeHtml(said.length > 220 ? `${said.slice(0, 219).trimEnd()}…` : said || "(empty)")}</span>` +
-        `${quote ? `<span class="s">“${escapeHtml(quote)}”</span>` : ""}<span class="m">${escapeHtml(meta)}</span></a></li>`);
+        `${quote ? `<span class="s">“${escapeHtml(quote)}”</span>` : ""}<span class="m">${meta}</span></a></li>`);
     }
     const list = rows.length
       ? `<ul class="kids replies">\n${rows.join("\n")}\n</ul>\n`
@@ -1862,7 +1861,7 @@ export class Publisher {
     // On the tailnet, a note can be shared from its page: a short-lived public link (the shares page starts it).
     const sharing = share || this.options.shares === false ? "" : ` · <a href="${escapeHtml(`${this.basePath}/shares?open=${encodeURIComponent(entry.blockId)}`)}">share…</a>`;
     const door = share || !this.options.door ? "" : ` · <a href="${escapeHtml(`${this.basePath}/door?open=${encodeURIComponent(entry.blockId)}`)}">door</a>`;
-    return `<footer>updated ${escapeHtml(entry.updatedAt.slice(0, 16).replace("T", " "))} · ${other} · <a href="${href("?view=md")}">markdown</a>${sharing}${door}</footer>`;
+    return `<footer>updated ${timeHtml(entry.updatedAt)} · ${other} · <a href="${href("?view=md")}">markdown</a>${sharing}${door}</footer>`;
   }
 
   /** The notes above `blockId`, the top level first. A chain longer than the lock walk is cut there. */
@@ -2108,7 +2107,7 @@ export class Publisher {
     const href = (path: string) => escapeHtml(`${this.basePathFor(audience)}${path}`);
     // The public listener has no index to link to.
     const nav = audience === "public" ? escapeHtml(entry.slug) : `<a href="${href("/index")}">index</a> / ${escapeHtml(entry.slug)}`;
-    return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${escapeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav, { skin, sourcesScript: `${this.basePathFor(audience)}${PAGE_ROUTE}/sources.js` });
+    return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${timeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav, { skin, sourcesScript: `${this.basePathFor(audience)}${PAGE_ROUTE}/sources.js` });
   }
 
   /**
@@ -3083,6 +3082,7 @@ function rowReferences(child: Block): string[] {
 
 /** A property value in a row's meta line: each reference a link labelled by its note's words, as the body draws it. */
 function metaValue(value: string, links: ReadonlyMap<string, LinkedNote>): string {
+  const time = dateTimeHtml(value); if (time) return time;
   let out = "", cursor = 0;
   for (const reference of blockReferenceOccurrences(value)) {
     const note = links.get(reference.blockId);
@@ -3106,7 +3106,7 @@ function folderRow(child: Block, serviceTitle: string, index: PublishedIndex, ba
   const title = image ? `${image.kind === "video" ? "video" : "image"}: ${image.alt || fileName(image.path)}` : noteTitle(serviceTitle) || "untitled";
   const summary = summaryLine(child.text, links);
   const properties = rowProperties(child).filter((property) => !image || !MEDIA_KEYS.has(property.key.toLowerCase())).map((property) => `${escapeHtml(property.key)}: ${metaValue(property.value, links)}`);
-  const meta = [count ? `${count} ${count === 1 ? "note" : "notes"}` : "", escapeHtml(child.updatedAt.slice(0, 10)), ...properties].filter(Boolean).join(" · ");
+  const meta = [count ? `${count} ${count === 1 ? "note" : "notes"}` : "", timeHtml(child.updatedAt), ...properties].filter(Boolean).join(" · ");
   return `<li data-block="${escapeHtml(child.id)}"><a href="${escapeHtml(`${basePath}${notePath(child, index)}`)}"><span class="t">${escapeHtml(title)}</span>` +
     `${summary ? `<span class="s">${escapeHtml(summary)}</span>` : ""}</a><span class="m">${meta}</span></li>`;
 }
@@ -3367,14 +3367,14 @@ export function renderIndexHtml(index: PublishedIndex, basePath = "", publicHref
     const open = shared ? `<div class="dim">public: <a href="${escapeHtml(shared)}">${escapeHtml(shared)}</a></div>` : "";
     return `<tr><td><a href="${escapeHtml(entryHref(entry, basePath))}">${escapeHtml(entry.title)}</a>${notes}</td>` +
       `<td>${escapeHtml(`${basePath}${entry.path}`)}${raw}${open}</td><td>${escapeHtml(entry.type)}</td>` +
-      `<td>${escapeHtml(entry.updatedAt.slice(0, 16).replace("T", " "))}</td></tr>`;
+      `<td>${timeHtml(entry.updatedAt)}</td></tr>`;
   }).join("\n");
   const body = index.entries.length
     ? `<table><thead><tr><th>title</th><th>url</th><th>type</th><th>updated</th></tr></thead><tbody>\n${rows}\n</tbody></table>`
     : `<p class="dim">Nothing is published yet. Add <code>[publish::true]</code> to a block.</p>`;
   const truncated = index.truncated ? `<p class="dim">Only the first ${PUBLISH_QUERY_LIMIT} published blocks are listed.</p>` : "";
   const notice = `<p class="dim">${escapeHtml(EMBED_NOTICE)}</p>`;
-  return htmlPage("Published", `${body}${truncated}\n${notice}\n<footer><a href="${escapeHtml(`${basePath}/index.txt`)}">index.txt</a> · <a href="${escapeHtml(`${basePath}/index.json`)}">index.json</a></footer>`, "published");
+  return htmlPage("Published", `${body}${truncated}\n${notice}\n<footer><a href="${escapeHtml(`${basePath}/index.txt`)}">index.txt</a> · <a href="${escapeHtml(`${basePath}/index.json`)}">index.json</a></footer>`, "published", { sourcesScript: `${basePath}${PAGE_ROUTE}/sources.js` });
 }
 
 /**

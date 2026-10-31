@@ -15,6 +15,26 @@ export const FIGURE_SIZE_KEYS: readonly ModeKey[] = keyTable("figure size", "a s
 const nextDensity = (d: Density): Density => DENSITIES[(DENSITIES.indexOf(d) + 1) % DENSITIES.length]!;
 
 export const figureActions = {
+  "figure.row": def({
+    summary: "read a table or decision row in full, without moving the person's selection; open=false releases the expansion",
+    keys: "⏎ on a row's ▸, click it; [ ] selects and expands it while focused",
+    touches: "tile", while: "typing", replay: "safe",
+    args: {
+      figure: { type: "string", about: "the figure's number or title" },
+      row: { type: "number", about: "the row, from 1 (figures lists rowCount)" },
+      open: { type: "boolean", optional: true, about: "keep the row expanded (default true), or release it" },
+    },
+    examples: [{ act: 'figure.row figure="Window facts" row=1', does: "shows every line of the first row's cells" }],
+    run({ figure, row, open }, { surface, host }: On, actor) {
+      const f = surface.figureNamed(figure, "any");
+      if (!Number.isInteger(row) || row < 1 || row > (f.rowCount ?? 0)) throw new ActionRefused(`${f.title} has ${f.rowCount ?? 0} expandable rows; choose a row from 1`);
+      const choice = surface.figureUI.get(f.key), expanded = new Set(choice?.expanded);
+      if (open === false) expanded.delete(row); else expanded.add(row);
+      surface.figureUI.set(f.key, { ...choice, expanded: [...expanded] });
+      surface.noteAgent(actor, `read row ${row} of ${f.title} in full`); host.redraw();
+      return { figure: f.n, row, open: open !== false };
+    },
+  }),
   "figures": def({
     summary: "list the live figures the reader draws in its note: each one's number, kind, title and density, and a tabs figure's tabs with their counts and which is shown (this reader's choice; the note never changes)",
     touches: "nothing", replay: "safe",
@@ -56,7 +76,7 @@ export const figureActions = {
     },
   }),
   "figure.density": def({
-    summary: "draw a live table or tabs figure's rows compact (one line a title, cut with …), cozy (titles up to two lines, cut with …) or comfortable (up to three lines, a blank line between rows): to= sets it, else the next one round; a wrapped title hangs under its text, past a work id. figure= as figure.tab. Reading state: the figure's density: line is only where it starts, and the note never changes",
+    summary: "draw a live table or tabs figure's rows compact (one line a title, cut with …), cozy (titles up to two lines, cut with …) or comfortable (up to three lines, a blank line between rows): to= sets it, else the next one round; wrapped cells continue at their left edge. figure= as figure.tab. Reading state: the figure's density: line is only where it starts, and the note never changes",
     keys: "⏎ on its ≡ control, click it",
     touches: "tile", while: "typing", replay: "safe", way: "an agent changes the density in a reader the person isn't typing in",
     args: {

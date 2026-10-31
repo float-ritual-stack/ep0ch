@@ -36,6 +36,20 @@
 // set as text, never as HTML.
 (() => {
   "use strict";
+  const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+  const datedClock = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+  const fullClock = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "long" });
+  function formatTimes(root = document) {
+    const now = new Date();
+    for (const time of root.querySelectorAll("time[datetime]")) {
+      const date = new Date(time.dateTime);
+      const minutes = Math.floor((now - date) / 60000);
+      const relative = minutes < 0 || minutes >= 1440 ? "" : minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ago`;
+      time.textContent = (date.toDateString() === now.toDateString() ? clock : datedClock).format(date) + (relative ? ` · ${relative}` : "");
+      time.title = fullClock.format(date);
+    }
+  }
+  formatTimes();
   // The WebMCP polyfill the publisher serves after this script answers an extension in this tab from this page's
   // origin only (its default is any origin), and never a page that frames this one (none may: frame-ancestors 'none').
   window.__webModelContextOptions = { transport: { tabServer: { allowedOrigins: [location.origin] }, iframeServer: false } };
@@ -79,7 +93,7 @@
   const article = () => main.querySelector("article");
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const requestId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9_-]/g, "");
-  const when = (iso) => (iso || "").slice(0, 16).replace("T", " ");
+  const when = (iso) => el("time", { datetime: iso, text: `${new Date(iso).toISOString().slice(0, 16).replace("T", " ")} UTC` });
 
   const margin = el("div", { id: "mg-margin", class: "mg-ui" });
   main.append(margin);
@@ -574,7 +588,7 @@
     const bare = thread.kind === "highlight" && !thread.body && !thread.replies.length;
     const earlier = isEarlier(thread), kept = thread.lifecycle === "kept";
     const node = el("div", { class: `mg-card mg-ui${top ? " top" : ""}${bare ? " bare" : ""}${earlier ? " earlier" : ""}${kept ? " kept" : ""}${picked.has(thread.id) ? " picked" : ""}`, "data-thread": thread.id });
-    node.append(el("div", { class: "who", text: [thread.kind, thread.by, when(thread.at), editedSaid(thread), kept ? "kept" : "", earlier ? "seen" : ""].filter(Boolean).join(" · ") }));
+    node.append(el("div", { class: "who" }, `${thread.kind} · ${thread.by} · `, when(thread.at), ...[editedSaid(thread), kept ? "kept" : "", earlier ? "seen" : ""].filter(Boolean).map(s => ` · ${s}`)));
     if (thread.quote && !markOf(thread.id)) {
       // Drawn as the note's words are (a reference by its title, a link), from the server's renderer; else as typed.
       const said = el("div", { class: "q" }, "“");
@@ -599,7 +613,7 @@
       const replyRow = el("div", { class: "mg-row" });
       replyRow.append(...(reply.edit && !readOnly ? [el("button", { type: "button", class: "quiet", text: "Edit", onclick: () => editIn(node, reply, replyRow) })] : []), ...quoteButtons(reply.id));
       discussion.append(el("div", { class: `reply${picked.has(reply.id) ? " picked" : ""}`, "data-reply": reply.id },
-        el("div", { class: "who", text: [`${reply.by} · ${when(reply.at)}`, editedSaid(reply), reply.tldr ? "TL;DR" : ""].filter(Boolean).join(" · ") }), words(reply, replyMarks), nest(replyMarks),
+        el("div", { class: "who" }, `${reply.by} · `, when(reply.at), ...[editedSaid(reply), reply.tldr ? "TL;DR" : ""].filter(Boolean).map(s => ` · ${s}`)), words(reply, replyMarks), nest(replyMarks),
         quotedLine(reply.quotedIn), replyRow));
     }
     const quotes = quotedLine(thread.quotedIn);
@@ -1026,6 +1040,7 @@
       foot.append(el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Comment on this note", onclick: () => compose("comment", null) })));
     }
     host.append(foot);
+    formatTimes(main);
     // A picture loading, a fold opening or the window narrowing moves the words: the cards follow.
     watching?.disconnect();
     watching = new ResizeObserver(() => place());

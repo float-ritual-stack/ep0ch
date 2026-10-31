@@ -295,13 +295,15 @@ test("writes come only from the tailnet page itself; the public listener stays r
   // No marginalia routes on the public listener, and no other write.
   expect((await write(comment, `https://${HOST}`, "public", "/share")).status).toBe(405);
   expect((await get(`/share/_marginalia/threads?page=${letter.id}`, browser, "public")).status).toBe(404);
-  // An unmarked note isn't there, by id or page name; the public one is, as it was: one document, no script.
+  // The public document formats clocks without opening a marginalia write context.
   expect((await get(`/share/p/${survey.id}?view=html`, browser, "public")).status).toBe(404);
   expect((await get(`/share/p/Field%20Notes?view=html`, browser, "public")).status).toBe(404);
   const open = await get(`/share/p/${letter.id}?view=html`, browser, "public");
   expect(open.status).toBe(200);
-  expect(open.headers.get("content-security-policy")).not.toContain("script-src");
-  expect(await open.text()).not.toContain("<script");
+  expect(open.headers.get("content-security-policy")).toContain("script-src 'self'");
+  const html = await open.text();
+  expect(html).toContain('/share/_marginalia/reader.js');
+  expect(html).not.toContain("data-marginalia=");
 });
 
 test("Recent replies: a page of the replies on his threads, the unread marked, each linking to its thread; opening it there reads it", async () => {
