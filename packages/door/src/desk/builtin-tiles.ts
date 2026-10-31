@@ -47,7 +47,7 @@ const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "
     if (r.holdsKeys || r.editing) return holdsEdit("the reader", sessionName(r));
     // An explicit open wins over a saved-history read still in flight.
     if (r.wantNote() !== m.id) r.dropWant();
-    r.hold(m, desk);
+    r.hold(m, desk, by);
     return null;
   },
   holdsWork: p => (p as ReaderPane).unsaved() || (p as ReaderPane).editing,

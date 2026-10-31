@@ -128,7 +128,7 @@ import { words } from "../text";
  */
 export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: OpenRule; name?: string; policy?: Policy; floats?: SavedFloat[] }
 /** A float as saved (PIE-511): its tile, and its rectangle. */
-export interface SavedFloat { tile: TileSpec; rect: { col: number; row: number; cols: number; rows: number } }
+export interface SavedFloat { tile: TileSpec; rect: { col: number; row: number; cols: number; rows: number }; peekOf?: string }
 
 /**
  * The rule for a tile's name (PIE-491): a letter, then letters, digits, `.`, `-` or `_`, at most 40, and not the

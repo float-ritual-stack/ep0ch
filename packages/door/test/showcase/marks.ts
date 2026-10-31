@@ -88,6 +88,7 @@ export const marks: Record<string, string[]> = {
   "links-rows": ["One line", "Two lines", "Truncate", "Carry the trestle tables"],
   // The day's plan with its outbox: the waiting letters listed, the first one previewed beside the list.
   "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
+  peek: ["Garden peeks", "Check the forecast", "Sort the seeds", "1/2"],
   collection: ["Garden collection", "table", "gallery", "feed", "board", "Water the beans"],
   sysop: ["Sysop watches the workshop", "Look now"],
   "list-view": ["One list, three ways", "OUTBOX", "Waiting letters", "Shelf actions", "Copy this note"],
