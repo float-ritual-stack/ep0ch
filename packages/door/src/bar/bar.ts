@@ -1,4 +1,5 @@
 import { completeCommand, commandButton, runAnswer } from "./command";
+import { probe } from "../surface/probe";
 import { clipText } from "../overflow";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { lookFor } from "../look";
@@ -218,6 +219,7 @@ export class PowerBar {
   }
 
   async edit(op: string, o: { text?: string; from?: number; to?: number } = {}, clipboard = true) {
+    if (op === "undo") probe("bar.edit.undo");
     if (op === "select" || o.from !== undefined || o.to !== undefined) { this.input.place(0, o.from ?? 0); this.input.place(0, o.to ?? this.query.length, true); }
     if (op === "complete") await this.complete();
     else if (op === "clear") this.clear();
@@ -756,6 +758,7 @@ export class PowerBar {
       // A held row sends what's on the line now: named again from it, never the words it was listed for (⏎ can come
       // before the rows are asked again, as after a completion that lands after its check).
       const row = holds && it.source.named ? it.source.named(line, this.host) ?? it.row : it.row;
+      probe("bar.run");
       const result = await it.source.pick(row, this.host, { alt, actor }) ?? null;
       // A held line is sent: the bar's done with it (an answer of its own said what happened).
       if (holds) { this.host.runs.push({ line, answer: runAnswer(this.commandLine(n), result), refused: false }); if (this.host.runs.length > 8) this.host.runs.shift(); void this.host.dispatch.press("bar.close"); }

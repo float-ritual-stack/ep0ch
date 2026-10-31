@@ -213,6 +213,42 @@ tmux kill-session -t try; ../../scripts/agent-env me --clean   # then check no h
 Verify the whole experience yourself, the way the person would use it daily, not one acceptance check at a
 time. Hand back one thing to try, never a checklist of increments.
 
+## Prove which code ran
+
+Before changing a door path, prove the running door reaches its owner. In your scratch door from the real-pane
+recipe above, run each command under the same `scripts/agent-env <name> --` and control socket:
+
+```sh
+bun src/main.ts trace on
+# Press the key or click that fails, or:
+bun src/main.ts act open id=<scratch-note> --as <your-id>
+bun src/main.ts trace show open --last 3
+```
+
+1. Read the **code SHA and pid**, then the run's trace id, action, tile and ordered probes. The SHA is captured
+   when the door starts; committing or advancing its checkout does not change the running build. Restart your
+   scratch door on the code you intend to test. A dispatched run with no probe still says its revision.
+2. Find the owner in the reuse map. Put `probe("path.owner")` there (`src/surface/probe.ts`) if that path has no
+   probe; drive it again and see the hit **before editing its behavior**. The dispatcher supplies the trace id
+   through `messageContext`; keep probes inside that request, including its async work.
+3. Change the owner, restart the scratch door and repeat the same input. Confirm its new revision, the intended
+   probe hit and the competing owner absent. `open.plan` and `open.land` show placement and the landing tile.
+   After a kept power-bar run (`bar.run`), Ctrl+Z goes through `PowerBar.takesBackRun` and `App.route` to
+   `layout.undo`; `bar.edit.undo` must be absent. Editing the line instead reaches `bar.edit.undo`.
+4. Keep a probe that proves an ownership rule in a parity test: `traceRequests` plus the rows from `trace show
+   --json`, driven through the real scratch door (see `test/parity-probes.test.ts`). Delete temporary probes.
+   Finish with `bun src/main.ts trace off`.
+
+`trace show [action] --last N --json` is the same report for agents (default 10 runs). `trace.jsonl` beside
+`messages.jsonl` keeps the last 100 dispatched runs, including those without a probe. Tracing starts off and
+on/off addresses the running door through the same control socket as `act`; a probe while off does no I/O.
+
+Below the door runs, the **service mirror** groups agent writers from the most recent 500 change sequences by
+block or comment thread, using the service's recorded reply parent. Repeated writes by one handler count once.
+`<ask>: N handlers answered one ask` names the writers to investigate; it is an attribution finding, not proof
+that every different writer was unwanted. It has no door trace id. It would expose a handler editing the ask and
+another replying to it (PIE-1374). This CLI dev tool is outside the script-note surface and kitchen-sink showcase.
+
 ## Review
 
 The root `CONTRIBUTING.md` has the checklist, architecture pass first

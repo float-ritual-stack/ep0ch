@@ -10,6 +10,7 @@
 // a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
 import { runExit } from "./cli-words";
+import { traceAsk, traceReport, traceText } from "./trace";
 import { referenceConflict, type ToolArgsSpec } from "@ep0ch/outline-core/tool-args";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
@@ -114,6 +115,7 @@ async function handle(req: any, d: ControlDeps): Promise<unknown> {
     return { path, cols: d.mirror.cols, rows: d.mirror.rows };
   }
   if (req.cmd === "actions") return d.app.actions();
+  if (req.cmd === "trace") return traceReport(traceAsk(req.args), d.app.board);
   if (req.cmd === "act") {
     if (typeof req.action !== "string") throw new Error("act needs an action name; `actions` lists them");
 
@@ -326,6 +328,7 @@ export async function controlClient(args: string[], answered?: { ran?: true }): 
     req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd })
       : fileTarget !== null ? { cmd: "act", ...(await parseActArgs(["open", `file=${fileTarget}`, ...commandArgs.slice(2)])) }
       : cmd === "open" ? { cmd: "act", ...(openTarget!.address ? { address: openTarget!.address } : {}), ...(await parseActArgs(["open", `id=${openTarget!.blockId}`, ...(openTarget!.fragment ? [`fragment=${openTarget!.fragment}`] : []), ...commandArgs.slice(2)])) }
+      : cmd === "trace" ? { cmd, args: commandArgs.slice(1) }
       : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd, ...(cmd === "peek" && peeked && !("error" in peeked) ? { ...(peeked.xray ? { xray: true } : {}), // Each tile whole only where it is printed (the JSON, a section): the compact text never shows the layout.
         ...(peeked.full && (peeked.json || peeked.xray || peeked.section) ? { full: true } : {}) } : {}) };
   } catch (e) { console.error((e as Error).message); return 1; }
@@ -344,7 +347,8 @@ export async function controlClient(args: string[], answered?: { ran?: true }): 
     else console.error(r.error);
     return cmd === "open" && wantsJson ? 0 : 1;
   }
-  if (cmd === "peek") {
+  if (cmd === "trace") console.log(wantsJson ? JSON.stringify(r.result) : traceText(r.result).trimEnd());
+  else if (cmd === "peek") {
     const shown = peekOutput(r.result, peeked as PeekAsk);
     if (shown.error !== undefined) { console.error(shown.error); return 1; }
     await Bun.write(Bun.stdout, shown.out);

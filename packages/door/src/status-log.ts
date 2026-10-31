@@ -7,7 +7,7 @@ import { outlineState } from "./state";
 import { printable } from "./text";
 
 export interface MessageContext { action?: string; tile?: string; note?: string }
-export interface MessageDetails extends MessageContext { kind?: "status" | "warning" | "refusal" | "error"; stack?: string; href?: string }
+export interface MessageDetails extends MessageContext { trace?: string; kind?: "status" | "warning" | "refusal" | "error"; stack?: string; href?: string }
 export interface StatusMessage extends MessageContext { id: string; time: string; kind: NonNullable<MessageDetails["kind"]>; message: string }
 export function errorDetails(error: unknown): MessageDetails {
   return { kind: error instanceof ActionRefused ? "refusal" : "error", stack: error instanceof Error ? error.stack : new Error(String(error)).stack };
