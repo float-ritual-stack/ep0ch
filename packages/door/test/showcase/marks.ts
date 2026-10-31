@@ -91,6 +91,7 @@ export const marks: Record<string, string[]> = {
   "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
   peek: ["Garden peeks", "Check the forecast", "Sort the seeds", "1/2"],
   glass: ["Links on the glass", "tool shed", "The full title stays readable"],
+  "collection-tune": ["Tune the garden collection", "Water the beans"],
   collection: ["Garden collection", "table", "gallery", "feed", "board", "Water the beans"],
   sysop: ["Sysop watches the workshop", "Look now"],
   "list-view": ["One list, three ways", "OUTBOX", "Waiting letters", "Shelf actions", "Copy this note"],
