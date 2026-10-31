@@ -1,3 +1,6 @@
+import { viewWords } from "@ep0ch/outline-core/view-spec";
+import { modeHint, type ModeKey } from "../surface/modes";
+import { keyTable } from "../surface/keymap";
 import { clipText } from "../overflow";
 // The power bar asks for what an action needs and wasn't given (PIE-784): an extension's declared arguments (a sort's
 // by and order) and the door's own (where a quote of marks goes). One question at a time in the bar's `ask` scope (`?`),
@@ -27,7 +30,11 @@ export interface BarQuestion {
   masked?: boolean;
   complete?: LineCompletion;
   /** `note`: one of `choices`, or a note found by its words (answered with its id). */
-  type: "text" | "choice" | "property" | "number" | "note";
+  type: "text" | "choice" | "property" | "number" | "note" | "toggle" | "pick-order";
+  /** A live question writes each choice through its owning action. */
+  change?: (value: string) => Promise<unknown>;
+  /** The owner explains an unmatched typed choice (for example an unknown facet and its nearest keys). */
+  empty?: (typed: string) => string;
   label?: string;
   description?: string;
   choices?: string[];
@@ -87,6 +94,47 @@ export const maskedQuestion = () => !!question()?.masked;
 export const questionCompletion = () => question()?.complete;
 export function clearPrivateForm() { if (waiting && (!waiting.form || waiting.questions.some(q => q.masked) || waiting.form?.cancel)) { const cancel = waiting.form?.cancel; waiting = null; unregisterBarSource(ASK_SCOPE); cancel?.(); } }
 const question = () => (waiting?.form ? waiting.questions[waiting.focus] ?? null : waiting?.questions.find(q => waiting!.answers[q.name] === undefined) ?? null);
+
+export const QUESTION_KEYS = keyTable<ModeKey>("settings-question", "A toggle or ordered settings question", [
+  { key: "space", action: "bar.question", args: { op: "toggle" }, label: "show/hide" },
+  { key: "J", action: "bar.question", args: { op: "move", by: 1 }, label: "later" },
+  { key: "K", action: "bar.question", args: { op: "move", by: -1 }, label: "earlier" },
+]);
+export const liveQuestion = () => { const q = question(); return q && (q.type === "toggle" || q.type === "pick-order") ? q : null; };
+
+export function changedQuestionValue(type: BarQuestion["type"], current: string, value: string, by?: number): string {
+  const values = viewWords(current), at = values.indexOf(value);
+  if (by !== undefined) {
+    if (at < 0) throw new ActionRefused(`${value} is hidden · space shows it first`);
+    values.splice(at, 1); values.splice(Math.max(0, Math.min(values.length, at + by)), 0, value);
+  } else if (at >= 0) values.splice(at, 1);
+  else values.splice(type === "toggle" ? 0 : values.length, 0, value);
+  return values.join(", ");
+}
+
+export async function changeQuestion(value: string, by?: number) {
+  const q = liveQuestion();
+  if (!q?.change) throw new ActionRefused("no toggle or pick-order question is open · open a view's settings first");
+  const next = changedQuestionValue(q.type, q.value ?? "", value, by);
+  const result = await q.change(next);
+  q.value = next;
+  return result;
+}
+
+function questionRows(q: BarQuestion, typed: string, head: string, suggested: readonly BarSuggestion[] = []): BarRow[] {
+  const chosen = viewWords(q.value), words = typed.trim().toLowerCase();
+  const choices = [...new Set([...chosen, ...q.choices ?? [], ...suggested.map(s => s.value)])];
+  const rows: BarRow[] = choices.filter(value => !words || value.toLowerCase().includes(words)).map(value => ({
+    key: `toggle:${value}`, label: `[${chosen.includes(value) ? "x" : " "}] ${q.says?.[value] ?? value}`,
+    group: chosen.includes(value) ? `${head} · shown` : `${head} · hidden`, data: value, stays: true,
+  }));
+  if (q.type === "pick-order") for (const value of chosen.filter(value => !words || value.toLowerCase().includes(words))) {
+    rows.push({ key: `earlier:${value}`, label: `↑ ${value}`, group: "order · click to move", data: value, stays: true });
+    rows.push({ key: `later:${value}`, label: `↓ ${value}`, group: "order · click to move", data: value, stays: true });
+  }
+  if (!rows.length && words && q.empty) rows.push({ key: `missing:${typed}`, label: q.empty(typed), data: typed, stays: true });
+  return rows;
+}
 
 /** Simple in-note questions share the bar's editor and picker in a small frame by the status bar. */
 export function compactQuestion(): { title: string; choice: boolean } | null {
@@ -285,7 +333,7 @@ const ASK_SOURCE: BarSource = {
     void host.dispatch.press("bar.form", { op: "focus", field: at });
     return true;
   },
-  foot: () => (waiting?.form ? "⏎ pick and go on · alt+⏎ pick and run · ⇧⇥ back a field · a click on a field · esc closes" : null),
+  foot: () => liveQuestion() ? `${modeHint(QUESTION_KEYS, () => undefined)} · type to filter · esc closes` : (waiting?.form ? "⏎ pick and go on · alt+⏎ pick and run · ⇧⇥ back a field · a click on a field · esc closes" : null),
   state: () => formState(),
   rows(query, host) {
     if (waiting?.form) return formRows(waiting, query, host);
@@ -293,6 +341,7 @@ const ASK_SOURCE: BarSource = {
     if (!q || !waiting) return [];
     const head = `${waiting.title} · ${q.label ?? q.name}`;
     const typed = query.trim();
+    if (liveQuestion()) return q.suggest && typed ? Promise.resolve(q.suggest(query)).then(found => questionRows(q, query, head, found)) : questionRows(q, query, head);
     if (q.suggest) {
       const typedRow = q.free && typed ? [{ key: `answer:${typed}`, label: typed, detail: "as typed", group: head, data: typed }] : [];
       const nowRow = !typed && q.value !== undefined ? [{ key: `answer:${q.value}`, label: q.value, detail: "now", group: head, data: q.value }] : [];
@@ -345,6 +394,10 @@ const ASK_SOURCE: BarSource = {
     }
     const q = question();
     if (!q || !waiting) throw new ActionRefused("nothing is waiting on an answer");
+    if (liveQuestion()) {
+      if (how.actor.kind !== "user") throw new ActionRefused("the question belongs to the person · settings.toggle or settings.set changes the view as yourself");
+      return changeQuestion(String(row.data), row.key.startsWith("earlier:") ? -1 : row.key.startsWith("later:") ? 1 : undefined);
+    }
     if (row.data === undefined) throw new ActionRefused(`type the ${q.label ?? q.name} first, then ⏎`);
     if (row.key.startsWith("open:")) return host.dispatch.press("bar.open", { scope: ASK_SCOPE, query: String(row.data) });
     waiting.answers[q.name] = String(row.data);

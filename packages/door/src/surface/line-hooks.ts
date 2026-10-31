@@ -9,7 +9,7 @@ import type { LineField } from "./line";
  * `tile.zoom t` then `tile=`, then this screen's tiles, PIE-1076); `valueKey` the value of that property (the panel's field); `false`
  * names and paths; `query` the views' grammar and query words, `act-query` actions first and otherwise a query.
  */
-export type LineCompletion = false | { grammar?: "text" | "filter" | "act" | "act-query" | "query"; valueKey?: string; where?: string };
+export type LineCompletion = false | { grammar?: "text" | "filter" | "act" | "act-query" | "query"; valueKey?: string; where?: string; candidates?: readonly { value: string; detail?: string }[] };
 
 /**
  * The door's side of every line (src/surface/completer.ts and the App set these when they load, so this file stays

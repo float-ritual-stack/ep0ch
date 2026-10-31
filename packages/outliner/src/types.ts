@@ -1534,7 +1534,7 @@ export interface WatchFields { watch?: string; generation?: number }
 
 /** A normalized query: its sort an object and its limit set. */
 export type NormalizedBlockSearchQuery = Omit<BlockSearchQuery, "sort" | "limit" | "where" | "this" | "facets" | "facetValues" | "facetKeys"> & {
-  sort?: BlockQuerySort;
+  sort?: BlockQuerySort | string;
   limit: number;
   facets?: true | string[];
   facetValues?: number;

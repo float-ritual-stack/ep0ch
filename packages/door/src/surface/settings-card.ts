@@ -5,12 +5,13 @@
 // (`source.note.name`: `rule-name`, `query`, `callout-type`, `heading-style`). Each field's picker is a question in the
 // power bar (src/bar/ask.ts) built from its type: an enum's values, a query built over the outline's own properties
 // and values (`properties.catalog`), a note found by search, the actions extensions offer, the writers a rule hears, a
-// duration, a property's name. A choice is written as an ordinary attributed property edit (`properties.patch`), so the
-// note stays plain text. The card is a face of the property panel (the reader's `panel` mode): it draws here and turns
+// duration, a property's name. A view's schema declares toggle and ordered questions over its matched facets. The
+// binding owner writes the note header or inline view's source. The card is a face of the property panel (`panel` mode): it draws here and turns
 // keys into intents; the surface runs the `settings.*` actions.
 import { checkValue as schemaCheck, settingsSchemas, type ComponentSchema, type PropSchema } from "@ep0ch/outline-core/component-schema";
 export { settingsSchemas } from "@ep0ch/outline-core/component-schema";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
+import { missingPropertyHint } from "@ep0ch/outline-core/property-hint";
 import type { BarQuestion, BarSuggestion } from "../bar/ask";
 import { printable } from "../props";
 import { RowView } from "../scroll";
@@ -22,7 +23,7 @@ import { rowLines, rule } from "../text";
  * One field of the card: a property a schema says the declaring note takes, its value on the note (null: unset), and
  * the section it's in (the index of its schema among the note's).
  */
-export interface SettingField { n: number; prop: PropSchema; value: string | null; section: number }
+export interface SettingField { n: number; prop: PropSchema; value: string | null; section: number; order?: PropSchema }
 
 /** A note's block properties, as the card reads them. */
 type Props = readonly { key: string; value: string }[];
@@ -47,7 +48,7 @@ export function settingFields(schemas: ComponentSchema | readonly ComponentSchem
     const own = schema.props.filter(p => p.where === "note" && !seen.has(p.key));
     for (const prop of [...own.filter(p => p.key === name), ...own.filter(p => p.key !== name)]) {
       seen.add(prop.key);
-      out.push({ n: out.length + 1, prop, value: props.find(p => p.key.toLowerCase() === prop.key)?.value ?? null, section });
+      out.push({ n: out.length + 1, prop, order: schema.props.find(p => p.key === prop.question?.order), value: props.find(p => p.key.toLowerCase() === prop.key)?.value ?? null, section });
     }
   });
   return out;
@@ -63,6 +64,8 @@ export function settingProblem(field: SettingField, value: string): string | nul
 
 /** What the pickers read: the outline's properties and values, the actions extensions offer, the extensions installed. */
 export interface SettingSources {
+  facets?(): readonly { key: string; count: number }[];
+  facet?(key: string): Promise<{ key: string; count: number } | undefined>;
   /** `properties.catalog`: the keys starting with `prefix` (each value counted), or `key`'s values starting with it. */
   catalog(key: string | undefined, prefix: string): Promise<readonly { key: string; value: string; count: number }[]>;
   /** The actions a rule can run: `<extension>/<action>` on a block, with what they do. */
@@ -85,6 +88,13 @@ export function listSuggestions(typed: string, names: readonly string[]): BarSug
   return names.filter(n => !have.has(n) && n.startsWith(token)).map(n => ({ value: `${before}${n}` }));
 }
 
+/** One candidate set for the question, completion, validation and saved-value warnings. */
+export function settingOptions(field: SettingField, facets: readonly { key: string; count: number }[]): BarSuggestion[] {
+  const p = field.prop, values = (p.values ?? []).map(v => ({ value: v.value, detail: v.meaning }));
+  if (p.question?.source === "facets") for (const f of facets) if (!values.some(v => v.value === f.key)) values.push({ value: f.key, detail: `on ${f.count} notes` });
+  return values;
+}
+
 /** The power bar's question for a field: its picker, by the field's type. */
 export function settingQuestion(field: SettingField, src: SettingSources): BarQuestion {
   const p = field.prop;
@@ -93,9 +103,29 @@ export function settingQuestion(field: SettingField, src: SettingSources): BarQu
     const t = typed.trim().toLowerCase();
     return [...new Set([...(p.samples ?? []), ...(p.default !== undefined ? [p.default] : [])])].filter(s => !t || s.toLowerCase().includes(t)).map(value => ({ value, ...(value === p.default ? { detail: "the default" } : {}) }));
   };
+  if (p.question) {
+    const options = settingOptions(field, src.facets?.() ?? []);
+    const ordered = (options: BarSuggestion[]) => p.question!.order ? options.flatMap(option => (field.order?.values ?? []).map(direction => ({ ...option, value: `${option.value} ${direction.value}` }))) : [...options];
+    const choices = ordered(options);
+    const suggest = p.question.source === "facets" && src.facet ? async (typed: string) => {
+      const key = p.question!.order ? typed.trim().replace(/\s+(asc|desc)$/i, "") : typed.trim();
+      if (key && !options.some(o => o.value === key)) {
+        const found = await src.facet!(key);
+        if (found) {
+          const extra = settingOptions(field, [found]).filter(o => !options.some(known => known.value === o.value));
+          options.push(...extra); choices.push(...ordered(extra));
+        }
+      }
+      return choices;
+    } : undefined;
+    return { ...base, value: field.value ?? p.default ?? "", type: p.question.type, choices: choices.map(c => c.value),
+      ...(suggest ? { suggest } : {}),
+      empty: typed => p.question!.source === "facets" ? missingPropertyHint(typed.replace(/\s+(asc|desc)$/i, ""), options.map(c => c.value)) : `${p.key} is one of ${choices.map(c => c.value).join(", ")}`,
+      says: Object.fromEntries(choices.map(c => [c.value, `${c.value} · ${c.detail}`])), complete: { valueKey: p.key, candidates: choices } };
+  }
   switch (p.type) {
     case "enum":
-      return { ...base, type: "choice", choices: (p.values ?? []).map(v => v.value), says: Object.fromEntries((p.values ?? []).map(v => [v.value, `${v.value} · ${v.meaning}`])) };
+      return { ...base, type: "choice", complete: { valueKey: p.key, candidates: (p.values ?? []).map(v => ({ value: v.value, detail: v.meaning })) }, choices: (p.values ?? []).map(v => v.value), says: Object.fromEntries((p.values ?? []).map(v => [v.value, `${v.value} · ${v.meaning}`])) };
     case "query":
       return { ...base, type: "text", free: true, complete: { grammar: "query", where: field.value ?? undefined } };
     case "property":
@@ -146,7 +176,7 @@ export class SettingsCard {
   /** Where the last render drew each field (`y` in its lines), for clicks. */
   at: { y: number; n: number }[] = [];
 
-  constructor(readonly schemas: readonly ComponentSchema[]) {}
+  constructor(readonly schemas: readonly ComponentSchema[], readonly list?: string) {}
 
   /** The schemas' ids, joined: whether a card drawn before still fits the note. */
   get id(): string { return this.schemas.map(s => s.id).join("+"); }
@@ -175,7 +205,7 @@ export class SettingsCard {
     const out = [rule(w, drawEllipsized(title, Math.max(2, w - 8)))];
     this.sel = Math.max(0, Math.min(this.sel, fields.length - 1));
     const sel = fields[this.sel];
-    const about = sel ? `${sel.prop.key} · ${sel.prop.type} · ${sel.prop.meaning}` : "";
+    const about = sel ? `${sel.prop.key} · ${sel.prop.question?.type ?? sel.prop.type} · ${sel.prop.meaning}` : "";
     const foot = this.note || about;
     const room = Math.max(1, h - 1 - (foot ? 1 : 0));
     // The rows: a section's heading (only with more than one), then its fields.
@@ -190,7 +220,7 @@ export class SettingsCard {
       const f = r.field;
       const value = f.value !== null ? fg(C.yellow) + printable(f.value)
         : f.prop.default !== undefined ? fg(C.dark) + `${f.prop.default} (default)` : fg(C.dark) + "—";
-      return rowLines("  " + fg(C.brown) + f.prop.key + "  " + value + " " + fg(C.dark) + f.prop.type + RESET, w, undefined, { hang: 2 }).map(text => ({ text, n: f.n }));
+      return rowLines("  " + fg(C.brown) + f.prop.key + "  " + value + " " + fg(C.dark) + (f.prop.question?.type ?? f.prop.type) + RESET, w, undefined, { hang: 2 }).map(text => ({ text, n: f.n }));
     });
     const at = drawn.findIndex(r => r.n - 1 === this.sel), end = drawn.findLastIndex(r => r.n - 1 === this.sel);
     this.view.place(at < 0 ? null : at, drawn.length, room, at < 0 ? null : [at, end]);

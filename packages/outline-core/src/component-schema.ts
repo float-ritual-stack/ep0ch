@@ -18,6 +18,7 @@ import { BLOCK_COMPONENT_SCHEMAS } from "./component-schemas-blocks";
 import { USE } from "./component-schemas-use";
 import { BUTTON } from "./component-schemas-button";
 import { enumOf } from "./prop-values";
+import { VIEW_SORT_FIELDS, VIEW_SUMMARY_FIELDS } from "./view-fields";
 
 /** What a property's value is. */
 export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query", "action", "writers", "duration", "property", "script", "node"] as const;
@@ -41,6 +42,8 @@ export interface PropSchema {
   type: PropType;
   /** A query offers property names and their facet values inside its expression. */
   complete?: "query";
+  /** The settings question; choices come from this schema or the matched rows. */
+  question?: { type: "toggle" | "pick-order"; source?: "facets"; order?: string };
   /** One line: what it does. */
   meaning: string;
   /** The values it takes (an enum), each with its meaning. */
@@ -235,8 +238,8 @@ export const VIEW: ComponentSchema = {
     { key: "of", where: "note", type: "ref", meaning: "the saved view this inline collection reads", samples: ["((7c1e0b2a-0000-4000-8000-000000000001))"] },
     { key: "query", where: "note", type: "query", complete: "query", meaning: "the views' grammar: the blocks it holds for are its rows", samples: ["type=meeting"] },
     { key: "where", where: "note", type: "query", complete: "query", meaning: "narrows the source query, ANDed with it", samples: ["stage=ready"] },
-    { key: "layout", where: "note", type: "list", default: "table", meaning: "one or several layouts, comma-separated; several are tabs over one source", values: enumOf({ table: "rows with sortable column headers", gallery: "cards in a responsive grid", feed: "full-width cards with body lines", board: "a lane per group, tabs when narrow" }) },
-    { key: "group", where: "note", type: "list", meaning: "one or two property names, or date buckets; the service answers nested groups", samples: ["area", "area, owner", "updated:recent"] },
+    { key: "layout", where: "note", type: "list", question: { type: "toggle" }, default: "table", meaning: "one or several layouts, comma-separated; several are tabs over one source", values: enumOf({ table: "rows with sortable column headers", gallery: "cards in a responsive grid", feed: "full-width cards with body lines", board: "a lane per group, tabs when narrow" }) },
+    { key: "group", where: "note", type: "list", question: { type: "pick-order", source: "facets" }, meaning: "one or two property names, or date buckets; the service answers nested groups", samples: ["area", "area, owner", "updated:recent"] },
     { key: "card", where: "note", type: "enum", default: "small", meaning: "the size of a card", values: enumOf({ small: "three across at 90 columns", large: "two across at 90 columns" }) },
     { key: "body", where: "note", type: "int", min: 0, max: 100, meaning: "body lines per card; feed defaults to 6, gallery to 0", samples: ["0", "6"] },
     { key: "page", where: "note", type: "int", min: 1, max: 200, default: "200", meaning: "rows per page; the page being read is viewer state" },
@@ -244,12 +247,12 @@ export const VIEW: ComponentSchema = {
     { key: "open", where: "note", type: "enum", default: "current", meaning: "where opening a row lands, after the tile's wires", values: enumOf({ current: "the current reader", beside: "a reader beside", float: "a pick previews in a follower float; Enter enters, Esc closes, ⤢ lands beside", full: "open in the current reader and zoom it to fill the screen" }) },
     { key: "create", where: "note", type: "query", meaning: "the property a new member is born with", samples: ["type=chore"] },
     { key: "create-parent", where: "note", type: "ref", meaning: "this (the host of an inline view, or a view note's parent), inbox, or ((id))", samples: ["this", "inbox", "((7c1e0b2a-0000-4000-8000-000000000001))"] },
-    { key: "sort", where: "note", type: "property", meaning: "what the rows are sorted by: created, updated, or any property's name", samples: ["updated", "priority"] },
+    { key: "sort", where: "note", type: "list", question: { type: "pick-order", source: "facets", order: "direction" }, values: VIEW_SORT_FIELDS, meaning: "ordered sort keys, comma-separated, each with optional asc or desc; created, updated, title or any property's name", samples: ["updated", "priority asc, owner desc"] },
     { key: "direction", where: "note", type: "enum", meaning: "the sort's direction", default: "desc", values: enumOf({ asc: "lowest or oldest first", desc: "highest or newest first" }) },
     { key: "limit", where: "note", type: "int", meaning: "the most rows it lists", min: 1, max: 1000, default: "200" },
     { key: "child-depth", where: "note", type: "int", meaning: "how deep each row's own children are listed under it", min: 0, max: 8, default: "0" },
     { key: "expanded", where: "note", type: "enum", meaning: "whether it opens expanded in the tree", values: enumOf({ true: "open", false: "folded" }) },
-    { key: "summary-properties", where: "note", type: "list", meaning: "the properties each row's summary line shows, comma-separated", samples: ["work-stage, priority"] },
+    { key: "summary-properties", where: "note", type: "list", question: { type: "pick-order", source: "facets" }, values: VIEW_SUMMARY_FIELDS, meaning: "the properties each row's summary line shows, comma-separated", samples: ["work-stage, priority"] },
   ],
   source: { use: '::view{query="type=chore" layout=table} ^garden', note: { title: "Garden chores", name: "query", value: "type=chore" } },
   example: {},

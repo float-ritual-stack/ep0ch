@@ -1,3 +1,4 @@
+import { COLLECTION_TUNE } from "./seed/collection-tune";
 import { QUERY_WORDS, QUERY_TRELLIS, QUERY_FENCE } from "./seed/query-words";
 import { pickId } from "@ep0ch/outline-core/completion-source";
 import { PEEK } from "./seed/peek";
@@ -469,6 +470,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "Sort the seeds [collection::garden] [area::shed] [owner::Mira] [stage::later]\n\nKeep the beans for spring.",
     "Check the forecast [collection::garden] [owner::Sol] [stage::ready]\n\nBring the tender plants in before frost.",
   ]) await make(notes.root.id, text);
+  notes.collectionTune = await make(notes.root.id, COLLECTION_TUNE);
   notes.collectionInline = await make(notes.root.id, [
     SEED.collectionInline, "A saved source inline, and an anonymous board:",
     `::view{of=((${notes.collection.id})) layout=gallery} ^garden`, "::", "",

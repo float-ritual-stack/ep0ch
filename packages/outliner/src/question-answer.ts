@@ -1,3 +1,4 @@
+import { missingPropertyHint } from "@ep0ch/outline-core/property-hint";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 // What a question answers besides its rows (ADR 0004 contract 1): its groups and facets, counted over every match,
 // and the hint for a key no note carries. The service computes them once, here, so no client narrows, groups or
@@ -7,7 +8,7 @@ import { QUESTION_FACET_CAP, type QuestionFacet, type QuestionGroup } from "@ep0
 import { readBound, readDate, readDateBound, readNumber, valueHolds, fromWallClock, wallClock } from "@ep0ch/outline-core/dates";
 import { RECENT_BUCKETS, recentBucket } from "@ep0ch/outline-core/date-buckets";
 export { RECENT_BUCKETS, recentBucket };
-import { dateGroupOf, expressionPropertyKeys, sortPropertyKey, valueOrder, type DateUnit } from "./block-query";
+import { dateGroupOf, expressionPropertyKeys, sortPropertyKey, sortParts, valueOrder, type DateUnit } from "./block-query";
 import type { Block, NormalizedBlockSearchQuery, QueryExpression } from "./types";
 
 /** A match's values for `key` (a multi-valued property gives several), as the question's property scope reads them. */
@@ -126,28 +127,13 @@ export function questionFacets(matches: readonly Block[], keys: true | readonly 
   });
 }
 
-/** Edit distance, for the nearest keys a hint names. */
-function distance(a: string, b: string): number {
-  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i += 1) {
-    let previous = row[0]!;
-    row[0] = i;
-    for (let j = 1; j <= b.length; j += 1) {
-      const kept = row[j]!;
-      row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
-      previous = kept;
-    }
-  }
-  return row[b.length]!;
-}
-
 /** The keys a question names: its clauses' (under NOT too), its group's, its sort's and its facets'. */
 export function questionKeys(query: NormalizedBlockSearchQuery): string[] {
   const keys = [
     ...(query.filters ?? []).map(filter => filter.key),
     ...expressionPropertyKeys(query.predicate),
     ...(query.group?.split(",").map(group => { const date = dateGroupOf(group); return !date ? group : "key" in date ? date.key : null; }).filter((key): key is string => key !== null) ?? []),
-    ...(query.sort ? [sortPropertyKey(query.sort.field)].filter((key): key is string => key !== null) : []),
+    ...(query.sort ? sortParts(query.sort).map(s => sortPropertyKey(s.field)).filter((key): key is string => key !== null) : []),
     ...(Array.isArray(query.facets) ? query.facets : []),
   ];
   return [...new Set(keys.filter(key => key !== "deleted"))];
@@ -160,10 +146,7 @@ export function questionKeys(query: NormalizedBlockSearchQuery): string[] {
 export function questionHint(query: NormalizedBlockSearchQuery, known: ReadonlySet<string>): string | undefined {
   const missing = questionKeys(query).filter(key => !known.has(key) && !(key === "tag" && known.has("tags")));
   if (!missing.length) return undefined;
-  return missing.map(key => {
-    const nearest = [...known].map(k => ({ k, d: distance(key, k) })).sort((a, b) => a.d - b.d || a.k.localeCompare(b.k)).slice(0, 3).map(x => x.k);
-    return `no notes have ${key}${nearest.length ? `; nearest: ${nearest.join(", ")}` : ""}`;
-  }).join(" · ");
+  return missing.map(key => missingPropertyHint(key, [...known])).join(" · ");
 }
 
 /** The comparisons a question makes as dates or numbers: `due <= +3d`, `rating > 3`, `due=today` (under NOT too). */

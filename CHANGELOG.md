@@ -24,6 +24,12 @@ are its record. The outliner's entries from then are kept below, under
 - **Wire and tune:** `tile.link verb=hover to=…` routes a hover into an existing tile. Tune → Glass adjusts the open, close and grace delays, history cap and pinned soft limit.
 - **Run:** open the kitchen sink's **glass** section (`ep0ch try --showcase`). Door only; no protocol, grammar or schema change.
 
+### Collections can be tuned over the view (PIE-1483)
+
+- **Tune in place:** press `,` over a saved view or inline `::view` to open its settings card. Toggle layouts, order sort keys, choose groups and show or hide summary properties; the view redraws as each choice saves.
+- **Use the rows' own fields:** choices and completion come from the component schema and the matched rows' facets. Unknown keys name their nearest matches. Changes write the view's own source, check its revision and retain agent attribution without moving your keys.
+- **Run:** try **collection-tune** in the kitchen sink. The `settings` tile hosts the same card. Grammar **22 → 23** covers the VIEW schema's ordered sort list; protocol stays **299** (from #1150), with no new wire request or database schema. The deployer installs host and clients together with `ep0ch install --apply`.
+
 ### Completion shows the example and saves the chosen query (PIE-1479)
 
 - **Preview before inserting:** component completion shows its rendered example before the source, properties and longer docs. The kitchen sink's library picker previews Tabs, copies its drawn text and inserts a variation through the same actions.
