@@ -538,7 +538,7 @@ export class SocketBoard implements Board {
     // Only this connection's requests fail with it: a close that comes after a new connection opened leaves its alone.
     const fail = (e: Error) => {
       for (const [id, w] of this.waiting) if (w.sock === s) { clearTimeout(w.timer); w.reject(e); this.waiting.delete(id); }
-      if (this.sock === s) { this.sock = null; this.watched.lost(); }
+      if (this.sock === s) { this.sock = null; this.watched.lost(); if (!this.sub) this.onConnection("lost", e.message); }
     };
     s.on("error", fail);
     s.on("close", () => fail(new Error("outline socket closed")));

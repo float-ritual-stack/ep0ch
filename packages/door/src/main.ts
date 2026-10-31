@@ -19,6 +19,7 @@ import { attachDoor, doorMode, sessionCommand } from "./session/client";
 import { placeOf } from "./session/place";
 import { carryDoor, forwardTo, remoteDoor, remoteOf, sshDoorArgv, sshDoorOf } from "./machine";
 import { findCommand, NOTES_USAGE, revisionsCommand, showCommand } from "./notes-cli";
+import { waitCommand, WAIT_USAGE } from "./wait-cli";
 import { EXPORT_USAGE } from "./export";
 import { MIRROR_USAGE } from "./outline-mirror";
 import { LIBRARY_USAGE } from "./library/cli";
@@ -159,6 +160,7 @@ ${BACKUP_USAGE}
   ep0ch try --showcase [--reset]
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
 ${NOTES_USAGE}
+${WAIT_USAGE}
 ${RECORD_USAGE}
 ${REVIEW_USAGE}
 ${WORK_USAGE}
@@ -330,6 +332,7 @@ if (args[0] === "review") process.exit(await (await import("./review-cli")).revi
 if (args[0] === "work") process.exit(await (await import("./work-cli")).workCommand(args));
 if (args[0] === "search") process.exit(await (await import("./search-cli")).searchCommand(args));
 if (args[0] === "find") process.exit(await findCommand(args));
+if (args[0] === "wait") process.exit(await waitCommand(args));
 if (args[0] === "show") process.exit(await showCommand(args));
 if (args[0] === "revisions") process.exit(await revisionsCommand(args));
 if (args[0] === "mcp") process.exit(await mcpCommand(args));
