@@ -1,3 +1,4 @@
+import { PostIt, POST_IT_ACTIONS } from "./post-it";
 import { holdsEdit } from "../whereabouts";
 import { errorDetails } from "../status-log";
 import { readNote } from "./outline-boards";
@@ -67,6 +68,13 @@ const showing = (p: Pane | undefined): Msg | null => (p ? kindOf(p)?.shows?.(p) 
 
 /** The entries, made when they're registered (so a module cycle never meets them half-built). */
 const builtins = (): TileKind[] => [
+  {
+    ...reading, kind: "post-it", about: "a note or cut-off value above every screen, with a hover history to flip",
+    actions: POST_IT_ACTIONS, inherits: [READER_ACTIONS],
+    make: s => { const p = new PostIt(); p.sticky = s.sticky ?? false; p.hover = s.hover ?? false; p.by = s.by ?? null; p.wantNav = s.nav; p.want = s.note ?? null; return p; },
+    describe: p => ({ postit: (p as PostIt).title(), sticky: (p as PostIt).sticky, history: (p as PostIt).surface.trailOf() }),
+    start: async (p, { desk }) => { const r = p as PostIt; if (r.want) { const m = r.want.startsWith("glass:") ? { id: r.want, text: r.want.slice(6), parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, properties: [] } : await readNote(desk.ctx, r.want); if (m) { const nav = r.wantNav; r.show(m, desk); if (nav) r.surface.restoreNav(nav); r.dropWant(); desk.redraw(); } } },
+  },
   {
     kind: "tree", previews: true, about: "the outline tree; ⏎ opens a note where its opens land", keys: [{ key: "t", label: "outline" }],
     make: () => new TreePane(), actions: TREE_ACTIONS,

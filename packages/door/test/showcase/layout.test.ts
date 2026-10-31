@@ -205,8 +205,9 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
         mouse(0, menu.from, menu.row); mouse(0, menu.from, menu.row, true);
         expect(owner.overlaid()).toBe(false);
       } else if (covered === "hint") {
-        expect(hint).toBeDefined();
-        mouse(0, hint.from, hint.y); mouse(0, hint.from, hint.y, true);
+        // The host desk's hint is omitted under the drawer's footer, so it has no hidden hit targets.
+        if (place.includes("drawer")) expect(hint).toBeUndefined();
+        else { expect(hint).toBeDefined(); mouse(0, hint.from, hint.y); mouse(0, hint.from, hint.y, true); }
         expect(owner.holdsKeys()).toBe(false);
       } else {
         const x = divider.area.col + 3, y = divider.at;

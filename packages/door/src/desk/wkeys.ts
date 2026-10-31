@@ -73,6 +73,7 @@ const W_TABLE = [
   { key: "F", group: "size & shape", action: "tile.zoom", how: run("tile.zoom", { reach: "full" }, "n"), label: "lift or drop across the terminal" },
   { key: "c", group: "size & shape", action: "tile.collapse", how: run("tile.collapse") },
   { key: "W", group: "size & shape", action: "tile.widen", how: run("tile.widen") },
+  { key: "U", group: "size & shape", action: "tile.float", how: run("tile.float", { to: "glass" }) },
   { key: "f", group: "size & shape", action: "tile.float", how: run("tile.float") },
   { key: "p", group: "size & shape", action: "tile.dock", how: run("tile.dock"), label: "dock to an edge, or undock" },
   { key: "d", group: "size & shape", action: "tile.slide", how: { k: "special" }, label: "slide the dock open or shut" },

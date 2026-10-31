@@ -72,7 +72,7 @@ import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
   shape as layoutShapeOf, peekSource, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
-  foldsBeside, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
+  foldsBeside, WIRE_VERBS, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
@@ -83,6 +83,7 @@ import { AttachedTilePane } from "./attached-tile";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ptyBackend } from "./pty-backend";
+import { PostIt } from "./post-it";
 import { PreviewPane } from "./preview";
 import { fileOpenNote } from "./file-open";
 import { isOutlineNote, openResource, resourceRefTarget } from "../authored";
@@ -115,7 +116,7 @@ import { prop } from "../props";
  * its mount's tile spec), and `onSave`: what a save does instead of writing that file (the desk holding the mount saves).
  */
 export interface DeskOpts {
-  layout?: string; given?: ReadonlyMap<string, Pane>; adopt?: boolean; writes?: boolean; where?: () => Whereabouts; idPrefix?: string;
+  area?: Rect; layout?: string; given?: ReadonlyMap<string, Pane>; adopt?: boolean; writes?: boolean; where?: () => Whereabouts; idPrefix?: string;
   openArgs?: Record<string, unknown>; saved?: unknown; onSave?: () => void;
   /** The screens this one is mounted in, outermost first (`mountChain`): what a mount here is checked against. */
   chain?: readonly string[];
@@ -620,6 +621,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * `opts.writes: false`: it reads its save but never writes it (the board in a tile: the board screen owns delivery.json).
    */
   constructor(readonly spec: ScreenSpec = deskSpec(), opts: DeskOpts = {}) {
+    this.area = opts.area ?? this.area;
     this.title = spec.title;
     this.idPrefix = opts.idPrefix ?? "t";
     this.whereNow = opts.where ?? null;
@@ -2218,7 +2220,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.placedDuringTake = result => { redirected = result; };
       try {
         const take = () => kind.take!(pane, m, this, by);
-        const why = pane instanceof ReaderPane ? pane.surface.track(take) : take();
+        const why = pane instanceof ReaderPane && !(pane instanceof PostIt) ? pane.surface.track(take) : take();
         if (why) throw new ActionRefused(`${this.nameOf(landed)} ${why}`);
       } finally { this.placedDuringTake = outer; }
       if (redirected) return redirected;
@@ -2839,7 +2841,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (pick) return this.pickingHint(desk, from, tile, pick);
     const targets = this.screenTiles();
     // Two lines: where this wire lands now, and what a click does. The rows below carry the rest; no line repeats a row.
-    const what = verb === "select" ? "A select in" : verb === "alt" ? "An alt-open from" : "An open from";
+    const what = verb === "select" ? "A select in" : verb === "alt" ? "An alt-open from" : verb === "hover" ? "A hover in" : "An open from";
     return { id: "link", title: `${tile}: ${verb} wire`, lines: [
       `${what} ${tile} lands in ${desk.wireWords(from, verb)}.`,
       `Click a tile to send it there; alt+click an edge or gap for beside.`,
@@ -2848,7 +2850,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (pane === desk.panes.get(from) || !this.linkAccepts(pane)) return [];
         const owner = desk.relatives().find(d => d.idOf(pane) !== undefined)!;
         return [{ label: `${i + 1} · ${owner.nameOfPane(pane)}`, key: i < 9 ? String(i + 1) : undefined, act: { action: "tile.link", tile, args: { verb, to: desk.pathTo(pane)! } } }];
-      }), ...(["select", "open", "alt"] as const).map(v => ({ label: `change ${v} wire`, key: v === "select" ? "s" : v === "open" ? "o" : "a", current: v === verb, act: { action: "tile.link", tile, args: { ask: true, verb: v } } })),
+      }), ...WIRE_VERBS.map(v => ({ label: `change ${v} wire`, key: v === "select" ? "s" : v === "open" ? "o" : v === "hover" ? "v" : "a", current: v === verb, act: { action: "tile.link", tile, args: { ask: true, verb: v } } })),
         { label: `unlink ${verb} wire`, act: { action: "tile.link", tile, args: { verb } } }, { label: "cancel", key: "esc", act: { action: "tile.link", tile, args: { ask: false } } } ] };
   }
 
@@ -3644,13 +3646,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   // ── drawing ────────────────────────────────────────────────────────────────
 
-  render(ctx: Ctx): Frame {
+  render(ctx: Ctx, host?: { root: Rect; shown: boolean; area: Rect }): Frame {
     // A frame drawn inside another (a measure, a host layer's redraw) keeps the outer frame's context when it ends.
     const outer = this.drawing;
     this.drawing = outer ?? {};
-    try { return this.draw(ctx); } finally { this.drawing = outer; }
+    try { return this.draw(ctx, host); } finally { this.drawing = outer; }
   }
-  private draw(ctx: Ctx): Frame {
+  private draw(ctx: Ctx, host?: { root: Rect; shown: boolean; area: Rect }): Frame {
     if (!this.ctx) this.enter(ctx);
     const { cols, rows } = ctx.t;
     this.noteFocus();
@@ -3660,7 +3662,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const ids = this.openedTiles(key), pinned = ids.filter(i => !this.isFloat(i)), a = this.activeIn(key);
       for (const id of ids) { const p = this.panes.get(id); if (p instanceof ReaderPane) { p.floating = this.isFloat(id); p.opensHere = pinned.length > 1 && id === a; } }
     }
-    // A new note's tile (PIE-591) floating says what it holds, as a float opened into a container does.
     for (const [id, p] of this.panes) if (madeFor(p)) (p as ReaderPane).floating = this.isFloat(id);
     // An empty reader says where its notes come from: the tiles whose opens land in it.
     const into = new Map<number, string[]>();
@@ -3675,7 +3676,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const band = this.band();
     const top = band ? Math.max(0, Math.min(rows - 6, band.kind.rows(band.pane, cols, rows, this))) : 0;
     this.bandHits = top ? [{ col: 0, row: 0, cols, rows: top }] : [];
-    const area: Rect = { col: 0, row: top, cols, rows: rows - (this.holder ? 1 : 2) - top };
+    const area: Rect = host?.area ?? { col: 0, row: top, cols, rows: rows - (this.holder ? 1 : 2) - top };
     this.area = area;
     this.slid = [];
     const zoomed = this.zoom !== null && this.panes.has(this.zoom);
@@ -3684,13 +3685,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.dividers = [];
     } else {
       // The tree, the docks that slide over it (PIE-505: containers, each from its edge), bottom first.
-      const ps = placeLayout(this.layout, area, this.holds);
+      const ps = placeLayout(this.layout, host?.root ?? area, this.holds);
       this.placed = ps;
       // The dock with the keys is on top of the others sliding out.
       this.slid = [...ps.slid].sort((a, b) => Number(leaves(a.node.kid).includes(this.focus)) - Number(leaves(b.node.kid).includes(this.focus)));
       // A dock's own border (and those inside it) are over the layout's: grabbed first.
       this.dividers = [...this.slid.flatMap(d => [...(d.divider ? [d.divider] : []), ...d.placed.dividers]).reverse(), ...ps.dividers];
     }
+    if (host && !host.shown) { this.placed = { rects: new Map(), nodes: new Map(), dividers: [] }; this.slid = []; this.dividers = []; }
     const pinned = [...this.placed.rects];
     // The keys never stay on a tile the room left no cells (a terminal made tiny): the largest tile shown takes them.
     const fr = this.slid.find(d => d.placed.rects.has(this.focus))?.placed.rects.get(this.focus) ?? this.placed.rects.get(this.focus);
@@ -3741,7 +3743,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const shade: Rect = { ...r, cols: r.cols + 1, rows: r.rows + 1 };
       placements = placements.filter(p => !overlaps(p, shade));
       const values = this.lookAt(this.panes.get(id)!, r.cols).values;
-      if (id === this.focus && this.keysHere()) canvas.backdrop(values);
+      if (!host && id === this.focus && this.keysHere()) canvas.backdrop(values);
       canvas.shadow(r, values);
       lay(id, r, false, true);
       // Drawn where it is: not lifted (paintLift draws it) nor in flight (drawn later, where the motion has it).
@@ -3749,10 +3751,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       canvas.under(r, bgRgb(floatTheme(values).bg));
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     }
-    // In flight, a tile is drawn as it is, at the rectangle it is in (its contents move with it: nothing goes dark and comes
-    // back, so nothing pulses), on top of the rest; its pictures are taken away until it lands, so nothing bright slides over
-    // text (src/motion.ts). They land where the layout puts them.
-    // (A tile that was floating, or is, stays above the ones that were not: the floats were over the layout and still are.)
+    // Keep moving floats above moving tiles; pictures return when motion settles.
     const above = (id: number) => (flying?.floated.has(id) || this.isFloat(id) ? 1 : 0);
     for (const [id, r] of [...ghosts].sort((a, b) => above(a[0]) - above(b[0]))) {
       placements = uncover(placements, r);
@@ -3778,7 +3777,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         }
       }
     }
-    this.drawEmpty(canvas);
+    if (!host || host.shown) this.drawEmpty(canvas, host?.root ?? area);
     for (const m of this.models.values()) if (m.drawOver?.(canvas, area)) placements = [];
     if (this.dragging) this.drawGhost(canvas, this.dragging.drawer ? null : this.dragging.drop, this.nameOf(this.dragging.src), this.dragging.x, this.dragging.y, this.dragging.drawer ?? undefined);
     else if (this.elementDrag?.target?.kind === "detach") this.drawGhost(canvas, this.elementDrag.target.drop, "detached part", this.elementDrag.x, this.elementDrag.y);
@@ -3790,10 +3789,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
     else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
     if (this.layout.lift) return { lines: canvas.lines(), placements };
-    return this.finishFrame(canvas, area, cols, rows, placements);
+    return this.finishFrame(canvas, area, cols, rows, placements, !!host);
   }
 
-  private finishFrame(canvas: Canvas, area: Rect, cols: number, rows: number, placements: Placement[]): Frame {
+  private finishFrame(canvas: Canvas, area: Rect, cols: number, rows: number, placements: Placement[], hideHint = false): Frame {
     this.overlayHits = [];
     this.syncModeHint();
     for (const card of this.hintCards()) {
@@ -3834,7 +3833,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A screen mounted in a tile has no hint row of its own: the outermost screen's says the focused tile's keys (PIE-1305).
     // It still works its own chord box out (the person is in it), which draws in its rectangle. A tile lifted out of it
     // is painted over the whole screen (paintLift), and that is the screen's one row.
-    if (this.holder && !this.layout.lift) {
+    if ((this.holder || hideHint) && !this.layout.lift) {
       this.hintRow = -1;
       this.hintFull = null; this.moreChip = null; this.keySpots = []; this.handles = []; this.lockChip = null; this.drawerLockChip = null; this.hyperChip = null;
       this.hintPanel = null;
@@ -3921,9 +3920,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * yet: looking for boards), and a row whose every tile is folded how to open one.
    */
   private readonly homeSurface = new HomeSurface();
-  private drawEmpty(canvas: Canvas) {
+  private homeRect = this.area;
+  private drawEmpty(canvas: Canvas, area = this.area) {
     if (!this.all().length) {
-      this.homeSurface.render(this.title, this.area.cols - 4, this.area.rows - 2).forEach((line, i) => canvas.text(this.area.col + 2, this.area.row + 1 + i, line, this.area.cols - 4));
+      this.homeRect = area; this.homeSurface.render(this.title, area.cols - 4, area.rows - 2).forEach((line, i) => canvas.text(area.col + 2, area.row + 1 + i, line, area.cols - 4));
     }
     for (const c of this.columnsIn()) {
       const at = c.key ? this.placed.nodes.get(c.key) : undefined, say = c.id ? this.models.get(c.id)?.empty?.() : null;
@@ -4136,11 +4136,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     // `edge=bar`: a bar down its left side in the tone (the tile colour for neutral; a state's colour while it has one), over the frame's side.
     if (lv.edge === "bar" && r.rows > 2) for (let y = r.row + 1; y < r.row + r.rows - 1; y++) canvas.text(r.col, y, (edgeC === "tile" || edgeC === toned ? edge(toned ?? "tile") : frameInk) + "▌" + RESET, 1);
-    // The focused tile's ⧉, in its frame's top right corner, floats it by mouse (tile.float, as ^W f); a float's own
-    // ⧉, before its title, puts it back.
-    // Every tile that can close has a × in its top right corner: a click closes it (tile.close, as ^W x; a running
-    // program asks twice). A dock's tile closes by its dock's [×]; one the layout keeps (the board's lanes) has none.
-    // A tab in the drawer has one too (the drawer's own exited program clears to an empty slot).
+    // Frame buttons run the same tile actions as keys, so policy and running-program checks agree.
     if (closes) {
       const x = r.col + r.cols - 2;
       canvas.text(x, r.row, `${fg(focused ? C.grey : C.dark)}${FRAME_GLYPHS.close}${RESET}`, 1);
@@ -4521,7 +4517,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // A dock that slides shut says how, by mouse: [×] closes it as Esc in it does.
       if (dr.open && policyOfNode(this.layout, dr).collapsible) { const x = xNow(); put(` [${FRAME_GLYPHS.close}]`, fg(C.grey)); this.dockCloses.push({ id, row, from: x + 1, to: xNow() }); }
     }
-    const verbs = ["select", "open", "alt"] as const;
+    const verbs = WIRE_VERBS;
     const glyphs = FRAME_GLYPHS;
     const words = verbs.map(verb => this.wireWords(id, verb));
     const wide = verbs.map((verb, i) => ` ${verb} → ${words[i]}`);
@@ -5039,7 +5035,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
     }
     if (this.arriving(this.focus) && (k.kind === "pgup" || k.kind === "pgdn" || k.kind === "up" || k.kind === "down" || k.kind === "char" && !k.ctrl && "jk".includes(k.ch))) this.run("tile.arrival.clear", {}, this.nameOf(this.focus));
-    if (!this.all().length && !this.overlayOpen() && this.homeSurface.press(k.kind === "mouse" ? { ...k, x: k.x - this.area.col - 2, y: k.y - this.area.row - 1 } : k, action => { void ctx.press?.(action); })) return;
+    if (!this.all().length && !this.overlayOpen() && this.homeSurface.press(k.kind === "mouse" ? { ...k, x: k.x - this.homeRect.col - 2, y: k.y - this.homeRect.row - 1 } : k, action => { void ctx.press?.(action); })) return;
     if (k.kind === "mouse" && this.completionFloat && !this.overlays.all().length) {
       const { completer, rect, origin } = this.completionFloat;
       if (completer.shown && k.x >= rect.col && k.x < rect.col + rect.cols && k.y >= rect.row && k.y < rect.row + rect.rows) {
@@ -5429,7 +5425,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (value) desk.run("tile.pick", { ...then, value }, tile);
         return;
       }
-    } else if (c === "s" || c === "a" || c === "o") return desk.run("tile.link", { ask: true, verb: c === "s" ? "select" : c === "a" ? "alt" : "open" }, desk.nameOf(from));
+    } else if (c === "s" || c === "a" || c === "o" || c === "v") return desk.run("tile.link", { ask: true, verb: c === "s" ? "select" : c === "a" ? "alt" : c === "v" ? "hover" : "open" }, desk.nameOf(from));
     if (k.kind === "esc") return desk.run("tile.link", { ask: false }, desk.nameOf(from));
     const tiles = this.screenTiles();
     const rects = new Map(tiles.filter(t => this.linkAccepts(t.pane)).map(t => [t.pane, t.rect]));
@@ -5535,7 +5531,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       });
       return [...targets, ...external].join(", ") || "nowhere";
     }
-    const to = this.placeFrom(id, verb === "alt").route;
+    const to = verb === "hover" ? placement(this.layout, { from: id, verb, note: "", inspect: true }, this.layoutCtx(USER)).route : this.placeFrom(id, true).route;
     if (to && "across" in to) {
       const p = this.storedPane(to.across), target = p ? this.plainPath(this.pathTo(p)) : to.across;
       return to.rule === "beside" ? `beside ${target}` : to.rule === "tab" ? `tab of ${target}` : to.rule === "first-unheld" ? "first reader not pinned" : target;
@@ -5545,7 +5541,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (to && "tab" in to) return `tab of ${this.nameOf(to.tab)}`;
     if (to && "into" in to) return to.into;
     if (to && "next" in to) return "next column";
-    return this.opensOf(id).short;
+    return verb === "hover" ? "the glass" : this.opensOf(id).short;
   }
 
   wireRows(tile: number): PanelRow[] {
@@ -5563,8 +5559,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (f.unlink) rows.push({ label: `  ${f.unlink.label}`, value: "", wide: true, run: f.unlink.run });
       }
     }
-    for (const verb of ["select", "open", "alt"] as const) {
-      const label = verb === "select" ? "Select shows in" : verb === "open" ? "⏎ opens in" : "alt opens";
+    for (const verb of WIRE_VERBS) {
+      const label = verb === "select" ? "Select shows in" : verb === "open" ? "⏎ opens in" : verb === "hover" ? "Hover shows in" : "alt opens";
       rows.push({ label: `${label}: ${this.wireWords(tile, verb)} · pick on screen`, value: "", wide: true, wire: verb, run: () => { this.run("tile.link", { ask: true, verb }, name); }, clear: () => { this.run("tile.link", { verb }, name); } });
     }
     return rows;
@@ -7150,12 +7146,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** What the last frame drew that may sit above your drawer (`drawnAbove`). */
   private raised: { floats: { rect: Rect; shadow: Rect[] }[]; menus: Rect[] } = { floats: [], menus: [] };
-  /**
-   * What this desk drew that may sit above your drawer (PIE-1221; the order is `layerOrder`'s, read by the host layer's
-   * `covers`), in the screen's cells: its floats, each with the cells of its shadow (`shadow`, as `Canvas.shadow` draws it; one dragged by its title stays the
-   * screen's over the drawer, so the drag keeps moving it), and its menus (a picker, a hint card, a completion list,
-   * the ^W panel): the boxes they drew, which have no shadow.
-   */
+  /** Raised regions in terminal cells, shared by the compositor and hit-testing. */
   drawnAbove(): { floats: { rect: Rect; shadow: Rect[] }[]; menus: Rect[] } { return this.raisedFrom(this.screenOrigin); }
   /** `drawnAbove` from `off`: this desk's, then each mounted screen's (a group's tile menu), in the screen's cells. */
   private raisedFrom(off: { col: number; row: number }): { floats: { rect: Rect; shadow: Rect[] }[]; menus: Rect[] } {
@@ -7281,11 +7272,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Float a tile, or land it in its container or beside its opener through screen-layout. */
-  floatTile(sel: string | undefined, actor: Actor, on?: boolean, where?: "right"): TileDone {
+  floatTile(sel: string | undefined, actor: Actor, on?: boolean, where?: "right", to?: "glass"): TileDone {
     const t = this.tile(sel), p = this.panes.get(t.id)!;
+    if (to === "glass") { if (!this.ctx.glass) throw new ActionRefused("this host has no glass"); return this.ctx.glass.float(this, t.name, actor); }
     // on=true|false (PIE-957): the state asked for, so a script that floats every tile never puts back one already floating.
     if (on !== undefined && on === this.isFloat(t.id)) return { ...this.tileAnswer(t.id), floated: on } as TileDone;
-    if (this.ctx?.hostLayer?.isDrawer(this)) throw new ActionRefused(`${t.name} is in the drawer: it doesn't float there · ^W a puts it on the screen, where it floats`);
     const key = this.openedInto(t.id), c = key !== undefined ? node(this.root, key) : null;
     // Ordinary put-back uses the original container; an explicit side belongs to the opener's container.
     const from = peekSource(this.layout, t.id) ?? this.openerOf(t.id);
@@ -7297,8 +7288,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.save(); this.redraw();
       return { ...this.tileAnswer(t.id), floated: false };
     }
-    // A reader that follows something (the board's preview) stays where it follows: a copy of what it shows floats,
-    // opened as the screen's opens are (its readers row's next detail).
+    // Floating a follower keeps its source in place and opens a copy through normal placement.
     const into = this.opensIntoKey();
     if (!this.isFloat(t.id) && into && p instanceof ReaderPane && kindOf(p)?.follower) {
       if (!p.msg) throw new ActionRefused(`${t.name} shows nothing to float yet`);
@@ -7365,7 +7355,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       refused: op => {
         switch (op) {
           case "close": return ask({ op: "close", tile: id });
-          case "float": return inDrawer ? `${t.name} is in the drawer: it doesn't float there` : ask({ op: "float", tile: id });
+          case "float": return ask({ op: "float", tile: id });
           case "zoom": return ask({ op: "zoom", tile: id });
           case "collapse": return this.foldsDrawer(id) ? this.ctx.hostLayer!.foldRefusal(actor) : ask({ op: "collapse", tile: id, on: !this.collapsed.has(id) });
           case "pin": return ask({ op: "pin", tile: id });
@@ -7381,10 +7371,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private origin(id: number, r: Rect): Rect {
     return this.contents.get(id) ?? { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
   }
-  /**
-   * Screen cell `x`, `y` in tile `id` (its frame at `r`) as a cell of its content: a press in its padding or beside its
-   * measure is the nearest cell of the content (a line's start or end), never nothing and never a cell the tile didn't draw.
-   */
+  /** Clamp padding presses to the nearest content cell. */
   private local(id: number, r: Rect, x: number, y: number): { x: number; y: number } {
     const c = this.origin(id, r), gutter = this.gutters.get(id);
     const popup = this.views.get(id)?.view.completion?.drawn;
@@ -7407,6 +7394,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = this.local(id, r, x, y);
     return !!this.panes.get(id)?.ownsRightClick?.(at.x, at.y);
   }
+
+  floatingTiles() { return this.floats.map(f => ({ tile: this.tileId(f.id), name: this.nameOf(f.id), pane: this.panes.get(f.id)!, rect: keepOnScreen(f.rect, this.area) })); }
+  hoverAt(x: number, y: number): { desk: Desk; tile: string; target?: import("../refs").LinkTarget; text?: string; rect: Rect } | null {
+    const hit = this.hits.find(([, r]) => x >= r.col && y >= r.row && x < r.col + r.cols && y < r.row + r.rows);
+    if (!hit) return null;
+    const [id, r] = hit, p = this.panes.get(id), at = this.origin(id, r);
+    if (p instanceof ScreenTile) return p.inner?.hoverAt(x - at.col, y - at.row) ?? null;
+    const h = p instanceof ReaderPane ? p.surface.hoverAt(x - at.col, y - at.row) : null;
+    const cut = !h ? this.ctx.overflow?.targetAt(x + this.screenOrigin.col, y + this.screenOrigin.row) : null;
+    return h ? { desk: this, tile: this.nameOf(id), target: h.target, rect: { ...h.rect, col: h.rect.col + at.col + this.screenOrigin.col, row: h.rect.row + at.row + this.screenOrigin.row } } : cut ? { desk: this, tile: this.nameOf(id), ...cut } : null;
+  }
+  async hoverInto(tile: string, m: Msg): Promise<boolean> { return !!this.placeNote(m, { from: this.tile(tile).id, verb: "hover", note: m.id, keys: false }, USER); }
 
   /** `float.place`: move or size a float, kept on the screen. */
   placeFloat(sel: string | undefined, a: { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }, actor: Actor): TileDone {
@@ -7583,7 +7582,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!host) throw new ActionRefused("this door has no drawer here (the logon and the logoff have none)");
     const t = this.tile(sel);
     if (host.isDrawer(this)) {
-      if (on === true) return { ...this.tileAnswer(t.id), inDrawer: true, changed: false };
+      if (on === true) { if (this.isFloat(t.id)) this.floatTile(t.name, actor, false); return { ...this.tileAnswer(t.id), inDrawer: true }; }
       return host.take(t.name, to, where, actor);
     }
     // From a screen, on=false brings the drawer's tab shown here, beside tile= (^W A); a tile in the drawer by name is the drawer's own request.
@@ -7796,22 +7795,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Where a tile moved here would land: beside `to` (the person's tile when left out), `where` (into the tabs of `to` here when this screen is the drawer). */
-  private landingFor(to: string | undefined, where: Where | undefined): { at: At<number>; base: string; where: Where } {
+  private landingFor(to: string | undefined, where: Where | undefined, floating?: Rect): { at: At<number>; base: string; where: Where } {
+    if (floating) return { at: { kind: "float", rect: floating }, base: "glass", where: "right" };
     if (!this.all().length) return { at: { kind: "edge", dir: "right" }, base: "home", where: "right" };
     const base = this.tile(to), w = where ?? (this.ctx?.hostLayer?.isDrawer(this) ? "tabs" : "right");
     return { at: placeOf(w, base.id), base: base.name, where: w };
   }
   /** Why `moved` can't come into this screen there, or null (nothing is done). */
-  bringRefusal(moved: { name: string; spec: TileSpec }, to: string | undefined, where: Where | undefined, actor: Actor): string | null {
+  bringRefusal(moved: { name: string; spec: TileSpec }, to: string | undefined, where: Where | undefined, actor: Actor, floating?: Rect): string | null {
     let l: ReturnType<Desk["landingFor"]>;
-    try { l = this.landingFor(to, where); } catch (e) { return (e as Error).message; }
+    try { l = this.landingFor(to, where, floating); } catch (e) { return (e as Error).message; }
     return refusal(this.layout, { op: "open", tile: this.nextId, kind: moved.spec.kind, name: moved.name, loose: true, at: l.at }, this.layoutCtx(actor));
   }
   /** A tile moved here whole (`takeOut` on another screen, or the drawer): it joins this layout as it is, by the layout's open. */
-  bringIn(moved: MovedTile, to: string | undefined, where: Where | undefined, actor: Actor): TileDone {
-    const l = this.landingFor(to, where), kind = moved.spec.kind;
+  bringIn(moved: MovedTile, to: string | undefined, where: Where | undefined, actor: Actor, floating?: Rect): TileDone {
+    const l = this.landingFor(to, where, floating), kind = moved.spec.kind;
     const id = this.nextId;
-    const r = this.ask({ op: "open", tile: id, kind, name: moved.name, loose: true, deliberate: moved.pane.deliberate ?? false, at: l.at }, actor);
+    const r = this.ask({ op: "open", tile: id, kind, name: moved.name, loose: true, deliberate: moved.pane.deliberate ?? false, ...(floating ? { keys: false } : {}), at: l.at }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
     this.put(moved.pane);
     this.movedIn.add(id);

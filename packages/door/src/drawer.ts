@@ -1,34 +1,10 @@
 import type { Reveal } from "./reveal";
-// The host layer and its drawer (PIE-513; PIE-498): what stays with the person on every screen, above the screen layer
-// that is swapped per screen. It is a layout on the one layout engine (`hostLayer` in src/desk/screen-layout.ts): a
-// slot for whatever screen is shown, beside a drawer. The drawer is the drawer: it holds tiles that belong to the App,
-// not to a screen, as tabs, and they travel with the person across screens. Its agents are ordinary terminal tabs with
-// role `agent` (PIE-1331): a new one runs the last agent picked (`drawerProgram`, src/desk/drawer-program.ts:
-// EP0CH_DAILY_AGENT, else the pick, else a shell, in the folder that rule names), and a pick never ends one; any tile
-// joins it (`tile.drawer`, ^W a, a drag onto the chip or the drawer) and leaves it into the screen shown the same ways.
-// A tile moved in or out is the same tile: its program runs on (a session's terminal host keeps it under the key it
-// started with, `PtyPane.keptKey`), its note, history and draft stay.
-//
-// The drawer's tiles live on one desk of their own (`hostSpec`: a tab set on the one screen host, saved in
-// drawer-tiles.json in the outline's folder of the state dir), so a reader in the drawer edits, a tree in the drawer opens, a terminal in the drawer
-// types exactly as on any screen: no second tile host. The host layer places that desk; its drawer is the
-// only drawer the drawer has. A chip on the status bar (`▲ claude`, `▲ shell +2`) pulls it up. Where it appears is the
-// screen's to say (its policy's `host`): `over` its lower rows (the default), `beside` it (the screen drawn shorter),
-// or `none`.
-//
-// The person's keys move through the host layer's own transitions: pulled up by the person, they go to the drawer's tab
-// shown; put away (or ctrl+]), back to the screen slot, where the screen's own focus is exactly as they left it. An
-// agent's pull never takes them.
-//
-// Everything is an action (`DRAWER_ACTIONS`: `host.toggle`, `host.size`, `host.enter`, `host.leave`; `tile.drawer` is a
-// tile action on every screen and in the drawer; and, for the agent tab used last, `agent.type`, `agent.knows`,
-// `agent.restart`). An agent may pull it up only under the actor rule for what changes the person's screen
-// (`touches: "screen"`, PIE-514), it's said on the status bar and in the drawer's title, and an agent never enters it.
-// Whether it's open and how tall is saved in drawer.json, so it's still there after a screen switch and a restart.
-//
-// The chip also says what the agent tab used last knows (src/desk/agent-env.ts): `door tools`, or `started before update ⟳`
-// / `no door tools ⟳` (⟳ restarts it, keeping the conversation).
-import type { Ctx, Screen } from "./app";
+// The App owns one desk of host tiles, saved in drawer-tiles.json. Its docked tiles occupy the drawer;
+// its floats occupy the glass above every screen. Moving a tile between desks keeps the same pane,
+// program, note, history and draft. Both layouts change only through screen-layout.apply.
+// The drawer's own rectangle uses the host layout's screen slot and dock. Focus moves through that
+// layout too; entering a glass float uses quiet focus, so it never opens or rearranges the drawer.
+import type { Ctx, Screen, Frame } from "./app";
 import { Canvas, type Rect } from "./canvas";
 import { agentConfig, herdrBin, herdrRunner, paneAgentPid, WATCH_TITLE, type HerdrRun } from "./desk/herdr-agent";
 import { DRAWER_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
@@ -175,10 +151,12 @@ export class AgentDrawer {
   get knowsPid(): number | null { const p = this.tile; return p ? this.knowledge.get(p)?.pid ?? null : null; }
   /** A restart under way: the chip says so, and a second one waits for it. */
   restarting: Promise<RestartDone> | null = null;
+  private readonly restoresGlass: boolean;
 
   /** `persist`: read and write drawer.json (a test's drawer may not). `herdr`: how Herdr is asked (a fake in tests). */
   constructor(private readonly host: DrawerHost, private readonly persist = true, private readonly herdr: HerdrRun | null = defaultHerdr()) {
     const s = persist ? readState<Partial<DrawerSaved>>("drawer.json") : null;
+    this.restoresGlass = persist && !!readState<{ floats?: unknown[] }>("drawer-tiles.json", outlineState())?.floats?.length;
     const open = !!s && typeof s === "object" && s.open === true;
     this.strip = open && s?.folded === true;
     const share = s && typeof s.share === "number" && Number.isFinite(s.share) ? clamp(s.share) : 0.5;
@@ -410,6 +388,8 @@ export class AgentDrawer {
   goTo(p: Pane, actor: Actor, o: { zoom?: boolean | ZoomReach } = {}): { tile: string; name: string; in: "drawer" | "screen"; raised?: string } {
     const d = this.d, inDrawer = d?.nameOfPane(p) ?? "";
     if (d && inDrawer) {
+      const float = d.floatingTiles().find(f => f.pane === p);
+      if (float && actor.kind === "user") { this.enterGlass(float.tile); this.host.redraw(); return { tile: float.tile, name: float.name, in: "drawer" }; }
       if (!this.open) { this.offered = true; this.set(true, actor); }
       this.do({ op: "focus", tile: HOST_TILES }, actor);
       d.focusTile(inDrawer, actor);
@@ -699,10 +679,10 @@ export class AgentDrawer {
     if (!ctx) return null;
     const fresh = !this.persist || readState<unknown>("drawer-tiles.json", outlineState()) === null;
     // Its tiles' ids are `k<n>`: a tile in the drawer's id is never a screen tile's (tile= reaches either by id).
-    const d = new Desk(hostSpec(this.persist), { where: () => this.whereIn(), idPrefix: "k" });
+    const d = new Desk(hostSpec(this.persist), { where: () => this.whereIn(), idPrefix: "k", area: { col: 0, row: 0, cols: this.cols, rows: this.rows - 1 } });
     this.d = d;
     d.enter(ctx);
-    d.shownAs(this.shown);
+    d.shownAs(this.shown || !!d.floatingTiles().length);
     // As the spec's own tile would be: the drawer's focus, which is no one's keys until the person goes in.
     if (fresh && !d.tileCount()) this.firstTab = this.agentTab(d, USER);
     // Not when first drawn (PIE-1342): asked before the drawer is up, the agent tab names its running program, and a lift lifts that one.
@@ -769,7 +749,8 @@ export class AgentDrawer {
     const d = this.desk;
     if (!d) return [];
     // Chip reads must not materialize every tile's inspection and terminal scrollback.
-    const tiles = d.tileOutline();
+    const floats = d.floatingTiles();
+    const tiles = d.tileOutline().filter(t => !floats.some(f => f.tile === t.id));
     // A terminal's pid: `ep0ch where` from its program finds it here, though it started on another screen (its EP0CH_TILE_ID was that one's).
     return tiles.map(t => { const p = d.pane(t.name), pid = p instanceof PtyPane ? p.pid : undefined; return { name: t.name, id: t.id, kind: t.kind, title: t.label, shown: d.shownNow(p!), focused: this.entered && t.focused, ...(pid ? { pid } : {}) }; });
   }
@@ -804,12 +785,13 @@ export class AgentDrawer {
    * The person is in the drawer: every key but ctrl+], alt+a, alt+A, alt+s and alt+g is the drawer's tab's. Never set by an
    * agent. With the drawer down, that's the tile of it they went into lifted (PIE-1359), while that lift lasts.
    */
-  get entered(): boolean { return this.mode !== "none" && this.keysIn; }
+  get entered(): boolean { return this.glassHasKeys() || this.mode !== "none" && this.keysIn; }
   /**
    * The person's keys are the drawer's, shown or not: a screen with no drawer (the message log) hides it over them, and
    * closing that screen hands them back to the drawer's tab (PIE-1431: an Esc there is that screen's, never the agent's).
    */
   get keysIn(): boolean {
+    if (this.glassHasKeys()) return true;
     if (this.keys === HOST_SCREEN) return false;
     return this.liftIn !== null ? this.inLift() : this.open;
   }
@@ -1082,7 +1064,7 @@ export class AgentDrawer {
     if (open && this.ctx(actor).standing) { this.liftIn = null; this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
     if (open) this.openedBy = actor.kind === "agent" ? (this.entered ? null : actor) : null;
     else { this.openedBy = null; this.capture = null; this.dragging = false; }
-    this.d?.shownAs(this.shown);
+    this.d?.shownAs(this.shown || !!this.d.floatingTiles().length);
     this.save();
     // Pulled up by the person with no agent chosen for this session yet: the picker is offered (once a door).
     if (open && this.tabs().length > 0 && actor.kind !== "agent" && this.prog.from === "none" && !this.offered && this.persist && this.host.ctx?.()) { this.offered = true; void this.run?.("host.agent", {}); }
@@ -1155,7 +1137,7 @@ export class AgentDrawer {
       if ((moved.typing || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
       this.save();
     }
-    this.d?.shownAs(this.shown);
+    this.d?.shownAs(this.shown || !!this.d.floatingTiles().length);
     this.host.redraw();
     return { ...done, inDrawer: true, from: moved.from };
   }
@@ -1182,7 +1164,7 @@ export class AgentDrawer {
     if (want) { this.d?.stopTyping(); this.wantIn = null; this.capture = null; this.dragging = false; }
     else if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.desk!.focusTile(name, actor); this.leftAt = 0; this.openedBy = null; }
     this.save();
-    this.d?.shownAs(this.shown);
+    this.d?.shownAs(this.shown || !!this.d.floatingTiles().length);
     this.host.redraw();
     return done(want);
   }
@@ -1356,49 +1338,53 @@ export class AgentDrawer {
    * The drawer, full width, laid over the screen's bottom rows: its bar (what's in it, who pulled it up, the edge to
    * drag), the drawer's desk (its tiles, the tab shown, tabs in its header when it holds more than one), and its keys.
    */
+  private hostFrame: Frame = { lines: [] };
+  glassFrame() { return { ...this.hostFrame, rects: this.d?.drawnAbove().floats.flatMap(f => [f.rect, ...f.shadow]) ?? [], menus: this.shown || this.glassHasKeys() ? this.d?.drawnAbove().menus ?? [] : [] }; }
   render(cols: number, rows: number, screen: string): { rect: Rect; lines: string[]; placements: Placement[] } {
-    const r = this.place(cols, rows);
-    this.rect = r;
-    const canvas = new Canvas(cols, r.rows);
-    canvas.clear({ col: 0, row: 0, cols, rows: r.rows }, bg(C.black));
-    // Folded: the strip is the drawer's title and how it opens, as a spine says it; its tiles aren't drawn (and don't type).
-    // Its layout locked (PIE-1346): the frame says so, as the hint row's chip does, so a refusal from in here isn't a riddle.
-    const lockChip = this.desk?.screenLocked() ? lockChipText(this.desk.layoutSelf()) : "";
-    const lock = lockChip ? ` ${chipStyle(C.yellow, C.black)}${lockChip}${bg(C.black)}` : "";
-    /** Where the lock chip lands on the frame, after `head`: a click there unlocks the drawer (as the hint row's chip does). */
-    const lockFrom = (head: string) => { this.lockAt = lockChip ? { from: r.col + width(head) + 1, to: r.col + width(head) + 1 + width(lockChip) } : null; };
-    if (this.folded) {
-      const edge = this.entered ? C.yellow : C.brown;
-      lockFrom(`══ ${this.chipText()}`);
-      canvas.text(0, 0, `${fg(edge)}${"═".repeat(2)} ${fg(this.entered ? C.yellow : C.white)}${this.chipText()}${lock} ${fg(C.dark)}· + ⏎ or a click opens it · esc leaves ${fg(edge)}${"═".repeat(Math.max(0, cols))}${RESET}`, cols);
-      return { rect: r, lines: canvas.lines(), placements: [] };
+    const r = this.place(cols, rows), d = this.shown || this.restoresGlass ? this.desk : this.d;
+    this.rect = this.shown ? r : null;
+    const canvas = new Canvas(cols, r.rows), ctx = this.host.ctx?.();
+    this.hostFrame = { lines: [] };
+    if (d && ctx) {
+      d.shownAs(this.shown || !!d.floatingTiles().length);
+      d.screenOrigin = { col: 0, row: 0 };
+      const sized = new Proxy(ctx, { get: (o, k) => k === "t" ? { ...o.t, cols, rows } : typeof (o as any)[k] === "function" ? (o as any)[k].bind(o) : (o as any)[k] });
+      this.hostFrame = d.render(sized, { root: { col: 0, row: r.row + 1, cols, rows: Math.max(0, r.rows - 2) }, shown: this.shown && !this.folded && r.rows >= 4, area: { col: 0, row: 0, cols, rows: rows - 1 } });
+      if (this.glassReturn && !d.floatingTiles().some(f => f.tile === this.glassReturn!.tile)) this.restoreGlassKeys();
+      this.hostFrame.lines.slice(r.row + 1, r.row + r.rows - 1).forEach((l, i) => canvas.text(0, i + 1, l, cols));
+      if (this.wantIn && this.entered) { const w = this.wantIn; queueMicrotask(() => { if (this.wantIn === w) this.intoShown(w.send); }); }
     }
+    const lockChip = d?.screenLocked() ? lockChipText(d.layoutSelf()) : "";
+    const lock = lockChip ? ` ${chipStyle(C.yellow, C.black)}${lockChip}${bg(C.black)}` : "";
     const pane = this.shownPane(), p = pane instanceof PtyPane ? pane : null;
     const by = this.openedBy ? ` · ${fg(C.lmagenta)}pulled up by ${agentLabel(this.openedBy)}${fg(C.yellow)}` : "";
-    const watching = this.state() === "watching";
-    const where = watching ? ` · ${fg(C.lcyan)}another door has it${fg(C.yellow)}` : p?.herdr ? ` · in Herdr (${p.herdr.pane})` : "";
-    const edge = this.dropHover ? C.yellow : this.entered ? C.yellow : C.brown;
-    const title = this.dropHover ? `${chipStyle(C.yellow, C.black)} ⤓ release: ${this.dropHover} ${this.dropSays} ${bg(C.black)}` : `${fg(this.entered ? C.yellow : C.white)}${this.chipText()}${fg(C.yellow)}${where}${by}${lock} ${fg(C.dark)}· ↕ drag this edge${lock ? "" : " · ⤓ drop a tile here"}`;
-    if (this.dropHover) this.lockAt = null; else lockFrom(`══ ${this.chipText()}${where}${by}`);
-    canvas.text(0, 0, `${fg(edge)}${"═".repeat(2)} ${title} ${fg(edge)}${"═".repeat(Math.max(0, cols))}${RESET}`, cols);
-    let placements: Placement[] = [];
-    const d = this.desk;
-    if (d && r.rows >= 4) {
-      d.shownAs(true);
-      d.screenOrigin = { col: 0, row: this.deskRow() };
-      // The desk draws its tiles in the rows between the bar and the drawer's own key row (its hint row isn't drawn:
-      // the frame's own hint and the drawer's row say the keys).
-      // The App's own context, its terminal the drawer's size (cell size and graphics as they are).
-      const ctx = this.host.ctx?.();
-      const sized = ctx ? new Proxy(ctx, { get: (o, k) => (k === "t" ? { ...o.t, cols, rows: r.rows } : typeof (o as any)[k] === "function" ? (o as any)[k].bind(o) : (o as any)[k]) }) : ({ t: { cols, rows: r.rows, cellW: 9, cellH: 16, kitty: false } } as unknown as Ctx);
-      const frame = d.render(sized);
-      frame.lines.slice(0, r.rows - 2).forEach((l, i) => canvas.text(0, 1 + i, l, cols));
-      // Drawn, a terminal the person went into has started: their keys go into it now.
-      if (this.wantIn && this.entered) { const w = this.wantIn; queueMicrotask(() => { if (this.wantIn === w) this.intoShown(w.send); }); }
-      placements = (frame.placements ?? []).filter(pl => pl.row + pl.rows <= r.rows - 2).map(pl => ({ ...pl, row: pl.row + r.row + 1 }));
-    }
-    canvas.text(1, r.rows - 1, fg(C.dark) + (this.entered ? "drawer · - folds it · esc steps out · esc again puts it away" : "drawer · esc puts it away") + RESET, cols - 2);
+    const where = this.state() === "watching" ? ` · ${fg(C.lcyan)}another door has it${fg(C.yellow)}` : p?.herdr ? ` · in Herdr (${p.herdr.pane})` : "";
+    const edge = this.dropHover || this.entered ? C.yellow : C.brown;
+    const head = `══ ${this.chipText()}${this.folded ? "" : where + by}`;
+    this.lockAt = lockChip && !this.dropHover ? { from: r.col + width(head) + 1, to: r.col + width(head) + 1 + width(lockChip) } : null;
+    const hint = this.folded ? "· + ⏎ or a click opens it · esc leaves" : `· ↕ drag this edge${lock ? "" : " · ⤓ drop a tile here"}`;
+    const title = this.dropHover ? `${chipStyle(C.yellow, C.black)} ⤓ release: ${this.dropHover} ${this.dropSays} ${bg(C.black)}` : head + lock + fg(C.dark) + " " + hint;
+    canvas.text(0, 0, fg(edge) + title + " " + "═".repeat(cols) + RESET, cols);
+    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + (this.entered ? "drawer · - folds it · esc steps out · esc again puts it away" : "drawer · esc puts it away") + RESET, cols - 2);
+    const placements = (this.hostFrame.placements ?? []).filter(pl => pl.row >= r.row + 1 && pl.row + pl.rows < r.row + r.rows);
     return { rect: r, lines: canvas.lines(), placements };
+  }
+
+  private glassReturn: { keys: string; focus: string | null; tile: string } | null = null;
+  glassHasKeys(tile?: string): boolean { return !!this.glassReturn && (!tile || this.glassReturn.tile === tile); }
+  private enterGlass(tile: string) {
+    this.glassReturn ??= { keys: this.keys, focus: this.d?.focusName() ?? null, tile };
+    this.glassReturn.tile = tile;
+    this.liftIn = null;
+    this.do({ op: "focus", tile: HOST_TILES, quiet: true }, USER);
+    this.d!.focusTile(tile, USER);
+  }
+  restoreGlassKeys() {
+    const back = this.glassReturn;
+    if (!back) return;
+    this.glassReturn = null;
+    if (back.focus && this.d?.pane(back.focus)) this.d.focusTile(back.focus, USER);
+    this.do({ op: "focus", tile: back.keys, quiet: true }, USER);
   }
 
   // ── keys and the mouse (App.key gives them here first) ──
@@ -1420,8 +1406,25 @@ export class AgentDrawer {
     };
   }
 
+  glassInput(k: Key): boolean {
+    const ctx = this.host.ctx?.(), d = this.d;
+    if (d && ctx) {
+      if (k.kind === "mouse") {
+        const f = d.floatingTiles().findLast(f => k.x >= f.rect.col && k.x < f.rect.col + f.rect.cols && k.y >= f.rect.row && k.y < f.rect.row + f.rect.rows);
+        const menu = d.drawnAbove().menus.some(r => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
+        if (f || this.glassHasKeys() && (d.floatGesture() || menu)) {
+          if (f && k.action === "down") this.enterGlass(f.tile);
+          d.key(k, ctx); return true;
+        }
+        if (k.action === "down" && this.glassHasKeys()) this.restoreGlassKeys();
+      } else if (this.glassHasKeys()) { d.key(k, ctx); return true; }
+    }
+    return false;
+  }
+
   /** A key or a mouse event, before the screen: true when the drawer took it. `screen` is the one under it. */
   key(k: Key, screen: Screen | undefined, rows: number, run: DrawerRun): boolean {
+    if (this.glassInput(k)) return true;
     if (!this.active) return false;
     if (k.kind === "mouse") return this.mouse(k, screen, rows, run);
     if (this.entered) {
@@ -1550,9 +1553,6 @@ export class AgentDrawer {
     return { entered: false };
   }
 
-  /** The drawer's desk's rows on the terminal: the drawer's, below its bar. */
-  private deskRow(): number { return (this.rect?.row ?? 0) + 1; }
-
   /**
    * The drawer's cells the screen shown draws over (PIE-1221), by the one layer order (`layerOrder`): its menus always,
    * its floats unless the person is in the drawer. The frame paints the screen's cells there (`paint`, shadows
@@ -1597,7 +1597,7 @@ export class AgentDrawer {
         return true;
       }
       if (screen.linkingHere() && inDrawer) {
-        this.d.key({ ...k, y: k.y - this.deskRow() }, this.host.ctx!()!);
+        this.d.key(k, this.host.ctx!()!);
         return true;
       }
     }
@@ -1610,7 +1610,7 @@ export class AgentDrawer {
       // Over the drawer's body it lands where the drawer desk's own drop zones say (an edge of a tile, its tab strip: the
       // ghost it draws), as a tile dragged onto a group does; over the chip, or where no zone is, it goes in as a tab.
       const kind = (screen!.pane(dragged) as { kind?: string } | undefined)?.kind ?? "tile";
-      const zone = inDrawer && !onChip && this.d && r!.rows >= 4 ? this.d.foreignAt(k.x, k.y - this.deskRow(), { name: dragged, kind }) : null;
+      const zone = inDrawer && !onChip && this.d && r!.rows >= 4 ? this.d.foreignAt(k.x, k.y, { name: dragged, kind }) : null;
       if (!zone) this.d?.cancelDrag();
       // What the release will do is what `tile.drawer` will do: the screen keeping its last tile, the drawer's layout refusing the place, the zone's own refusal.
       const why = over ? this.putRefusal(screen!, dragged, USER, zone?.to, zone?.where ?? undefined) ?? zone?.refused ?? null : null;
@@ -1646,7 +1646,7 @@ export class AgentDrawer {
     if (out && r && k.y >= r.row) screen?.cancelDrag();
     if (this.capture) {
       // A press in the drawer keeps the mouse until the button comes up (a terminal's drag, a tab dragged).
-      if (k.action === "drag" || k.action === "up") this.d?.key({ ...k, y: k.y - this.deskRow() }, this.host.ctx!()!);
+      if (k.action === "drag" || k.action === "up") this.d?.key(k, this.host.ctx!()!);
       if (k.action === "up") this.capture = null;
       return true;
     }
@@ -1672,7 +1672,7 @@ export class AgentDrawer {
       if (!this.entered || this.liftIn !== null) { this.liftIn = null; this.do({ op: "focus", tile: HOST_TILES }, USER); this.leftAt = 0; this.openedBy = null; }
       this.capture = r;
     }
-    d.key({ ...k, y: k.y - this.deskRow() }, ctx);
+    d.key(k, ctx);
     this.host.redraw();
     return true;
   }

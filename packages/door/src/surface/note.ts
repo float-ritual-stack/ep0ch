@@ -4795,6 +4795,11 @@ export class NoteSurface {
     return i < 0 ? null : this.runKey("element.select", { n: i + 1 }, host);
   }
 
+  hoverAt(x: number, y: number): { target: LinkTarget; rect: { col: number; row: number; cols: number; rows: number } } | null {
+    const h = this.hitAt(x, y - (this.drawn?.heroRows ?? 0));
+    return h && "link" in h && (h.link.block || h.link.page) ? { target: h.link, rect: { col: h.from, row: h.row + (this.drawn?.heroRows ?? 0), cols: h.to - h.from, rows: 1 } } : null;
+  }
+
   /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
   private hitAt(x: number, y: number): Hit | undefined {
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
@@ -8396,13 +8401,7 @@ export class NoteSurface {
     return m ? { msg: m, position: structuredClone(this.position), cur: this.cur, link: this.link, folded: [...this.folded], previewLists: [...this.previewLists], previewOpen: [...this.previewOpen], expanded: [...this.expanded], foldedThreads: [...this.foldedThreads], seen: [...this.foldSeen], figures: [...this.figureUI], zoom: this.zoom } : null;
   }
 
-  /**
-   * Run a navigation (a followed link, `u`, or a host opening a note into this reader on purpose: an agent's
-   * `open`, a card's ⏎ into a detail, a selection wired to it: a links tile's pick, a preview's source, PIE-1426) so
-   * that, when it leaves this reader on another note, back comes here, whichever tile changed it (a wired preview is
-   * tracked too).
-   */
-  track<T>(open: () => T): T {
+  /** Track an explicit navigation once; back returns to the note and position it left. */  track<T>(open: () => T): T {
     const from = this.place();
     // A navigation inside a navigation (a host's open reached from a follow) is recorded once, by the outer one.
     const outer = this.tracking++ === 0;
@@ -8417,6 +8416,17 @@ export class NoteSurface {
     return out;
   }
 
+  /** Append at the end of a bounded hover trail, even when the person has flipped back into it. */
+  remember(m: Msg, host: SurfaceHost, limit: number, actor: Actor): boolean {
+    const latest = this.aheads[0]?.msg ?? this.msg;
+    if (latest?.id === m.id) return false;
+    const here = this.place(), trail = [...this.backs, ...(here ? [here] : []), ...this.aheads.toReversed()];
+    if (!this.show(m, host, actor)) return false;
+    this.backs = trail.slice(-Math.max(0, limit - 1));
+    if (limit === 1) this.backs = [];
+    this.aheads = []; this.keptChanged?.(); return true;
+  }
+
   /** Back (-1) or forward (1) walks this reader's own stops, not the view's trail (SurfaceHost.history). */
   travelsHere(dir: -1 | 1): boolean { return (dir < 0 ? this.backs : this.aheads).length > 0; }
 
@@ -8426,12 +8436,7 @@ export class NoteSurface {
     return p ? subject(p.msg) : this.kept?.peek(dir) ?? null;
   }
 
-  /**
-   * Back (-1) or forward (1): this reader shows the note it showed there, re-read, scrolled and with its `[ ]`
-   * position, folds and expanded threads as they were, so ⏎ and alt+⏎ act on the same element at once. Only
-   * this reader moves (in place, not through the host's navigate: nothing else follows it). Where the view
-   * keeps a trail (SurfaceHost.history), that trail takes over after local replacements. Null when it went, else why not.
-   */
+  /** Walk this reader's history, keeping its position and rereading the destination. */
   async travel(dir: -1 | 1, host: SurfaceHost, actor: Actor = USER, steps = 1): Promise<string | null> {
     this.use(host);
     // `steps` stops at once (the trail's choice, PIE-208): the ones passed over go on the other stack, as one by one.
@@ -8441,7 +8446,7 @@ export class NoteSurface {
     if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
     const holding = this.modes.holding();
     if (holding) return `finish ${holding} first · ${this.holdingHint()}`;
-    const fresh = await readNote(outlineBoards(host.ctx).home(), to.msg.id, to.msg.address).catch(() => null);
+    const fresh = to.msg.id.startsWith("glass:") ? { ...to.msg, text: to.msg.id.slice(6), partial: false } : await readNote(outlineBoards(host.ctx).home(), to.msg.id, to.msg.address).catch(() => null);
     if (stack[stack.length - steps] !== to) return "the reader moved meanwhile";
     const here = this.place();
     const note = fresh ?? to.msg;
@@ -8458,11 +8463,7 @@ export class NoteSurface {
     return null;
   }
 
-  /**
-   * The reader's place and its back and forward stacks, as a layout saves them (PIE-643): a handover or a restart
-   * gives the reader back where it was. A view-owned trail is kept by the layout; local replacements still save
-   * their own Back and Forward steps.
-   */
+  /** The reader's place and history, kept across restarts. */
   saveNav(): SavedNav | null {
     if (this.kept && !this.backs.length && !this.aheads.length) return null;
     const here = this.place();
@@ -8470,10 +8471,7 @@ export class NoteSurface {
     return here || out.backs.length || out.aheads.length ? out : null;
   }
 
-  /**
-   * Take a saved place back (the layout's, validated here): the stacks always, and where this reader was when it is
-   * showing that same note now. Whatever isn't this version's shape is dropped, never guessed at. True when anything was taken.
-   */
+  /** Restore the current-version history and, on the same note, its position. */
   restoreNav(raw: unknown): boolean {
     const nav = readNav(raw);
     if (!nav) return false;

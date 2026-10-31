@@ -55,6 +55,7 @@ import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme"
 import { stateDir, writeState } from "./state";
 import { alertMark, readAlert } from "./backup/alert";
 import type { AgentSession } from "./desk/agent-sessions";
+import { Glass, GLASS_ACTIONS } from "./glass";
 import { AgentDrawer, DRAWER_ACTIONS, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
 import { namesAgent, type ResolveOpts } from "./desk/tile-address";
 import { layerOrder, type HostMode } from "./desk/screen-layout";
@@ -170,6 +171,7 @@ export function pressOf(k: Key): string | null {
 export const TEST_APPS = Symbol.for("ep0ch.test.apps");
 
 export interface Ctx {
+  readonly glass?: Glass;
   /** Where a framed screen sits in a desk's undo order (the desk's `layoutUndoSeq`/`untrash`), so a reader in a tile hands ctrl+z on as one on the desk does (PIE-1470). */
   layoutUndoSeq?(): number | undefined;
   untrash?(board: object): boolean;
@@ -588,6 +590,7 @@ export class App implements Ctx {
   }
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
   readonly drawer: AgentDrawer;
+  readonly glass: Glass;
 
   /** The power bar while it's open (PIE-656): over every screen and the drawer, with the person's keys. */
   bar: PowerBar | null = null;
@@ -659,6 +662,7 @@ export class App implements Ctx {
       const hit = this.statusBoxes.find(h => h.item.id === "drawer");
       return hit ? { from: hit.from, to: hit.to, row: this.term.info.rows - 1 } : null;
     }, redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });
+    this.glass = new Glass(this, this.drawer);
     // The drawer's keys and clicks run the host layer's actions as the person, through the App's dispatcher.
     this.drawerRun = (name, args) => { void this.dispatch.pressIn(DRAWER_ACTIONS, name, args); };
     this.drawer.run = (name, args) => this.dispatch.pressIn(DRAWER_ACTIONS, name, args);
@@ -711,6 +715,7 @@ export class App implements Ctx {
    */
   retire(): void {
     this.closed = true;
+    this.glass.dispose();
     stopCompletion(this.board);
     this.offResize();
     this.offStatus();
@@ -1126,7 +1131,7 @@ export class App implements Ctx {
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}),
       nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
-      ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
+      ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), glass: this.glass.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
       messages: this.messages.rows,
       pointers: this.agentPointers.list(),
       // How the door is keeping up (a475084a): frames drawn against reports handled, the hover reports a busier moment folded into the newest, and the settle: the last input of a burst to the frame that shows it.
@@ -1227,6 +1232,7 @@ export class App implements Ctx {
   recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run); }
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
+    { set: GLASS_ACTIONS, takes: "none", on: () => this.glass },
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && namesAgent(req.tile), on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => this.drawer.agentRef(), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>, tile?: string) => this.dispatch.act({ action: name, args, ...(tile ? { tile } : {}) }, how.actor) }) },
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing ? this.keysScreen() : this.stack.at(-1) }) },
@@ -1370,15 +1376,7 @@ export class App implements Ctx {
     this.done();
   }
 
-  /**
-   * Hover reports (the pointer moving with no button, ?1003h: one for every cell it crosses) are handled at most once a
-   * frame, and the one handled is the newest (PIE-1300): the pointer is where the last report put it, so the cells it
-   * crossed on the way aren't drawn. The newest is held until the batch being read ends, or, when one was handled less
-   * than a frame ago, until the frame is up: across reads, whatever size the link delivers them in. The one owner of
-   * that is here, beside `redraw`'s own once-a-frame rule. A click, a key, a press, a release or a drag with a button
-   * held is never held or dropped: it flushes the held hover first, so it is handled after it, at once.
-   */
-  private hovering: Key | null = null;
+  /** Coalesce hover once per frame; a click or key flushes it first, preserving input order. */  private hovering: Key | null = null;
   private hoverTimer: Timer | null = null;
   private hoverAt = 0;
   /** What the door counts about its own speed, always on and free (a475084a, src/speed.ts): read by `peek`. */
@@ -1448,7 +1446,7 @@ export class App implements Ctx {
   /** `w`: which layer takes it, the door's own over everything first: the person's whereabouts' answer (keyLayers, PIE-1438). */
   private route(k: Key, w: KeyLayers): void {
     if (k.kind === "alt" && k.ch === "?") { void this.dispatch.press("text.reveal"); return; }
-    if (k.kind === "mouse" && isHover(k)) void this.dispatch.press("text.hover", { x: k.x, y: k.y });
+    if (k.kind === "mouse" && isHover(k)) void this.dispatch.press("text.hover", { x: k.x, y: k.y, alt: !!((k.mods ?? 0) & 8) });
     else if (k.kind === "mouse") this.overflow.clear();
     else this.overflow.keys();
     if (k.kind === "modifier") {
@@ -1506,6 +1504,7 @@ export class App implements Ctx {
     // A menu opened over the screen while the person is in the drawer (a status-bar group's) has the keys before the drawer
     // and a tile of it lifted over the screen: Esc closes it, never the agent's (PIE-1431).
     if (k.kind !== "mouse" && w.over === "menu") { this.stack.at(-1)!.key(k, this); return; }
+    if (this.glass.key(k) || this.drawer.glassInput(k)) return;
     const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
     if (lifted?.liftInput(k, () => {
       if (this.drawer.made?.liftedDesk === lifted) this.drawerRun("host.enter", {});
@@ -1796,8 +1795,7 @@ export class App implements Ctx {
     const s = this.stack.at(-1);
     if (!s) return;
     const { cols, rows } = this.term.info;
-    // The drawer (the host layer's, PIE-513) is laid over the screen's bottom rows: over one, the screen drew at
-    // its full size under it; beside one, the screen drew in the rows above it (App.t).
+    // A beside drawer reduces App.t; the host's glass still occupies the full terminal.
     this.drawer.active = !s.noDrawer;
     // What this frame draws stays in the media module's memory while it's on screen (nextFrame).
     nextFrame();
@@ -1807,29 +1805,28 @@ export class App implements Ctx {
     let chromeAt = lines.length - Math.min(frame.chrome ?? 0, lines.length);
     while (lines.length < rows - 1) lines.push("");
     let placements = this.graphics ? [...(frame.placements ?? [])] : [];
-    // The layers over the screen's tiles, bottom first (layerOrder, PIE-1221): the drawer and the screen's floats in the
-    // order last touched, the lift, the screen's menus.
+    // Paint and hit-testing share layerOrder; host floats stay above every screen.
     const screen = lines, screenPlacements = placements;
+    const host = this.drawer.render(cols, rows, s.title); this.glass.painted();
     let covers: { floats: Rect[]; menus: Rect[] } | null = null;
     // The screen's own cells and pictures in `rects` put back on top: its floats or menus, as it drew them.
-    const raise = (rects: readonly Rect[]) => {
+    const raise = (rects: readonly Rect[], source = screen, pictures = screenPlacements) => {
       if (!rects.length) return;
       const under = new Canvas(cols, rows - 1), canvas = new Canvas(cols, rows - 1);
-      screen.forEach((line, row) => under.text(0, row, line, cols));
+      source.forEach((line, row) => under.text(0, row, line, cols));
       lines.forEach((line, row) => canvas.text(0, row, line, cols));
       for (const r of rects) canvas.copy(under, r);
       lines = canvas.lines();
-      placements = [...rects.reduce(uncover, placements), ...rects.flatMap(r => screenPlacements.flatMap(p => within(p, r) ?? []))];
+      placements = [...rects.reduce(uncover, placements), ...rects.flatMap(r => pictures.flatMap(p => within(p, r) ?? []))];
     };
     for (const layer of layerOrder({ inDrawer: this.drawer.entered })) {
       if (layer === "drawer") {
-        if (!this.drawer.shown) { this.drawer.rect = null; this.drawer.made?.shownAs(false); continue; }
-        const d = this.drawer.render(cols, rows, s.title);
+        if (!this.drawer.shown) continue;
+        const d = host;
         lines = overlay(lines, d);
         // Laid over the screen's chrome, the drawer's own bottom rows are there instead: none of the screen's is left to keep clear.
         if (d.rect.row < chromeAt) chromeAt = lines.length;
-        // Images under the drawer would show through it; the drawer's tiles' own are drawn in it.
-        // One running down under it is cut short at its edge (a spine's long title, PIE-794), not dropped whole.
+        // Clip pictures at the drawer's edge so they cannot show through it.
         placements = [...uncover(placements, { col: 0, row: d.rect.row, cols, rows: rows - d.rect.row }), ...(this.graphics ? d.placements : [])];
         // Your drawer's ^W panel (PIE-1338), over the whole screen: the drawer's rows are too few for it.
         const keysDesk = this.drawer.desk;
@@ -1841,8 +1838,11 @@ export class App implements Ctx {
         }
         // What of the screen's is drawn above the drawer from here on (only what's above it covers anything).
         covers = this.drawer.covers(s).paint;
+      } else if (layer === "glass") {
+        const g = this.drawer.glassFrame(); raise(g.rects, g.lines, g.placements ?? []);
       } else if (layer === "floats" || layer === "menus") {
         if (covers) raise(covers[layer]);
+        if (layer === "menus") { const g = this.drawer.glassFrame(); raise(g.menus, g.lines, g.placements ?? []); }
       } else if (layer === "lift") {
         const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
         if (!lifted) continue;
@@ -1883,6 +1883,7 @@ export class App implements Ctx {
   get location(): string { return this.outline ? `${this.host} · ${this.outline}` : `${this.host}:${this.workspace}`; }
 
   /** The built-ins declare their text and the existing ActionDefs their gestures press. */
+  get terminalSize() { return this.term.info; }
   private statusItems(s = this.stack.at(-1)): StatusItem[] {
     const [mins, clock] = this.timeShown().split("|");
     const right = (id: string, text: string, action?: string, args?: Record<string, unknown>): StatusItem => ({ id, text, place: "right", after: ` ${fg(C.lcyan)}│ `, ...(action ? { click: { action, args } } : {}) });
@@ -1901,6 +1902,7 @@ export class App implements Ctx {
       { id: "screen", text: s?.title ?? "", place: "left", after: " │ ", click: { action: "status.log" } },
       { id: "machine", text: this.location, place: "left", click: { action: "status.log" } },
       right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
+      { ...right("glass", this.glass.chip(), "glass.toggle"), short: this.glass.chip(), tiny: `◇${this.glass.mode === "off" ? "×" : this.glass.mode === "sticky" ? "◆" : ""}${this.glass.floats().length || ""}`, alt: { action: "glass.clear" } },
       right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
       { ...right("drawer", chip?.whole ?? "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}), ...(chip ? { short: chip.short, tiny: chip.tiny } : {}) },
       { ...right("waiting", waiting.styled, "host.waiting"), ...(waiting.short ? { short: waiting.short } : {}) },
@@ -1939,9 +1941,7 @@ export class App implements Ctx {
     // Measured as drawn: each side with its separators, the overflow chip last on the left, and the │ between the sides.
     const drawn = (list: StatusItem[]) => width(statusText(separated(list.filter(i => i.place === "left"), "left"))) + width(statusText(separated(list.filter(i => i.place === "right"), "right")));
     const over = () => drawn(hidden.length ? [...items, overflow()] : items) + 3 > cols;
-    // A narrow bar (PIE-1213): built-ins shorten first, from the end, the clock last; then the lowest rank goes into the
-    // overflow (built-ins nobody listed, then listed ones, then what the person pinned), each from the end. The drawer
-    // chip (down to its arrow) and the clock stay: the way into the drawer and the time are never in the overflow.
+    // Shorten before overflowing. Keep the drawer, glass and clock reachable even on a narrow bar.
     const order = [...items.keys()].reverse().sort((a, b) => Number(items[a]!.id === "clock") - Number(items[b]!.id === "clock"));
     for (const j of order) {
       if (!over()) break;
@@ -1954,7 +1954,7 @@ export class App implements Ctx {
         for (const [j, it] of items.entries()) if (over() && it.tiny !== undefined) items[j] = { ...it, text: it.tiny };
       }
       while (over()) {
-        const last = items.findLastIndex(i => (i.rank ?? RANK.builtin) === rank && i.id !== "clock" && i.id !== "drawer");
+        const last = items.findLastIndex(i => (i.rank ?? RANK.builtin) === rank && i.id !== "clock" && i.id !== "drawer" && i.id !== "glass");
         if (last < 0) break;
         hidden.unshift(...items.splice(last, 1));
       }

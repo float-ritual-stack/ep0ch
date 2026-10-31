@@ -259,17 +259,17 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.float": def({
     words: "pop this tile out as a float over everything, or put it back",
-    summary: "pop tile=<tile> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or put a float back in the layout (on the board, as a detail). where=right lands beside its opener. Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
-    keys: [{ keys: "⤢", does: "land a peek beside its gallery" }, { keys: "^W f", does: "float" }, { keys: "o", does: "on the board" }, { via: "the frame card's float or put back row" }, { keys: "f", does: "while dragging a tile" }],
+    summary: "pop tile=<tile> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or put a float back in the layout (on the board, as a detail). to=glass keeps it above every screen. where=right lands beside its opener. Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
+    keys: [{ keys: "⤢", does: "land a peek beside its gallery" }, { keys: "^W f", does: "float" }, { keys: "^W U", does: "keep on the glass" }, { keys: "o", does: "on the board" }, { via: "the frame card's float or put back row" }, { keys: "f", does: "while dragging a tile" }],
     touches: "shape", replay: "safe", says: r => `${r.floated ? "popped out" : "put back"} ${r.name ?? r.tile}`,
-    menu: { label: "float", group: TILE, key: "ctrl+w f", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float ? { label: "put back in the layout" } : { refused: n.refused("float") }; } },
-    args: { where: { type: "string", optional: true, choices: ["right"], about: "right: land beside the tile that opened this float" }, on: { type: "boolean", optional: true, about: "true floats it, false puts it back; with it left out the action toggles. A tile already in that state is left as it is (a script floating every tile can't land one that floats)" } },
+    menu: [{ label: "keep on the glass", group: TILE, key: "ctrl+w U", args: { to: "glass" } }, { label: "float", group: TILE, key: "ctrl+w f", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float ? { label: "put back in the layout" } : { refused: n.refused("float") }; } }],
+    args: { to: { type: "string", optional: true, choices: ["glass"], about: "glass: keep this tile above every screen" }, where: { type: "string", optional: true, choices: ["right"], about: "right: land beside the tile that opened this float" }, on: { type: "boolean", optional: true, about: "true floats it, false puts it back; with it left out the action toggles. A tile already in that state is left as it is (a script floating every tile can't land one that floats)" } },
     examples: [
       { act: "tile.float on=true tile=activity", does: "pops the activity tile out as a float over the other tiles" },
       { act: "tile.float on=false tile=activity", does: "puts a floating activity tile back in the layout" },
     ],
-    run({ on, where }, { d, reader }, actor) {
-      return d.floatTile(reader, actor, on, where as "right" | undefined);
+    run({ on, where, to }, { d, reader }, actor) {
+      return d.floatTile(reader, actor, on, where as "right" | undefined, to as "glass" | undefined);
     },
   }),
   "tile.link": def({
@@ -277,17 +277,18 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     menu: [
       { label: "select wire", group: TILE, key: "alt+l s", args: { ask: true, verb: "select" }, now: ({ d, reader }) => ({ label: `${FRAME_GLYPHS.select} where a select lands: ${d.wireDescription(reader, "select")}` }) },
       { label: "open wire", group: TILE, key: "alt+l o", args: { ask: true, verb: "open" }, now: ({ d, reader }) => ({ label: `${FRAME_GLYPHS.open} where an open lands: ${d.wireDescription(reader, "open")}` }) },
+      { label: "hover wire", group: TILE, key: "alt+l v", args: { ask: true, verb: "hover" }, now: ({ d, reader }) => ({ label: `${FRAME_GLYPHS.hover} where a hover lands: ${d.wireDescription(reader, "hover")}` }) },
       { label: "alt wire", group: TILE, key: "alt+l a", args: { ask: true, verb: "alt" }, now: ({ d, reader }) => ({ label: `${FRAME_GLYPHS.alt} where an alt-open lands: ${d.wireDescription(reader, "alt")}` }) },
     ],
     hintId: "link",
     hint: (a, { d }) => a.ask ? d.linkingHint() : null,
-    summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there. Each verb has one destination; setting it replaces the previous wire. A group cannot send a wire: name its inner tile. No to= removes that verb's wire; remove=true removes it only if it names that target. ask=true picks on screen; ask=false dismisses the controls without changing wires.",
-    keys: [{ keys: "alt+l then s", does: "select", says: "set the wire for what a select lands on" }, { keys: "alt+l then o", does: "open", says: "set the wire for where an open lands" }, { keys: "alt+l then a", does: "alt", says: "set the wire for where an alt-open lands" }, { keys: "click h j k l 1-9", does: "the tile itself unlinks", says: "link to the tile you pick; picking the tile itself unlinks" }, { keys: "^W P then enter or space", does: "picks", says: "link to the tile you have lit" }, { keys: "x", does: "clears a wire", says: "clear the wire you are setting" }, { keys: "esc q", does: "cancels", says: "stop choosing a tile to link to" }],
+    summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there, verb=hover shows a hover there after its delay. Each verb has one destination; setting it replaces the previous wire. A group cannot send a wire: name its inner tile. No to= removes that verb's wire; remove=true removes it only if it names that target. ask=true picks on screen; ask=false dismisses the controls without changing wires.",
+    keys: [{ keys: "alt+l then v", does: "hover", says: "set the wire for where a hover lands" }, { keys: "alt+l then s", does: "select", says: "set the wire for what a select lands on" }, { keys: "alt+l then o", does: "open", says: "set the wire for where an open lands" }, { keys: "alt+l then a", does: "alt", says: "set the wire for where an alt-open lands" }, { keys: "click h j k l 1-9", does: "the tile itself unlinks", says: "link to the tile you pick; picking the tile itself unlinks" }, { keys: "^W P then enter or space", does: "picks", says: "link to the tile you have lit" }, { keys: "x", does: "clears a wire", says: "clear the wire you are setting" }, { keys: "esc q", does: "cancels", says: "stop choosing a tile to link to" }],
     touches: "shape", touchesWith: a => a.ask !== undefined ? "screen" : "shape", replay: "safe", says: (r, a) => r.picking !== undefined ? null : a.to ? `${r.name ?? r.tile}: ${a.verb ?? "open"} → ${a.to}` : `unlinked ${r.name ?? r.tile}'s ${a.verb ?? "open"}`,
     args: {
       ask: { type: "boolean", optional: true, conflicts: ["to", "rule", "role", "remove"], about: "true picks the target on screen; false dismisses link controls without changing wires" },
       to: { type: "string", optional: true, kind: "tile", about: "target tile; absent removes this verb's wires" },
-      verb: { type: "string", optional: true, choices: ["select", "open", "alt"], about: "select, open (default), alt" },
+      verb: { type: "string", optional: true, choices: WIRE_VERBS, about: "select, open (default), alt, hover" },
       rule: { type: "string", optional: true, choices: ALT_RULES, implies: [{ verb: "alt", to: null }, { verb: "alt", rule: "first-unheld" }], about: "verb=alt: beside, tab, tile, first-unheld; to= names the target" },
       role: { type: "string", optional: true, choices: ["preview", "target"], about: "script shorthand: preview selects, target opens; verb takes precedence" },
       remove: { type: "boolean", optional: true, about: "remove only this target" },

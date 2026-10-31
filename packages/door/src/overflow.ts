@@ -75,6 +75,10 @@ export class Overflow {
 
   /** The cut-short value at a cell, if any, as `draw` keys it: one answer for what the pointer reveals and whether that changed. */
   private cutAt(x: number, y: number): Cut | undefined { return this.cuts.find(c => c.y === y && x >= c.x && x < c.end); }
+  targetAt(x: number, y: number): { text: string; rect: { col: number; row: number; cols: number; rows: number } } | null {
+    const cut = this.cutAt(x, y);
+    return cut && cut.lit === undefined ? { text: cut.text, rect: { col: cut.x, row: cut.y, cols: cut.end - cut.x, rows: 1 } } : null;
+  }
   private static keyOf(cut: Cut | undefined): string { return cut ? `${cut.y}:${cut.x}:${cut.lit ?? cut.text}` : ""; }
 
   /**
