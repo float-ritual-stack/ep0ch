@@ -1,4 +1,5 @@
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
+import { createRequestedBlock } from "./create-request";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { runbookText } from "./runbook";
@@ -1046,17 +1047,10 @@ export class OutlinerStore {
     parentId: string | null = null,
     author: BlockAuthor = "user",
     provenance?: BlockProvenance,
-    place: { id?: string; position?: number } = {},
-  ): Block {
-    return this.createAt(
-      text,
-      parentId,
-      author,
-      provenance,
-      this.createdTime(),
-      place.position,
-      place.id,
-    );
+    place: { id?: string; position?: number; requestId?: string } = {},
+  ): Block & { deduplicated?: true } {
+    return createRequestedBlock(this.database, place.requestId, { text, parentId, position: place.position, id: place.id, author },
+      () => this.createAt(text, parentId, author, provenance, this.createdTime(), place.position, place.id), id => this.require(id));
   }
 
   /** The last creation time `createdTime` gave; read from the outline the first time, so a reopened store goes on from it. */

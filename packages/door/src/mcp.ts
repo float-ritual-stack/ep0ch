@@ -1268,10 +1268,10 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(target.served.asOf)) / 60_000));
   const base = { source: target.served.source, asOf: target.served.asOf, ageMinutes: target.served.source === "mirror" ? ageMin : 0 };
   const where = { outline: board.address.outline, machine: board.address.machine };
-  // A write to another machine's outline has its queue id from the start: a comment carries it as its request id, so if
-  // the live try's answer is lost and the write is queued, the far host takes the retry as the comment it already made.
+  // A write to another machine's outline has its queue id from the start: a create or comment carries it as its request id, so if
+  // the live try's answer is lost and the write is queued, the far host takes the retry as the block or comment it already made.
   const liveId = randomUUID();
-  const input = (target.home || target.queuedFor) && (tool === "outline_comment" || tool === "outline_reply" || tool === "outline_resolve_thread") && !shape.input.requestId
+  const input = (target.home || target.queuedFor) && (tool === "outline_create" || tool === "outline_comment" || tool === "outline_reply" || tool === "outline_resolve_thread") && !shape.input.requestId
     ? { ...shape.input, requestId: `netmail:${liveId}` } : shape.input;
   try {
     /**

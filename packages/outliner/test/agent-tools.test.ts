@@ -299,6 +299,39 @@ test("create puts a block under a parent at a position, as the agent", async () 
   expect((await agent("create", { parent: list.id, text: "  " })).exitCode).toBe(1);
 });
 
+test("concurrent appends land in arrival order and a request id survives retries without another write", async () => {
+  const { store, agent, socket } = await setup();
+  const log = store.create("Greenhouse log");
+  const arrival: string[] = [];
+  let connected = false;
+  const watcher = new OutlinerClient(socket).watch({
+    client: { clientId: "log-reader", role: "observer", contextId: "log" },
+    onConnect: () => { connected = true; },
+    onEvent: e => { if (e.action === "create" && e.change?.parentId === log.id && e.blockId) arrival.push(e.blockId); },
+  });
+  cleanups.push(async () => watcher.stop());
+  while (!connected) await Bun.sleep(5);
+  const inputs = ["Vent opened", "Seeds watered"].map((text, i) => ({ parent: log.id, text, requestId: `log-${i}` }));
+  const made = await Promise.all(inputs.map((input, i) => agent("create", input, `garden-agent-${i}`)));
+  for (const result of made) expect(result.exitCode, result.stderr).toBe(0);
+  const children = store.children(log.id);
+  expect(children.map(b => b.id)).toEqual(arrival);
+  expect(children[0]!.createdAt < children[1]!.createdAt).toBe(true);
+  expect(store.require(log.id).revision).toBe(log.revision);
+  const sequence = store.sequence;
+  const retries = await Promise.all([agent("create", inputs[0]), agent("create", inputs[0])]);
+  for (const retried of retries) {
+    expect(retried.exitCode).toBe(0);
+    expect(retried.json).toMatchObject({ id: made[0]!.json.id, deduplicated: true });
+  }
+  expect(store.sequence).toBe(sequence);
+  expect(store.children(log.id)).toHaveLength(2);
+  const changed = await agent("create", { ...inputs[0], text: "Vent closed" });
+  expect(changed.exitCode).toBe(1);
+  expect(changed.stderr).toContain("request ID was already used with different input");
+  expect(store.children(log.id).map(b => b.text).sort()).toEqual(["Seeds watered", "Vent opened"]);
+});
+
 test("a comment, a reply and resolving the thread are the agent's", async () => {
   const { store, agent } = await setup();
   const note = store.create("Order more twine before May");

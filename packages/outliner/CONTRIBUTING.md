@@ -73,6 +73,8 @@ source evidence or distinguish authored glyphs from controls.
 - `src/upload-tokens.ts` owns upload leases and device tokens (host-wide, persisted as digests); `src/publish-upload.ts` is the one route that takes a file under them and `src/artifact-store.ts`'s watcher the one place a drop is installed; `src/artifact-archive.ts` owns the zip rules beside the tar path's `untar`; `src/artifact-handover.ts` writes the card and the record. A lease is asked of an outline (`artifacts.lease`) so the card has a home.
 - `src/env-file.ts` owns settings-file parsing (trim, then unquote; preserve empty values), shared with the door through its package export.
 - `src/store.ts` owns persistence and canonical graph invariants.
+- `src/create-request.ts` keeps a create's request receipt in the store's transaction. `store.create` still owns
+  placement and creation time; `create` and every `outline_create` caller use it for idempotent appends.
 - `src/extension-pages.ts` owns extension pages and removal of demos and explicitly marked generated output;
   the store's `extensionGeneratedNotes` and `hasOtherTextWriter` keep another writer's additions out of cleanup.
   It switches kept rules off on removal and back on during installation, using `extension-rules.ts`'s

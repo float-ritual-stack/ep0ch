@@ -124,6 +124,51 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
   });
   afterAll(async () => { await scratch.dispose(); });
 
+  test("wait holds a query until a new child lands, prints only that row, and times out without polling", async () => {
+    const board = new SocketBoard(sock, undefined, scratch.name);
+    const parent = await board.request<{ id: string }>("create", { text: "Glasshouse log" });
+    await board.request("create", { parentId: parent.id, text: "Already here" });
+    const child = Bun.spawn(["bun", MAIN, "wait", `parent:((${parent.id}))`, "--timeout", "5", "--json", "--ws", scratch.name],
+      { env: { ...process.env, ...env }, stdout: "pipe", stderr: "pipe" });
+    let err = "", exited = false;
+    const stderr = (async () => { for await (const chunk of child.stderr) err += new TextDecoder().decode(chunk); })();
+    const stdout = new Response(child.stdout).text();
+    void child.exited.then(() => { exited = true; });
+    try {
+      await until(() => exited || err.includes("waiting for"), "wait registered its question");
+      expect(err).toContain("waiting for");
+      const made = await board.request<{ id: string }>("create", { parentId: parent.id, text: "Vent opened" });
+      expect(await child.exited).toBe(0);
+      const rows = JSON.parse(await stdout);
+      expect(rows.map((r: { id: string; title: string }) => [r.id, r.title])).toEqual([[made.id, "Vent opened"]]);
+      const timed = await run(["wait", `parent:((${parent.id}))`, "--timeout", "0.02"], env);
+      expect(timed.code).toBe(2);
+      expect(timed.err).toContain("nothing new");
+      expect(timed.out).toBe("");
+    } finally { if (!exited) child.kill(); await child.exited; await stderr; board.close(); }
+  }, 20_000);
+
+  test("wait reports a lost host instead of claiming nothing new arrived", async () => {
+    const lost = new Scratch();
+    const socket = await lost.start();
+    const child = Bun.spawn(["bun", MAIN, "wait", "type=gate-event", "--timeout", "1", "--ws", lost.name],
+      { env: { ...process.env, EP0CH_SOCKET: socket }, stdout: "pipe", stderr: "pipe" });
+    let err = "", exited = false;
+    const stderr = (async () => { for await (const chunk of child.stderr) err += new TextDecoder().decode(chunk); })();
+    const stdout = new Response(child.stdout).text();
+    void child.exited.then(() => { exited = true; });
+    try {
+      await until(() => exited || err.includes("waiting for"), "wait registered before the host stops");
+      expect(err).toContain("waiting for");
+      await lost.stop();
+      expect(await child.exited).toBe(1);
+      await stderr;
+      expect(err).toContain("connection lost");
+      expect(err).not.toContain("nothing new");
+      expect(await stdout).toBe("");
+    } finally { if (!exited) child.kill(); await child.exited; await stderr; await lost.dispose(); }
+  }, 20_000);
+
   test("builder posts its last message even on failure and stops its own process group", async () => {
     const board = new SocketBoard(sock, undefined, scratch.name);
     const bin = join(scratch.root, "builder-bin");

@@ -2216,7 +2216,7 @@ export type OutlinerRequestAction =
   | {
       id: string;
       action: "create";
-      parentId?: string | null;
+      parentId?: string | null; position?: number; requestId?: string;
       text: string;
       author?: BlockAuthor;
       provenance?: BlockProvenance;

@@ -4,12 +4,12 @@
 // flags (outline, session, find…): only the door's are checked here, since the door is what a typo would open.
 
 /** Every first word main.ts runs as a command. */
-export const COMMANDS = ["help", "doctor", "install", "try", "find", "show", "mcp", "new", "export", "mirror", "where", "session", "log", "trace", "peek", "snap", "open",
+export const COMMANDS = ["help", "doctor", "install", "try", "find", "wait", "show", "mcp", "new", "export", "mirror", "where", "session", "log", "trace", "peek", "snap", "open",
   "actions", "act", "subscribe", "outline", "status", "init", "clients", "view", "backup", "library", "docs", "revisions", "agent", "ext", "artifact", "share", "reader", "web", "loki", "device", "echo", "resource", "keys", "link", "machinery", "route", "record", "review", "work", "search", "door"] as const;
 const KNOWN = new Set<string>(COMMANDS);
 
 /** Commands whose words are data (a search, an id, an action's arguments): `help` there is a word, not a request. */
-const FREE_TEXT = new Set(["find", "show", "new", "open", "act", "export", "mirror", "snap", "try", "view", "revisions"]);
+const FREE_TEXT = new Set(["find", "wait", "show", "new", "open", "act", "export", "mirror", "snap", "try", "view", "revisions"]);
 
 /**
  * The door's flags (main.ts's USAGE): `value` takes one, `none` takes none; `--screen` takes a name and maybe a
