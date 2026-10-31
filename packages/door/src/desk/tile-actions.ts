@@ -683,7 +683,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "layout.swap": def({
     words: "swap this tile with another",
-    summary: "tile=<tile> and tile to=<tile> trade places", keys: "^W s (the next tile)",
+    summary: "tile=<tile> and tile to=<tile> trade places", keys: [{ keys: "^W s", does: "the next tile" }, { keys: "drag", does: "a tile title onto the lower middle swap band" }],
     touches: "shape", replay: "safe", says: (r, a) => `swapped ${r.name ?? r.tile} and ${a.to}`,
     args: { to: { type: "string", kind: "tile", about: "the tile it trades places with" } },
     examples: [

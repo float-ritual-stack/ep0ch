@@ -1,27 +1,15 @@
-// Where a dragged tile lands (PIE-413): Replit's split hit model in terminal cells, with floatty's outer
-// edges. Over a tile, its header (the frame's top row) or its centre makes a tab set; the four triangles
-// between its diagonals split it in that direction. A strip along the layout's outer left, right and
-// bottom edge puts the tile beside everything, as a full-height column or a full-width row. The outer
-// strips are checked first, as floatty prepends its outer zones, so they win where they overlap a tile.
-//
-// Zones are worked out from the rectangles just placed, on every pointer event, never kept from the start
-// of the drag: floatty's ghost divider (a resize handle left where a split used to be after a drop) came
-// from geometry measured once. Pure; the desk draws the ghost and applies the drop.
-//
-// A drop also answers to policy (PIE-505): the view says why a place won't take the tile (`refuse`: a locked
-// screen, a container that takes no drops or only other kinds), and the drop carries that reason, so the
-// ghost and the hint row say it before the release, and the release's `layout.move` refuses with the same words.
-// A shut dock's handle on the hint row is a drop zone too: the tile goes into the dock.
+// Hit rectangles and drawn bands share one owner, so a visible zone is exactly where its drop lands.
 import type { Rect } from "../canvas";
-import { EDGE_GLYPH, type Dir, type Place } from "./screen-layout";
+import { EDGE_GLYPH, type Dir, type Place, type Op } from "./screen-layout";
 
 /** A tile as the drag sees it: where it is, and when it's a tab set, which cells each tab's label takes. */
 export interface DropTile<I> { id: I; rect: Rect; tabs?: { id: I; from: number; to: number }[]; alone?: boolean }
 
 /** A drop: where the tile goes, the outline drawn while it's held there, what the ghost says, and why policy refuses it. */
-export type Drop<I> = Place<I> & { ghost: Rect; label: string; refused?: string };
+export type DropPlace<I> = Place<I> | { kind: "swap"; target: I };
+export type Drop<I> = DropPlace<I> & { ghost: Rect; label: string; refused?: string; handle?: true };
 /** Why the view's policy refuses the dragged tile at a place, or null (PIE-505). */
-export type Refuse<I> = (to: Place<I>) => string | null;
+export type Refuse<I> = (to: DropPlace<I>) => string | null;
 /** With the reason policy gives, when it gives one. */
 const judged = <I>(d: Drop<I> | null, refuse?: Refuse<I>): Drop<I> | null => { const why = d && refuse?.(d); return d && why ? { ...d, refused: why } : d; };
 
@@ -30,8 +18,8 @@ export const DOCK_DROP = "docked here: stays on this screen";
 
 /** The outer strips: two cells in from the left and right, the last row at the bottom. */
 export const EDGE_COLS = 2;
-/** The centre of a tile that makes tabs, as a share of its width and height from the middle (each way). */
-export const CENTRE = 0.28;
+/** The middle share of a tile, between the four split bands. */
+export const CENTRE = 0.56;
 
 const inside = (r: Rect, x: number, y: number) => x >= r.col && x < r.col + r.cols && y >= r.row && y < r.row + r.rows;
 
@@ -65,12 +53,8 @@ function zoneAt<I>(tiles: DropTile<I>[], area: Rect, x: number, y: number, src: 
     return { kind: "tabs", target: t.id, index, ghost: r, label: self ? "↔ reorder tab" : "▭ tabs" };
   }
   if (setOfOne) return null;
-  const dx = (x + 0.5 - (r.col + r.cols / 2)) / (r.cols / 2), dy = (y + 0.5 - (r.row + r.rows / 2)) / (r.rows / 2);
-  if (!self && Math.abs(dx) <= CENTRE && Math.abs(dy) <= CENTRE) return { kind: "tabs", target: t.id, ghost: r, label: "▭ tabs" };
-  // Self (a tab set's own tab): the centre means nothing, so the triangles fill the tile.
-  if (self && Math.abs(dx) <= CENTRE && Math.abs(dy) <= CENTRE) return null;
-  const dir: Dir = Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
-  return { kind: "split", target: t.id, dir, ghost: half(r, dir), label: ARROW[dir] };
+  const source = tiles.some(t => t.id === src || t.tabs?.some(t => t.id === src)) ? src : undefined;
+  return zonesOf(t, source).find(z => inside(z.ghost, x, y)) ?? null;
 }
 
 /** A shut dock's handle on the hint row (`row`), and the tile it shows: what a tile dropped on it joins as a tab. */
@@ -85,16 +69,34 @@ export function handleDrop<I>(handles: DockHandle<I>[], area: Rect, x: number, y
   if (!h || h.shows === src) return null;
   const label = `${EDGE_GLYPH[h.edge]} ${DOCK_DROP}`;
   const cols = Math.min(area.cols, Math.max(h.to - h.from, label.length + 6));
-  return judged({ kind: "tabs", target: h.shows, ghost: { col: Math.max(area.col, Math.min(h.from, area.col + area.cols - cols)), row: Math.max(area.row, h.row - 3), cols, rows: 3 }, label }, refuse);
+  return judged({ kind: "tabs", target: h.shows, handle: true, ghost: { col: Math.max(area.col, Math.min(h.from, area.col + area.cols - cols)), row: Math.max(area.row, h.row - 3), cols, rows: 3 }, label }, refuse);
 }
 
-const ARROW: Record<Dir, string> = { left: "← split left", right: "→ split right", up: "↑ split above", down: "↓ split below" };
+/** The existing move and swap operations own policy and the eventual release. */
+export const dropOp = <I>(tile: I, to: DropPlace<I>): Op<I> => to.kind === "swap" ? { op: "swap", tile, with: to.target } : { op: "move", tile, to };
 
-/** The half of `r` a split in `dir` would give the dropped tile. */
-export function half(r: Rect, dir: Dir): Rect {
-  const cw = Math.max(1, Math.floor(r.cols / 2)), rh = Math.max(1, Math.floor(r.rows / 2));
-  if (dir === "left") return { ...r, cols: cw };
-  if (dir === "right") return { ...r, col: r.col + r.cols - cw, cols: cw };
-  if (dir === "up") return { ...r, rows: rh };
-  return { ...r, row: r.row + r.rows - rh, rows: rh };
+/** With no source on this layout, an incoming tile joins tabs: it has no place here to trade. */
+export function zonesOf<I>(tile: DropTile<I>, src?: I, refuse?: Refuse<I>): Drop<I>[] {
+  const { id, rect: r } = tile;
+  const self = id === src || !!tile.tabs?.some(t => t.id === src);
+  if (id === src && (!tile.tabs || tile.tabs.length < 2)) return [];
+  const body = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
+  const side = Math.max(1, Math.floor(body.cols * (1 - CENTRE) / 2));
+  const end = Math.max(1, Math.floor(body.rows * (1 - CENTRE) / 2));
+  const middle = { ...body, row: body.row + end, rows: body.rows - 2 * end };
+  const centre = { ...middle, col: body.col + side, cols: body.cols - 2 * side };
+  const top = Math.ceil(centre.rows / 2);
+  const zones: Drop<I>[] = [
+    { kind: "split", target: id, dir: "up", ghost: { ...body, rows: end }, label: "^ drop here to split above" },
+    { kind: "split", target: id, dir: "left", ghost: { ...middle, cols: side }, label: "< split left" },
+    ...self ? [] : src === undefined ? [
+      { kind: "tabs" as const, target: id, ghost: centre, label: "drop here: a tab" },
+    ] : [
+      { kind: "tabs" as const, target: id, ghost: { ...centre, rows: top }, label: "drop here: a tab" },
+      { kind: "swap" as const, target: id, ghost: { ...centre, row: centre.row + top, rows: centre.rows - top }, label: "drop here: swap" },
+    ],
+    { kind: "split", target: id, dir: "right", ghost: { ...middle, col: body.col + body.cols - side, cols: side }, label: "split >" },
+    { kind: "split", target: id, dir: "down", ghost: { ...body, row: body.row + body.rows - end, rows: end }, label: "v drop here to split below" },
+  ];
+  return zones.filter(z => z.ghost.cols > 0 && z.ghost.rows > 0).map(z => judged(z, refuse)!);
 }

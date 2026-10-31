@@ -1,3 +1,4 @@
+import { DropZonesPane } from "./drop-zones";
 import { runbookSections } from "./runbook";
 import { tileRegistry } from "../desk/tile-registry";
 import { LibraryPane } from "../library/library";
@@ -516,15 +517,12 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "panes", need: "open, split, zoom, close tiles; docks; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, docks, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a dock, c a spine, f a float, P the policy; the hint row's □ lock chip locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
-    aside: "^W n or double click a title to rename; ^W N toggles without losing it. Reading {{this.title}} follows the notebook; Visitors is a written tab title. The frame card's close row closes the tile (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
+    aside: "Drag a tile title over the reader: all six bands show, dim; the pointer lights one. Upper middle makes tabs, lower middle swaps, edges split. The Drop zones tab is a still of this overlay. ^W n or double click a title to rename; ^W N toggles without losing it. Reading {{this.title}} follows the notebook; Visitors is a written tab title. The frame card's close row closes the tile (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = repliesTile(), act = new ActivityPane();
-      // The replies (a links tile with Children alone) and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
-      // The outline is in a dock on the left (PIE-505): it slides shut when the keys leave it, and its handle
-      // on the hint row opens it again; a header dropped on the handle goes into it.
       return deskOf({
-        title: "showcase · panes", panes: [tree, r, th, act],
-        layout: ([t, rd, h, a]) => pair("row", 0.24, { t: "dock", kid: leaf(t!), edge: "left", open: true }, pair("row", 0.62, leaf(rd!), { t: "tabs", ids: [h!, a!], active: 0 })),
+        title: "showcase · panes", panes: [tree, r, th, act, new DropZonesPane()],
+        layout: ([t, rd, h, a, zones]) => pair("row", 0.24, { t: "dock", kid: leaf(t!), edge: "left", open: true }, pair("row", 0.62, leaf(rd!), { t: "tabs", ids: [h!, a!, zones!], active: 2 })),
       }, show, [], d => { Object.assign(r, { writtenTitle: "Reading {{this.title}}" }); Object.assign(act, { writtenTitle: "Visitors" }); if (n.notebook) fill(d, n.notebook, true); });
     },
   },

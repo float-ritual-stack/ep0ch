@@ -36,6 +36,69 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+  test("a held tile drag shows all six drop zones on the layout exhibit (PIE-1209)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "panes" }, as: "test-agent" });
+    screen();
+    const d = S().stages.get(S().sel).top;
+    const get = () => d.layoutGet().tiles;
+    const tile = (name: string) => get().find((t: any) => t.name === name);
+    const mouse = (action: "down" | "drag" | "up", x: number, y: number) => {
+      const at = S().stageRect;
+      press({ kind: "mouse", action, button: 0, x: at.col + x, y: at.row + y }); screen();
+    };
+    const run = (action: string, args: Record<string, unknown> = {}, tile?: string) => d.dispatch.act({ action, args, tile }, USER);
+    await run("tab.select", {}, "exhibit");
+    await run("tile.slide", { open: false }, "tree"); screen();
+    try {
+      for (const where of ["up", "down", "left", "right", "tabs", "swap"]) {
+        const src = get().find((t: any) => t.rect && t.tabs?.includes("backlinks")).rect, r = tile("reader").rect;
+        const x = where === "left" ? r.col + 2 : where === "right" ? r.col + r.cols - 3 : r.col + Math.floor(r.cols / 2);
+        const y = where === "up" ? r.row + 2 : where === "down" ? r.row + r.rows - 3 : r.row + Math.floor(r.rows * (where === "swap" ? 0.6 : 0.4));
+        mouse("down", src.col + 4, src.row);
+        mouse("drag", x, y);
+        if (where === "swap") {
+          const labelRow = d.render(d.ctx).lines.map(plain).findIndex((line: string) => line.includes("drop here: swap"));
+          mouse("drag", x, labelRow - 1);
+        }
+        app.flush();
+        const drawn = h.painted.map(plain).join("\n");
+        for (const words of ["split above", "< split left", "drop here: a tab", "drop here: swap", "split >", "split below"]) expect(drawn).toContain(words);
+        const drop = d.describe().dragging.drop;
+        expect(drop).toMatchObject(where === "swap" || where === "tabs" ? { kind: where, target: "reader" } : { kind: "split", dir: where, target: "reader" });
+        const checkPlacement = () => {
+          screen();
+          const moved = tile("backlinks"), target = tile("reader");
+          if (where === "swap") { expect(moved.rect).toEqual(r); expect(target.rect).toEqual(src); }
+          else if (where === "tabs") expect(moved.tabs).toContain("reader");
+          else if (where === "up") expect(moved.rect.row + moved.rect.rows).toBeLessThanOrEqual(target.rect.row);
+          else if (where === "down") expect(moved.rect.row).toBeGreaterThanOrEqual(target.rect.row + target.rect.rows);
+          else if (where === "left") expect(moved.rect.col + moved.rect.cols).toBeLessThanOrEqual(target.rect.col);
+          else expect(moved.rect.col).toBeGreaterThanOrEqual(target.rect.col + target.rect.cols);
+        };
+        const before = JSON.stringify(d.layoutGet().tree);
+        mouse("up", x, y);
+        await until(() => JSON.stringify(d.layoutGet().tree) !== before, `the mouse's ${where} drop`);
+        checkPlacement();
+        await run("layout.undo"); screen();
+        await run(where === "swap" ? "layout.swap" : "layout.move", { to: "reader", ...(where === "swap" ? {} : { where }) }, "backlinks");
+        checkPlacement();
+        await run("layout.undo"); screen();
+      }
+      await run("layout.policy", { node: "screen", droppable: false }); screen();
+      const src = tile("backlinks").rect, r = tile("reader").rect;
+      mouse("down", src.col + 4, src.row);
+      mouse("drag", r.col + Math.floor(r.cols / 2), r.row + Math.floor(r.rows * 0.6));
+      const drop = d.describe().dragging.drop;
+      expect(drop.refused).toContain("takes no drops");
+      const band = d.render(d.ctx).lines.slice(drop.ghost.row, drop.ghost.row + drop.ghost.rows).map(plain).join("\n");
+      expect(band).toContain("takes no drops");
+      d.cancelDrag();
+      await expect(run("layout.swap", { to: "reader" }, "backlinks")).rejects.toThrow("takes no drops");
+    } finally { d.cancelDrag(); await run("layout.policy", { node: "screen", clear: "droppable" }); await run("tab.select", {}, "exhibit"); await app.press("section.leave"); }
+  });
+
+
   test("lift mouse: the covered Welcome band cannot take a click", async () => {
     await app.dispatch.press("host.toggle", { open: false });
     const d = openScreen("welcome") as any;
