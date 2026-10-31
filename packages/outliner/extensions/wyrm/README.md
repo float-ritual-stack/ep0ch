@@ -30,7 +30,8 @@ A door game in the shape of the old BBS ones, whose whole state is notes: forest
 - **`ambush target=<note>`:** three a day, on a player asleep in the same town's fields.
   - The whole fight happens at once; the loser is dead until tomorrow, the news says so, and the victim gets a comment.
   - A defender whose last death was on an earlier day has risen first, with full hp and a new morning's turns.
-  - Both notes are checked for changes before either is written, and gold is debited before it is credited, so a refusal between saves loses gold rather than minting it.
+  - One event under the town records the fight and gold transfer. Both players fold it into their chips; a repeated create lands once. Each player keeps a `wyrm-through` timestamp with those chips, so the next move can finish an interrupted fold without charging twice. A stale fold reads again and rebuilds at the new revision.
+  - Two ambushes of the same sleeping revision admit one fight. If a player sheet is being edited, its chips join that draft and become saved state when the person saves it.
 - **`wyrm`:** at level 12, go up the mountain.
   - Kill it and you start again at level 1, with a kill to your name.
 - **A new day:** your first move on a new date refills `turns` and `ambushes`, and the dead rise; there is no routine.

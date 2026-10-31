@@ -7,6 +7,8 @@ import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { loadShowcase } from "../../src/showcase/seed";
 import { useShowcaseScreen } from "./harness";
+import { SECTIONS } from "../../src/showcase/showcase";
+import type { ReaderPane } from "../../src/desk/panes";
 
 const AGENT: Actor = { kind: "agent", id: "test-agent" };
 
@@ -58,6 +60,14 @@ describe.skipIf(!outliner)("the showcase screen: the wyrm", () => {
 
     // A square the sheet drew (a row of the fields' table) is pressed by label on a note open nowhere, by an agent, with nothing in front of it.
     expect(await press({ note: player.id }, "Dozing Gerald", /Dozing Gerald/, AGENT)).toMatch(/kill|wakes/);
+    const ambushes = (await board.queryNotes(`parent:((${town.id})) type=wyrm-event verb=ambush`)).notes;
+    expect(ambushes).toHaveLength(1);
+    const event = (await board.get(ambushes[0]!.id))!;
+    expect(event.text).toContain(`[by::((${player.id}))]`);
+    expect(event.text).toContain(`[on::((${seeded.notes.wyrmSleeper!.id}))]`);
+    const balances = [Number(await chip(player.id, "gold")), Number(await chip(seeded.notes.wyrmSleeper!.id, "gold"))];
+    expect(balances.sort((a, b) => a - b)).toEqual([0, 170]);
+    expect(await chip(player.id, "wyrm-through")).toBe(await chip(seeded.notes.wyrmSleeper!.id, "wyrm-through"));
     const sheet = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: player.id, name: "sheet" } }, USER) as { tile: string };
     await press({ tile: sheet.tile }, "forest", /steps out|gem|purse|fairy/);
     expect(await chip(player.id, "turns")).toBe("14");
@@ -65,6 +75,35 @@ describe.skipIf(!outliner)("the showcase screen: the wyrm", () => {
     const events = (await board.queryNotes("type=wyrm-event")).notes.map(m => m.text);
     expect(events).toContainEqual(expect.stringContaining("wanders into Wyrmhold"));
   }, 40_000);
+
+  test("an ambush folds both balances when the attacker's sheet is open in a draft", async () => {
+    const { app, board, seeded } = h;
+    await app.dispatch.act({ action: "section", args: { name: "wyrm" } }, USER);
+    const town = seeded.notes.wyrm!.id;
+    const day = new Date().toISOString().slice(0, 10);
+    const ash = await board.createBlock(town, `Ash [type::wyrm-player] [hp::100] [str::200] [gold::50] [ambushes::3] [day::${day}]\nwyrm-sheet::\n\nKeep my notes here.`);
+    const birch = await board.createBlock(town, `Birch [type::wyrm-player] [hp::1] [gold::40] [rest::fields] [day::${day}]\nwyrm-sheet::`);
+    const opened = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: ash.id, name: "draft-player" } }, USER) as { tile: string };
+    const stage = h.S().stage(SECTIONS.findIndex(s => s.key === "wyrm")).top;
+    const reader = stage.paneNamed("draft-player") as ReaderPane;
+    await until(() => reader.surface.msg?.id === ash.id, "the player's sheet is loaded");
+    await stage.startSession(reader, "edit");
+    const draft = reader.surface.draft!;
+    await stage.dispatch.press("draft.place", { line: 4, col: 1 }, opened.tile);
+    await stage.dispatch.press("draft.paste", { text: "Still writing. " }, opened.tile);
+    try {
+      const result = await app.dispatch.act({ action: "button.press", args: { note: ash.id, label: "Birch" } }, AGENT) as { state: string; message: string };
+      expect(result.state).toBe("done");
+      expect(draft.text).toContain("[gold::90]");
+      expect(draft.text).toContain("Still writing. Keep my notes here.");
+      expect(await chip(ash.id, "gold")).toBe("50");
+      expect(await chip(birch.id, "gold")).toBe("0");
+      expect(await stage.dispatch.press("edit.save", {}, opened.tile)).toMatchObject({ saved: false, warning: expect.stringContaining("this save changes properties") });
+      expect(await stage.dispatch.press("edit.save", {}, opened.tile)).toMatchObject({ saved: true });
+      expect(await chip(ash.id, "gold")).toBe("90");
+      expect(await chip(ash.id, "wyrm-through")).toBe(await chip(birch.id, "wyrm-through"));
+    } finally { if (reader.surface.draft) await stage.dispatch.press("edit.close", { discard: true }, opened.tile); }
+  }, 30_000);
 
   test("uninstalled, its moves name the reinstall command; installed by act, the screens and moves come back", async () => {
     const { app, board, seeded } = h;
