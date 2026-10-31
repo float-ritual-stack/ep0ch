@@ -715,6 +715,14 @@ export class PowerBar {
     return { text };
   }
 
+  /**
+   * ctrl+z right after a typed line ran, with its answer kept and the line untouched: the run's undo (the status line says
+   * "ctrl+z undoes"), not an edit of the line. The App puts the bar away and gives the key to the screen, as Esc then ctrl+z did.
+   */
+  takesBackRun(k: Key): boolean {
+    return k.kind === "char" && !!k.ctrl && !k.shift && k.ch === "z" && this.scope !== "ask" && !!this.query && this.justRan === this.query && !this.compact() && !this.docsMode;
+  }
+
   keepsRun(n: number): boolean {
     const it = this.items[n - 1];
     if (!it) return false;

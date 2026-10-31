@@ -1442,7 +1442,7 @@ export class App implements Ctx {
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private xrayLeader = false;
   /** `w`: which layer takes it, the door's own over everything first: the person's whereabouts' answer (keyLayers, PIE-1438). */
-  private route(k: Key, w: KeyLayers) {
+  private route(k: Key, w: KeyLayers): void {
     if (k.kind === "alt" && k.ch === "?") { void this.dispatch.press("text.reveal"); return; }
     if (k.kind === "mouse" && isHover(k)) void this.dispatch.press("text.hover", { x: k.x, y: k.y });
     else if (k.kind === "mouse") this.overflow.clear();
@@ -1472,6 +1472,8 @@ export class App implements Ctx {
     }
     // The power bar (PIE-656), while it's open, takes every key and click: esc or a click outside puts it away.
     if (w.over === "bar") {
+      // ctrl+z on a kept run answer takes the run back: the bar goes, the key goes on to the screen (Esc, then ctrl+z).
+      if (this.bar && !this.bar.ended() && this.bar.takesBackRun(k)) { this.bar.close(); this.bar = null; this.redraw(); this.route(k, this.keyLayers()); return; }
       if (!this.bar!.ended()) this.bar!.key(k, this);
       if (this.bar?.ended()) { this.bar.close(); this.bar = null; this.redraw(); }
       return;
