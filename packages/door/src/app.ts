@@ -170,6 +170,9 @@ export function pressOf(k: Key): string | null {
 export const TEST_APPS = Symbol.for("ep0ch.test.apps");
 
 export interface Ctx {
+  /** Where a framed screen sits in a desk's undo order (the desk's `layoutUndoSeq`/`untrash`), so a reader in a tile hands ctrl+z on as one on the desk does (PIE-1470). */
+  layoutUndoSeq?(): number | undefined;
+  untrash?(board: object): boolean;
   /** Local extension undo owns the layout receipt; consume its broadcast without undoing twice. */
   readonly scriptUndos?: Set<string>;
   agentPointers?: AgentPointers;
@@ -339,7 +342,8 @@ export interface Screen {
   openArgs?(): Record<string, unknown> | null;
   /** Rows available = t.rows - 1 (the last row is the status bar). */
   render(ctx: Ctx): Frame;
-  key(k: Key, ctx: Ctx): void;
+  /** False: the key is not this screen's and the holder may take it (a reader framed in a tile gives ctrl+z on to the desk's layout undo, PIE-1470). */
+  key(k: Key, ctx: Ctx): void | false;
   enter?(ctx: Ctx): void;
   /** Visibility of a kept screen; hidden time does not age its arrival accents. */
   shownAs?(on: boolean): void;

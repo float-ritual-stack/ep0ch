@@ -1688,6 +1688,9 @@ export class MessageReader implements Screen {
     return {
       conference: true,
       ctx,
+      // Framed in a desk's tile, the desk's layout undo and untrash are what its ctrl+z yields to (PIE-1470).
+      ...(ctx.layoutUndoSeq ? { layoutUndoSeq: () => ctx.layoutUndoSeq!() } : {}),
+      ...(ctx.untrash ? { untrash: (b: object) => ctx.untrash!(b) } : {}),
       redraw: () => ctx.redraw(),
       navigate: (m, how) => {
         // A reader pushed over this one changes the person's screen: the actor rule's (touches screen) to say, the one
@@ -1844,6 +1847,8 @@ export class MessageReader implements Screen {
     // q is always back; the surface has no q. U is the surface's u (up), as the BBS had it.
     if (c === "q" || c === "Q") return back(this, ctx);
     if (this.surface.key(c === "U" ? { kind: "char", ch: "u" } : k, host)) return;
+    // ctrl+z with nothing of the reader's to undo is the holder's, when it has an undo of its own (a desk's tile): PIE-1470.
+    if (k.kind === "char" && k.ctrl && k.ch === "z" && host.layoutUndoSeq) return false;
     // What the surface doesn't take: the BBS keys. ⏎ is "next" unless an element is current (the surface's).
     const run = (name: "message.next" | "message.previous" | "message.thread") => { void this.dispatch.press(name); };
     if (k.kind === "esc") return nothingToClose(ctx);

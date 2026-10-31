@@ -10,7 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### ctrl+z in a BBS message reader tile puts the layout back (PIE-1470)
+
+- **ctrl+z with the keys in a reader tile that shows the BBS message reader** (the showcase's `exhibit`) said "no step change to undo in this note" and stopped, so a tile closed with `^W x` stayed closed; it now hands the key on to the desk's layout undo when the reader has nothing of its own to undo, as every other tile does. A step change the reader did make is still taken back first.
+- **Run:** nothing to run; restart your door to get it.
 ### A handler line whose run failed says so first (PIE-1468)
+
 
 - **The kept drawing of a failed run** (a workbench with its `[query::]` removed, a table, cards or a list a line drew before) leads with "the last run failed: …; the kept drawing is from <time>" as its first row, in the door at any tile size, in Detail and on the published page. It used to come last, below the old drawing, where a short tile never showed it and read the old drawing as live.
 - **One notice, from the service:** the failure is added where the service keeps the old output, so a line `reason` no longer repeats it after the drawing; `fetchError` still holds the bare error.
