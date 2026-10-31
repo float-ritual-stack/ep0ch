@@ -74,6 +74,8 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     const d = new Desk({ name: "probe", title: "Probe", layout: { root: { t: "split", dir: "row", ratio: 0.5,
       a: { t: "leaf", kind: "reader", name: "briefing" }, b: { t: "leaf", kind: "reader", name: "other" } } } });
     app.push(d);
+    // A person acts after the first frame; placement needs its width to decide whether a kept spine fits.
+    d.render(app);
     await app.dispatch.act({ action: "open", tile: "briefing", args: { id: briefing.id } }, USER);
     await app.dispatch.act({ action: "open", tile: "other", args: { id: testing.id } }, USER);
     await app.dispatch.act({ action: "tile.focus", tile: "briefing" }, USER);
