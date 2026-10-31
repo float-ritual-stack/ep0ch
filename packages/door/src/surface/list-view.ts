@@ -181,6 +181,7 @@ export class ListView<S = unknown> {
    */
   /** What kind of component draws here: a positional key (`#2`) keeps its state only while the component there is the same kind of thing. */
   signature = "";
+  selectionStyle: "row" | "frame" = "row";
 
   constructor(readonly key: string, readonly narrows = true) {}
 
@@ -298,6 +299,7 @@ export class ListView<S = unknown> {
    * host decides: `tag` turns a row's text into the reader's link, `preview.of` draws the row's note.
    */
   draw(o: ListDrawOpts<S>): ListDrawn<S> {
+    this.selectionStyle = o.primitive?.arrange ? "frame" : "row";
     if (o.primitive?.arrange) {
       const drawn = this.arranged(o, o.primitive), filter = o.filterLine === false ? null : this.filterRow(o.cols);
       return filter === null ? drawn : { ...drawn, lines: [filter, ...drawn.lines], rowAt: [null, ...drawn.rowAt] };

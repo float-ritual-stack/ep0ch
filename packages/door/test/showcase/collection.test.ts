@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { SECTIONS } from "../../src/showcase/showcase";
+import { ITEM_BG, RULER_BG } from "../../src/surface/selection";
 import { until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
@@ -30,6 +31,10 @@ describe("showcase: a collection record (PIE-1281)", () => {
     for (const layout of ["gallery", "feed", "board", "table"]) {
       h.press({ kind: "tab" });
       await ready(layout);
+      await act("list.pick", { n: 1 });
+      const picked = h.sc.render(h.app).lines.find(line => line.includes(lists()[0].view.picked().label))!;
+      expect(picked).not.toContain(ITEM_BG);
+      expect(picked).not.toContain(RULER_BG);
       expect(lists()[0].view.pickable().map((r: any) => r.label).sort()).toEqual([...names].sort());
       expect(h.screen()).toContain("Water the beans");
       if (layout === "feed") expect(h.screen()).toContain("Water at dusk");

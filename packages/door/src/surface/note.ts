@@ -2300,9 +2300,10 @@ export class NoteSurface {
     // The reading ruler: the current element's block, and a focus mark's, in one calm tint. An expanded
     // thread's passage is highlighted while it's open (the ruler, where both are, wins).
     const reading = this.readingRows();
-    const readingBand: [number, number] | null = reading && readingRuler() && !this.printed ? [top + reading[0], top + reading[1]] : null;
+    const framedList = this.framedList(current);
+    const readingBand: [number, number] | null = reading && readingRuler() && !this.printed && !framedList ? [top + reading[0], top + reading[1]] : null;
     // The element the cursor is on, when it is one row of something (a figure's row, a step): its rows are item-focused.
-    const itemRows: [number, number] | null = current?.item && !this.printed ? current.item : null;
+    const itemRows: [number, number] | null = current?.item && !this.printed && !framedList ? current.item : null;
     const rulers = [markRows].filter((r): r is [number, number] => !!r);
     const ruled = (row: number) => rulers.some(([a, b]) => row >= a && row < b);
     const quoted = marks.filter(k => this.expanded.has(k.thread)).map(k => [top + k.rows[0], top + k.rows[1]] as const);
@@ -3019,7 +3020,7 @@ export class NoteSurface {
     this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0, this.imageRefOf(m, noteLines));
     this.keepCurrent(host);
     const current = this.elems.find(e => e.key === this.cur);
-    const lines = doc.lines.map((l, r) => (current && r >= current.ruler[0] && r < current.ruler[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
+    const lines = doc.lines.map((l, r) => (current && !this.framedList(current) && r >= current.ruler[0] && r < current.ruler[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
     const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
     for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
     // Every row of a wrapped heading is its disclosure (PIE-1349).
@@ -4291,6 +4292,12 @@ export class NoteSurface {
 
   /** The lists the last layout drew, numbered in drawing order. */
   get listsDrawn(): ListHandle<any>[] { return this.linkBlocksDrawn; }
+
+  /** Arranged lists mark their own selection; the reader's item band would cover neighboring cards and cells. */
+  private framedList(e: Element | undefined): boolean {
+    const key = e?.link?.listRow?.key;
+    return key !== undefined && this.listViews.get(key)?.selectionStyle === "frame";
+  }
 
   /**
    * The list of this reader the actions name, `named` as `list.*` takes it (its number, `^name` or title); left out, the
