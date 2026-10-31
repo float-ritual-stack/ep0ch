@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Note components: a render script is a `::component`, found by people and agents
+
+- **`::board{where="type=task" group=status}` draws a script written in a note:** a render script in a `tsx` fence (with imports of other notes' scripts by name, and `query()` with groups and facets) is a component in any note, its props read from the note's `[form-field::]` chips.
+- **Finding and making them:** completion offers the note components and their props (`group=` offers the keys the query's rows carry), a fresh `::name` offers `+ new component` that writes a starter note and opens it beside, and `g` goes to the code.
+- **`keep name=open-count`:** the new `keep` extension graduates a `::=` line into a named component note.
+- **Action scripts reach as you:** `sh`, `fetch` and `ext.*` work from a script run without a door, shown as steps on its run note; there is no approval gate, a write is attributed and undoable.
+- **Agents read them:** `outline_components` lists note components, a typo gets a did-you-mean, a write that holds a broken script says why in its receipt, and `view: true` shows the drawing.
+- **Bumps `PROTOCOL` and `GRAMMAR`:** the completion and component wire move, and a `::name{}` line parses with its braces.
+- **Run:** `ep0ch install --apply` on float-2 (it fans out to float-box and the laptop), then try `ep0ch ext install keep` on a scratch outline.
+
 ### The door stands on its own: old drawer tiles go quietly, messages name what's there, door tests pass alone (PIE-1455, PIE-1460)
 
 - **An old drawer tile is left out, said once:** a saved layout naming a retired built-in kind (`drawer.own`, `dock.own`, from before the drawer's agent became a tab) loads without it, says so once in the message log with what replaced it, and saves without it; nothing reads "isn't available here". The one-off `drawer-words.ts` migration script and its test are gone.
