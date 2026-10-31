@@ -12,6 +12,9 @@ import { buttonBodyEnd } from "./button-call";
 import { referenceEnvelopeEnd } from "./addressable-resource";
 import { HASHTAG_VALUE_PATTERN, isEscapedAt } from "./property-grammar";
 import { workIdReferences as configuredWorkIds } from "./work-ids";
+import { parseMediaLine } from "./media-line";
+import { frontMatterLines } from "./header-line";
+import { parsePropertyRecords } from "./property-parse";
 
 /**
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
@@ -115,7 +118,12 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
 
   const prop = propertyAtCursor(line, column);
   if (!prop) return null;
-  return prop.kind === "key" ? { kind: "key", start: prop.start, end: prop.end, query: prop.query } : { kind: "value", start: prop.start, end: prop.end, query: prop.query, key: prop.key };
+  if (prop.kind === "key") return { kind: "key", start: prop.start, end: prop.end, query: prop.query };
+  const media = parseMediaLine(line.slice(0, prop.start).replace(/\[[^\]]*$/, "").trim());
+  const text = lines?.join("\n") ?? line;
+  const attrs = frontMatterLines(text).has(row ?? 0) ? parsePropertyRecords(text).filter(p => p.scope === "block").map(({ key, value }) => ({ key, value })) : undefined;
+  return { kind: "value", start: prop.start, end: prop.end, query: prop.query, key: prop.key,
+    ...(media?.kind === "img" ? { component: "hero-image" } : attrs ? { attrs } : {}) };
 }
 
 /**

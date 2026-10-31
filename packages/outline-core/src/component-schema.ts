@@ -223,13 +223,24 @@ const RULE: ComponentSchema = {
   space: ["rule-decorate", "rule-place", "rule-tone", "rule-kind"],
 };
 
-const VIEW: ComponentSchema = {
+export const VIEW: ComponentSchema = {
   id: "view", group: "site",
   title: "Views",
-  intro: "A saved view: a note whose `[query::]` gathers the blocks it holds for, sorted and limited, listed as its children wherever the note is (a virtual branch). The service answers it; every client lists what it answers. A lane, a hub and a rule's `rule-view` all read one.",
-  where: "a note with `[type::virtual-branch]` and `[query::…]`",
+  intro: "One collection record: a saved view note or a ::view block. Its query gathers the notes, and its layouts draw the same answer as tabs. An inline of= reads a saved view; where= narrows it and the other keys override it. Dotted keys configure one layout (gallery.card=large). The service owns membership, grouping and order.",
+  where: "a note with `[type::virtual-branch]` and `[query::…]`, or `::view{of=((id))}` / `::view{query=…}` inline (braces or YAML)",
   props: [
+    { key: "of", where: "note", type: "ref", meaning: "the saved view this inline collection reads", samples: ["((7c1e0b2a-0000-4000-8000-000000000001))"] },
     { key: "query", where: "note", type: "query", complete: "query", meaning: "the views' grammar: the blocks it holds for are its rows", samples: ["type=meeting"] },
+    { key: "where", where: "note", type: "query", complete: "query", meaning: "narrows the source query, ANDed with it", samples: ["stage=ready"] },
+    { key: "layout", where: "note", type: "list", default: "table", meaning: "one or several layouts, comma-separated; several are tabs over one source", values: enumOf({ table: "rows with sortable column headers", gallery: "cards in a responsive grid", feed: "full-width cards with body lines", board: "a lane per group, tabs when narrow" }) },
+    { key: "group", where: "note", type: "list", meaning: "one or two property names, or date buckets; the service answers nested groups", samples: ["area", "area, owner", "updated:recent"] },
+    { key: "card", where: "note", type: "enum", default: "small", meaning: "the size of a card", values: enumOf({ small: "three across at 90 columns", large: "two across at 90 columns" }) },
+    { key: "body", where: "note", type: "int", min: 0, max: 100, meaning: "body lines per card; feed defaults to 6, gallery to 0", samples: ["0", "6"] },
+    { key: "page", where: "note", type: "int", min: 1, max: 200, default: "200", meaning: "rows per page; the page being read is viewer state" },
+    { key: "cover", where: "note", type: "list", meaning: "property names to read in order for a card's cover", samples: ["cover, img"] },
+    { key: "open", where: "note", type: "enum", default: "current", meaning: "where opening a row lands, after the tile's wires", values: enumOf({ current: "the current reader", beside: "a reader beside", float: "a floating reader", full: "a full reader" }) },
+    { key: "create", where: "note", type: "query", meaning: "the property a new member is born with", samples: ["type=chore"] },
+    { key: "create-parent", where: "note", type: "ref", meaning: "this (the host of an inline view, or a view note's parent), inbox, or ((id))", samples: ["this", "inbox", "((7c1e0b2a-0000-4000-8000-000000000001))"] },
     { key: "sort", where: "note", type: "property", meaning: "what the rows are sorted by: created, updated, or any property's name", samples: ["updated", "priority"] },
     { key: "direction", where: "note", type: "enum", meaning: "the sort's direction", default: "desc", values: enumOf({ asc: "lowest or oldest first", desc: "highest or newest first" }) },
     { key: "limit", where: "note", type: "int", meaning: "the most rows it lists", min: 1, max: 1000, default: "200" },
@@ -237,7 +248,7 @@ const VIEW: ComponentSchema = {
     { key: "expanded", where: "note", type: "enum", meaning: "whether it opens expanded in the tree", values: enumOf({ true: "open", false: "folded" }) },
     { key: "summary-properties", where: "note", type: "list", meaning: "the properties each row's summary line shows, comma-separated", samples: ["work-stage, priority"] },
   ],
-  source: { use: "Planning call [type::meeting] [when::Tuesday]", note: { title: "Meetings", name: "query", value: "type=meeting" } },
+  source: { use: '::view{query="type=chore" layout=table} ^garden', note: { title: "Garden chores", name: "query", value: "type=chore" } },
   example: {},
   sweep: [],
   grids: [],
@@ -308,6 +319,12 @@ const ROUTE: ComponentSchema = {
 };
 
 export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_STYLE, CALLOUT, RULE, ROUTE, VIEW, METER, SPARK, ...FIGURE_COMPONENT_SCHEMAS, ...BLOCK_COMPONENT_SCHEMAS, USE, BUTTON].map(s => ({ ...s, origin: "built-in" }));
+
+/** The schemas a note configures: shared by its settings card and property completion. */
+export function settingsSchemas(schemas: readonly ComponentSchema[], props: readonly { key: string; value: string }[]): ComponentSchema[] {
+  const keys = new Set(props.map(p => p.key.toLowerCase()));
+  return schemas.filter(s => s.source.note && keys.has(s.source.note.name) && (s.source.note.requires ?? []).every(k => keys.has(k.toLowerCase())));
+}
 
 // ── merging: the outline's values, the extensions' schemas ────────────────────
 
@@ -660,15 +677,25 @@ export function keyCandidates(schemas: readonly ComponentSchema[], query: string
   return out.sort((a, b) => a.r - b.r).map(x => x.c);
 }
 
+/** Dotted keys scope one of the layouts declared by this schema. */
+export function schemaProp(schema: ComponentSchema, key: string): PropSchema | undefined {
+  const exact = schema.props.find(p => p.key === key);
+  if (exact) return exact;
+  const scope = schema.id === "view" && schema.props.find(p => p.key === "layout")?.values?.find(v => key.startsWith(`${v.value}.`));
+  return scope ? schema.props.find(p => p.key === key.slice(scope.value.length + 1)) : undefined;
+}
+
 /** The values of `key` starting with (then holding) `query`: its list, an int's range, else its samples; `close` adds the `]`. */
 export function valueCandidates(schemas: readonly ComponentSchema[], key: string, query: string, close = true, component?: string): PropertyCandidate[] {
-  const owner = schemas.find(s => (component === undefined || s.id === component) && s.props.some(p => p.key === key));
-  const p = owner?.props.find(x => x.key === key);
+  const owner = schemas.find(s => (component === undefined || s.id === component) && schemaProp(s, key));
+  const p = owner && schemaProp(owner, key);
   if (!owner || !p) return [];
-  const q = query.toLowerCase();
+  const split = p.type === "list" && p.values ? query.lastIndexOf(",") + 1 : 0;
+  const prefix = split ? query.slice(0, split).trimEnd() + " " : "";
+  const q = query.slice(split).trim().toLowerCase();
   const meaning = new Map((p.values ?? []).map(v => [v.value, v.meaning]));
   return axisValues(p).map(v => ({ v, r: rank(v.toLowerCase(), q) })).filter(x => x.r >= 0).sort((a, b) => a.r - b.r).map(({ v }) => ({
-    insertion: close ? `${v}]` : v, label: v, component: owner.id, key, value: v,
+    insertion: prefix + (close ? `${v}]` : v), label: v, component: owner.id, key, value: v,
     detail: meaning.get(v) ?? (p.default === v ? `the default · ${p.meaning}` : p.meaning),
   }));
 }
@@ -677,7 +704,7 @@ export function valueCandidates(schemas: readonly ComponentSchema[], key: string
 export function yamlKeyCandidates(schemas: readonly ComponentSchema[], component: string, query: string): PropertyCandidate[] {
   const s = schemas.find(x => x.id === component);
   const q = query.toLowerCase();
-  return (s?.props ?? []).filter(p => p.where === "yaml").map(p => ({ p, r: rank(p.key.toLowerCase(), q) })).filter(x => x.r >= 0).sort((a, b) => a.r - b.r)
+  return (s?.props ?? []).filter(p => p.where === "yaml" || s?.id === "view").map(p => ({ p, r: rank(p.key.toLowerCase(), q) })).filter(x => x.r >= 0).sort((a, b) => a.r - b.r)
     .map(({ p }) => ({ insertion: `${p.key}: `, label: p.key, detail: `${s!.title} · ${p.meaning}`, component, key: p.key }));
 }
 

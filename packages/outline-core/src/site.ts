@@ -131,6 +131,7 @@ export interface SiteAnswerRequest {
  * bound from the Site, so one figure copied onto two pages, or drawn through a `::use`, lists each host's own.
  */
 export type SiteProducer =
+  | { kind: "view"; props: Record<string, unknown>; state?: Record<string, unknown> }
   | { kind: "figure"; figure: string; props: Record<string, unknown> }
   /** A figure block's child bullets (`rows: children`): the note's children, the comments left out. */
   | { kind: "children" }
@@ -157,6 +158,7 @@ export interface FieldRow {
 
 /** What a producer's question answered. Blocks are the service's wire blocks (the questions' own shape). */
 export type SiteProduced =
+  | { kind: "view"; view: import("./list-row").ListPrimitive; title: string; layout: string; layouts: string[]; question: import("./protocol").QuestionFields; groups?: QuestionGroup[]; facets?: import("./protocol").QuestionFacet[]; hint?: string; error?: string; truncated: boolean }
   | {
     kind: "figure";
     blocks: unknown[];

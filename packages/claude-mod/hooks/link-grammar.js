@@ -742,7 +742,7 @@ function scanFrames(lines, firstOnly, fenceStop, inlineAt) {
     if (end !== undefined) {
       frame.block.end = end;
       frame.closed = true;
-    } else if (frame.block.args !== null)
+    } else if (frame.block.args !== null || frame.block.name === "view" && frame.block.attrs !== undefined && !frame.yamlSeen)
       frame.closed = true;
   };
   let i = -1, skipThrough = -1;

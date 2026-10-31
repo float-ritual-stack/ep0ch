@@ -38,6 +38,42 @@ function projects(store: OutlinerStore) {
   return { lego, garden };
 }
 
+test("a saved collection answers nested groups and inline overrides through the service", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "collection-wire-"));
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  const server = new OutlinerServer(store, join(directory, "outline.sock"));
+  await server.start();
+  cleanups.push(async () => { await server.close(); store.close(); rmSync(directory, { recursive: true, force: true }); });
+  const client = new OutlinerClient(join(directory, "outline.sock"));
+  const host = store.create("Garden notebook");
+  const beans = store.create("Water beans [type::chore] [area::beds] [owner::Mira] [stage::ready]\n\nWater at dusk.");
+  const pots = store.create("Wash pots [type::chore] [area::shed] [owner::Sol] [stage::ready]");
+  const seeds = store.create("Sort seeds [type::chore] [area::shed] [owner::Mira] [stage::later]");
+  const loose = store.create("Check forecast [type::chore] [stage::ready]");
+  const view = store.create("Garden chores [type::virtual-branch] [query::type=chore] [layout::table, gallery, feed, board] [group::area, owner] [sort::title] [direction::asc]\n[summary-properties::title, owner, stage] [gallery.card::large]");
+  const answer = await client.request<SiteAnswer>({ action: "site.answer", blockId: host.id,
+    produce: { kind: "view", props: { of: `((${view.id}))`, layout: "board", where: "stage=ready" } } });
+  const result = answer.produced as Extract<SiteProduced, { kind: "view" }>;
+  expect(result.kind).toBe("view");
+  expect(result.error).toBeUndefined();
+  expect(result.view.arrange).toBe("lanes");
+  expect(result.view.rows.map(r => r.id)).toEqual([loose.id, pots.id, beans.id]);
+  expect(result.question.group).toBe("area,owner");
+  expect(result.groups).toEqual([
+    { value: "beds", count: 1, ids: [beans.id], groups: [{ value: "Mira", count: 1, ids: [beans.id] }] },
+    { value: "shed", count: 1, ids: [pots.id], groups: [{ value: "Sol", count: 1, ids: [pots.id] }] },
+    { value: null, count: 1, ids: [loose.id], groups: [{ value: null, count: 1, ids: [loose.id] }] },
+  ]);
+  expect(result.view.rows.find(r => r.id === beans.id)?.cells).toEqual(["Water beans", "Mira", "ready"]);
+  expect(result.view.rows.some(r => r.id === seeds.id)).toBe(false);
+  const gallery = await client.request<SiteAnswer>({ action: "site.answer", blockId: host.id,
+    produce: { kind: "view", props: { of: `((${view.id}))`, layout: "gallery" } } });
+  expect((gallery.produced as typeof result).view.size).toBe("large");
+  const unknown = await client.request<SiteAnswer>({ action: "site.answer", blockId: host.id,
+    produce: { kind: "view", props: { of: `((${view.id}))`, where: "gardne=ready" } } });
+  expect((unknown.produced as typeof result).hint).toContain("no notes have gardne");
+});
+
 describe("a figure over this", () => {
   test("one figure copied onto two pages lists each page's own: {{this.project}} is a value operand of the host", () => {
     const store = scratch();

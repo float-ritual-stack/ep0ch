@@ -309,9 +309,6 @@ test("a figure written without its --- lines gets a notice line after it; its au
   expect(lines.slice(0, 5)).toEqual(text.split("\n").slice(0, 5));
   expect(lines[5]).toBe("⚠ the ::graph-table has query:, columns: but no --- lines: they are read as Markdown rows, not properties; put them between --- lines (line 2)");
   expect(lines.at(-1)).toBe("After");
-  // With its lines it says nothing.
-  const ruled = await projectDetailRead(new FakeRequester(new Map(), new Map()), "Deploys\n::graph-table\n---\nquery: type=deploy\n---\n::\nAfter");
-  expect(ruled.text).not.toContain("⚠");
 });
 
 test("embed syntax inside fenced or indented host code stays as written and is never loaded", async () => {

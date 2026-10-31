@@ -248,7 +248,7 @@ test("a list validates its rows, one activation each, and says what is wrong whe
   expect(bad({ label: "two\nlines" })).toThrow("view.rows[0].label must be one line");
   expect(bad({ preview: { block: "x", markdown: "y" } })).toThrow("must be exactly one of { block } or { markdown }");
   expect(bad({ colour: "red" })).toThrow("has a field it doesn't know: colour");
-  expect(() => validatePrimitive({ type: "list", rows: Array.from({ length: 201 }, (_, i) => ({ id: String(i), label: "x" })) })).toThrow("at most 200 rows");
+  expect(() => validatePrimitive({ type: "list", rows: Array.from({ length: 1001 }, (_, i) => ({ id: String(i), label: "x" })) })).toThrow("at most 1000 rows");
   expect(() => validatePrimitive({ ...GARDEN, preview: "above" })).toThrow("must be one of right, below, none");
 });
 

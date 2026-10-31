@@ -1105,6 +1105,11 @@ const GROUP_FORMS = "a property name, or a date bucket: <property>:day|week|mont
 /** A group as the service keeps it: a property key lowercased, or a date bucket. Throws why it can't be one. */
 export function normalizeGroupField(group: unknown): string {
   if (typeof group !== "string" || !group.trim()) throw new BlockQueryError(`group is ${GROUP_FORMS}`);
+  if (group.includes(",")) {
+    const keys = group.split(",");
+    if (keys.length !== 2) throw new BlockQueryError("group takes one or two property names, like area,owner");
+    return keys.map(normalizeGroupField).join(",");
+  }
   const trimmed = group.trim().toLowerCase();
   if (DATE_GROUP.test(trimmed)) return trimmed;
   const key = trimmed.startsWith(SORT_PROPERTY) ? trimmed.slice(SORT_PROPERTY.length).trim() : trimmed;

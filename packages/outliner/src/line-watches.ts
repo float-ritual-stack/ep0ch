@@ -12,19 +12,19 @@
 // Whether a drawing is out of date is a separate question with one answer, `answerShape`: what a script drew depended
 // on (the rows listed, the counts over every match, whether the list was complete), compared when the line is opened
 // and when a watch says something changed.
-import { WATCH_LIMITS } from "@ep0ch/outline-core/protocol";
+import { WATCH_LIMITS, type QuestionGroup } from "@ep0ch/outline-core/protocol";
 import type { BlockSearchQuery, VisibleBlockCollection } from "./types";
 import type { QueryWatches, WatchConnection } from "./query-watches";
 
 /** What a drawing depended on in one answer: the listed ids, the counts over every match (groups, facets), and whether the list was complete. */
-export function answerShape(answer: { ids: readonly string[]; complete: boolean; groups?: readonly { value: string | null; count: number }[]; facets?: unknown }): string {
-  return Bun.hash(JSON.stringify([answer.ids, answer.complete, answer.groups?.map(g => [g.value, g.count]) ?? null, answer.facets ?? null])).toString(36);
+export function answerShape(answer: { ids: readonly string[]; complete: boolean; groups?: readonly Pick<QuestionGroup, "value" | "count" | "groups">[]; facets?: unknown }): string {
+  return Bun.hash(JSON.stringify([answer.ids, answer.complete, answer.groups?.map(g => [g.value, g.count, ...(g.groups ? [g.groups] : [])]) ?? null, answer.facets ?? null])).toString(36);
 }
 
 /** The shape of a service answer (`blocks.query`): the same function a script's recorded query used when it was drawn. */
 export const shapeOfAnswer = (answer: VisibleBlockCollection): string => answerShape({
   ids: answer.blocks.map(b => b.id), complete: answer.completeness.kind === "complete",
-  ...(answer.groups ? { groups: answer.groups.map(g => ({ value: g.value, count: g.count })) } : {}), ...(answer.facets ? { facets: answer.facets } : {}),
+  ...(answer.groups ? { groups: answer.groups } : {}), ...(answer.facets ? { facets: answer.facets } : {}),
 });
 
 /** A question a render script asked (`q()`, `query()`), kept with its output: what it asked, the rows listed, and the shape of the answer it drew from. */

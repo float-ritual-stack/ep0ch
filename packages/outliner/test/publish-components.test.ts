@@ -81,6 +81,32 @@ test("one garden report's view table shows only the five requested readings", as
   }
 });
 
+test("a collection block draws its answer in published HTML and Detail", async () => {
+  const { store, page, client } = await setup();
+  store.create("Water beans [type::garden-chore] [area::beds] [owner::Mira]\n\nWater at dusk.");
+  store.create("Wash pots [type::garden-chore] [area::shed] [owner::Sol]");
+  const note = store.create(["Garden layouts", "", ...["table", "gallery", "feed", "board"].flatMap(layout => [
+    `::view{query="type=garden-chore" layout=${layout} group=area summary-properties="title, owner"}`, "::", "",
+  ]), '::graph-table{kind=garden-chore}', '---', 'query: type={{props.kind}}', 'columns: [title, owner]', '---', '::'].join("\n"));
+  const html = await page(`/p/${note.id}`);
+  expect(html).toContain('<table class="ext-table">');
+  expect(html).toContain('class="ext-collection-grid"');
+  expect(html).toContain('class="ext-collection-rows"');
+  expect(html).toContain('class="ext-collection-lanes"');
+  expect(html).toContain("Water at dusk.");
+  expect(html).not.toContain("not drawn here");
+  const document = await loadDetailReadPreview(client, note);
+  const plain = (s: string) => s;
+  const theme: MarkdownTheme = { heading: plain, link: plain, linkUrl: plain, code: plain, codeBlock: plain, codeBlockBorder: plain, quote: plain, quoteBorder: plain, hr: plain, listBullet: plain, bold: plain, italic: plain, strikethrough: plain, underline: plain };
+  const drawn = renderDetailReadPreview(document, 100, theme, undefined, true).lines.map(stripTerminalSequences).join("\n");
+  expect(drawn).toContain("Water beans");
+  expect(drawn).toContain("Mira");
+  expect(drawn).toContain("Water at dusk.");
+  expect(drawn).not.toContain("::view");
+  expect(drawn).not.toContain("::graph-table");
+  expect(drawn).not.toContain("⚠");
+});
+
 test("a box renders its note's values, bold and day links inside its frame", async () => {
   const { store, page, client } = await setup();
   store.create("Previous [page::garden-prev] [publish::public]");

@@ -38,6 +38,16 @@ export function dateBucket(iso: string, unit: DateUnit, now = Date.now()): strin
  * first, a property's dates' (`due:week`) soonest first, with values that aren't dates in the last group (null).
  */
 export function questionGroups(matches: readonly Block[], rows: readonly Block[], group: string, valuesOf: ValuesOf, now = Date.now()): QuestionGroup[] {
+  const [first, second] = group.split(",");
+  if (second) {
+    const parents = questionGroups(matches, matches, first!, valuesOf, now);
+    const returned = new Set(rows.map(row => row.id));
+    return parents.map(parent => {
+      const members = new Set(parent.ids);
+      const own = matches.filter(row => members.has(row.id));
+      return { ...parent, ids: parent.ids.filter(id => returned.has(id)), groups: questionGroups(own, rows.filter(row => members.has(row.id)), second, valuesOf, now) };
+    });
+  }
   const date = dateGroupOf(group);
   const wall = wallClock(now);
   const keysOf = (block: Block): (string | null)[] => {
@@ -127,7 +137,7 @@ export function questionKeys(query: NormalizedBlockSearchQuery): string[] {
   const keys = [
     ...(query.filters ?? []).map(filter => filter.key),
     ...expressionPropertyKeys(query.predicate),
-    ...(query.group ? [((date) => !date ? query.group! : "key" in date ? date.key : null)(dateGroupOf(query.group))].filter((key): key is string => key !== null) : []),
+    ...(query.group?.split(",").map(group => { const date = dateGroupOf(group); return !date ? group : "key" in date ? date.key : null; }).filter((key): key is string => key !== null) ?? []),
     ...(query.sort ? [sortPropertyKey(query.sort.field)].filter((key): key is string => key !== null) : []),
     ...(Array.isArray(query.facets) ? query.facets : []),
   ];

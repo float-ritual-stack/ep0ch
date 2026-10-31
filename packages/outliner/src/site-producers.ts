@@ -9,7 +9,14 @@
 import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
 import { interpolate } from "@ep0ch/outline-core/interpolation";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
-import { asksPerItem, cellBlockId, CHILDREN_QUERY, figureQuestion, liveAsk, sortProblem } from "@ep0ch/outline-core/figure-live";
+import { asksPerItem, cellBlockId, CHILDREN_QUERY, figureQuestion, itemField, liveAsk, sortProblem, tableOf } from "@ep0ch/outline-core/figure-live";
+import { recordProperties, valuesOf } from "@ep0ch/outline-core/block-record";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { frontMatterLines } from "@ep0ch/outline-core/header-line";
+import { VIEW, checkValue } from "@ep0ch/outline-core/component-schema";
+import { viewWords } from "@ep0ch/outline-core/view-spec";
+import { listCellText, type ListGroup, type ListPrimitive } from "@ep0ch/outline-core/list-row";
+import type { QuestionGroup } from "@ep0ch/outline-core/protocol";
 import { displayTitleOfText } from "./references";
 import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/outline-core/site";
 import type { BlockSearchQuery, SavedViewReadResult, TreeIndexBlock, VisibleBlock, VisibleBlockCollection } from "./types";
@@ -105,7 +112,7 @@ function cutStore(store: ProducerStore, world: Bound["world"]): ProducerStore {
     get: id => store.get(id),
     children: id => store.children(id),
     linkNeighbours: (ids, which) => store.linkNeighbours(ids, which),
-    queryBlocks: (input, binder) => store.queryBlocks(input, binder, blocks => visibleMatches(store, world, blocks, input.where)),
+    queryBlocks: (input, binder, select) => store.queryBlocks(input, binder, blocks => { const shown = visibleMatches(store, world, blocks, input.where); return select ? select(shown, input.where) : shown; }),
     readSavedView: (viewId, options, format) => store.readSavedView(viewId, options, format, (blocks, where) => visibleMatches(store, world, blocks, where)),
     matchQuery: (expression, ids, narrow, binder, draft) => {
       const matched = store.matchQuery(expression, ids, narrow, binder, draft);
@@ -191,6 +198,86 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
   };
 }
 
+/** The collection record compiles here; clients receive rows, groups and cells, never a query to interpret. */
+function collection(store: ProducerStore, bound: Bound, tools: SiteTools, written: Props, state: Props = {}): Extract<SiteProduced, { kind: "view" }> {
+  let p: Props = written, title = "Collection", source: string | undefined;
+  const empty = (error: string): Extract<SiteProduced, { kind: "view" }> => ({ kind: "view", title, layout: "table", layouts: ["table"], question: {}, view: { type: "list", rows: [], empty: error }, truncated: false, error });
+  try {
+    if (written.of) {
+      const ref = String(written.of);
+      const id = tools.read(`${ref.startsWith("((") || ref.startsWith("[[") ? ref : `((${ref}))`}.id`);
+      if (id.problem) return empty(id.problem.message);
+      source = id.values![0]!;
+      const saved = store.readSavedView(source, {}, "tree");
+      if (saved.status !== "ready") return empty(saved.errors.join("; "));
+      const note = store.get(source)!;
+      title = displayTitleOfText(note.text) ?? "Collection";
+      p = Object.fromEntries(parsePropertyRecords(note.text).filter(field => field.scope === "block").map(field => [field.key, field.value]));
+      const where = [p.where, written.where].filter(Boolean).map(w => `(${w})`).join(" AND ");
+      p = { ...p, ...written, ...(where ? { where } : {}) };
+    }
+    const layouts = viewWords(p.layout ?? "table");
+    const allowed = VIEW.props.find(prop => prop.key === "layout")!.values!.map(value => value.value);
+    const bad = layouts.find(layout => !allowed.includes(layout));
+    if (bad) return empty(`layout: ${bad} is unknown; write ${allowed.join(", ")}`);
+    const layout = state.layout ?? layouts[0] ?? "table";
+    if (!allowed.includes(layout)) return empty(`layout: ${layout} is unknown; write ${allowed.join(", ")}`);
+    p = { ...p, ...Object.fromEntries(Object.entries(p).filter(([key]) => key.startsWith(`${layout}.`)).map(([key, value]) => [key.slice(layout.length + 1), value])) };
+    p = { ...p, ...state, where: [p.where, state.where].filter(Boolean).map(w => `(${w})`).join(" AND ") };
+    for (const property of VIEW.props) if (property.key !== "direction" && p[property.key] !== undefined && (property.type === "enum" || property.type === "int")) {
+      const problem = checkValue(property, String(p[property.key]));
+      if (problem) return empty(problem);
+    }
+    title = String(p.title ?? title);
+    if (title.includes("{{")) title = interpolate(title, span => { const value = tools.read(span.expression); return value.values && !value.hidden ? value.values : undefined; });
+    const where = [p.query, p.where].filter(Boolean).map(w => `(${w})`).join(" AND ");
+    if (!where) return empty('a view needs query="type=chore" or of=((saved-view))');
+    const question: BlockSearchQuery = {
+      where, ...(bound.site.this ? { this: bound.site.this.id } : {}),
+      ...(p.group ? { group: viewWords(p.group).join(",") } : {}),
+      ...(p.sort ? { sort: /\s+(asc|desc)$/.test(String(p.sort)) ? String(p.sort) : `${p.sort} ${p.direction ?? "desc"}` } : source ? { rankViewId: source } : { sort: "updated desc" }),
+      limit: Number(p.limit ?? 200), facets: true, machinery: p.machinery ?? DEFAULT_MACHINERY,
+      ...(p["property-scope"] ? { propertyScope: p["property-scope"] } : {}),
+    };
+    const answer = store.queryBlocks(question, tools.binder);
+    // Excluding the record must keep the question's warnings; a publication cut still owns which hints it reveals.
+    const found = source ? { ...store.queryBlocks(question, tools.binder, blocks => blocks.filter(block => block.id !== source)), ...(answer.hint ? { hint: answer.hint } : {}) } : answer;
+    const columns = viewWords(p["summary-properties"] ?? p.columns ?? "title, updated");
+    const titles = cellTitles(store, found.blocks, columns);
+    const items = found.blocks.map(block => ({ ...block, properties: recordProperties(block.properties), author: block.author ?? null, title: displayTitleOfText(block.text) ?? block.id, createdAt: Date.parse(block.createdAt), updatedAt: Date.parse(block.updatedAt) }));
+    const table = tableOf({ ...p, columns }, items, titles);
+    const bodyLines = Number(p.body ?? (layout === "feed" ? 6 : 0));
+    const rowValue = (block: VisibleBlock, key: string, label: string, body: string[]) => {
+      if (key === "description") return valuesOf(block, key).join(", ") || body[0] || "";
+      const raw = itemField({ ...block, properties: recordProperties(block.properties), author: block.author ?? null, title: label, createdAt: Date.parse(block.createdAt), updatedAt: Date.parse(block.updatedAt) }, key);
+      const named = cellBlockId(raw);
+      return named && titles?.[named] ? { text: titles[named], link: named } : raw;
+    };
+    const rows = found.blocks.map((block, i) => {
+      const label = displayTitleOfText(block.text) ?? block.id;
+      const front = frontMatterLines(block.text);
+      const body = block.text.split("\n").filter((_, i) => !front.has(i)).join("\n").trim().split("\n");
+      const cells = columns.map(key => rowValue(block, key, label, body)).map(cell => typeof cell === "object" && cell.link === table.blocks[i] && table.rowRevisions?.[i] ? { ...cell, revision: table.rowRevisions[i]! } : cell);
+      const cover = viewWords(p.cover).map(key => valuesOf(block, key).join(", ")).find(Boolean);
+      return { id: block.id, label, cells, bind: `((${block.id}))`, body: body.slice(0, bodyLines),
+        detail: columns.flatMap((key, i) => key === "title" || !listCellText(cells[i]!) ? [] : [`${key}: ${listCellText(cells[i]!)}`]).join(" · "),
+        ...(cover ? { cover } : {}), preview: { block: block.id },
+        do: { open: p.open || table.rowRevisions?.[i] ? { ref: table.blocks[i]!, ...(p.open ? { where: p.open } : {}), ...(table.rowRevisions?.[i] ? { revision: table.rowRevisions[i]! } : {}) } : table.blocks[i]! },
+      };
+    });
+    const groups = (sourceGroups: QuestionGroup[], parent = ""): ListGroup[] => sourceGroups.map(group => ({
+      name: `${parent}/${group.value ?? "\u0000"}`, label: group.value ?? "NONE", count: group.count, ids: group.ids,
+      ...(group.groups ? { groups: groups(group.groups, `${parent}/${group.value ?? "\u0000"}`) } : {}),
+    }));
+    const arrange: Record<string, NonNullable<ListPrimitive["arrange"]>> = { table: "table", gallery: "grid", feed: "rows", board: "lanes" };
+    return { kind: "view", title, layout, layouts, question, view: {
+      type: "list", rows, arrange: arrange[layout], size: p.card ?? "small", columns, page: Number(p.page ?? 200),
+      ...(found.groups ? { groups: groups(found.groups) } : {}), empty: found.hint ?? "No matching notes",
+    }, ...(found.groups ? { groups: found.groups } : {}), ...(found.facets ? { facets: found.facets } : {}),
+      ...(found.hint ? { hint: found.hint } : {}), truncated: found.completeness.kind === "truncated" };
+  } catch (error) { return empty(sortProblem(own(error), p.sort, p.direction ?? "desc")); }
+}
+
 /** The most cells naming a note one table answers with titles. */
 const MAX_CELL_TITLES = 500;
 
@@ -261,8 +348,9 @@ export function produce(raw: ProducerStore, bound: Bound, producer: SiteProducer
   // A limited reader's producers ask a store that leaves out what it can't answer for (`cutStore`).
   const store = bound.world.cut ? cutStore(raw, bound.world) : raw;
   const thisId = bound.site.this?.id;
-  if (!thisId && producer.kind !== "figure" && producer.kind !== "unknowable") return { answer: { kind: "if", holds: false, problem: { message: "this run has no note to read", didYouMean: [] } } };
+  if (!thisId && producer.kind !== "figure" && producer.kind !== "view" && producer.kind !== "unknowable") return { answer: { kind: "if", holds: false, problem: { message: "this run has no note to read", didYouMean: [] } } };
   switch (producer.kind) {
+    case "view": return { answer: collection(store, bound, tools, producer.props, producer.state), anyChange: true };
     case "figure": {
       if (!producer.figure || typeof producer.figure !== "string" || !producer.props || typeof producer.props !== "object") throw new Error("produce a figure with { kind: \"figure\", figure: \"table\", props: { query: \"type=ticket\" } }");
       const answer = figure(store, tools, thisId, producer.figure, producer.props as Props), t = (producer.props as Props).title;

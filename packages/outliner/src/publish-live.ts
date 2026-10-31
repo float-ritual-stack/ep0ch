@@ -1,3 +1,5 @@
+import { viewSpec, type ViewSpec } from "@ep0ch/outline-core/view-spec";
+import { renderComponent } from "./component-primitives";
 // What a published page asks the service for its built-in components (src/publish-figures.ts draws them): a
 // `::graph-*` figure's question and what its answer becomes (outline-core's figure-props.ts and figure-live.ts, the
 // same reading the door's figures use), a `::links` component's groups, and a saved view's rows. The service owns the
@@ -61,7 +63,8 @@ export async function drawNoteComponents(
       if (structure[i] !== -1 && structure[i] !== i) continue;
       const links = linkBlockAt(lines, i, byStart);
       const block = byStart.get(i), kind = block && graphKind(block);
-      const site = !links && !kind ? siteBlockAt(lines, i, byStart) : null;
+      const collection = block && viewSpec(block, lines);
+      const site = !collection && !links && !kind ? siteBlockAt(lines, i, byStart) : null;
       // `::if`: its body stays in the page's Markdown when `this` matches (only its two lines go), else it all goes.
       if (site?.kind === "if") {
         const held = await holds(host, note.id, site.spec.where, site.spec.problem);
@@ -70,11 +73,12 @@ export async function drawNoteComponents(
         i = site.end;
         continue;
       }
-      if (!links && !kind && !site) continue;
+      if (!collection && !links && !kind && !site) continue;
       const end = links ? links.end : site ? site.end : block!.end;
       let html: string;
       try {
-        html = site ? await drawFields(host, site as Extract<SiteBlock, { kind: "fields" }>, note.id)
+        html = collection ? await drawCollection(host, note.id, collection)
+          : site ? await drawFields(host, site as Extract<SiteBlock, { kind: "fields" }>, note.id)
           : links ? await drawLinks(host, links.spec, note.id)
           : await drawFigure(host, kind!, lines.slice(i + 1, end), note.id, lines.slice(0, i).every(line => !line.trim()), lines.slice(i, end + 1), figureRows(note, i + 1, rows), block!.attrs);
       } catch (error) {
@@ -88,6 +92,17 @@ export async function drawNoteComponents(
     if (drawn.size) out.set(note.id, drawn);
   }
   return out;
+}
+
+async function drawCollection(host: LiveHost, note: string, spec: ViewSpec): Promise<string> {
+  const answer = await produced(host, note, { kind: "view", props: spec.props }, spec.args);
+  if (answer.kind !== "view") return "";
+  const html = renderComponent({ data: null, view: answer.view }, "html").body.replace(/<span data-collection-open="([^"]+)">([\s\S]*?)<\/span>/g, (_, id: string, label: string) => {
+    const href = host.href(id);
+    return href ? `<a href="${href.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">${label}</a>` : label;
+  });
+  const count = answer.view.rows.length;
+  return figureFrame("view", answer.title, html, `live · ${count} result${count === 1 ? "" : "s"}${answer.truncated ? " · more matches" : ""}`, spec.error ?? answer.error ?? answer.hint);
 }
 
 // ── `::fields` and `::if` ──────────────────────────────────────────────────────────────────────────

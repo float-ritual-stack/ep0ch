@@ -73,13 +73,14 @@ describe("found by the name it's written with", () => {
   test("a component's ::name is the opener its own source writes; one written otherwise has none", () => {
     expect(blockNameOf(BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === "graph-stat")!)).toBe("graph-stat");
     expect(blockNameOf(BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === "box")!)).toBe("box");
-    for (const id of ["callout", "table", "view", "embed", "image"]) expect(blockNameOf(BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === id)!)).toBeNull();
+    expect(blockNameOf(BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === "view")!)).toBe("view");
+    for (const id of ["callout", "table", "embed", "image"]) expect(blockNameOf(BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === id)!)).toBeNull();
     expect(blockNameOf(FORECAST)).toBe("forecast");
   });
 
-  test("::tables and ::views are no near miss of anything written with ::, so nothing is suggested", () => {
+  test("::views suggests the collection block; ::tables still has no block spelling", () => {
     expect(read("Garden", "::tables", "---", "---", "::")).toEqual({ components: [], warnings: [] });
-    expect(read("Garden", "::views", "---", "---", "::")).toEqual({ components: [], warnings: [] });
+    expect(read("Garden", "::views", "---", "---", "::").warnings).toContain("the ::views on line 2 isn't a component: did you mean ::view?");
   });
 
   test("an extension's component is counted by its own name", () => {

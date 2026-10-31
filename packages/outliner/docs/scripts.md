@@ -253,25 +253,30 @@ has. The tone is one of `default`, `good`, `warn`, `bad`, `dim`, `accent`.
 
 | Builder | Fields (anything else is refused) | Source |
 |---|---|---|
-| `view.text` | `text`, `tone`, `strong`, `act` | `packages/outliner/src/component-primitives.ts:328` |
-| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:333` |
-| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:336` |
-| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:343` |
-| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:350` |
-| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:357` |
-| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:401` |
-| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:412` |
-| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:418` |
-| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:436` |
-| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:439` |
-| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:442` |
-| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:447` |
-| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:463` |
-| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:470` |
-| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:340` |
-| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty` | `packages/outliner/src/component-primitives.ts:484` |
+| `view.text` | `text`, `tone`, `strong`, `act` | `packages/outliner/src/component-primitives.ts:388` |
+| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:393` |
+| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:396` |
+| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:403` |
+| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:410` |
+| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:417` |
+| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:443` |
+| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:454` |
+| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:460` |
+| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:478` |
+| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:481` |
+| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:484` |
+| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:489` |
+| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:505` |
+| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:512` |
+| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:400` |
+| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty`, `arrange`, `size`, `columns`, `page` | `packages/outliner/src/component-primitives.ts:526` |
 
 <!-- generated:view:end -->
+
+`view.list` can arrange one answer as `table`, `grid`, `rows` or `lanes`. It accepts `size: "small" | "large"`,
+`columns` and `page` (rows per page). Rows can carry `cells` (the table's cell values), `body` lines, a text `cover`,
+and a `bind` reference. Groups can carry `ids` and nested `groups`; the service supplies their order and membership.
+An open activation can be `{ open: { ref, where: "current" | "beside" | "float" | "full" } }`.
 
 What the fields mean:
 
@@ -300,7 +305,7 @@ primitive's label without the line. In a note the same press is `::button{label=
 
 | Entry | Source |
 |---|---|
-| `validatePrimitive` | `packages/outliner/src/component-primitives.ts:316` |
+| `validatePrimitive` | `packages/outliner/src/component-primitives.ts:376` |
 | `PRIMITIVE_TYPES` | `packages/outliner/src/component-primitives.ts:30` |
 | `PRIMITIVE_FIELDS` | `packages/outliner/src/component-primitives.ts:28` |
 | `MAX_NODES` | `packages/outliner/src/component-primitives.ts:137` |

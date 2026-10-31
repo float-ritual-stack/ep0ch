@@ -188,7 +188,7 @@ export const QUESTION_FACET_CAP = 50;
  * (every match, not only the rows returned), and the ids of the returned rows in it, in the rows' order. A row whose
  * property has several values is in each of their groups.
  */
-export interface QuestionGroup { value: string | null; count: number; ids: string[] }
+export interface QuestionGroup { value: string | null; count: number; ids: string[]; groups?: QuestionGroup[] }
 
 /** A key's value counts over every match (`facets=`): `count` matches carry the key; `more` values were left out. */
 export interface QuestionFacet { key: string; count: number; values: { value: string; count: number; last: string }[]; more?: number }
