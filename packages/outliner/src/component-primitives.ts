@@ -6,6 +6,7 @@ import { HEADING_STYLE_NAME } from "@ep0ch/outline-core/heading-styles";
 import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { fileName, imageSource, parseSize } from "@ep0ch/outline-core/media-line";
 import { safeExtensionHtml } from "./extension-html";
+import { figureBodyHtml } from "./publish-figures";
 import { ACTIVATION_KINDS, LIST_MAX_ROWS, LIST_PREVIEWS, activationCount, listHead, listSections, listCellText, openedRef, type ListCell, type ListGroup, type ListPrimitive, type ListRow } from "@ep0ch/outline-core/list-row";
 
 /**
@@ -776,7 +777,12 @@ function htmlOf(node: Primitive, count = { images: 0 }): string {
         const link = (ref: string, label: string) => `<span data-collection-open="${html(ref)}">${html(label)}</span>`;
         const open = (r: ListRow, label: string) => link(openedRef(r) ?? r.id, label);
         const card = (r: ListRow) => `<article class="ext-card"><h4>${open(r, r.label)}</h4>${r.cover ? `<div class="ext-cover">${html(r.cover)}</div>` : ""}<p>${html(r.detail ?? "")}</p>${(r.body ?? []).map(line => `<p>${html(line)}</p>`).join("")}</article>`;
-        if (node.arrange === "table") return `<table class="ext-table"><thead><tr>${(node.headers ?? node.columns ?? ["title"]).map(key => `<th>${html(key)}</th>`).join("")}</tr></thead><tbody>${node.rows.map(r => `<tr>${(r.cells ?? [r.label]).map((cell, i) => `<td>${typeof cell === "object" && cell.link ? link(cell.link, cellText(cell)) : i === 0 ? open(r, cellText(cell)) : html(cellText(cell))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+        if (node.arrange === "table") return figureBodyHtml("table", {
+          headers: node.headers ?? node.columns ?? ["title"],
+          rows: node.rows.map(r => (r.cells ?? [r.label]).map(cellText)),
+          blocks: node.rows.map(r => openedRef(r) ?? r.id),
+          cellBlocks: node.rows.map(r => r.cells?.map(cell => typeof cell === "object" ? cell.link : null)),
+        }, () => null, { link: (ref, text) => `<span data-collection-open="${html(ref)}">${text}</span>` })!;
         const style = `display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,${node.size === "large" ? 28 : 18}rem),1fr))`;
         if (node.arrange === "lanes" && node.groups?.length) return `<div class="ext-collection-lanes" style="${style}">${node.groups.map(g => `<section><h3>${html(listHead(g))}</h3>${listSections({ rows: node.rows, groups: [g] }).map(s => `${g.groups?.length && s.head ? `<h4>${html(listHead(s.head))}</h4>` : ""}${s.rows.map(card).join("")}`).join("")}</section>`).join("")}</div>`;
         return `<div class="ext-collection-${node.arrange}"${node.arrange === "grid" ? ` style="${style}"` : ""}>${node.rows.map(card).join("")}</div>`;

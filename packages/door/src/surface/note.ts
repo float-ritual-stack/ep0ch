@@ -5483,7 +5483,7 @@ export class NoteSurface {
     const current = this.selectedElement();
     const figure = current?.link?.figure?.figure;
     const links = current?.link?.listRow?.key;
-    if (figure || links) {
+    if (figure || (links && !current.link?.inlineList)) {
       const entries = this.elems.filter(e => figure ? e.kind === "row" && e.link?.figure?.figure === figure : e.link?.listRow?.key === links && e.link?.listRow?.row !== undefined);
       const entry = entries[0];
       const inline = current.link?.inlineList ?? entry?.link?.inlineList;

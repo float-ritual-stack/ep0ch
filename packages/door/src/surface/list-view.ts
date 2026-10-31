@@ -406,6 +406,7 @@ export class ListView<S = unknown> {
 
   private arranged(o: ListDrawOpts<S>, node: ListPrimitive): ListDrawn<S> {
     const rows = this.visible(), mine = o.selection ? this.picked() : null;
+    const expanded = this.hasPick(PERSON) ? mine : null;
     const titleAt = Math.max(0, node.columns?.indexOf("title") ?? 0);
     const card = (row: ListViewRow<S>, cols: number, record = false): string[] => {
       const cell = record ? row.cells?.[titleAt] ?? row.label : row.label;
@@ -416,7 +417,7 @@ export class ListView<S = unknown> {
         ...(record ? (node.columns ?? []).flatMap((key, i) => {
           if (i === titleAt) return [];
           const cell = row.cells?.[i] ?? "";
-          return [{ type: "text", ...(typeof cell === "object" ? cell : {}), text: rowLines(`${node.headers?.[i] ?? key}: ${listCellText(cell)}`, Math.max(8, cols - 2), 4).join("\n") }];
+          return [{ type: "text", ...(typeof cell === "object" ? cell : {}), text: rowLines(`${node.headers?.[i] ?? key}: ${listCellText(cell)}`, Math.max(8, cols - 2), sameRow(row, expanded) ? Infinity : 4).join("\n") }];
         }) : []),
         ...(row.body ?? []).map(text => ({ type: "text", text })),
       ] }, cols, { link: o.link });
@@ -434,6 +435,7 @@ export class ListView<S = unknown> {
           shown.pop();
         }
         return [...primitiveLines({ type: "table", columns: shown.map((key, i) => node.headers?.[i] ?? key), rows: own.map(r => r.cells?.slice(0, shown.length) ?? [r.label]) }, cols, { link: o.link,
+          expanded: i => sameRow(own[i], expanded),
           row: (i, text) => { const row = own[i]!, marked = sameRow(row, mine) ? `${BOLD}${text}${UNBOLD}` : text; return o.tag?.(row, marked) ?? marked; },
           header: (_label, text, i) => o.header?.(shown[i]!, text) ?? text }),
           ...(shown.length < keys.length ? [fg(C.dark) + `+ ${keys.length - shown.length} columns · widen to see them` + RESET] : [])];

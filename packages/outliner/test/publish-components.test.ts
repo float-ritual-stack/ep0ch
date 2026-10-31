@@ -89,7 +89,7 @@ test("a collection block draws its answer in published HTML and Detail", async (
     `::view{query="type=garden-chore" layout=${layout} group=area summary-properties="title, owner"}`, "::", "",
   ]), '::graph-table{kind=garden-chore}', '---', 'query: type={{props.kind}}', 'columns: [title, owner]', '---', '::'].join("\n"));
   const html = await page(`/p/${note.id}`);
-  expect(html).toContain('<table class="ext-table">');
+  expect(html).toContain('<td class="lead"><a href=');
   expect(html).toContain('class="ext-collection-grid"');
   expect(html).toContain('class="ext-collection-rows"');
   expect(html).toContain('class="ext-collection-lanes"');

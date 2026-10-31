@@ -19,9 +19,10 @@ export type RowHref = (blockId: string) => string | null;
 /**
  * What the page lends a figure's rows (PIE-864) while it's drawn: `inline`, a row's words as the page draws a line of
  * the note (code spans, links, emphasis); `box`, a check row's box as a step's (its sentinel, drawSteps' button), or
- * null to draw it as a glyph. Set for one synchronous draw, as the callouts are.
+ * null to draw it as a glyph. `link` lets a collection keep its target until the publisher resolves visibility.
+ * Set for one synchronous draw, as the callouts are.
  */
-export interface FigureRows { inline?: (text: string) => string; box?: (item: Props) => string | null }
+export interface FigureRows { inline?: (text: string) => string; box?: (item: Props) => string | null; link?: (block: string, html: string) => string }
 let activeRows: FigureRows = {};
 
 /** Words a figure draws as written by its author (a side note, a reason): as the page draws the note's, else escaped. */
@@ -31,6 +32,7 @@ const words = (text: unknown) => (activeRows.inline ? activeRows.inline(String(t
 function rowText(text: unknown, block: unknown, href: RowHref): string {
   if (typeof block !== "string") return dateTimeHtml(String(text ?? "")) ?? words(text);
   const to = href(block), drawn = (dateTimeHtml(String(text ?? "")) ?? words(text)).replace(/<a\b[^>]*>|<\/a>/g, "");
+  if (activeRows.link) return activeRows.link(block, drawn);
   return to ? `<a href="${esc(to)}">${drawn}</a>` : drawn;
 }
 

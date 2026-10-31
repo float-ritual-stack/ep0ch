@@ -70,6 +70,21 @@ describe("showcase: a collection record (PIE-1281)", () => {
     expect(opened.opened).toBe(picked.id);
   }, 20_000);
 
+  test("picking a live table row reveals its full description", async () => {
+    const description = "Carry the seedlings through the orchard, past the potting shed and along the fence. Water each tray before setting it beside the beds, then check that the gate is closed and leave the empty watering can beside the";
+    await h.board.createBlock(null, `Aster [collection::row-expansion] [description::${description} sundial.]`);
+    await h.board.createBlock(null, `Bluebell [collection::row-expansion] [description::${description} lantern.]`);
+    await show('Planting instructions\n::graph-table{query="collection=row-expansion" columns="title, description" sort="title asc"}\n::', 100);
+    expect(h.screen()).not.toContain("sundial.");
+    expect(h.screen()).not.toContain("lantern.");
+    await act("list.pick", { n: 2 });
+    expect(h.screen()).toContain("lantern.");
+    expect(h.screen()).not.toContain("sundial.");
+    await act("list.pick", { n: 1 });
+    expect(h.screen()).not.toContain("lantern.");
+    expect(h.screen()).toContain("sundial.");
+  }, 20_000);
+
   test("review1134: clicking the second visible group occurrence picks that occurrence", async () => {
     await h.board.createBlock(null, "Aster [collection::review-visible] [bed::A] [bed::B]");
     await show('Two beds\n::view{query="collection=review-visible" layout=board group=bed sort="title asc"}', 177);

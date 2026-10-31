@@ -64,8 +64,8 @@ test.each(["2026-03-04T03:47:00Z", "2026-11-01T06:30:00Z", "2026-11-01T01:30:00-
   process.env.TZ = "America/Toronto";
   cleanups.push(() => { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; });
   const { store, get } = await setup();
-  store.create(`Window latch [type::published-window] [merged-at::${stamp}]`);
-  const note = store.create('Window report [publish::public:windows]\n\n::graph-table\n---\nheaders: [Build, merged-at]\nquery: type=published-window\ncolumns: [title, merged-at]\n---\n::');
+  store.create(`Window latch [type::published-window] [merged-at::${stamp}] [stage::ready]`);
+  const note = store.create('Window report [publish::public:windows]\n\n::graph-table\n---\nheaders: [Build, merged-at, Stage]\nquery: type=published-window\ncolumns: [title, merged-at, stage]\n---\n::');
   store.create("Window samples\nThe east window was open.", note.id);
   for (const path of [`/p/${note.id}`, "/"]) {
     const response = await get(path, { accept: "text/html" });
@@ -79,7 +79,12 @@ test.each(["2026-03-04T03:47:00Z", "2026-11-01T06:30:00Z", "2026-11-01T01:30:00-
       expect(Number.isFinite(Date.parse(instant!))).toBe(true);
       expect(fallback).toContain("UTC");
     }
-    if (path !== "/") expect(times.map(t => Date.parse(t[1]!))).toContain(Date.parse(stamp));
+    if (path !== "/") {
+      expect(times.map(t => Date.parse(t[1]!))).toContain(Date.parse(stamp));
+      expect(html).toContain('<table class="fig-cards">');
+      expect(html).toContain('<td data-label="merged-at"><time datetime=');
+      expect(html).toContain('<td data-label="Stage">ready</td>');
+    }
   }
 });
 

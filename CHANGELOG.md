@@ -42,7 +42,7 @@ are its record. The outliner's entries from then are kept below, under
 - Removing an extension switches its kept rule notes off with attribution; reinstalling switches them back on, with the counts shown in the door and CLI (PIE-1368).
 
 - `ep0ch trace on`, then `trace show <action>`, proves which probes answered an action and which code revision the door runs; the service mirror names multiple agent handlers on one ask (PIE-1377).
-- PIE-1281: saved view notes and inline `::view` blocks draw one query as table, gallery, feed and board, with layout tabs, service grouping and sorting, scoped property completion, and HTML/Detail rendering. Live `::graph-table` uses the table preset. PROTOCOL 292 carries nested groups and list arrangements; GRAMMAR 19 draws the collection block and scopes its completion. Run `ssh float-2 'cd ~/projects/ep0ch && ep0ch install --apply'` and `ep0ch install --apply` in the laptop checkout.
+- PIE-1281: saved view notes and inline `::view` blocks draw one query as table, gallery, feed and board, with layout tabs, service grouping and sorting, scoped property completion, and HTML/Detail rendering. Live `::graph-table` uses the table preset. PROTOCOL 293 carries nested groups and list arrangements; GRAMMAR 22 draws the collection block and scopes its completion. Run `ssh float-2 'cd ~/projects/ep0ch && ep0ch install --apply'` and `ep0ch install --apply` in the laptop checkout.
 
 ### The sysop monk watches every machine and records a calm restart (PIE-1476)
 

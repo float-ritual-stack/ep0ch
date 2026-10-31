@@ -94,6 +94,8 @@ export interface PrimitiveDraw {
   header?: (key: string, text: string, column: number) => string;
   /** A table's row activation stays distinct from links carried by its individual cells. */
   row?: (index: number, text: string) => string;
+  /** The picked row uses the same uncapped wrapping as an expanded figure row. */
+  expanded?: (index: number) => boolean;
   /**
    * Tags `text` as a press (PIE-957): a primitive that carries an action line (`act`). The reader's `[ ]` stops on it, ⏎
    * and a click run the line as the person. Without it (a page, a draft's preview) the primitive is drawn as it is.
@@ -191,7 +193,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
         fg(C.grey) + BOLD + columns.map((c, i) => { const cell = pad(c, widths[i]!); return draw.header ? draw.header(c, cell, i) : cell; }).join("  ") + UNBOLD + RESET,
         fg(C.dark) + widths.map(x => "─".repeat(x)).join("  ") + RESET,
         ...rows.flatMap((r, k) => {
-          const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!));
+          const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!, draw.expanded?.(k) ? Infinity : undefined));
           const own = rawRows[k]!.map(cellOf);
           // A row with a cell of its own draws cell by cell: that cell presses or opens, the rest take the row's link or act.
           const byCell = own.some(Boolean);
