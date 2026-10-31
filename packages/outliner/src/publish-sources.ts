@@ -1,3 +1,4 @@
+import { timeHtml } from "./publish-time";
 import type { SiteAnswer } from "@ep0ch/outline-core/site";
 import { sourceDownload, type SourceEntry, type SourcesAnswer } from "@ep0ch/outline-core/sources";
 import type { DrawnComponent, LiveHost } from "./publish-live";
@@ -61,15 +62,15 @@ export async function pageSources(host: LiveHost, blockId: string, outline: stri
     const read = s.readAt ? `${s.live ? "live, " : ""}as of ${s.readAt}` : "as written";
     // The downloads first under the source's name, each a tap target, and a page's one source open (PIE-1409: on a
     // phone they were 15 px tall, behind three disclosures).
-    return `<details class="source-entry" id="source-${i}" data-source-offset="${offsets[s.line] ?? 0}"${sources.sources.length === 1 ? " open" : ""}><summary>${e(s.name)} <small>${e(s.readAt ?? "as written")}</small></summary>
+    return `<details class="source-entry" id="source-${i}" data-source-offset="${offsets[s.line] ?? 0}"${sources.sources.length === 1 ? " open" : ""}><summary>${e(s.name)} <small>${s.readAt ? timeHtml(s.readAt) : "as written"}</small></summary>
 <p class="source-downloads">Download ${download("csv")} ${download("json")}</p>
 ${s.problem ? `<p>${e(s.problem)}</p>` : ""}
 <details open><summary>Query</summary><dl>${s.query.params.map(p => `<dt>${e(p.key)}</dt><dd>${e(p.value)}</dd>`).join("")}</dl><pre>${e(s.query.text)}</pre>${copy("query", s.query.text)}</details>
 <details><summary>Transform</summary><p>${e(s.transform.label)}</p>${s.transform.block ? `<a href="${e(host.href(s.transform.block) ?? "#")}">Jump to its note</a>` : ""}<pre>${e(s.transform.text ?? "")}</pre>${copy("transform", s.transform.text ?? "")}</details>
 <details open><summary>Result · ${s.result.rows} rows</summary><pre>${e(s.result.text)}</pre>${copy("result", s.result.text)}
-<dl><dt>Outline</dt><dd>${e(outline)} ${copy("outline", outline)}</dd><dt>Read</dt><dd>${e(read)} ${copy("read", read)}</dd><dt>Query</dt><dd>${e(s.query.text)} ${copy("query", s.query.text)}</dd></dl></details></details>`;
+<dl><dt>Outline</dt><dd>${e(outline)} ${copy("outline", outline)}</dd><dt>Read</dt><dd>${s.readAt ? `${s.live ? "live, " : ""}as of ${timeHtml(s.readAt)}` : "as written"} ${copy("read", read)}</dd><dt>Query</dt><dd>${e(s.query.text)} ${copy("query", s.query.text)}</dd></dl></details></details>`;
   }).join("\n");
-  return `<details class="sources-panel"><summary>Updated <time datetime="${e(sources.readAt)}">${e(sources.readAt)}</time> · Sources</summary><aside aria-label="Sources"><a href="">⟳ Refresh all</a><button type="button" data-sources-close>Close</button><h2>Sources</h2>${entries}</aside></details>`;
+  return `<details class="sources-panel"><summary>Updated ${timeHtml(sources.readAt)} · Sources</summary><aside aria-label="Sources"><a href="">⟳ Refresh all</a><button type="button" data-sources-close>Close</button><h2>Sources</h2>${entries}</aside></details>`;
 }
 
 export const SOURCES_STYLE = `

@@ -232,16 +232,17 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
             "comment \"dig the north bed\" · user",         // the comment mark, in the margin before the item
       "row Water the seedlings",
       "row Turn the compost",
+      "figure ↔ fit",
       "embed » Paint the shed",
     ]);
     const seen: string[] = [];
-    for (let i = 0; i < 7; i++) { key(char("]")); frame(); seen.push(current(p)!.kind); }
-    expect(seen).toEqual(["link", "link", "link", "comment", "row", "row", "embed"]);
+    for (let i = 0; i < 8; i++) { key(char("]")); frame(); seen.push(current(p)!.kind); }
+    expect(seen).toEqual(["link", "link", "link", "comment", "row", "row", "figure", "embed"]);
     key(char("]")); frame();
     expect(current(p)!.n).toBe(1);                                   // round to the first again
     key(char("[")); frame();
     expect(current(p)!.kind).toBe("embed");
-    expect((await act("elements", {}, "preview", AS) as any).elements.map((e: any) => e.kind)).toEqual(["link", "link", "link", "comment", "row", "row", "embed"]);
+    expect((await act("elements", {}, "preview", AS) as any).elements.map((e: any) => e.kind)).toEqual(["link", "link", "link", "comment", "row", "row", "figure", "embed"]);
     // link.select picks the element it's drawn as, so the ruler and ⏎ agree with it.
     const beans = p.surface.describe().links.findIndex(l => l.block === n.beans.id) + 1;
     // (The person's: their preview has their keys, so an agent's would be refused there.)

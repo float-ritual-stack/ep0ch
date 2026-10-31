@@ -148,7 +148,7 @@ export function rowLines(text: string, w: number, lines = rowLimit, { hang }: { 
   if (w <= 0) return [""];
   if (lines <= 1) return [drawEllipsized(text, w)];
   const prefix = visible(text).match(/^(?:\s*(?:[→←↓♦≡∙•*▸▾-] |[A-Z][A-Z0-9]*-\d+(?:\s*[—–·:|-]\s+|\s+(?=[\p{L}\p{N}]))))+/u)?.[0] ?? "";
-  const indent = Math.min(Math.max(hang ?? 0, width(prefix)), Math.max(0, w - 1));
+  const indent = Math.min(hang ?? width(prefix), Math.max(0, w - 1));
   const lead = " ".repeat(indent);
   // Wrap the marker with the first line, then reuse wrap's seams to consume source text, not balanced tags.
   let rest = text;

@@ -59,6 +59,30 @@ async function setup(options: { maxBytes?: number; roots?: string[]; basePath?: 
   return { root, workspace, store, client, publisher, get, write };
 }
 
+test.each(["2026-03-04T03:47:00Z", "2026-11-01T06:30:00Z", "2026-11-01T01:30:00-05:00"])("published clocks keep their instant and name their fallback zone: %s", async stamp => {
+  const zone = process.env.TZ;
+  process.env.TZ = "America/Toronto";
+  cleanups.push(() => { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; });
+  const { store, get } = await setup();
+  store.create(`Window latch [type::published-window] [merged-at::${stamp}]`);
+  const note = store.create('Window report [publish::public:windows]\n\n::graph-table\n---\nheaders: [Build, merged-at]\nquery: type=published-window\ncolumns: [title, merged-at]\n---\n::');
+  store.create("Window samples\nThe east window was open.", note.id);
+  for (const path of [`/p/${note.id}`, "/"]) {
+    const response = await get(path, { accept: "text/html" });
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    const outside = html.replace(/<time\b[^>]*>[\s\S]*?<\/time>/g, "").replace(/<(script|style|pre|code|button)\b[^>]*>[\s\S]*?<\/\1>/g, "").replace(/<[^>]+>/g, "");
+    expect(outside).not.toMatch(/\d{4}-\d\d-\d\d[T ]\d\d:\d\d/);
+    const times = [...html.matchAll(/<time\b[^>]*datetime="([^"]+)"[^>]*>(.*?)<\/time>/g)];
+    expect(times.length).toBeGreaterThan(0);
+    for (const [, instant, fallback] of times) {
+      expect(Number.isFinite(Date.parse(instant!))).toBe(true);
+      expect(fallback).toContain("UTC");
+    }
+    if (path !== "/") expect(times.map(t => Date.parse(t[1]!))).toContain(Date.parse(stamp));
+  }
+});
+
 test("a published subtitle sits below the heading and leaves the browser title short", async () => {
   const { store, get, publisher } = await setup();
   const page = store.create('Orchard [subtitle::Apples, pears & <plums>] [publish::public:orchard]\nA short field report.');
@@ -1186,7 +1210,7 @@ test("open highlights and margin notes are drawn read-only on the HTML page; res
   store.annotations.batch("greenhouse-reply", [{ type: "reply", operationId: "a", input: { annotationId: question!.block.id, body: "Cooler leaves.", source: "agent" } }]);
   store.annotations.setLifecycle({ annotationId: resolved!.block.id, lifecycle: "resolved" }, { author: "user", actorId: "test" });
 
-  // The public page: read-only, no script (a tailnet page also carries each thread's id for its reader script).
+  // The public page formats clocks but has no marginalia editing context.
   const html = await (await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}?view=html`), "public")).text();
   expect(html).toContain(`<mark class="ann ann-accent" data-kind="question">tomatoes at dawn</mark>`);
   expect(html).toContain(`<mark class="ann ann-good" data-kind="highlight" data-tags="beans june">Stake the beans</mark>`);
@@ -1201,7 +1225,11 @@ test("open highlights and margin notes are drawn read-only on the HTML page; res
   expect(html).not.toContain("Highlight on");
   expect(html.match(/<aside/g)).toHaveLength(2);
   expect(html).not.toMatch(/[-]/);
-  expect(html).not.toContain("<script");
+  const script = /<script src="([^"]+reader\.js[^"]*)" defer><\/script>/.exec(html)![1]!;
+  expect(html).not.toContain("data-marginalia=");
+  const clock = await publisher.handle(new Request(`http://127.0.0.1${script}`), "public");
+  expect(clock.status).toBe(200);
+  expect(clock.headers.get("content-type")).toContain("javascript");
   expect(html).toContain("mark.ann{");
   expect(highlight!.body).toBe("");
 

@@ -324,7 +324,7 @@ describe("the comparison kinds (PIE-575 to PIE-579)", () => {
 describe("one width rule for every kind (PIE-581)", () => {
   const within = (out: string[], w: number) => out.every(l => Bun.stringWidth(plain(l)) <= w);
   test("stat tiles wrap into rows; a narrow table draws each row as a card, every cell labelled (PIE-1402)", () => {
-    const stat = body(draw("stat", ["- a: 1", "- b: 22", "- c: 333", "- d: 4", "- e: 55", "- f: 6"], 36));
+    const stat = body(draw("stat", ["- a: 1", "- b: 22", "- c: 333", "- d: 4", "- e: 55", "- f: 6"], 22));
     expect(stat).toHaveLength(5);
     expect(stat[3]).toMatch(/^55\s+6\s*$/);
     const table = body(draw("table", ["---", "headers: [Job, Stage, Priority, Owner]", "rows:", "  - [Fix the gate latch, queued, medium, Ada]", "---"], 40));

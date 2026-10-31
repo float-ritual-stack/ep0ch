@@ -28,6 +28,7 @@ export const SEED = {
   heap: "Compost heap",
   attention: "Pump rota",
   figures: "Allotment figures",
+  pageReading: "One garden report, every width",
   figureSizing: "Workshop build log",
   inlineLists: "Parcels on the desk",
   plotJobs: "Plot jobs by stage",

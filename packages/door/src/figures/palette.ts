@@ -32,7 +32,13 @@ export function rowLinks(link: RowLink | undefined, block: unknown, lines: strin
 }
 
 /** A kind's drawing: its rows at `w` columns inside the frame; `ui.rows`, what the reader lends its rows (RowInline). */
-export type Draw = (p: Props, w: number, link?: RowLink, ui?: { rows?: RowInline }) => string[];
+export type Draw = (p: Props, w: number, link?: RowLink, ui?: { rows?: RowInline; expansion?: RowExpansion }) => string[];
+
+/** A figure row uses the reader's selection and actions, keeping its inline links intact. */
+export interface RowExpansion {
+  open(row: number, block?: string): boolean;
+  draw(row: number, lines: string[]): string[];
+}
 
 /**
  * How much room a figure has (PIE-581): `narrow` under 48 columns (a river column, a drawer), `cozy` under 90 (a

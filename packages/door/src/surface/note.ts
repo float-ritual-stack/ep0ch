@@ -346,7 +346,7 @@ interface Place { msg: Msg; position: ReaderPosition; cur: string | null; link: 
  */
 export interface Zoom { start: number; end: number; line: number; kind: FragmentKind; label: string; anchor?: string; revision: number; head?: string }
 /** What the person (or an agent) chose for one live figure in a reader: its tab, its density. Never the note's text. */
-type FigureChoice = { tab?: string; density?: Density };
+type FigureChoice = { tab?: string; density?: Density; expanded?: number[] };
 /** How many places back (and forward) a reader keeps. */
 export const HISTORY = 50;
 
@@ -584,7 +584,7 @@ async function compareAt(board: SocketBoard, id: string, revision: number | unde
   return revisionDiff(board, id, from, against === "now" ? list.revision : undefined, list);
 }
 /** A figure's control, named across renders (its figure's key, then which). */
-const figureElemBase = (c: FigureControl) => `figure:${c.figure}|${c.tab !== undefined ? `tab:${c.tab}` : c.size ? "size" : "density"}`;
+const figureElemBase = (c: FigureControl) => `figure:${c.figure}|${c.tab !== undefined ? `tab:${c.tab}` : c.row !== undefined ? `row:${c.row}` : c.size ? "size" : "density"}`;
 /** Two links name the same target the same way (a click finds the `[ ]` link it is). */
 const sameLink = (a: Link, b: Link) => a.tag === b.tag && a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
 /** The same element's link in another draw: a press by its button's place, anything else as sameLink, of the same role. */
@@ -661,7 +661,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
   : e.kind === "control" && e.link?.use ? "ask for what the ::use needs"
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "edit" ? (e.value ? "edit the reply" : "edit the comment") : e.control === "card" ? "open its card" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
-  : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
+  : e.kind === "figure" ? (e.link?.figure?.row !== undefined ? figureActions["figure.row"].summary : e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "block" ? "copy it"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.value ? (e.link.value.problem ?? (e.link.at !== undefined ? "show the line it reads" : "say how it is computed")) : e.link?.media || e.link?.url ? "open" : "follow";
 /** What ⏎ does on an extension's line or control (PIE-512): its action's label, or run it again. */
@@ -2494,7 +2494,7 @@ export class NoteSurface {
     const book: RegionBook = { isOpen: k => k === openKey, add: r => regionInfo.set(r.key, { label: r.label, target: r.target }) };
     // A host's own rows after the note (EchoNet's tear line, origin and SEEN-BY): drawn after the body, never elements.
     const footRows = host?.footer?.(m, Math.max(1, w - this.bx - this.bxRight)) ?? [];
-    const key = `${footRows.join("\n")}|${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}|${openKey ?? ""}`;
+    const key = `${footRows.join("\n")}|${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}|${openKey ?? ""}|${this.cur ?? ""}`;
     if (this.sourcesMode?.place !== "inline" && !this.laid?.sourcesInline && onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
     this.fieldsDrawing.clear();
     // The header image is drawn above the title (render), so its line here is only its caption.
@@ -2760,8 +2760,8 @@ export class NoteSurface {
       folds: { points, folded: this.effectiveFolds(m), selected: this.foldSel, preview: new Set(points.filter(p => this.previews(p)).map(p => p.key)) },
       link: (block, x, figure, query, at, cell) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}), ...(cell ? { cell: true } : {}) }, x),
       figures: this.printed ? { ...env.figures, all: true, seen: f => figures.push(f) } : {
-        ...env.figures, ui: key => ({ ...this.figureUI.get(key), size: this.figureSizing.preview(key) }),
-        tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.tab ?? (c.size ? "↔ fit/full" : `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim()) }, x),
+        ...env.figures, ui: key => { const selected = this.elems.find(e => e.key === this.cur)?.link; return { ...this.figureUI.get(key), size: this.figureSizing.preview(key), ...(selected?.figure?.figure === key ? { selected: { row: selected.figure.row, block: selected.block } } : {}) }; },
+        tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.label ?? c.tab ?? (c.size ? "↔ fit/full" : `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim()) }, x),
         seen: f => figures.push({ ...f, revision: m.revision, line: f.note === m.id && f.line !== undefined ? lines[f.line] : f.line }),
       },
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
@@ -5951,7 +5951,7 @@ export class NoteSurface {
       // An embed's ruler is its shaded region; a row's is itself; a link's is the block it's in.
       let ruler = block(r.line);
       // A row a density wraps is its lines; a figure's tab or density control is its own row.
-      if (kind === "row") ruler = [top + r.line, top + rs.at(-1)!.line + 1];
+      if (kind === "row" || l.figure?.row !== undefined) ruler = [top + r.line, top + rs.at(-1)!.line + 1];
       else if (kind === "figure") ruler = [top + r.line, top + r.line + 1];
       else if (kind === "embed") { let b = r.line + 1; while (b < doc.lines.length && doc.lines[b]!.startsWith(SHADE)) b++; ruler = [top + r.line, top + b]; }
       // A resource projection's is its shaded region, up to the next projection's head.
@@ -5963,7 +5963,7 @@ export class NoteSurface {
       const label = kind === "task" && l.task ? `${STEP_BOXES[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
         : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}`
         // A view's picture (PIE-827) is named by its file, as a note's image is.
-        : l.query ?? (l.media && !l.role ? fileName(l.media) : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" "));
+        : l.figure?.row !== undefined ? l.label! : l.query ?? (l.media && !l.role ? fileName(l.media) : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" "));
       out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(ITEM_KINDS.has(kind) ? { item: [top + r.line, top + rs.at(-1)!.line + 1] as [number, number] } : {}), ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
     // A generated region's mark (src/output-region.ts): one `[ ]` stop in the gutter beside its first row, over its rows.
@@ -6054,7 +6054,7 @@ export class NoteSurface {
 
   /** The figures the last layout drew: each one's number, kind, title, density, and a tabs figure's tabs and counts. */
   describeFigures() {
-    return this.figuresDrawn.map(f => ({ n: f.n, kind: f.kind, title: f.title, density: f.density, width: f.size.width, height: f.size.height, cols: f.cols, rows: f.rows, ...(f.tabs ? { tab: f.tab ?? null, tabs: f.tabs.map((t, i) => ({ n: i + 1, ...t, shown: t.value === f.tab })) } : {}) }));
+    return this.figuresDrawn.map(f => ({ n: f.n, kind: f.kind, title: f.title, density: f.density, ...(f.rowCount !== undefined ? { rowCount: f.rowCount } : {}), width: f.size.width, height: f.size.height, cols: f.cols, rows: f.rows, ...(f.tabs ? { tab: f.tab ?? null, tabs: f.tabs.map((t, i) => ({ n: i + 1, ...t, shown: t.value === f.tab })) } : {}) }));
   }
 
   /** The figure the current element is in (one of its tabs, its density, one of its rows), while it's in view. */
@@ -6109,7 +6109,7 @@ export class NoteSurface {
    * The figure action key `k` runs while the current element is in a live figure: tab shift+tab ← → a tabs figure's
    * next or previous tab, = fit/full, shift+arrows scroll inside, ⏎ on a tab or the density control that one. Null for any other key.
    */
-  private figureKey(k: Key): { name: "figure.tab" | "figure.density" | "figure.size" | "figure.scroll"; args: Record<string, unknown> } | null {
+  private figureKey(k: Key): { name: "figure.tab" | "figure.density" | "figure.size" | "figure.scroll" | "figure.row"; args: Record<string, unknown> } | null {
     if (this.modes.top()) return null;
     const f = this.currentFigure();
     if (!f) return null;
@@ -6117,7 +6117,7 @@ export class NoteSurface {
     if (f.tabs && (k.kind === "tab" || k.kind === "backtab" || k.kind === "left" || k.kind === "right")) return { name: "figure.tab", args: { figure, by: k.kind === "tab" || k.kind === "right" ? 1 : -1 } };
     const size = modeBinding(FIGURE_SIZE_KEYS, k);
     if (size) return { name: size.action as "figure.size" | "figure.scroll", args: { figure, ...size.args } };
-    if (k.kind === "enter" && e?.kind === "figure") return e.link?.figure?.tab !== undefined ? { name: "figure.tab", args: { figure, tab: e.link.figure.tab } } : { name: e.link?.figure?.size ? "figure.size" : "figure.density", args: { figure } };
+    if (k.kind === "enter" && e?.kind === "figure") return e.link?.figure?.row !== undefined ? { name: "figure.row", args: { figure, row: e.link.figure.row } } : e.link?.figure?.tab !== undefined ? { name: "figure.tab", args: { figure, tab: e.link.figure.tab } } : { name: e.link?.figure?.size ? "figure.size" : "figure.density", args: { figure } };
     return null;
   }
 
@@ -6279,13 +6279,13 @@ export class NoteSurface {
   runFigureControl(c: FigureControl, host: SurfaceHost, actor: Actor): Promise<unknown> {
     const f = this.figuresDrawn.find(x => x.key === c.figure);
     if (!f) throw new ActionRefused("that figure isn't drawn now (figures lists what is)");
-    return this.act(c.tab !== undefined ? "figure.tab" : c.size ? "figure.size" : "figure.density", c.tab !== undefined ? { figure: String(f.n), tab: c.tab } : { figure: String(f.n) }, host, actor);
+    return this.act(c.row !== undefined ? "figure.row" : c.tab !== undefined ? "figure.tab" : c.size ? "figure.size" : "figure.density", c.row !== undefined ? { figure: String(f.n), row: c.row } : c.tab !== undefined ? { figure: String(f.n), tab: c.tab } : { figure: String(f.n) }, host, actor);
   }
-
   pressFigure(c: FigureControl, host: SurfaceHost) {
     const f = this.figuresDrawn.find(x => x.key === c.figure);
     if (!f) return;
-    if (c.tab !== undefined) void this.runKey("figure.tab", { figure: String(f.n), tab: c.tab }, host);
+    if (c.row !== undefined) void this.runKey("figure.row", { figure: String(f.n), row: c.row }, host);
+    else if (c.tab !== undefined) void this.runKey("figure.tab", { figure: String(f.n), tab: c.tab }, host);
     else void this.runKey(c.size ? "figure.size" : "figure.density", { figure: String(f.n) }, host);
   }
 

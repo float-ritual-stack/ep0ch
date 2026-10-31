@@ -1,3 +1,4 @@
+import { dateTimeHtml } from "./publish-time";
 // What a page draws for the outline's built-in components (PIE-387's rule: each component the door draws gets an HTML
 // render here, or shows its source as code with a quiet "not drawn here yet"): the `::graph-*` figures, the `::links`
 // components and saved views (a view's rows, a hub's lanes). What a figure's rows mean, and what a live one's answer
@@ -28,8 +29,8 @@ const words = (text: unknown) => (activeRows.inline ? activeRows.inline(String(t
 
 /** A row's words, a link to its note when it has one shown here (the links in its words as text then: a link holds no other). */
 function rowText(text: unknown, block: unknown, href: RowHref): string {
-  if (typeof block !== "string") return words(text);
-  const to = href(block), drawn = words(text).replace(/<a\b[^>]*>|<\/a>/g, "");
+  if (typeof block !== "string") return dateTimeHtml(String(text ?? "")) ?? words(text);
+  const to = href(block), drawn = (dateTimeHtml(String(text ?? "")) ?? words(text)).replace(/<a\b[^>]*>|<\/a>/g, "");
   return to ? `<a href="${esc(to)}">${drawn}</a>` : drawn;
 }
 
@@ -63,7 +64,7 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
     const cards = Math.max(head.length, ...rows.map(r => r.length)) > 2;
     const cell = (tag: "td" | "th", text: string, k: number, block?: unknown, names?: unknown) => {
       const classes = [align[k] === "right" ? "num" : "", tag === "td" && k === tc ? "lead" : ""].filter(Boolean).join(" ");
-      return `<${tag}${classes ? ` class="${classes}"` : ""}${tag === "td" && cards && head[k] ? ` data-label="${esc(head[k]!)}"` : ""}>${typeof names === "string" ? rowText(text, names, href) : k === tc && block !== undefined ? rowText(text, block, href) : tag === "td" ? words(text) : esc(text)}</${tag}>`;
+      return `<${tag}${classes ? ` class="${classes}"` : ""}${tag === "td" && cards && head[k] ? ` data-label="${esc(head[k]!)}"` : ""}>${typeof names === "string" ? rowText(text, names, href) : k === tc && block !== undefined ? rowText(text, block, href) : tag === "td" ? dateTimeHtml(text) ?? words(text) : esc(text)}</${tag}>`;
     };
     const foot: string[] | undefined = Array.isArray(p.footer) ? p.footer.map(String) : undefined;
     return `<div class="fig-scroll"><table${cards ? ` class="fig-cards"` : ""}>${head.length ? `<thead><tr>${head.map((h, k) => cell("th", h, k)).join("")}</tr></thead>` : ""}` +
@@ -397,7 +398,7 @@ ${Array.from({ length: MAX_TABS }, (_, i) => `.fig-tab-input:nth-of-type(${i + 1
 .track{display:block;height:.6rem;background:#232321;border-radius:.2rem;overflow:hidden}
 .fill{display:block;height:100%;background:var(--link)}
 .fig-bar.muted .fill{background:var(--dim)}
-.fig-bar .l{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fig-bar .l{overflow-wrap:anywhere;white-space:normal}
 .fig-timeline{list-style:none;margin:0;padding:0 0 0 .9rem;border-left:1px solid var(--rule)}
 .fig-timeline li{position:relative;padding:.25rem 0 .55rem .5rem}
 .fig-timeline li::before{content:"●";position:absolute;left:-1.32rem;color:var(--fg);font-size:12px;top:.4rem}

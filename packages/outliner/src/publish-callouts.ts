@@ -28,7 +28,7 @@ const esc = (text: string) => text.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<"
 const toneClass = (tone: CalloutTone) => `callout-${tone}`;
 
 /** A callout found in the source: its header as written, its body (the lines inside, one quote level off), and its source. */
-interface CalloutToken { type: "callout"; raw: string; header: CalloutHeader; body: string; tokens: Token[] }
+interface CalloutToken { type: "callout"; raw: string; header: CalloutHeader; body: string; tokens: Token[]; titleTokens: Token[] }
 
 /**
  * Marked's block extension for callouts. Where a callout starts and ends is outline-core's (`calloutBlocks`: it runs
@@ -60,16 +60,17 @@ export function calloutExtension(registry: () => CalloutRegistry): TokenizerAndR
         body,
         // Lexed here, in the page's lexer, so the page's reference definitions (`[a]: url`) reach it.
         tokens: lexer.blockTokens(body, []),
+        titleTokens: lexer.inline(title || registry().style(type).title),
       };
     },
     renderer(token) {
-      const { header, tokens } = token as unknown as CalloutToken;
+      const { header, tokens, titleTokens } = token as unknown as CalloutToken;
       const type = registry().style(header.type);
-      const title = header.title || type.title;
+      const title = this.parser.parseInline(titleTokens);
       const inner = this.parser.parse(tokens);
       if (header.type === "output") return `<div class="output-region">${inner}</div>\n`;
       const open = `class="callout ${toneClass(type.tone)}" data-callout="${esc(type.name)}"`;
-      const heading = `<span class="callout-icon" aria-hidden="true">${esc(type.icon)}</span><span class="callout-title">${esc(title)}</span>`;
+      const heading = `<span class="callout-icon" aria-hidden="true">${esc(type.icon)}</span><span class="callout-title">${title}</span>`;
       const content = `<div class="callout-body">${inner}</div>`;
       return header.fold
         ? `<details ${open}${header.fold === "+" ? " open" : ""}><summary>${heading}</summary>${content}</details>\n`

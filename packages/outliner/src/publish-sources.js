@@ -51,7 +51,4 @@
     control.addEventListener('click', () => open(document.getElementById(region.dataset.source)));
     document.body.append(control);
   });
-  const time = panel.querySelector('time');
-  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(time.dateTime)) / 60000));
-  time.textContent = minutes < 1 ? 'just now' : minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
 })();

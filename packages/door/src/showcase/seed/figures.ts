@@ -7,7 +7,9 @@ export const FIGURE_KINDS = ["check", "stat", "kpi", "rank", "table", "tabs", "t
 /** The kinds the Markdown figures note shows (src/figures/), each in its Markdown form; the keys note has `keys`. */
 export const MARKDOWN_KINDS = ["decision", "chat", "uptime", "activity", "calendar", "annotate", "props", "example"] as const;
 
-export const fig = (kind: string, yaml: string[]) => [`::graph-${kind}`, "---", ...yaml, "---", "::", ""];
+export { pageReadingText, READING_CELL, READING_REASON } from "./page-reading";
+import { fig } from "./page-reading";
+export { fig } from "./page-reading";
 
 export const LANDINGS = [7, 1, 5, 0, 6, 3, 2, 4].map(n => ({
   title: `Landing ${n + 1}`,
@@ -25,10 +27,12 @@ export const FIGURE_SIZING = [
 /** A figure with YAML props and Markdown rows after them. */
 export const mdFig = (kind: string, yaml: string[], md: string[]) => [`::graph-${kind}`, "---", ...yaml, "---", ...md, "::", ""];
 
+
 export function figuresText(gardenViewId: string, choresId: string): string {
   return [
     `${SEED.figures} [page::${SEED.figures}]`,
     "",
+    "[[garden-reading]] reads the same on the web and at 67 or 117 columns; select a cut row to read all of it.",
     "Live figures ask the outline on every render; the others are drawn from their own values.",
     `[[${SEED.figureSizing}]] has dated landings, parent titles and a full-width ledger: try =, shift+down and dragging its edges.`,
     "",
