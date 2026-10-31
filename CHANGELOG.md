@@ -10,18 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+- Saved view pages on the web draw their table, gallery, feed or board layout through the same renderer as inline views, keeping public members and linked titles within the page's visibility (PIE-1477).
+### Words on a query line become a proposed filter (PIE-1238)
+
+- **Say what to find:** facets, query properties, figures, the power bar and its query prompts, Detail and web search offer a ghost query. Tab or a click accepts, Esc drops, and accepted words teach an editable alias. Grammar completion stays in code; Jev chooses among the outline's keys and values. MCP exposes `query_suggest`.
+- **Run:** loki sets PROTOCOL to main's plus one at the final rebase, then runs `ep0ch install --apply` on each machine. No schema change. Try **Words become a query** in the kitchen sink.
+
 ### Agents grep the whole outline and read notes leanly (PIE-1420)
 
 - **Whole-outline files:** `ep0ch export --all --split --out garden --manifest` pages every note, keeps the tree and writes breadcrumbs and one-line property lists. The manifest names extension pages left out of a selection.
 - **A current folder:** `ep0ch mirror garden` follows the change feed, replaces changed files atomically, removes trash and catches up after a host restart; `--once` writes one pass.
 - **Text answers:** MCP `outline_grep` returns every matching line unless a limit is requested; `outline_find` includes neighbouring lines and ranks quoted phrases first. `outline_read` sends link IDs, with offsets and spans behind `detail: true`.
 - **Run:** loki sets PROTOCOL to main's plus one at the final rebase, then runs `ep0ch install --apply` on each machine. No schema or grammar change.
-
-- Saved view pages on the web draw their table, gallery, feed or board layout through the same renderer as inline views, keeping public members and linked titles within the page's visibility (PIE-1477).
-### Words on a query line become a proposed filter (PIE-1238)
-
-- **Say what to find:** facets, query properties, figures, the power bar and its query prompts, Detail and web search offer a ghost query. Tab or a click accepts, Esc drops, and accepted words teach an editable alias. Grammar completion stays in code; Jev chooses among the outline's keys and values. MCP exposes `query_suggest`.
-- **Run:** loki sets PROTOCOL to main's plus one at the final rebase, then runs `ep0ch install --apply` on each machine. No schema change. Try **Words become a query** in the kitchen sink.
 
 ### Published clocks read in your time zone (PIE-1384)
 
