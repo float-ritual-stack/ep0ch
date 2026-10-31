@@ -30,6 +30,8 @@ describe("the pure half", () => {
     }) as unknown as ComponentBoard;
     await expect(makeComponent(board([{ name: "stale", script: { keys: [] } }]), "stale", USER)).rejects.toThrow("stale is taken");
     await expect(makeComponent(board([{ name: "lanes", handlers: [{ key: "stale" }] }]), "stale", USER)).rejects.toThrow("stale is taken");
+    // A built-in's name would draw the built-in, so a script by it never runs.
+    await expect(makeComponent(board([]), "table", USER)).rejects.toThrow("table is taken: a built-in component");
     expect(wrote).toEqual([]);
     await makeComponent(board([{ name: "stale", state: "disabled", script: { keys: [] } }, { name: "stale" }]), "stale", USER);
     expect(wrote).toHaveLength(1);

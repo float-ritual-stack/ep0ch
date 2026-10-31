@@ -3,6 +3,7 @@
 // cursor. Completion's `+ new component ::stale` row (outliner completion-sources.ts) runs the same code, then opens
 // the note beside. The starter draws as soon as it lands: the notes its where= holds, one card each.
 import { ActionRefused } from "@ep0ch/outline-core/action-line";
+import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { subject, type Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
 
@@ -42,6 +43,8 @@ export type ComponentBoard = Pick<SocketBoard, "followPage" | "createBlock" | "l
  */
 export async function makeComponent(board: ComponentBoard, name: string, by: Actor, under = COMPONENTS_PAGE): Promise<{ note: Msg; page: Msg; said: string }> {
   if (!COMPONENT_NAME.test(name)) throw new ActionRefused(`${JSON.stringify(name)} isn't a component's name: lowercase letters, digits and -, starting with a letter`);
+  // A built-in's name draws the built-in, never a script (the same call agents' receipts make: agent-tools' scriptLoadProblems).
+  if (BUILTIN_COMPONENT_SCHEMAS.some(c => c.id === name)) throw new ActionRefused(`${name} is taken: a built-in component is called that; pick another name`);
   const listed = await board.listExtensions().catch(() => null);
   if (listed?.extensions.some(e => e.state !== "disabled" && ((e.script && e.name === name) || e.handlers.some(h => h.key === name))))
     throw new ActionRefused(`${name} is taken: a script answers to it already; call it, or pick another name`);

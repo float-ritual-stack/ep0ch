@@ -106,7 +106,8 @@ async function cappedText(stream: ReadableStream<Uint8Array> | null | undefined,
   if (stream) for await (const chunk of stream) {
     bytes += chunk.length;
     if (size < MAX_REACH_OUTPUT) { const part = chunk.subarray(0, MAX_REACH_OUTPUT - size); kept.push(part); size += part.length; }
-    if (size >= MAX_REACH_OUTPUT && !drain) break;
+    // At exactly the cap the stream may be done or not: stop once a byte past it is seen, so `truncated` is true.
+    if (bytes > MAX_REACH_OUTPUT && !drain) break;
   }
   return { text: new TextDecoder().decode(Buffer.concat(kept)), bytes, truncated: bytes > size };
 }

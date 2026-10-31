@@ -169,14 +169,14 @@ write `rows.map(x => this.title + x)`, not `rows.map(function (x) { return this.
 
 | Function | Returns | Source |
 |---|---|---|
-| `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, created, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:298` |
-| `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:303` |
-| `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:155` |
+| `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, created, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:301` |
+| `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:306` |
+| `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:158` |
 | `query({ where, group?, sort?, limit?, facets? })` | `{ rows: [{ id, title, props }], groups?: [{ value, count, rows }], facets?, hint?, total, complete }`. Rows **carry their properties** (`props.status[0]`); `group` is a property key; `facets: true` counts every key and value the matches carry; `limit` default 200, at most 1000; `parent:this` means the note the run is about. A render redraws when the answer changes. | `packages/outliner/src/host-api.ts:312` |
-| `read([ref, …])` | A list of refs (at most 200) reads them all: each answer in its place, or `{ ref, problem }` for one that can't be read. | `packages/outliner/src/host-api.ts:303` |
+| `read([ref, …])` | A list of refs (at most 200) reads them all: each answer in its place, or `{ ref, problem }` for one that can't be read. | `packages/outliner/src/host-api.ts:306` |
 | `act(name, args?)` | Dispatches an action and answers what it did. `act("ext.<id>.<action>", { block })` runs an extension's action (a script's `ext.<id>.run`) **with no door**, and answers its `state`, `message` and `answer`. Any other name is a door action (`await act("tile.open", { kind: "query", query: "#beans" })`), which needs a door (run from the power bar or a live draft); a saved ask or rule has none. Action runs only. | `packages/outliner/src/host-api.ts:461` |
 | `sh(argv, { cwd?, stdin?, timeoutMs? })` | `{ exit, stdout, stderr, truncated? }`. Runs a command as the person, with no shell (`sh(["gh", "issue", "list"])`). A failing command answers its exit code; the run's deadline or `timeoutMs` kills it. Each stream is capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:395` |
-| `fetch(url, { method?, headers?, body?, timeoutMs? })` | `{ status, headers, text, truncated? }`, for http(s) URLs. Capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:425` |
+| `fetch(url, { method?, headers?, body?, timeoutMs? })` | `{ status, headers, text, truncated? }`, for http(s) URLs. Capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:135` |
 | `components()` | Every name a `::name` or a script answers to here, as `[{ name, origin }]`: the built-ins (`origin: "built-in"`), the extensions' and the scripts'. Action runs only. | `packages/outliner/src/host-api.ts:448` |
 | `wait(ms)` | Sleeps, then goes on. Ends with the run: its deadline or a stop cuts it short. | `packages/outliner/src/script-runtime.ts:103` |
 
@@ -226,7 +226,7 @@ TypeError (there is no such function): `Object.keys(tools)` lists the ones there
 
 | Entry | Source |
 |---|---|
-| `hostApi` | `packages/outliner/src/host-api.ts:270` |
+| `hostApi` | `packages/outliner/src/host-api.ts:273` |
 | `AGENT_TOOL_DEFINITIONS` | `packages/outline-core/src/agent-tool-definitions.ts:123` |
 | `AGENT_TOOL_SURFACES` | `packages/outline-core/src/agent-tool-definitions.ts:688` |
 
@@ -300,7 +300,7 @@ The returned value becomes text, the same way in a run note and a drawn line:
 |---|---|---|
 | `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:58` |
 | `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:61` |
-| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:310` |
+| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:313` |
 | `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:58` |
 
 ## Record shapes

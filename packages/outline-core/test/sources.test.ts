@@ -20,6 +20,9 @@ test("slot words are rewritten in place: a changed value, an added one, a quoted
   expect(withSlotProps("beds-table:: week=42", { week: "43" })).toBe("beds-table:: week=43");
   expect(withSlotProps("beds-table:: week=42 crop=beans", { crop: "peas and kale" })).toBe('beds-table:: week=42 crop="peas and kale"');
   expect(withSlotProps("beds-table::", { week: "7" })).toBe("beds-table:: week=7");
+  // A component call with an anchor after its brace keeps the anchor and still reads its props.
+  expect(slotArgument('::count{where="type=parcel"} ^parcels')).toBe('where="type=parcel"');
+  expect(withSlotProps('::count{where="type=parcel"} ^parcels', { where: "bed" })).toBe('::count{where=bed} ^parcels');
   // A note component's call is the same line in its other spelling: its slots are written inside the braces.
   expect(withSlotProps('::board{where="type=errand" group=owner}', { group: "status" })).toBe('::board{where="type=errand" group=status}');
   expect(withSlotProps("::board{}", { group: "status" })).toBe("::board{group=status}");

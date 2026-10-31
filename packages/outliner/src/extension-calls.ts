@@ -1660,7 +1660,7 @@ export class ExtensionCalls {
   private callFor(block: Block, action: ExtensionActionEntry, line: number | undefined): HandlerCall | undefined {
     if (!action.on?.startsWith("handler:")) return undefined;
     const key = action.on.slice(8);
-    const calls = this.handlerCalls(block).filter((call) => call.handlerKey === key && (line === undefined || call.line === line));
+    const calls = [...this.handlerCalls(block), ...componentCalls(block.text, this.registry)].filter((call) => call.handlerKey === key && (line === undefined || call.line === line));
     if (!calls.length) throw new Error(`${action.name} needs a ${key}:: line${line !== undefined ? ` on line ${line}` : ""} in that block`);
     if (calls.length > 1 && line === undefined) throw new Error(`${action.name}: that block has ${calls.length} ${key}:: lines; pass line`);
     return calls[0];

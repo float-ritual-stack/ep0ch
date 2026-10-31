@@ -128,7 +128,7 @@ export const sourcesSummary = (a: SourcesAnswer): string => (a.sources.length ? 
 function slotWords(line: string): { head: string; rest: string; close: string; words: SourceParam[] } | null {
   const text = line.replace(/\r$/, "");
   // A note component's `::board{where="x" group=y}` is the same line in its other spelling.
-  const m = /^(\s*(?:[-*+]\s+)?::[a-z][\w-]*\{)(.*)(\})\s*$/.exec(text) ?? /^(\s*[^\s:]+::(?:\s+|$))(.*)()$/.exec(text);
+  const m = /^(\s*(?:[-*+]\s+)?::[a-z][\w-]*\{)(.*)(\}(?:\s+\^[\w-]+)?)\s*$/.exec(text) ?? /^(\s*[^\s:]+::(?:\s+|$))(.*)()$/.exec(text);
   if (!m) return null;
   return { head: m[1]!, rest: m[2]!, close: m[3]!, words: slotPairs(m[2]) };
 }
