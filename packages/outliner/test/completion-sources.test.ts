@@ -181,3 +181,14 @@ test("group= offers the keys where='s rows carry, most carried first; where=\" c
   expect(where.length).toBeGreaterThan(0);
   expect(where.some(r => r.label.startsWith("type"))).toBe(true);
 });
+
+test("[query:: completes the grammar (atoms, this, NOT, dates) beside the keys and values the notes have", async () => {
+  const { create, rows } = await setup([]);
+  await create("Planning call [type::meeting] [when::2031-03-02]");
+  const values = async (query: string) => merged(await rows("value", query, { key: "query" }), query).map(row => insertText(row.insert));
+  expect(await values("type=meeting AND under:t")).toContain("type=meeting AND under:this]");
+  expect(await values("")).toEqual(expect.arrayContaining(["under:", "NOT", "type=meeting]"]));
+  expect(await values("when>=-")).toContain("when>=-7d]");
+  // A key that isn't a query gets none of it.
+  expect(merged(await rows("value", "under:", { key: "status" }), "under:").map(row => insertText(row.insert))).not.toContain("under:this]");
+});

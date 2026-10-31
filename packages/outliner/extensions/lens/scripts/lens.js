@@ -1,6 +1,6 @@
 // ep0ch-script mode=render
 // A lens: one line in any note draws a live table of what a query holds, relative to that note (PIE-1461).
-// [form-field::query text]: the views' grammar; {{this.page}} and this read the note the line is in
+// [form-field::query query]: the views' grammar; {{this.page}} and this read the note the line is in
 // [form-field::view note]: a saved view to draw instead of query= (its [query::] and [sort::])
 // [form-field::columns property]: the columns, comma-separated: title, created, updated, any property, any computed column
 // [form-field::edit property]: columns whose cells press to step the property to its next value

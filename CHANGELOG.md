@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Query completion knows the whole grammar (PIE-1472)
+
+- **Typing a query offers what the grammar can say:** the atoms (`under:`, `parent:`, `links:`, `linkedfrom:`, `child:`, `#tag`, `title~`, `text~`, `by:`, `call:`), `this` after a relation (`under:this`), `NOT`/`AND`/`OR`, `{{this.page}}` and `{{this.<key>}}` after `=`, and `-7d`, `today`, `+3d` after `updated >=` or any comparison, beside the keys and values the notes have. Each row says in a few words what it means, from the grammar's own tables in outline-core (`QUERY_ATOM_HELP`, `QUERY_CONNECTIVE_HELP`, `QUERY_DATE_HELP`).
+- **One source, every place a query is typed:** a view note's `[query::`, a `::if{where=`, a figure's `query:`, a settings field and a script's `[form-field::name query]` slot all ask outline-core's `querySuggestions`; a row that starts a clause (`under:`) stays open for the rest.
+- **The lens's `query` slot is a query field,** so its form completes the grammar. A `lens::` line typed in a note still has no completion of its own.
+- **Run:** restart your door and the outline host to get it.
+
 ### ctrl+z in a BBS message reader tile puts the layout back (PIE-1470)
 
 - **ctrl+z with the keys in a reader tile that shows the BBS message reader** (the showcase's `exhibit`) said "no step change to undo in this note" and stopped, so a tile closed with `^W x` stayed closed; it now hands the key on to the desk's layout undo when the reader has nothing of its own to undo, as every other tile does. A step change the reader did make is still taken back first.

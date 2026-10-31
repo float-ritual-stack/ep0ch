@@ -365,6 +365,13 @@ const properties: ServiceSource = {
     } else {
       // The values the notes have first, drawn and explained where a schema knows them; then the schema's others.
       const meant = new Map(valueCandidates(schemas, ask.key ?? "", q).map(c => [c.label, c]));
+      // A key whose value is a query (`[query::`, `[rule-match::`) completes what the grammar can say, not only values other notes wrote.
+      if (schemas.some(s => s.props.some(p => p.key === ask.key && p.complete === "query"))) {
+        for (const r of await querySuggestions(ask.query, (key, prefix) => catalogOf(svc, key ? { key } : {}, prefix))) if (!/[\]\n]/.test(r.value) && !seen.has(r.value)) {
+          seen.add(r.value);
+          rows.push({ label: r.value, kind: "value", detail: r.detail, insert: ask.headingShort ? `[heading::${r.value}]` : r.open ? r.value : `${r.value}]` });
+        }
+      }
       for (const c of catalog) if (!/[\]\n]/.test(c.value) && !seen.has(c.value)) {
         seen.add(c.value);
         const m = meant.get(c.value);
@@ -441,9 +448,9 @@ async function whereKeys(ask: Asked, svc: CompletionService): Promise<(({ key: s
 const foundValues = (prop: PropSchema) => prop.complete === "query" || prop.type === "property" || prop.type.startsWith("property:") || prop.type === "script" || prop.type === "ref";
 
 /** The values a prop can take, by its type: what the outline has (keys, values, notes, scripts, queries), else the schema's. */
-async function propValues(schema: ComponentSchema, prop: PropSchema, ask: Asked, svc: CompletionService): Promise<{ label: string; value: string; detail?: string }[]> {
+async function propValues(schema: ComponentSchema, prop: PropSchema, ask: Asked, svc: CompletionService): Promise<{ label: string; value: string; detail?: string; open?: true }[]> {
   const q = ask.query;
-  if (prop.complete === "query") return (await querySuggestions(q, (key, prefix) => catalogOf(svc, key ? { key } : {}, prefix))).map(r => ({ label: r.value, value: r.value, detail: r.detail }));
+  if (prop.complete === "query") return (await querySuggestions(q, (key, prefix) => catalogOf(svc, key ? { key } : {}, prefix))).map(r => ({ label: r.value, value: r.value, detail: r.detail, ...(r.open ? { open: true } : {}) }));
   if (prop.type === "property") {
     const faceted = await whereKeys(ask, svc);
     if (faceted) return faceted.filter(f => f.key.startsWith(q)).map(f => ({ label: f.key, value: f.key, detail: `${f.count} of the ${notes(faceted.matched)} where= holds carry it` }));
@@ -463,6 +470,12 @@ async function propValues(schema: ComponentSchema, prop: PropSchema, ask: Asked,
   // An action's live list is the client's (the door's own actions, beside these): the service offers the schema's samples.
   return axisValues(prop).filter(v => v.toLowerCase().startsWith(q.toLowerCase())).map(value => ({ label: value, value, ...(prop.values?.find(v => v.value === value)?.meaning ? { detail: prop.values.find(v => v.value === value)!.meaning } : {}) }));
 }
+
+/** A value that is the start of more (`under:`): inserted with its closing quote, if it has one, behind the cursor. */
+const stayOpen = (text: string): string | { snippet: string; select: { start: number; end: number } } => {
+  const at = text.length - (/["']$/.test(text) ? 1 : 0);
+  return at === text.length ? text : { snippet: text, select: { start: at, end: at } };
+};
 
 // A component's props and their values (PIE-1366): `::box{li` its props (the schema's and a template's), `::box{pad.x="`
 // and a figure's `density: ` the values each can take, by its type. A YAML value draws what it makes (`example`).
@@ -489,9 +502,9 @@ const attributes: ServiceSource = {
       const docs = v.detail ?? prop.meaning;
       if (ask.kind === "yaml-value") {
         const made = variation(schema, { [prop.key]: v.value }, prop.key);
-        return { label: v.label, kind: "value", docs, insert: yamlScalar(v.value), example: { use: made.use, ...(made.note ? { note: made.note } : {}), ...(looks ? { inline: true } : {}) } };
+        return { label: v.label, kind: "value", docs, insert: v.open ? stayOpen(yamlScalar(v.value)) : yamlScalar(v.value), example: { use: made.use, ...(made.note ? { note: made.note } : {}), ...(looks ? { inline: true } : {}) } };
       }
-      return { label: v.label, kind: "value", docs, insert: attributeScalar(v.value, ask.quote) };
+      return { label: v.label, kind: "value", docs, insert: v.open ? stayOpen(attributeScalar(v.value, ask.quote)) : attributeScalar(v.value, ask.quote) };
     }) };
   },
 };
