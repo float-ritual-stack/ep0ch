@@ -4079,7 +4079,7 @@ export class OutlinerStore {
       if (query?.trim()) {
         // No id: an address is found by what it says, never by the uuid of the note it names.
         // A title's letters scattered in order (`text-fuzzy`) are too loose for an address: the address's own are kept.
-        const matches = rankTextSearchMatches(pageAddressDocuments(rows), query.trim())
+        const matches = rankTextSearchMatches(pageAddressDocuments(rows), query.trim(), Infinity, "completion")
           .filter(match => match.kind !== "text-fuzzy");
         if (context) {
           const sorted = sortByContext(matches.map(match => ({ match, block: byId.get(match.document.row.block_id)!, kind: match.kind, inTitle: match.inTitle, edits: match.edits })).filter(entry => entry.block), context,
