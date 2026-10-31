@@ -134,6 +134,7 @@ export const SEED = {
   dayPlan: "Plan for Saturday",
   outbox: "Letters to send",
   collection: "Garden collection",
+  collectionTune: "Tune the garden collection",
   peek: "Garden peeks",
   glass: "Links on the glass",
   glassTitle: "The spring planting schedule and the tools to carry across the garden before the afternoon rain arrives",
