@@ -149,6 +149,34 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     } finally { app.pop(); }
   }, 30_000);
 
+  test("a script line typed in the power bar and run with ⏎: ctrl+z puts the layout back with the bar still open and the answer kept (PIE-1230)", async () => {
+    const { app, board } = h;
+    await app.loadExtensions(true);
+    const desk = openScreen("desk") as Desk;
+    app.push(desk);
+    try {
+      const open = async (title: string, name: string) => {
+        const note = await board.createBlock(null, `${title}\nBody.`);
+        return (await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: note.id, name } }, USER) as { tile: string }).tile;
+      };
+      await open("Reading the gate log", "gate");
+      const second = await open("Reading the path log", "path");
+      await app.dispatch.act({ action: "tile.focus", tile: second }, USER);
+      const seen = new Set(app.describe().messages.map(m => m.id));
+      h.press({ kind: "char", ch: "k", ctrl: true });
+      for (const c of "neat") h.ch(c);
+      await app.bar!.settled();
+      h.press({ kind: "enter" });
+      await until(() => app.describe().messages.some(m => !seen.has(m.id) && /(^|· )neat:/.test(m.message)), "neat finished", 10_000);
+      // The status line says ctrl+z undoes, and the bar is still open on the line with its answer: that key is the undo.
+      expect(app.bar && !app.bar.ended()).toBe(true);
+      h.press({ kind: "char", ch: "z", ctrl: true });
+      await until(() => !app.bar, "ctrl+z puts the bar away and takes the run back");
+      await Bun.sleep(100);
+      expect(app.describe().messages.some(m => m.action === "layout.undo" && m.message.includes("put the layout back"))).toBe(true);
+    } finally { app.pop(); }
+  }, 30_000);
+
   const floating = async (tile: string) => (await h.app.dispatch.act({ action: "layout.get" }, USER) as ReturnType<Desk["layoutAll"]>).tiles.find(t => t.tile === tile)?.float;
 
   test("typed as its row reads, run neat is the first row: the action before any note named Neat (PIE-1403)", async () => {

@@ -28,7 +28,7 @@ import { MCP_USAGE, mcpCommand } from "./mcp";
 import { AGENT_USAGE, agentCommand } from "./agent-cli";
 import { BACKUP_USAGE } from "./backup/usage";
 import { showcaseTry } from "./showcase/route";
-import { COMMANDS, checkWords, screenArg, screenUriArgs, usageFor } from "./cli-words";
+import { COMMANDS, checkWords, scriptCall, screenArg, screenUriArgs, usageFor } from "./cli-words";
 import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { isLocalMachine } from "@ep0ch/outliner/machine-name";
 import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
@@ -36,6 +36,15 @@ import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
 colourOnlyToATerminal();
 
 let args = process.argv.slice(2);
+// A script's name with global flags around it (PIE-1230): the flags are taken out here, as they are around a command below.
+{
+  const call = scriptCall(args);
+  if (call) {
+    if (call.ws) process.env.EP0CH_WS = call.ws;
+    if (call.machine) process.env.EP0CH_MACHINE = call.machine;
+    args = call.args;
+  }
+}
 // Bind a leading outline flag before dispatch, including commands whose arguments do not take --ws.
 let commandAt = 0;
 while (args[commandAt] === "--ws" || args[commandAt] === "--machine") commandAt += 2;

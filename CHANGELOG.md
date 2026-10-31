@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A script's run in the power bar undoes with ctrl+z, and the CLI's flags go around a script's name (PIE-1230)
+
+- **ctrl+z right after a typed script line ran, with the bar still open on its answer:** puts the bar away and takes the run back, as "ctrl+z undoes" on the status line says (it used to edit the bar's text; only Esc, then ctrl+z took the layout back).
+- **`ep0ch neat 'page=[[a]]' --ws showcase`, `ep0ch --ws showcase neat …`, `--machine`:** accepted around a script's name as around a command (`--as` and `--json` as before), and not read as slots.
+- **Run:** nothing to run; restart your door to get the new keys.
+
 ### Run any script by its name, and neat arranges any tile (PIE-1230, PIE-1253)
 
 - **`ep0ch neat page=[[a]] right=%tree`:** a script runs by its name from a shell, `act` or the power bar, with the same slots a button passes (`script.run of=<name> key=value…`); a key written twice is a list (`page=` twice), and the run is the press's. From a shell it is an agent's run, attributed to the shell's agent id (`EP0CH_AGENT` or `--as`), said on the status bar, and it never takes your focus or keys.

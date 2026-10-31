@@ -207,3 +207,29 @@ describe("a script's name typed as a command", () => {
     } finally { server.close(); }
   });
 });
+
+// PIE-1230: the CLI's global flags go around a script's name as they go around a command.
+describe("a script's name with the global flags", () => {
+  const run = async (argv: string[]) => {
+    const sock = join(dir, "g.sock");
+    const seen: any[] = [];
+    const server = createServer(c => c.on("data", d => { seen.push(JSON.parse(d.toString().split("\n")[0]!)); c.end(JSON.stringify({ ok: true, result: { message: "neat: done" } }) + "\n"); }));
+    await new Promise<void>(r => server.listen(sock, r));
+    try {
+      const env: Record<string, string> = {};
+      for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("EP0CH_")) env[k] = v;
+      Object.assign(env, { HOME: dir, EP0CH_OUTLINES: join(dir, "outlines"), EP0CH_STATE: join(dir, "state"), EP0CH_CONTROL: sock, EP0CH_DAEMON: "0" });
+      const p = Bun.spawn([process.execPath, MAIN, ...argv], { cwd: dir, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const code = await p.exited;
+      return { code, err: await new Response(p.stderr).text(), seen: seen.map(r => [r.action, r.args, r.as]) };
+    } finally { server.close(); }
+  };
+
+  test("--ws, --machine and --as are accepted after the slots and before the name, and are not slots", async () => {
+    const want = (as?: string) => ({ code: 0, err: "", seen: [["script.run", { of: "neat", page: "[[a]]" }, as]] });
+    expect(await run(["neat", "page=[[a]]", "--ws", "showcase"])).toEqual(want());
+    expect(await run(["--ws", "showcase", "neat", "page=[[a]]"])).toEqual(want());
+    expect(await run(["--machine", "box", "neat", "page=[[a]]", "--as", "me"])).toEqual(want("me"));
+    expect(await run(["neat", "--json", "--ws", "showcase", "page=[[a]]"])).toEqual(want());
+  }, 30_000);
+});

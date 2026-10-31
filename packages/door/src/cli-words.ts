@@ -144,3 +144,32 @@ export function screenUriArgs(args: readonly string[], uri: { outline: string; m
   const where = o.socket ? [] : o.local ? ["--here"] : ["--machine", uri.machine];
   return [...rest.slice(0, at), "--ws", uri.outline, ...where, "--no-create", "--screen", rest[at + 1]!, uri.blockId, ...rest.slice(at + 3)];
 }
+
+/**
+ * A script's name typed as a command (`ep0ch neat page=[[a]]`, PIE-1230) with the CLI's global flags around it, the places
+ * they go around a command: `--ws`/`--machine <value>` before the name or among its slots are taken out here (the one place
+ * the CLI strips them for a script; main.ts binds them as EP0CH_WS / EP0CH_MACHINE), and `--as`/`--json` kept for the act
+ * that runs it. Null when the first word isn't a script's name, or a flag has no value (the usual refusal says so).
+ */
+export function scriptCall(argsIn: readonly string[]): { args: string[]; ws?: string; machine?: string } | null {
+  const end = argsIn.indexOf("--");
+  const words = end >= 0 ? argsIn.slice(0, end) : argsIn;
+  const out: { ws?: string; machine?: string } = {}, keep: string[] = [];
+  let name: string | undefined;
+  const rest: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!;
+    if (w === "--ws" || w === "--machine" || w === "--as") {
+      const v = words[i + 1];
+      if (v === undefined || v.startsWith("-")) return null;
+      i++;
+      if (w === "--as") keep.push(w, v); else out[w === "--ws" ? "ws" : "machine"] = v;
+    } else if (w === "--json") keep.push(w);
+    else if (name === undefined) {
+      if (!/^[A-Za-z][\w.-]*$/.test(w) || (COMMANDS as readonly string[]).includes(w)) return null;
+      name = w;
+    } else rest.push(w);
+  }
+  if (name === undefined) return null;
+  return { args: [name, ...rest, ...keep, ...argsIn.slice(words.length)], ...out };
+}
