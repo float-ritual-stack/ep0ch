@@ -41,8 +41,8 @@ export function withFigureBoard<T>(board: SocketBoard, redraw: () => void, draw:
 const rep = (s: string, n: number) => s.repeat(Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0);
 
 /**
- * `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. `control`: drawn after the footer when it fits (a
- * live figure's density, tagged so a click changes it), measured by what it draws.
+ * `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. A control keeps its room before the footer is
+ * clipped, so narrowing a figure never hides how to enter it or change its density.
  */
 /** A figure's warning, wrapped to the frame's inside: read whole however narrow (PIE-1428), never cut short. */
 function errorLines(text: string, W: number): string[] { return wrap(text, Math.max(16, W) - 4).map(l => fg(C.lred) + l + RESET); }
@@ -57,7 +57,7 @@ export function frame(title: string, body: string[], W: number, footer = "", con
   const left = Math.max(1, Math.floor((w - 2 - lw) / 2)), right = Math.max(1, w - 2 - lw - left);
   const top = fg(DIM) + "+" + rep("·", left) + fg(ACCENT) + label + fg(DIM) + rep("·", right) + "+" + RESET;
   const side = (s: string) => fg(DIM) + "┊ " + RESET + pad(s, inner) + fg(DIM) + " ┊" + RESET;
-  const shown = footer ? clipText(footer, Math.max(0, w - 8)) : "";
+  const shown = footer ? clipText(footer, Math.max(0, w - 8 - (control ? vwidth(control) + 3 : 0))) : "";
   const fits = !!control && vwidth(shown) + vwidth(control) + (shown ? 3 : 0) + 8 <= w;
   const tail = fits ? (shown ? fg(DIM) + " · " : "") + fg(ACCENT) + control : "";
   const foot = shown || tail ? ` ${shown}${tail} ` : "";

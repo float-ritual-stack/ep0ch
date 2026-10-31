@@ -79,7 +79,9 @@ describe("showcase: a collection record (PIE-1281)", () => {
     await ready("table");
     await act("list.layout", { layout: "board" });
     await ready("board");
-    await act("list.enter", { on: true });
+    const enter = (await act("elements")).elements.find((e: any) => e.kind === "control" && e.label === "⏎ in");
+    expect(enter).toBeDefined();
+    await act("element.open", { n: enter.n });
     await act("list.pick", { n: 1 });
     h.press({ kind: "char", ch: "j" });
     await until(() => h.screen().includes("Sort the seeds"), "the next lane's picked card is visible", 4000);
