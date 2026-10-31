@@ -65,7 +65,7 @@ export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --
                                    "due <= +3d", "wait-until <= today", "rating > 3"); --view the members of a saved view (type::virtual-branch),
                                    in its order; --under the notes under that one (itself included). They
                                    combine with each other and with words (then every word, any order: the
-                                   service's text filter), in outline order, at most 1000. The date flags only
+                                   service's text filter), in outline order, paging every match. The date flags only
                                    write the query (--updated-after 2026-03-01 is "updated > 2026-03-01": a
                                    date is a whole UTC day; -7d, today, an ISO time also do).
                                    --sort orders them as a view's [sort::] does: created, updated or any
@@ -314,9 +314,9 @@ async function resolveNote(board: SocketBoard, ref: string): Promise<{ id: strin
 /**
  * The notes a selection names, in order: the ids given, then a view's members in the view's order (narrowed by the
  * query, the subtree and words through `query.matches`), or else the notes a query, a subtree and words hold for, in
- * outline order (`blocks.query`). The outline evaluates all of it. `truncated` says what was cut at its limits.
+ * outline order (`blocks.query`). The outline evaluates all of it, a page at a time.
  */
-export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string; hint?: string; matches?: Map<string, PropertyMatch[]>; machineryLeftOut?: MachineryLeftOut } | { error: string }> {
+export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; hint?: string; matches?: Map<string, PropertyMatch[]>; machineryLeftOut?: MachineryLeftOut } | { error: string }> {
   const named = await resolveNotes(board, [...s.ids, ...(s.view ? [s.view] : []), ...(s.under ? [s.under] : [])]);
   const bad = named.find((n): n is { error: string } => "error" in n);
   if (bad) return { error: bad.error };
@@ -325,7 +325,7 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
   if (s.under) s = { ...s, under: (named.at(-1) as { id: string }).id };
   const expression = selectionQuery(s), text = s.words.join(" ").trim() || undefined;
   const filtered = !!(expression || text || s.under || s.sort);
-  let truncated: string | undefined, hint: string | undefined, matches: Map<string, PropertyMatch[]> | undefined, machineryLeftOut: MachineryLeftOut | undefined;
+  let hint: string | undefined, matches: Map<string, PropertyMatch[]> | undefined, machineryLeftOut: MachineryLeftOut | undefined;
   let found: string[] = [];
   const refused = (e: unknown) => {
     const why = (e as Error).message;
@@ -347,7 +347,6 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
       // A view that reads line chips ([property-scope::all]) says where each member matched.
       for (const b of r.blocks) if (b.propertyMatches) (matches ??= new Map()).set(b.id, b.propertyMatches);
       if (r.nextOffset === undefined) break;
-      if (members.length >= MAX_VIEW_MEMBERS) { truncated = `the view's first ${MAX_VIEW_MEMBERS} members`; break; }
       offset = r.nextOffset;
     }
     try {
@@ -357,7 +356,6 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
   } else if (filtered) {
     try {
       const q = await board.queryIds({ expression, text, subtreeRootId: s.under, ...(s.sort ? { sort: { field: s.sort, direction: s.direction ?? "asc" } } : {}), ...(s.propertyScope ? { propertyScope: s.propertyScope } : {}), ...(s.machinery ? { machinery: s.machinery } : {}), ...(s.countMachinery ? { countMachinery: true } : {}) });
-      if (q.truncated) truncated = "the outline's first 1000 matches";
       hint = q.hint;
       matches = q.matches;
       machineryLeftOut = q.machineryLeftOut;
@@ -365,11 +363,8 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
     } catch (e) { return refused(e); }
   }
   const seen = new Set<string>();
-  return { ids: [...ids, ...found].filter(id => !seen.has(id) && !!seen.add(id)), ...(truncated ? { truncated } : {}), ...(hint ? { hint } : {}), ...(matches ? { matches } : {}), ...(machineryLeftOut ? { machineryLeftOut } : {}) };
+  return { ids: [...ids, ...found].filter(id => !seen.has(id) && !!seen.add(id)), ...(hint ? { hint } : {}), ...(matches ? { matches } : {}), ...(machineryLeftOut ? { machineryLeftOut } : {}) };
 }
-
-/** The most of a view's members a selection reads (ten pages of the service's thousand). */
-export const MAX_VIEW_MEMBERS = 10_000;
 
 /** `ep0ch find …`: its exit code. */
 export async function findCommand(argsIn: string[], io: Out = { out: console.log, err: console.error }): Promise<number> {
@@ -419,7 +414,6 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
       // --query, --view, --under (and words with them): the outline's own reading, in outline (or the view's) order.
       const picked = await selectNotes(board, { ids: [], ...sel, words });
       if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 1; }
-      if (picked.truncated) io.err(`ep0ch: only ${picked.truncated}; narrow it (another clause, --under <id>)`);
       // The service says its own words (`machinery=show`, a view's and the MCP tools'); here they're this command's flag.
       if (picked.hint) io.err(`ep0ch: ${picked.hint.replace(/\bmachinery=(\w+)/g, "--machinery $1")}`);
       if (idsOut) { for (const id of picked.ids) io.out(`((${id}))`); return 0; }

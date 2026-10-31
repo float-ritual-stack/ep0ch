@@ -38,7 +38,7 @@ export const MCP_USAGE = `  ep0ch mcp usage [--since 24h] [--by tool|actor|outli
                                    measured MCP calls on this machine, or the service’s current block size census
   ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
-                                   tools list_outlines, outline_read, outline_threads, outline_find, outline_query, outline_links, outline_components; resources/read with envelope,
+                                   tools list_outlines, outline_read, outline_threads, outline_find, outline_grep, outline_query, outline_links, outline_components; resources/read with envelope,
                                    and the outline's components and the skills as resources (resources/list), the skills as prompts,
                                    and what an outline holds as its instructions (PIE-721). At \`propose\` and \`full\` it offers the
                                    same write tools as the gateway, as \`mcp:[<persona>/]<client>@<machine>\` (the client the MCP initialize names, on this machine);
@@ -327,6 +327,9 @@ export type McpRecord = Omit<BlockRecord, "text" | "header" | "links"> & { links
 export const mcpRecord = ({ text: _text, header: _header, links, ...rest }: BlockRecord): McpRecord =>
   ({ ...rest, ...(rest.actor ? { by: actorLabel(rest.actor) } : {}), links: links.map(({ spans: _spans, ...link }) => link) });
 
+const leanRecord = ({ fields: _fields, links, ...rest }: McpRecord) =>
+  ({ ...rest, links: [...new Set(links.flatMap(link => link.target ?? []))] });
+
 const envelope = (board: Board, uri: string, access: McpReachability, record: BlockRecord, revision: number | undefined) => ({
   uri,
   outlineInstanceId: board.outlineInstanceId,
@@ -404,13 +407,13 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
   if (!news && seen?.has(pairOf(read.record.id, read.record.revision))) return toolText({ uri: target.uri, ...unchangedStub(read.record.id, read.record.revision), reachability: read.access });
   // A proposal or a comment points at its note (id@revision) instead of copying it; raw: true sends the block as stored.
   const pointer = args.raw === true ? null : await derivedPointer(target.board, read.record).catch(() => null);
-  const first = !news && scope ? scope.claim(target.board.address.outline, read.record.id, read.record.revision, pointer ? "pointer" : "full", "record") : null;
+  const first = !news && scope ? scope.claim(target.board.address.outline, read.record.id, read.record.revision, pointer ? "pointer" : args.detail === true ? "detail" : "full", "record") : null;
   if (first) return toolText({ uri: target.uri, ...seeStub(read.record.id, read.record.revision, first), reachability: read.access });
   const threads = await target.board.comments(target.id).then(c => threadSummary(threadRows(c)), () => undefined);
   const env = envelope(target.board, target.uri, read.access, read.record, read.record.revision);
   const view = args.view === true ? await readView(target.board, target.id, args.width) : undefined;
   if (typeof view === "string") return toolError(view);
-  return toolText({ ...env, ...(pointer ? { record: pointer } : {}), ...(pending ? { pending } : {}), ...(staleSince ? { staleSince } : {}), ...(threads ? { threads } : {}), ...(view ? { view } : {}) });
+  return toolText({ ...env, record: pointer ?? (args.detail === true ? env.record : leanRecord(env.record)), ...(pending ? { pending } : {}), ...(staleSince ? { staleSince } : {}), ...(threads ? { threads } : {}), ...(view ? { view } : {}) });
 }
 
 /** outline_proposals (PIE-1086): what became of the caller's proposals in one outline, by the outliner's own reader. */
@@ -638,7 +641,7 @@ const semanticSays = (asked: boolean, semantic: SearchHits["semantic"] | undefin
   return { asked, status, said: status === "ranked" ? "re-ranked semantically (Jev) over the lexical candidates" : `lexical: semantic re-ranking was asked for and isn't available here${semantic?.message ? ` (${semantic.message})` : ""}` };
 };
 
-async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
+async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>, grep = false): Promise<ToolResult> {
   const seen = args.seen === undefined ? undefined : parseSeen(args.seen);
   if (seen && "error" in seen) return toolError(seen.error);
   const named = namedOutline(args.outline);
@@ -649,6 +652,10 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>):
   const { board, served } = target;
   const status = await requireReadAccess(outlines, target);
   if ("error" in status) return toolError(status.error);
+  if (grep) {
+    const result = await board.request<import("@ep0ch/outline-core/text-search").GrepResult>("blocks.grep", { pattern: args.pattern, flags: args.flags, limit: args.limit, offset: args.offset });
+    return toolText({ outline: board.address.outline, machine: board.address.machine, ...served, ...result });
+  }
   const query = stringField(args, "query")?.trim() ?? "";
   const limit = limitOf(args.limit, query ? FIND_LIMIT : LIST_LIMIT);
   if (typeof limit !== "number") return toolError(limit.error);
@@ -660,7 +667,7 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>):
   if (query) {
     // An agent's search goes deep when the ranked hits hold no sure answer (PIE-1200): Jev reads the notes themselves.
     const found = await board.searchBlocks(query, askSemantic ? { semantic: true, deep: args.deep !== false } : {});
-    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), uri: blockUri(board, m.block.id), revision: m.block.revision, ...(m.score !== undefined ? { score: m.score } : {}), ...(m.deep ? { byMeaning: true } : {}) }));
+    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), lines: m.lines ?? [], uri: blockUri(board, m.block.id), revision: m.block.revision, ...(m.score !== undefined ? { score: m.score } : {}), ...(m.deep ? { byMeaning: true } : {}) }));
     // A hit the caller holds at this revision is a stub: its title and path are what they already have.
     if (seen) rows = rows.map(r => r.revision !== undefined && seen.has(pairOf(r.id, r.revision)) ? ({ ...unchangedStub(r.id, r.revision, r.uri), path: r.path }) as unknown as typeof r : r);
     more = found.matches.length > limit || found.completeness.kind !== "complete";
@@ -813,13 +820,13 @@ function toolsFor(outlines: McpOutlines) {
     },
     {
       name: "outline_read",
-      description: `Read the block \`ref\` in ${which} as an enveloped block record JSON document; its reachability says whether it was read live or from a read-only mirror, and as of when. ` +
-        `record.links are the notes it links to; record.backlinks the notes linking to it (outline_links lists the same, with where), so a note two notes link both ways appears in both. Requires ${grant}. Input: exactly one of uri or ref. ` +
+      description: `Read the block \`ref\` in ${which} as a lean enveloped record (body, properties and link ids; detail: true adds field offsets and link spans); its reachability says whether it was read live or from a read-only mirror, and as of when. ` +
+        `record.links are the ids of notes it links to (link objects with detail: true); record.backlinks the notes linking to it (outline_links lists the same, with where), so a note two notes link both ways appears in both. Requires ${grant}. Input: exactly one of uri or ref. ` +
         `A ref that is a Resource (resource:<id>, or a [file::path] token) reads as its stored text and the comment threads open on it (live outlines only): read a file's threads before rewriting it. ` +
         `A proposal or a comment reads as a pointer to the note it is on (its diff, or its words and the span), not a copy of the note (raw: true for the block as stored). ` +
         `seen ("id@revision" pairs you hold) answers a block you already have as {id, revision, unchanged: true}; a block already sent earlier in the same response (a batch) comes back as {id, revision, see}. ` +
         `view: true adds view: the note as the door draws it (live figures, views and components answered) at width columns (${READ_VIEW_WIDTH} when left out), as ep0ch show prints it: look at it before saying a write is done.`,
-      inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, seen: seenProperty, raw: rawProperty, view: viewProperty, width: widthProperty } },
+      inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, seen: seenProperty, raw: rawProperty, detail: { type: "boolean", default: false, description: "Include field offsets and link spans for detailed inspection" }, view: viewProperty, width: widthProperty } },
     },
     {
       name: "outline_threads",
@@ -835,8 +842,17 @@ function toolsFor(outlines: McpOutlines) {
       }, oneOf: undefined, required: undefined },
     },
     {
+      name: "outline_grep",
+      description: `Scan every live note in ${which} for a regex, returning every matching source line with note id, title and line number (from 1), including machinery. No default cap: limit bounds this answer only; more and nextOffset continue it. flags uses JavaScript regex flags (i for case-insensitive). Use this for literal text or regexes, outline_find for ranked text and quoted phrases, outline_query for structure and properties. Requires ${grant}.`,
+      inputSchema: { type: "object", required: ["pattern"], properties: {
+        pattern: { type: "string", description: "Regex applied separately to each source line" }, flags: { type: "string" },
+        limit: { type: "integer", minimum: 1, description: "Optional matching-line limit; omitted returns every match" },
+        offset: { type: "integer", minimum: 0, default: 0 }, outline: outlineProperty(outlines),
+      }, additionalProperties: false },
+    },
+    {
       name: "outline_find",
-      description: `Search ${which} with the same ranker as ep0ch find: lexical candidates (title, text, properties) re-ranked by Jev, and when none is a sure answer Jev reads every note to find ones the words missed (deep), each match with its score (0 to 3), and search says how sure it is: verdict strong ("sure"), or weak ("not sure" over a top Jev scores as a match, else "no strong match": the closest is named, not claimed; none: nothing here answers it), with exists (Jev's "is it among these?", 0 to 1). semantic: false is the lexical order alone. ` +
+      description: `Find text in ${which}, returning matching source lines (numbered from 1, with one line either side). Quoted phrases rank literal phrase matches first. Use outline_grep for every regex-matching line without a default cap, outline_query for structure and properties. Search uses the same ranker as ep0ch find: lexical candidates (title, text, properties) re-ranked by Jev, and when none is a sure answer Jev reads every note to find ones the words missed (deep), each match with its score (0 to 3), and search says how sure it is: verdict strong ("sure"), or weak ("not sure" over a top Jev scores as a match, else "no strong match": the closest is named, not claimed; none: nothing here answers it), with exists (Jev's "is it among these?", 0 to 1). semantic: false is the lexical order alone. ` +
         `source and asOf say whether it searched the live outline or a read-only mirror; a top-level note's path is "${ROOT_PATH}". Requires ${grant}. Empty query lists index rows.`,
       inputSchema: { type: "object", properties: {
         query: { type: "string" },
@@ -854,7 +870,7 @@ function toolsFor(outlines: McpOutlines) {
     },
     {
       name: "outline_query",
-      description: `Run a query in ${which}, read-only, in the grammar the views use ([query::…], virtual branches, ::graph-table): clauses like type=outbox-item outbox=next, AND/OR/NOT, groups, updated >= -7d, any property compared as a date or number (due <= +3d, wait-until <= today, release-window = today, rating > 3), or a saved view by its block id. hint says a key no note has, or values a comparison couldn't read. ` +
+      description: `Query structure and properties in ${which}; for text use outline_find (ranked matches and context) or outline_grep (every regex-matching line). Run a query read-only, in the grammar the views use ([query::…], virtual branches, ::graph-table): clauses like type=outbox-item outbox=next, AND/OR/NOT, groups, updated >= -7d, any property compared as a date or number (due <= +3d, wait-until <= today, release-window = today, rating > 3), or a saved view by its block id. hint says a key no note has, or values a comparison couldn't read. ` +
         `The outline evaluates it, so the rows are the ones a view shows in the door. Answers block records (title, properties, revision, uri) with total and completeness; more says there are further rows, nextOffset is where to continue. Requires ${grant}. Give query or view. ` +
         `To orient (what changed lately, in a few KB): query "updated >= -1d NOT type=peer-message", sort "updated desc", fields "id,title,updated,actor,path", fold true; then outline_read the rows that are new, and pass seen on later reads. ` +
         `Fetched notifications and tools' bookkeeping ([machine::…]) are left out unless machinery says show or only; a recent-activity read says how many in machineryOmitted ("212 notifications and bookkeeping notes left out"), so report real work, and that count beside it. ` +
@@ -1107,6 +1123,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
   outline_read: { ref: "PIE-123" },
   outline_threads: { ref: "PIE-123" },
   outline_find: { query: "seed swap" },
+  outline_grep: { pattern: "seed.*packet" },
   outline_query: { query: "updated >= -1d NOT type=peer-message", sort: "updated desc", fields: "id,title,updated,actor,path", fold: true },
   outline_links: { ref: "PIE-123" },
   outline_components: { components: ["callout"] },
@@ -1176,7 +1193,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
   if (params.name === "query_suggest") return suggestQuery(outlines, args, caller);
   if (params.name === "outline_write_status" && caller) return writeStatusTool(outlines, args, caller);
   if ((params.name === "outline_new" || params.name === "outline_archive") && caller && outlines.admin) return adminTool(outlines, outlines.admin, params.name, args, caller);
-  if (params.name === "outline_find") return findBlocks(outlines, args);
+  if (params.name === "outline_find" || params.name === "outline_grep") return findBlocks(outlines, args, params.name === "outline_grep");
   if (params.name === "outline_links") return linkData(outlines, args);
   if (params.name === "outline_components") return componentsTool(outlines, args);
   if (params.name === "loki_lease" && caller && outlines.admin) {

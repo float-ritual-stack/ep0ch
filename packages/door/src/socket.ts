@@ -484,7 +484,7 @@ const annotationAuthor = (actor: Actor = USER) => {
 /** What `tree.search` answers (the outliner's `GotoSearchCollection`). */
 export interface SearchHits {
   /** `score`: Jev's for the row (0 to 3), on a ranked search (PIE-1198). */
-  matches: { block: { id: string; revision: number }; title: string; subtitle?: string; path: string; snippet: string; exact: boolean; score?: number; deep?: true; reason?: "linked" | "near" | "yours" }[];
+  matches: import("@ep0ch/outline-core/text-search").GotoSearchMatch[];
   completeness: { kind: string; limit?: number };
   /** How sure a ranked search is (`verdict`, `said`): the service decides, the door only says it. */
   semantic: { status: "lexical" | "ranked" | "unavailable"; message?: string; deep?: { status: string; windows?: number; found?: number; elapsedMs?: number; inputTokens?: number; message?: string } } & Partial<SearchCertainty>;
@@ -1120,22 +1120,20 @@ export class SocketBoard implements Board {
     return this.request<ViewOrder & { moved: string[] }>("virtual.occurrences.move", { input: move, mutation: mutationFor(actor) });
   }
 
-  /**
-   * The ids of the blocks a query holds for, in outline order (`blocks.query`): `expression` in the saved-view grammar
-   * and `text` (every word, any order) as the service evaluates them, under `subtreeRootId` (itself included). At most
-   * 1000; `truncated` when there were more.
-   */
-  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string; sort?: { field: string; direction: string }; propertyScope?: string; machinery?: MachineryMode; countMachinery?: boolean }, limit = 1000): Promise<{ ids: string[]; truncated: boolean; hint?: string; matches?: Map<string, PropertyMatch[]>; machineryLeftOut?: MachineryLeftOut }> {
-    const r = await this.request<{ blocks: { id: string; propertyMatches?: PropertyMatch[] }[]; completeness: { kind: string }; hint?: string; machineryLeftOut?: MachineryLeftOut }>("blocks.query", {
-      query: { limit: Math.min(1000, limit), ...(q.expression ? { where: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}), ...(q.sort ? { sort: q.sort } : {}), ...(q.propertyScope ? { propertyScope: q.propertyScope } : {}), ...(q.machinery ? { machinery: q.machinery } : {}), ...(q.countMachinery ? { countMachinery: true } : {}) },
-      fields: ["id"],
-    });
-    // With a scope past the note's own header (PIE-1277), where each note matched: `ep0ch find` says the line.
-    const matched = r.blocks.filter(b => b.propertyMatches?.length);
-    // `hint`: a key no note has, or values a date or number comparison couldn't read (PIE-769).
-    // `machineryLeftOut`: with countMachinery, what hide left out, by producer (PIE-1427).
-    return { ids: r.blocks.map(b => b.id), truncated: r.completeness.kind !== "complete", ...(r.hint ? { hint: r.hint } : {}), ...(r.machineryLeftOut ? { machineryLeftOut: r.machineryLeftOut } : {}),
-      ...(matched.length ? { matches: new Map(matched.map(b => [b.id, b.propertyMatches!])) } : {}) };
+  /** Every matching id in service order, following blocks.query's continuation. */
+  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string; sort?: { field: string; direction: string }; propertyScope?: string; machinery?: MachineryMode; countMachinery?: boolean }): Promise<{ ids: string[]; hint?: string; matches?: Map<string, PropertyMatch[]>; machineryLeftOut?: MachineryLeftOut }> {
+    const { expression: where, ...narrow } = q;
+    const ids: string[] = [], matches = new Map<string, PropertyMatch[]>();
+    let hint: string | undefined, machineryLeftOut: MachineryLeftOut | undefined;
+    for (let offset = 0; ;) {
+      const r = await this.request<{ blocks: { id: string; propertyMatches?: PropertyMatch[] }[]; nextOffset?: number; hint?: string; machineryLeftOut?: MachineryLeftOut }>("blocks.query", { query: { ...narrow, where, limit: 1000, offset }, fields: ["id"] });
+      ids.push(...r.blocks.map(b => b.id));
+      for (const b of r.blocks) if (b.propertyMatches?.length) matches.set(b.id, b.propertyMatches);
+      hint ??= r.hint; machineryLeftOut ??= r.machineryLeftOut;
+      if (r.nextOffset === undefined) break;
+      offset = r.nextOffset;
+    }
+    return { ids, hint, machineryLeftOut, ...(matches.size ? { matches } : {}) };
   }
 
   /** Blocks as records (`blocks.records`, outline-core's block-record.ts), in the order asked, 200 a request (the service's most; each request is one backlink pass over the outline). */

@@ -1,6 +1,6 @@
 import { replaceReferenceIndex } from "../src/reference-index";
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:net";
@@ -36,6 +36,62 @@ async function until(ok: () => boolean, ms = 30_000): Promise<void> {
 }
 
 const graphOf = (store: OutlinerStore) => (store as unknown as { loadGraph(): { byId: Map<string, Block> } }).loadGraph();
+
+test("a whole-outline mirror and grep leave an 11,000-note host responsive", async () => {
+  const { root, store, done } = scratch("mirror-load");
+  const socket = join(root, "host.sock"), dir = join(root, "mirror");
+  const server = new OutlinerServer(store, socket), reader = new OutlinerClient(socket);
+  let mirror: import("bun").Subprocess<"ignore", "ignore", "pipe"> | undefined, pinging: Promise<void> | undefined;
+  let running = true;
+  const pings: number[] = [], stalls: LoopStall[] = [];
+  let watch: ReturnType<typeof watchEventLoop> | undefined;
+  try {
+    let last!: Block;
+    store.database.transaction(() => {
+      for (let i = 0; i < 11_000; i++) last = store.create(`Seed packet ${i} [bed::b${i % 40}]\nHarvest moon over row ${i}.`);
+    })();
+    await server.start();
+    watch = watchEventLoop(stall => stalls.push(stall), { sampleMs: 10, reportMs: 40 });
+    pinging = (async () => {
+      while (running) {
+        const at = performance.now();
+        await reader.request({ action: "ping" });
+        pings.push(performance.now() - at);
+        await Bun.sleep(25);
+      }
+    })();
+    mirror = Bun.spawn(["bun", join(import.meta.dir, "../../door/src/main.ts"), "mirror", dir, "--ws", "garden", "--here"], {
+      env: { ...process.env, EP0CH_SOCKET: socket, EP0CH_OUTLINES: root, EP0CH_STATE: join(root, "door"), EP0CH_CONTROL: join(root, "control.sock") },
+      stdin: "ignore", stdout: "ignore", stderr: "pipe",
+    });
+    const errors = new Response(mirror.stderr).text();
+    const manifestFile = join(dir, "manifest.json");
+    await until(() => existsSync(manifestFile) || mirror!.exitCode !== null);
+    if (mirror.exitCode !== null) throw new Error(await errors);
+    const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+    const file = join(dir, manifest.files.find((f: string) => f.endsWith(`-${last.id.slice(0, 8)}.md`)));
+    expect(readFileSync(file, "utf8")).toContain("Harvest moon over row 10999.");
+    const started = performance.now();
+    await reader.request({ action: "update", blockId: last.id, text: `${last.text}\nFresh after the rain.`, expectedRevision: last.revision, mutation: { author: "user" } });
+    await until(() => readFileSync(file, "utf8").includes("Fresh after the rain."), 1000);
+    const refreshed = Math.round(performance.now() - started);
+    const result = await reader.request<{ matches: { id: string; line: number; text: string }[]; more: boolean }>({ action: "blocks.grep", pattern: "^Harvest moon" });
+    expect(result.matches).toHaveLength(11_000);
+    expect(result.matches.at(-1)).toMatchObject({ id: last.id, line: 2, text: "Harvest moon over row 10999." });
+    expect(result.more).toBe(false);
+    running = false; await pinging;
+    const sorted = pings.sort((a, b) => a - b);
+    const at = (fraction: number) => Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))]!);
+    const stall = Math.round(Math.max(0, ...stalls.map(s => s.ms)));
+    console.log(`mirror and grep, 11000 notes: edit=${refreshed}ms ping p50=${at(0.5)}ms p95=${at(0.95)}ms p99=${at(0.99)}ms max=${at(1)}ms stall=${stall}ms`);
+    expect(at(0.95)).toBeLessThan(200);
+    expect(Math.max(at(1), stall)).toBeLessThan(1000);
+  } finally {
+    running = false; await pinging;
+    if (mirror) { mirror.kill("SIGTERM"); await mirror.exited; }
+    watch?.stop(); await server.close(); done();
+  }
+}, 120_000);
 
 test("switching an extension's kept rules leaves a large outline's watching reader responsive", async () => {
   const { root, store, done } = scratch("extension-rule-load");

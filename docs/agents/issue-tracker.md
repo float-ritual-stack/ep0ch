@@ -64,6 +64,10 @@ If there is none, `work_create` and give back the Work ID and its `((ref))`; it 
 ## When a skill says "fetch the relevant ticket"
 
 `outline_read` with the Work ID (`PIE-123`) or the UUID. Read its comments and children too.
+Through the MCP gateway or `ep0ch mcp`, this is a lean record: body, properties and link IDs; pass `detail: true`
+for field offsets and link spans. For text, `outline_find` returns matching lines with adjacent context and puts
+quoted phrases first; `outline_grep` scans every live note with a regex, with no default cap (`limit` opts into
+pages using `more`/`nextOffset`). Use `outline_query` for structural questions and property expressions.
 
 ## Closing work
 

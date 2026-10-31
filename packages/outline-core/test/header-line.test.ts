@@ -92,7 +92,7 @@ describe("front matter and back", () => {
     const fields = headerFields([{ key: "tag", value: "seeds" }, { key: "ctx", value: "2026-03-09 @ 09:27:29 AM" }, { key: "tag", value: "spring" }]);
     expect(fields).toEqual([["tag", ["seeds", "spring"]], ["ctx", "2026-03-09 @ 09:27:29 AM"]]);
     const yaml = frontMatter(fields);
-    expect(yaml).toBe('---\ntag:\n  - "seeds"\n  - "spring"\nctx: "2026-03-09 @ 09:27:29 AM"\n---');
+    expect(yaml).toBe('---\ntag: ["seeds", "spring"]\nctx: "2026-03-09 @ 09:27:29 AM"\n---');
     expect(readFrontMatter(`${yaml}\nbody`)).toEqual({ fields, rest: "body" });
     expect(fieldChips(fields)).toEqual([{ key: "tag", value: "seeds" }, { key: "tag", value: "spring" }, { key: "ctx", value: "2026-03-09 @ 09:27:29 AM" }]);
   });
@@ -124,7 +124,7 @@ describe("front matter and back", () => {
     const file = noteFile({ id: "1111", parent: "2222", created: "2026-03-09T09:00:00.000Z", updated: "2026-03-09T09:30:00.000Z", author: "user" }, h.chips, h.body);
     expect(file).toBe([
       "---", 'id: "1111"', 'parent: "2222"', 'created: "2026-03-09T09:00:00.000Z"', 'updated: "2026-03-09T09:30:00.000Z"', 'author: "user"',
-      'type: "errand"', "tag:", '  - "seeds"', '  - "spring"', "---",
+      'type: "errand"', 'tag: ["seeds", "spring"]', "---",
       "Seed order for the plot", "Broad beans, two packets.", "when:: before Friday", "",
     ].join("\n"));
     const back = readNoteFile(file)!;

@@ -189,14 +189,12 @@ export const fieldChips = (fields: readonly FrontMatterField[]) =>
 
 /**
  * Fields as a YAML front-matter block (`---` lines around it). Every value is a double-quoted string (a JSON string is a
- * YAML one), so nothing is read as a date, a number or a boolean; a list is one `- "value"` line per value.
+ * YAML one), so nothing is read as a date, a number or a boolean; a list is one flow value on the same line.
  */
 export function frontMatter(fields: readonly FrontMatterField[]): string {
   const lines = ["---"];
   for (const [key, v] of fields) {
-    if (!Array.isArray(v)) { lines.push(`${yamlKey(key)}: ${yamlString(v)}`); continue; }
-    lines.push(`${yamlKey(key)}:`);
-    for (const x of v) lines.push(`  - ${yamlString(x)}`);
+    lines.push(`${yamlKey(key)}: ${Array.isArray(v) ? `[${v.map(yamlString).join(", ")}]` : yamlString(v)}`);
   }
   lines.push("---");
   return lines.join("\n");
@@ -211,7 +209,7 @@ const yamlKey = (k: string) => (/^[A-Za-z][A-Za-z0-9_.-]*$/.test(k) && !/^(?:y|n
 const yamlString = (v: string) => JSON.stringify(v).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 
 /**
- * A file's front matter and the rest, as `frontMatter` writes it (quoted or plain scalars, `- ` lists); null when the
+ * A file's front matter and the rest (quoted or plain scalars, flow lists and `- ` lists); null when the
  * file doesn't start with a `---` block.
  */
 export function readFrontMatter(file: string): { fields: FrontMatterField[]; rest: string } | null {
@@ -232,11 +230,21 @@ export function readFrontMatter(file: string): { fields: FrontMatterField[]; res
       continue;
     }
     const kv = /^("(?:[^"\\]|\\.)*"|[^:\s][^:]*?):\s*(.*)$/.exec(l);
-    if (kv) fields.push([kv[1]!.startsWith('"') ? JSON.parse(kv[1]!) : kv[1]!, scalar(kv[2]!)]);
+    if (kv) fields.push([kv[1]!.startsWith('"') ? JSON.parse(kv[1]!) : kv[1]!, flowValue(kv[2]!)]);
   }
   // Divider lines around prose hold no fields: only a block with a field (or an empty `---`/`---` pair) is front matter.
   if (fields.length === 0 && close > 1) return null;
   return { fields, rest: lines.slice(close + 1).join("\n") };
+}
+
+function flowValue(source: string): string | string[] {
+  if (source.trim().startsWith("[")) {
+    try {
+      const value: unknown = JSON.parse(source);
+      if (Array.isArray(value) && value.every(item => typeof item === "string")) return value;
+    } catch { /* Authored brackets that aren't a flow list stay prose. */ }
+  }
+  return scalar(source);
 }
 
 const scalar = (s: string) => {
@@ -249,7 +257,7 @@ const scalar = (s: string) => {
 // ── a note as a Markdown file ────────────────────────────────────────────────────────────────────────────────────
 
 /** What a note's front matter says about the note itself, before its header's chips, in this order. */
-export const IDENTITY_KEYS = ["id", "parent", "created", "updated", "author", "actor"] as const;
+export const IDENTITY_KEYS = ["id", "parent", "path", "created", "updated", "author", "actor"] as const;
 export type NoteIdentity = Partial<Record<(typeof IDENTITY_KEYS)[number], string>>;
 
 /**
