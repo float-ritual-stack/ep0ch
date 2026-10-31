@@ -116,7 +116,7 @@ import { composerBody, composerBox, placeBox, type ComposerBox } from "./compose
 import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedTileHost, type AttachedSide, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
-import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, installWords, threadAgents } from "../extensions";
+import { askingFirst, extensionList, passageActions, runExtensionAction, scriptsAt, scriptActions, installWords, threadAgents } from "../extensions";
 import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
@@ -5009,7 +5009,7 @@ export class NoteSurface {
         return r;
       }
       let req;
-      try { req = actRequestOf(lineWords(p.act)); } catch (e) { throw new ActionRefused(`${p.act}: ${e instanceof Error ? e.message : String(e)}`); }
+      try { req = actRequestOf(lineWords(p.act), { repeats: "list" }); } catch (e) { throw new ActionRefused(`${p.act}: ${e instanceof Error ? e.message : String(e)}`); }
       if (req.as !== undefined) throw new ActionRefused(`${p.act}: a press runs as ${actor.kind === "user" ? "you" : "its presser"}; leave out as=`);
       const args: Record<string, unknown> = { ...(req.args ?? {}) };
       let action = req.action;
@@ -5042,10 +5042,9 @@ export class NoteSurface {
     return actor.kind === "user" ? d.pressDoing(p.act, { note: home }, shown) : shown();
   }
 
-  /** The scripts called `name` as a press at `block`'s line `line` finds them (the note's own and its ancestors' first). */
-  private async scriptsNamed(name: string, block: string | undefined, line: number | undefined, host: SurfaceHost) {
-    const listed = await host.ctx.board.listExtensions(false, { blockId: block, ...(line !== undefined ? { line } : {}) });
-    return { listed, scripts: listed.extensions.filter(e => e.script && e.name === name && (e.state === "active" || e.state === "failed")) };
+  /** The scripts called `name` as a press at `block`'s line `line` finds them (extensions.ts `scriptsAt`, the one lookup `script.run` shares). */
+  private scriptsNamed(name: string, block: string | undefined, line: number | undefined, host: SurfaceHost) {
+    return scriptsAt(host.ctx.board, name, block, line);
   }
 
   /**

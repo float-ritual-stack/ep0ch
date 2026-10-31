@@ -466,6 +466,6 @@ export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules:
   return { rules, problems };
 }
 
-/** The `rule-*` keys a rule note writes: its own words, never matched as the block's own properties by a card. */
+/** The `rule-*` keys (and `property-scope`, which a rule note reads as a view does) a rule note writes: its own words, never matched as the block's own properties by a card. */
 export const RULE_KEYS = ["rule-name", "rule-match", "rule-view", "rule-under", "rule-text", "rule-kind", "rule-decorate", "rule-place", "rule-label", "rule-tone", "rule-fields", "rule-pattern", "rule-align", "rule-style",
-  "rule-on", "rule-on-stop", "rule-on-change", "rule-quiet", "rule-from", "rule-batch", "rule-cap", "rule-skip"] as const;
+  "rule-on", "rule-on-stop", "rule-on-change", "rule-quiet", "rule-from", "rule-batch", "rule-cap", "rule-skip", "property-scope"] as const;

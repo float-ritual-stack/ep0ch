@@ -16,6 +16,11 @@ Two notes side by side, the other tiles folded to spines, and the left note's li
   - The first is the left reader, the second the right.
 - **Leave them to the press:** `::button{label="two up" of=neat page={page1} page={page2} page1= page2=}` asks for page 1, then page 2, from your notes.
   - The last pick arranges them; later presses use what the line holds.
+- **Edges (PIE-1253):** `left=` and `right=` (each repeatable) send what you name to the far left and right, in order; everything else folds to a spine.
+  - A ref is a page, note or Work ID (`[[Garden plan]]`, `((id))`), or a tile by the name you see on it and copy with the tile menu's "copy tile reference": `%tree`, `tile:cowboy`; a kind word (`terminal`, `agent`) means every tile of it.
+  - `page=` stays the first left and the first right. Your terminals and agents are left as they are (`fold=terminal` asks them to fold too), and so are tiles you pinned and, with edges, the tile you are in.
+  - Made up: `::button{label="tidy" of=neat left=[[today]] right=%tree}`, or from a shell `ep0ch neat page=[[today]] right=%tree`.
+- **From a shell:** `ep0ch neat page=[[a]] page=[[b]]` is `ep0ch act script.run of=neat page=[[a]] page=[[b]]`: an agent's run (your shell's agent id, or `--as`), the same slots a button passes.
 - **Follow links:** selecting or opening a link targets the right reader; alt-open targets the left.
 - **Remove:** `ep0ch act extensions.uninstall id=neat demo=keep`, or the power bar's remove row.
   - The button stays in your note and names the reinstall command when pressed.

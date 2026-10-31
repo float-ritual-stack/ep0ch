@@ -393,6 +393,32 @@ test("a query-fed workbench presents one saved view and follows matches, source 
   expect((await read())?.view.children.find(node => node.title?.startsWith("List"))?.children?.[0]?.rows).toEqual([]);
 });
 
+test("a handler line whose run failed leads with the failure and the kept run's time, in the projection and on the web page (PIE-1468)", async () => {
+  const { client, create, projection, projections } = await setup({ install: ["workbench"] });
+  await create("Plant herbs [type::workbench-test] [stage::ready] [due::2026-11-03]");
+  const board = await create("Seed workbench [type::virtual-branch] [publish::public] [query::type=workbench-test] [columns::stage,due]\nworkbench::");
+  await projection(board.id, "component");
+  const ran = (await projections(board.id))[0]!.output!.ranAt;
+  // Taking the question away fails the next run; the old drawing stays.
+  await client.request({ action: "update", blockId: board.id, expectedRevision: board.revision,
+    text: "Seed workbench [type::virtual-branch] [publish::public] [columns::stage,due]\nworkbench::", mutation: PERSON });
+  const kept = await until("the kept drawing marked failed", async () => (await projections(board.id)).find(p => p.status === "stale"));
+  const notice = (text: string) => text.startsWith("the last run failed") && text.includes(`the kept drawing is from ${ran.slice(0, 16).replace("T", " ")}Z`);
+  expect(notice(kept.output!.markdown.split("\n")[0]!)).toBe(true);
+  const view = kept.output!.component!.view as { type: string; children: { type: string; text?: string }[] };
+  expect(view.type).toBe("stack");
+  expect(notice(view.children[0]!.text ?? "")).toBe(true);
+  // The failure is said once, first: not again after the drawing.
+  expect(kept.reason).toBeUndefined();
+  expect(kept.fetchError).toContain("no `query`");
+  const publisher = new Publisher({ client });
+  await publisher.start();
+  cleanups.push(() => publisher.stop());
+  const html = await (await publisher.handle(new Request(`http://127.0.0.1/p/${board.id}?view=html`, { headers: { accept: "text/html" } }), "tailnet")).text();
+  expect(html).toContain("the last run failed");
+  expect(html.indexOf("the last run failed")).toBeLessThan(html.indexOf('class="ext-table"'));
+});
+
 test("an action's writes may land outside the block it acts on (PIE-754), apply together or not at all, and a read-only action can't write", async () => {
   const { extensionsFolder, store, client, create, list } = await setup();
   writeExtension(extensionsFolder, "sly", {

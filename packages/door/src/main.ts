@@ -28,7 +28,7 @@ import { MCP_USAGE, mcpCommand } from "./mcp";
 import { AGENT_USAGE, agentCommand } from "./agent-cli";
 import { BACKUP_USAGE } from "./backup/usage";
 import { showcaseTry } from "./showcase/route";
-import { COMMANDS, checkWords, screenArg, screenUriArgs, usageFor } from "./cli-words";
+import { COMMANDS, checkWords, scriptCall, screenArg, screenUriArgs, usageFor } from "./cli-words";
 import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { isLocalMachine } from "@ep0ch/outliner/machine-name";
 import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
@@ -36,6 +36,15 @@ import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
 colourOnlyToATerminal();
 
 let args = process.argv.slice(2);
+// A script's name with global flags around it (PIE-1230): the flags are taken out here, as they are around a command below.
+{
+  const call = scriptCall(args);
+  if (call) {
+    if (call.ws) process.env.EP0CH_WS = call.ws;
+    if (call.machine) process.env.EP0CH_MACHINE = call.machine;
+    args = call.args;
+  }
+}
 // Bind a leading outline flag before dispatch, including commands whose arguments do not take --ws.
 let commandAt = 0;
 while (args[commandAt] === "--ws" || args[commandAt] === "--machine") commandAt += 2;
@@ -173,6 +182,10 @@ ${SHARE_USAGE}
 ${EXPORT_USAGE}
 ${LIBRARY_USAGE}
 ${DOCS_USAGE}
+  ep0ch <script> [key=value …] [--as <id>]
+                                   run a script of this folder's outline by its name with a button's slots
+                                   (PIE-1230): ep0ch neat page=[[a]] right=%tree is act script.run of=neat …, an
+                                   agent's run in its door (EP0CH_AGENT or --as), a key written twice a list
   ep0ch echo toss | nodelist | subscribe | areas …   (ep0ch echo help says each one's flags)
                                    EchoNet (PIE-779): run the echonet extension's tosser (copies in, netmail
                                    both ways, nodelist and toss log), write and print the nodelist, subscribe
@@ -227,7 +240,15 @@ ${AGENT_USAGE}
 // command's own when one is named) from anywhere (PIE-547, src/cli-words.ts).
 const words = checkWords(args);
 if (words && "help" in words) { console.log(usageFor(USAGE, words.help)); process.exit(0); }
-if (words) { console.error(`ep0ch: ${words.error}`); process.exit(2); }
+// A plain word that is no command is a script's name (PIE-1230): `ep0ch neat page=[[a]]` is `ep0ch act script.run of=neat page=[[a]]`,
+// an agent's run in the door of this folder's outline (the shell's agent id, or --as), refused in words if no script has that name.
+let notACommand: string | undefined;
+// (A script's name is resolved before a command suggestion: `ep0ch neat` is neat, though `new` is close. With no door to ask, or no script of
+// that name, it is the unknown command it always was, exit 2. --help is always about ep0ch.)
+if (words && "error" in words && /^[A-Za-z][\w.-]*$/.test(args[0] ?? "") && !words.error.startsWith("no flag") && !args.some(a => a === "--help" || a === "-h")) {
+  notACommand = words.error;
+  args = ["act", "script.run", `of=${args[0]}`, ...args.slice(1)];
+} else if (words) { console.error(`ep0ch: ${words.error}`); process.exit(2); }
 // ep0ch door [<ssh-name>] [<outline>]: the ssh door's login (ssh ep0ch), carried here, and this terminal given back clean
 // however ssh ends, a dropped link included (PIE-1429, src/machine.ts).
 if (args[0] === "door") {
@@ -407,8 +428,8 @@ if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? 
     const at = await controlFor(process.env, process.cwd(), args[0] === "peek" ? args : []);
     if (typeof at === "object") {
       if (args[0] === "open" && args.includes("--json")) console.log(JSON.stringify({ opened: false, reason: at.error }));
-      else console.error(`ep0ch: ${at.error}`);
-      process.exit(args[0] === "open" && args.includes("--json") ? 0 : 1);
+      else console.error(`ep0ch: ${notACommand ?? at.error}`);
+      process.exit(notACommand ? 2 : args[0] === "open" && args.includes("--json") ? 0 : 1);
     }
     process.env.EP0CH_CONTROL = at;
   } else {
@@ -420,12 +441,14 @@ if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? 
     const reached = await resolveDoor(process.env, process.cwd(), args[0] === "peek" ? args : []);
     if (reached.path) process.env.EP0CH_CONTROL = reached.path;
     else if (args[0] === "open" && args.includes("--json") && reached.refused) { console.log(JSON.stringify({ opened: false, reason: reached.text })); process.exit(0); }
-    else if (args[0] === "peek" || reached.refused) {
-      console.error(`ep0ch: ${reached.text}`);
-      process.exit(1);
+    else if (args[0] === "peek" || reached.refused || notACommand) {
+      console.error(`ep0ch: ${notACommand ?? reached.text}`);
+      process.exit(notACommand ? 2 : 1);
     }
   }
-  process.exit(await controlClient(args));
+  const code = await controlClient(args);
+  if (code && notACommand) console.error(`ep0ch: ${notACommand}`);
+  process.exit(code);
 }
 if (args[0] === "outline" || args[0] === "status" || args[0] === "init") {
   const cmd = parseOutlineArgs(args[0] === "outline" ? args.slice(1) : args);

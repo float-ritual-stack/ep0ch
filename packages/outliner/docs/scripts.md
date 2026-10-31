@@ -74,6 +74,14 @@ value with `button.slot label="pop it" key=target value=<tile>`. A script's slot
 the notes, since neat says `[form-field::page note]`; several empty slots are asked in the order the line writes them. A button whose line reads differently than it was written
 (nested quotes that end `act=` early, stray words) runs nothing and says the line to write, in the editor as you type and on save.
 
+**From the command line (PIE-1230).** A script runs by its name, with a button's slots, wherever an action is typed: the power
+bar (ctrl+k, `neat page=[[a]] page=[[b]]`), `ep0ch act neat …` and `ep0ch neat …` from a shell. All three are one action,
+`script.run of=<name> key=value…`: any other word is a slot (`props.<key>`), a key written twice is a list (`props.page`), and the
+script's own `ext.<id>.run` runs, so it is the press's run. From a shell it is an agent's run, attributed to the shell's agent id
+(`EP0CH_AGENT`, or `--as <id>`), said on the status bar, and it never takes your focus or keys; to run it as yourself, run it
+inside the door (power bar, a `::button`, `act` from a tile you hold). A name no script has says the nearest names. `of=` names
+the script alone: `of="neat page=[[a]]"` puts its words inside the name, so the button runs nothing and the line says the one to write.
+
 ## The script note
 
 A named fence accepts `script=<name>`, `effects=write` and `mode=render` in its info string, for example
@@ -121,6 +129,11 @@ drawer links and their wires, and the `step`/`failed` pattern for reporting refu
 Install it from the power bar (ctrl+k, `&neat`, pick **install Neat**) or
 `ep0ch act extensions.install id=neat`. Then try `::button{label="neat" of=neat page=[[Garden plan]] page=[[Shed repairs]]}`.
 Without slots it arranges this outline's welcome/home and the reader with the person's keys.
+`left=` and `right=` (each repeatable) send pages, notes and tiles to the far edges, in order: `[[page]]`, `((id))`, a Work ID, or a
+tile by the name `layout.get` and the tile menu show (`%tree`, `tile:cowboy`, copied with "copy tile reference"), or a kind
+(`terminal`, `agent`) for every tile of it. `page=` stays the first left and the first right. Terminals, agents, pinned tiles and
+(with edges) the tile you are in are never folded unless named; `fold=terminal` or `fold=agent` asks for it. From a shell:
+`ep0ch neat page=[[Garden plan]] right=%tree`; in a note: `::button{label="tidy" of=neat left=[[today]] right=tile:agent}`.
 
 Script lookup uses the invoking note and its nearest ancestors first, then other outline
 script notes, outline files, then the scripts declared by installed extensions. An outline's
@@ -170,14 +183,14 @@ write `rows.map(x => this.title + x)`, not `rows.map(function (x) { return this.
 | Function | Returns | Source |
 |---|---|---|
 | `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, created, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:301` |
-| `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:306` |
+| `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:310` |
 | `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:158` |
-| `query({ where, group?, sort?, limit?, facets? })` | `{ rows: [{ id, title, props }], groups?: [{ value, count, rows }], facets?, hint?, total, complete }`. Rows **carry their properties** (`props.status[0]`); `group` is a property key; `facets: true` counts every key and value the matches carry; `limit` default 200, at most 1000; `parent:this` means the note the run is about. A render redraws when the answer changes. | `packages/outliner/src/host-api.ts:312` |
-| `read([ref, …])` | A list of refs (at most 200) reads them all: each answer in its place, or `{ ref, problem }` for one that can't be read. | `packages/outliner/src/host-api.ts:306` |
-| `act(name, args?)` | Dispatches an action and answers what it did. `act("ext.<id>.<action>", { block })` runs an extension's action (a script's `ext.<id>.run`) **with no door**, and answers its `state`, `message` and `answer`. Any other name is a door action (`await act("tile.open", { kind: "query", query: "#beans" })`), which needs a door (run from the power bar or a live draft); a saved ask or rule has none. Action runs only. | `packages/outliner/src/host-api.ts:461` |
-| `sh(argv, { cwd?, stdin?, timeoutMs? })` | `{ exit, stdout, stderr, truncated? }`. Runs a command as the person, with no shell (`sh(["gh", "issue", "list"])`). A failing command answers its exit code; the run's deadline or `timeoutMs` kills it. Each stream is capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:395` |
+| `query({ where, group?, sort?, limit?, facets? })` | `{ rows: [{ id, title, props }], groups?: [{ value, count, rows }], facets?, hint?, total, complete }`. Rows **carry their properties** (`props.status[0]`); `group` is a property key; `facets: true` counts every key and value the matches carry; `limit` default 200, at most 1000; `parent:this` means the note the run is about. A render redraws when the answer changes. | `packages/outliner/src/host-api.ts:317` |
+| `read([ref, …])` | A list of refs (at most 200) reads them all: each answer in its place, or `{ ref, problem }` for one that can't be read. | `packages/outliner/src/host-api.ts:310` |
+| `act(name, args?)` | Dispatches an action and answers what it did. `act("ext.<id>.<action>", { block })` runs an extension's action (a script's `ext.<id>.run`) **with no door**, and answers its `state`, `message` and `answer`. Any other name is a door action (`await act("tile.open", { kind: "query", query: "#beans" })`), which needs a door (run from the power bar or a live draft); a saved ask or rule has none. Action runs only. | `packages/outliner/src/host-api.ts:465` |
+| `sh(argv, { cwd?, stdin?, timeoutMs? })` | `{ exit, stdout, stderr, truncated? }`. Runs a command as the person, with no shell (`sh(["gh", "issue", "list"])`). A failing command answers its exit code; the run's deadline or `timeoutMs` kills it. Each stream is capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:399` |
 | `fetch(url, { method?, headers?, body?, timeoutMs? })` | `{ status, headers, text, truncated? }`, for http(s) URLs. Capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:135` |
-| `components()` | Every name a `::name` or a script answers to here, as `[{ name, origin }]`: the built-ins (`origin: "built-in"`), the extensions' and the scripts'. Action runs only. | `packages/outliner/src/host-api.ts:448` |
+| `components()` | Every name a `::name` or a script answers to here, as `[{ name, origin }]`: the built-ins (`origin: "built-in"`), the extensions' and the scripts'. Action runs only. | `packages/outliner/src/host-api.ts:453` |
 | `wait(ms)` | Sleeps, then goes on. Ends with the run: its deadline or a stop cuts it short. | `packages/outliner/src/script-runtime.ts:103` |
 
 There is no `stop()` inside a script. Ending a run is the service's `scripts.stop` (see [Lifecycle](#lifecycle)).
@@ -346,10 +359,14 @@ examples lean on:
   note's text (first 16,000 characters), its direct children's ids and text (first 50 children, 2,000 characters each),
   any note named by `((id))` on the line itself (first 8), the script's own note (always, whether or not the code asks
   for `self`), every note it imports, and every note any answer the run received mentions: a `read()`'s record (its
-  children, links, backlinks), a `q()`'s or `query()`'s rows, a `resolve()`'s deps and links. All by revision, so editing any of them redraws. A `q()` without `under`
-  also registers its query, so a new match redraws it. An answer too large to list marks the output untracked. A
-  change made by another script or an extension doesn't redraw it, and the service remembers at most 5,000 watched
-  queries and notes (the oldest are dropped).
+  children, links, backlinks), a `q()`'s or `query()`'s rows, a `resolve()`'s deps and links. All by revision, so editing any of them redraws. A `q()` or `query()` without `under`
+  also registers its question and the shape of the answer it drew from (the rows listed, the counts over every match in
+  `groups` and `facets`, whether the list was complete), so a new match, or a change in a count of notes the drawing
+  doesn't list, redraws it. The question is watched by the service's one `QueryWatches` through `LineWatches`
+  (`src/line-watches.ts`), which also owns a query-fed handler's; when the service drops the oldest of its 512 watches
+  the line says live updates paused. An answer too large to list marks the output untracked. A
+  change made by another script or an extension doesn't redraw it, and the service remembers at most 5,000 named
+  notes (the oldest are dropped).
 - Drawing the same line again leaves every block and revision as it was.
 - A `::=` line is the argument of the call, so its expression is at most 500 characters.
 
@@ -358,7 +375,7 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:66` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:988` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1004` |
 | `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:460` |
 
 ## A render script is a component
@@ -407,7 +424,7 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
   undo step; scripts start each other at most four deep, never one already in the chain, and stopping the caller stops it. The only boundary is the MCP access level, for outside agents. EchoNet packets
   never execute.
 - **Who wrote it.** A run somebody asked for (a press, `act`, `script_run`, the CLI) writes as them: `author: user` for the
-  person at their keyboard, `author: agent` with the agent's own actor id for an agent, the run's undo id as the session, and
+  person at their keyboard (a note, comment or reply it creates records the run too, PIE-1464), `author: agent` with the agent's own actor id for an agent, the run's undo id as the session, and
   the task id `trigger:script:<extension id>` saying a script was how (`ep0ch revisions` reads "by you · via script"; the change
   feed's `action` names it, `script:<name>`, and `requestedBy` repeats who asked). A run nobody asked for (a rule, a schedule, a
   background run) writes as the script: `author: agent`, actor id `script:<name>`. One owner decides it, `ScriptRuns.start`
@@ -428,10 +445,10 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 |---|---|
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:306` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:795` |
-| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1854` |
+| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1833` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:218` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4838` |
-| `viaYolo` | `packages/outliner/src/server.ts:4868` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4825` |
+| `viaYolo` | `packages/outliner/src/server.ts:4848` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:577` |
 
 ## Lifecycle
@@ -469,7 +486,7 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 | `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:323` |
 | `stopRun` | `packages/outliner/src/script-runs.ts:269` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:331` |
-| `scripts.stop` | `packages/outliner/src/server.ts:789` |
+| `scripts.stop` | `packages/outliner/src/server.ts:768` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2563` |
 
 ## Traps

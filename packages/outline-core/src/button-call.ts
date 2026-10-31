@@ -1,4 +1,4 @@
-import { actionLine } from "./action-line";
+import { slotWords } from "./action-line";
 import { nextGraphemeEnd } from "./graphemes";
 import { COMPONENT_OPEN, componentAttrs, componentBlockAt, lineWords, noteCodeFences, splitWords } from "./component-block";
 
@@ -161,6 +161,13 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
   return c && call ? { ...call, line: i, endLine: i + call.endLine, prefix: c.prefix } : null;
 }
 
+/** A script's words by name, every repeat kept in order (`page=a page=b` is page: [a, b]). */
+function slotLists(pairs: readonly { key: string; value: string }[], value: (v: string) => string): Record<string, string[]> {
+  const by = new Map<string, string[]>();
+  for (const p of pairs) by.set(p.key, [...(by.get(p.key) ?? []), value(p.value)]);
+  return Object.fromEntries(by);
+}
+
 /** A `::button` at the start of line `i` (up to three spaces before it). */
 function buttonCallOwn(lines: readonly string[], i: number): ButtonCall | null {
   const open = COMPONENT_OPEN.exec((lines[i] ?? "").replace(/\r$/, ""));
@@ -209,9 +216,16 @@ function buttonCallOwn(lines: readonly string[], i: number): ButtonCall | null {
       const said = rest.map(p => `${p.key}=${wordOf(p.value)}`).join(" ");
       steps = values.map(source => act
         ? { kind: "act", ...(refsOf(source).length ? { written: source } : {}), source: slotted(source) }
-        : { kind: "script", ...(refsOf(said).length ? { written: `${source} ${said}` } : {}), source: actionLine({ action: source, args: Object.fromEntries(rest.map(p => [p.key, slotted(p.value, true)])) }) });
+        : { kind: "script", ...(refsOf(said).length ? { written: `${source} ${said}` } : {}), source: [source, slotWords(slotLists(rest, v => slotted(v, true)))].filter(Boolean).join(" ") });
     }
   } catch (error) { problem = (error as Error).message; }
+  // `of=` names the script and nothing else (PIE-1230): `of="neat page=[[a]]"` put its words inside the name, so it is no script's.
+  if (!problem && of && !of.startsWith("[") && /\s/.test(of)) {
+    const [name, ...words] = of.split(/\s+/);
+    const shown = (v: string) => (/[\s"]/.test(v) ? JSON.stringify(v) : v);
+    const fixed = `::button{${pairs.map(p => (p.key.toLowerCase() === "of" ? `of=${name}` : `${p.key}=${shown(p.value)}`)).join(" ")}${words.length ? ` ${words.join(" ")}` : ""}}`;
+    problem = `of= names the script and its words go outside it, and its quote must close. Write: ${fixed}`;
+  }
   if (!steps.length) problem ??= '::button needs what it runs: write one action or ((script)) per line, then ::, or use act= / of=';
   // A button that reads differently than it was written runs nothing: it never acts on what its words didn't say.
   if (!problem && act && !act.startsWith("[")) {

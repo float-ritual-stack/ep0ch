@@ -1,5 +1,6 @@
 // The power bar's row filter (PIE-656), shared by every list that filters rows the door holds (the tile menu, PIE-879):
 // outline-core's matcher over each row's fields, those whose label starts with what's typed, then holds it, first.
+import { barSources } from "./source";
 import { matchesSearchText, prepareSearchQuery, searchMatchSpans } from "@ep0ch/outline-core/search-match";
 
 /**
@@ -10,7 +11,9 @@ export function filtered<R extends { label: string }>(rows: R[], q: string, fiel
   const query = prepareSearchQuery(q);
   if (!query) return rows;
   // No typo forgiveness over names and keys: a short tile name or action is matched as typed.
-  const kept = rows.filter(r => matchesSearchText(query, fields(r), { typos: false })), t = q.trim().toLowerCase();
+  const kept = rows.filter(r => matchesSearchText(query, fields(r), { typos: false })), typed = q.trim().toLowerCase();
+  // A bar reopened in a scope has no sigil to scope by, so `%tree` reaches here whole: the name is what follows the scope's prefix (PIE-1465).
+  const sigil = barSources().find(s => s.prefix && !s.inline && typed.startsWith(s.prefix))?.prefix ?? "", t = typed.slice(sigil.length) || typed;
   // A field typed whole (a tile's name, `%tree`) comes before a label that only starts with it (PIE-1460: a detail listed
   // first took ⏎ from the tile named tree).
   const rank = (r: R) => (fields(r).some(f => f.toLowerCase() === t) ? -1 : r.label.toLowerCase().startsWith(t) ? 0 : r.label.toLowerCase().includes(t) ? 1 : 2);

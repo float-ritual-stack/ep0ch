@@ -183,7 +183,14 @@ source evidence or distinguish authored glyphs from controls.
   write path). A read handler's manifest `query` is bound here to its line,
   answered by `blocks.query`, kept by the service's `QueryWatches`, and passed
   to the handler as `input.query`; the handler presents the answer but never
-  decides membership. `ext:<id>` actor ids are the runtime's alone: `server.ts` refuses a
+  decides membership. **`src/line-watches.ts` (`LineWatches`) is the one owner of
+  the questions a note's lines watch** (PIE-1463): a handler's `query` and a render
+  script's `q()`/`query()` hold their watches there, end with the line (saved
+  without it, trashed with any note above it, a question that no longer binds),
+  and are told once when the service drops the oldest at its cap, which the line
+  then says; `answerShape` is its one answer to "did what the script drew from
+  change" (rows listed, counts over every match, complete or not). Don't keep a
+  second set of watched lines. `ext:<id>` actor ids are the runtime's alone: `server.ts` refuses a
   client request that names one. `src/component-primitives.ts`
   owns the shared primitive catalogue and the render targets with their
   fallback chain; a client draws those primitives, never a component by name.

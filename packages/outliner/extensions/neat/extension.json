@@ -3,12 +3,12 @@
   "id": "neat",
   "version": 1,
   "name": "Neat",
-  "description": "Two pages side by side, the other tiles as spines along the edge.",
+  "description": "Two pages side by side, or pages, notes and tiles sent to the far left and right (left= right=), the rest as spines; your terminals are left alone.",
   "scripts": [
     {
       "name": "neat",
       "file": "scripts/neat.js",
-      "about": "Two pages side by side, other tiles as spines, and drawer links wired to the readers."
+      "about": "Two pages side by side, or left= and right= (pages, notes, %tiles) at the far edges; other tiles as spines (terminals and agents stay put), and drawer links wired to the readers."
     }
   ]
 }

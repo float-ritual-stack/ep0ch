@@ -45,7 +45,7 @@ import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage } from "./extensions";
+import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, SCRIPT_RUN_ACTIONS, asScriptRun, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged, referenceWords } from "./refs";
@@ -170,6 +170,9 @@ export function pressOf(k: Key): string | null {
 export const TEST_APPS = Symbol.for("ep0ch.test.apps");
 
 export interface Ctx {
+  /** Where a framed screen sits in a desk's undo order (the desk's `layoutUndoSeq`/`untrash`), so a reader in a tile hands ctrl+z on as one on the desk does (PIE-1470). */
+  layoutUndoSeq?(): number | undefined;
+  untrash?(board: object): boolean;
   /** Local extension undo owns the layout receipt; consume its broadcast without undoing twice. */
   readonly scriptUndos?: Set<string>;
   agentPointers?: AgentPointers;
@@ -339,7 +342,8 @@ export interface Screen {
   openArgs?(): Record<string, unknown> | null;
   /** Rows available = t.rows - 1 (the last row is the status bar). */
   render(ctx: Ctx): Frame;
-  key(k: Key, ctx: Ctx): void;
+  /** False: the key is not this screen's and the holder may take it (a reader framed in a tile gives ctrl+z on to the desk's layout undo, PIE-1470). */
+  key(k: Key, ctx: Ctx): void | false;
   enter?(ctx: Ctx): void;
   /** Visibility of a kept screen; hidden time does not age its arrival accents. */
   shownAs?(on: boolean): void;
@@ -1278,6 +1282,7 @@ export class App implements Ctx {
       };
     } },
     { set: EXTENSION_INSTALL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
+    { set: SCRIPT_RUN_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
     { claims: req => req.action.startsWith("layout.") || req.action.startsWith("tile."), delegate: () => (this.screenDesk() ?? this.hostLayer.desks()[0])?.dispatch },
     { delegate: () => this.stack.at(-1)?.dispatch },
@@ -1313,6 +1318,7 @@ export class App implements Ctx {
     const who = agentLabel(actor);
     return messageContext.run({ action: req.action, ...(req.tile ? { tile: req.tile } : {}) }, async () => {
       try {
+        req = asScriptRun(req, name => this.dispatch.has(name));
         if (!this.dispatch.takes(req, actor)) throw new ActionRefused(GONE_ACTIONS[req.action] ?? this.dispatch.unknownAction(req.action));
         this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
         const r = await this.dispatch.act(req, actor);
@@ -1440,7 +1446,7 @@ export class App implements Ctx {
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private xrayLeader = false;
   /** `w`: which layer takes it, the door's own over everything first: the person's whereabouts' answer (keyLayers, PIE-1438). */
-  private route(k: Key, w: KeyLayers) {
+  private route(k: Key, w: KeyLayers): void {
     if (k.kind === "alt" && k.ch === "?") { void this.dispatch.press("text.reveal"); return; }
     if (k.kind === "mouse" && isHover(k)) void this.dispatch.press("text.hover", { x: k.x, y: k.y });
     else if (k.kind === "mouse") this.overflow.clear();
@@ -1470,6 +1476,8 @@ export class App implements Ctx {
     }
     // The power bar (PIE-656), while it's open, takes every key and click: esc or a click outside puts it away.
     if (w.over === "bar") {
+      // ctrl+z on a kept run answer takes the run back: the bar goes, the key goes on to the screen (Esc, then ctrl+z).
+      if (this.bar && !this.bar.ended() && this.bar.takesBackRun(k)) { this.bar.close(); this.bar = null; this.redraw(); this.route(k, this.keyLayers()); return; }
       if (!this.bar!.ended()) this.bar!.key(k, this);
       if (this.bar?.ended()) { this.bar.close(); this.bar = null; this.redraw(); }
       return;

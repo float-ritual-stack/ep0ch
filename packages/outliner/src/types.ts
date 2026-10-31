@@ -113,7 +113,8 @@ export type {
 } from "./resources";
 
 export interface BlockProvenance {
-  actorId: string;
+  /** Required for an agent's block; a person's has none (a run they pressed records its session and task, PIE-1464). */
+  actorId?: string;
   sessionId?: string;
   taskId?: string;
 }
@@ -2587,7 +2588,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "extensions.render"; blockId: string; line?: number; target: string; fallback?: string }
   /** Capability `extensions.act`: an extension's action on a block (and line), or on a tile with `args`. */
   | {
-      id: string; action: "extensions.act"; extension: string; extensionAction: string; blockId?: string; line?: number; args?: Record<string, string>; passage?: import("@ep0ch/outline-core/passage").Passage; clientId?: string;
+      id: string; action: "extensions.act"; extension: string; extensionAction: string; blockId?: string; line?: number; args?: Record<string, string>; /** A script's slots as a button line writes them (`page="a" page="b"`): repeats read as lists (props.page). */ slots?: string; passage?: import("@ep0ch/outline-core/passage").Passage; clientId?: string;
       /** A press (PIE-957): the one-run invitation the door minted for it, and the button it pressed (the note and line). */
       invitation?: string;
       button?: { block: string; line?: number };

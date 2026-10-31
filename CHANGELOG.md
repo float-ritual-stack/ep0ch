@@ -16,6 +16,63 @@ are its record. The outliner's entries from then are kept below, under
 - **What stays an allowlist:** `frame-ancestors`, who may embed an artifact, and `object-src 'none'`.
 - **Run:** `ep0ch install --apply` on float-2 (the artifact store restarts with it).
 
+### A note a script creates says who ran it and "via script" (PIE-1464)
+
+- **`ep0ch revisions` on a note, comment or reply a script made:** reads "by you · via script" when you pressed it (a button, `act`, the CLI), and "by <agent> · via script" when an agent did; it used to read "by you" only, though the same run's property writes already said "via script". The change feed's action names the script (`script:<name>`).
+- **A person's block can carry the run that made it** (its session and task, never an actor id): `BlockProvenance.actorId` is optional for a user author, and `createBlock`, `commentOn` and `replyTo` pass it through one `creationOf`.
+- **Run:** `PROTOCOL` 291: restart the outline host and your doors (`ep0ch install --apply`); a client on 290 is refused with that command named.
+
+### ctrl+z in a BBS message reader tile puts the layout back (PIE-1470)
+
+- **ctrl+z with the keys in a reader tile that shows the BBS message reader** (the showcase's `exhibit`) said "no step change to undo in this note" and stopped, so a tile closed with `^W x` stayed closed; it now hands the key on to the desk's layout undo when the reader has nothing of its own to undo, as every other tile does. A step change the reader did make is still taken back first.
+- **Run:** nothing to run; restart your door to get it.
+### A handler line whose run failed says so first (PIE-1468)
+
+
+- **The kept drawing of a failed run** (a workbench with its `[query::]` removed, a table, cards or a list a line drew before) leads with "the last run failed: …; the kept drawing is from <time>" as its first row, in the door at any tile size, in Detail and on the published page. It used to come last, below the old drawing, where a short tile never showed it and read the old drawing as live.
+- **One notice, from the service:** the failure is added where the service keeps the old output, so a line `reason` no longer repeats it after the drawing; `fetchError` still holds the bare error.
+- **Run:** nothing to run; restart your door and the outline host to get it.
+
+### ctrl+z takes back a run's layout on every desk it changed (PIE-1230)
+
+- **ctrl+z after a script run that put a tile in the drawer** (neat's links tile, with your keys left there) took back only the drawer's part and left the screen as the run arranged it: one ctrl+z, from the bar or after Esc, now puts back the whole run, the screen and the drawer together, and the status line says the steps of both.
+- **Run:** nothing to run; restart your door to get it.
+
+### A script's run in the power bar undoes with ctrl+z, and the CLI's flags go around a script's name (PIE-1230)
+
+- **ctrl+z right after a typed script line ran, with the bar still open on its answer:** puts the bar away and takes the run back, as "ctrl+z undoes" on the status line says (it used to edit the bar's text; only Esc, then ctrl+z took the layout back).
+- **`ep0ch neat 'page=[[a]]' --ws showcase`, `ep0ch --ws showcase neat …`, `--machine`:** accepted around a script's name as around a command (`--as` and `--json` as before), and not read as slots.
+- **Run:** nothing to run; restart your door to get the new keys.
+
+### Run any script by its name, and neat arranges any tile (PIE-1230, PIE-1253)
+
+- **`ep0ch neat page=[[a]] right=%tree`:** a script runs by its name from a shell, `act` or the power bar, with the same slots a button passes (`script.run of=<name> key=value…`); a key written twice is a list (`page=` twice), and the run is the press's. From a shell it is an agent's run, attributed to the shell's agent id (`EP0CH_AGENT` or `--as`), said on the status bar, and it never takes your focus or keys.
+- **A script nobody has says so:** the refusal names the nearest scripts and the call that works; `ep0ch --help` and an unknown command's error name the form; the power bar completes `of=` with the outline's scripts.
+- **A button with the script's words inside `of="…"`** (`of="neat page=[[a]]` with the quote never closed) runs nothing and the line says the one to write, in the editor and on save.
+- **neat takes `left=` and `right=`:** pages, notes, Work IDs and tiles by the name you see and copy (`%tree`, `tile:cowboy`, or `terminal` / `agent` for every tile of that kind) go to the far left and right in order; a page or tile nobody has is said in the answer, with the nearest pages.
+- **neat leaves your terminals alone:** terminals, agents, pinned tiles and (with edges) the tile you are in stay as they are; `fold=terminal` or `fold=agent` asks for them to fold.
+- **Copy a tile's name:** the tile menu's Copy group has "copy tile name" (`%name`, `tile.copy-ref kind=name`).
+- **Run:** `ep0ch install --apply` and restart the outline host (the protocol moved); then `ep0ch neat page=[[a]] right=%tree` from a shell in your door's folder.
+### An empty links tile names its source, and `%name` ranks whole in a reopened bar (PIE-1465)
+
+
+- **The empty links tile's body names the tile it follows:** "the links of what activity shows land here", the name the `/` message already gave, no longer the tile's id.
+- **`%tree` in a bar reopened in the tiles scope lists the tile named tree first:** the bar's row filter takes the scope's prefix off before it compares a whole name.
+- **Run:** nothing to run.
+
+### The component library lists `property-scope` for rule notes (PIE-1466)
+
+- **A rule note's `[property-scope::…]` is among the keys the library says it takes:** `RULE_KEYS` now names it, so the rule's entry and the keys a card ignores as the rule's own agree.
+- **Run:** nothing to run.
+
+### A drawn board and a workbench stay live, and say what changed (PIE-1463, PIE-1467)
+
+- **A board redraws when a count changes:** a `::board`, lens or any render script that asks with `q()` or `query()` is redrawn when a note it matches but didn't list appears, goes, or changes the counts in its groups and facets; before, only a listed row did it.
+- **One owner for watches:** a query-fed handler (the workbench) and a render script now hold their watched questions in one place; before, two lists kept them and a trashed parent's child lines stayed watched until a restart.
+- **Trash, restore and a lost property:** trashing a note ends the watches of the lines under it, restoring it watches them again, and a workbench whose `[query::]` was removed releases its old question and draws live again when it is put back.
+- **At the host's cap the figure says so:** when the host's 512 watches are full and the oldest is dropped, that line shows "live updates paused" until its note is saved or `r` is pressed, instead of showing an old answer as live.
+- **Run:** `ep0ch install --apply` on float-2, then open a note with a `lens::` line and a `workbench::` line on a scratch outline and trash a source note.
+
 ### Note components: a render script is a `::component`, found by people and agents
 
 - **`::board{where="type=task" group=status}` draws a script written in a note:** a render script in a `tsx` fence (with imports of other notes' scripts by name, and `query()` with groups and facets) is a component in any note, its props read from the note's `[form-field::]` chips.

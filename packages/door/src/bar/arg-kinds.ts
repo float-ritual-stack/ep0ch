@@ -84,6 +84,12 @@ registerArgKind("value", async (typed, host, { of }) => {
   return found.map(f => ({ value: f.value, label: f.value, detail: `${of} · ${f.count} use${f.count === 1 ? "" : "s"}` }));
 });
 
+registerArgKind("script", async typed => {
+  // The scripts this outline has (extensions.ts scriptActions), each by its own first line; the same list the bar's rows and a refusal's did-you-mean read.
+  const { scriptNames } = await import("../extensions");
+  return filtered(scriptNames().map(s => ({ value: s.name, label: s.name, detail: s.about })), typed, r => [r.label]);
+});
+
 registerArgKind("tile-kind", async typed => {
   const { tileKinds } = await import("../desk/tile-kinds");
   return filtered(tileKinds().map(k => ({ value: k.kind, label: k.kind, detail: k.about })), typed, r => [r.label, r.detail ?? ""]);

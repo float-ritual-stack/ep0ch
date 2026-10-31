@@ -155,7 +155,9 @@ export class ScreenTile implements Pane {
     // does on any desk (PIE-727: it was refused here, so a desk holding only a group couldn't be left by q).
     this.framed = s && new FramedScreen(s, () => on().ctx, () => this.left(on()), undefined, () => !!on().hasFocus?.(this),
       // Esc with nothing left in the screen: out of it when the person is in it, else the desk's own steps (a zoom, a dock, a float's keys).
-      () => (this.inside ? this.goIn(false) : on().escaped ? on().escaped!() : nothingToClose(on().ctx)));
+      () => (this.inside ? this.goIn(false) : on().escaped ? on().escaped!() : nothingToClose(on().ctx)),
+      // Its screen's ctrl+z, with nothing of its own, is the desk's (layout.undo, note.untrash): the one answer (PIE-1470).
+      () => ({ layoutUndoSeq: () => on().layoutUndoSeq?.(), untrash: (b: object) => on().untrash?.(b) ?? false }));
   }
 
   /** q with nothing left in its screen: out of it (the person was in it), else the screen holding it goes back. */
@@ -234,9 +236,9 @@ export class ScreenTile implements Pane {
     const c = ch(k);
     // In an edit, a comment or a panel, every key is the screen's; otherwise the desk keeps 1-9 and video.
     if (!this.framed.top.holdsKeys?.() && (/^[1-9]$/.test(c) || c === "V")) return false;
-    this.framed.key(k);
+    const took = this.framed.key(k);
     this.desk?.redraw();
-    return true;
+    return took;
   }
 
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number): boolean {

@@ -1,3 +1,4 @@
+import type { ScriptQueryRecord } from "./line-watches";
 import { DRAFT_PROPOSAL_TYPE } from "./draft-patch";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
@@ -70,7 +71,7 @@ export function slotProps(words: string | null | undefined): Record<string, stri
 }
 
 /** What a render-mode script drew, and what it read: the notes (with their revision when first read) and the queries (with their rows). */
-export interface ScriptRendered { markdown: string; /** The view it drew, when it returned one (PIE-981: a client that draws views draws this, and presses what it carries). */ view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[]; /** It saw more than could be listed: its output depends on notes no list names. */ untracked?: true }
+export interface ScriptRendered { markdown: string; /** The view it drew, when it returned one (PIE-981: a client that draws views draws this, and presses what it carries). */ view?: Primitive; reads: { id: string; revision: number | null }[]; queries: ScriptQueryRecord[]; /** It saw more than could be listed: its output depends on notes no list names. */ untracked?: true }
 
 /** One script run's view of the Site: the globals it reads, the path reader behind `resolve`, and the notes it read. */
 interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: HostApi["resolve"] }
@@ -427,7 +428,7 @@ export class ScriptRuns {
     // where the press passed that button's own value: an alt press or an override passes its own, and keeps it.
     const slot = (k: string, v: unknown) => { const all = buttonProps && Object.hasOwn(buttonProps, k) ? buttonProps[k] : undefined; return all && all.at(-1) === String(v) ? all : [String(v)]; };
     let site = this.bind(source, { blockId: request.blockId, line: request.line, trigger: !!request.trigger,
-      props: Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, slot(k, v)])) });
+      props: { ...Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, slot(k, v)])), ...(request.slots ? slotProps(request.slots) : {}) } });
     let caller: { text: string; span: DraftPatchSpan } | undefined;
     // place(): the plan is made on the note as its draft has it now, sent as this script, applied or one proposal at the caller.
     const place = async (content: string, opts: { at?: string; mode?: string; label?: string; interpolate?: boolean }) => {
