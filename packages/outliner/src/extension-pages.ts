@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { namesDemoIds, readDemo, rewriteDemoReferences, type Demo } from "./extension-demo";
 import { loadExtensionManifest, manifestSources, type ExtensionManifest, type LoadedExtension } from "./extension-manifest";
 import { cleanExtensionText, extensionActorId } from "./extension-records";
-import { extensionRuleNotes } from "./extension-rules";
+import { extensionRuleNotes, ruleTriggerKeyFlipped, ruleTriggerKeys, type RuleTriggerState } from "./extension-rules";
 import { patchPropertyText } from "./properties";
 import { overrideWords, type ExtensionEntry, type ExtensionRegistry } from "./extension-registry";
 import type { OutlinerStore } from "./store";
@@ -269,12 +269,12 @@ export class ExtensionPages {
   private lastPrint = "";
   private ruleNotesCache = new Map<string, { stamp: string; notes: ReturnType<typeof extensionRuleNotes> }>();
 
-  private ruleNotes(key: "rule-on" | "rule-was-on"): ReturnType<typeof extensionRuleNotes> {
-    const stamp = this.store.propertyDependencyStamp(key);
-    const cached = this.ruleNotesCache.get(key);
+  private ruleNotes(state: RuleTriggerState): ReturnType<typeof extensionRuleNotes> {
+    const stamp = ruleTriggerKeys(state).map(key => this.store.propertyDependencyStamp(key)).join("|");
+    const cached = this.ruleNotesCache.get(state);
     if (cached?.stamp === stamp) return cached.notes;
-    const notes = extensionRuleNotes(this.store, key);
-    this.ruleNotesCache.set(key, { stamp, notes });
+    const notes = extensionRuleNotes(this.store, state);
+    this.ruleNotesCache.set(state, { stamp, notes });
     return notes;
   }
 
@@ -346,7 +346,7 @@ export class ExtensionPages {
     const listed = this.registry.list().extensions.filter((entry) => entry.state !== "shadowed" && !entry.partOf);
     this.available = this.readAvailable(new Set(listed.map((entry) => entry.id)));
     const state = this.read();
-    const restored = this.ruleNotes("rule-was-on");
+    const restored = this.ruleNotes("was-on");
     for (const id of new Set(restored.map(note => note.extension))) {
       if (listed.some(entry => entry.id === id)) this.switchRules(state, id, true, restored);
     }
@@ -503,17 +503,17 @@ export class ExtensionPages {
 
   disabledRules(): Record<string, number> {
     const counts: Record<string, number> = {};
-    for (const note of this.ruleNotes("rule-was-on")) counts[note.extension] = (counts[note.extension] ?? 0) + 1;
+    for (const note of this.ruleNotes("was-on")) counts[note.extension] = (counts[note.extension] ?? 0) + 1;
     return counts;
   }
 
   hasActiveRules(id: string): boolean {
-    return this.ruleNotes("rule-on").some(note => note.extension === id);
+    return this.ruleNotes("on").some(note => note.extension === id);
   }
 
   disableRules(id: string, requestedBy?: MutationProvenance): number {
     const state = this.read();
-    const count = this.switchRules(state, id, false, this.ruleNotes("rule-on"), requestedBy);
+    const count = this.switchRules(state, id, false, this.ruleNotes("on"), requestedBy);
     this.write(state);
     return count;
   }
@@ -524,7 +524,7 @@ export class ExtensionPages {
     this.store.changes.run(this.store.changes.attribution({ action: `ext.${id}.${enabled ? "install" : "uninstall"}`, actor, ...(requestedBy ? { requestedBy } : {}) }), () => {
       for (const note of matching) {
         const block = this.store.require(note.block.id), properties = note.properties;
-        const text = patchPropertyText(block.text, properties.map(property => ({ op: "replace", ordinal: property.ordinal, key: enabled ? "rule-on" : "rule-was-on", value: property.value })));
+        const text = patchPropertyText(block.text, properties.map(property => ({ op: "replace", ordinal: property.ordinal, key: ruleTriggerKeyFlipped(property.key), value: property.value })));
         const written = this.store.update(block.id, text, block.revision, actor);
         const seeded = Object.values(state.demos[id]?.notes ?? {}).find(note => note.id === block.id);
         // Switching a pristine demo off and back on isn't a person's edit; it can still be removed later.

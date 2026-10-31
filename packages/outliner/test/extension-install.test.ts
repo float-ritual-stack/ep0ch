@@ -70,11 +70,14 @@ test("kept extension rules switch off without warnings on reopen, and reinstall 
       expect({ code, err }).toMatchObject({ code: 0 });
       return out;
     };
-    expect(await cli("rm", "intake", "--demo", "remove")).toContain("2 rules switched off");
+    const onChange = await client.request<Block>({ action: "create", text: "Re-sort on edit [rule-name::resort] [rule-match::type=idea] [rule-on-change::intake/prior-art]", author: "user" });
+    expect(await cli("rm", "intake", "--demo", "remove")).toContain("3 rules switched off");
+    expect(store.require(onChange.id).text).toContain("[rule-was-on-change::intake/prior-art]");
     expect(store.require(rule.id).text).toContain("[rule-was-on::intake/prior-art]");
     expect(store.require(own.id).text).toContain("[rule-was-on::intake/prior-art]");
     expect(store.require(quoted.id).text).toBe(quoted.text);
-    expect(await cli("install", "intake")).toContain("2 rules switched back on");
+    expect(await cli("install", "intake")).toContain("3 rules switched back on");
+    expect(store.require(onChange.id).text).toBe(onChange.text);
     expect(store.require(rule.id).text).toBe(edited);
     expect(store.require(own.id).text).toBe(own.text);
     await client.request({ action: "extensions.install", extension: "done-stamp", where: "outline" });

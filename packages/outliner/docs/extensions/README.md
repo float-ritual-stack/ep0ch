@@ -403,8 +403,8 @@ extensions/notify/demo/
 - **Once.** The service keeps, in the outline's metadata, which demo notes it wrote and at which revision. A reinstall
   or an update writes none of them again (wherever you moved them, whatever you changed); a demo note added in a later
   version is written by itself. A deleted one stays deleted.
-- **Kept rules switch off.** Removing an extension renames every kept block-scoped `rule-on` naming it to
-  `rule-was-on`, including edited demos and rules you wrote elsewhere. The edit is attributed to `ext:<id>`; its
+- **Kept rules switch off.** Removing an extension renames every kept block-scoped `rule-on`, `rule-on-stop` and
+  `rule-on-change` naming it to `rule-was-on`, `rule-was-on-stop` and `rule-was-on-change`, including edited demos and rules you wrote elsewhere. The edit is attributed to `ext:<id>`; its
   removal receipt and the Extensions page say how many switched off. Reinstalling restores `rule-on` and reports
   how many came back, preserving the rest of each note. Switched-off notes produce no missing-extension warning;
   an active `rule-on` naming an extension that is absent still warns. `ep0ch ext install` also accepts `ext add`'s arguments.
