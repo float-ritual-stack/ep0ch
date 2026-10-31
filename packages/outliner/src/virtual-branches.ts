@@ -288,9 +288,9 @@ export function parseVirtualBranchConfig(
     const written = /^(.*?)\s+(asc|desc)$/i.exec(sortProperty.value);
     const field = normalizeSortField(written?.[1] ?? sortProperty.value);
     const direction = written?.[2]?.toLowerCase() ?? directionProperty?.value.trim().toLowerCase() ?? "desc";
-    if (field === null) configurationErrors.push(`Virtual branch: ${sortFieldProblem(sortProperty.value)}`);
+    if (field === null) configurationErrors.push(`sort: ${sortProperty.value} · ${sortFieldProblem(sortProperty.value)}`);
     if (direction !== "asc" && direction !== "desc") {
-      configurationErrors.push(`Virtual branch direction must be asc or desc, not ${directionProperty?.value}: write [direction::asc] or [direction::desc]`);
+      configurationErrors.push(`direction: ${directionProperty?.value} · Sort direction is asc or desc, not ${directionProperty?.value}: write [direction::asc] or [direction::desc]`);
     }
     if (field !== null && (direction === "asc" || direction === "desc")) sort = { field, direction };
   }
