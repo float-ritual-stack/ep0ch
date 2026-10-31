@@ -14,6 +14,7 @@ import { formatExtensionsList, runExtCommand } from "../src/extension-install";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import type { ResourceProjection, ResourceProjectionReadResult } from "../src/resource-projection";
 import type { Block } from "../src/types";
+import { clockWords } from "@ep0ch/outline-core/age";
 import type { SourcesAnswer } from "@ep0ch/outline-core/sources";
 import type { SiteAnswer } from "@ep0ch/outline-core/site";
 
@@ -403,7 +404,7 @@ test("a handler line whose run failed leads with the failure and the kept run's 
   await client.request({ action: "update", blockId: board.id, expectedRevision: board.revision,
     text: "Seed workbench [type::virtual-branch] [publish::public] [columns::stage,due]\nworkbench::", mutation: PERSON });
   const kept = await until("the kept drawing marked failed", async () => (await projections(board.id)).find(p => p.status === "stale"));
-  const notice = (text: string) => text.startsWith("the last run failed") && text.includes(`the kept drawing is from ${ran.slice(0, 16).replace("T", " ")}Z`);
+  const notice = (text: string) => text === `workbench: no \`query\` on this note; showing the drawing from ${clockWords(ran)}` && !text.includes("{{");
   expect(notice(kept.output!.markdown.split("\n")[0]!)).toBe(true);
   const view = kept.output!.component!.view as { type: string; children: { type: string; text?: string }[] };
   expect(view.type).toBe("stack");
@@ -415,8 +416,8 @@ test("a handler line whose run failed leads with the failure and the kept run's 
   await publisher.start();
   cleanups.push(() => publisher.stop());
   const html = await (await publisher.handle(new Request(`http://127.0.0.1/p/${board.id}?view=html`, { headers: { accept: "text/html" } }), "tailnet")).text();
-  expect(html).toContain("the last run failed");
-  expect(html.indexOf("the last run failed")).toBeLessThan(html.indexOf('class="ext-table"'));
+  expect(html).toContain("workbench: no `query` on this note");
+  expect(html.indexOf("workbench: no `query` on this note")).toBeLessThan(html.indexOf('class="ext-table"'));
 });
 
 test("an action's writes may land outside the block it acts on (PIE-754), apply together or not at all, and a read-only action can't write", async () => {

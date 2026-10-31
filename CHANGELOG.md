@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A failed handler line says why in one short line (PIE-1471)
+
+- **The kept drawing's notice is plain words:** `workbench: no `query` on this note; showing the drawing from 11:25 PM` instead of the raw error with `{{this.query}}` and a UTC stamp. The time is the machine's local clock (`Oct 30, 11:25 PM` on an earlier day); the door, Detail and the web page read the same line from the one helper (`keptNotice`).
+- **A placeholder that didn't resolve names the key:** the error says `no `query` on this note`, never the braces.
+- **Run:** `ep0ch update` is not needed; the outline host restarts on the next `ep0ch install --apply`.
+
 ### The power bar's Run lens asks every slot, `query` too (PIE-1473)
 
 - **A script's form offers all its declared slots:** ctrl+k, "Run lens" opens one form with the needed slots first, then the optional ones (`query`, `view`, `columns`, `limit`, ...); an empty optional slot is left out, ⏎ on the act line runs it. It used to ask only the required and choice/property slots, so the lens's `query` never appeared.
