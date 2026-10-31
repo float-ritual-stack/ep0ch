@@ -117,7 +117,8 @@ export class Glass {
     const hit = desks.map(d => d.hoverAt(point.x - d.screenOrigin.col, point.y - d.screenOrigin.row)).find(Boolean);
     const cut = this.app.overflow.targetAt(point.x, point.y), text = hit?.text ?? cut?.text;
     const key = hit?.target ? JSON.stringify(hit.target) : text;
-    if (!key || key === this.target) return;
+    if (!key) return;
+    if (key === this.target) { this.source = (hit ?? cut)!.rect; this.cancelClose(); return; }
     const m = hit?.target ? await readTarget(this.app, hit.target) : text ? textNote(text) : null;
     if (!m || generation !== this.generation) return;
     this.target = key; this.source = (hit ?? cut)!.rect;
@@ -174,7 +175,7 @@ export class Glass {
       if (why) return { closed: false, kept: why };
       this.size = { cols: current.rect.cols, rows: current.rect.rows }; this.save();
       this.host.made!.closeTile(current.tile, actor);
-      this.host.restoreGlassKeys();
+      if (this.host.glassHasKeys(current.tile)) this.host.restoreGlassKeys();
     }
     this.target = ""; this.source = null; this.app.redraw(); return { closed: !!current };
   }

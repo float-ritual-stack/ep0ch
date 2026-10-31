@@ -1,6 +1,6 @@
 import type { Msg } from "../board";
 import type { Actor } from "../socket";
-import { USER } from "../socket";
+import type { SurfaceHost } from "../surface/note";
 import { actionSet, def, ActionRefused } from "../surface/actions";
 import { modeHint, type ModeKey } from "../surface/modes";
 import { effective, keyTable } from "../surface/keymap";
@@ -36,10 +36,8 @@ export class PostIt extends ReaderPane {
     return this.msg?.id.startsWith("glass:") ? { ...host, header: (m: Msg, w: number) => rowLines(m.text.split("\n")[0]!, w) } : host;
   }
   override hint() { return modeHint(POST_IT_KEYS, action => POST_IT_ACTIONS.def(action)); }
-  override show(m: Msg | null, desk: DeskApi, by: Actor = USER): boolean {
-    if (!m) return super.show(m, desk, by);
-    const host = this.host(desk);
-    return this.surface.remember(m, { ...host, ctx: host.contextFor!(m) }, desk.ctx.glass?.settings.stack ?? 30, by);
+  protected override showSurface(m: Msg | null, host: SurfaceHost, by: Actor): boolean {
+    return m ? this.surface.remember(m, host, host.ctx.glass?.settings.stack ?? 30, by) : super.showSurface(m, host, by);
   }
   override key(k: Key, desk: DeskApi): boolean {
     if (!this.holdsKeys) {

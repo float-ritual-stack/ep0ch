@@ -66,14 +66,47 @@ const groupsProblem = (spec: string | undefined): string | null => { try { linkG
 const sourceTile = (spec: string | undefined) => { if (spec === "") return ""; const src = spec && sourceOf(spec); return src && "tile" in src ? src.tile : "reader"; };
 const showing = (p: Pane | undefined): Msg | null => (p ? kindOf(p)?.shows?.(p) ?? null : null);
 
+const readerFromSpec = (s: Parameters<TileKind["make"]>[0], r: ReaderPane): ReaderPane => {
+  if (s.outline) r.noteAddress = { outline: s.outline, ...(s.machine ? { machine: s.machine } : {}) };
+  if (s.mode === "pinned") r.pinTo(s.page);
+  if (s.note && !s.page) r.want = s.note;
+  if (s.wasFollowing) r.wasFollowing = true;
+  if (s.label) r.label = s.label;
+  if (s.nav) r.wantNav = s.nav;
+  r.takeMargin(s.margin);
+  return r;
+};
+
+const startReader: NonNullable<TileKind["start"]> = async (p, env) => {
+  const r = p as ReaderPane;
+  try { await r.connect(env.desk); } catch (e) { env.desk.ctx.flash((e as Error).message, undefined, errorDetails(e)); return; }
+  if (r.pinPage && !r.msg) {
+    const page = r.pinPage;
+    r.context(env.desk).board.resolvePage(page).then(res => { if (res.status === "resolved" && res.block && r.pinPage === page) { r.pinnedTo(res.block, env.desk); env.desk.redraw(); } }, () => {});
+  }
+  if (r.want && !r.msg && !r.pinPage) {
+    const want = r.want;
+    // A note the outline hasn't (purged, or the screen saved on another outline): the empty tile says so.
+    readNote(env.desk.ctx, want, r.noteAddress).then(m => {
+      // Still the reader that wanted it (a note opened into it meanwhile wins).
+      const wanted = !r.msg && r.want === want && !r.pinPage;
+      if (m && wanted) r.hold(m, env.desk); else if (!m && wanted) r.missing = want;
+      env.desk.redraw();
+    }, () => {});
+  }
+  const want = r.wantNote();
+  // The outline's first selection may be shown first: the saved note replaces it, once, while the reader still wants it.
+  if (want && !r.want && !r.pinPage) readNote(env.desk.ctx, want, r.noteAddress).then(m => { if (m && r.wantNote() === want) { r.show(m, env.desk); env.desk.redraw(); } r.dropWant(); }, () => r.dropWant());
+};
+
 /** The entries, made when they're registered (so a module cycle never meets them half-built). */
 const builtins = (): TileKind[] => [
   {
     ...reading, kind: "post-it", about: "a note or cut-off value above every screen, with a hover history to flip",
     actions: POST_IT_ACTIONS, inherits: [READER_ACTIONS],
-    make: s => { const p = new PostIt(); p.sticky = s.sticky ?? false; p.hover = s.hover ?? false; p.by = s.by ?? null; p.wantNav = s.nav; p.want = s.note ?? null; return p; },
+    make: s => { const p = new PostIt(); p.sticky = s.sticky ?? false; p.hover = s.hover ?? false; p.by = s.by ?? null; return readerFromSpec(s, p); },
     describe: p => ({ postit: (p as PostIt).title(), sticky: (p as PostIt).sticky, history: (p as PostIt).surface.trailOf() }),
-    start: async (p, { desk }) => { const r = p as PostIt; if (r.want) { const m = r.want.startsWith("glass:") ? { id: r.want, text: r.want.slice(6), parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, properties: [] } : await readNote(desk.ctx, r.want); if (m) { const nav = r.wantNav; r.show(m, desk); if (nav) r.surface.restoreNav(nav); r.dropWant(); desk.redraw(); } } },
+    start: async (p, env) => { const r = p as PostIt; if (!r.msg && r.want?.startsWith("glass:")) r.show({ id: r.want, text: r.want.slice(6), parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, properties: [] }, env.desk); await startReader(p, env); },
   },
   {
     kind: "tree", previews: true, about: "the outline tree; ⏎ opens a note where its opens land", keys: [{ key: "t", label: "outline" }],
@@ -88,44 +121,14 @@ const builtins = (): TileKind[] => [
     kind: "reader", openArgs: ["mode", "note", "page", "outline", "machine", "label"], about: "a reader of notes (a detail): it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
     // ^W o d names it a detail (`mode: held` reads as no pin); ^W o r a reader. They're the same tile (PIE-1207).
     keys: [{ key: "r", label: "reader" }, { key: "d", label: "detail", spec: () => ({ mode: "held" }) }],
-    make: s => {
-      const r = new ReaderPane(true);
-      if (s.outline) r.noteAddress = { outline: s.outline, ...(s.machine ? { machine: s.machine } : {}) };
-      if (s.mode === "pinned") r.pinTo(s.page);
-      if (s.note && !s.page) r.want = s.note;
-      if (s.wasFollowing) r.wasFollowing = true;
-      if (s.label) r.label = s.label;
-      if (s.nav) r.wantNav = s.nav;
-      r.takeMargin(s.margin);
-      return r;
-    },
+    make: s => readerFromSpec(s, new ReaderPane(true)),
     ...reading, actions: READER_ACTIONS,
     check: s => s.page && s.mode !== "pinned" ? "page= needs mode=pinned: ep0ch act tile.open kind=reader mode=pinned page=<name>"
       : s.page && s.note ? "a pinned reader keeps note= or page=, not both: ep0ch act tile.open kind=reader mode=pinned page=<name>" : null,
     // layout.get and peek say whether it's pinned (PIE-1207), and on which page.
     describe: (p, full) => { const r = p as ReaderPane; return { ...reading.describe!(p, full), ...(r.pinnable && r.pinned ? { pinned: true, ...(r.pinPage ? { page: r.pinPage } : {}) } : {}) }; },
     // The note it showed when the layout was saved (a restart, a handover) is shown again, with its history (PIE-643), unless something is already there.
-    start: async (p, env) => {
-      const r = p as ReaderPane;
-      try { await r.connect(env.desk); } catch (e) { env.desk.ctx.flash((e as Error).message, undefined, errorDetails(e)); return; }
-      if (r.pinPage && !r.msg) {
-        const page = r.pinPage;
-        r.context(env.desk).board.resolvePage(page).then(res => { if (res.status === "resolved" && res.block && r.pinPage === page) { r.pinnedTo(res.block, env.desk); env.desk.redraw(); } }, () => {});
-      }
-      if (r.want && !r.msg && !r.pinPage) {
-        const want = r.want;
-        // A note the outline hasn't (purged, or the screen saved on another outline): the empty tile says so.
-        readNote(env.desk.ctx, want, r.noteAddress).then(m => {
-          // Still the reader that wanted it (a note opened into it meanwhile wins).
-          const wanted = !r.msg && r.want === want && !r.pinPage;
-          if (m && wanted) r.hold(m, env.desk); else if (!m && wanted) r.missing = want;
-          env.desk.redraw();
-        }, () => {});
-      }
-      const want = r.wantNote();
-      // The outline's first selection may be shown first: the saved note replaces it, once, while the reader still wants it.
-      if (want && !r.want && !r.pinPage) readNote(env.desk.ctx, want, r.noteAddress).then(m => { if (m && r.wantNote() === want) { r.show(m, env.desk); env.desk.redraw(); } r.dropWant(); }, () => r.dropWant());
-    },
+    start: startReader,
   },
   {
     kind: "preview", openArgs: ["source", "selectFrom", "file"], about: "a reader following a tile's selection or a file (source=tile:<name> or file:<path>)",

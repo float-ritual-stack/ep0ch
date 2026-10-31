@@ -2220,7 +2220,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.placedDuringTake = result => { redirected = result; };
       try {
         const take = () => kind.take!(pane, m, this, by);
-        const why = pane instanceof ReaderPane && !(pane instanceof PostIt) ? pane.surface.track(take) : take();
+        const why = pane instanceof ReaderPane ? pane.surface.track(take) : take();
         if (why) throw new ActionRefused(`${this.nameOf(landed)} ${why}`);
       } finally { this.placedDuringTake = outer; }
       if (redirected) return redirected;
@@ -7401,9 +7401,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!hit) return null;
     const [id, r] = hit, p = this.panes.get(id), at = this.origin(id, r);
     if (p instanceof ScreenTile) return p.inner?.hoverAt(x - at.col, y - at.row) ?? null;
-    const h = p instanceof ReaderPane ? p.surface.hoverAt(x - at.col, y - at.row) : null;
+    const reader = p instanceof ReaderPane ? p : null, h = reader?.surface.hoverAt(x - at.col, y - at.row);
     const cut = !h ? this.ctx.overflow?.targetAt(x + this.screenOrigin.col, y + this.screenOrigin.row) : null;
-    return h ? { desk: this, tile: this.nameOf(id), target: h.target, rect: { ...h.rect, col: h.rect.col + at.col + this.screenOrigin.col, row: h.rect.row + at.row + this.screenOrigin.row } } : cut ? { desk: this, tile: this.nameOf(id), ...cut } : null;
+    return h ? { desk: this, tile: this.nameOf(id), target: { ...reader!.noteAddress, ...h.target }, rect: { ...h.rect, col: h.rect.col + at.col + this.screenOrigin.col, row: h.rect.row + at.row + this.screenOrigin.row } } : cut ? { desk: this, tile: this.nameOf(id), ...cut } : null;
   }
   async hoverInto(tile: string, m: Msg): Promise<boolean> { return !!this.placeNote(m, { from: this.tile(tile).id, verb: "hover", note: m.id, keys: false }, USER); }
 

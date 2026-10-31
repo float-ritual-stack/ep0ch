@@ -1,9 +1,6 @@
 import type { Reveal } from "./reveal";
-// The App owns one desk of host tiles, saved in drawer-tiles.json. Its docked tiles occupy the drawer;
-// its floats occupy the glass above every screen. Moving a tile between desks keeps the same pane,
-// program, note, history and draft. Both layouts change only through screen-layout.apply.
-// The drawer's own rectangle uses the host layout's screen slot and dock. Focus moves through that
-// layout too; entering a glass float uses quiet focus, so it never opens or rearranges the drawer.
+// One host desk: its tree occupies the drawer, its floats the glass. Both change through apply.
+// Quiet focus enters a glass tile without opening or rearranging the drawer.
 import type { Ctx, Screen, Frame } from "./app";
 import { Canvas, type Rect } from "./canvas";
 import { agentConfig, herdrBin, herdrRunner, paneAgentPid, WATCH_TITLE, type HerdrRun } from "./desk/herdr-agent";
@@ -1058,6 +1055,7 @@ export class AgentDrawer {
   set(open: boolean, actor: Actor) {
     // An agent's pull of a drawer that's up already changes nothing; the person's goes into it.
     if (open && this.open && !this.ctx(actor).standing) return;
+    if (this.ctx(actor).standing) this.restoreGlassKeys();
     this.strip = false;
     if (open) void this.desk;
     this.do({ op: "slide", tile: HOST_TILES, open }, actor);
@@ -1321,8 +1319,6 @@ export class AgentDrawer {
     return inDrawer.length ? `${inDrawer.map(x => x.title()).join(", ")} ${inDrawer.length === 1 ? "runs" : "run"} in the drawer · quitting ends ${inDrawer.length === 1 ? "it" : "them"} · again within 3s quits` : null;
   }
 
-  // ── drawing ──
-
   /**
    * The drawer's rows over (or beside) a screen `rows` tall (the last row is the status bar): the host layer placed
    * by the layout engine, as the screen shown lets it appear. At least its bar, a tile's frame and a row of it.
@@ -1334,10 +1330,7 @@ export class AgentDrawer {
     return d ?? { col: 0, row: room, cols, rows: 0 };
   }
 
-  /**
-   * The drawer, full width, laid over the screen's bottom rows: its bar (what's in it, who pulled it up, the edge to
-   * drag), the drawer's desk (its tiles, the tab shown, tabs in its header when it holds more than one), and its keys.
-   */
+  /** Render the host desk once, with the drawer's tree in its dock and glass floats in the full terminal. */
   private hostFrame: Frame = { lines: [] };
   glassFrame() { return { ...this.hostFrame, rects: this.d?.drawnAbove().floats.flatMap(f => [f.rect, ...f.shadow]) ?? [], menus: this.shown || this.glassHasKeys() ? this.d?.drawnAbove().menus ?? [] : [] }; }
   render(cols: number, rows: number, screen: string): { rect: Rect; lines: string[]; placements: Placement[] } {
@@ -1375,7 +1368,7 @@ export class AgentDrawer {
   private enterGlass(tile: string) {
     this.glassReturn ??= { keys: this.keys, focus: this.d?.focusName() ?? null, tile };
     this.glassReturn.tile = tile;
-    this.liftIn = null;
+    this.liftIn = null; this.wantIn = null;
     this.do({ op: "focus", tile: HOST_TILES, quiet: true }, USER);
     this.d!.focusTile(tile, USER);
   }
@@ -1386,8 +1379,6 @@ export class AgentDrawer {
     if (back.focus && this.d?.pane(back.focus)) this.d.focusTile(back.focus, USER);
     this.do({ op: "focus", tile: back.keys, quiet: true }, USER);
   }
-
-  // ── keys and the mouse (App.key gives them here first) ──
 
   /** Raw input while the person is in the drawer and a terminal there runs: every byte is its, but alt+a, alt+A, alt+s and alt+g. */
   rawInput(run: DrawerRun): ((bytes: string) => void) | null {
@@ -1406,30 +1397,36 @@ export class AgentDrawer {
     };
   }
 
+  menuInput(k: Key): boolean {
+    const ctx = this.host.ctx?.(), screen = this.host.screen?.();
+    if (k.kind !== "mouse" || this.capture || !ctx) return false;
+    const hit = (r: Rect) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows;
+    if (!this.glassHasKeys() && !this.d?.floatingTiles().some(f => hit(f.rect))) return false;
+    const owner = this.glassFrame().menus.some(hit) ? this.d : this.covers(screen).paint.menus.some(hit) ? screen : null;
+    if (owner) owner.key(k, ctx);
+    return !!owner;
+  }
   glassInput(k: Key): boolean {
     const ctx = this.host.ctx?.(), d = this.d;
-    if (d && ctx) {
-      if (k.kind === "mouse") {
-        const f = d.floatingTiles().findLast(f => k.x >= f.rect.col && k.x < f.rect.col + f.rect.cols && k.y >= f.rect.row && k.y < f.rect.row + f.rect.rows);
-        const menu = d.drawnAbove().menus.some(r => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
-        if (f || this.glassHasKeys() && (d.floatGesture() || menu)) {
-          if (f && k.action === "down") this.enterGlass(f.tile);
-          d.key(k, ctx); return true;
-        }
-        if (k.action === "down" && this.glassHasKeys()) this.restoreGlassKeys();
-      } else if (this.glassHasKeys()) { d.key(k, ctx); return true; }
+    if (k.kind !== "mouse" || !d || !ctx) return false;
+    const f = d.floatingTiles().findLast(f => k.x >= f.rect.col && k.x < f.rect.col + f.rect.cols && k.y >= f.rect.row && k.y < f.rect.row + f.rect.rows);
+    if (f || this.glassHasKeys() && this.capture) {
+      if (f && k.action === "down") { this.enterGlass(f.tile); this.capture = f.rect; }
+      if (k.action === "up") this.capture = null;
+      d.key(k, ctx); return true;
     }
+    if (k.action === "down" && this.glassHasKeys()) this.restoreGlassKeys();
     return false;
   }
 
   /** A key or a mouse event, before the screen: true when the drawer took it. `screen` is the one under it. */
   key(k: Key, screen: Screen | undefined, rows: number, run: DrawerRun): boolean {
     if (this.glassInput(k)) return true;
-    if (!this.active) return false;
+    if (!this.active && !this.glassHasKeys()) return false;
     if (k.kind === "mouse") return this.mouse(k, screen, rows, run);
     if (this.entered) {
       // In a tile of it lifted with the drawer down (PIE-1359), the keys are that tile's as in the drawer, the strip's none.
-      const strip = this.folded && this.liftIn === null;
+      const strip = this.folded && this.liftIn === null && !this.glassHasKeys();
       if (isEscapeChord(k)) {
         // Typing in a terminal there, the first steps out of the program as on a screen (the tile keeps the keys: `-` folds
         // it), a second soon after goes to the program, and in a group it comes out of the group; with nothing to step
@@ -1541,6 +1538,7 @@ export class AgentDrawer {
   /** The person's keys go back to the screen (ctrl+], a click above the drawer); the drawer stays up. */
   leave(screen: Screen | undefined, said = true): { entered: boolean } {
     if (!this.entered) throw new ActionRefused("the person isn't in the drawer");
+    if (this.glassHasKeys()) { this.d?.stopTyping(); this.restoreGlassKeys(); this.host.redraw(); return { entered: this.entered }; }
     // Back to the screen slot: the screen's own focus is as they left it. A terminal there stops taking keys.
     this.do({ op: "focus", tile: HOST_SCREEN }, USER);
     this.liftIn = null;
@@ -1560,8 +1558,9 @@ export class AgentDrawer {
    */
   covers(shown: Screen | undefined): { paint: { floats: Rect[]; menus: Rect[] }; hit: Rect[] } {
     const r = this.shown ? this.rect : null, d = tilesOf(shown), paint = { floats: [] as Rect[], menus: [] as Rect[] }, hit: Rect[] = [];
-    if (!r || !d || d === this.d) return { paint, hit };
+    if (!d || d === this.d) return { paint, hit };
     const clip = (b: Rect): Rect[] => {
+      if (!r) return [];
       const col = Math.max(b.col, r.col), row = Math.max(b.row, r.row);
       const cols = Math.min(b.col + b.cols, r.col + r.cols) - col, rows = Math.min(b.row + b.rows, r.row + r.rows) - row;
       return cols > 0 && rows > 0 ? [{ col, row, cols, rows }] : [];
@@ -1569,7 +1568,7 @@ export class AgentDrawer {
     const drawn = d.drawnAbove();
     for (const layer of layersAbove(layerOrder({ inDrawer: this.entered }), "drawer")) {
       if (layer === "floats") { paint.floats.push(...drawn.floats.flatMap(f => [f.rect, ...f.shadow]).flatMap(clip)); hit.push(...drawn.floats.flatMap(f => clip(f.rect))); }
-      if (layer === "menus") { paint.menus.push(...drawn.menus.flatMap(clip)); hit.push(...drawn.menus.flatMap(clip)); }
+      if (layer === "menus") { paint.menus.push(...drawn.menus); hit.push(...drawn.menus); }
     }
     return { paint, hit };
   }

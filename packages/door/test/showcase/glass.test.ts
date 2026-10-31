@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { SocketBoard } from "../../src/socket";
+import { prop } from "../../src/props";
 import { join, resolve } from "node:path";
 import { startControl } from "../../src/control";
 import { Desk } from "../../src/desk/desk";
@@ -192,8 +195,133 @@ describe("showcase: the glass", () => {
     await act("open", { id: h.seeded.notes.glass.id }, "links");
   }, 20_000);
 
+  test("closing a hover preserves the keys in another post-it", async () => {
+    await setup();
+    await act("glass.mode", { set: "on" }); hover(cell("tool shed"));
+    await until(() => !!post(), "hover before the pin");
+    await agent("glass.pin", ["ref=Keep the watering can here"]);
+    const pin = floats().find(f => f.pane instanceof PostIt && !f.pane.hover)!;
+    await act("float.place", { col: 2, row: 24, cols: 50, rows: 18 }, pin.tile); h.app.flush();
+    click({ x: 4, y: 27 });
+    const focus = h.app.person().focus;
+    await agent("glass.dismiss", []);
+    expect(floats().map(f => f.tile)).toEqual([pin.tile]);
+    expect(h.app.person().focus).toBe(focus);
+    expect(h.app.drawer.glassHasKeys(pin.tile)).toBe(true);
+  });
+
+  test("glass readers keep the host's power bar, drawer keys and leave chord", async () => {
+    await setup(); await act("glass.pin", { ref: h.seeded.notes.shed.id }); h.app.flush();
+    const pin = floats()[0]!;
+    await act("tile.zoom", { reach: "full", on: true }, "links"); h.app.flush();
+    click({ x: pin.rect.col + 3, y: pin.rect.row + 3 });
+    try {
+      h.press({ kind: "char", ctrl: true, ch: "k" });
+      await until(() => !!h.app.bar, "the power bar from glass", 2000);
+    } finally { if (h.app.bar) h.press({ kind: "esc" }); await stage().dispatch.press("tile.zoom", { on: false }, "links"); }
+    const open = h.app.drawer.open;
+    h.press({ kind: "alt", ch: "a" });
+    await until(() => h.app.drawer.open !== open, "the host drawer key from glass", 2000);
+    await act("host.toggle", { open: false });
+    await act("glass.clear");
+    await act("tile.float", { to: "glass" }, "title"); h.app.flush();
+    const reader = floats()[0]!;
+    click({ x: reader.rect.col + 3, y: reader.rect.row + 3 });
+    h.press({ kind: "char", ctrl: true, ch: "]" });
+    expect(h.app.drawer.entered).toBe(false);
+    expect(floats()[0]?.tile).toBe(reader.tile);
+    await act("tile.drawer", { on: false }, reader.tile);
+  });
+
+  test("a selection released outside a post-it still copies its text", async () => {
+    await setup(); await act("glass.pin", { ref: "Selection sample\nCarry the watering can to the gate." });
+    const pin = floats()[0]!;
+    await act("float.place", { col: 30, row: 20, cols: 60, rows: 20 }, pin.tile); h.app.flush();
+    const start = cell("Carry the watering"), before = h.written.length;
+    sgr(0, start.x, start.y); sgr(32, start.x + 5, start.y);
+    sgr(32, 100, start.y); sgr(0, 100, start.y, true);
+    const copies = h.written.slice(before).join("").match(/\x1b\]52;c;([A-Za-z0-9+/=]+)/);
+    expect(Buffer.from(copies?.[1] ?? "", "base64").toString()).toContain("Carry the watering can to the gate.");
+  });
+
+  test.each([1, 3])("clicking a post-it link records one stop within a stack of %i", async limit => {
+    await setup(); await act("glass.tune", { name: "stack", value: limit });
+    await act("glass.pin", { ref: h.seeded.notes.glass.id });
+    const pin = floats()[0]!;
+    await act("float.place", { col: 2, row: 25, cols: 74, rows: 26 }, pin.tile); h.app.flush();
+    const y = lines().findIndex((l, row) => row > 25 && l.includes("tool shed"));
+    click({ x: lines()[y]!.indexOf("tool shed") + 1, y });
+    await until(() => pin.pane instanceof PostIt && pin.pane.msg?.id === h.seeded.notes.shed.id, "the clicked link", 2000);
+    expect(pin.pane.title()).toBe(limit === 1 ? "post-it 1/1" : "post-it 2/2");
+  });
+
+  test("screen menus paint and receive clicks above a glass tile", async () => {
+    await setup(); await act("glass.pin", { ref: "A reminder across the menu" });
+    const pin = floats()[0]!, d = stage();
+    await act("float.place", { col: 65, row: 15, cols: 80, rows: 30 }, pin.tile);
+    await d.dispatch.press("tile.menu", { at: `${67 - d.screenOrigin.col},${17 - d.screenOrigin.row}`, q: "zoom" }, "links"); h.app.flush();
+    try {
+      const y = lines().findIndex(l => /zoom\s+\^W z/.test(l));
+      expect(y, "the menu row above glass").toBeGreaterThan(-1);
+      click({ x: lines()[y]!.search(/zoom\s+\^W z/), y });
+      await until(() => d.layoutGet().zoom === "links", "the menu click zooms its screen tile", 2000);
+    } finally {
+      if (d.overlaid()) { h.press({ kind: "esc" }); h.press({ kind: "esc" }); }
+      if (d.layoutGet().zoom !== null) await d.dispatch.press("tile.zoom", { on: false }, "links");
+    }
+  });
+
+  test("moving between identical references keeps the hover open", async () => {
+    await setup();
+    const note = await h.board.createBlock(null, `Two paths\n((${h.seeded.notes.shed.id}|same path))\n\n((${h.seeded.notes.shed.id}|same path))`);
+    await act("open", { id: note.id }, "links");
+    try {
+      await act("glass.mode", { set: "on" }); h.app.flush();
+      const rows = lines().flatMap((line, y) => line.includes("same path") ? [{ x: line.indexOf("same path"), y }] : []);
+      expect(rows).toHaveLength(2);
+      hover(rows[0]!); await until(() => !!post(), "the first reference");
+      const tile = post().tile;
+      hover(rows[1]!); await Bun.sleep(350);
+      expect(post()?.tile).toBe(tile);
+    } finally { await act("open", { id: h.seeded.notes.glass.id }, "links"); }
+  });
+
+  test.each(["hover", "restore"])("foreign post-its retain their outline through %s", async way => {
+    await setup();
+    const foreign = new SocketBoard(h.scratch.sock, undefined, "showcase-orchard");
+    try {
+      const info = await foreign.info(), id = prop(h.seeded.notes.crossOutline, "foreign-note")!;
+      const uri = formatEp0chBlockUri({ outline: "showcase-orchard", machine: info.machine!, blockId: id });
+      await act("glass.pin", { ref: uri });
+      const pin = floats()[0]!;
+      if (way === "hover") {
+        await act("float.place", { col: 2, row: 25, cols: 80, rows: 24 }, pin.tile);
+        await act("glass.mode", { set: "on" }); h.app.flush();
+        const y = lines().findIndex((l, row) => row > 25 && l.includes("pear-tree"));
+        hover({ x: lines()[y]!.indexOf("pear-tree") + 1, y });
+        await until(() => pin.pane instanceof PostIt && !!pin.pane.msg?.text.includes("Water deeply"), "the local link in the foreign outline", 2000);
+        expect(pin.pane instanceof PostIt && pin.pane.msg?.address?.outline).toBe("showcase-orchard");
+      } else {
+        await act("link.follow", { n: 1 }, pin.tile);
+        await act("postit.flip", { by: -1 }, pin.tile);
+        const d = h.app.drawer.made!, saved = JSON.parse(JSON.stringify(d.savedState()));
+        const restored = new Desk(d.spec, { saved, writes: false }); restored.enter(h.app);
+        try {
+          await until(() => restored.floatingTiles().some(f => f.pane instanceof PostIt && f.pane.msg?.id === id), "the restored foreign post-it", 2000);
+          const p = restored.floatingTiles()[0]!.pane;
+          expect(p instanceof PostIt && p.msg?.address?.outline).toBe("showcase-orchard");
+          expect(p.title()).toBe("post-it 1/2");
+          await restored.dispatch.press("postit.flip", { by: 1 }, restored.floatingTiles()[0]!.tile);
+          expect(p instanceof PostIt && p.msg?.text).toContain("Water deeply");
+        } finally { restored.dispose(); }
+      }
+    } finally { foreign.close(); }
+  });
+
   test("an agent's pin and clear preserve the post-it the person entered, and host floats remain over groups and the drawer", async () => {
     await setup();
+    await act("host.toggle", { open: true });
+    await act("host.toggle", { open: false });
     await agent("glass.pin", [`ref=${h.seeded.notes.glass.id}`]);
     await until(() => floats().length === 1, "the agent's attributed pin");
     const first = floats()[0]!;
@@ -201,6 +329,7 @@ describe("showcase: the glass", () => {
     expect(h.app.drawer.entered).toBe(false);
     click({ x: first.rect.col + 2, y: first.rect.row + 2 });
     await agent("glass.pin", ["ref=A reminder to water the seedlings"]);
+    expect(h.app.person().address).toBe(first.tile);
     expect(floats()).toHaveLength(2);
     expect(floats().find(f => f.tile === first.tile)?.rect).toEqual(first.rect);
     await agent("glass.clear", []);

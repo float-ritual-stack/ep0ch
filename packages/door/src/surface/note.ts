@@ -8402,12 +8402,12 @@ export class NoteSurface {
   }
 
   /** Track an explicit navigation once; back returns to the note and position it left. */  track<T>(open: () => T): T {
-    const from = this.place();
-    // A navigation inside a navigation (a host's open reached from a follow) is recorded once, by the outer one.
+    const from = this.place(), trail = this.backs;
+    // Nested navigation records once; a bounded trail that replaced backs already recorded this open.
     const outer = this.tracking++ === 0;
     let out: T;
     try { out = open(); } finally { this.tracking--; }
-    if (outer && from && this.msg && this.msg.id !== from.msg.id) {
+    if (outer && this.backs === trail && from && this.msg && this.msg.id !== from.msg.id) {
       this.backs.push(from);
       if (this.backs.length > HISTORY) this.backs.shift();
       this.aheads = [];

@@ -1504,7 +1504,7 @@ export class App implements Ctx {
     // A menu opened over the screen while the person is in the drawer (a status-bar group's) has the keys before the drawer
     // and a tile of it lifted over the screen: Esc closes it, never the agent's (PIE-1431).
     if (k.kind !== "mouse" && w.over === "menu") { this.stack.at(-1)!.key(k, this); return; }
-    if (this.glass.key(k) || this.drawer.glassInput(k)) return;
+    if (this.drawer.menuInput(k) || this.glass.key(k) || this.drawer.glassInput(k)) return;
     const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
     if (lifted?.liftInput(k, () => {
       if (this.drawer.made?.liftedDesk === lifted) this.drawerRun("host.enter", {});
@@ -1808,7 +1808,7 @@ export class App implements Ctx {
     // Paint and hit-testing share layerOrder; host floats stay above every screen.
     const screen = lines, screenPlacements = placements;
     const host = this.drawer.render(cols, rows, s.title); this.glass.painted();
-    let covers: { floats: Rect[]; menus: Rect[] } | null = null;
+    const covers = this.drawer.covers(s).paint;
     // The screen's own cells and pictures in `rects` put back on top: its floats or menus, as it drew them.
     const raise = (rects: readonly Rect[], source = screen, pictures = screenPlacements) => {
       if (!rects.length) return;
@@ -1836,8 +1836,6 @@ export class App implements Ctx {
           const at = keysDesk.paintKeyPanel(canvas, cols, rows - 1);
           if (at) { lines = canvas.lines(); placements = uncover(placements, at); }
         }
-        // What of the screen's is drawn above the drawer from here on (only what's above it covers anything).
-        covers = this.drawer.covers(s).paint;
       } else if (layer === "glass") {
         const g = this.drawer.glassFrame(); raise(g.rects, g.lines, g.placements ?? []);
       } else if (layer === "floats" || layer === "menus") {
