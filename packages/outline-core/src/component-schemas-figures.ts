@@ -5,6 +5,7 @@
 // drawn there. A kind's name is the id (`graph-rank`); the door's `GRAPH_KINDS` is what a test holds this list to
 // (packages/door/test/component-coverage.test.ts). Pure: no I/O; types only from component-schema.ts.
 import type { ComponentSchema, PropSchema } from "./component-schema";
+import { CONTENT_SIZE_PROPS } from "./media-line";
 import { enumOf } from "./prop-values";
 
 const yaml = (key: string, type: PropSchema["type"], meaning: string, extra: Partial<PropSchema> = {}): PropSchema => ({ key, where: "yaml", type, meaning, ...extra });
@@ -25,9 +26,9 @@ const TILE: PropSchema[] = [
   yaml("value", "text", "the number drawn, as written (a live tile's count takes its place)", { samples: ["18", "98%"] }),
   yaml("label", "text", "the words under the number", { samples: ["outbox", "uptime"] }),
   yaml("accent", "enum", "the tile drawn in the accent (else the bold row, else the last)", { values: enumOf({ true: "this tile" }) }),
-  ...LIVE.map(p => ({ ...p, meaning: p.key === "query" ? "counts the blocks this query holds, live: the count is the tile's value" : p.meaning })),
+  LIMIT, ...LIVE.map(p => ({ ...p, meaning: p.key === "query" ? "counts the blocks this query holds, live: the count is the tile's value" : p.meaning })),
 ];
-const DENSITY = yaml("density", "enum", "how many lines a row's title takes (the reader's choice, `=`, goes over this)", { default: "cozy", values: enumOf({ compact: "one line a row", cozy: "two lines", comfortable: "three lines, a blank between rows" }) });
+const DENSITY = yaml("density", "enum", "how many lines a row's title takes (the reader's density control goes over this)", { default: "cozy", values: enumOf({ compact: "one line a row", cozy: "two lines", comfortable: "three lines, a blank between rows" }) });
 
 const LIVE_WORDS = "\n\nWith `query:` or `view:` the figure is live: it is drawn from the outline's blocks and refreshed as they change. The library has no outline to ask, so it shows the static form and says so here.";
 
@@ -43,7 +44,7 @@ function figure(k: Kind): ComponentSchema {
   const id = `graph-${k.kind}`;
   return {
     id, group: "figures", title: `${k.title} (::${id})`, intro: k.intro, where: k.where ?? `a \`::${id}\` block: its options in the YAML between \`---\` lines, its rows in Markdown after them`,
-    props: [...k.props, yaml("lines", "int", "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", { min: 0, samples: ["0", "1", "2", "3"] })], source: { use: `::${id}\n---\n{{props.yaml}}\n---\n${k.rows ? `${k.rows}\n` : ""}::` }, example: k.example,
+    props: [...k.props, ...CONTENT_SIZE_PROPS.map(p => ({ ...p, meaning: p.meaning + (p.key === "width" ? "; full spans the tile beyond the reading measure. = toggles; drag the side to change it" : "; shift+up/down scrolls inside. Drag the bottom to resize; release writes YAML and ctrl+z undoes") })), ...(!k.props.some(p => p.key === "limit") && (k.props.includes(QUERY) || k.kind === "stat" || k.kind === "kpi") ? [LIMIT] : []), yaml("lines", "int", "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", { min: 0, samples: ["0", "1", "2", "3"] })], source: { use: `::${id}\n---\n{{props.yaml}}\n---\n${k.rows ? `${k.rows}\n` : ""}::` }, example: k.example,
     sweep: k.sweep, grids: k.grids ?? [], space: k.space ?? k.sweep,
   };
 }
@@ -102,7 +103,7 @@ const FIGURES: Kind[] = [
   },
   {
     kind: "timeline", title: "Timeline", intro: "Events down a spine: `- 2026-03: label`, a bold row is now (●, in the accent), an italic one is next (○), a side note after an em dash. Live, each result is an event dated by its updated time, or by the property `date:` names." + LIVE_WORDS,
-    props: [TITLE, ...LIVE, liveFilter("now", "a live figure's results drawn as now on the spine", ["stage=doing"]), yaml("date", "text", "a live figure's property that dates each event", { samples: ["when", "due"] }), yaml("sort", "enum", "which time dates a live event (when `date:` isn't set)", { default: "updated", values: enumOf({ updated: "when it last changed", created: "when it was written" }) })],
+    props: [TITLE, ...LIVE, { ...DIRECTION, default: "asc" }, yaml("meta", "property", "a property beside each event; parent shows its parent note's title", { samples: ["parent", "owner"] }), liveFilter("now", "a live figure's results drawn as now on the spine", ["stage=doing"]), yaml("date", "property", "a live figure's property that dates and sorts each event; clocks on one day, dated clocks across days, in the reader's zone", { samples: ["when", "due", "landed"] }), { ...SORT, meaning: "the property that dates and sorts an event when date: is left out" }],
     rows: "- 2026-03: seeds sown\n- 2026-05: first flowers — early\n- **2026-08: the open garden**\n- *2026-10: seed collecting*",
     example: { title: "The garden year" }, sweep: [],
   },

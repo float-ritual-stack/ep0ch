@@ -35,6 +35,78 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+  test("PIE-1244: landings read in date order with human times and their parent", async () => {
+    const own = new SocketBoard(scratch.sock);
+    try {
+      const drawn = (await drawNote(own, seeded.notes.figureSizing.id, 100))!.map(plain).join("\n");
+      const timeline = drawn.slice(0, drawn.indexOf("WORKSHOP LEDGER"));
+      expect(timeline).toMatch(/Oct 23 12:28 AM\s+Landing 1[^\n]*HOME-80/);
+      expect(timeline).toMatch(/Landing 1[\s\S]*Landing 2[\s\S]*Landing 3[\s\S]*Landing 4[\s\S]*Landing 5[\s\S]*Landing 6/);
+      const note = await board.createBlock(null, 'One day\n::graph-timeline\n---\nquery: type=showcase-landing AND landed=2026-10-23\ndate: landed\ndirection: desc\nmeta: crew\n---\n::');
+      const day = (await drawNote(own, note.id, 100))!.map(plain).join("\n");
+      expect(day).toMatch(/3:35 PM\s+Landing 4[^\n]*joiners/);
+      expect(day).not.toContain("Oct 23");
+      expect(day).toMatch(/Landing 4[\s\S]*Landing 3[\s\S]*Landing 2[\s\S]*Landing 1/);
+    } finally { own.close(); }
+  }, 20_000);
+
+  test("PIE-1246: a limited timeline says what is left and a full table fills 100 columns", async () => {
+    const own = new SocketBoard(scratch.sock);
+    try {
+      const lines = (await drawNote(own, seeded.notes.figureSizing.id, 100))!.map(plain);
+      const table = lines.findIndex(l => l.includes("WORKSHOP LEDGER"));
+      const timeline = lines.slice(0, table).join("\n");
+      expect(timeline.match(/Landing \d/g)).toHaveLength(6);
+      expect(timeline).toContain("+2 more");
+      expect(lines[table]!.trim()).toHaveLength(100);
+    } finally { own.close(); }
+  }, 20_000);
+
+  test("PIE-1246: dragging a figure previews its height, saves YAML on release, and undoes", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "live" } }, USER);
+    press({ kind: "enter" });
+    const tile = S().stages.get(S().sel).top.layoutGet().tiles[0].name;
+    await app.dispatch.act({ action: "open", tile, args: { id: seeded.notes.figureSizing.id } }, USER);
+    await until(() => screen().includes("WORKSHOP LANDINGS") && screen().includes("Landing 1"), "the build log timeline");
+    const before = (await board.get(seeded.notes.figureSizing.id))!;
+    const lines = screen().split("\n"), top = lines.findIndex(l => l.includes("WORKSHOP LANDINGS"));
+    const x = lines[top]!.indexOf("WORKSHOP LANDINGS") + 5;
+    const bottom = lines.findIndex((l, i) => i > top && l.includes("+") && /[┄─╌·.]{4}/.test(l));
+    expect(bottom, lines.slice(top, top + 25).join("\n")).toBeGreaterThan(top);
+    press({ kind: "mouse", action: "down", button: 0, x, y: bottom });
+    press({ kind: "mouse", action: "drag", button: 0, x, y: bottom + 3 });
+    await until(() => plain(h.painted[bottom + 3] ?? "").includes("let go to save"), "the held edge follows the pointer");
+    expect((await board.get(before.id))!.text).toBe(before.text);
+    press({ kind: "mouse", action: "up", button: 0, x, y: bottom + 3 });
+    await untilAsync(async () => /height: \d+/.test((await board.get(before.id))!.text.split("::graph-table")[0]!), "drag writes height into the timeline YAML");
+    press({ kind: "char", ch: "z", ctrl: true });
+    await untilAsync(async () => (await board.get(before.id))!.text === before.text, "ctrl+z restores the figure YAML");
+    const side = screen().split("\n")[top]!.lastIndexOf("+");
+    press({ kind: "mouse", action: "down", button: 0, x: side, y: top + 1 });
+    press({ kind: "mouse", action: "drag", button: 0, x: side + 10, y: top + 1 });
+    press({ kind: "mouse", action: "up", button: 0, x: side + 10, y: top + 1 });
+    await untilAsync(async () => /width: full/.test((await board.get(before.id))!.text.split("::graph-table")[0]!), "side drag writes full width");
+    press({ kind: "char", ch: "z", ctrl: true });
+    await untilAsync(async () => (await board.get(before.id))!.text === before.text, "undo the width");
+    await app.dispatch.act({ action: "figure.size", tile, args: { figure: "1", height: 3 } }, USER);
+    await until(() => screen().includes("WORKSHOP LANDINGS") && !screen().split("WORKSHOP LEDGER")[0]!.includes("Landing 3"), "height keeps three rows inside the timeline");
+    const elements = (await app.act({ action: "elements", tile, as: "figure-reader" }) as any).elements;
+    const control = elements.find((e: any) => e.kind === "figure" && /^↔ fit/.test(e.label));
+    await app.dispatch.act({ action: "element.select", tile, args: { n: control.n } }, USER);
+    const yBefore = screen().split("\n").findIndex(l => l.includes("WORKSHOP LANDINGS"));
+    for (let i = 0; i < 4; i++) press({ kind: "down", shift: true });
+    expect(screen().split("WORKSHOP LEDGER")[0]).toContain("Landing 3");
+    expect(screen().split("\n").findIndex(l => l.includes("WORKSHOP LANDINGS"))).toBe(yBefore);
+    ch("=");
+    await untilAsync(async () => /width: full/.test((await board.get(before.id))!.text.split("::graph-table")[0]!), "= writes full width");
+    press({ kind: "char", ch: "z", ctrl: true });
+    await untilAsync(async () => !/width: full/.test((await board.get(before.id))!.text.split("::graph-table")[0]!), "undo =");
+    press({ kind: "char", ch: "z", ctrl: true });
+    await untilAsync(async () => (await board.get(before.id))!.text === before.text, "undo the height");
+    await app.dispatch.act({ action: "open", tile, args: { id: seeded.notes.figures.id } }, USER);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 20_000);
+
   test("PIE-1099: arrows enter a tab's rows on the first press and keep working after repaint", async () => {
     await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
     await until(() => screen().includes("doing 2"), "live tabs");
@@ -341,7 +413,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     const originalTiles = desk.layoutGet().tiles.map((t: any) => t.name);
     await app.dispatch.act({ action: "open", tile, args: { id: seeded.notes.plotJobs.id } }, { kind: "user" });
     await app.dispatch.act({ action: "sources.at", tile, args: { line: 5 } }, { kind: "user" });
-    await until(() => screen().includes("Result"), "figure sources");
+    await until(() => screen().includes("Query"), "figure sources");
     const pane = desk.panes.get(desk.idNamed(tile));
     const state = () => pane.surface.describe().sources as any;
     for (let i = 0; i < 25 && !state().selectedResult; i++) { ch("j"); screen(); }
@@ -620,7 +692,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect(((await app.act({ action: "figures", tile: "1", as: "test-agent" })) as any).figures[0].tab).toBe("done");
     press({ kind: "backtab" }); press({ kind: "left" });
     expect(((await app.act({ action: "figures", tile: "1", as: "test-agent" })) as any).figures[0].tab).toBe("review");
-    ch("=");
+    await app.dispatch.act({ action: "figure.density", tile: "1" }, USER);
     expect(((await app.act({ action: "figures", tile: "1", as: "test-agent" })) as any).figures[0].density).toBe("cozy");
     // By mouse: a click on the queued label in the left reader's bar.
     const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => left(l).includes("queued 2")), x = left(rows[y]!).indexOf("queued 2") + S().stageRect.col + 2;

@@ -24,7 +24,7 @@ type Props = Record<string, any>;
  * One figure's answer: its results, the service's `groups` when the figure groups, and which results the figure's
  * `done:` and `now:` queries hold for (as the service says).
  */
-interface Entry { state: "loading" | "ready" | "error"; items: Msg[]; truncated: boolean; /** The title read in the figure's Site (PIE-1362). */ title?: string; groups?: QuestionGroup[]; done?: Set<string>; now?: Set<string>; error?: string; hint?: string; counts?: { ids: string[]; truncated: boolean; error?: string }[]; /** Titles of the notes a table's cells name by id (PIE-1388). */ titles?: Record<string, string> }
+interface Entry { state: "loading" | "ready" | "error"; items: Msg[]; truncated: boolean; total?: number; /** The title read in the figure's Site (PIE-1362). */ title?: string; groups?: QuestionGroup[]; done?: Set<string>; now?: Set<string>; error?: string; hint?: string; counts?: { ids: string[]; truncated: boolean; error?: string }[]; /** Titles of the notes a table's cells name by id (PIE-1388). */ titles?: Record<string, string> }
 type Answer = Omit<Entry, "state" | "error">;
 
 let board: SocketBoard | null = null;
@@ -87,7 +87,7 @@ function ask(kind: string, p: Props, note: string | undefined, site?: LiveSite):
   const items = a.blocks as unknown as Msg[];
   const error = read.state === "error" ? read.error : a.error;
   if (error) return { state: "error", items, truncated: false, error, ...(a.counts ? { counts: a.counts } : {}) };
-  return { state: "ready", items, truncated: a.truncated, ...(a.title !== undefined ? { title: a.title } : {}), ...(a.groups ? { groups: a.groups } : {}), ...(a.done ? { done: new Set(a.done) } : {}), ...(a.now ? { now: new Set(a.now) } : {}), ...(a.hint ? { hint: a.hint } : {}), ...(a.counts ? { counts: a.counts } : {}), ...(a.titles ? { titles: a.titles } : {}) };
+  return { state: "ready", items, truncated: a.truncated, total: a.total, ...(a.title !== undefined ? { title: a.title } : {}), ...(a.groups ? { groups: a.groups } : {}), ...(a.done ? { done: new Set(a.done) } : {}), ...(a.now ? { now: new Set(a.now) } : {}), ...(a.hint ? { hint: a.hint } : {}), ...(a.counts ? { counts: a.counts } : {}), ...(a.titles ? { titles: a.titles } : {}) };
 }
 
 /**
@@ -123,7 +123,7 @@ export function childRows(note: string, site?: LiveSite): { rows: Row[]; waiting
 }
 
 /** A result as outline-core's live figures read it. */
-const itemOf = (m: Msg): FigureItem => ({ id: m.id, title: subject(m), properties: recordProperties(propertyListOf(m)), createdAt: m.createdAt, updatedAt: m.updatedAt, author: m.author });
+const itemOf = (m: Msg): FigureItem => ({ id: m.id, parentId: m.parentId, title: subject(m), properties: recordProperties(propertyListOf(m)), createdAt: m.createdAt, updatedAt: m.updatedAt, author: m.author });
 
 /** `found`: how many results the question came back with, and whether it was cut (a figure's copied results say so). */
 export interface Resolved { props: Props; status: string | null; waiting: boolean; error?: string; found?: { n: number; truncated: boolean } }

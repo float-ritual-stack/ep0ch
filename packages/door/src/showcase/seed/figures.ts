@@ -9,6 +9,19 @@ export const MARKDOWN_KINDS = ["decision", "chat", "uptime", "activity", "calend
 
 export const fig = (kind: string, yaml: string[]) => [`::graph-${kind}`, "---", ...yaml, "---", "::", ""];
 
+export const LANDINGS = [7, 1, 5, 0, 6, 3, 2, 4].map(n => ({
+  title: `Landing ${n + 1}`,
+  parent: `HOME-${80 + n}`,
+  date: `2026-10-${n < 4 ? "23" : "24"}T${["00:28", "01:05", "12:30", "15:35"][n % 4]}`,
+}));
+
+export const FIGURE_SIZING = [
+  `${SEED.figureSizing} [page::${SEED.figureSizing}]`, "",
+  ...fig("timeline", ["title: Workshop landings", "query: type=showcase-landing", "date: landed", "meta: parent", "limit: 6"]),
+  ...fig("table", ["title: Workshop ledger", "query: type=showcase-landing", "sort: landed", "direction: asc", "columns: [title, landed]", "width: full", "height: 8"]),
+  "Select a figure and press = for fit/full. Drag its bottom edge for height, its right edge for width; ctrl+z undoes. Shift+down scrolls inside its height.",
+].join("\n");
+
 /** A figure with YAML props and Markdown rows after them. */
 export const mdFig = (kind: string, yaml: string[], md: string[]) => [`::graph-${kind}`, "---", ...yaml, "---", ...md, "::", ""];
 
@@ -17,6 +30,7 @@ export function figuresText(gardenViewId: string, choresId: string): string {
     `${SEED.figures} [page::${SEED.figures}]`,
     "",
     "Live figures ask the outline on every render; the others are drawn from their own values.",
+    `[[${SEED.figureSizing}]] has dated landings, parent titles and a full-width ledger: try =, shift+down and dragging its edges.`,
     "",
     ...fig("check", ["title: Garden chores (live query)", 'query: "type=chore area=garden"', 'done: "stage=done"', "note: due"]),
     ...fig("stat", ["title: Garden chores by address (live)", "items:", `  - { label: by block, view: ((${gardenViewId})) }`, "  - { label: by page, view: [[garden-chores|Garden chores]] }"]),

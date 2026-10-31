@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Live figures read in date order and keep the size you give them (PIE-1244, PIE-1246)
+
+- **Timelines:** sort by their date property, show local human times and place each row's parent title or another property beside it.
+- **Sizing:** live figures take a result limit, a scrollable height and fit/full width. Drag their bottom or right edge, or press = on a selected figure, to save the size in YAML; ctrl+z undoes.
+- **Run:** after the coordinated grammar/protocol update, the deployer runs `ep0ch install --apply` on each machine; open Workshop build log from the kitchen sink's live figures section to try it.
+
 ### Dragging a tile shows every place it can land (PIE-1209)
 
 - **Six visible bands:** the tile underneath shows split above, left, right and below, tabs in the upper middle and swap in the lower middle. The pointer lights its band; a refused drop says why there. The layout showcase includes a Drop zones tab.

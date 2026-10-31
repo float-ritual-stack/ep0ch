@@ -285,8 +285,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private elementDrag: { src: number; line: number; x: number; y: number; target: { kind: "into"; tile: number; note: string; line: number; label: string; bar: Rect | null; draft: boolean } | { kind: "detach"; drop: Drop<number>; label: string } | null } | null = null;
   /** Where a drag or a release lands in the pressed reader: padding held to the nearest content cell, the gutter kept separate, its row free (past an edge scrolls). */
-  private pressedAt(p: { frame?: Rect; gutter?: Rect; col: number; row: number; cols: number }, k: { x: number; y: number }) {
-    if (p.frame) return { x: k.x - p.col, y: k.y - p.row };
+  private pressedAt(p: { frame?: Rect; gutter?: Rect; pane?: ReaderPane; col: number; row: number; cols: number }, k: { x: number; y: number }) {
+    if (p.frame || p.pane?.surface.figureSizing.drag) return { x: k.x - p.col, y: k.y - p.row };
     if (p.gutter && k.x >= p.gutter.col && k.x < p.gutter.col + p.gutter.cols)
       return { x: k.x - p.gutter.col - p.gutter.cols, y: k.y - p.row };
     return { x: Math.max(0, Math.min(p.cols - 1, k.x - p.col)), y: k.y - p.row };
@@ -3885,7 +3885,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const p = this.panes.get(id), look = p && this.looks.get(p);
       const gutter = this.readerGutter(p, r.cols - 2);
       const c = contentRect({ col: gutter, row: 0, cols: r.cols - 2 - gutter, rows: r.rows - 2 }, look, !!p?.measured, p?.beside?.() ?? 0);
-      return last && (last.cols !== c.cols || last.rows !== c.rows) ? [{ id, last }] : [];
+      return last && (p instanceof ReaderPane && p.surface.figureSizing.drag || last.cols !== c.cols || last.rows !== c.rows) ? [{ id, last }] : [];
     }).sort((a, b) => a.last.frame - b.last.frame);
     this.reflows = new Set();
     let spent = 0;
@@ -4182,15 +4182,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (g.row < inner.rows) canvas.text(framed.col, inner.row + g.row, g.text, gutter);
     }
     // A peek's images would show through its neighbour: it draws text only.
+    view.lines.slice(0, view.frame?.rows ?? inner.rows).forEach((l, i) => { const row = view.wide?.find(r => r.row === i); canvas.text(inner.col + (row?.col ?? view.frame?.col ?? 0), inner.row + (view.frame?.row ?? 0) + i, l, row?.cols ?? view.frame?.cols ?? inner.cols); });
     if (cover === "peek") {
-      view.lines.slice(0, view.frame?.rows ?? inner.rows).forEach((l, i) => canvas.text(inner.col + (view.frame?.col ?? 0), inner.row + (view.frame?.row ?? 0) + i, l, view.frame?.cols ?? inner.cols));
       // Covered like a dock: what shows of it dimmed (less while the keys are in it), and the edge its neighbour slides over.
       const edge = r0.col + r0.cols - 1;
       canvas.dim({ ...r0, cols: r0.cols - 1 }, focused ? 0.8 : PEEK_DIM);
       for (let y = r0.row; y < r0.row + r0.rows; y++) canvas.text(edge, y, fg(C.dark) + "▒" + RESET, 1);
       return out;
     }
-    view.lines.slice(0, view.frame?.rows ?? inner.rows).forEach((l, i) => canvas.text(inner.col + (view.frame?.col ?? 0), inner.row + (view.frame?.row ?? 0) + i, l, view.frame?.cols ?? inner.cols));
     if (view.frame && reader) for (const g of view.gutter ?? []) {
       if (g.row >= inner.rows) continue;
       for (let x = 0; x < gutter; x++) if (!reader.surface.floatAt(framed.col + x - inner.col, g.row)) {
@@ -7399,7 +7398,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const c = this.origin(id, r), gutter = this.gutters.get(id);
     const popup = this.views.get(id)?.view.completion?.drawn;
     const pane = this.panes.get(id);
-    if (pane instanceof ReaderPane && pane.surface.floatAt(x - c.col, y - c.row)) return { x: x - c.col, y: y - c.row };
+    if (this.views.get(id)?.view.wide?.some(r => r.row === y - c.row) || pane instanceof ReaderPane && pane.surface.floatAt(x - c.col, y - c.row)) return { x: x - c.col, y: y - c.row };
     if (popup && y - c.row >= popup.row && y - c.row < popup.row + popup.items.length) return { x: x - c.col, y: y - c.row };
     if (gutter && x >= gutter.col && x < gutter.col + gutter.cols) return { x: x - gutter.col - gutter.cols, y: y - c.row };
     return { x: Math.max(0, Math.min(c.cols - 1, x - c.col)), y: Math.max(0, Math.min(c.rows - 1, y - c.row)) };

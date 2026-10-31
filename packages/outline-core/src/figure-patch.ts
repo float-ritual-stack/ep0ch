@@ -5,7 +5,8 @@
 // compare (its columns from a `A | B` line above); options with a chosen or rejected mark or word, and a reason, a
 // decision. A shape code can't map exactly gets no patch, and the suggestion says so. Pure.
 
-import { noteStructure } from "./component-block";
+import { figureSource } from "./figure-props";
+import { componentBlocks, noteStructure } from "./component-block";
 import type { ShapePatch } from "./write-shape";
 
 const ITEM = /^([ \t]*)(?:[-*+]|\d+[.)])[ \t]+(.*)$/;
@@ -114,4 +115,30 @@ export function figurePatch(text: string, component: string): { patch: ShapePatc
     return { patch: [{ observed: lines.slice(from, run.end + 1).join("\n"), replacement: figure }] };
   }
   return { why: BUILT.includes(component) ? "no list whose every row has its shape" : `code doesn't build a ${component} from lines yet: write it yourself` };
+}
+
+/** Replace one YAML property, keeping the figure's other properties and Markdown as written. */
+export function withFigureProp(body: readonly string[], key: string, value: string): string[] {
+  const source = figureSource(body);
+  if (!source.ruled) return ["---", `${key}: ${value}`, "---", ...body];
+  const open = body.findIndex(l => /^\s*---\s*$/.test(l));
+  const close = body.findIndex((l, i) => i > open && /^\s*---\s*$/.test(l));
+  const end = close < 0 ? body.length : close;
+  const at = body.findIndex((l, i) => i > open && i < end && l.startsWith(`${key}:`));
+  if (at < 0) return [...body.slice(0, end), `${key}: ${value}`, ...(close < 0 ? ["---"] : body.slice(end))];
+  let to = at + 1;
+  while (to < end && (!body[to]!.trim() || /^\s+\S/.test(body[to]!))) to++;
+  return [...body.slice(0, at), `${key}: ${value}`, ...body.slice(to)];
+}
+
+/** One edit for a figure's settings, whether changed in Sources or by dragging its frame. */
+export function figurePropertyPatch(text: string, line: number, values: Readonly<Record<string, string>>) {
+  const lines = text.split("\n"), block = componentBlocks(lines).find(b => b.start === line)!;
+  let body = lines.slice(line + 1, block.end);
+  for (const [key, value] of Object.entries(values)) body = withFigureProp(body, key, value);
+  return {
+    observed: lines.slice(line, block.end + 1).join("\n"),
+    replacement: [lines[line]!, ...body, lines[block.end]!].join("\n"),
+    start: lines.slice(0, line).join("\n").length + (line ? 1 : 0),
+  };
 }
