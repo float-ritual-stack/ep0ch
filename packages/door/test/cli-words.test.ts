@@ -233,3 +233,33 @@ describe("a script's name with the global flags", () => {
     expect(await run(["neat", "--json", "--ws", "showcase", "page=[[a]]"])).toEqual(want());
   }, 30_000);
 });
+
+// PIE-1469: a script run that said steps failed is a refusal in a shell (exit 1, each step on stderr); one that passed exits 0.
+describe("a script run's answer as a shell's exit", () => {
+  const run = async (result: Record<string, unknown>) => {
+    const sock = join(dir, "x.sock");
+    const server = createServer(c => c.on("data", () => c.end(JSON.stringify({ ok: true, result }) + "\n")));
+    await new Promise<void>(r => server.listen(sock, r));
+    try {
+      const env: Record<string, string> = {};
+      for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("EP0CH_")) env[k] = v;
+      Object.assign(env, { HOME: dir, EP0CH_OUTLINES: join(dir, "outlines"), EP0CH_STATE: join(dir, "state"), EP0CH_CONTROL: sock, EP0CH_DAEMON: "0" });
+      const p = Bun.spawn([process.execPath, MAIN, "neat", "page=[[Bike shd]]", "right=%nothing"], { cwd: dir, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const code = await p.exited;
+      return { code, out: await new Response(p.stdout).text(), err: await new Response(p.stderr).text() };
+    } finally { server.close(); }
+  };
+
+  test("failed steps exit 1 with each one named on stderr, and the answer's text still printed", async () => {
+    const message = "neat: 2 steps failed · [[Bike shd]]: no page Bike shd · tile.info: no tile nothing";
+    const r = await run({ message, state: "done", failed: ["[[Bike shd]]: no page Bike shd", "tile.info: no tile nothing"] });
+    expect(r.code).toBe(1);
+    expect(r.err).toBe("ep0ch: 2 steps failed:\n  [[Bike shd]]: no page Bike shd\n  tile.info: no tile nothing\n");
+    expect(r.out).toContain(message);
+  }, 30_000);
+
+  test("a run whose steps all passed exits 0 with nothing on stderr", async () => {
+    const r = await run({ message: "neat: a | b", state: "done" });
+    expect({ code: r.code, err: r.err }).toEqual({ code: 0, err: "" });
+  }, 30_000);
+});

@@ -55,6 +55,7 @@ The complete source is [scripts/neat.js](./scripts/neat.js), a file script whose
    - Three `tile.link` calls wire `select` and `open` to the right reader and `alt` to the left.
 6. **Refusals:** the `step`/`failed` pattern catches a refused action, remembers its name and reason, and continues.
    - The final answer lists every refusal instead of claiming success; the shared layout rules don't change.
+   - It also tells the door with `act('script.failed', { steps })` (one per line), so a shell's `ep0ch neat …` exits 1 with the steps on stderr (PIE-1469) while the run ends done with its words.
 
 - **Same runtime** as an outline's `.ep0ch/scripts/` files and script notes.
 - **Updates:** `ep0ch install --apply` brings the bundled source with the checkout and refreshes unchanged installed copies.

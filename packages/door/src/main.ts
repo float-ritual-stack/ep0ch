@@ -185,7 +185,8 @@ ${DOCS_USAGE}
   ep0ch <script> [key=value …] [--as <id>]
                                    run a script of this folder's outline by its name with a button's slots
                                    (PIE-1230): ep0ch neat page=[[a]] right=%tree is act script.run of=neat …, an
-                                   agent's run in its door (EP0CH_AGENT or --as), a key written twice a list
+                                   agent's run in its door (EP0CH_AGENT or --as), a key written twice a list; exit 1 with the
+                                   failed steps on stderr when the script said some failed (PIE-1469)
   ep0ch echo toss | nodelist | subscribe | areas …   (ep0ch echo help says each one's flags)
                                    EchoNet (PIE-779): run the echonet extension's tosser (copies in, netmail
                                    both ways, nodelist and toss log), write and print the nodelist, subscribe
@@ -446,8 +447,9 @@ if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? 
       process.exit(notACommand ? 2 : 1);
     }
   }
-  const code = await controlClient(args);
-  if (code && notACommand) console.error(`ep0ch: ${notACommand}`);
+  const answered: { ran?: true } = {};
+  const code = await controlClient(args, answered);
+  if (code && notACommand && !answered.ran) console.error(`ep0ch: ${notACommand}`);
   process.exit(code);
 }
 if (args[0] === "outline" || args[0] === "status" || args[0] === "init") {
