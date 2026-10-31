@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Post-its peel, dock, tuck and collect on shelves (PIE-1485)
+
+- **Keep or drop an entry:** a post-it's peel control (`alt+E`) pins its shown entry while the hover keeps its stack. Drop (`alt+X`) removes just that entry. The tile menu docks it into the work area or tucks it in the drawer; peel brings it back. Drag its title onto a work-area header to land it there.
+- **Collect refs:** `glass.shelf name=seeds colour=amber` makes a shelf. Drag post-its onto it, or use `glass.shelve ref=… shelf=seeds`. Its header switches list/grid and colour; its tile menu renames it. One click previews a row; the second opens it. Shelves persist and count with pins in the glass glyph.
+- **Keep your place:** post-it arrows use the same saved back/forward history as every reader (`alt+←` / `alt+→`). Agents can `glass.pin ref=… shelf=seeds`, attributed on screen, while your focus and selection stay put. An agent's clear keeps the tile you're in.
+- **Run:** open the kitchen sink's **glass** section (`ep0ch try --showcase`) and press **Three refs on a shelf**. Door only; no protocol, grammar or schema change.
+
 ### Completion follows you and fills whole snippets (PIE-1480)
 
 - **Complete where you type:** one source contract and matcher in notes, the power bar and Detail. Chosen rows rise across clients; the popup lights matched letters and sits at the cursor through the shared screen float placement.

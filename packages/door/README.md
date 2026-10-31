@@ -43,6 +43,25 @@ person to rewrite), then `bun scripts/architecture-map.ts` checks the citations 
 the isometric map as one page, `out/architecture-map.html` (open it in a browser; `#ch13` shows every part).
 `test/architecture-map.test.ts` fails only when a cited file or marker is gone; the line-exact `--check` is the push-review round's, so one PR's line shifts don't fail another.
 
+## The glass
+
+Click ◇ in the status bar (`alt+u`) to turn hover on. Links and cut-off titles open in a post-it above every screen.
+Its header's **peel** (`alt+E`, `postit.peel`) pins the shown entry separately and keeps the hover stack;
+**drop** (`alt+X`, `postit.drop`) removes that entry. Its arrows and title wheel use the reader's saved
+back/forward history. Every reader has `alt+←` / `alt+→` (`back` / `forward`).
+
+Use the tile menu to dock a post-it in the work area (`tile.dock`) or tuck it into the drawer (`tile.drawer`).
+Peel brings it back from the drawer; dragging its title onto a work-area header lands it in that layout.
+`tile.float to=glass` (`^W U`) carries any tile above screen changes.
+
+`glass.shelf name=seeds colour=amber` makes a shelf. Drag post-its onto it, or use
+`glass.shelve ref=<note> shelf=seeds`. Its header switches list/grid (`v`, `shelf.layout set=list|grid`)
+and colour (`c`, `shelf.colour set=…`); the tile menu renames it (`tile.title text=…`). A row selects and previews
+on one click, opens on the second or Enter. The grid shares the lists' arrow keys. Shelves persist with pinned
+post-its, count in ◇, and clear with `alt+U` or an alt-click on ◇. An agent's `glass.clear` keeps the tile you're in.
+`glass.pin ref=<note> shelf=seeds` adds an attributed ref without taking your focus or changing your selection.
+Try **glass** in the kitchen sink, including its **Three refs on a shelf** button.
+
 ## Inline answers
 
 Inline asks can stream plain answers into their closed answer fold while you keep typing. The answer tile
