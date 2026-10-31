@@ -18,7 +18,7 @@ import {
   type RenderTarget,
   type RenderedComponent,
 } from "./component-primitives";
-import { handlerCalls, mayHaveHandlerLines, pipelineCalls, PIPELINE, type HandlerCall } from "./extension-handlers";
+import { componentCalls, handlerCalls, mayHaveHandlerLines, pipelineCalls, PIPELINE, type HandlerCall } from "./extension-handlers";
 import { DEFAULT_DEADLINE_MS, durationMs, loadExtensionManifest, manifestSources, type ExtensionActionArg, type ExtensionHandler, type LoadedExtension, type ScriptSource } from "./extension-manifest";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftGroupInput } from "./draft-patch-router";
@@ -177,7 +177,15 @@ export interface ExtensionActRequest {
    * (`blockId` the first). Its writes carry the trigger's marks, so no rule is set off by them.
    */
   readonly trigger?: { readonly rule: string; readonly blocks?: readonly string[] };
+  /**
+   * The script runs whose `act("ext.…")` started this one, outermost first (their extension ids): a run's `ext.*` call
+   * is refused past MAX_ACT_DEPTH or when it would start one already in the chain, so scripts can't start runs without end.
+   */
+  readonly chain?: readonly string[];
 }
+
+/** How deep scripts may start each other's runs through `act("ext.…")`. */
+export const MAX_ACT_DEPTH = 4;
 
 export interface ExtensionActResult {
   runbook?: RunbookPlan;
@@ -388,8 +396,8 @@ export function validateRecord(value: unknown, fallbackTitle = "Collection"): Ex
   return { record, members: { records, complete: answer.complete === true } };
 }
 
-function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string; runbook?: RunbookPlan } {
-  if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy?, open? }");
+function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string; runbook?: RunbookPlan; answer?: string } {
+  if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy?, open?, answer? }");
   // What the client opens once the action answers (PIE-754): a block, or a Resource by its ref.
   if (value.open !== undefined) {
     if (typeof value.open !== "string") throw new Error("open must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
@@ -400,6 +408,8 @@ function validateAct(value: unknown, blockOk: (id: string) => boolean): { messag
   }
   if (value.message !== undefined && (typeof value.message !== "string" || value.message.length > 500)) throw new Error("message must be text up to 500 characters");
   if (value.copy !== undefined && (typeof value.copy !== "string" || value.copy.length > 8_000)) throw new Error("copy must be text up to 8000 characters");
+  // What it answers its caller whole (a script's `act("ext.…")`), when one line of `message` can't hold it.
+  if (value.answer !== undefined && (typeof value.answer !== "string" || Buffer.byteLength(value.answer) > MAX_WRITE_TEXT)) throw new Error("answer must be text up to 64 KiB");
   const writes = value.writes ?? [];
   if (!Array.isArray(writes) || writes.length > MAX_WRITES) throw new Error(`writes must be a list of at most ${MAX_WRITES}`);
   return {
@@ -407,6 +417,7 @@ function validateAct(value: unknown, blockOk: (id: string) => boolean): { messag
     ...(typeof value.copy === "string" ? { copy: cleanExtensionText(value.copy, true) } : {}),
     ...(typeof value.open === "string" ? { open: value.open } : {}),
     ...(value.runbook ? { runbook: value.runbook as RunbookPlan } : {}),
+    ...(typeof value.answer === "string" ? { answer: value.answer } : {}),
     writes: writes.map((write, index) => {
       if (!isObject(write)) throw new Error(`writes[${index}] must be an object`);
       if (write.op === "annotate") {
@@ -692,7 +703,7 @@ export class ExtensionCalls {
   calls(blockId: string): { block: Block; calls: HandlerCall[] } | null {
     const block = this.store.get(blockId);
     if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return null;
-    const calls = [...this.handlerCalls(block), ...pipelineCalls(block.text)];
+    const calls = [...this.handlerCalls(block), ...pipelineCalls(block.text), ...componentCalls(block.text, this.registry)];
     return { block, calls: calls.length > 1 ? calls.sort((a, b) => a.line - b.line) : calls };
   }
 
@@ -868,7 +879,8 @@ export class ExtensionCalls {
         return row.error === null || this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS;
       }
     }
-    if (row.result === null || row.error !== null) return row.error !== null && this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS;
+    // A failed line waits to be tried again, unless what it read changed: the module that broke it was fixed.
+    if (row.result === null || row.error !== null) return row.error !== null && (this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS || this.scriptChanged(row, block, extension));
     // What it read changed (a script's notes or queries): it redraws without r.
     if (this.scriptChanged(row, block, extension)) return true;
     const stale = durationMs(handler?.staleAfter);
@@ -1008,7 +1020,14 @@ export class ExtensionCalls {
       // A note it read changed while it ran: what it drew is already out of date.
       if (reads?.some(read => this.revisionOf(read.id) !== read.revision)) void this.refreshOutput(block.id, "open").catch(() => {});
     } catch (error) {
-      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: { ...base.request, ...(queried ? { queryHash: queried.hash } : {}) }, error: message(error) });
+      // A render that failed says what it read before it did: the row keeps that, and a change to one comes back here.
+      const failed = extension.script ? error as { reads?: typeof reads; queries?: typeof queries } : undefined;
+      reads = failed?.reads ?? reads;
+      queries = failed?.queries ?? queries;
+      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, error: message(error), request: { ...base.request, ...(queried ? { queryHash: queried.hash } : {}),
+        ...(extension.script && reads ? { reads, queries: queries ?? [], stamp: extension.stamp } : {}) } });
+      for (const read of reads ?? []) this.watching(read.id, block.id);
+      if (queries?.length) this.watchQueries(block.id);
       this.state.set(key, { running: false, error: message(error) });
     }
     this.options.changed?.(block.id);
@@ -1342,6 +1361,7 @@ export class ExtensionCalls {
     else if (block && (touched || applied.proposalId)) this.options.changed?.(block.id);
     const said = applied.proposed ?? parsed.message;
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
+      ...(parsed.answer !== undefined ? { answer: parsed.answer } : {}),
       ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}),
       ...(parsed.open !== undefined ? { open: parsed.open } : {}),
       ...(parsed.runbook ? { runbook: parsed.runbook } : {}),
@@ -1640,7 +1660,7 @@ export class ExtensionCalls {
   private callFor(block: Block, action: ExtensionActionEntry, line: number | undefined): HandlerCall | undefined {
     if (!action.on?.startsWith("handler:")) return undefined;
     const key = action.on.slice(8);
-    const calls = this.handlerCalls(block).filter((call) => call.handlerKey === key && (line === undefined || call.line === line));
+    const calls = [...this.handlerCalls(block), ...componentCalls(block.text, this.registry)].filter((call) => call.handlerKey === key && (line === undefined || call.line === line));
     if (!calls.length) throw new Error(`${action.name} needs a ${key}:: line${line !== undefined ? ` on line ${line}` : ""} in that block`);
     if (calls.length > 1 && line === undefined) throw new Error(`${action.name}: that block has ${calls.length} ${key}:: lines; pass line`);
     return calls[0];

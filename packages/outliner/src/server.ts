@@ -1,4 +1,4 @@
-import type { ExtensionActRequest } from "./extension-calls";
+import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import { completionRows, PICKS_METADATA_KEY, readPicks } from "./completion-sources";
 import { recordPick } from "@ep0ch/outline-core/completion-source";
 import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
@@ -69,7 +69,7 @@ import { resourceProviderEntries } from "./extension-registry";
 import { directiveProvidersOf, useResourceDirectiveProviders, type ResourceProviderEntry } from "./resource-references";
 import { ExtensionRules } from "./extension-rules";
 import { NoteRouting } from "./note-routing";
-import { ExtensionCalls, wholeTextSpan } from "./extension-calls";
+import { ExtensionCalls, MAX_ACT_DEPTH, wholeTextSpan } from "./extension-calls";
 import { markTriggered } from "./extension-writes";
 import { grantOf, type ExtensionGrant } from "./extension-grants";
 import { ExtensionSchedules } from "./extension-schedule";
@@ -667,6 +667,14 @@ export class OutlinerServer {
       requireCompatibleService: async () => undefined,
       request: <T>(input: RequestInput): Promise<T> => this.own.request<T>(input),
     }, changes => this.publishChanges(undefined, changes), run => this.draftPatches.scriptInverse(run), (clientId, action, args, actor, signal, meta) => {
+      // An extension's action the service serves (`ext.<id>.<action>`, a script's `ext.script:<name>.run`) runs here with
+      // no door, asked by whoever asked the calling run, and answers once it has ended. The door's own `ext.*` actions
+      // (an extension's settings, a passage's action, one only a door loads) still go to the door.
+      const ext = /^ext\.(.+)\.([a-z][\w-]*)$/.exec(action);
+      // A script that isn't here is the service's to refuse (it names the install).
+      const known = ext ? this.extensionRegistry.extension(ext[1]!) : undefined;
+      const served = known ? this.extensionRegistry.action(ext![1]!, ext![2]!) : undefined;
+      if (ext && (served ? served.on !== "passage" : !known && ext[1]!.startsWith("script:"))) return this.actExtension(ext[1]!, ext[2]!, args, meta, signal);
       // The door that asked, else the only door here; none or several is refused with which there are (PIE-957).
       const doors = [...this.subscribers.values()].filter(c => c.app === "door").map(c => c.clientId);
       if (clientId === undefined) {
@@ -741,6 +749,52 @@ export class OutlinerServer {
       ...(hub ? { hub } : {}), pages: this.extensionPages.pages(), demos: this.extensionPages.demoCounts(), available: this.extensionPages.availableNow(),
       ...(this.extensionPages.problem ? { pagesProblem: this.extensionPages.problem } : {}),
     };
+  }
+
+  /**
+   * A script's `act("ext.<id>.<action>", args)`: `extensions.act` as the calling run's requester asks it, at its MCP
+   * access, with `block=` (or `blockId=`) and `line=` taken from the args. A script it starts is waited for, so the
+   * caller gets its last word and whole `answer`; its writes stay that run's own undo step. The calling run ending
+   * (stopped, its deadline) stops the run it started too. Runs started this way carry their chain: past MAX_ACT_DEPTH,
+   * or back into a script already in it, the call is refused.
+   */
+  private async actExtension(extension: string, action: string, args: Record<string, unknown>, meta: { requestedBy: MutationProvenance; chain: readonly string[]; mcpAccess?: ExtensionActRequest["mcpAccess"] }, signal: AbortSignal): Promise<ExtensionActResult & { error?: string }> {
+    const { requestedBy, chain } = meta;
+    // The chain holds extension ids; `script:<name>` is one's other name.
+    if (chain.includes(this.extensionRegistry.extension(extension)?.id ?? extension)) throw new Error(`ext.${extension}.${action}: ${extension} is already running in this chain (${[...chain, extension].join(" → ")}); a script can't start itself again`);
+    if (chain.length >= MAX_ACT_DEPTH) throw new Error(`ext.${extension}.${action}: scripts have started each other ${chain.length} deep (${chain.join(" → ")}); at most ${MAX_ACT_DEPTH}`);
+    const slots: Record<string, string> = {};
+    let blockId: string | undefined, line: number | undefined;
+    for (const [key, value] of Object.entries(args ?? {})) {
+      if (value === undefined || value === null) continue;
+      if ((key === "block" || key === "blockId") && typeof value === "string") blockId = value.replace(/^\(\((.*)\)\)$/, "$1");
+      else if (key === "line" && typeof value === "number" && Number.isSafeInteger(value)) line = value;
+      // As the door reads it: names to text, as JSON.
+      else if (key === "with" && typeof value === "string") {
+        let given: unknown;
+        try { given = JSON.parse(value); } catch { throw new Error(`ext.${extension}.${action}: with is JSON: names to text`); }
+        if (!given || typeof given !== "object" || Array.isArray(given) || Object.values(given).some(x => typeof x !== "string")) throw new Error(`ext.${extension}.${action}: with maps names to text`);
+        Object.assign(slots, given);
+      } else if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") slots[key] = String(value);
+      else throw new Error(`ext.${extension}.${action}: ${key} must be text, a number or true/false (an action's args are words)`);
+    }
+    // In the background: no door is told of it, and its run is kept for `finished` (which says how it ended).
+    const result = await this.extensionCalls.act({ extension, action, requestedBy, background: true, chain,
+      ...(meta.mcpAccess ? { mcpAccess: meta.mcpAccess } : {}),
+      ...(blockId ? { blockId } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(slots).length ? { args: slots } : {}) });
+    if (!result.undo || !this.extensionRegistry.extension(extension)?.script) return result;
+    const undo = result.undo;
+    let stop = () => {};
+    const ended = new Promise<never>((_, reject) => {
+      stop = () => { this.scriptRuns.stopRun(undo, requestedBy); reject(new Error("The script run ended")); };
+      if (signal.aborted) stop();
+      else signal.addEventListener("abort", stop, { once: true });
+    });
+    ended.catch(() => {});
+    try {
+      const error = await Promise.race([this.scriptRuns.finished(result.undo), ended]);
+      return { ...result, ...(error !== undefined ? { error } : {}) };
+    } finally { signal.removeEventListener("abort", stop); }
   }
 
   /**
@@ -2240,13 +2294,17 @@ export class OutlinerServer {
         if (access !== "propose" && access !== "full") throw new Error(`MCP access is ${access}: no script runs`);
         await this.extensionRegistry.reload();
         const scripts = (await scriptSources(this.store)).filter(s => s.script?.blockId === request.blockId);
-        const name = this.store.require(request.blockId).properties.find(p => p.key === "script")?.value;
+        const properties = this.store.require(request.blockId).properties;
+        const name = properties.find(p => p.key === "script")?.value;
+        // A folder's script has no note of its own: its extension's page names it (`[[ext-keep]]`).
+        const page = scripts.length ? undefined : properties.find(p => p.key === "ext.page")?.value;
+        const bundled = page ? this.extensionRegistry.extension(`script:${page}`) : undefined;
         const nameOf = (s: (typeof scripts)[number]) => s.script!.fence?.name ?? name;
         if (!name && scripts.length > 1) throw new Error(`This block has several scripts: ${scripts.map(nameOf).join(", ")}. Set [script::name] to choose the note's own script, or run one by name from the door`);
         const selected = name ? scripts.find(s => nameOf(s) === name) : scripts[0];
-        if (!selected) throw new Error("This block has no authored script; add [script::name] and a closed js or ts fence");
-        const extension = this.extensionRegistry.extension(selected.expectedId);
-        if (!extension) throw new Error(`Script ${nameOf(selected)}: ${this.extensionRegistry.list().extensions.find(e => e.id === selected.expectedId)?.error ?? "not runnable"}`);
+        if (!selected && !bundled) throw new Error("This block has no authored script; add [script::name] and a closed js or ts fence");
+        const extension = bundled ?? this.extensionRegistry.extension(selected!.expectedId);
+        if (!extension) throw new Error(`Script ${nameOf(selected!)}: ${this.extensionRegistry.list().extensions.find(e => e.id === selected!.expectedId)?.error ?? "not runnable"}`);
         const slots = request.slots;
         if (slots !== undefined && (typeof slots !== "object" || slots === null || Array.isArray(slots) || Object.values(slots).some(v => typeof v !== "string"))) {
           throw new Error("scripts.run's slots are { name: \"value\" }: each value one line of text");

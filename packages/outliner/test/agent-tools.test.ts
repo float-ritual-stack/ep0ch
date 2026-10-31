@@ -1150,3 +1150,66 @@ test("a person's script reorders a view: the user-writer rule (no actor id) hold
   const order = await runAgentOperation(client, "view-order", { view: view.id, ids: [jobs[1]!.id] }, { actorId: "", author: "user", sessionId: "run-1" }) as { order: { title: string }[] };
   expect(order.order.map(o => o.title)).toEqual(["Sow the leeks", "Dig the bed"]);
 });
+
+// Note components: a write that calls one is read against its note's props, and a write that holds a script says why it
+// won't load or run (its code, an import, its name) in the receipt, without refusing it. Every note and name is made up.
+const ERRAND_BOARD = [
+  "Errand board [script::board] [mode::render] [form-field::where query required] [form-field::group property default=status]",
+  "Lanes of what a query holds, one card per note.",
+  "",
+  "::board{where=\"type=errand\" group=status}",
+  "",
+  "```tsx",
+  "const { blocks } = await q(props.where[0])",
+  "return <stack>{blocks.map(b => <text>{b.id}</text>)}</stack>",
+  "```",
+].join("\n");
+
+async function withBoard() {
+  const harness = await setup();
+  harness.store.create(ERRAND_BOARD);
+  const client = new OutlinerClient(harness.socket);
+  await client.request({ action: "extensions.list", reload: true });
+  return { ...harness, client };
+}
+
+test("a ::board{…} call is confirmed in components; an attribute it doesn't take and a required one left out are warnings", async () => {
+  const { agent } = await withBoard();
+  const typo = await agent("create", { parent: "root", text: "Thursday\n::board{where=\"type=errand\" grup=owner}" });
+  expect(typo.exitCode, typo.stderr).toBe(0);
+  expect(typo.json.components).toEqual(["board"]);
+  expect(typo.json.warnings).toContain("the ::board on line 2 doesn't take grup: did you mean group?");
+  const bare = await agent("create", { parent: "root", text: "Friday\n::board{group=owner}" });
+  expect(bare.exitCode, bare.stderr).toBe(0);
+  expect(bare.json.warnings).toContain("the ::board on line 2 needs where, like where=\"type=errand\"");
+});
+
+test("a written script that doesn't compile, imports a name nothing has or takes a taken name is said in the receipt", async () => {
+  const { agent, store } = await withBoard();
+  const broken = ["Stale [script::stale2] [mode::render]", "```tsx", "const rows = []", "", "return <stack>{rows}</stak>", "```"].join("\n");
+  const created = await agent("create", { parent: "root", text: broken });
+  expect(created.exitCode, created.stderr).toBe(0);
+  expect(store.get(created.json.id)!.text).toBe(broken);
+  const syntax = (created.json.warnings as string[]).find(w => w.startsWith("script stale2 doesn't compile"));
+  expect(syntax).toContain("tsx line 3 (line 5 of the note)");
+  // A `}` too many closes the script before its fence ends: said so, not at the line past its end.
+  const early = await agent("create", { parent: "root", text: ["Early [script::early] [mode::render]", "```tsx", "return 1", "}", "```"].join("\n") });
+  expect((early.json.warnings as string[]).join("\n")).toContain("script early doesn't compile: tsx at the end of its fence (a } too many closes it early)");
+
+  const lost = await agent("create", { parent: "root", text: ["Lanes [script::lanes] [mode::render]", "```tsx", "import { Lane } from \"ui-kt\"", "return <Lane/>", "```"].join("\n") });
+  expect(lost.exitCode, lost.stderr).toBe(0);
+  expect((lost.json.warnings as string[]).join("\n")).toContain("lanes imports ui-kt, and there is no script ui-kt here");
+
+  const twin = await agent("create", { parent: "root", text: ["Other board [script::board] [mode::render]", "```js", "return 1", "```"].join("\n") });
+  expect(twin.exitCode, twin.stderr).toBe(0);
+  expect((twin.json.warnings as string[]).join("\n")).toMatch(/script board: the name is taken by \(\([0-9a-f-]+\)\)'s script/);
+
+  const builtIn = await agent("create", { parent: "root", text: ["My callout [script::callout] [mode::render]", "```js", "return 1", "```"].join("\n") });
+  expect(builtIn.exitCode, builtIn.stderr).toBe(0);
+  expect((builtIn.json.warnings as string[]).join("\n")).toContain("script callout: a built-in component is called callout already");
+
+  // A script that reads says nothing of its own.
+  const fine = await agent("create", { parent: "root", text: ["Count [script::count] [mode::render]", "```tsx", "return <text>{String(1)}</text>", "```"].join("\n") });
+  expect(fine.exitCode, fine.stderr).toBe(0);
+  expect(((fine.json.warnings ?? []) as string[]).filter(w => w.startsWith("script "))).toEqual([]);
+});

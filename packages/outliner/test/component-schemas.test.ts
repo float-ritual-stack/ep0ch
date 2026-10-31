@@ -12,6 +12,7 @@ import { OutlinerStore } from "../src/store";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import type { RuleListEntry } from "../src/extension-rules";
 import type { Block } from "../src/types";
+import { setup as scriptService } from "./script-harness";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -95,4 +96,14 @@ test("rules.preview: what a rule note, never saved, draws on a sample note's tex
   expect(broken).toEqual({ decorations: [], problems: [expect.stringContaining("matches nothing")] });
   // A preview must not install its rule alongside the outline's existing rules.
   expect((await client.request<{ rules: RuleListEntry[] }>({ action: "extensions.list" })).rules).toEqual(before.rules);
+});
+
+// Note components: a render script's note is listed after the extensions' schemas, marked with the note it comes from.
+test("components.schemas lists a render script's note as a component, origin note:((id))", async () => {
+  const { create, client } = await scriptService();
+  const board = create("Errand board [script::board] [mode::render] [form-field::where query]\nLanes of what a query holds.\n```js\nreturn 1;\n```");
+  await client.request({ action: "extensions.list", reload: true });
+  const answer = await client.request<Answer>({ action: "components.schemas" });
+  expect(answer.schemas.find(s => s.id === "board")).toMatchObject({ origin: `note:((${board.id}))`, group: "this outline's", intro: "Lanes of what a query holds.",
+    props: [{ key: "where", type: "query", complete: "query" }] });
 });

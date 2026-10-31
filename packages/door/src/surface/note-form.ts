@@ -49,10 +49,12 @@ export class NoteForm {
   update(source: string) {
     const focused = this.fields[this.focus]?.name;
     this.source = source;
-    const chips = parsePropertyRecords(source).filter(p => p.key === FORM_FIELD_KEY);
+    const records = parsePropertyRecords(source);
+    // On a script's note these chips are its props (a slot, a component's attribute), asked where it is called: no entries land here.
+    const chips = records.some(p => p.key === "script" && p.placement !== "inline") ? [] : records.filter(p => p.key === FORM_FIELD_KEY);
     const parsed = formFields(chips.map(p => p.value));
     this.fields = parsed.fields;
-    const read = formSettings(parsePropertyRecords(source), parsed.fields);
+    const read = formSettings(records, parsed.fields);
     this.settings = read.settings;
     this.settingsProblem = read.problems[0]?.message;
     this.chips = chips.filter((_, index) => !parsed.problems.some(p => p.index === index));

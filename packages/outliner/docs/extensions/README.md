@@ -35,6 +35,13 @@ entries), and the extension's page describe the same manifest list. Uninstall re
 a button naming one, `ep0ch act <script>` in the door, and the service's refusal for it (to MCP and CLI callers) all name `ep0ch act extensions.install id=<extension>` to reinstall it. See [neat](../../extensions/neat/README.md)
 for a complete layout script using the existing actions and drawer links.
 
+A note can supply a component with no folder: a `[script::name] [mode::render]` note's `[form-field::]` chips become its
+`ComponentSchema` (origin `note:((id))`), and `::name{k=v}` on any line draws it, listed beside the folder extensions'
+components in completion, `outline_components` and the library ([A render script is a component](../scripts.md#a-render-script-is-a-component)).
+An extension's action is also callable from a script with no door: `act("ext.<id>.<action>", { block })` runs it as the
+calling run's requester and answers its `state`, `message` and `answer`. [keep](../../extensions/keep/README.md) is the
+bundled example of both: an action script that turns a `::=` line into a named component.
+
 Scripts default to read-only. A file declares writes with `// ep0ch-script effects=write` (or `// ep0ch-script effects=write mode=render`); a block uses
 `[effects::write]`. Read scripts can query and read, but cannot call write tools or dispatch door actions.
 The runtime still records their progress in a run note. Recorded action scripts declare write effects.

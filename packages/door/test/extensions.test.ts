@@ -217,6 +217,10 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(mentionsExtension("Week\n- horoscope:: leo")).toBe(true);
     expect(mentionsExtension("Week\n@tidy please")).toBe(true);
     expect(mentionsExtension("Week\nhoroscopes:: leo\n@tidying")).toBe(false);
+    // A note component's second spelling of a handler line is asked about too, or the reader draws nothing under it.
+    expect(mentionsExtension("Week\n::horoscope{sign=leo}")).toBe(true);
+    expect(mentionsExtension("Week\n- ::horoscope{}")).toBe(true);
+    expect(mentionsExtension("Week\n::horoscopes{sign=leo}")).toBe(false);
     expect(EXT_ACTIONS.has("ext.fancy-horror.ward")).toBe(true);
     expect(EXT_ACTIONS.has("ext.horoscope.keep")).toBe(true);
     expect(EXT_ACTIONS.has("ext.tarot.draw")).toBe(false);              // a tile's action is its kind's own

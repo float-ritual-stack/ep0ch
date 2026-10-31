@@ -730,7 +730,8 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
   }
   const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0 || barIds.size > 0;
   if (needsRun && !manifest.run && !script) throw new ExtensionLoadError("extension.json: handlers, actions, agents, sources and rules that decorate with code need run (the program each call starts)");
-  if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, sources, rules, tiles, components or scripts");
+  // A script that declares nothing is a module (`[mode::module]`): imported by name, run by nothing.
+  if (!script && !needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, sources, rules, tiles, components or scripts");
   const scripts = new Set<string>();
   const scriptFiles = new Map<string, string>();
   for (const script of manifest.scripts ?? []) {
@@ -791,6 +792,8 @@ async function stampFile(hash: ReturnType<typeof createHash>, path: string): Pro
 export interface ManifestSource {
   readonly scriptName?: string;
   readonly error?: string;
+  /** Said beside a source that loads anyway (a render script whose component schema was dropped). */
+  readonly warning?: string;
   readonly script?: ScriptSource;
   /** `extension.json`'s text, and `config.json`'s (`"{}"` when there is none). */
   readonly manifestRaw: string;
@@ -878,6 +881,10 @@ export interface ScriptSource {
   readonly format?: "actions";
   /** `[mode::render]`: the script is a handler (`name::` lines) that draws what it returns in place and writes nothing. */
   readonly render?: true;
+  /** `[mode::module]`: imported by name (`import { Lane } from "ui-kit"`), never run, asked or drawn itself. */
+  readonly module?: true;
+  /** A `tsx` or `jsx` fence: its code is compiled with JSX (the rest are `ts`). */
+  readonly language?: "tsx" | "jsx";
   /** `[deadline::2m]`: how long a run may take (at most five minutes). */
   readonly deadlineMs?: number;
   readonly code: string;

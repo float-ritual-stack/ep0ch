@@ -125,11 +125,16 @@ export function yamlParams(yaml: string): SourceParam[] {
 export const sourcesSummary = (a: SourcesAnswer): string => (a.sources.length ? `${a.sources.length} source${a.sources.length === 1 ? "" : "s"} · ${a.sources.map(s => s.name).join(", ")}` : "no generated regions");
 
 /** The slot words of a handler line (`weekly:: week=42 tag="a b"`) as written, each with its value (a repeat is another word), and where the line's arguments start. */
-function slotWords(line: string): { head: string; words: SourceParam[] } | null {
-  const m = /^(\s*[^\s:]+::(?:\s+|$))(.*)$/.exec(line.replace(/\r$/, ""));
+function slotWords(line: string): { head: string; rest: string; close: string; words: SourceParam[] } | null {
+  const text = line.replace(/\r$/, "");
+  // A note component's `::board{where="x" group=y}` is the same line in its other spelling.
+  const m = /^(\s*(?:[-*+]\s+)?::[a-z][\w-]*\{)(.*)(\}(?:\s+\^[\w-]+)?)\s*$/.exec(text) ?? /^(\s*[^\s:]+::(?:\s+|$))(.*)()$/.exec(text);
   if (!m) return null;
-  return { head: m[1]!, words: slotPairs(m[2]) };
+  return { head: m[1]!, rest: m[2]!, close: m[3]!, words: slotPairs(m[2]) };
 }
+
+/** What a handler line's slots are written in: the words after `key::`, or between a call's braces. */
+export const slotArgument = (line: string): string => slotWords(line)?.rest ?? "";
 
 /**
  * A handler line with `props` written onto its slots: the first slot of a name already there takes the new value (the rest of the
@@ -140,15 +145,15 @@ export function withSlotProps(line: string, props: Record<string, string>): stri
   const read = slotWords(line);
   if (!read || Object.values(props).some(v => v.includes("\n"))) return null;
   const say = (k: string, v: string) => (/^\S+$/.test(v) && !v.includes('"') ? `${k}=${v}` : `${k}="${v.replace(/(["\\])/g, "\\$1")}"`);
-  const rest = line.slice(read.head.length);
   const done = new Set<string>();
-  const rewritten = rest.replace(/([A-Za-z_][\w-]*)=(?:"(?:[^"\\]|\\.)*"|\S*)/g, (whole, key: string) => {
+  const rewritten = read.rest.replace(/([A-Za-z_][\w-]*)=(?:"(?:[^"\\]|\\.)*"|\S*)/g, (whole, key: string) => {
     if (!Object.hasOwn(props, key) || done.has(key)) return whole;
     done.add(key);
     return say(key, props[key]!);
   });
   const added = Object.entries(props).filter(([k]) => !done.has(k)).map(([k, v]) => say(k, v));
   const tail = [rewritten.trimEnd(), ...added].filter(Boolean).join(" ");
+  if (read.close) return `${read.head}${tail}${read.close}`;
   return `${read.head.trimEnd()}${tail ? " " : ""}${tail}`.trimEnd();
 }
 

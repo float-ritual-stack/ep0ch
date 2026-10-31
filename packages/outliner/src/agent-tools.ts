@@ -74,6 +74,9 @@ import type {
   VirtualBranchOrder,
   VisibleBlockCollection,
 } from "./types";
+import type { ExtensionsListResult } from "./extension-registry";
+import { codeBlocks, codeFenceInfo } from "@ep0ch/outline-core/code-fence";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 
 /** The client these operations use: requests, and the protocol check before a write or a newer read. */
 export interface AgentToolsClient extends WorkToolsClient {
@@ -658,9 +661,71 @@ export async function referenceWarningsFor(client: AgentToolsClient, text: strin
 export async function writtenReading(client: AgentToolsClient, text: string, near?: string, self = near): Promise<{ warnings: string[]; components: string[] }> {
   const reading = await componentsRead(client, text);
   return {
-    warnings: [...await referenceOnlyWarnings(client, text, near, self), ...syntaxWarnings(text).map(w => w.message), ...reading.warnings, ...await useCallWarnings(client, text, self)],
+    warnings: [...await referenceOnlyWarnings(client, text, near, self), ...syntaxWarnings(text).map(w => w.message), ...reading.warnings, ...await useCallWarnings(client, text, self), ...await scriptLoadProblems(client, text, self)],
     components: reading.components,
   };
+}
+
+/** The script fence languages whose code is JavaScript (an `actions` fence is lines, read by its own grammar). */
+const CODE_LANGUAGES = new Set(["js", "javascript", "ts", "typescript", "tsx", "jsx"]);
+
+/**
+ * Why the scripts a written note holds won't load or run as written (note components): what the service says of them
+ * (`extensions.list` over the text as written: a schema that won't load, an empty fence), code that doesn't compile (its
+ * fence's language and line, and the note's line), an import of a name no script here has, and a name another note's
+ * script or a component already has. Asked only of a text holding `[script::`; a lookup that fails says nothing.
+ */
+export async function scriptLoadProblems(client: AgentToolsClient, text: string, self?: string): Promise<string[]> {
+  if (!self || !text.includes("[script::")) return [];
+  let listed: ExtensionsListResult;
+  try {
+    listed = await client.request<ExtensionsListResult>({ action: "extensions.list", blockId: self, draft: { text } });
+  } catch { return []; /* an older service, a host that is gone: nothing to say */ }
+  const out: string[] = [];
+  const say = (line: string) => { if (!out.includes(line)) out.push(line); };
+  const mine = listed.extensions.filter(e => e.script?.blockId === self);
+  for (const e of mine) if (e.error) say(`script ${e.name ?? e.id}: ${e.error}`);
+  // A name another note's script has (one of them answers it), or a component's that isn't a note's.
+  const schemas = await schemasOf(client);
+  for (const name of new Set(mine.flatMap(e => e.name ? [e.name] : []))) {
+    const twin = listed.extensions.find(e => e.script && e.script.blockId !== self && e.name === name);
+    if (twin) say(`script ${name}: the name is taken by ${twin.script!.blockId ? `((${twin.script!.blockId}))'s script` : `the script in ${twin.directory}`}; only one answers to ${name}, so give this one another name`);
+    const component = schemas?.find(s => s.id === name && !s.origin?.startsWith("note:"));
+    if (component) say(`script ${name}: ${component.origin === "built-in" || !component.origin ? "a built-in" : `${component.origin}'s`} component is called ${name} already, so ::${name} draws that one; give this one another name`);
+  }
+  // Its code as a run reads it: the imports linked against the scripts here (a module's own code is its note's to say),
+  // then compiled. Loaded here only: the mod reads notes far more often than it writes scripts.
+  const { linkScript } = await import("./script-link");
+  const { isJsxLanguage, transpileScript } = await import("./script-runtime");
+  const find = (name: string) => {
+    const e = listed.extensions.find(x => x.script && x.name === name && x.script.blockId !== self) ?? listed.extensions.find(x => x.script && x.name === name);
+    return e ? { id: `check-${e.id}`, name, code: "return {}", stamp: "check" } : undefined;
+  };
+  const lines = text.split("\n");
+  const noteName = parsePropertyRecords(text).find(p => p.scope === "block" && p.key === "script")?.value;
+  const fences = codeBlocks(lines).fences.filter(f => f.closed && CODE_LANGUAGES.has(codeFenceInfo(f.fence.info).language));
+  const named = (f: (typeof fences)[number]) => codeFenceInfo(f.fence.info).attrs.script;
+  // The note's script is its first unnamed fence, unless a fence names it (script-sources.ts's rule); other fences are code shown.
+  const noteFence = noteName && !fences.some(f => named(f) === noteName) ? fences.find(f => !named(f)) : undefined;
+  for (const f of fences) {
+    const name = named(f) ?? (f === noteFence ? noteName : undefined);
+    if (!name) continue;
+    const language = codeFenceInfo(f.fence.info).language;
+    const code = lines.slice(f.start + 1, f.end).map(line => line.slice(Math.min(f.fence.indent, line.length))).join("\n");
+    let linked: string;
+    try { linked = linkScript({ name, code }, find).code; }
+    catch (error) { say(`script ${name}: ${error instanceof Error ? error.message : String(error)}`); continue; }
+    try { transpileScript(`async function __ep0ch_check__() {\n${linked}\n}`, isJsxLanguage(language)); }
+    catch (error) {
+      // Bun's build error: the first message, at a line of the wrapped code (one line above the fence's first).
+      const first = ((error as { errors?: unknown[] })?.errors?.[0] ?? error) as { message?: string; position?: { line?: number } };
+      // Past its last line is the wrapper's own `}`: a `}` too many closed the script early.
+      const at = first.position?.line ? first.position.line - 1 : 0;
+      const where = at > code.split("\n").length ? " at the end of its fence (a } too many closes it early)" : at > 0 ? ` line ${at} (line ${f.start + 1 + at} of the note)` : "";
+      say(`script ${name} doesn't compile: ${language}${where}: ${first.message ?? String(error)}`);
+    }
+  }
+  return out;
 }
 
 /**
@@ -676,9 +741,12 @@ function schemasOf(client: AgentToolsClient): Promise<ComponentSchema[] | null> 
   return schemas;
 }
 
-/** outline-core's `componentReading` over the outline's own components; nothing asked when the text holds no `::` component. */
+/**
+ * outline-core's `componentReading` over the outline's own components; nothing asked when the text holds no `::` component
+ * and no one-line `::name{…}` call (a note component's, which closes with its line).
+ */
 async function componentsRead(client: AgentToolsClient, text: string): Promise<ComponentReading> {
-  if (!componentBlocks(text.split("\n")).length) return { components: [], warnings: [] };
+  if (!componentBlocks(text.split("\n")).length && !/^ {0,3}::[a-z][a-z0-9-]*\{/m.test(text)) return { components: [], warnings: [] };
   const schemas = await schemasOf(client);
   return schemas ? componentReading(text, schemas) : { components: [], warnings: [] };
 }

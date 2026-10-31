@@ -100,3 +100,21 @@ describe("componentGist", () => {
     expect(gist).not.toContain("  ");
   });
 });
+
+describe("note components in the guide", () => {
+  const STALE: ComponentSchema = {
+    ...WEATHER, id: "stale", title: "Stale", group: "this outline's", intro: "Errands nobody touched this week.",
+    props: [{ key: "where", where: "line", type: "query", meaning: "a query" }], source: { use: "::stale{}" }, example: {},
+  };
+
+  test("a render script's component is listed under \"from notes\" with the note it is written in, counted apart", () => {
+    const { schemas, problems } = mergeComponentSchemas({ extensions: [{ id: "almanac", components: [WEATHER] }, { id: "script-stale", components: [STALE], origin: "note:((5a1e0000))" }] });
+    expect(problems).toEqual([]);
+    const guide = agentGuide(schemas);
+    expect(guide).toContain("\n### from notes\n- stale: Errands nobody touched this week. · live (note:((5a1e0000)))");
+    expect(guide).not.toContain("### this outline's");
+    expect(guide).toContain(`(${schemas.length} components, 1 from extensions, 1 from notes)`);
+    expect(guide.trimEnd().endsWith("(note:((5a1e0000)))")).toBe(true);
+    expect(agentGuide(schemas, { index: "names" })).toContain("\n- from notes: stale (live) (note:((5a1e0000)))");
+  });
+});

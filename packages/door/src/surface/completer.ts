@@ -50,6 +50,7 @@ import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import type { ListSource } from "../outline-lists";
 import { drawVariation, drawComponentProps } from "../library/draw";
 import { openNote, barSource, type BarHost } from "../bar/source";
+import { makeComponent, type ComponentBoard } from "./component-new";
 import { commandRows, type CommandRow } from "../bar/command";
 import { agentsHere, askTargetAt } from "../bar/ask-agent";
 import { argKind } from "../bar/arg-kinds";
@@ -65,7 +66,7 @@ export const jevOff = new WeakSet<object>();
 export const COMPLETION_ROWS = 14;
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "followPage" | "listExtensions"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked" | "searchPicked">>;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "followPage" | "listExtensions"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked" | "searchPicked" | "createBlock">>;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineField` (a property's value, a filter). The completer
@@ -388,10 +389,21 @@ export async function insertCompletion(board: CompletionBoard, d: CompletionFiel
     if (!r.note) throw new Error(r.status === "deleted" ? `[[${item.newPage}]] is a page in the trash: restore it there` : `the page wasn't made (${r.status})`);
     made = r.created ? `made page ${item.newPage} ${r.placement?.said ?? ""}`.trim() + " · ctrl+l opens it" : `${item.newPage} was there already · ctrl+l opens it`;
   }
+  // A new note component (`component.new`'s code): its starter note written before its call, opened beside after.
+  let component: Msg | null = null;
+  if (item.newComponent) {
+    if (!board.createBlock) throw new Error("this connection can't write a component's note");
+    const r = await makeComponent(board as ComponentBoard, item.newComponent, by).catch((e: Error) => { throw new Error(`the component wasn't made: ${e.message}`); });
+    if (!still()) return false;
+    component = r.note;
+    made = r.said;
+  }
   // Right before the splice, with no wait between: what the insert uses up (an invitation) is spent only when it lands.
   commit?.();
   d.splice(target.start, target.end, item.insertion, item.anchor && own?.blockId === item.blockId ? { [item.anchor.lineIndex]: item.anchor.line } : {}, by, by.kind === "user" ? item.selection : undefined);
   if (made) d.note = made;
+  const host = component && by.kind === "user" ? ambient?.host?.() : undefined;
+  if (component && host) void openNote(component.id, host, { alt: true, actor: by }).catch(() => {});
   return true;
 }
 

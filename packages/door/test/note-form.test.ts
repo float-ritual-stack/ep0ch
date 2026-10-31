@@ -19,6 +19,14 @@ test("the button says the note's words and the form says where an entry lands", 
   expect(typo).not.toContain("each entry lands under this note");
 });
 
+test("a script's [form-field::] chips are its props, never an entry form on its note", () => {
+  const form = (source: string) => new NoteForm("b1", source).fields.map(f => f.name);
+  expect(form("Sow [script::sow] [form-field::row text]\n```js\nreturn 1;\n```")).toEqual([]);
+  expect(form("Board [script::board] [mode::render] [form-field::where query required]")).toEqual([]);
+  // A note that only mentions a script on a line of its text is still a form.
+  expect(form("Tea log [form-field::tea text]\nSee [script::sow] for the row.")).toEqual(["tea"]);
+});
+
 test("a submit that lands clears what it sent; an answer typed while it was landing stays (PIE-1445)", () => {
   const f = new NoteForm("b1", "Tea log\n[form-field::tea text required] [form-field::cups number] [form-field::brew choice green|black default=green]");
   f.set("tea", "Sencha", USER); f.set("cups", "2", USER); f.set("brew", "black", USER);

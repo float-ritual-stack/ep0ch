@@ -68,6 +68,11 @@ export interface SourceRow {
   anchor?: { lineIndex: number; line: string; revision: number };
   /** A page nobody has written yet: choosing it makes it (`pages.follow`, attributed) and links it. */
   newPage?: string;
+  /**
+   * A note component nobody has written yet (`::stale`): choosing it writes its starter note under [[components]]
+   * (`component.new`, attributed), inserts the call and opens the note beside.
+   */
+  newComponent?: string;
   /** The note that defines it (an agent's script note): `g` opens it beside. */
   definition?: string;
   /**

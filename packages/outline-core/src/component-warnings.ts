@@ -4,11 +4,14 @@
 // value outside what a property takes. A component is known by the opener its own schema writes (`source.use`), so an
 // extension's `::forecast` is found by its name, not its id. Read with the door's own figure reader (figure-props.ts)
 // and the merged schemas, so it says what the drawing would; a figure written without its `---` lines is
-// syntax-warnings.ts's to say. Never a reason to refuse a write: what is written always lands. Pure: no I/O.
+// syntax-warnings.ts's to say. A note component's call (`::board{where=… grup=…}`, script-component.ts) is read off its
+// line: an attribute it doesn't take, a required one left out, a value outside what its prop takes. Never a reason to
+// refuse a write: what is written always lands. Pure: no I/O.
 
 import { COMPONENT_OPEN, componentBlocks } from "./component-block";
 import { checkValue, type ComponentSchema } from "./component-schema";
 import { figureProps, figureSource, figureYaml, graphKind } from "./figure-props";
+import { oneLineCalls } from "./script-component";
 import { closest } from "./tool-args";
 
 export interface ComponentReading {
@@ -74,6 +77,31 @@ export function componentReading(text: string, schemas: readonly ComponentSchema
           if (near) { told.add(key); warnings.push(`${at}: its ${prop.key} don't take ${key}: did you mean ${near}?`); }
         }
       }
+    }
+  }
+  // A note component's call: its attributes are its props, all of them (a render script reads no others), so a key it
+  // doesn't take is said even with no near miss.
+  const fromNotes = new Map([...byName].filter(([, s]) => s.origin?.startsWith("note:")));
+  for (const call of oneLineCalls(text, new Set(fromNotes.keys()))) {
+    const schema = fromNotes.get(call.name)!;
+    // A call closes with its line, so the block reader above, which wants a `::` to close one, never counted it.
+    if (!components.includes(schema.id)) components.push(schema.id);
+    const at = `the ::${call.name} on line ${call.line + 1}`;
+    const keys = schema.props.map(p => p.key);
+    for (const { key, value } of call.attrs) {
+      const prop = schema.props.find(p => p.key === key);
+      if (!prop) {
+        const near = closest(key, keys);
+        warnings.push(`${at} doesn't take ${key}: ${near ? `did you mean ${near}?` : keys.length ? `it takes ${keys.join(", ")}` : "it takes none"}`);
+        continue;
+      }
+      if (value.includes("{{")) continue;
+      const wrong = checkValue(prop, value);
+      if (wrong) warnings.push(`${at}: ${wrong}`);
+    }
+    for (const prop of schema.props.filter(p => p.required && p.default === undefined && !call.attrs.some(a => a.key === p.key))) {
+      const example = schema.example[prop.key];
+      warnings.push(`${at} needs ${prop.key}${example ? `, like ${prop.key}=${JSON.stringify(example)}` : ""}`);
     }
   }
   return { components, warnings };

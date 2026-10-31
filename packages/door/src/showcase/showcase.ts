@@ -1532,6 +1532,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "note-component", need: "write a component once, as a note, and call it in any note with props that complete", part: "a render script's note as a ComponentSchema (outline-core script-component.ts: its [form-field::] chips are its props, its own ::name{} line its example), ::name{k=v} as a second spelling of its name:: line (componentCalls), completion's note rows (definition, + new component, where='s facets for a property prop) and component.new", files: "outline-core/src/script-component.ts, outliner/src/completion-sources.ts, src/surface/component-new.ts, src/surface/completer.ts",
+    aside: "::packet-shelf{where=\"showcase-seed=yes\"} draws the Packet shelf script's badges under its line · e, then type ::pac on a new line: Packet shelf is listed under this outline's, g opens its note · inside where=\" the query grammar completes; a property prop is offered the keys where='s notes carry, most first · ::stale: the last row + new component ::stale writes its starter under [[components]], puts ::stale{} on the line and opens it beside · act: component.new name=stale",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · note component", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.55, x!, y!) }, show, [[a, n.noteComponent], [b, n.scripts]]);
+    },
+  },
+  {
     key: "press", need: "press a square a script's view draws: a click or ⏎ runs the action it carries, as you", part: "a view primitive's `action` (the service's ViewAction), drawn as a control of the handler line (extensionRegion's press), run through EXT_ACTIONS as the person; edit and rich edit keep the line's last drawing under it", files: "outliner/src/component-primitives.ts, src/components.ts, src/projection.ts, src/edit.ts",
     aside: "Click a number (it runs at once, as you), or [ ] to it and ⏎ · the New game button and the prose link [start over](act: ttt-reset) are the same press · act: ext.<id>.run block=<the note> at=5 (ext ls names the script's id), element.open n=<its element> from another reader · a script you press may move your tiles: its layout changes are one transaction, ext.undo takes them back with its writes · ctrl+z in the board undoes your last move first, even after you close or move a tile elsewhere; layout.undo only once the board has nothing of its own · e (then ⏎) to edit: the drawn board stays under its ttt-board:: line, read-only · the board is a [board::] property on the note, so the move is a revision you can ctrl+z",
     stage(n, show) {

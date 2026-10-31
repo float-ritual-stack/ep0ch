@@ -15,7 +15,8 @@ import type { ExtensionRegistry } from "./extension-registry";
 import type { ExtensionWrites } from "./extension-writes";
 import { planPlace, type PlaceMode } from "./place";
 import { hostApi, type HostApi, type HostStep } from "./host-api";
-import { runScript, type ScriptSiteGlobals } from "./script-runtime";
+import { isJsxLanguage, runScript, type ScriptSiteGlobals } from "./script-runtime";
+import { importedNames, linkScript, ScriptLinkError, type LinkedScript } from "./script-link";
 import { PRIMITIVE_TYPES, renderComponent, validateComponent, type ComponentOutput, type Primitive } from "./component-primitives";
 import { textRecord } from "./block-records";
 import { blockDisplayTitle } from "./references";
@@ -26,6 +27,17 @@ import { MAX_DEADLINE_MS } from "./extension-manifest";
 import type { Address, SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
+
+/** A command or URL as a run note says it: what ran, how it ended, how much, and its first lines. */
+function reachLine(step: HostStep): string {
+  const input = step.input as { argv?: string[]; url?: string; method?: string };
+  const result = step.result as { exit?: number; status?: number; bytes: number; lines?: string; stderr?: string };
+  const what = step.tool === "sh" ? (input.argv ?? []).join(" ") : `${input.method ?? "GET"} ${input.url}`;
+  const shown = what.length > 200 ? `${what.slice(0, 200)}…` : what;
+  const size = result.bytes < 1024 ? `${result.bytes} B` : `${(result.bytes / 1024).toFixed(1)} KB`;
+  const said = [result.lines, result.stderr].filter(Boolean).join("\n").trimEnd();
+  return `${step.tool} ${shown} → ${step.tool === "sh" ? `exit ${result.exit}` : `status ${result.status}`}, ${size}${said ? `\n\`\`\`\`text\n${said}\n\`\`\`\`` : ""}`;
+}
 
 const ANSWER_MS = 3000;
 /** Lets go of the connection's request queue (the server's `accept` sets it per request): a request that waits can call it. */
@@ -94,7 +106,7 @@ export class ScriptRuns {
     private readonly writes: ExtensionWrites, private readonly client: AgentToolsClient,
     private readonly publish: (changes: readonly OutlinerChange[]) => void,
     private readonly inverse: (run: string) => Promise<import("./draft-patch").DraftPatchEdit[]>,
-    private readonly act: (clientId: string | undefined, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal, meta: { requestedBy: MutationProvenance; invitation?: string }) => Promise<unknown>,
+    private readonly act: (clientId: string | undefined, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal, meta: { requestedBy: MutationProvenance; invitation?: string; chain: readonly string[]; mcpAccess?: ExtensionActRequest["mcpAccess"] }) => Promise<unknown>,
     /** A run ended (PIE-957): done, stopped or failed. The door holding its layout transaction closes it by that. */
     private readonly ended?: (e: import("@ep0ch/outline-core/protocol").ScriptEnded) => void,
     /** How long `answered` waits for a run to end before it says the run is still going. */
@@ -214,12 +226,43 @@ export class ScriptRuns {
       const api = hostApi(client, undefined, {
         kind: "render", cutQueries: !!bound, visibleId, onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
       });
-      const result = await runScript(source.code, api, signal, undefined, site.globals);
+      // The notes it imports are read: an edit of one draws this again.
+      let linked: LinkedScript;
+      try { linked = this.link(source, input.blockId, input.line); }
+      catch (error) { if (error instanceof ScriptLinkError) onRead(error.moduleIds); throw error; }
+      onRead(linked.moduleIds);
+      const result = await runScript(linked.code, api, signal, undefined, site.globals, { jsx: isJsxLanguage(source.language), modules: linked.modules });
       if (hiddenQueryRoot) return { markdown: "not shared", reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
       if (!result.ok) throw new Error(`${result.error.message}\n${RENDER_ERROR}`);
       const drew = result.value === undefined ? null : scriptView(result.value);
       return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}) };
+    } catch (error) {
+      // What it read before it failed goes with the error: a change to one of them (a module fixed) draws the line again.
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), { reads: [...reads].map(([id, revision]) => ({ id, revision })), queries });
     } finally { clearTimeout(timer); }
+  }
+
+  /**
+   * A run's code with its imports linked (script-link.ts): each name found as a button finds a script, in the Site's
+   * order from the note the run is about (nearest first). A name that isn't here, a cycle or too deep a chain throws.
+   */
+  private link(source: ScriptSource, blockId: string | undefined, line: number | undefined): LinkedScript {
+    if (!importedNames(source.code).length) return { code: source.code, modules: "", moduleIds: [] };
+    const own = source.blockId ? this.store.get(source.blockId)?.properties.find(p => p.key === "script")?.value : undefined;
+    let entries: ReturnType<typeof scriptsAt> | undefined;
+    return linkScript({ name: source.fence?.name ?? own ?? "this script", code: source.code }, name => {
+      entries ??= scriptsAt(this.store, this.registry.list().extensions, blockId ? { blockId, ...(line !== undefined ? { line } : {}) } : {});
+      const entry = entries.find(e => e.script && e.name === name);
+      if (!entry) return undefined;
+      const loaded = this.registry.extension(entry.id);
+      if (entry.state === "failed" || !loaded?.script) return { problem: entry.error ?? "it has no code" };
+      if (loaded.script.format === "actions") return { problem: "an actions fence exports nothing; write the module in ts or tsx" };
+      // A note's module is read as the note is now, not as the registry last loaded it: the edit that draws its importers
+      // again (they read the note) may come before the registry's reload.
+      const note = loaded.script.blockId && !loaded.script.file ? this.store.get(loaded.script.blockId) : undefined;
+      const code = note && !note.effectiveDeletedRootId ? scriptFence(note.text, loaded.script.fence).code : loaded.script.code;
+      return { id: entry.id, name, code, stamp: note ? `${note.id}@${note.revision}` : loaded.stamp, ...(loaded.script.language ? { language: loaded.script.language } : {}), ...(loaded.script.blockId ? { blockId: loaded.script.blockId } : {}) };
+    });
   }
 
   /** Ends one run (`script.stop`): its remaining calls are refused, and its note says it was stopped and by whom. */
@@ -349,7 +392,14 @@ export class ScriptRuns {
       const on = proposal?.outcome === "proposed" && proposal.detail?.thread ? /^\(\(([^)|]+)/.exec(proposal.uri ?? "")?.[1] : undefined;
       if (on) commented.push({ id: proposal!.detail!.thread!, note: on });
       if (s.phase === "start") return;
-      lines.push(`\n${s.seq}. ${s.tool}: ${s.phase === "done" ? JSON.stringify(s.result) : s.error}`);
+      const reached = s.tool === "sh" || s.tool === "fetch";
+      // A command or URL is said with how it ended: the run note is its record.
+      lines.push(`\n${s.seq}. ${reached && s.phase === "done" ? reachLine(s) : `${s.tool}: ${s.phase === "done" ? JSON.stringify(s.result) : s.error}${reached ? ` · ${JSON.stringify(s.input)}` : ""}`}`);
+      // A run that reached outside (a command, a URL) always leaves its run note: it is the only record of that reach.
+      if (!log && reached) {
+        try { keep(); } catch (error) { controller.abort(error); }
+        return;
+      }
       // A tight host-call loop must not flood readers and delay the person's save behind progress events.
       if (log) progress ??= setTimeout(() => {
         progress = undefined;
@@ -408,7 +458,19 @@ export class ScriptRuns {
       mcpAccess: request.mcpAccess,
       // The door it asks is the one that started the run (or `door=`); with none, the service picks the only door or says which there are.
       act: async (name: string, args: Record<string, unknown>) => {
-        const answer = await this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) });
+        // An extension's action is a step on the run note, as sh and fetch are, and leaves that note.
+        const said = (what: string) => {
+          if (!name.startsWith("ext.")) return;
+          lines.push(`\nact ${name}: ${what}`);
+          try { if (log) update(); else keep(); } catch (error) { controller.abort(error); }
+        };
+        let answer: unknown;
+        try {
+          answer = await this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, chain: [...(request.chain ?? []), extension.id],
+            ...(request.invitation ? { invitation: request.invitation } : {}), ...(request.mcpAccess ? { mcpAccess: request.mcpAccess } : {}) });
+        } catch (error) { said(error instanceof Error ? error.message : String(error)); throw error; }
+        const ended = answer as { state?: string; message?: string; error?: string } | undefined;
+        said([ended?.state ?? "done", ended?.error ?? ended?.message].filter(Boolean).join(" · "));
         if (trace) { actionAnswer = answer; effects.push(`${name}: ${JSON.stringify(answer)}`); }
         return answer;
       },
@@ -425,9 +487,12 @@ export class ScriptRuns {
             caller = { text: draft.text, span: { observed, replacement: observed, range: { start, end: start + observed.length } } };
           }
         }
-        const execute = (args = request.args ?? {}) => runScript(source.code, source.render ? hostApi(client, undefined, {
-          kind: "render", ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
-        }) : api, controller.signal, source.format === "actions" ? args : undefined, site.globals);
+        const execute = (args = request.args ?? {}) => {
+          const linked = source.format === "actions" ? { code: source.code, modules: "" } : this.link(source, request.blockId, request.line);
+          return runScript(linked.code, source.render ? hostApi(client, undefined, {
+            kind: "render", ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
+          }) : api, controller.signal, source.format === "actions" ? args : undefined, site.globals, { jsx: isJsxLanguage(source.language), modules: linked.modules });
+        };
         const result = sequence ? await (async () => {
           let value: unknown;
           const show = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);

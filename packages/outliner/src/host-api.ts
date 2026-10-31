@@ -15,9 +15,10 @@ import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, toolArgsSpec, type AgentTo
 import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
 import { findBlocks, runAgentOperation, resolveRef, type AgentActor, type AgentToolsClient, type FindInput } from "./agent-tools";
 import { readsOtherNotes } from "./block-query";
+import { blockDisplayTitle } from "./references";
 import { applyWrite, type McpWriteTool } from "./mcp-write";
-import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
-import type { AnnotationRecord, AnnotationThread } from "./types";
+import type { McpAccessLevel, QuestionFacet } from "@ep0ch/outline-core/protocol";
+import type { AnnotationRecord, AnnotationThread, VisibleBlock, VisibleBlockCollection } from "./types";
 import { WorkToolRefusal } from "./work-tools";
 
 export type HostTool = (input?: Record<string, unknown>) => Promise<unknown>;
@@ -62,6 +63,62 @@ export interface HostApiOptions {
   onStep?(step: HostStep): void;
 }
 
+/** What a script's `query()` asks: blocks.query's question (`where`, `group`, `sort`, `limit`, `facets`). */
+export interface ScriptQuery { where?: string; group?: string; sort?: string; limit?: number; facets?: true | string[] }
+/** One note a `query()` holds: its id, its title and its properties (each key's values, as `props` are). */
+export interface ScriptQueryRow { id: string; title: string; props: Record<string, string[]> }
+/** What `query()` answers: the rows, the groups (each with its rows), facets and a hint, as blocks.query says them. */
+export interface ScriptQueryAnswer {
+  rows: ScriptQueryRow[];
+  groups?: { value: string | null; count: number; rows: ScriptQueryRow[] }[];
+  facets?: QuestionFacet[];
+  hint?: string;
+  /** Every match, when the service counted them all (a sort, group or facets did); else the rows'. */
+  total: number;
+  complete: boolean;
+}
+/** The most notes one `read([...])` takes. */
+export const MAX_BATCH_READ = 200;
+/** The most rows a `query()` lists (its groups and facets count every match). */
+const MAX_QUERY_ROWS = 1000;
+
+/** The most of each stream `sh` and `fetch` hand a script; past it the rest is dropped and `truncated` says so. */
+export const MAX_REACH_OUTPUT = 1024 * 1024;
+/** How much of a reach's output its step records on the run note: the first lines, and at most this many characters. */
+const STEP_LINES = 20;
+const STEP_CHARS = 2000;
+/** How long a killed command has to end on SIGTERM before it gets SIGKILL. */
+const KILL_GRACE_MS = 1000;
+
+/** What `sh(argv, options)` takes: the folder it runs in (the host's own, when left out), text for its stdin, and a timeout of its own. */
+export interface ShOptions { cwd?: string; stdin?: string; timeoutMs?: number }
+/** What `sh` answers: the exit code and both streams (each at most MAX_REACH_OUTPUT). A command that fails answers too; only a kill refuses. */
+export interface ShResult { exit: number; stdout: string; stderr: string; truncated?: true }
+/** What `fetch(url, init)` takes: fetch's own method, headers and text body, and a timeout. */
+export interface FetchInit { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }
+/** What `fetch` answers: the status, the headers and the body as text (at most MAX_REACH_OUTPUT). */
+export interface FetchResult { status: number; headers: Record<string, string>; text: string; truncated?: true }
+
+/** A stream read whole, keeping at most `cap` bytes; `drain` reads past the cap (a command's pipe must not fill and stall it). */
+async function cappedText(stream: ReadableStream<Uint8Array> | null | undefined, drain: boolean): Promise<{ text: string; bytes: number; truncated: boolean }> {
+  const kept: Uint8Array[] = [];
+  let size = 0, bytes = 0;
+  if (stream) for await (const chunk of stream) {
+    bytes += chunk.length;
+    if (size < MAX_REACH_OUTPUT) { const part = chunk.subarray(0, MAX_REACH_OUTPUT - size); kept.push(part); size += part.length; }
+    // At exactly the cap the stream may be done or not: stop once a byte past it is seen, so `truncated` is true.
+    if (bytes > MAX_REACH_OUTPUT && !drain) break;
+  }
+  return { text: new TextDecoder().decode(Buffer.concat(kept)), bytes, truncated: bytes > size };
+}
+
+/** The first lines of some output, as a step records it. */
+function firstLines(text: string): string {
+  const lines = text.split("\n");
+  const head = lines.slice(0, STEP_LINES).join("\n");
+  return head.length > STEP_CHARS ? `${head.slice(0, STEP_CHARS)}…` : lines.length > STEP_LINES ? `${head}\n…` : head;
+}
+
 /** What a script's `place()` takes: where, how, and what the region is called. See src/place.ts. */
 export interface PlaceOptions { at?: string; mode?: string; label?: string; interpolate?: boolean }
 
@@ -69,6 +126,15 @@ export interface HostApi {
   /** Writes `content` into this run's note as an output region at `at: "^anchor"` (default: after the line that ran it); `mode` is append (default), prepend, replace or upsert. */
   place(content: string, options?: PlaceOptions): Promise<unknown>;
   act(name: string, args?: Record<string, unknown>): Promise<unknown>;
+  /**
+   * Runs a command as the host's user, with no shell (`sh(["gh", "issue", "list"])`): its exit code and output. A step on
+   * the run note records the argv, exit, bytes and first lines. Killed at `timeoutMs` or when `signal` ends (the run's deadline).
+   */
+  sh(argv: readonly string[], options?: ShOptions, signal?: AbortSignal): Promise<ShResult>;
+  /** An http(s) request (`fetch(url, { method, headers, body })`): `{ status, headers, text }`, recorded as a step like `sh`. */
+  fetch(url: string, init?: FetchInit, signal?: AbortSignal): Promise<FetchResult>;
+  /** Every name a `::name` or a script answers to here, with who has it: the built-ins, the extensions' and the scripts'. */
+  components(): Promise<{ name: string; origin: string }[]>;
   /** Every tool, by its name (`outline_read`, `outline_patch`, `view_order`…). */
   readonly tool: Readonly<Record<string, HostTool>>;
   /** The tools this API offers, by name. */
@@ -77,8 +143,17 @@ export interface HostApi {
   call(name: string, input?: Record<string, unknown>): Promise<unknown>;
   /** The blocks a query in the views' grammar holds for (outline_find with `query`): `q("type=ticket due <= +3d")`; `properties: true` puts each row's properties on it (no read per row). */
   q(query: string, options?: { under?: string; limit?: number; properties?: boolean }): Promise<unknown>;
-  /** A note as its record (id, parent, title, header, body, text, properties, fields, tasks, links, backlinks…) with its children (outline_read's, to `depth`): `read("PIE-123", { depth: 2 })`. */
-  read(ref: string, options?: { depth?: number; limit?: number }): Promise<unknown>;
+  /**
+   * A note as its record (id, parent, title, header, body, text, properties, fields, tasks, links, backlinks…) with its children (outline_read's, to `depth`): `read("PIE-123", { depth: 2 })`.
+   * A list of refs (at most MAX_BATCH_READ) reads each, in order; one that can't be read is `{ ref, problem }` in its place.
+   */
+  read(ref: string | readonly string[], options?: { depth?: number; limit?: number }): Promise<unknown>;
+  /**
+   * The notes a query in the views' grammar holds for, as rows a component draws: `query({ where: "type=errand", group:
+   * "status" })` answers `{ rows: [{ id, title, props }], groups: [{ value, count, rows }], facets, hint, total, complete }`.
+   * `where` reads `this` as the run's note; `group` counts every match (its rows are the ones within `limit`).
+   */
+  query(question: ScriptQuery): Promise<ScriptQueryAnswer>;
   /** A path as `{{ }}` answers it for this run's Site (`this.owner`, `props.week`, `this.tasks | status=todo`): `{ values }` or `{ problem }`. */
   resolve(path: string): Promise<unknown>;
 }
@@ -193,7 +268,7 @@ export const SCRIPT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = AGENT_TOO
  * actor id; a run's `sessionId` names the run). Reads need no actor; a write without one is refused, never written as
  * nobody. Every call is a plain promise: a script awaits what it needs and starts the rest side by side.
  */
-export type RenderHostApi = Omit<HostApi, "act" | "place">;
+export type RenderHostApi = Omit<HostApi, "act" | "place" | "sh" | "fetch" | "components">;
 
 export function hostApi(client: AgentToolsClient, actor: undefined, options: HostApiOptions & { kind: "render" }): RenderHostApi;
 export function hostApi(client: AgentToolsClient, actor?: AgentActor, options?: HostApiOptions): HostApi;
@@ -228,7 +303,57 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     if (options.onQuery && opts.under === undefined && Array.isArray(found?.blocks)) options.onQuery({ query, limit: opts.limit ?? 20, ids: found.blocks.flatMap(row => typeof row.id === "string" ? [row.id] : []) });
     return found;
   };
-  const read = async (ref: string, opts: { depth?: number; limit?: number } = {}) => {
+  const read = async (ref: string | readonly string[], opts: { depth?: number; limit?: number } = {}): Promise<unknown> => {
+    if (Array.isArray(ref)) {
+      if (ref.length > MAX_BATCH_READ) throw new WorkToolRefusal(`read takes at most ${MAX_BATCH_READ} notes at once (asked ${ref.length}); read them in slices`);
+      return Promise.all(ref.map(one => readOne(String(one), opts).catch(e => ({ ref: one, problem: e instanceof Error ? e.message : String(e) }))));
+    }
+    return readOne(ref as string, opts);
+  };
+  const query = async (question: ScriptQuery = {}): Promise<ScriptQueryAnswer> => {
+    if (!question || typeof question !== "object" || Array.isArray(question)) throw new WorkToolRefusal('query takes { where, group, sort, limit, facets }, such as query({ where: "type=errand", group: "status" })');
+    const where = String(question.where ?? "");
+    const limit = Math.max(1, Math.min(MAX_QUERY_ROWS, Math.floor(Number(question.limit ?? 200)) || 200));
+    const input = { where, ...(question.group ? { group: String(question.group) } : {}), ...(question.sort ? { sort: String(question.sort) } : {}), limit, ...(question.facets ? { facets: question.facets === true ? true as const : [...question.facets].map(String) } : {}) };
+    const seq = step({ tool: "query", writes: false, phase: "start", input });
+    try {
+      if (where) await client.requireCompatibleService();
+      const ask = (q: object) => client.request<VisibleBlockCollection>({ action: "blocks.query", query: { ...q, ...(options.thisId ? { this: options.thisId } : {}) } });
+      const found = await ask(input);
+      const row = (block: VisibleBlock): ScriptQueryRow => {
+        const props: Record<string, string[]> = {};
+        for (const p of block.properties) (props[p.key] ??= []).push(p.value);
+        return { id: block.id, title: blockDisplayTitle(block), props };
+      };
+      const rows = found.blocks.map(row);
+      const byId = new Map(rows.map(r => [r.id, r]));
+      const complete = found.completeness.kind === "complete";
+      const answer: ScriptQueryAnswer = {
+        rows,
+        ...(found.groups ? { groups: found.groups.map(g => ({ value: g.value, count: g.count, rows: g.ids.flatMap(id => byId.get(id) ?? []) })) } : {}),
+        ...(found.facets ? { facets: found.facets } : {}),
+        ...(found.hint ? { hint: found.hint } : {}),
+        total: found.completeness.kind === "truncated" ? found.completeness.matched ?? rows.length : rows.length, complete,
+      };
+      step({ tool: "query", writes: false, phase: "done", input, result: { rows: rows.length, total: answer.total } }, seq);
+      // A render is drawn again when the question's answer changes: recorded as q()'s are, in the order a plain ask lists
+      // them (the redraw check asks without a sort, so a sorted answer's order is asked once more here).
+      if (options.onQuery) {
+        const listed = input.sort ? (await ask({ where, limit })).blocks.map(b => b.id) : rows.map(r => r.id);
+        options.onQuery({ query: where, limit, ids: listed });
+      }
+      if (options.onRead) {
+        options.onRead(rows.map(r => r.id));
+        // Groups and facets count notes the rows don't list: what it draws depends on notes it can't name.
+        if (!complete && !options.cutQueries) options.onUntracked?.();
+      }
+      return answer;
+    } catch (e) {
+      step({ tool: "query", writes: false, phase: "refused", input, error: e instanceof Error ? e.message : String(e) }, seq);
+      throw e;
+    }
+  };
+  const readOne = async (ref: string, opts: { depth?: number; limit?: number } = {}) => {
     const read = await call("outline_read", { ref, ...opts }) as { id?: string };
     // outline_read's answer is the record's properties and fields already; the rest of the record (header, tasks, links…) joins it.
     if (typeof read?.id !== "string") return read;
@@ -240,14 +365,107 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
   const resolve = (path: string) => options.resolve
     ? options.resolve(path)
     : Promise.reject(new WorkToolRefusal("resolve answers for a note: run this script from a note, or pass at= (this run has no note)"));
-  if (options.kind === "render") return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, resolve });
+  if (options.kind === "render") return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, query, resolve });
+  // act, sh and fetch reach past the outline: below full MCP access a run may not, in the same words.
+  const belowFull = (what: string) => options.mcpAccess && options.mcpAccess !== "full"
+    ? new WorkToolRefusal(`MCP access is ${options.mcpAccess}: a run may not ${what}; ep0ch mcp access full lets it`) : undefined;
+  /** One reach as a step: started, then done with what `summary` keeps of its answer, or refused with why. */
+  const reach = async <T>(tool: string, input: Record<string, unknown>, work: () => Promise<T>, summary: (answer: T) => unknown): Promise<T> => {
+    const seq = step({ tool, writes: false, phase: "start", input });
+    try {
+      const answer = await work();
+      step({ tool, writes: false, phase: "done", input, result: summary(answer) }, seq);
+      return answer;
+    } catch (e) {
+      step({ tool, writes: false, phase: "refused", input, error: e instanceof Error ? e.message : String(e) }, seq);
+      throw e;
+    }
+  };
+  /** The run's end and a timeout of the call's own, as one signal, and why it ended in the call's words. */
+  const ending = (signal: AbortSignal | undefined, timeoutMs: unknown, what: string) => {
+    const ms = Number(timeoutMs);
+    if (timeoutMs !== undefined && !(Number.isFinite(ms) && ms > 0)) throw new WorkToolRefusal(`${what}: timeoutMs takes a number of milliseconds, such as 30000`);
+    const timeout = timeoutMs === undefined ? undefined : AbortSignal.timeout(ms);
+    const signals = [signal, timeout].filter((s): s is AbortSignal => !!s);
+    const any = signals.length ? AbortSignal.any(signals) : undefined;
+    const why = () => timeout?.aborted && !signal?.aborted
+      ? new WorkToolRefusal(`${what} ran past its timeoutMs (${ms} ms) and was stopped`)
+      : new WorkToolRefusal(`${what} was stopped: ${signal?.reason instanceof Error ? signal.reason.message : "the script run ended"}`);
+    return { signal: any, why };
+  };
+  const sh = (argv: readonly string[], opts: ShOptions = {}, signal?: AbortSignal): Promise<ShResult> => {
+    const list = Array.isArray(argv) ? argv.map(String) : [];
+    const input = { argv: list, ...(opts?.cwd !== undefined ? { cwd: String(opts.cwd) } : {}), ...(opts?.stdin !== undefined ? { stdin: `${String(opts.stdin).length} chars` } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}) };
+    return reach("sh", input, async () => {
+      const refused = belowFull("run commands (sh)");
+      if (refused) throw refused;
+      if (!Array.isArray(argv) || !list.length || !list[0]) throw new WorkToolRefusal('sh takes the command as a list, with no shell: sh(["gh", "issue", "list"])');
+      const what = `sh ${list[0]}`;
+      const end = ending(signal, opts?.timeoutMs, what);
+      if (end.signal?.aborted) throw end.why();
+      const child = Bun.spawn([...list], {
+        ...(opts?.cwd !== undefined ? { cwd: String(opts.cwd) } : {}),
+        stdin: opts?.stdin !== undefined ? Buffer.from(String(opts.stdin)) : "ignore", stdout: "pipe", stderr: "pipe",
+      });
+      let stop: (() => void) | undefined;
+      const killed = new Promise<never>((_, reject) => {
+        stop = () => {
+          child.kill("SIGTERM");
+          setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); }, KILL_GRACE_MS).unref?.();
+          reject(end.why());
+        };
+      });
+      end.signal?.addEventListener("abort", stop!, { once: true });
+      try {
+        const [out, err, exit] = await Promise.race([Promise.all([cappedText(child.stdout, true), cappedText(child.stderr, true), child.exited]), killed]);
+        return { exit, stdout: out.text, stderr: err.text, ...(out.truncated || err.truncated ? { truncated: true as const } : {}), bytes: out.bytes, errBytes: err.bytes };
+      } finally { end.signal?.removeEventListener("abort", stop!); }
+    }, answer => ({ exit: answer.exit, bytes: answer.bytes, ...(answer.stdout ? { lines: firstLines(answer.stdout) } : {}), ...(answer.exit !== 0 && answer.stderr ? { stderr: firstLines(answer.stderr) } : {}), ...(answer.truncated ? { truncated: true } : {}) }))
+      .then(({ bytes: _b, errBytes: _e, ...answer }) => answer);
+  };
+  const fetchUrl = (url: string, init: FetchInit = {}, signal?: AbortSignal): Promise<FetchResult> => {
+    const method = String(init?.method ?? "GET").toUpperCase();
+    return reach("fetch", { url: String(url), method, ...(init?.timeoutMs !== undefined ? { timeoutMs: init.timeoutMs } : {}) }, async () => {
+      const refused = belowFull("fetch URLs (fetch)");
+      if (refused) throw refused;
+      let parsed: URL | undefined;
+      try { parsed = new URL(String(url)); } catch { /* answered below */ }
+      if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) throw new WorkToolRefusal(`fetch takes an http or https URL, such as fetch("https://example.com/feed.json") (got ${JSON.stringify(String(url))})`);
+      const end = ending(signal, init?.timeoutMs, `fetch ${parsed.host}`);
+      if (end.signal?.aborted) throw end.why();
+      try {
+        const response = await fetch(parsed, {
+          method, ...(init?.headers ? { headers: Object.fromEntries(Object.entries(init.headers).map(([k, v]) => [k, String(v)])) } : {}),
+          ...(init?.body !== undefined ? { body: String(init.body) } : {}), ...(end.signal ? { signal: end.signal } : {}),
+        });
+        const body = await cappedText(response.body, false);
+        return { status: response.status, headers: Object.fromEntries(response.headers), text: body.text, ...(body.truncated ? { truncated: true as const } : {}), bytes: body.bytes };
+      } catch (e) {
+        if (end.signal?.aborted) throw end.why();
+        throw e;
+      }
+    }, answer => ({ status: answer.status, bytes: answer.bytes, ...(answer.text ? { lines: firstLines(answer.text) } : {}), ...(answer.truncated ? { truncated: true } : {}) }))
+      .then(({ bytes: _b, ...answer }) => answer);
+  };
+  const components = () => reach("components", {}, async () => {
+    const [{ schemas }, { extensions }] = await Promise.all([
+      client.request<{ schemas: { id: string; origin?: string }[] }>({ action: "components.schemas" }),
+      client.request<{ extensions: { id: string; name?: string; state?: string; script?: unknown; handlers?: { key: string }[] }[] }>({ action: "extensions.list" }),
+    ]);
+    const named = new Map(schemas.map(s => [s.id, s.origin ?? "built-in"]));
+    for (const e of extensions) {
+      if (e.state === "disabled") continue;
+      for (const name of [...(e.script && e.name ? [e.name] : []), ...(e.handlers ?? []).map(h => h.key)]) if (!named.has(name)) named.set(name, e.id);
+    }
+    return [...named].map(([name, origin]) => ({ name, origin }));
+  }, answer => ({ names: answer.length }));
   const act = (name: string, args: Record<string, unknown> = {}) => options.mcpAccess && options.mcpAccess !== "full"
-    ? Promise.reject(new WorkToolRefusal(`MCP access is ${options.mcpAccess}: a run may not dispatch door actions (act); ep0ch mcp access full lets it`))
+    ? Promise.reject(belowFull("dispatch door actions (act)"))
     : options.act
     ? options.act(name, args)
     : Promise.reject(new WorkToolRefusal("act needs a connected door; run this script from the door's power bar"));
   const place = (content: string, opts: PlaceOptions = {}) => options.place
     ? options.place(String(content), opts ?? {})
     : Promise.reject(new WorkToolRefusal("place writes into this run's note: run this script from a note (this run has none)"));
-  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, act, resolve, place });
+  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, query, act, sh, fetch: fetchUrl, components, resolve, place });
 }

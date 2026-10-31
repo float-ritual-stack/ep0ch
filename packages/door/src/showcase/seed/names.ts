@@ -87,6 +87,7 @@ export const SEED = {
   buttonSequences: "One button, two tiles",
   pickATile: "Pick a tile instead of typing its id",
   scriptsInPlace: "Scripts in place",
+  noteComponent: "A note component",
   press: "Noughts and crosses",
   statusBar: "Your buttons on the status bar",
   buttons: "Buttons that look like buttons",

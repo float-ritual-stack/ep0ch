@@ -546,8 +546,12 @@ function givenArgs(a: ExtensionAction, raw: Record<string, unknown>): Record<str
   return out;
 }
 
-/** A field of type `tag` (a template's prop, PIE-533 S4) is asked as text, typed as written (`#garden`). */
-const asQuestion = <Q extends { type: string }>(x: Q) => (x.type === "tag" ? { ...x, type: "text", free: true } : x) as Q & { type: BarQuestion["type"] };
+/**
+ * A field of type `tag` (a template's prop, PIE-533 S4) is asked as text, typed as written (`#garden`), and so is a
+ * `query` (a render script's `[form-field::where query]`), in the saved views' grammar: the bar has no other way to take one.
+ */
+export const asQuestion = <Q extends { type: string; description?: string }>(x: Q) => (x.type === "tag" ? { ...x, type: "text", free: true }
+  : x.type === "query" ? { ...x, type: "text", free: true, description: x.description ?? "a query, in the saved views' grammar" } : x) as Q & { type: BarQuestion["type"] };
 
 /** An argument the door asks the person for when they didn't give it: a choice or a property (from its choices), or a needed one. */
 const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "property" || (!!x.required && x.default === undefined && !x.defaultProperty);
@@ -773,10 +777,10 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   }
   // A rule note that can't be used (PIE-600): said once, as the service words it.
   for (const p of next?.ruleProblems ?? []) if (!saidRules.has(p)) problems.push(`rule ${p}`);
-  // The filter: a handler line (`key::`, a bullet before it is fine) or a request line (`@name`).
+  // The filter: a handler line (`key::`, or a note component's `::key{`, a bullet before it is fine) or a request line (`@name`).
   const keys = served.flatMap(e => e.handlers.map(h => escape(h.key)));
   const agents = served.flatMap(e => (e.agents ?? []).map(a => escape(a.name)));
-  const alts = [...(keys.length ? [`(?:${keys.join("|")})::`] : []), ...(agents.length ? [`@(?:${agents.join("|")})(?![\\w-])`] : [])];
+  const alts = [...(keys.length ? [`(?:${keys.join("|")})::`, `::(?:${keys.join("|")})\\{`] : []), ...(agents.length ? [`@(?:${agents.join("|")})(?![\\w-])`] : [])];
   mentions = alts.length ? new RegExp(`(?:^|\\n)[ \\t]*(?:[-*+][ \\t]+)?(?:${alts.join("|")})`, "i") : null;
   // Actions: a handler line's and a block's are EXT_ACTIONS, on every screen, even when a tile lists it too
   // (tarot's keep: `k` in its tile, and act on a block=<id> without one). One on a tile (`tile:<kind>`) is
