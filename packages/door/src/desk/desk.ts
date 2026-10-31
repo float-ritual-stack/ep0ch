@@ -1138,10 +1138,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return id;
     };
     const root = reviveTree(spec.root, tileOf);
-    // Floats (PIE-511) come back where they were, each its own tile.
-    const floats: Float<number>[] = (Array.isArray(spec.floats) ? spec.floats : []).filter(f => f?.tile?.t === "leaf" && isRect(f.rect)).map(f => ({ id: tileOf(f.tile), rect: { ...f.rect } }));
-    // Who opened each tile is kept as the opener's saved id: it names the opener's tile in this layout (a layout loaded again has new ids).
-    // (An opener outside a layout that is only loaded again is some other tile of the saved arrangement: it is no one's here.)
+    // A restored peek still belongs to the source tile of this arrangement, whose id may have changed.
+    const floats: Float<number>[] = (Array.isArray(spec.floats) ? spec.floats : []).filter(f => f?.tile?.t === "leaf" && isRect(f.rect)).map(f => ({ id: tileOf(f.tile), rect: { ...f.rect }, peekOf: f.peekOf }))
+      .map(({ peekOf, ...f }) => ({ ...f, ...(peekOf !== undefined ? { peekOf: [...this.panes.keys()].find(id => this.tileId(id) === references.get(peekOf)) } : {}) }));
+    // An opener outside an arrangement loaded again belongs to the original, not this copy.
     for (const [id, saved] of openers) tileRegistry.setOpener(this.panes.get(id)!, references.get(saved) ?? (restore ? saved : undefined));
     let tree = root;
     // A retired kind's tile (an older door's drawer.own) is left out, never drawn as "isn't available here": its place
@@ -1644,7 +1644,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (id !== undefined) n.policy = { ...n.policy, opensInto: this.tileId(id) };
     }
     // `records`: this layout's tiles are in the registry's words (a leaf's `role` is what it is for, `slot` its place).
-    return { ...saved, records: 1 };
+    return { ...saved, floats: saved.floats?.map(({ peekOf, ...f }) => ({ ...f, ...(peekOf !== undefined ? { peekOf: this.tileId(peekOf) } : {}) })), records: 1 };
   }
   /** The layout as saved: tile specs in the tree of containers (each with its policy), the focus, the open rule, the screen's policy. */
   layoutSpec(): LayoutSpec { return { ...this.saved(), focus: this.panes.has(this.focus) ? this.tileId(this.focus) : 0, rule: this.rule, ...(this.layoutName ? { name: this.layoutName } : {}) }; }
@@ -6057,11 +6057,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.closeArm = null;
     }
     const kind = this.panes.get(t.id)!.kind;
-    // `pane`: its number on screen as it closed (pane.close's older answer, as tile.resize and tile.zoom give it).
     const n = String(this.numberOf(t.id));
     const into = this.openedInto(t.id), had = this.focus === t.id, back = this.keysBackAfter(t.id, actor);
-    this.commit(r);
-    this.dropTile(t.id);
+    // Retiring the source's peeks belongs to the same undo as closing the source.
+    const scope = TXN.getStore(), txn = scope?.txn ?? `close:${crypto.randomUUID()}`;
+    TXN.run({ ...scope, txn }, () => { this.commit(r); this.dropTile(t.id); });
+    if (!scope?.txn) this.history.close(txn);
     // The person's tile opened into a container (the board's detail) closed: their keys go to the top float, else the
     // tile opens land in there now, else home.
     if (into !== undefined && had && this.dispatch.standing(actor)) {
@@ -7062,8 +7063,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(a.id), with: this.tileId(b.id) };
   }
 
-  // ── tile.resize, tile.zoom, tile.float, and pane.split (PANE_ACTIONS) ──
-
   /** A tile by its number on screen (the one `peek` shows), its name, or the focused one; `n` its number. */
   private tileNumbered(sel?: string): { name: string; n: string; id: number } {
     const t = this.tileNamed(sel, false);
@@ -7085,6 +7084,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A tile instance the layout no longer has: its program ended, its state let go. */
   private dropTile(id: number) {
     const p = this.panes.get(id);
+    if (p) this.retirePeeks(p);
     if (p) for (const d of this.relatives()) for (const [from, wires] of d.ext) for (const w of [...wires]) {
       if (w.pane === p || w.path === this.tileId(id)) {
         d.cutExt(from, w);
@@ -7104,6 +7104,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     p?.dispose?.();
     if (p) { tileRegistry.release(p); this.forgetTile(id, p); }
   }
+  /** A view owns only the peeks it opened, not the person's other select-wired readers. */
+  retirePeeks(p: Pane) { for (const f of this.floats) if (f.peekOf !== undefined && this.panes.get(f.peekOf) === p) this.closeId(f.id); }
   /** Everything this desk keeps about tile `id` that leaves it (closed, or moved whole to the drawer or another screen). */
   private forgetTile(id: number, p: Pane) {
     this.ctx?.agentPointers?.dropTile(this, this.tileId(id));
@@ -7285,13 +7287,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (on !== undefined && on === this.isFloat(t.id)) return { ...this.tileAnswer(t.id), floated: on } as TileDone;
     if (this.ctx?.hostLayer?.isDrawer(this)) throw new ActionRefused(`${t.name} is in the drawer: it doesn't float there · ^W a puts it on the screen, where it floats`);
     const key = this.openedInto(t.id), c = key !== undefined ? node(this.root, key) : null;
-    // A float opened into a container (the board's readers row) goes back into it, as its last tile there; a full one
-    // gives way, never a tile holding an edit or a comment, nor (for an agent) the one the person has.
+    // Ordinary put-back uses the original container; an explicit side belongs to the opener's container.
     const from = peekSource(this.layout, t.id) ?? this.openerOf(t.id);
     if (this.isFloat(t.id) && (where && from !== undefined || key !== undefined && c)) {
       const at: At<number> = where && from !== undefined ? { kind: "split", target: from, dir: where } : { kind: "in", key: key!, weight: this.weightIn(key!) };
-      const asked = this.ask({ op: "float", tile: t.id, at }, actor);
-      if (!asked.ok) throw new ActionRefused(asked.refused);
       this.apply({ op: "float", tile: t.id, at }, actor);
 
       if (this.dispatch.standing(actor)) this.focusTile(t.name, actor);

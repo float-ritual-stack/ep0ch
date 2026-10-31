@@ -103,8 +103,8 @@ export type Wire<I = number> = { from: I; verb: WireVerb; to: I; rule?: AltRule 
 export const WIRE_VERBS: readonly WireVerb[] = ["select", "open", "alt"];
 export const wireTarget = <I>(s: Pick<LayoutState<I>, "wires">, from: I, verb: WireVerb = "open"): I | undefined => s.wires.find(w => w.from === from && w.verb === verb)?.to;
 export const selectTargets = <I>(s: Pick<LayoutState<I>, "wires">, from: I): I[] => s.wires.filter(w => w.from === from && w.verb === "select").map(w => w.to);
-/** A float following a selection is a peek; its select wire is its source. */
-export const peekSource = <I>(s: Pick<LayoutState<I>, "wires" | "floats">, id: I): I | undefined => s.floats.some(f => f.id === id) ? s.wires.find(w => w.to === id && w.verb === "select")?.from : undefined;
+/** Only a float opened by the door is a peek; a person's select-wired reader stays theirs. */
+export const peekSource = <I>(s: Pick<LayoutState<I>, "floats">, id: I): I | undefined => s.floats.find(f => f.id === id)?.peekOf;
 
 /** What a tile is, as the layout's rules need it: the desk's tile instances answer it. */
 export interface TileFacts {
@@ -295,7 +295,7 @@ interface Draft<I> {
   policy: Policy; locks: Set<string>; remembered: Map<string, Policy | undefined>; focus: I; changed: boolean; answer: Record<string, unknown>;
 }
 const draftOf = <I>(s: LayoutState<I>, focus: I): Draft<I> => ({
-  tree: clone(s.tree), floats: s.floats.map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map([...s.collapsed].map(([k, v]) => [k, { ...v }])), zoom: s.zoom, lift: s.lift,
+  tree: clone(s.tree), floats: s.floats.map(f => ({ ...f, rect: { ...f.rect } })), collapsed: new Map([...s.collapsed].map(([k, v]) => [k, { ...v }])), zoom: s.zoom, lift: s.lift,
   across: s.across.map(w => ({ ...w })), wires: s.wires.map(w => ({ ...w })), altReaders: new Set(s.altReaders), touched: [...s.touched], names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
 });
 
@@ -353,7 +353,7 @@ export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; 
   if (opts.freshIds) forgetIds(given, num => num < (prev?.nextNode ?? 1));
   const tree = normalise(given);
   const d: Draft<I> = {
-    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, lift: null, across: (parts.across ?? []).map(w => ({ ...w })), wires: (parts.wires ?? []).map(w => ({ ...w })), altReaders: new Set(parts.altReaders), touched: prev && "touched" in prev ? prev.touched.filter(id => parts.names.has(id)) : [], names: new Map(parts.names), agents: new Map(parts.agents ?? []),
+    tree, floats: (parts.floats ?? []).map(f => ({ ...f, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, lift: null, across: (parts.across ?? []).map(w => ({ ...w })), wires: (parts.wires ?? []).map(w => ({ ...w })), altReaders: new Set(parts.altReaders), touched: prev && "touched" in prev ? prev.touched.filter(id => parts.names.has(id)) : [], names: new Map(parts.names), agents: new Map(parts.agents ?? []),
     policy: policyOf(parts.policy), locks: new Set(prev && "locks" in prev ? prev.locks : []), remembered: new Map(prev && "remembered" in prev ? prev.remembered : []),
     focus: leaves(tree)[0]!, changed: true, answer: {},
   };
@@ -545,10 +545,7 @@ function besideReader<I>(s: Pick<LayoutState<I>, "names">, ctx: Ctx<I>, id: I): 
   return f.notes && !f.pinned && !f.editing && !f.holds && f.available !== false ? at : undefined;
 }
 
-/** The one placement owner: explicit places, wires, containers, record policy, then the screen's defaults.
- * A policy float follows its source's picks until it lands. Only the person's standing reuses that follower;
- * an agent's open is independent. The dispatcher supplies standing and whether keys may move.
- */
+/** The one placement owner: explicit places, wires, containers, record policy, then screen defaults. Only the person's standing reuses an owned peek; agent opens stay independent. */
 export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across" | "collapsed" | "floats">, request: PlacementRequest<I>, ctx: Ctx<I>): NotePlacement<I> {
   const { from, to, fresh, note } = request;
   const verb = fresh ? "alt" : "open";
@@ -580,7 +577,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   const keys = ctx.keys ?? ctx.standing;
   const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing, route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
   if (route && "float" in route) {
-    const peek = ctx.standing ? selectTargets(s, from).find(id => isFloat(s, id) && !ctx.tile(id).editing && !ctx.tile(id).holds && !ctx.tile(id).pinned) : undefined;
+    const peek = ctx.standing ? s.floats.find(f => f.peekOf === from && !ctx.tile(f.id).editing && !ctx.tile(f.id).holds && !ctx.tile(f.id).pinned)?.id : undefined;
     result.destination = peek === undefined ? { kind: "new", at: { kind: "float", near: from } } : { kind: "swap", tile: peek };
     result.giveNewKeys = keys && request.keys !== false;
     if (peek !== undefined && result.giveNewKeys) result.keys = peek;
@@ -896,13 +893,13 @@ export function nodeAt<I>(root: LNode<I>, path: string): LNode<I> | null {
 }
 
 /** The layout as saved: the tree of tiles (each as `leafOf` writes it, `skip`'s left out), the screen's policy, the floats. */
-export function serialize<I, L>(s: LayoutState<I>, leafOf: (id: I) => L, skip?: (id: I) => boolean): { root: ReturnType<typeof serializeTree<I, L>>; policy?: Policy; floats?: { tile: L; rect: Rect }[] } {
+export function serialize<I, L>(s: LayoutState<I>, leafOf: (id: I) => L, skip?: (id: I) => boolean): { root: ReturnType<typeof serializeTree<I, L>>; policy?: Policy; floats?: { tile: L; rect: Rect; peekOf?: I }[] } {
   let root: LNode<I> | null = s.tree;
   if (skip) { root = clone(s.tree); for (const id of leaves(s.tree)) if (skip(id) && root) root = remove(root, id); }
   return {
     root: serializeTree(root ?? s.tree, leafOf),
     ...(Object.keys(s.policy).length ? { policy: { ...s.policy } } : {}),
-    ...(s.floats.length ? { floats: s.floats.filter(f => !skip?.(f.id)).map(f => ({ tile: leafOf(f.id), rect: { ...f.rect } })) } : {}),
+    ...(s.floats.length ? { floats: s.floats.filter(f => !skip?.(f.id)).map(({ id, ...f }) => ({ ...f, tile: leafOf(id), rect: { ...f.rect } })) } : {}),
   };
 }
 
@@ -1228,8 +1225,10 @@ class Step<I> {
         spineWeights(this.d.tree, plan.keep.tile, op.tile, before);
       }
       if (dest.kind === "new") this.open({ op: "open", tile: op.tile, name: op.name, kind: op.kind ?? "reader", at: dest.at, ...(!plan.giveNewKeys ? { keys: false as const } : {}) }, true);
-      if (dest.kind === "new" && plan.route && "float" in plan.route && this.ctx.standing)
+      if (dest.kind === "new" && plan.route && "float" in plan.route && this.ctx.standing) {
+        this.d.floats.find(f => f.id === op.tile)!.peekOf = op.placement.from;
         this.d.wires.push({ from: op.placement.from, to: op.tile, verb: "select" });
+      }
       if (plan.merge !== undefined) {
         this.guard(plan.merge, "merge");
         const focused = this.d.focus === plan.merge;
@@ -1618,6 +1617,7 @@ class Step<I> {
     const base = this.isFloat(focus) || focus === id || !has(this.d.tree, focus) ? (pinnedTiles(this.d.tree).at(-1) ?? leaves(this.d.tree).at(-1)!) : focus;
     const first = tryAt(at ?? { kind: "split", target: base, dir: "right" });
     const refused = why(first);
+    if (at?.kind === "split" && refused) refuse(`${refused} · tile.float on=false puts it back where it was opened`);
     let next: LNode<I> | null = refused ? null : first;
     if (!next) {
       // Beside a pinned tile only: one in a dock would put the float where it isn't shown (a shut dock).

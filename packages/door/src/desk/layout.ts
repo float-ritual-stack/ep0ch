@@ -554,7 +554,7 @@ export function dividerAt<I>(dividers: Divider<I>[], x: number, y: number): Grab
 // ── a screen: the tree, the docks sliding over it, the floats ─────────────
 
 /** A tile with its own rectangle, above everything (`tile.float`): which tile, and where. */
-export interface Float<I = number> { id: I; rect: Rect }
+export interface Float<I = number> { id: I; rect: Rect; peekOf?: I }
 export interface ScreenLayout<I = number> {
   root: LNode<I>;
   /** Tiles with their own rectangle, drawn above everything, last on top. */

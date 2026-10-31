@@ -42,13 +42,82 @@ describe("showcase: collection peeks (PIE-849)", () => {
     expect(stage().pane("garden").surface.msg.id).toBe(h.seeded.notes.peek.id);
   }, 15_000);
 
-  test("Esc closes the entered peek and returns keys to its gallery", async () => {
+  test.each(["entered peek", "gallery"])("Esc closes the peek from the %s and returns keys to its gallery", async from => {
     await setup();
-    await act("list.open", { n: 2 });
+    if (from === "entered peek") await act("list.open", { n: 2 });
+    else {
+      const lines = h.screen().split("\n"), label = list().view.pickable()[1].label;
+      const y = lines.findIndex(line => line.includes(label)), x = lines[y]!.indexOf(label) + 2;
+      h.press({ kind: "mouse", action: "down", button: 0, x, y });
+      h.press({ kind: "mouse", action: "up", button: 0, x, y });
+      await until(() => floats().length === 1, "a picked card's float", 1500);
+      expect(stage().focusedName()).toBe("garden");
+    }
     expect(floats()).toHaveLength(1);
     h.press({ kind: "esc" });
     await until(() => floats().length === 0, "Esc closes the peek", 1500);
     expect(stage().focusedName()).toBe("garden");
+  }, 15_000);
+
+  test("a person's floated select reader survives Esc and is not reused as the gallery's peek", async () => {
+    await setup();
+    await act("tile.open", { kind: "reader", name: "my-reader" });
+    await act("tile.link", { to: "my-reader", verb: "select" });
+    await act("tile.float", { on: true }, "my-reader");
+    await act("tile.focus", {}, "my-reader");
+    h.press({ kind: "esc" });
+    expect((await act("layout.get")).tiles.some((t: any) => t.name === "my-reader" && t.float)).toBe(true);
+    await act("tile.focus");
+    await act("list.open", { n: 2 });
+    expect(floats().map((t: any) => t.name)).toContain("my-reader");
+    expect(floats()).toHaveLength(2);
+  }, 15_000);
+
+  test("an explicit right landing refuses a container that takes no drops and keeps the following wire", async () => {
+    await setup();
+    await act("tile.open", { kind: "reader", name: "outside", where: "right" });
+    await act("tile.open", { kind: "reader", name: "companion", where: "down" });
+    await act("layout.policy", { droppable: false });
+    try {
+      await act("list.open", { n: 2 });
+      const peek = floats()[0], before = stage().layoutGet();
+      await expect(act("tile.float", { on: false, where: "right" }, peek.name)).rejects.toThrow(/takes no drops.*tile.float on=false/);
+      expect(stage().layoutGet().tree).toEqual(before.tree);
+      expect(floats()[0].name).toBe(peek.name);
+      await act("tile.focus");
+      await act("list.pick", { n: 1 });
+      await until(() => floats()[0]?.showing?.id === list().view.picked().id, "refused float still follows", 1500);
+      await act("tile.float", { on: false }, peek.name);
+      expect(floats()).toHaveLength(0);
+      expect(stage().layoutGet().tiles.find((t: any) => t.name === "garden").wires).toContainEqual({ verb: "select", to: peek.tile });
+    } finally { await act("layout.policy", { clear: "droppable" }); }
+  }, 15_000);
+
+  test.each(["note", "close"])("a source %s change retires its peek and leaves a person's float alone", async change => {
+    await setup();
+    await act("tile.open", { kind: "reader", name: "my-reader" });
+    await act("tile.float", { on: true }, "my-reader");
+    await act("tile.link", { to: "my-reader", verb: "select" });
+    await act("tile.open", { kind: "reader", name: "outside" });
+    await act("list.open", { n: 2 });
+    const peek = floats().find((t: any) => t.name !== "my-reader");
+    expect(peek).toBeDefined();
+    expect(stage().layoutGet().tiles.find((t: any) => t.name === "garden").wires).toContainEqual({ verb: "select", to: peek.tile });
+    try {
+      if (change === "note") await act("open", { id: h.seeded.notes.shed.id });
+      else await act("tile.close");
+      expect(floats().map((t: any) => t.name)).toEqual(["my-reader"]);
+      expect(stage().layoutGet().tiles.flatMap((t: any) => t.wires ?? []).some((w: any) => w.to === peek.tile)).toBe(false);
+      if (change === "close") {
+        await act("layout.undo", {}, "outside");
+        expect(stage().layoutGet().tiles.some((t: any) => t.name === "garden")).toBe(true);
+        expect(floats()).toHaveLength(2);
+        await act("tile.close");
+        expect(floats().map((t: any) => t.name)).toEqual(["my-reader"]);
+      }
+    } finally {
+      if (change === "close") await act("tile.open", { kind: "reader", name: "garden", note: h.seeded.notes.peek.id }, "outside");
+    }
   }, 15_000);
 
   test("a peek lands to the right of its source and keeps its note after another pick", async () => {
@@ -104,6 +173,11 @@ describe("showcase: collection peeks (PIE-849)", () => {
     await until(() => list().view.picked().id === list().view.pickable()[1].id, "l crosses a column", 1500);
     h.ch("h");
     await until(() => list().view.picked().id === list().view.pickable()[0].id, "h returns a column", 1500);
+    const firstCard = list().view.picked().id;
+    h.ch("H");
+    await until(() => list().view.picked().id !== firstCard, "H crosses a gallery group", 1500);
+    h.ch("L");
+    await until(() => list().view.picked().id === firstCard, "L returns a gallery group", 1500);
     await act("list.layout", { layout: "board" });
     await until(() => list().detail.layout === "board", "board lanes", 4000);
     await act("list.pick", { n: 1 });
@@ -115,6 +189,24 @@ describe("showcase: collection peeks (PIE-849)", () => {
     await agent("list.step", { by: 1, axis: "group" });
     expect(list().view.picked().group).toBe(first);
   }, 20_000);
+
+  test.each(["gallery", "table", "feed"])("H/L keeps separate occurrences of a note in two %s groups", async layout => {
+    await setup();
+    const aster = await h.board.createBlock(null, `Aster [collection::step-${layout}] [bed::A] [bed::B]`);
+    await h.board.createBlock(null, `Bluebell [collection::step-${layout}] [bed::B]`);
+    const note = await h.board.createBlock(null, `Flower beds\n::view{query=collection=step-${layout} layout=${layout} group=bed sort="title asc"}`);
+    await act("open", { id: note.id });
+    await until(() => list()?.view.pickable()[0]?.id === aster.id, `${layout} flower beds`, 4000);
+    await act("list.enter", { on: true });
+    await act("list.pick", { n: 1 });
+    const first = list().view.picked().group;
+    h.ch("L");
+    await until(() => list().view.picked().group !== first, `L reaches Aster's second ${layout} occurrence`, 1500);
+    expect(list().view.picked().id).toBe(aster.id);
+    h.ch("H");
+    await until(() => list().view.picked().group === first, `H returns to Aster's first ${layout} occurrence`, 1500);
+    expect(list().view.picked().id).toBe(aster.id);
+  }, 15_000);
 
   test("container float and full rules apply after a tile's wire", async () => {
     await setup();

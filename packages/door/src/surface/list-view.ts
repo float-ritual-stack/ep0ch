@@ -93,11 +93,15 @@ export function listRowLines<S>(r: ListViewRow<S>, o: RowDraw<S>): string[] {
  * under it. A row with no mark is a dot, or a square when it does nothing (a header the view wrote itself).
  */
 export function listRowsOf<S = unknown>(node: Pick<ListPrimitive, "rows" | "groups" | "arrange">): ListViewRow<S>[] {
-  if (node.arrange && node.arrange !== "lanes") return node.rows.map(r => ({ ...r }));
-  return listSections(node).flatMap(({ head, rows }) => [
+  const grouped = listSections(node).flatMap(({ head, rows }) => [
     ...(head ? [{ id: `\u0000group:${head.name ?? head.label}`, label: listHead(head), mark: "▾", tone: "warn" as const, pick: false, group: head.name ?? head.label, ...(head.note ? { detail: head.note } : {}) }] : []),
     ...rows.map((r): ListViewRow<S> => ({ ...r, ...(head ? { group: head.name ?? head.label } : {}), mark: r.mark ?? (r.do ? "·" : "■"), depth: head ? 1 : 0 })),
   ]);
+  if (!node.arrange || node.arrange === "lanes") return grouped;
+  // Keep the sorted row order while retaining the service's separate group occurrences.
+  const byId = new Map<string, ListViewRow<S>[]>();
+  for (const row of grouped) byId.set(row.id, [...(byId.get(row.id) ?? []), row]);
+  return node.rows.flatMap(row => byId.get(row.id) ?? []);
 }
 
 /** What a list says it holds, for `list.blocks` and `peek`: one row as an agent reads it. */
@@ -287,7 +291,9 @@ export class ListView<S = unknown> {
     const shape = this.shapes.get(who) ?? this.shapes.get(PERSON);
     let to = (at < 0 ? (by > 0 ? -1 : rows.length) : at) + Math.trunc(by);
     if (axis === "group" || axis === "column" && shape?.arrange === "lanes") {
-      const groups = axis === "column" && shape?.groups ? shape.groups.map(g => rows.filter(r => r.group === g.name || r.group?.startsWith(g.name + "/")))
+      const groups = shape?.groups?.length ? axis === "column"
+        ? shape.groups.map(g => rows.filter(r => r.group === g.name || r.group?.startsWith(g.name + "/")))
+        : listSections(shape).map(({ head }) => rows.filter(r => r.group === (head?.name ?? head?.label)))
         : [...new Set(rows.map(r => r.group))].map(g => rows.filter(r => r.group === g));
       const from = groups.findIndex(g => g.includes(picked!)), next = groups[(from < 0 ? -1 : from) + Math.trunc(by)];
       const index = axis === "column" ? Math.max(0, groups[from]?.indexOf(picked!) ?? 0) : 0;

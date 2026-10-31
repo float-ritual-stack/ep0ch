@@ -66,6 +66,7 @@ export interface DeskApi {
   redraw(): void;
   /** Save the screen's layout now (a reader's history changed, PIE-643). */
   keepLayout?(): void;
+  retirePeeks?(p: Pane): void;
   historyLanded?(p: ReaderPane, by: Actor): void;
   /** The layout permits closing this tile, including the container that keeps it. */
   canClose?(p: Pane): boolean;
@@ -605,6 +606,7 @@ export class ReaderPane implements Pane, AttachedOwner {
       // The trail (PIE-208) opens as a list over the screen this reader is on.
       ...(desk.overlay ? { overlay: (p: ListPicker<any, any>) => desk.overlay!(p) } : {}),
       ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
+      ...(desk.retirePeeks ? { retirePeeks: () => desk.retirePeeks!(this) } : {}),
       ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),
       ...(desk.untrash ? { untrash: (board: object) => desk.untrash!(board) } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): with no wire it replaces

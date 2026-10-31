@@ -814,9 +814,13 @@ The service supplies the rows and groups. A click picks a card and gives the lis
 has a bright, bold frame and title, with no cell background. Small and large keep their cover sizes.
 
 `landing()` applies the record's `open` after a tile's wire and its container's `opensInto`. `open=float`
-creates a reader tile with a select wire from the view: subsequent picks replace its note while the view
-keeps the keys. Enter enters that same peek; Esc closes it and returns the keys to its source. The peek's
+creates a reader tile with a select wire and `peekOf` ownership on its float: subsequent picks reuse only
+the view's own peek while the view keeps the keys. Enter enters it; Esc in the gallery or the peek closes it.
+Replacing the source note or closing its tile retires the owned peek and wire; a person's floated reader stays.
+The peek's
 `⤢` calls `tile.float on=false where=right`, landing it beside its source and releasing the select wire.
+An explicit landing refuses a container that takes no drops; plain `tile.float on=false` puts it back
+where it was opened and keeps its select wire.
 `open=full` uses the existing zoom path. The dispatcher remains the owner of who may move the keys.
 
 `◀ 2/4 ▶` and PgUp/PgDn call `list.page`. A component's `^name` keys its viewer state; each actor keeps
