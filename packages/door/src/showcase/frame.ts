@@ -20,7 +20,7 @@ export class FramedScreen {
    * `focused`: the frame has the person's keys where it is (its tile is focused, the showcase's stage is entered);
    * the screen inside sees the person's whereabouts through it (`within`). Without it, it always has them.
    */
-  constructor(first: Screen, private readonly outer: () => Ctx, private readonly leave: () => void = () => {}, private readonly opened: () => void = () => {}, readonly focused: () => boolean = () => true, private readonly escaped?: () => void) {
+  constructor(first: Screen, private readonly outer: () => Ctx, private readonly leave: () => void = () => {}, private readonly opened: () => void = () => {}, readonly focused: () => boolean = () => true, private readonly escaped?: () => void, readonly undo?: () => Pick<Ctx, "layoutUndoSeq" | "untrash">) {
     this.stack.push(first);
     this.ctx = frameCtx(this);
   }
@@ -71,8 +71,8 @@ export class FramedScreen {
     return { lines, placements: (f.placements ?? []).map(p => ({ ...p, key: `${tag}:${p.key}` })), ...(f.lines.length <= this.h && f.chrome ? { chrome: f.chrome } : {}) };
   }
 
-  /** A key, with mouse positions already relative to the rectangle. */
-  key(k: Key) { this.open(); this.top.key(k, this.ctx); }
+  /** A key, with mouse positions already relative to the rectangle. False: the screen gave it on (Screen.key). */
+  key(k: Key): boolean { this.open(); return this.top.key(k, this.ctx) !== false; }
   shownAs(on: boolean) { for (const s of this.stack) s.shownAs?.(on && s === this.top); }
   tick(shown = true) { this.shownAs(shown); return this.stack.map(s => s.tick?.(this.ctx) ?? false).some(Boolean); }
   /** Snap any motion in the screens in this frame (a peek or snapshot reads the settled screen). */
@@ -109,6 +109,7 @@ function frameCtx(f: FramedScreen): Ctx {
     get lastCall() { return o().lastCall; },
     set lastCall(v: number) { o().lastCall = v; },
     get events() { return o().events; },
+    ...(f.undo ? { layoutUndoSeq: () => f.undo!().layoutUndoSeq?.(), untrash: (b: object) => f.undo!().untrash?.(b) ?? false } : {}),
     push: s => f.push(s),
     pop: () => f.pop(),
     replace: s => f.replace(s),

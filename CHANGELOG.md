@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### ctrl+z in a BBS message reader tile puts the layout back (PIE-1470)
+
+- **ctrl+z with the keys in a reader tile that shows the BBS message reader** (the showcase's `exhibit`) said "no step change to undo in this note" and stopped, so a tile closed with `^W x` stayed closed; it now hands the key on to the desk's layout undo when the reader has nothing of its own to undo, as every other tile does. A step change the reader did make is still taken back first.
+- **Run:** nothing to run; restart your door to get it.
+
 ### ctrl+z takes back a run's layout on every desk it changed (PIE-1230)
 
 - **ctrl+z after a script run that put a tile in the drawer** (neat's links tile, with your keys left there) took back only the drawer's part and left the screen as the run arranged it: one ctrl+z, from the bar or after Esc, now puts back the whole run, the screen and the drawer together, and the status line says the steps of both.
