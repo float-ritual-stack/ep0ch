@@ -5,7 +5,8 @@ import { guardOf, type Merge, mergesIn, protocolOf, protocolRefusal } from './gu
 import { installedRoot, landArgv, landedSaid, lookupFailed, mergedPr } from './landed'
 import { absolute, contentsOf, scratchRemovals, underScratch } from './scratch'
 import { DRAIN_EVERY_MS, DRAIN_FIRST_MS, DRAIN_LOOKUPS, drainKeyOf, drainPrompt, drainsFor } from './drain'
-import { agentOfEp0ch, type Counts, dueOf, SWEEP_AFTER_CHANGES, SWEEP_AFTER_TURNS, isDeploy, isMerge, isOutlineWrite, reportOf, SWEEP_SYSTEM, SWEEP_TOOLS, sweepBrief, sweepsFor } from './freshness'
+import { healthDue, healthPrompt } from './health'
+import { agentOfEp0ch, type Counts, dueOf, SWEEPER, SWEEP_AFTER_CHANGES, SWEEP_AFTER_TURNS, isDeploy, isMerge, isOutlineWrite, reportOf, SWEEP_SYSTEM, SWEEP_TOOLS, sweepBrief, sweepsFor } from './freshness'
 
 const PROTOCOL_PATH = 'packages/outline-core/src/protocol.ts'
 /** The sweep's agent type, `ep0ch-repo:<name>`: registered by this mod, offered to no model. */
@@ -29,6 +30,8 @@ let drainQueued = false
 /** The board at the last drain that went (drainKeyOf). */
 let drainKey: string | null = null
 let drainDropSaid = false
+let healthWaiting = false
+const HEALTH_WEEK = 'code-health-week'
 /** Deploys and merges, and turns that wrote to the outline, since the last sweep. */
 const counts: Counts = { changes: 0, turns: 0 }
 let wroteThisTurn = false
@@ -84,13 +87,36 @@ async function startDrain($: EngineInterface): Promise<void> {
     drainTimer?.cancel()
     drainTimer = undefined
     const gen = ++drainGen
-    if (!drainsFor(await $.env.get('EP0CH_DRAIN'), await agentHere($))) return
+    const agent = await agentHere($)
+    const drain = drainsFor(await $.env.get('EP0CH_DRAIN'), agent)
+    const health = agent === SWEEPER
+    if (!drain && !health) return
     if (gen !== drainGen) return
-    const tick = () => void drainTick($, gen)
+    const tick = () => {
+      if (drain) void drainTick($, gen)
+      if (health) void healthTick($, gen)
+    }
     drainTimer = $.clock.every(DRAIN_EVERY_MS, tick)
     $.clock.after(DRAIN_FIRST_MS, () => { if (gen === drainGen) tick() })
   } catch (error) {
     $.ui.toast(`Drain tick couldn't start: ${error instanceof Error ? error.message : String(error)}`, { timeoutMs: 8000 })
+  }
+}
+
+async function healthTick($: EngineInterface, gen: number): Promise<void> {
+  if (healthWaiting) return
+  healthWaiting = true
+  try {
+    const due = healthDue(await $.clock.now())
+    if (!due || await $.store.get(HEALTH_WEEK) === due.week || gen !== drainGen) return
+    const sent = await $.prompt.submit({ text: healthPrompt(due.date) })
+    if (sent.drop !== undefined) throw Error(sent.drop || 'the prompt was dropped')
+    // A resume or a new process reads the same plugin store; a dropped prompt never consumes the week.
+    await $.store.set(HEALTH_WEEK, due.week)
+  } catch (error) {
+    $.ui.toast(`Code health didn't reach this session: ${error instanceof Error ? error.message : String(error)}`, { timeoutMs: 8000 })
+  } finally {
+    healthWaiting = false
   }
 }
 
@@ -271,6 +297,7 @@ export const register: Register = (on) => {
   drainQueued = false
   drainKey = null
   drainDropSaid = false
+  healthWaiting = false
   counts.changes = 0
   counts.turns = 0
   wroteThisTurn = false

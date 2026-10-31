@@ -18,6 +18,27 @@ bun run test
 The outliner's pinned Pi TUI patch is registered at the root (`patchedDependencies`); install through Bun with
 the lockfile so it is applied.
 
+## Code health
+
+`bun run check` runs `scripts/health-ratchet.ts` before the package checks. It holds the counts of raw `.length`
+width candidates and `padEnd` in the door, line-to-offset reductions, inline heading regexes and `host.ctx` casts.
+Diagnostics name added sites and their shared owners. These are syntax patterns, not type inference: width candidates
+feed a width, column or room expression, or a padding repeat. The script documents the spellings and owner locations.
+Source TypeScript/JavaScript files have a 2,000-line cap; larger existing files may only shrink. Tests, fixtures,
+declarations, generated grammar bundles and vendor code are excluded.
+
+After removing copies or shrinking a large file, run `bun scripts/health-ratchet.ts --write` and commit the lowered
+`scripts/health-baseline.json` in the same PR. The check fails for a stale higher baseline too; `--write` refuses to
+raise an existing count or cap. The baseline keeps site fingerprints so moving lines does not invent copies.
+
+The repository mod's existing clock hands loki a **Code health** pass at its first tick on Sunday at or after 18:00
+America/Toronto, once per ISO week in the persistent plugin store, including across restarts. The pass reads main with
+`bun scripts/health-ratchet.ts --report` (also `--json`): large files, growth, 7-day churn, co-change pairs and copy counts.
+`--report previous.json` compares with the previous health note's JSON figures; the first pass uses the baseline and
+its Git revision. Loki picks one hotspot, inventories it only if PIE-1376 has no inventory, and writes one
+`Code health, <date>` note under PIE-1376 with `[type::health-pass]` and deltas. Nothing to report means one gurgle line
+and no note or tickets. Inventory writing and #hydra ticket filing belong to loki.
+
 ## Verification
 
 Before a PR claims a change works:
