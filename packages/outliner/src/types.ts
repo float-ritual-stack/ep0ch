@@ -113,7 +113,8 @@ export type {
 } from "./resources";
 
 export interface BlockProvenance {
-  actorId: string;
+  /** Required for an agent's block; a person's has none (a run they pressed records its session and task, PIE-1464). */
+  actorId?: string;
   sessionId?: string;
   taskId?: string;
 }
