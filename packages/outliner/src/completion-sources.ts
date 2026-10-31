@@ -20,6 +20,7 @@ import { querySuggestions } from "@ep0ch/outline-core/query-suggestions";
 import type { PropsSpec } from "@ep0ch/outline-core/site";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import { propSchemaOfField } from "@ep0ch/outline-core/script-component";
+import type { FormFieldType } from "@ep0ch/outline-core/form-fields";
 import { calloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { matchesSearchText, rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
@@ -365,6 +366,13 @@ const properties: ServiceSource = {
     } else {
       // The values the notes have first, drawn and explained where a schema knows them; then the schema's others.
       const meant = new Map(valueCandidates(schemas, ask.key ?? "", q).map(c => [c.label, c]));
+      // A key whose value is a query (`[query::`, `[rule-match::`) completes what the grammar can say, not only values other notes wrote.
+      if (schemas.some(s => s.props.some(p => p.key === ask.key && p.complete === "query"))) {
+        for (const r of await querySuggestions(ask.query, (key, prefix) => catalogOf(svc, key ? { key } : {}, prefix))) if (!/[\]\n]/.test(r.value) && !seen.has(r.value)) {
+          seen.add(r.value);
+          rows.push({ label: r.value, kind: "value", detail: r.detail, insert: ask.headingShort ? `[heading::${r.value}]` : r.open ? r.value : `${r.value}]` });
+        }
+      }
       for (const c of catalog) if (!/[\]\n]/.test(c.value) && !seen.has(c.value)) {
         seen.add(c.value);
         const m = meant.get(c.value);
@@ -401,8 +409,25 @@ const filters: ServiceSource = {
   },
 };
 
+/** What a value's completion reads of the thing it completes for: the props it takes (a component's schema, or a script's declared slots). */
+type SlotOwner = Pick<ComponentSchema, "props" | "propsFrom">;
+
+/**
+ * The slots a handler line's script declares (`lens:: query="…"`, PIE-1472), as the power bar's form asks them: the
+ * `run` action's args of the extension that serves the line's key, each typed by its own word (a query completes as a view's
+ * does, a property as a key). The one lookup for every script with declared slots; null when no extension serves the key.
+ */
+async function handlerSlots(ask: Asked, svc: CompletionService): Promise<SlotOwner | null> {
+  const listed = await svc.request<{ extensions: { state: string; handlers: { key: string }[]; actions: { args?: { name: string; type: FormFieldType; description?: string; options?: string[]; required?: boolean; default?: string }[] }[] }[] }>(
+    "extensions.list", ask.draft ? { blockId: ask.draft.blockId, draft: { text: ask.draft.text } } : {});
+  const served = listed.extensions.find(e => (e.state === "active" || e.state === "failed") && e.handlers.some(h => h.key === ask.component));
+  const args = served?.actions.flatMap(a => a.args ?? []);
+  if (!args?.length) return null;
+  return { props: args.map(a => propSchemaOfField({ name: a.name, type: a.type, ...(a.options ? { options: a.options } : {}), ...(a.required ? { required: true } : {}), ...(a.default !== undefined ? { default: a.default } : {}) }, a.description)) };
+}
+
 /** A component's props: its schema's, and those of the template its `propsFrom` attribute names (`template.props`). */
-async function componentProps(schema: ComponentSchema, ask: Asked, svc: CompletionService): Promise<PropSchema[]> {
+async function componentProps(schema: SlotOwner, ask: Asked, svc: CompletionService): Promise<PropSchema[]> {
   const producer = schema.propsFrom ? ask.attrs?.find(a => a.key === schema.propsFrom)?.value : undefined;
   // A template still being named (`::use{of="Templ`) has no props yet: the schema's own still answer.
   const spec: PropsSpec = producer ? await svc.request<{ spec: PropsSpec }>("template.props", { of: producer }).then(r => r.spec, (): PropsSpec => ({})) : {};
@@ -413,7 +438,7 @@ async function componentProps(schema: ComponentSchema, ask: Asked, svc: Completi
  * The property keys a `property`-typed prop offers: those of the note its `of` names (a reference, a `[[page]]` or an
  * id), else of the note being written or the one it's about.
  */
-async function scopedKeys(schema: ComponentSchema, ask: Asked, svc: CompletionService): Promise<string[]> {
+async function scopedKeys(schema: SlotOwner, ask: Asked, svc: CompletionService): Promise<string[]> {
   const of = schema.propsFrom === "of" ? undefined : ask.attrs?.find(a => a.key === "of")?.value;
   if (!of) return noteKeys(ask, svc);
   const ref = blockReferenceOccurrences(of)[0];
@@ -423,12 +448,12 @@ async function scopedKeys(schema: ComponentSchema, ask: Asked, svc: CompletionSe
 }
 
 /**
- * The keys a call's `where=` rows carry (`::board{where="type=errand" group=`), most carried first: one `blocks.query`
+ * The keys a call's `where=` or `query=` rows carry (`::board{where="type=errand" group=`), most carried first: one `blocks.query`
  * with every key's facet, asked from the note being written (`this`). Null when the call has no where or it can't be
  * read, so the note's own keys answer instead.
  */
 async function whereKeys(ask: Asked, svc: CompletionService): Promise<(({ key: string; count: number })[] & { matched: number }) | null> {
-  const where = ask.attrs?.find(a => a.key === "where")?.value.trim();
+  const where = ask.attrs?.find(a => a.key === "where" || a.key === "query")?.value.trim();
   if (!where) return null;
   const near = ask.draft?.blockId ?? ask.near;
   const r = await svc.request<{ blocks: unknown[]; facets?: QuestionFacet[]; completeness: { kind: string; matched?: number } }>("blocks.query", { query: { where, facets: true, limit: 1, ...(near ? { this: near } : {}) } }).catch(() => null);
@@ -441,9 +466,9 @@ async function whereKeys(ask: Asked, svc: CompletionService): Promise<(({ key: s
 const foundValues = (prop: PropSchema) => prop.complete === "query" || prop.type === "property" || prop.type.startsWith("property:") || prop.type === "script" || prop.type === "ref";
 
 /** The values a prop can take, by its type: what the outline has (keys, values, notes, scripts, queries), else the schema's. */
-async function propValues(schema: ComponentSchema, prop: PropSchema, ask: Asked, svc: CompletionService): Promise<{ label: string; value: string; detail?: string }[]> {
+async function propValues(schema: SlotOwner, prop: PropSchema, ask: Asked, svc: CompletionService): Promise<{ label: string; value: string; detail?: string; open?: true }[]> {
   const q = ask.query;
-  if (prop.complete === "query") return (await querySuggestions(q, (key, prefix) => catalogOf(svc, key ? { key } : {}, prefix))).map(r => ({ label: r.value, value: r.value, detail: r.detail }));
+  if (prop.complete === "query") return (await querySuggestions(q, (key, prefix) => catalogOf(svc, key ? { key } : {}, prefix))).map(r => ({ label: r.value, value: r.value, detail: r.detail, ...(r.open ? { open: true } : {}) }));
   if (prop.type === "property") {
     const faceted = await whereKeys(ask, svc);
     if (faceted) return faceted.filter(f => f.key.startsWith(q)).map(f => ({ label: f.key, value: f.key, detail: `${f.count} of the ${notes(faceted.matched)} where= holds carry it` }));
@@ -464,12 +489,24 @@ async function propValues(schema: ComponentSchema, prop: PropSchema, ask: Asked,
   return axisValues(prop).filter(v => v.toLowerCase().startsWith(q.toLowerCase())).map(value => ({ label: value, value, ...(prop.values?.find(v => v.value === value)?.meaning ? { detail: prop.values.find(v => v.value === value)!.meaning } : {}) }));
 }
 
+/** The text a YAML value holds so far when it was typed inside quotes (`"a \"b` -> `a "b`); unquoted text is as written. */
+const yamlQuoted = (typed: string): string =>
+  typed.startsWith('"') ? typed.slice(1).replace(/\\(["\\])/g, "$1") : typed.startsWith("'") ? typed.slice(1).replace(/''/g, "'") : typed;
+
+/** A value that is the start of more (`under:`): inserted with its closing quote, if it has one, behind the cursor. */
+const stayOpen = (text: string): string | { snippet: string; select: { start: number; end: number } } => {
+  const at = text.length - (/["']$/.test(text) ? 1 : 0);
+  return at === text.length ? text : { snippet: text, select: { start: at, end: at } };
+};
+
 // A component's props and their values (PIE-1366): `::box{li` its props (the schema's and a template's), `::box{pad.x="`
 // and a figure's `density: ` the values each can take, by its type. A YAML value draws what it makes (`example`).
 const attributes: ServiceSource = {
   decl: { id: "attributes", title: "values", triggers: ["attribute", "attribute-value", "yaml-value"], priority: 10, ranked: true, by: "service" },
   async rows(ask, svc) {
-    const schema = (await schemasOf(svc)).find(s => componentName(s) === ask.component);
+    // A component's schema, else the slots of the script a handler line (`name:: slot=value`) names.
+    const known = (await schemasOf(svc)).find(s => componentName(s) === ask.component);
+    const schema: SlotOwner | null = known ?? (ask.kind === "yaml-value" ? null : await handlerSlots(ask, svc));
     if (!schema) return { rows: [] };
     const props = await componentProps(schema, ask, svc);
     if (ask.kind === "attribute") {
@@ -481,17 +518,20 @@ const attributes: ServiceSource = {
     }
     const prop = props.find(p => p.key === ask.key);
     if (!prop) return { rows: [] };
-    const values = await propValues(schema, prop, ask, svc);
+    // A YAML value typed inside its own quotes (a pick wrote `"#garden AND under:"`) is asked as the text it holds; the
+    // row still replaces the whole value, quote included, so only the question changes.
+    const asked = ask.kind === "yaml-value" ? { ...ask, query: yamlQuoted(ask.query) } : ask;
+    const values = await propValues(schema, prop, asked, svc);
     // A glimpse after the label shows how a value looks (a density, a tone); a value found in the outline (a query, a key,
     // a note, a script) changes what is drawn, not how, so its row is its words alone (PIE-1392).
     const looks = !foundValues(prop);
     return { rows: values.map((v): SourceRow => {
       const docs = v.detail ?? prop.meaning;
       if (ask.kind === "yaml-value") {
-        const made = variation(schema, { [prop.key]: v.value }, prop.key);
-        return { label: v.label, kind: "value", docs, insert: yamlScalar(v.value), example: { use: made.use, ...(made.note ? { note: made.note } : {}), ...(looks ? { inline: true } : {}) } };
+        const made = variation(known!, { [prop.key]: v.value }, prop.key);
+        return { label: v.label, kind: "value", docs, insert: v.open ? stayOpen(yamlScalar(v.value)) : yamlScalar(v.value), example: { use: made.use, ...(made.note ? { note: made.note } : {}), ...(looks ? { inline: true } : {}) } };
       }
-      return { label: v.label, kind: "value", docs, insert: attributeScalar(v.value, ask.quote) };
+      return { label: v.label, kind: "value", docs, insert: v.open ? stayOpen(attributeScalar(v.value, ask.quote)) : attributeScalar(v.value, ask.quote) };
     }) };
   },
 };

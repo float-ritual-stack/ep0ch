@@ -70,7 +70,8 @@ export interface AskForm {
 }
 
 /** One answer a question's `suggest` offers: the whole value, and how it's shown. */
-export interface BarSuggestion { value: string; label?: string; detail?: string }
+/** `open`: the value starts a longer answer (a query's `under:`): picked, it fills the input and asks again instead of answering. */
+export interface BarSuggestion { value: string; label?: string; detail?: string; open?: true }
 
 const ASK_SCOPE = "ask";
 /**
@@ -232,6 +233,10 @@ async function fieldRows(q: BarQuestion, typed: string, host: BarHost, head: str
   const choices = (q.choices ?? []).filter(c => !words || c.toLowerCase().includes(words) || q.says?.[c]?.toLowerCase().includes(words))
     .map((c): BarRow => ({ key: `answer:${c}`, label: q.says?.[c] ?? c, ...(c === q.default ? { detail: "the default" } : {}), group: head, data: c }));
   const kinds = q.kind ? await kindRows(q, typed, host, head) : [];
+  // What the question completes from what's typed (a query's grammar, PIE-1472), a clause that goes on filling the input.
+  const suggested = q.suggest ? (await Promise.resolve(q.suggest(typed)).catch(() => [] as readonly BarSuggestion[])).filter(f => f.value !== typed.trim())
+    .map((f): BarRow => ({ key: `${f.open ? "open" : "answer"}:${f.value}`, label: f.label ?? f.value, ...(f.detail ? { detail: f.detail } : {}), group: head, data: f.value })) : [];
+  if (suggested.length) choices.push(...suggested);
   // A found value named exactly as typed comes first: ⏎ takes it, as it would take the typed words (PIE-1392).
   const exact = (r: BarRow) => !!words && (r.label.toLowerCase() === words || String(r.data ?? "").toLowerCase() === words);
   const found = kinds.filter(k => !choices.some(c => c.key === k.key));
@@ -289,7 +294,7 @@ const ASK_SOURCE: BarSource = {
       const typedRow = q.free && typed ? [{ key: `answer:${typed}`, label: typed, detail: "as typed", group: head, data: typed }] : [];
       const nowRow = !typed && q.value !== undefined ? [{ key: `answer:${q.value}`, label: q.value, detail: "now", group: head, data: q.value }] : [];
       const rows = (found: readonly BarSuggestion[]): BarRow[] => [...typedRow, ...nowRow, ...found.filter(f => f.value !== typed && !(nowRow.length && f.value === q.value))
-        .map(f => ({ key: `answer:${f.value}`, label: f.label ?? f.value, ...(f.detail ? { detail: f.detail } : {}), group: head, data: f.value }))];
+        .map(f => ({ key: `${f.open ? "open" : "answer"}:${f.value}`, label: f.label ?? f.value, ...(f.detail ? { detail: f.detail } : {}), group: head, data: f.value }))];
       return Promise.resolve(q.suggest(query)).then(rows, () => rows([]));
     }
     // A question of a kind (a note, a screen, a file) lists that kind's values, as the same field in a form does (PIE-1298: a
@@ -338,6 +343,7 @@ const ASK_SOURCE: BarSource = {
     const q = question();
     if (!q || !waiting) throw new ActionRefused("nothing is waiting on an answer");
     if (row.data === undefined) throw new ActionRefused(`type the ${q.label ?? q.name} first, then ⏎`);
+    if (row.key.startsWith("open:")) return host.dispatch.press("bar.open", { scope: ASK_SCOPE, query: String(row.data) });
     waiting.answers[q.name] = String(row.data);
     if (question()) return how.actor.kind === "agent" ? { asking: question()!.name } : host.dispatch.press("bar.open", { scope: ASK_SCOPE });
     const done = waiting;
@@ -364,7 +370,7 @@ async function formPick(row: BarRow, host: BarHost, how: { alt: boolean; actor: 
   const q = question();
   if (!q) throw new ActionRefused("pick run, or a field first");
   if (row.key === "type") throw new ActionRefused(`type the ${q.label ?? q.name} first, then ⏎`);
-  if (q.kind === "file" && String(row.data).endsWith("/")) return host.dispatch.press("bar.open", { scope: ASK_SCOPE, query: String(row.data) });
+  if (row.key.startsWith("open:") || (q.kind === "file" && String(row.data).endsWith("/"))) return host.dispatch.press("bar.open", { scope: ASK_SCOPE, query: String(row.data) });
   formSet(q.name, row.key === "leave" ? undefined : String(row.data), true);
   if (how.alt) { await refused(); return formRun(); }
   return again({ answered: q.name, line: lineOf(w) });

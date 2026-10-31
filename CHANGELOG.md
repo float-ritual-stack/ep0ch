@@ -16,6 +16,39 @@ are its record. The outliner's entries from then are kept below, under
 - **What stays an allowlist:** `frame-ancestors`, who may embed an artifact, and `object-src 'none'`.
 - **Run:** `ep0ch install --apply` on float-2 (the artifact store restarts with it).
 
+### The Lens and Workbench extension pages read in ten seconds (PIE-1474)
+
+- **Both pages lead with what you can do:** one point per line and no paragraph past three sentences, so `extension-page-shape` passes again on main. Nothing was added or dropped.
+- **Workbench's handler line is one point:** its description says "Draws this view's matches as table, cards and list"; the controls moved to the page.
+- **Run:** `ep0ch install --apply` refreshes the installed pages.
+
+### `ep0ch neat …` in a shell exits 1 when steps failed (PIE-1469)
+
+- **A script run with failed steps is a refusal in a shell:** `ep0ch neat 'page=[[Bike shd]]' right=%nothing` exits 1 and names each failed step on stderr (`ep0ch: 2 steps failed:` then one line each, in the door's own words); a run whose steps all passed exits 0. It exited 0 either way, with the failures only in the answer text.
+- **The text is unchanged:** the answer still prints on stdout; a press in the door and an agent's `act` keep their words, and an agent's answer also carries `failed` (the steps). A script that reports a refused step and goes on says so with the new `script.failed steps=…` (neat does; its README and `docs/scripts.md` say how).
+- **Run:** nothing; restart your door to get it.
+
+### A failed handler line says why in one short line (PIE-1471)
+
+- **The kept drawing's notice is plain words:** `workbench: no `query` on this note; showing the drawing from 11:25 PM` instead of the raw error with `{{this.query}}` and a UTC stamp. The time is the machine's local clock (`Oct 30, 11:25 PM` on an earlier day); the door, Detail and the web page read the same line from the one helper (`keptNotice`).
+- **A placeholder that didn't resolve names the key:** the error says `no `query` on this note`, never the braces.
+- **Run:** `ep0ch update` is not needed; the outline host restarts on the next `ep0ch install --apply`.
+
+### The power bar's Run lens asks every slot, `query` too (PIE-1473)
+
+- **A script's form offers all its declared slots:** ctrl+k, "Run lens" opens one form with the needed slots first, then the optional ones (`query`, `view`, `columns`, `limit`, ...); an empty optional slot is left out, ⏎ on the act line runs it. It used to ask only the required and choice/property slots, so the lens's `query` never appeared.
+- **A `query` slot completes in the form:** `type=meeting AND un` offers `under:`/`unread:`, and a clause that starts one fills the input and asks again, as in a settings field.
+- **Unchanged:** an agent's `act` of the same line, a button's press and a typed line that already names slots run without asking.
+- **Run:** restart your door to get it.
+
+### Query completion knows the whole grammar (PIE-1472)
+
+- **Typing a query offers what the grammar can say:** the atoms (`under:`, `parent:`, `links:`, `linkedfrom:`, `child:`, `#tag`, `title~`, `text~`, `by:`, `call:`), `this` after a relation (`under:this`), `NOT`/`AND`/`OR`, `{{this.page}}` and `{{this.<key>}}` after `=`, and `-7d`, `today`, `+3d` after `updated >=` or any comparison, beside the keys and values the notes have. Each row says in a few words what it means, from the grammar's own tables in outline-core (`QUERY_ATOM_HELP`, `QUERY_CONNECTIVE_HELP`, `QUERY_DATE_HELP`).
+- **One source, every place a query is typed:** a view note's `[query::`, a `::if{where=`, a figure's `query:`, a settings field and a script's `[form-field::name query]` slot all ask outline-core's `querySuggestions`; a row that starts a clause (`under:`) stays open for the rest.
+- **A handler line completes in a note:** `lens:: ` offers the script's declared slots with what each means, and `lens:: query="type=meeting AND un` offers `under:`/`unread:`. One trigger (`name:: slot=value`, the same reader as `::name{…}`) and one lookup (the extension's declared slots) serve every script that declares slots; a `property` slot offers the keys the line's own `query=` rows carry.
+- **Lens declares all 13 of its slots** (an action may now declare 16, was 8), each with its meaning from the script's header comment.
+- **Run:** restart your door and the outline host to get it.
+
 ### A note a script creates says who ran it and "via script" (PIE-1464)
 
 - **`ep0ch revisions` on a note, comment or reply a script made:** reads "by you · via script" when you pressed it (a button, `act`, the CLI), and "by <agent> · via script" when an agent did; it used to read "by you" only, though the same run's property writes already said "via script". The change feed's action names the script (`script:<name>`).

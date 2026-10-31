@@ -1,5 +1,6 @@
 import { runbookPlan } from "./runbook";
 import { runnableFences, isRunbook } from "@ep0ch/outline-core/runbook";
+import { clockWords } from "@ep0ch/outline-core/age";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { parseProposal } from "./draft-patch";
 import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
@@ -958,7 +959,7 @@ export class ExtensionCalls {
       if (!prepared.includes("{{")) return prepared;
       const resolved = answerSite(this.store, { blockId: block.id, interpolate: { text: prepared, fences: "template" } }, Date.now).interpolated!;
       const problem = resolved.values.find(value => value.problem && !value.usedDefault);
-      if (problem) throw new Error(`${call.handlerKey}:: query {{${problem.expression}}}: ${problem.problem!.message}`);
+      if (problem) throw new Error(`${call.handlerKey}:: ${problem.problem!.message}`); // the message names the key (`no \`query\` on this note`), never the braces
       return resolved.text;
     };
     const question: BlockSearchQuery = {
@@ -1243,7 +1244,10 @@ export class ExtensionCalls {
   /** What a kept drawing says first when its last run failed (PIE-1468), or nothing when it is current. */
   private keptNotice(blockId: string, call: HandlerCall, row: ExtensionOutputRow): string | undefined {
     const failed = this.state.get(this.outputKey(blockId, call.callKey))?.error ?? row.error ?? undefined;
-    return failed ? `the last run failed: ${failed.replace(/\s+/g, " ").trim()}; the kept drawing is from ${row.ranAt!.slice(0, 16).replace("T", " ")}Z` : undefined;
+    if (!failed) return undefined;
+    const said = failed.replace(/\s+/g, " ").trim(), own = `${call.handlerKey}:`;
+    const reason = said.startsWith(`${own}: `) ? said.slice(own.length + 2) : said.startsWith(`${own} `) ? said.slice(own.length + 1) : said;
+    return `${call.handlerKey}: ${reason}; showing the drawing from ${clockWords(row.ranAt!, Date.now())}`;
   }
 
   private dataProjection(base: Omit<ResourceProjection, "status">, call: HandlerCall, fields: readonly string[]): ResourceProjection {

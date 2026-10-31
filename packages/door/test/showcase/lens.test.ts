@@ -2,7 +2,7 @@
 // stage cell in the reader steps that job's property and the table redraws; the day note's line reads this.page;
 // uninstalled, the line says how to bring the lens back, and installing by act brings it. Scratch services; made up.
 import { describe, expect, test } from "bun:test";
-import { extensionList } from "../../src/extensions";
+import { extensionList, scriptActions } from "../../src/extensions";
 import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -81,6 +81,19 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
     expect(one).not.toContain("Planning");
     expect(await drawn(order.id, "| Σ | 10 |  | 28 |")).toContain("| Beans | 5 | 2 | 10 |");
   }, 60_000);
+
+  test("the power bar's Run lens asks every slot the lens declares, query among them, and it completes from the grammar (PIE-1473)", async () => {
+    const { app } = h;
+    await app.dispatch.act({ action: "section", args: { name: "lens" } }, USER);
+    const name = scriptActions().find(x => x.action.label === "Run lens")!.action.name;
+    await app.dispatch.act({ action: name }, USER);
+    await until(() => (app.describe() as any).bar?.form, "the lens's form", 5000);
+    const form = () => (app.describe() as any).bar.form;
+    expect(form().fields.map((f: any) => f.name)).toContain("query");
+    expect(form().fields.map((f: any) => f.name)).toEqual(expect.arrayContaining(["view", "columns", "limit", "dir"]));
+    expect(form().fields.some((f: any) => f.required)).toBe(false);
+    await app.dispatch.act({ action: "bar.cancel" }, USER).catch(() => {});
+  }, 30_000);
 
   test("uninstalled, the lens's lines say so; installed by act, they draw again without a second lab", async () => {
     const { app, board, seeded } = h;

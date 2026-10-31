@@ -1,5 +1,6 @@
 import { errorDetails, type MessageDetails } from "./status-log";
 import type { FormFieldType } from "@ep0ch/outline-core/form-fields";
+import { querySuggestions, type PropertyCatalog } from "@ep0ch/outline-core/query-suggestions";
 import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
 // Extensions in the door (PIE-512): what the outline service's extension registry offers (`extensions.list`,
 // pi-herdr-outliner PIE-507, docs/extensions/README.md) bound into the door's shared parts, never drawn or run
@@ -452,6 +453,21 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
  * theirs, an agent's is attributed to it, and a repeated slot is a list (`props.page`) exactly as a button's line reads it.
  */
 export const SCRIPT_RUN_ACTIONS = actionSet<ExtOn>()("script-run", {
+  "script.failed": def({
+    words: "a running script says which of its steps failed",
+    summary: "for a script that reports a refused step and goes on (neat's `step`/`failed`): name the steps it could not do, one per line in steps=. The run still ends done with its own words; its answer also carries `failed` (the steps), and `ep0ch <script> …` in a shell exits 1 with each step on stderr. Only a running script's own call: nothing else has a run to say it for",
+    touches: "nothing", replay: "ask",
+    args: { steps: { type: "string", about: "the failed steps, one per line, in the door's own words (`<action>: <why>`)" } },
+    examples: [{ act: "script.failed steps='tile.info: no tile no-such-tile'", does: "from a script: marks its run as having one failed step" }],
+    async run(given, _on, actor) {
+      const run = actor.kind === "agent" ? actor.run : undefined;
+      if (!run) throw new ActionRefused("script.failed is a running script's own call (act('script.failed', { steps })); there is no run here to say it for");
+      const steps = String(given.steps).split("\n").map(l => l.trim()).filter(Boolean);
+      if (!steps.length) throw new ActionRefused("script.failed needs steps=<one failed step per line>");
+      FAILED_STEPS.set(run, [...(FAILED_STEPS.get(run) ?? []), ...steps]);
+      return { noted: steps.length };
+    },
+  }),
   "script.run": def({
     words: "run a script by its name with a button's slots",
     summary: "run the script note or installed script called of=<name> with the words after it as its slots, as a ::button{of=<name> k=v…} passes them (props.<k>, a key written twice is a list). Typing the script's name first does the same: `neat page=[[a]] page=[[b]]`. Its writes and layout changes are the script's own, one undo step; an agent's run is attributed to the agent",
@@ -482,6 +498,21 @@ export const SCRIPT_RUN_ACTIONS = actionSet<ExtOn>()("script-run", {
 });
 
 /**
+ * The steps a running script said it could not do (PIE-1469), by run: `script.failed` records them, and the run's answer
+ * takes them (`runExtensionAction`) as `failed`, so a shell sees what the text alone said. A script that reports and goes
+ * on (neat's `step`/`failed`) ends "done" by design; this is how it says some steps weren't.
+ */
+const FAILED_STEPS = new Map<string, string[]>();
+
+/** What a run said it could not do, taken once (an answer that has none gives undefined). */
+const takeFailedSteps = (run: string | undefined): string[] | undefined => {
+  if (!run) return undefined;
+  const steps = FAILED_STEPS.get(run);
+  FAILED_STEPS.delete(run);
+  return steps?.length ? steps : undefined;
+};
+
+/**
  * Run an extension's action through the service (`extensions.act`) and say what it did. Its writes are the
  * extension's (`ext:<id>`), whoever asked; an agent's run is said as the agent's on the status bar.
  */
@@ -506,7 +537,7 @@ export function scriptPressMessage(message: string, undo: boolean): string {
   return `${oneLine(message)}${undo ? " · ctrl+z undoes" : ""}`;
 }
 
-export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; slots?: string; passage?: Passage; invitation?: string; button?: { block: string; line?: number } }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
+export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; slots?: string; passage?: Passage; invitation?: string; button?: { block: string; line?: number } }, actor: Actor): Promise<ExtensionActResult & { said: string; failed?: string[] }> {
   connectScriptActions(ctx);
   const say = asActor(ctx, actor);
   const entry = extensionNamed(extension);
@@ -532,7 +563,8 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
     if (r.open && ctx.dispatch) await ctx.dispatch.act({ action: "open", args: isResourceRef(r.open) ? { resource: r.open } : { id: r.open } }, actor)
       .catch((e: Error) => say.flash(`${name}: couldn't open ${oneLine(r.open)}: ${oneLine(e.message)}`, undefined, errorDetails(e)));
     ctx.redraw();
-    return { ...r, ...(message !== undefined ? { message } : {}), said };
+    const failed = script ? takeFailedSteps(r.undo) : undefined;
+    return { ...r, ...(message !== undefined ? { message } : {}), ...(failed ? { failed } : {}), said };
   } catch (e) {
     say.flash(`${name}: ${a.label.toLowerCase()} refused: ${oneLine(e instanceof Error ? e.message : String(e))}`, undefined, errorDetails(e));
     ctx.redraw();
@@ -601,7 +633,7 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
           ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor)
           // The run it started: the invitation belongs to it from here (and is spent when it ends).
           .then(r => { if (invited && r.undo) INVITES.bind(invited, r.undo); return r; });
-      }, !!asked);
+      }, !!asked, !via && !slots && !Object.keys(given).length);
     },
   };
 }
@@ -630,10 +662,11 @@ function givenArgs(a: ExtensionAction, raw: Record<string, unknown>): Record<str
 
 /**
  * A field of type `tag` (a template's prop, PIE-533 S4) is asked as text, typed as written (`#garden`), and so is a
- * `query` (a render script's `[form-field::where query]`), in the saved views' grammar: the bar has no other way to take one.
+ * `query` (a render script's `[form-field::where query]`), in the saved views' grammar. Given the outline's property
+ * catalog, a query offers what the grammar can say as it is typed (outline-core's `querySuggestions`, PIE-1472).
  */
-export const asQuestion = <Q extends { type: string; description?: string }>(x: Q) => (x.type === "tag" ? { ...x, type: "text", free: true }
-  : x.type === "query" ? { ...x, type: "text", free: true, description: x.description ?? "a query, in the saved views' grammar" } : x) as Q & { type: BarQuestion["type"] };
+export const asQuestion = <Q extends { type: string; description?: string }>(x: Q, catalog?: PropertyCatalog) => (x.type === "tag" ? { ...x, type: "text", free: true }
+  : x.type === "query" ? { ...x, type: "text", free: true, description: x.description ?? "a query, in the saved views' grammar", ...(catalog ? { suggest: (typed: string) => querySuggestions(typed, catalog) } : {}) } : x) as Q & { type: BarQuestion["type"] };
 
 /** An argument the door asks the person for when they didn't give it: a choice or a property (from its choices), or a needed one. */
 const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "property" || (!!x.required && x.default === undefined && !x.defaultProperty);
@@ -643,22 +676,32 @@ const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "prope
  * (src/bar/ask.ts), its choices from the service (`extensions.args`: a property's from the rows it would act on) and its
  * value now lit, then the action runs with them. An agent is never asked: what it leaves out takes its default, or is refused.
  */
-export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>, asked = false): Promise<R | { asking: string; action: string }> {
+export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>, asked = false, optionals = false): Promise<R | { asking: string; action: string }> {
   if (actor.kind !== "user" || !ctx.dispatch || asked) return run(given);
+  const catalog: PropertyCatalog = (key, prefix) => ctx.board.propertyCatalog(key, prefix, 30);
   // A form from the note (PIE-828): what it asks is the note's, so the service says it (a form it can't read is refused there).
   if (a.fieldsFrom === "block") {
     let specs: ExtensionArgChoice[];
     try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch (err) { throw new ActionRefused(err instanceof Error ? err.message : String(err)); }
     const open = specs.filter(x => (x.fromBlock || asks(x)) && !Object.hasOwn(given, x.name));
     if (!open.length) return run(given);
-    const r = await askInBar(ctx, a.label, open.map(x => asQuestion(x.fromBlock ? { ...x, required: !!x.required } : x)), given, actor, run);
+    const r = await askInBar(ctx, a.label, open.map(x => asQuestion(x.fromBlock ? { ...x, required: !!x.required } : x, catalog)), given, actor, run);
     return r && typeof r === "object" && "asking" in r ? { asking: (r as { asking: string }).asking, action: a.name } : r;
   }
-  const open = (a.args ?? []).filter(x => asks(x) && given[x.name] === undefined);
-  if (!open.length) return run(given);
+  const declared = (a.args ?? []).filter(x => given[x.name] === undefined);
+  const open = declared.filter(asks);
+  if (!open.length && !(optionals && declared.length)) return run(given);
+  // An action with a slot that may be left out (PIE-1473) opens as a form over every slot it declares, the needed first
+  // (tab moves between them, an empty optional one is left out); the rest is asked one at a time.
+  const form = optionals && declared.some(x => !asks(x));
+  const ask = form ? [...declared.filter(x => x.required), ...declared.filter(x => !x.required)] : open;
   let specs: ExtensionArgChoice[];
-  try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch { specs = open; }
-  const r = await askInBar(ctx, a.label, open.map(x => asQuestion({ ...x, ...specs.find(y => y.name === x.name) })), given, actor, run);
+  try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch { specs = ask; }
+  // In a form anything typed is an answer, except to a fixed list of choices (src/bar/form.ts, fieldQuestion).
+  const questions = ask.map(x => asQuestion({ ...x, ...specs.find(y => y.name === x.name) }, catalog)).map(q => form && !("free" in q) && !(q as { choices?: string[] }).choices?.length ? { ...q, free: true } : q);
+  const r = form
+    ? await askInBar(ctx, a.label, questions, given, actor, args => run(Object.fromEntries(Object.entries(args).filter(([, v]) => v !== ""))), { action: a.name, check: () => null })
+    : await askInBar(ctx, a.label, questions, given, actor, run);
   return r && typeof r === "object" && "asking" in r ? { asking: (r as { asking: string }).asking, action: a.name } : r;
 }
 

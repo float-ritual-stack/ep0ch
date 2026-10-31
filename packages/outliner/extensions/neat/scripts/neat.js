@@ -127,4 +127,5 @@ await step('layout.even', {});
 const titled = async id => { try { return (await read(id)).title; } catch { return id; } };
 const nameOf = async x => x.note ? titled(x.note) : (await tiles()).find(t => t.tile === x.tile)?.name ?? x.tile;
 const said = async xs => (await Promise.all(xs.map(nameOf))).join(', ') || '-';
+if (failed.length) await act('script.failed', { steps: failed.map(f => f.replace(/\s*\n\s*/g, ' ')).join('\n') });
 return failed.length ? `neat: ${failed.length} ${failed.length === 1 ? 'step' : 'steps'} failed · ${failed.join(' · ')}` : `neat: ${await said(L)} | ${await said(R)}${linksTile ? ', links wired' : ''}`;
