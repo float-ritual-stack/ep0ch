@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The component library lists `property-scope` for rule notes (PIE-1466)
+
+- **A rule note's `[property-scope::…]` is among the keys the library says it takes:** `RULE_KEYS` now names it, so the rule's entry and the keys a card ignores as the rule's own agree.
+- **Run:** nothing to run.
+
+
 ### Note components: a render script is a `::component`, found by people and agents
 
 - **`::board{where="type=task" group=status}` draws a script written in a note:** a render script in a `tsx` fence (with imports of other notes' scripts by name, and `query()` with groups and facets) is a component in any note, its props read from the note's `[form-field::]` chips.
