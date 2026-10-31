@@ -295,6 +295,8 @@ export interface PropertyDirectiveLine {
   key: string;
   /** Trimmed text after `::`, up to any bracket property on the line. */
   value: string;
+  /** The whole argument as authored, including bracket properties, for handlers that own its syntax. */
+  rawValue: string;
   /** The key's offset, as a bare property record would report it. */
   start: number;
   end: number;
@@ -332,6 +334,7 @@ export function parsePropertyDirectiveLines(
     directives.push({
       key,
       value: text.slice(valueStart, end).trim(),
+      rawValue: text.slice(valueStart, line.contentEnd).trim(),
       start,
       end,
       line: lineIndex,

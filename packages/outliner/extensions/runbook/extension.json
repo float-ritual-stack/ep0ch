@@ -1,7 +1,7 @@
 {
   "contract": 2,
   "id": "runbook",
-  "version": 6,
+  "version": 7,
   "name": "Runbook",
   "description": "Run a runbook one step at a time, each run recorded beside it.",
   "demo": "demo",
@@ -15,6 +15,28 @@
       "key": "run",
       "kind": "component",
       "effects": "read"
+    },
+    {
+      "key": "sh",
+      "kind": "component",
+      "effects": "read",
+      "description": "Run a shell command and keep its output under this line",
+      "argument": {
+        "name": "command",
+        "raw": true,
+        "example": "sh:: ls ~/projects/ep0ch/packages/*/docs/*.md | sed 's/^/- [file::/; s/$/]/'"
+      }
+    },
+    {
+      "key": "nu",
+      "kind": "component",
+      "effects": "read",
+      "description": "Run a shell command and keep its output under this line",
+      "argument": {
+        "name": "command",
+        "raw": true,
+        "example": "nu:: ls ~/projects/ep0ch/packages/*/docs/*.md | sed 's/^/- [file::/; s/$/]/'"
+      }
     }
   ],
   "actions": [
@@ -29,6 +51,34 @@
       "id": "record",
       "label": "Record a run",
       "on": "block",
+      "effects": "write"
+    },
+    {
+      "id": "run-sh",
+      "label": "Run again",
+      "on": "handler:sh",
+      "key": "x",
+      "effects": "write"
+    },
+    {
+      "id": "keep-sh",
+      "label": "Keep as my text",
+      "on": "handler:sh",
+      "key": "K",
+      "effects": "write"
+    },
+    {
+      "id": "run-nu",
+      "label": "Run again",
+      "on": "handler:nu",
+      "key": "x",
+      "effects": "write"
+    },
+    {
+      "id": "keep-nu",
+      "label": "Keep as my text",
+      "on": "handler:nu",
+      "key": "K",
       "effects": "write"
     }
   ]

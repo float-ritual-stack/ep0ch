@@ -307,17 +307,12 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
  * `OutlineHost` with `readOnly`): the reads the MCP server makes (a note’s comment threads among them). Every other action is refused, so nothing a client
  * sends can change the copy or start work from it.
  */
-/**
- * What an extension's own process may ask over its connection (PIE-754): the reads, and the normal write paths
- * for creating, editing, commenting and annotating. Everything else (moves, deletes, settings, asking an extension
- * to act) is refused, so an extension can't set another one off.
- */
 const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "outputs.place", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch"]);
 const EXTENSION_READS: ReadonlySet<string> = new Set([
   "children", "blocks.read", "blocks.context", "block.revisions", "proposals.outcomes", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "fragments.at", "fragments.candidates", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
   "properties.preview", "properties.catalog", "components.schemas", "components.usage", "headings.styles", "callouts.types", "styles.list",
-  "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address", "site.answer", "site.sources", "template.use", "template.props",
+  "extensions.list", "extensions.args", "scripts.render", "work-ids.status", "notes.render", "notes.address", "site.answer", "site.sources", "template.use", "template.props",
 ]);
 
 /** How long `shares.start` waits for a `cloudflare` share's tunnel to come up before answering without its link. */
@@ -2272,6 +2267,10 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
+    if (request.action === "scripts.render") {
+      try { return { id: request.id, ok: true, result: await this.scriptRuns.format(request), sequence: this.store.sequence }; }
+      catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+    }
     if (request.action === "scripts.run") {
       try {
         const levels = ["none", "read", "propose", "full"] as const;
@@ -3020,6 +3019,7 @@ export class OutlinerServer {
           break;
         case "resources.projection.read": {
           const normalized = normalizeResourceProjectionRequest(request);
+          if (request.opened) void this.extensionCalls.opened(normalized.blockId).catch(error => { process.stderr.write(`outliner: open handlers failed for ${normalized.blockId}: ${error instanceof Error ? error.message : String(error)}\n`); });
           if (request.materialize === true) {
             const owner = this.store.extensionOwner(normalized.blockId);
             const record = owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner;
@@ -3027,7 +3027,6 @@ export class OutlinerServer {
           }
           if (request.materialize === true) void this.extensionCalls.refreshOutput(normalized.blockId, "open").catch(() => {});
           const read = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalized), request.materialize === true), normalized.line);
-          // A whole block's read carries what the rules draw on it (PIE-600); a line's doesn't.
           const decorations = normalized.line === undefined ? this.extensionRules.decorations(normalized.blockId) : [];
           result = decorations.length ? { ...read, decorations } : read;
           break;
@@ -3202,6 +3201,7 @@ export class OutlinerServer {
           break;
         }
         case "scripts.sequence":
+        case "scripts.render":
         case "scripts.stop":
         case "scripts.run":
         case "extensions.list":

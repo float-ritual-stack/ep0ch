@@ -151,6 +151,7 @@ export interface ExtensionInstalled { id: string; lines: string[]; page?: string
 /** What `extensions.uninstall` answers: whether a folder went, and what became of its demo notes. */
 export interface ExtensionUninstalled { id: string; lines: string[]; removed: boolean; rulesDisabled?: number; demo: { trashed: number; kept: string[]; left: number } }
 export interface ExtensionActResult {
+  confirmation?: { message: string; argument: string; value: string };
   runbook?: RunbookPlan;
   /** Scripts write as their author and keep run undo on their source (or their run note for files). */
   writtenAs?: string;
@@ -547,6 +548,14 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
   try {
     // Who asked goes with it (`mutation`): the writes stay the extension's, the feed records this as `requestedBy`.
     const r = await ctx.board.actExtension(extension, a.id, extension === "runbook" && a.id === "run-step" ? { ...target, args: undefined } : target, actor);
+    if (r.confirmation) {
+      const { message, argument, value } = r.confirmation;
+      if (actor.kind === "agent") throw new ActionRefused(`${message} · confirm with with='${JSON.stringify({ [argument]: value })}'`);
+      await askInBar(ctx, message, [{ name: "replace", label: "", type: "choice", choices: ["Keep my edits", "Replace output"], required: true }], {}, actor, async answers => {
+        if (answers.replace === "Replace output") await runExtensionAction(ctx, a, extension, { ...target, args: { ...target.args, [argument]: value } }, actor);
+      });
+      return { ...r, said: message };
+    }
     if (extension === "runbook" && a.id === "run-step" && !r.runbook) throw new ActionRefused(r.message ?? "The runbook step could not be read.");
     if (r.runbook) await (await import("./runbook")).runBook(ctx, r.runbook, actor, target.args);
     // The extension's own words (its message) are drawn as text, never as escapes.

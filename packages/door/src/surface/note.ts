@@ -53,6 +53,7 @@ import { editArmMs } from "../arm";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { propertyTokensInLine, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock, withoutFragmentAnchor, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
@@ -1455,14 +1456,13 @@ export class NoteSurface {
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return true;
-    // A Resource or a file shown as a note: nothing in the outline to read for it.
     if (!isOutlineNote(m)) {
       this.crumbs = m.id.startsWith(RESOURCE_NOTE) ? "a Resource · not a note in the outline" : m.id.startsWith(UNSENT_NOTE) ? "an unsent draft · read here, never written" : "a file";
       // A Resource's text takes comments (PIE-650): its threads live in the outline, so they are read for it too.
       if (m.resource) void this.loadComments(host);
       return true;
     }
-    // Lists carry title, properties and revision only; the surface fetches the whole note.
+    if (m.partial || shellLines(m.text).some(line => line.open)) void host.ctx.board.readResourceProjections(m.id, true).catch(e => host.ctx.flash(String(e)));
     if (m.partial) this.readWhole(host); else this.settleUnsent(m, host);
     void this.loadComments(host);
     // A followed `((id^fragment))` opened here: the fragment comes into view, marked (PIE-425).

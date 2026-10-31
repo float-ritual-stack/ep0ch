@@ -1,3 +1,4 @@
+import { shellLineDemo } from "./seed/sh-lines";
 import { BUTTON_LOOKS, BUTTON_SEQUENCES } from "./seed/button-sequences";
 import { PICK_A_TILE } from "./seed/pick-a-tile";
 import { NOTE_COMPONENT, NOTE_COMPONENT_SCRIPT } from "./seed/note-component";
@@ -759,6 +760,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     await board.reply("showcase-ask-aside", asked.id, "Try the lid half open on day one and see.", { kind: "user" });
   }
   notes.recentReplies = await make(notes.root.id, RECENT_REPLIES);
+  notes.shLines = await make(notes.root.id, shellLineDemo(opts.ticketsConfig));
   // Extensions that ship demo notes (each one's page under the Extensions hub): the notifications hub on its made-up
   // sources, pulled once so its demo boards have cards, and the runbook with its demo runbook.
   if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, DEMO_EXAMPLES).length) {

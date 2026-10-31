@@ -1,4 +1,5 @@
 import { expandsEmbeds } from "./embed-policy";
+import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { clipText } from "./overflow";
 import { componentRowFields } from "./look";
 import { heroLook } from "./surface/hero-look";
@@ -479,6 +480,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
   const componentAt = new Map(componentBlocks(src).map(c => [c.start, c]));
   const fenceAt = new Map(noteCodeFences(src).map(f => [f.start, f]));
+  const shell = new Set(shellLines(src.join("\n")).map(line => line.line));
   const lit = (i: number) => !!env.literal?.has(i);
   // Each row comes from the line its construct started on: rows pushed since then are filled in here.
   let from = 0;
@@ -796,7 +798,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       // The body is already in `out`; what follows it is what is wrong with it and the row behind the mark.
       out.push(...regionTail({
         key, label: og.label || "output", target: og.producer ? { block: og.producer, role: "embed" as const, label: og.label } : { role: "resource" as const, label: og.label }, body: sub.lines,
-        notes: edited ? [fg(C.dark) + "edited here: it is yours now, and the next output waits as a proposal" + RESET] : [],
+        notes: edited ? [fg(C.dark) + "edited here: it is yours now" + RESET] : [],
         facts: [og.label || "output", og.type === "answer" ? "an agent's answer" : "written by a script"], controls: source0 ? [fg(C.lcyan) + source0 + RESET] : [], width: W,
       }, env.regions));
       regions.push({ key, row: base, rows: out.length - base });
@@ -913,6 +915,14 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         out.push(drawn[y]!); source.push(mapped[y] ?? -1);
       }
       i = end - 1;
+      continue;
+    }
+
+    if (shell.has(i)) {
+      const joins: (string | undefined)[] = [];
+      const rows = wrap(line, W, { joins }).map(row => fg(C.lmagenta) + row + RESET);
+      wrapped(out.length, joins);
+      out.push(...rows);
       continue;
     }
 

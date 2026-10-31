@@ -2052,11 +2052,9 @@ export type OutlinerRequestAction =
       action: "resources.projection.read";
       blockId: string;
       line?: number;
-      /**
-       * Capability `resources.projection.materialize`: register and fetch in the
-       * background what the block asks for when it isn't fetched or is stale.
-       * The read answers at once with the stored state (`fetching` while it runs).
-       */
+      /** A new reader opening, as distinct from its redraw or a change-feed refresh. */
+      opened?: boolean;
+      /** Fetch missing or stale output in the background. */
       materialize?: boolean;
     }
   | {
@@ -2537,7 +2535,7 @@ export type OutlinerRequestAction =
   /** A note's text as its live draft has it now, or as saved when no door holds one (capability `drafts.read`). */
   | { id: string; action: "drafts.read"; blockId: string }
   | ({ id: string; action: "outputs.place" } & import("./place").PlaceInput)
-  /** Capability `extensions.list`. `reload` reads the folders now instead of waiting for the watcher. */
+  | { id: string; action: "scripts.render"; of: string; blockId: string; line: number; props: Record<string, string[]>; deadlineMs: number }
   | ({ id: string; action: "extensions.list"; reload?: boolean } & Pick<import("@ep0ch/outline-core/site").SiteAnswerRequest, "blockId" | "line" | "draft" | "chain">)
   /**
    * The service's completion sources for the token at the cursor (PIE-1340): pages, blocks and their fragments, files,

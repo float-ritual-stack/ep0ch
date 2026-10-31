@@ -17,7 +17,7 @@ import { workIdReferences as configuredWorkIds } from "./work-ids";
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
  * `yaml-value` the same inside a component block's YAML. `tile`: a `%tile` in an ask line (the door's alone: its tiles).
  */
-export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value" | "fence-setting" | "button-step" | "action" | "tile";
+export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value" | "fence-setting" | "button-step" | "action" | "tile" | "formatter";
 
 export interface CompletionTarget {
   kind: CompletionKind;
@@ -70,6 +70,10 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
   }
   const end = Math.max(0, Math.min(column, line.length));
   const beforeCursor = line.slice(0, end);
+  const stage = /^\s*(?:[-*+]\s+)?(?:sh|nu)::.*\|\s+as\s+([\w-]*)$/.exec(beforeCursor);
+  if (stage) return { kind: "formatter", start: end - stage[1]!.length, end: end + /^[\w-]*/.exec(line.slice(end))![0].length, query: stage[1]! };
+  const handler = /^(\s*(?:[-*+]\s+)?)([a-z][\w-]*)::$/.exec(beforeCursor);
+  if (handler) return { kind: "component", start: handler[1]!.length, end, query: handler[2]! };
   const draft = lines && row !== undefined ? [...lines.slice(0, row + 1), "::"] : null;
   const button = draft && row !== undefined && componentBlocks(draft).find(b => b.name === "button" && row > b.start && row <= buttonBodyEnd(draft, b.start));
   if (button && row === button.end && COMPONENT_CLOSE.test(line)) return null;

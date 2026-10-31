@@ -225,7 +225,15 @@ const files: ServiceSource = {
   },
 };
 
-interface Listed { extensions: { state: string; name?: string; description?: string; directory?: string; handlers: { key: string; kind: string; description?: string }[]; agents?: { name: string; description?: string; threads?: boolean }[]; script?: { blockId?: string; file?: string; code: string } }[] }
+interface Listed { extensions: { state: string; name?: string; description?: string; directory?: string; handlers: { key: string; kind: string; description?: string; argument?: { example?: string } }[]; agents?: { name: string; description?: string; threads?: boolean }[]; script?: { blockId?: string; file?: string; code: string } }[] }
+
+const formatters: ServiceSource = {
+  decl: { id: "formatters", title: "format scripts", triggers: ["| as"], priority: 10, by: "service" },
+  async rows(ask, svc) {
+    const listed = await svc.request<Listed>("extensions.list", { ...(ask.near ? { blockId: ask.near } : {}) });
+    return { rows: listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed")).map(e => ({ label: e.name!, insert: e.name!, kind: "script", definition: e.script!.blockId, docs: e.description })) };
+  },
+};
 
 const agents: ServiceSource = {
   decl: { id: "agents", title: "agents", triggers: ["@"], priority: 10, by: "service" },
@@ -307,7 +315,10 @@ const components: ServiceSource = {
       const definition = noteOf(original);
       return { ...variationRow(schema, variation(schema, {}), titleOf(schema)), id, group, filter: id, ...(definition ? { definition } : {}), variations: [...swept, ...args] };
     }));
-    const made = newComponentRow(q, all.map(c => c.id));
+    const listed = await svc.request<Listed>("extensions.list", {});
+    const handlers = listed.extensions.filter(e => e.state === "active" || e.state === "failed").flatMap(e => e.handlers.filter(h => h.argument?.example));
+    for (const h of handlers) rows.push({ label: `${h.key}::`, filter: h.key, kind: "handler", insert: `${h.key}:: `, docs: h.description, example: { use: h.argument!.example! } });
+    const made = newComponentRow(q, [...all.map(c => c.id), ...handlers.map(h => h.key)]);
     if (made) rows.push(made);
     return { rows };
   },
@@ -555,7 +566,7 @@ const callouts: ServiceSource = {
 };
 
 /** The service's sources, in the order their rows come among equals. */
-export const SERVICE_SOURCES: readonly ServiceSource[] = [pages, blocks, files, agents, components, properties, filters, attributes, callouts];
+export const SERVICE_SOURCES: readonly ServiceSource[] = [pages, blocks, files, agents, components, properties, filters, attributes, callouts, formatters];
 
 /** An extension's completion source answering through its `source` operation (`ExtensionCalls.complete`). */
 export type AskExtension = (source: ExtensionCompletionSource, ask: Asked, signal: AbortSignal) => Promise<SourceRow[]>;

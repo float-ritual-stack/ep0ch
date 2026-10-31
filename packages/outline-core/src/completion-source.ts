@@ -16,10 +16,11 @@ export const EXTENSION_TRIGGERS = ["[[", "((", "@", "::", "[key", "key::", "yaml
  * Every trigger the sources answer: the extensions', and those only the service's built-ins answer (a component's
  * attributes and a filter's words, PIE-1366), whose insert needs what the ask carries (the quote, the filter's words).
  */
-export const SOURCE_TRIGGERS = [...EXTENSION_TRIGGERS, "attribute", "attribute-value", "filter-key", "filter-value"] as const;
+export const SOURCE_TRIGGERS = [...EXTENSION_TRIGGERS, "attribute", "attribute-value", "filter-key", "filter-value", "| as"] as const;
 export type SourceTrigger = (typeof SOURCE_TRIGGERS)[number];
 
 const TRIGGER_OF: Partial<Record<CompletionKind, SourceTrigger>> = {
+  formatter: "| as",
   page: "[[", block: "((", agent: "@", component: "::", key: "[key", value: "key::", "yaml-key": "yaml-key", "yaml-value": "yaml-value",
   attribute: "attribute", "attribute-value": "attribute-value", "filter-key": "filter-key", "filter-value": "filter-value", file: "[file::", callout: "> [!",
 };
