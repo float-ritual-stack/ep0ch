@@ -509,7 +509,7 @@ export class ListView<S = unknown> {
 
 /** The handle a host gives for each list it draws: the one seam `LISTVIEW_ACTIONS` runs over (src/surface/list-actions.ts). */
 export interface ListHandle<S = unknown> {
-  binding?: { block: string; component?: { id?: string; index: number } };
+  binding?: { block: string; component?: { id?: string; line: number } };
   change?: (changes: Record<string, unknown>, who: string) => Promise<unknown>;
   /** Its number among the host's lists, from 1, in drawing order. */
   n: number;

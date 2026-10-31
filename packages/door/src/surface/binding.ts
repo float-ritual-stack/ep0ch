@@ -12,7 +12,7 @@ export function boundComponent(note: Msg, binding: Binding) {
   const ref = binding.component, lines = note.text.split("\n");
   if (!ref) return null;
   const blocks = componentBlocks(lines);
-  const block = ref.id ? blocks.find(b => b.id === ref.id) : blocks[ref.index];
+  const block = blocks.find(b => ref.id ? b.id === ref.id : b.start === ref.line);
   if (!block) throw new ActionRefused("the view's source changed · open its settings again");
   return { block, lines, props: viewSpec(block, lines)!.props };
 }
@@ -24,14 +24,21 @@ function componentValue(note: Msg, binding: Binding, key: string, value: string 
   const fences = lines.slice(block.start + 1, block.end).flatMap((line, i) => /^\s*---\s*$/.test(line) ? [block.start + 1 + i] : []);
   const yamlStart = fences[0], yamlEnd = fences[1];
   if (yamlStart !== undefined && yamlEnd !== undefined) {
-    const yamlKey = lines.findIndex((line, i) => i > yamlStart && i < yamlEnd && line.startsWith(`${key}:`));
+    const first = lines.slice(yamlStart + 1, yamlEnd).find(line => line.trim() && !line.trimStart().startsWith("#"));
+    const indent = first?.match(/^\s*/)![0] ?? "";
+    const yamlKey = lines.findIndex((line, i) => i > yamlStart && i < yamlEnd && line.startsWith(`${indent}${key}:`));
     if (yamlKey >= 0) {
       let end = yamlKey + 1;
-      while (end < yamlEnd && (/^\s+\S/.test(lines[end]!) || lines[end] === "")) end++;
-      lines.splice(yamlKey, end - yamlKey, ...(value === null ? [] : [`${key}: ${JSON.stringify(value)}`]));
+      while (end < yamlEnd) {
+        const line = lines[end]!, content = line.trimStart();
+        if (content && !content.startsWith("#") && line.length - content.length <= indent.length && !/^-(?:\s|$)/.test(content)) break;
+        end++;
+      }
+      const comments = lines.slice(yamlKey + 1, end).filter(line => !line.trim() || line.trimStart().startsWith("#"));
+      lines.splice(yamlKey, end - yamlKey, ...(value === null ? [] : [`${indent}${key}: ${JSON.stringify(value)}`]), ...comments);
       if (value !== null) return lines.join("\n");
     } else if (!attrs && value !== null) {
-      lines.splice(yamlEnd, 0, `${key}: ${JSON.stringify(value)}`);
+      lines.splice(yamlEnd, 0, `${indent}${key}: ${JSON.stringify(value)}`);
       return lines.join("\n");
     }
   }

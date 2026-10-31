@@ -40,6 +40,8 @@ import { BASE_STYLE, headingComponentLayer, listLayers, parseStyleAttrs, resolve
 import { STEP_BOX, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
 
 export interface DocEnv {
+  /** A component's line in the owning note, including through boxes and other nested drawings. */
+  componentLine?: (line: number) => number;
   fields?: FieldsDrawing;
   fieldsAnswer?: Extract<import("@ep0ch/outline-core/protocol").SiteProduced, { kind: "fields" }>;
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
@@ -406,6 +408,7 @@ export function childEnv(env: DocEnv, { off, end, width }: { off: number; end: n
   const inside = (n: number) => n >= off && n < end;
   return {
     ...env, nested: true, width, keepTags: true,
+    componentLine: env.componentLine && (line => env.componentLine!(line + off)),
     figures: env.figures && { ...env.figures, fullWidth: width, seen: f => env.figures!.seen?.({ ...f, line: f.line === undefined ? undefined : f.line + off }) },
     // Only the note's own first line can supply its header, never a child's first line.
     hero: false, heroLine: env.heroLine !== undefined && inside(env.heroLine) ? env.heroLine - off : -1,
@@ -665,7 +668,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       let info: FigureInfo | undefined;
       if (env.figures) env.figures.drawn ??= { n: 0, titles: new Map() };
       const figures = component!.name === "graph-table" ? { ...env.figures, line: i, seen: (f: FigureInfo) => { info = f; env.figures?.seen?.(f); } } : undefined;
-      const rows = renderCollection(collection, env.note, W, env.linkBlocks, env.tag, env.site, figures, { id: component!.id, index: [...componentAt.values()].indexOf(component!) });
+      const rows = renderCollection(collection, env.note, W, env.linkBlocks, env.tag, env.site, figures, env.componentLine && { id: component!.id, line: env.componentLine(i) });
       if (figures) figurePart(info, i, rows.length);
       out.push(...(!figures && env.inlineList ? env.inlineList(rows, W) : rows));
       i = component!.end;
