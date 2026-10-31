@@ -111,6 +111,19 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(app.whatChanged.unseenIds()).toContain(notes.shed!.id);
   });
 
+  test("%replies in a bar reopened in the tiles scope ranks the tile named replies first, before a reader whose note mentions it, the sigil not part of the name (PIE-1465)", async () => {
+    closeBar();
+    await board.createBlock(null, "Replies to answer\nthe open ones");
+    await app.dispatch.press("bar.open", { scope: "notes", query: "Replies to" }); await (app as any).bar.settled();
+    key({ kind: "enter" }); await until(() => !peek().bar && desk.tileOutline().some(t => t.showing?.title.includes("Replies to")), "the pruning note open in a tile");
+    await app.dispatch.press("bar.open", { scope: "tiles" });   // as a bar reopened in its last scope, nothing typed
+    type("%replies");
+    expect(peek().bar).toMatchObject({ scope: "tiles", query: "%replies" });
+    const named = peek().bar.rows.filter((r: any) => r.source === "tiles");
+    expect(named[0]?.detail.split(" · ")[0]).toBe("replies");
+    closeBar();
+  });
+
   test("a search with no hits says so on its line once the notes have answered, never notes… (PIE-1403)", async () => {
     key(ctrlK); type("zqxvbnw");
     await (app as any).bar.settled();
