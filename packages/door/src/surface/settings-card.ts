@@ -87,6 +87,13 @@ export function listSuggestions(typed: string, names: readonly string[]): BarSug
   return names.filter(n => !have.has(n) && n.startsWith(token)).map(n => ({ value: `${before}${n}` }));
 }
 
+/** One candidate set for the question, completion, validation and saved-value warnings. */
+export function settingOptions(field: SettingField, facets: readonly { key: string; count: number }[]): BarSuggestion[] {
+  const p = field.prop, values = (p.values ?? []).map(v => ({ value: v.value, detail: v.meaning }));
+  if (p.question?.source === "facets") for (const f of facets) if (!values.some(v => v.value === f.key)) values.push({ value: f.key, detail: `on ${f.count} notes` });
+  return values;
+}
+
 /** The power bar's question for a field: its picker, by the field's type. */
 export function settingQuestion(field: SettingField, src: SettingSources): BarQuestion {
   const p = field.prop;
@@ -96,12 +103,10 @@ export function settingQuestion(field: SettingField, src: SettingSources): BarQu
     return [...new Set([...(p.samples ?? []), ...(p.default !== undefined ? [p.default] : [])])].filter(s => !t || s.toLowerCase().includes(t)).map(value => ({ value, ...(value === p.default ? { detail: "the default" } : {}) }));
   };
   if (p.question) {
-    const choices = p.question.source === "facets" ? (src.facets?.() ?? []).flatMap(f => p.question!.order
-      ? (field.order?.values ?? []).map(direction => ({ value: `${f.key} ${direction.value}`, detail: `on ${f.count} notes` }))
-      : [{ value: f.key, detail: `on ${f.count} notes` }])
-      : (p.values ?? []).map(v => ({ value: v.value, detail: v.meaning }));
+    const options = settingOptions(field, src.facets?.() ?? []);
+    const choices = p.question.order ? options.flatMap(option => (field.order?.values ?? []).map(direction => ({ ...option, value: `${option.value} ${direction.value}` }))) : options;
     return { ...base, value: field.value ?? p.default ?? "", type: p.question.type, choices: choices.map(c => c.value),
-      empty: typed => p.question!.source === "facets" ? missingPropertyHint(typed.replace(/\s+(asc|desc)$/i, ""), (src.facets?.() ?? []).map(f => f.key)) : `${p.key} is one of ${choices.map(c => c.value).join(", ")}`,
+      empty: typed => p.question!.source === "facets" ? missingPropertyHint(typed.replace(/\s+(asc|desc)$/i, ""), options.map(c => c.value)) : `${p.key} is one of ${choices.map(c => c.value).join(", ")}`,
       says: Object.fromEntries(choices.map(c => [c.value, `${c.value} · ${c.detail}`])), complete: { valueKey: p.key, candidates: choices } };
   }
   switch (p.type) {

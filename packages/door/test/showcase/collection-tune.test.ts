@@ -118,6 +118,50 @@ describe("showcase: tune the collection's own record (PIE-1483)", () => {
     expect(saved).not.toContain("  - owner asc");
   }, 20_000);
 
+  test("a boxed view tunes its own source after an earlier view", async () => {
+    await show();
+    const before = '::view{query="collection=garden" layout=feed} ^outside';
+    const note = await h.board.createBlock(null, ['Two gardens', '', before, '::', '', '::box{pad=1}', '::view{query="collection=garden" layout=table}', '::', '::'].join("\n"));
+    await act("open", { id: note.id });
+    await until(() => surface().msg?.id === note.id && lists().length === 2 && lists().every(l => l.view.pickable().length === 4), "the outside and boxed gardens");
+    await act("settings", { list: lists()[1].key });
+    await act("settings.toggle", { key: "layout", value: "board" });
+    await until(() => lists()[0].detail.layout === "feed" && lists()[1].detail.layout === "board", "only the boxed garden changed");
+    const saved = (await h.board.get(note.id))!.text;
+    expect(saved).toContain(before);
+    expect(saved).toContain('::box{pad=1}\n::view{query="collection=garden" layout="board, table"}');
+  }, 20_000);
+
+  test.each([
+    ['indentless list', ['query: collection=garden', 'sort:', '- owner asc', '- stage desc', '# keep the group', 'group: area']],
+    ['indented mapping', ['  query: collection=garden', '  sort:', '    - owner asc', '    - stage desc', '  # keep the group', '  group: area']],
+  ])("an %s keeps valid YAML and neighboring fields when sort changes", async (_name, yaml) => {
+    await show();
+    const note = await h.board.createBlock(null, ['Garden YAML', '', '::view', '---', ...yaml, '---', '::'].join("\n"));
+    await act("open", { id: note.id });
+    await until(() => surface().msg?.id === note.id && lists()[0]?.view.pickable().length === 4, "the YAML garden");
+    await act("settings.set", { key: "sort", value: "stage desc, owner asc" });
+    const saved = (await h.board.get(note.id))!.text;
+    expect(saved).not.toContain("- owner asc");
+    expect(saved).toContain("# keep the group");
+    expect(saved).toContain("group: area");
+    await until(() => lists()[0]?.detail.sort === "stage desc, owner asc" && lists()[0]?.view.pickable().length === 4, "the changed YAML garden still renders");
+  }, 20_000);
+
+  test("a hidden title column can be restored and record fields can be picked for sorting", async () => {
+    await show(false);
+    await act("settings.toggle", { key: "summary-properties", value: "title" });
+    await act("settings.set", { key: "summary-properties" });
+    expect(bar().items.some(i => i.row.key === "toggle:title")).toBe(true);
+    await h.app.dispatch.act({ action: "bar.question", args: { op: "toggle", value: "title" } }, { kind: "user" });
+    await h.app.dispatch.act({ action: "bar.close" }, { kind: "user" });
+    await act("settings.set", { key: "sort" });
+    for (const field of ["title", "created", "updated"]) expect(bar().items.some(i => i.row.key === `toggle:${field} asc`)).toBe(true);
+    await h.app.dispatch.act({ action: "bar.question", args: { op: "toggle", value: "title asc" } }, { kind: "user" });
+    await until(() => lists()[0]?.detail.sort === "owner asc, title asc", "title sorting reaches the view record");
+    await h.app.dispatch.act({ action: "bar.close" }, { kind: "user" });
+  }, 20_000);
+
   test("an agent's binding is attributed without taking keys, and a stale revision refuses and re-reads", async () => {
     const note = await show();
     await act("list.enter", { on: true });

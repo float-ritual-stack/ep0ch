@@ -12,7 +12,7 @@ import { EditConflict, mutationFor, type Actor } from "../socket";
 import { askInBar, changedQuestionValue } from "../bar/ask";
 import { ActionRefused, def } from "./actions";
 import { PropertyPanel } from "./props-panel";
-import { SettingsCard, settingFields, settingProblem, settingQuestion, settingValue, type SettingField, type SettingSources } from "./settings-card";
+import { SettingsCard, settingFields, settingOptions, settingProblem, settingQuestion, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { boundComponent, setBinding, type Binding } from "./binding";
 import type { NoteSurface, On, SurfaceHost } from "./note";
 import type { ListHandle } from "./list-view";
@@ -79,7 +79,7 @@ function checkChoice(subject: SettingsSubject, field: SettingField, value: strin
   const p = field.prop;
   if (p.question?.source === "facets") {
     const key = p.question.order ? value.replace(/\s+(asc|desc)$/i, "") : value;
-    const keys = ((subject.list?.detail?.facets ?? []) as QuestionFacet[]).map(f => f.key);
+    const keys = settingOptions(field, (subject.list?.detail?.facets ?? []) as QuestionFacet[]).map(o => o.value);
     if (!keys.includes(key)) throw new ActionRefused(missingPropertyHint(key, keys));
   } else if (p.values && !p.values.some(v => v.value === value)) throw new ActionRefused(`${p.key} is one of ${p.values.map(v => v.value).join(", ")}`);
 }
@@ -102,7 +102,7 @@ async function write(on: On, subject: SettingsSubject, field: SettingField, valu
   field.value = value;
   if (surface.msg?.id === note.id) surface.refresh({ ...saved, childIds: surface.msg.childIds });
   if (subject.list) for (const state of subject.list.view.settings.values()) delete state[field.prop.key];
-  const known = ((subject.list?.detail?.facets ?? []) as QuestionFacet[]).map(f => f.key);
+  const known = settingOptions(field, (subject.list?.detail?.facets ?? []) as QuestionFacet[]).map(o => o.value);
   const warnings = field.prop.question?.source === "facets" && value ? viewWords(value).map(v => field.prop.question?.order ? v.replace(/\s+(asc|desc)$/i, "") : v).filter(k => !known.includes(k) && !beforeValues.includes(k)) : [];
   const said = `${value === null ? "cleared" : "saved"} · ${field.prop.key}${value === null ? "" : `: ${printable(value)}`}`;
   const message = [said, ...warnings.map(k => missingPropertyHint(k, known))].join(" · ");

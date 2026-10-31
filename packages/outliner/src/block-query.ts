@@ -1,4 +1,5 @@
 import type { Clause } from "@ep0ch/outline-core/query-clauses";
+import { VIEW_SORT_FIELDS } from "@ep0ch/outline-core/view-fields";
 import { PROPERTY_QUERY_SCOPES as QUERY_SCOPES } from "@ep0ch/outline-core/protocol";
 import { MACHINE_KEY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
 import { StillCounting } from "./site-budget";
@@ -1324,7 +1325,7 @@ function namesKey(predicate: QueryExpression | undefined, filters: readonly Prop
 const SORT_PROPERTY = "property:";
 
 /** The sort fields that aren't properties: `property:<name>` names a property so called. */
-const SORT_BUILTINS = new Set(["created", "updated", "title"]);
+const SORT_BUILTINS = new Set(VIEW_SORT_FIELDS.map(f => f.value));
 
 /**
  * A sort field as the service keeps it: `created`, `updated`, `title`, a property key lowercased, or `property:<key>`

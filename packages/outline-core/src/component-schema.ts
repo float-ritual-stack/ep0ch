@@ -18,6 +18,7 @@ import { BLOCK_COMPONENT_SCHEMAS } from "./component-schemas-blocks";
 import { USE } from "./component-schemas-use";
 import { BUTTON } from "./component-schemas-button";
 import { enumOf } from "./prop-values";
+import { VIEW_SORT_FIELDS, VIEW_TITLE_FIELD } from "./view-fields";
 
 /** What a property's value is. */
 export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query", "action", "writers", "duration", "property", "script", "node"] as const;
@@ -246,12 +247,12 @@ export const VIEW: ComponentSchema = {
     { key: "open", where: "note", type: "enum", default: "current", meaning: "where opening a row lands, after the tile's wires", values: enumOf({ current: "the current reader", beside: "a reader beside", float: "a pick previews in a follower float; Enter enters, Esc closes, ⤢ lands beside", full: "open in the current reader and zoom it to fill the screen" }) },
     { key: "create", where: "note", type: "query", meaning: "the property a new member is born with", samples: ["type=chore"] },
     { key: "create-parent", where: "note", type: "ref", meaning: "this (the host of an inline view, or a view note's parent), inbox, or ((id))", samples: ["this", "inbox", "((7c1e0b2a-0000-4000-8000-000000000001))"] },
-    { key: "sort", where: "note", type: "list", question: { type: "pick-order", source: "facets", order: "direction" }, meaning: "ordered sort keys, comma-separated, each with optional asc or desc; created, updated, title or any property's name", samples: ["updated", "priority asc, owner desc"] },
+    { key: "sort", where: "note", type: "list", question: { type: "pick-order", source: "facets", order: "direction" }, values: VIEW_SORT_FIELDS, meaning: "ordered sort keys, comma-separated, each with optional asc or desc; created, updated, title or any property's name", samples: ["updated", "priority asc, owner desc"] },
     { key: "direction", where: "note", type: "enum", meaning: "the sort's direction", default: "desc", values: enumOf({ asc: "lowest or oldest first", desc: "highest or newest first" }) },
     { key: "limit", where: "note", type: "int", meaning: "the most rows it lists", min: 1, max: 1000, default: "200" },
     { key: "child-depth", where: "note", type: "int", meaning: "how deep each row's own children are listed under it", min: 0, max: 8, default: "0" },
     { key: "expanded", where: "note", type: "enum", meaning: "whether it opens expanded in the tree", values: enumOf({ true: "open", false: "folded" }) },
-    { key: "summary-properties", where: "note", type: "list", question: { type: "pick-order", source: "facets" }, meaning: "the properties each row's summary line shows, comma-separated", samples: ["work-stage, priority"] },
+    { key: "summary-properties", where: "note", type: "list", question: { type: "pick-order", source: "facets" }, values: [VIEW_TITLE_FIELD], meaning: "the properties each row's summary line shows, comma-separated", samples: ["work-stage, priority"] },
   ],
   source: { use: '::view{query="type=chore" layout=table} ^garden', note: { title: "Garden chores", name: "query", value: "type=chore" } },
   example: {},

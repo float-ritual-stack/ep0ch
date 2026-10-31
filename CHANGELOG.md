@@ -28,7 +28,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Tune in place:** press `,` over a saved view or inline `::view` to open its settings card. Toggle layouts, order sort keys, choose groups and show or hide summary properties; the view redraws as each choice saves.
 - **Use the rows' own fields:** choices and completion come from the component schema and the matched rows' facets. Unknown keys name their nearest matches. Changes write the view's own source, check its revision and retain agent attribution without moving your keys.
-- **Run:** try **collection-tune** in the kitchen sink. The `settings` tile hosts the same card. Grammar **22 → 23** covers the VIEW schema's ordered sort list; protocol stays **298**, with no new wire request or database schema. The deployer installs host and clients together with `ep0ch install --apply`.
+- **Run:** try **collection-tune** in the kitchen sink. The `settings` tile hosts the same card. Grammar **22 → 23** covers the VIEW schema's ordered sort list; protocol stays **299** (from #1150), with no new wire request or database schema. The deployer installs host and clients together with `ep0ch install --apply`.
 
 ### Completion shows the example and saves the chosen query (PIE-1479)
 
