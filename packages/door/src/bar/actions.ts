@@ -1,3 +1,4 @@
+import { modeActionKeys } from "../surface/modes";
 // The power bar's actions (PIE-656), on the App's dispatcher so every screen has them: `bar.open` (ctrl+k, cmd+k, the
 // status bar's ^K, the desk's / and a river column's g in its notes scope), `bar.pick` (⏎ or a double click, alt+⏎ or
 // an alt-click the alternate) and `bar.close` (esc). The person's open the bar over the screen and take their keys
@@ -7,7 +8,7 @@
 import { ActionRefused, actionSet, actRequestOf, def, lineWords, type ActRequest } from "../surface/actions";
 import type { Actor } from "../socket";
 import type { PowerBar } from "./bar";
-import { clearPrivateForm, formFocus, formLine, formOpen, formRun, formSet, formState } from "./ask";
+import { changeQuestion, liveQuestion, QUESTION_KEYS, clearPrivateForm, formFocus, formLine, formOpen, formRun, formSet, formState } from "./ask";
 import { formFor, openActionForm } from "./form";
 import { barSource, barSources, type BarHost } from "./source";
 import { askAgent, askedWords, type Asked } from "./ask-agent";
@@ -163,6 +164,22 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
       if (!b) throw new ActionRefused("the power bar isn't open");
       // Whoever pressed it is who inserted it (in yolo an agent may, and is said as itself).
       return on.host().dispatch.act({ action: "edit.button", args: { line: b.commandLine() } }, actor);
+    },
+  }),
+  "bar.question": def({
+    summary: "toggle a settings question's choice or move it earlier/later; each change writes the view's own record",
+    get keys() { return modeActionKeys([QUESTION_KEYS], "bar.question") ?? ""; },
+    touches: "nothing", replay: "ask", person: "the question in the bar is the person's · an agent uses settings.set or settings.toggle",
+    args: { op: { type: "string", choices: ["toggle", "move"], about: "toggle a choice or move it" },
+      value: { type: "string", optional: true, about: "the choice; left out, the selected row" }, by: { type: "number", optional: true, about: "-1 earlier, 1 later" } },
+    async run({ op, value, by }, { on }) {
+      const b = on.bar();
+      if (!b || !liveQuestion()) throw new ActionRefused("no toggle or pick-order question is open");
+      const chosen = value ?? String(b.items[b.selected]?.row.data ?? "");
+      const out = await changeQuestion(chosen, op === "move" ? by ?? 1 : undefined);
+      b.refresh(true);
+      on.host().ctx.redraw();
+      return out;
     },
   }),
   "bar.form": def({

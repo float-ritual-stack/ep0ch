@@ -126,10 +126,9 @@ import { askingFirst, extensionList, passageActions, runExtensionAction, scripts
 import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
-import { componentsOf, componentsReady } from "../component-schemas";
-import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
-import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchemas, settingValue, type SettingField, type SettingSources } from "./settings-card";
+import type { SettingField } from "./settings-card";
+import { settingsSubject, SETTINGS_DEFS } from "./settings";
 import { askInBar } from "../bar/ask";
 import { argQuestion } from "../bar/form";
 import type { ActionInfo } from "./actions";
@@ -3098,68 +3097,11 @@ export class NoteSurface {
     this.panel.card = null;
   }
 
-  // ── the settings card (PIE-786): a configurable note's fields, from its component schema ──────────────
-
-  /** The schema `m` is configured by (a rule note's, a view's, a callout type's…), or null when it's no such note. */
   settingsSchemaOf(m: Msg): ComponentSchema[] | null {
-    const found = settingsSchemas(componentsOf(this.src), this.rows(m).filter(r => r.scope === "block"));
-    return found.length ? found : null;
+    const schemas = settingsSubject(this, m).schemas;
+    return schemas.length ? schemas : null;
   }
-
-  /** The card's fields for `m`, as the note is now. */
-  settingFields(m: Msg, schema: readonly ComponentSchema[]): SettingField[] {
-    return settingFields(schema, this.rows(m).filter(r => r.scope === "block"));
-  }
-
-  /** Open the settings card on the note in front: the property panel's other face. */
-  openSettings(m: Msg): SettingsCard {
-    const schema = this.settingsSchemaOf(m);
-    if (!schema) throw new ActionRefused("this note isn't configured by a component: a rule note ([rule-name::]), a view ([query::]), a callout type, a heading style or an extension's own has a card · i lists its properties");
-    if (!this.panel) this.panel = new PropertyPanel();
-    this.panel.full = false;
-    const card = new SettingsCard(schema);
-    if (this.panel.card?.id !== card.id) this.panel.card = card;
-    return this.panel.card;
-  }
-
-  /** What a field's picker reads: the outline's properties and values, the extensions' actions and ids. */
-  settingSources(host: SurfaceHost): SettingSources {
-    const listed = () => (extensionList()?.extensions ?? []).filter(e => e.state === "active" || e.state === "failed");
-    return {
-      catalog: (key, prefix) => host.ctx.board.propertyCatalog(key, prefix, 30),
-      actions: () => listed().flatMap(e => e.actions.filter(a => (a.on ?? "block") === "block" && !a.builtIn).map(a => ({
-        value: `${e.id}/${a.id}`, label: `${e.id}/${a.id} · ${a.label}`,
-        ...(a.args?.length ? { detail: `asks ${a.args.map(x => x.name).join(", ")}` } : a.effects ? { detail: a.effects } : {}),
-      }))),
-      extensions: () => listed().map(e => e.id),
-      // EchoNet's nodelist (one note per outline, `type=nodelist`), read with its own parser.
-      nodes: async () => {
-        const { notes } = await host.ctx.board.queryNotes(NODELIST_QUERY, 10, "show").catch(() => ({ notes: [] as Msg[] }));
-        const whole = await Promise.all(notes.map(n => host.ctx.board.get(n.id).catch(() => null)));
-        return [...new Set(whole.flatMap(n => (n ? nodesOf(n.text).map(e => e.node) : [])))];
-      },
-    };
-  }
-
-  /**
-   * Write one field: the note's block token for `key` replaced, appended when it has none, or (null) every one removed;
-   * one `properties.patch` at the revision its tokens were read at, attributed to `actor`.
-   */
-  async writeSetting(m: Msg, key: string, value: string | null, host: SurfaceHost, actor: Actor): Promise<Msg> {
-    const no = agentRefusal(actor, { board: host.ctx.board, blockId: m.id });
-    if (no) throw new ActionRefused(no);
-    const t = await host.ctx.board.propertyTokens(m.id, key);
-    // Written at the revision the card (or the question) was read at: a change made meanwhile is never written over.
-    if (m.revision === undefined || t.revision !== m.revision) throw new EditConflict(m.id, "changed since the settings were read");
-    const own = t.tokens.filter(x => x.scope === "block");
-    const operations = value === null ? own.map(x => ({ op: "remove" as const, ordinal: x.ordinal }))
-      : own.length ? [{ op: "replace" as const, ordinal: own[0]!.ordinal, value }] : [{ op: "append" as const, key, value }];
-    if (!operations.length) return m;
-    const saved = await host.ctx.board.patchProperties(m.id, t.revision, operations, actor);
-    if (this.msg?.id === m.id) { this.refresh({ ...saved, childIds: this.msg.childIds }); this.links = linksOf(this.msg!); }
-    return saved;
-  }
-
+  settingFields(m: Msg, _schema: readonly ComponentSchema[]): SettingField[] { return settingsSubject(this, m).fields; }
   closePanel(): boolean {
     if (this.panel?.field && this.panel.field.input.text !== this.panel.field.row.value && !this.panel.field.saving) return false;
     this.panel = null;
@@ -4395,6 +4337,7 @@ export class NoteSurface {
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
       enter: (l, on) => { if (on || this.listIn === l.key) { this.enterList(l, on); if (!on) here().retirePeeks?.(USER); } },
       type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(filterLine); },
+      tune: (l, actor, standing) => this.run("settings", { list: l.key }, here(), actor, standing),
       choose: (l, action, keys) => here().overlay?.(listFieldPicker(l.title, action, keys, by => { void this.runList(action, { list: l.key, by }, here()); })),
       redraw: () => host?.redraw(),
     };
@@ -12289,116 +12232,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return { yours: summaryKeys(null), here: m ? surface.summary(m) : null };
     },
   }),
-  "settings": def({
-    summary: "a configurable note's settings card (PIE-786): a rule note, a view, a callout type, a heading style or an extension's component, its fields from the component schema, each set with a picker in the power bar. The person's opens the card; an agent gets the fields (key, type, value, default, meaning, choices) to set with settings.set",
-    keys: ",",
-    touches: "nothing", replay: "safe",
-    menu: noteRow("settings", ",", { now: ({ surface }) => (!surface.msg || surface.msg.partial || !surface.settingsSchemaOf(surface.msg) ? { hide: true } : null) }),
-    args: {},
-    async run(_, { surface, host, standing }, actor) {
-      const typing = () => { if (surface.panel?.field) throw new ActionRefused(`a property value (${surface.panel.field.row.key}) is being typed here · enter saves it, esc cancels, then , opens the settings`); };
-      if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
-      typing();
-      const m = await surface.whole();
-      await tokensFor(m.text, surface.src);
-      if (surface.src) await componentsReady(surface.src);
-      typing();
-      // The card holds the reader's keys: an agent reads the fields in its reply and leaves the reader be.
-      const card = standing ? surface.openSettings(m) : null;
-      const schemas = card?.schemas ?? surface.settingsSchemaOf(m);
-      if (!schemas) surface.openSettings(m);
-      host.redraw();
-      // A note may be more than one thing (a view that is an EchoNet area): a section each, in the card's order.
-      return { id: m.id, revision: m.revision, schema: schemas![0]!.id, schemas: schemas!.map(s => ({ id: s.id, title: s.title })), title: schemas!.map(s => s.title).join(" + "),
-        fields: surface.settingFields(m, schemas!).map(f => ({
-        key: f.prop.key, section: schemas![f.section]!.id, type: f.prop.type, value: f.value, meaning: f.prop.meaning,
-        ...(f.prop.default !== undefined ? { default: f.prop.default } : {}),
-        ...(f.prop.values ? { choices: f.prop.values.map(v => v.value) } : f.prop.samples ? { samples: f.prop.samples } : {}),
-      })) };
-    },
-  }),
-  "settings.set": def({
-    summary: "set one field of a configurable note's settings card: an ordinary attributed property edit (properties.patch at the revision its tokens were read at), checked against the field's type. The person's without a value asks in the power bar with the field's picker (an enum's values, a query built over the outline's properties and values, a note, an extension's action, the writers, a duration)",
-    keys: ", then enter or e on a field, or a click on the selected field",
-    touches: "draft", draft: "write", replay: "ask",
-    args: {
-      key: { type: "string", about: "the field's key (settings lists them)" },
-      value: { type: "string", optional: true, about: "its new value; left out, the person is asked in the power bar" },
-    },
-    examples: [
-      { act: "settings.set key=direction value=asc", does: "sets a view to ascending order" },
-      { act: "settings.set key=limit value=20", does: "sets the limit field to 20, refused if the value does not fit its type" },
-    ],
-    async run({ key, value }, { surface, host }, actor) {
-      if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
-      const m = await surface.whole();
-      await tokensFor(m.text, surface.src);
-      const schema = surface.settingsSchemaOf(m);
-      if (!schema) throw new ActionRefused("this note isn't configured by a component (settings says which notes are)");
-      const fields = surface.settingFields(m, schema);
-      const field = fields.find(f => f.prop.key === key.trim().toLowerCase());
-      if (!field) throw new ActionRefused(`${schema.map(s => s.title).join(" + ")} has no field ${key}; its fields are ${fields.map(f => f.prop.key).join(", ")}`);
-      const write = async (answer: string) => {
-        const to = settingValue(field, answer);
-        const why = settingProblem(field, to);
-        if (why) throw new ActionRefused(why);
-        if (to === field.value) {
-          // Unchanged only if the note still is as it was read (it may have moved on while the person chose).
-          const now = await host.ctx.board.get(m.id);
-          if (now?.revision !== m.revision) throw new ActionRefused("the note changed elsewhere since its settings were read · not saved; open them again (settings)");
-          return { saved: false, unchanged: true, key: field.prop.key, revision: m.revision };
-        }
-        let saved: Msg;
-        try { saved = await surface.writeSetting(m, field.prop.key, to, host, actor); } catch (e) {
-          throw e instanceof ActionRefused ? e : new ActionRefused(e instanceof EditConflict ? "the note changed elsewhere since its settings were read · not saved; open them again (settings)" : `not saved: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        const said = `saved · ${field.prop.key}: ${field.value === null ? "unset" : printable(field.value)} → ${printable(to)}`;
-        if (surface.panel?.card) surface.panel.card.note = said;
-        host.ctx.flash(said);
-        surface.noteAgent(actor, `set ${field.prop.key} to ${to}`);
-        host.redraw();
-        return { saved: true, key: field.prop.key, from: field.value, to, revision: saved.revision ?? null, recordedAs: mutationFor(actor) };
-      };
-      if (value !== undefined) return write(value);
-      if (actor.kind !== "user") {
-        const p = field.prop;
-        throw new ActionRefused(`say value=…: ${p.key} is ${p.type}${p.values ? ` (one of ${p.values.map(v => v.value).join(", ")})` : p.samples ? ` (like ${p.samples.join(", ")})` : ""}: ${p.meaning}`);
-      }
-      return askInBar(host.ctx as never, `${schema[field.section]!.title} · ${field.prop.key}`, [settingQuestion(field, surface.settingSources(host))], {}, actor, answers => write(answers[field.prop.key] ?? ""));
-    },
-  }),
-  "settings.clear": def({
-    summary: "clear one field of a configurable note's settings card (its property taken out of the note, so its default holds): one attributed properties.patch",
-    keys: ", then x or delete on a field",
-    touches: "draft", draft: "write", replay: "ask",
-    args: { key: { type: "string", about: "the field's key (settings lists them)" } },
-    examples: [
-      { act: "settings.clear key=sort", does: "takes the sort property out of the note, so its default holds" },
-    ],
-    async run({ key }, { surface, host }, actor) {
-      if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
-      const m = await surface.whole();
-      await tokensFor(m.text, surface.src);
-      const schema = surface.settingsSchemaOf(m);
-      if (!schema) throw new ActionRefused("this note isn't configured by a component (settings says which notes are)");
-      const field = surface.settingFields(m, schema).find(f => f.prop.key === key.trim().toLowerCase());
-      if (!field) throw new ActionRefused(`${schema.map(s => s.title).join(" + ")} has no field ${key}`);
-      // A key any of its components declares or requires (a view's query, an area's echo) is what makes it one.
-      const own = schema.find(s => s.source.note?.name === field.prop.key || (s.source.note?.requires ?? []).includes(field.prop.key));
-      if (own) throw new ActionRefused(`${field.prop.key} is what makes this note a ${own.title.toLowerCase().replace(/s$/, "")}: clearing it would undo that · e edits the note`);
-      if (field.value === null) return { cleared: false, key: field.prop.key, unset: true };
-      let saved: Msg;
-      try { saved = await surface.writeSetting(m, field.prop.key, null, host, actor); } catch (e) {
-        throw e instanceof ActionRefused ? e : new ActionRefused(`not cleared: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      const said = `cleared · ${field.prop.key}${field.prop.default !== undefined ? ` (now its default, ${field.prop.default})` : ""}`;
-      if (surface.panel?.card) surface.panel.card.note = said;
-      host.ctx.flash(said);
-      surface.noteAgent(actor, `cleared ${field.prop.key}`);
-      host.redraw();
-      return { cleared: true, key: field.prop.key, from: field.value, revision: saved.revision ?? null };
-    },
-  }),
+  ...SETTINGS_DEFS,
   "decor.raw": def({
     summary: "the note as written, without what the outline's rules draw on it (PIE-600: a heading's band, a meeting's card, a shouted line), or (on=false, or ~ again) with it. The reader's own state: the note is never written",
     keys: "~",

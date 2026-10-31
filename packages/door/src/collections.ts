@@ -16,7 +16,7 @@ import { rowLines } from "./text";
 // A changed query has no first answer yet. Keep the list and its input mounted while that answer arrives.
 const shown = new WeakMap<ListView, Extract<SiteProduced, { kind: "view" }>>();
 
-export function renderCollection(spec: ViewSpec, note: string | undefined, width: number, blocks?: LinkBlocksEnv, tag?: (to: LinkTarget, text: string) => string, site?: LiveSite, figures?: FiguresEnv): string[] {
+export function renderCollection(spec: ViewSpec, note: string | undefined, width: number, blocks?: LinkBlocksEnv, tag?: (to: LinkTarget, text: string) => string, site?: LiveSite, figures?: FiguresEnv, component?: NonNullable<import("./surface/list-view").ListHandle["binding"]>["component"]): string[] {
   site = { ...site, args: { ...site?.args, ...spec.args } };
   const n = ++(blocks ? blocks.drawn ??= { n: 0 } : { n: 0 }).n;
   const key = spec.key ?? `#${n}`, view = blocks?.list?.(key, "view") ?? new ListView(key, false);
@@ -51,7 +51,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
     pageControl: (by, text) => press("list.page", { by: String(by) }, text),
   });
   const pages = view.pageCount(PERSON);
-  blocks?.seen?.({ n, key, title: answer.title, view, entered, about: answer.question.where,
+  blocks?.seen?.({ binding: note ? { block: note, ...(component ? { component } : {}) } : undefined, n, key, title: answer.title, view, entered, about: answer.question.where,
     detail: { layout: answer.layout, layouts: answer.layouts, sort: answer.question.sort, group: answer.question.group, facets: answer.facets, truncated: answer.truncated, page: view.page + 1, pages },
     async change(changes, who) {
       const next = { ...view.settings.get(who), ...changes };
@@ -72,7 +72,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
     tag: (text, i) => press("list.layout", { layout: answer.layouts[i]! }, text),
   }).map(row => row.text);
   const footer = `${answer.view.rows.length} notes${read?.state === "loading" ? " · updating…" : ""}${answer.truncated ? " · more matches" : ""} · ${keysText(LISTVIEW_ACTIONS.def("list.layout")!.keys)}`;
-  const controls = [press("list.sort", {}, "sort"), press("list.group", {}, "group")].join(" · ");
+  const controls = [press("list.sort", {}, "sort"), press("list.group", {}, "group"), press("settings", { list: key }, "≡ settings")].join(" · ");
   const warning = answer.error ?? (answer.view.rows.length ? answer.hint : undefined);
   const body = [...tabs, controls, ...(warning ? rowLines(warning, Math.max(8, width - 4)).map(line => fg(C.lred) + line + RESET) : []), ...drawing.lines];
   const control = blocks?.control?.(key, entered ? "esc out" : "⏎ in");

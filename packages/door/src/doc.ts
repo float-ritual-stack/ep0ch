@@ -665,7 +665,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       let info: FigureInfo | undefined;
       if (env.figures) env.figures.drawn ??= { n: 0, titles: new Map() };
       const figures = component!.name === "graph-table" ? { ...env.figures, line: i, seen: (f: FigureInfo) => { info = f; env.figures?.seen?.(f); } } : undefined;
-      const rows = renderCollection(collection, env.note, W, env.linkBlocks, env.tag, env.site, figures);
+      const rows = renderCollection(collection, env.note, W, env.linkBlocks, env.tag, env.site, figures, { id: component!.id, index: [...componentAt.values()].indexOf(component!) });
       if (figures) figurePart(info, i, rows.length);
       out.push(...(!figures && env.inlineList ? env.inlineList(rows, W) : rows));
       i = component!.end;

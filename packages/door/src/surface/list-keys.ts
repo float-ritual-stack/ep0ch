@@ -24,6 +24,7 @@ export const COLLECTION_KEYS = keyTable<ModeKey>("collection", "While a collecti
   { key: "pgup", action: "list.page", args: { by: -1 }, label: "page" },
   { key: "pgdn", action: "list.page", args: { by: 1 }, label: "page" },
   { key: "tab", action: "list.layout", label: "layout" },
+  { key: ",", action: "list.tune", label: "settings" },
   { key: "s", action: "list.sort", label: "sort" },
   { key: "g", action: "list.group", label: "group" },
 ]);

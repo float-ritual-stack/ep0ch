@@ -597,7 +597,9 @@ export class Completer {
   private async lookup(turn: SearchTurn, target: CompletionTarget, was: string | undefined, explicit = false): Promise<void> {
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
-      const r = await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: this.barHost(), line: this.d.complete !== undefined, signal: turn.signal, ...(explicit ? { explicit } : {}) });
+      const candidates = this.d.complete && this.d.complete.candidates;
+      const r: CompletionLookup = candidates ? { items: rankTextSearchMatches(candidates.map(c => ({ id: c.value, title: c.value, text: c.value, ...c })), target.query).map(({ document: c }) => ({ label: c.value, insertion: c.value, kind: "value", detail: c.detail })), truncated: null, message: "" }
+        : await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: this.barHost(), line: this.d.complete !== undefined, signal: turn.signal, ...(explicit ? { explicit } : {}) });
       if (r.jevOff) jevOff.add(this.board);
       if (!this.current(turn)) return;
       // A `[` that starts no property the schemas know (a Markdown link's text, say) opens nothing.
