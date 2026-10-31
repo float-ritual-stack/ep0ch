@@ -30,7 +30,9 @@ export interface TraceReport extends ReturnType<typeof traceState> {
 
 export async function traceReport(ask: TraceAsk, board: SocketBoard): Promise<TraceReport> {
   if (ask.op !== "show") return setTracing(ask.op === "on");
-  return { ...traceState(), runs: traceRuns(ask.action, ask.last), service: await handlerFindings(board) };
+  // The local runs are the point when the host is down (a deploy, a restart): the mirror's failure is a line, not the answer.
+  const service = await handlerFindings(board).catch((e: unknown) => ({ from: 0, through: 0, findings: [], unavailable: e instanceof Error ? e.message : String(e) }));
+  return { ...traceState(), runs: traceRuns(ask.action, ask.last), service };
 }
 
 /** The mirror is deliberately separate: these are service writes, not door trace ids. */
