@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import type {Block} from '../../src/types';
 import {runHerdrScenario} from './herdr-runner';
 
@@ -28,7 +29,7 @@ const result=await runHerdrScenario({name:'detail-property-completion',async pre
   await s.checkpoint('02-figure-written');
   await s.keys(s.panes.detail,'e','alt+a');await s.text(s.panes.detail,'PLANTING NOTES [sea');await s.waitVisible(s.panes.detail,'season');
   await s.checkpoint('03-keys');
-  await s.keys(s.panes.detail,'tab');await s.waitVisible(s.panes.detail,'⏎ new line · tab inserts');
+  await s.keys(s.panes.detail,'tab');await s.waitVisible(s.panes.detail,'new line');
   await s.checkpoint('04-bare-property');
   await s.text(s.panes.detail,'s');await s.waitFor('the typed property value',()=>s.visible(s.panes.detail),text=>text.includes('[season::s')&&text.includes('spring'));
   await s.checkpoint('04-values');
@@ -39,4 +40,37 @@ const result=await runHerdrScenario({name:'detail-property-completion',async pre
   await s.text(s.panes.detail,'\n---\ndensity: c');await s.waitVisible(s.panes.detail,'comfortable');
   await s.checkpoint('06-figure-values');
   await s.keys(s.panes.detail,'escape','escape');
+
+  const findings:string[]=[];
+  await terminal.resize(180,26);
+  await s.keys(s.panes.detail,'e','alt+a');await s.text(s.panes.detail,'SELECTION\nkeep\n[sea');
+  const small=await s.waitFor('the resized selection completion',()=>s.visible(s.panes.detail),text=>text.includes('[sea▏')&&text.includes('Properties 1/')&&text.split('\n').length<=12);
+  assert.ok(!small.includes('1 note with season'),'The selection case must have no visible docs pane');
+  await s.checkpoint('07-selection-without-docs');
+  await s.keys(s.panes.detail,'shift+up','backspace','ctrl+s');
+  const selected=await s.waitFor('selection edit saved',()=>s.client.request<Block>({action:'get',blockId:note.id}),b=>b.text.startsWith('SELECTION'));
+  if(selected.text!=='SELECTION\nkeep')findings.push(`4432838092: Shift+Up did not select the preceding line: ${JSON.stringify(selected.text)}`);
+
+  await terminal.resize(600,100);
+  await s.setKeybindings({
+    'detail.completion.accept':['Enter','Alt+I'],
+    'detail.completion.dismiss':['Alt+X'],
+    'detail.completion.next':['Alt+J'],
+    'detail.completion.previous':['Alt+K'],
+    'detail.completion.docs.down':['Alt+D'],
+  });
+  await s.keys(s.panes.detail,'ctrl+r');await s.waitVisible(s.panes.detail,'Keymap and bars reloaded');
+  await s.keys(s.panes.detail,'e','alt+a');await s.text(s.panes.detail,'PLANTING NOTES\n::graph-st');
+  const help=await s.waitVisible(s.panes.detail,'Components 1/');
+  if(!['⌥I insert','⌥X dismiss','⌥J next','⌥K previous','⌥D scroll docs'].every(label=>help.includes(label)))findings.push('4432838086: popup help does not show the active keymap');
+  await s.checkpoint('08-remapped-help');
+  await s.keys(s.panes.detail,'alt+j');await s.waitVisible(s.panes.detail,'Components 2/');
+  await s.keys(s.panes.detail,'alt+k');await s.waitVisible(s.panes.detail,'Components 1/');
+  await s.keys(s.panes.detail,'alt+x','alt+a');await s.text(s.panes.detail,'PLANTING NOTES [season::');
+  const enterHelp=await s.waitVisible(s.panes.detail,'new line');
+  if(!enterHelp.includes('⌥I insert')||!enterHelp.includes('⌥X dismiss')||enterHelp.includes('tab inserts'))findings.push('4432838086: Enter-policy help advertises stale insert/dismiss keys');
+  await s.checkpoint('09-remapped-enter-policy');
+  await s.keys(s.panes.detail,'alt+i','ctrl+s');
+  await s.waitFor('the advertised insert key writes the value',()=>s.client.request<Block>({action:'get',blockId:note.id}),b=>b.text==='PLANTING NOTES [season::spring]');
+  assert.deepEqual(findings,[]);
 }});console.log(JSON.stringify(result));if(result.status!=='passed')process.exitCode=1;

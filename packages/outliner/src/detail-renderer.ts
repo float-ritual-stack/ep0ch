@@ -293,11 +293,12 @@ function appendCompletion(
   state: Readonly<DetailState>,
   width: number,
   height: number,
+  keymap: OutlinerActionKeymap,
 ): void {
   const completion = state.completion;
   if (!completion) return;
   const start=output.length;
-  output.push(...renderReferenceCompletion(completion,width,Math.min(COMPLETION_ROWS,Math.max(0,height-output.length-2))));
+  output.push(...renderReferenceCompletion(completion,width,Math.min(COMPLETION_ROWS,Math.max(0,height-output.length-2)),"completion.choose",undefined,keymap));
   if(completion.docsRect)completion.docsRect.row+=start;
 }
 
@@ -361,7 +362,7 @@ export function renderDetailLines(
     visibleRows.forEach((row, index) => {
       output.push(renderTextBufferEditorRow(layout, row, state.editorVisualOffset + index));
     });
-    appendCompletion(output, state, width, height);
+    appendCompletion(output, state, width, height, options.actionKeymap ?? DEFAULT_OUTLINER_ACTION_KEYMAP);
   } else if (state.propertyInspector.model &&
       (state.propertyInspector.expanded || state.propertyInspector.presentation === "dedicated")) {
     const inspector = state.propertyInspector;

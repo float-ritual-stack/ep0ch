@@ -204,7 +204,7 @@ export function mergeSourceAnswers<R extends SourceRow>(answers: readonly Source
       entries.push({ row: { ...row, from: a.source.id, tier } as MergedRow<R>, pre: row.preselect ? 0 : row.fallback ? 2 : 1, tier, f: frecency(picks[text], now), p: row.priority ?? a.source.priority ?? 0, score: m?.score ?? 0, i });
     });
     if (!a.source.ranked) {
-      entries.sort((x, y) => x.pre - y.pre || x.tier - y.tier || y.f - x.f || y.score - x.score || x.i - y.i);
+      entries.sort((x, y) => x.pre - y.pre || x.tier - y.tier || y.f - x.f || y.p - x.p || y.score - x.score || x.i - y.i);
       return entries;
     }
     // A ranked source's order stands: each row takes the best tier of any row it put after it, so an incidental row

@@ -579,8 +579,8 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 
   /** A surface editing `id`, keys typed through the surface as the person types them. */
-  async function editing(id: string) {
-    const s = new NoteSurface(), h = host();
+  async function editing(id: string, actor = USER) {
+    const s = new NoteSurface(), h = { ...host(), actor };
     s.show((await board.get(id))!, h);
     await s.edit(h);
     const d = s.draft!;
@@ -869,6 +869,23 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect((await board.get(e.d.blockId))!.text).toContain("title: Photos\nvalue: 0.6");
     const result: any = await e.s.act("complete", { text: "::graph-met" }, e.h, AGENT);
     expect(result.items[0].insertion).toContain("title: Disk");
+  });
+
+  test("an agent scrolling component docs is attributed before the popup redraws", async () => {
+    const e = await editing(await create("Reading component docs\n::graph-table"), AGENT);
+    try {
+      await e.s.act("complete.ask", {}, e.h, AGENT);
+      const popup = await e.settled();
+      e.screen();
+      expect(popup.previewLines!.length).toBeGreaterThan(popup.previewRect!.rows);
+      const before = { text: e.d.text, row: e.d.row, col: e.d.col, index: popup.index };
+      let shownAgent: string | undefined;
+      e.h.redraw = () => { shownAgent = e.s.describe().agent?.id; };
+      await e.s.act("complete.docs", { by: 1 }, e.h, AGENT);
+      expect(popup.previewTop).toBe(1);
+      expect(shownAgent).toBe(AGENT.id);
+      expect({ text: e.d.text, row: e.d.row, col: e.d.col, index: popup.index }).toEqual(before);
+    } finally { e.s.dispose(); }
   });
 
   test("heading shorthand uses the outline's styles and writes a bracket property (PIE-1012)", async () => {

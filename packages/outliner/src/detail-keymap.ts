@@ -77,7 +77,7 @@ export function detailActionScopes(
   if (state.propertyInspector.edit) return ["property-edit"];
   if (state.propertyInspector.filterDraft !== null) return ["property-filter"];
   if (state.backlinks.filterDraft !== null) return ["backlinks-filter"];
-  if (state.completion) return [state.completion.items.length?"completion":"completion-empty", state.mode];
+  if (state.completion) return [...(state.completion.docsRect ? ["completion-docs"] : []), state.completion.items.length?"completion":"completion-empty", state.mode];
   if (options.previewFocused) return ["draft-preview", state.mode];
   if (options.bufferMode ?? (state.mode === "edit" || state.mode === "comment")) {
     return [state.mode];

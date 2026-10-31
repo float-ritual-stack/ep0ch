@@ -3676,12 +3676,12 @@ export class NoteSurface {
     return true;
   }
 
-  /**
-   * The draft's reference completion (PIE-416), from this reader's connection. A note draft can point at
-   * its own headings (`((#`), as typed so far; a comment or reply has no note of its own.
-   */
+  /** Only a note's own edit offers its unsaved headings; comments and replies have no note of their own. */
   completer(d: Draft, host: SurfaceHost) {
-    const c = completerFor(d, host.ctx.board, () => host.redraw(), () => (d === this.draft ? { blockId: d.blockId, text: d.text } : undefined));
+    const c = completerFor(d, host.ctx.board, () => host.redraw(), action => {
+      if (action) this.noteAgent(action.by, action.did, d);
+      return d === this.draft ? { blockId: d.blockId, text: d.text } : undefined;
+    });
     if (c && host.screen) c.where = () => host.screen?.();
     return c;
   }

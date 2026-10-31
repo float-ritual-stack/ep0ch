@@ -2,6 +2,7 @@
 // row contract, merged by outline-core's one matcher, with picks kept by the host. Scratch service in a temp folder;
 // every note and issue is made up.
 import { afterEach, expect, test } from "bun:test";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -278,7 +279,44 @@ test("Detail wraps a service component's docs beside its detail line and preserv
   await session.refresh();
   expect(session.state!.items[0]!.label).toBe("north");
   expect(session.chooses).toBe(false);
-  expect(renderReferenceCompletion(session.state!, 80, 24).map(plain).join("\n")).toContain("⏎ new line · tab inserts");
+  expect(renderReferenceCompletion(session.state!, 80, 24).map(plain).join("\n")).toContain("↵ new line · ⇥ insert");
   expect(await session.accept()).toBe(true);
   expect(buffer.text).toBe("[trellis::north]");
 });
+
+test("scrolling large completion docs stays cheap and reaches the whole passage", async () => {
+  const { client, create } = await setup();
+  const last = "The final harvest belongs on the bottom shelf.";
+  const body = Array.from({ length: 5000 }, (_, i) => `Harvest ${i}: keep the \`seed packets\` in the greenhouse until the beds are ready for planting.`).join("\n");
+  const ledger = await create(`Harvest ledger\n${body}\n${last}`);
+  const buffer = new TextBuffer("((Harvest ledger"); buffer.moveEnd();
+  const session = new ReferenceCompletionSession(referenceCompletionProvider(client, "docs-test"), () => buffer, () => {}, () => true);
+  try {
+    await session.refresh();
+    const state = session.state!;
+    const row = state.items[state.index]!;
+    for (let n = 0; !row.context?.includes(last) && n < 200; n++) await Bun.sleep(10);
+    expect(row.context).toContain(last);
+    const draw = (width = 120) => renderReferenceCompletion(state, width, 24).map(stripTerminalSequences);
+    const coldStart = performance.now();
+    expect(draw().join("\n")).toContain("Harvest 0:");
+    const coldMs = performance.now() - coldStart;
+    const scrollStart = performance.now();
+    for (let n = 0; n < 30; n++) { session.scrollDocs(3); draw(); }
+    const scrollMs = performance.now() - scrollStart;
+    console.log(`completion docs: first draw ${coldMs.toFixed(1)} ms; 30 scroll draws ${scrollMs.toFixed(1)} ms`);
+    expect(scrollMs).toBeLessThan(coldMs * 5);
+    session.scrollDocs(Number.MAX_SAFE_INTEGER);
+    expect(draw().join("\n")).toContain(last);
+    const narrow = draw(48);
+    expect(narrow.every(line => visibleWidth(line) <= 48)).toBe(true);
+    session.scrollDocs(Number.MAX_SAFE_INTEGER);
+    expect(draw(48).join("\n")).toContain(last);
+    // Context is enriched after the row first appears; a cached draw must follow that new text too.
+    const corrected = "A corrected harvest date.";
+    await client.request({ action: "update", blockId: ledger.id, text: `Harvest ledger\n${corrected}`, expectedRevision: ledger.revision, mutation: { author: "agent", actorId: "docs-editor" } });
+    session.move(0);
+    for (let n = 0; !row.context?.includes(corrected) && n < 200; n++) await Bun.sleep(10);
+    expect(draw(48).join("\n")).toContain(corrected);
+  } finally { session.dismiss(); }
+}, 20_000);

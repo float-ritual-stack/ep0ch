@@ -133,6 +133,7 @@ export interface LookupOptions { /** Asked on purpose (Tab, ctrl+space): a sourc
 
 /** The note a note draft is writing, for `((#heading` in itself; comments and replies have none. */
 export interface OwnNote { blockId: string; text: string }
+type CompletionOwner = (action?: { by: Actor; did: string }) => OwnNote | undefined;
 
 const title = (m: Msg) => subject({ ...m, text: m.text.replace(/ \^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/m, "") }).replace(/\s{2,}/g, " ");
 const snippet = (text: string) => text.split(/\r?\n/).slice(1).map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim();
@@ -454,7 +455,7 @@ export class Completer {
   private limit = COMPLETION_LIMIT;
   /** The order `::` first listed the components in, kept for this draft. */
   private componentOrder?: Map<string, { i: number; group?: string }>;
-  constructor(private readonly d: CompletionField, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: () => OwnNote | undefined = () => undefined) {}
+  constructor(private readonly d: CompletionField, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: CompletionOwner = () => undefined) {}
 
   /** The token the cursor is in, if any: in a filter's words its key or value; in a property's field its value (a `[[` there first). */
   target(): CompletionTarget | null {
@@ -677,6 +678,7 @@ export class Completer {
       if (!s?.previewLines) return false;
       s.previewTop = Math.max(0, Math.min(Math.max(0, s.previewLines.length - (s.previewRect?.rows ?? 1)), (s.previewTop ?? 0) + by));
       s.previewSelection = undefined;
+      this.own({ by: actor, did: "scrolled completion docs" });
       this.redraw(); return true;
     }
     void p.surface.act("scroll", { by }, p.host, actor);
@@ -858,7 +860,7 @@ export class Completer {
 const byDraft = new WeakMap<CompletionField, Completer>();
 
 /** The draft's (or line's) completer, made on first use; null when the board can't look anything up (a test double). */
-export function completerFor(d: CompletionField, board: unknown, redraw: () => void, own?: () => OwnNote | undefined): Completer | null {
+export function completerFor(d: CompletionField, board: unknown, redraw: () => void, own?: CompletionOwner): Completer | null {
   const had = byDraft.get(d);
   if (had) return had;
   const b = board as Partial<CompletionBoard> | null;

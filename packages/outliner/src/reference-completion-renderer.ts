@@ -2,22 +2,38 @@ import {hyperlink,truncateToWidth,visibleWidth,wrapTextWithAnsi} from '@earendil
 import {searchMatchSpans} from '@ep0ch/outline-core/search-match';
 import {completionWindow} from './completion';
 import {sanitizeDynamicText,renderMarkdownLine} from './terminal';
-import {DEFAULT_OUTLINER_ACTION_KEYMAP as keymap,displayActionChord} from './outliner-actions';
-import {referenceEnterKeeps,type ReferenceCompletionState} from './reference-completion';
+import {DEFAULT_OUTLINER_ACTION_KEYMAP,displayActionChord,type OutlinerActionKeymap} from './outliner-actions';
+import {referenceEnterKeeps,type ReferenceCompletionItem,type ReferenceCompletionState} from './reference-completion';
 
 export const COMPLETION_ROWS=26;
-const popupHelp=['accept','dismiss','previous','next','docs.down'].map(name=>{
-  const id=`detail.completion.${name}`;
-  return `${keymap.bindings(id).map(displayActionChord).join('/')} ${keymap.action(id).label}`;
-}).join(' · ');
+function popupHelp(state:ReferenceCompletionState,keymap:OutlinerActionKeymap):string{
+  const enter=referenceEnterKeeps(state);
+  const names=enter?['accept','dismiss']:['accept','dismiss','previous','next',...(state.docsRect?['docs.down']:[])];
+  const actions=names.map(name=>{
+    const id=`detail.completion.${name}`;
+    const keys=keymap.bindings(id).filter(chord=>!enter||name!=='accept'||chord!=='Enter');
+    return `${keys.map(displayActionChord).join('/')||'unbound'} ${keymap.action(id).label}`;
+  });
+  return [...(enter?[`${displayActionChord('Enter')} ${enter}`]:[]),...actions].join(' · ');
+}
 function lit(label:string,query:string|undefined):string{
   if(!query)return label;
   const on=new Set(searchMatchSpans(label,query));
   return [...label].map((c,i)=>on.has(i)?`\x1b[1m${c}\x1b[22m`:c).join('');
 }
 
+// Hover and scroll reuse the wrapping; enriched context or a resize replaces it.
+const wrappedDocs=new WeakMap<ReferenceCompletionItem,{text:string;width:number;lines:string[]}>();
+function docsLines(item:ReferenceCompletionItem,width:number):string[]{
+  const text=item.context||item.docs||item.insertion,cached=wrappedDocs.get(item);
+  if(cached?.text===text&&cached.width===width)return cached.lines;
+  const lines=text.split('\n').flatMap(line=>wrapTextWithAnsi(renderMarkdownLine(sanitizeDynamicText(line)),width));
+  wrappedDocs.set(item,{text,width,lines});
+  return lines;
+}
+
 /** Detail's drawing of the shared rows; the list and docs keep separate scroll positions. */
-export function renderReferenceCompletion(state:ReferenceCompletionState,width:number,height=COMPLETION_ROWS,action='completion.choose',help=popupHelp):string[]{
+export function renderReferenceCompletion(state:ReferenceCompletionState,width:number,height=COMPLETION_ROWS,action='completion.choose',help?:string,keymap=DEFAULT_OUTLINER_ACTION_KEYMAP):string[]{
   const fit=(text:string,w=width)=>truncateToWidth(sanitizeDynamicText(text),Math.max(1,w),'…');
   const pad=(text:string,w:number)=>text+' '.repeat(Math.max(0,w-visibleWidth(text)));
   state.docsRect=undefined;
@@ -47,7 +63,7 @@ export function renderReferenceCompletion(state:ReferenceCompletionState,width:n
   }
   const selected=state.items[state.index]!;
   const docWidth=beside?width-listWidth-3:width;
-  const docs=(selected.context||selected.docs||selected.insertion).split('\n').flatMap(line=>wrapTextWithAnsi(renderMarkdownLine(sanitizeDynamicText(line)),docWidth));
+  const docs=docsLines(selected,docWidth);
   state.docsLines=docs.length;
   const docHeight=beside?bodyHeight:Math.max(0,bodyHeight-list.length-1);
   const top=state.docsTop=Math.min(state.docsTop??0,Math.max(0,docs.length-docHeight));
@@ -62,6 +78,9 @@ export function renderReferenceCompletion(state:ReferenceCompletionState,width:n
     rows.push(...marked);
     if(hasDocs&&shown.length){rows.push('─'.repeat(width));state.docsRect={column:0,row:rows.length,width:docWidth,height:docHeight};rows.push(...shown);}
   }
-  if(height>=2){const enter=referenceEnterKeeps(state);rows.push(fit(enter?`⏎ ${enter} · tab inserts · esc dismiss`:state.message?`${help} · ${state.message}`:help));}
+  if(height>=2){
+    const enter=referenceEnterKeeps(state),hint=enter?popupHelp(state,keymap):help??popupHelp(state,keymap);
+    rows.push(fit(!enter&&state.message?`${hint} · ${state.message}`:hint));
+  }
   return rows.slice(0,height);
 }
