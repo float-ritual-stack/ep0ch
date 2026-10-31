@@ -967,6 +967,7 @@
       const node = card(thread, true);
       node.classList.add("on", "inplace");
       item.append(node);
+      formatTimes(node);
       line.setAttribute("aria-expanded", "true");
     };
     const line = el("button", { type: "button", class: "quiet", "aria-expanded": "false", onclick: () => {

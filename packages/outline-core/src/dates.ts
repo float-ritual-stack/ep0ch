@@ -16,7 +16,12 @@ import { clockWords } from "./age";
 export const DAY_MS = 86_400_000;
 
 /** A stretch of the calendar on the wall-clock axis, both ends included: a day is its whole 24 hours, a moment has `from === to`, a span runs from its first day's start to its last day's end. */
-export interface When { from: number; to: number }
+export interface When {
+  from: number;
+  to: number;
+  /** A written zone fixes an instant even when the local clock repeats during DST. */
+  instant?: number;
+}
 
 /** The comparisons a query writes between a property and a bound; `=` is "the same day", or "inside it" for a span. */
 export type DateComparison = "<" | "<=" | ">" | ">=" | "=";
@@ -85,7 +90,9 @@ function withTime(start: number, m: readonly (string | undefined)[], at: number)
     const z = /^([+-])(\d{2}):?(\d{2})$/.exec(zone);
     if (z && (Number(z[2]) > 23 || Number(z[3]) > 59)) return null;
     const offset = z ? (z[1] === "-" ? -1 : 1) * (Number(z[2]) * 60 + Number(z[3])) * 60_000 : 0;
-    moment = wallClock(moment - offset);
+    const instant = moment - offset;
+    moment = wallClock(instant);
+    return { from: moment, to: moment, instant };
   }
   return { from: moment, to: moment };
 }

@@ -60,6 +60,17 @@ test("figure date-time cells use human clocks, dating a column that crosses days
   expect(across).toContain("Mar ");
 });
 
+test("figure date-time cells leave ranges, scores and calendar dates as written", () => {
+  const text = '::graph-table\n---\nheaders: [Reading]\nrows: [["2026-10-20..2026-10-24"], ["3/5"], ["2026-10-26"], ["2026-03-04T03:47:00Z"]]\n---\n::';
+  const drawn = renderDoc(text, { ...ENV, width: 117 }).lines.map(plain).join("\n");
+  expect(drawn).toContain("2026-10-20..2026-10-24");
+  expect(drawn).toContain("3/5");
+  expect(drawn).toContain("2026-10-26");
+  expect(drawn).not.toContain("2026-03-04T03:47:00Z");
+  expect(drawn).toMatch(/\d:\d\d [AP]M/);
+  expect(drawn).not.toContain("Mar ");
+});
+
 test("wrapped shell substitutions draw and copy without added backticks", () => {
   const command = "sh:: echo $(date) `whoami --version`";
   const doc = renderDoc(command, { ...ENV, width: 30 });

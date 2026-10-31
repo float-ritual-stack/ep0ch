@@ -59,9 +59,12 @@ async function setup(options: { maxBytes?: number; roots?: string[]; basePath?: 
   return { root, workspace, store, client, publisher, get, write };
 }
 
-test("published clocks keep their instant and name their fallback zone", async () => {
+test.each(["2026-03-04T03:47:00Z", "2026-11-01T06:30:00Z", "2026-11-01T01:30:00-05:00"])("published clocks keep their instant and name their fallback zone: %s", async stamp => {
+  const zone = process.env.TZ;
+  process.env.TZ = "America/Toronto";
+  cleanups.push(() => { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; });
   const { store, get } = await setup();
-  store.create("Window latch [type::published-window] [merged-at::2026-03-04T03:47:00Z]");
+  store.create(`Window latch [type::published-window] [merged-at::${stamp}]`);
   const note = store.create('Window report [publish::public:windows]\n\n::graph-table\n---\nheaders: [Build, merged-at]\nquery: type=published-window\ncolumns: [title, merged-at]\n---\n::');
   store.create("Window samples\nThe east window was open.", note.id);
   for (const path of [`/p/${note.id}`, "/"]) {
@@ -76,7 +79,7 @@ test("published clocks keep their instant and name their fallback zone", async (
       expect(Number.isFinite(Date.parse(instant!))).toBe(true);
       expect(fallback).toContain("UTC");
     }
-    if (path !== "/") expect(times.some(t => Date.parse(t[1]!) === Date.parse("2026-03-04T03:47:00Z"))).toBe(true);
+    if (path !== "/") expect(times.map(t => Date.parse(t[1]!))).toContain(Date.parse(stamp));
   }
 });
 

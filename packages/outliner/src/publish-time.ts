@@ -10,5 +10,5 @@ export function timeHtml(iso: string): string {
 /** Date-only values remain calendar dates, never shifted to another day by a time zone. */
 export function dateTimeHtml(value: string): string | undefined {
   const date = readDate(value);
-  return date && date.from === date.to ? timeHtml(new Date(fromWallClock(date.from)).toISOString()) : undefined;
+  return date && date.from === date.to ? timeHtml(new Date(date.instant ?? fromWallClock(date.from)).toISOString()) : undefined;
 }

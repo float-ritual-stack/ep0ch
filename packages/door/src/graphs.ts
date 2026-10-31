@@ -11,7 +11,7 @@ import { asksPerItem, liveProps } from "@ep0ch/outline-core/figure-live";
 import { figureResultsMarkdown, resultsHead, type FigureResults, type ResultsContext } from "@ep0ch/outline-core/figure-results";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
 import { readContentSize, type ContentSize } from "@ep0ch/outline-core/media-line";
-import { dateWords } from "@ep0ch/outline-core/dates";
+import { dateWords, readDate } from "@ep0ch/outline-core/dates";
 import { FIGURES } from "./figures/index";
 import { ACCENT, DIM, HI, INK, inlineRows, presentRow, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink, type RowExpansion } from "./figures/palette";
 export type { RowInline, RowLink } from "./figures/palette";
@@ -280,8 +280,12 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     // Narrow (PIE-581): the title column and one more; the rest are counted in the footer, never wrapped to nothing.
     const width0 = Math.max(0, ...[head, ...rows].map(r => r.length));
     for (let k = 0; k < width0; k++) {
-      const words = dateWords(rows.map(r => r[k] ?? ""));
-      rows.forEach((r, i) => { r[k] = words[i]!; });
+      const instants = rows.map(r => {
+        const value = r[k] ?? "", date = readDate(value);
+        return date && date.from === date.to ? value : "";
+      });
+      const words = dateWords(instants);
+      rows.forEach((r, i) => { if (instants[i]) r[k] = words[i]!; });
     }
     let tcol = Math.min(Math.max(0, width0 - 1), Math.max(0, Number(p.titleColumn) || 0));
     let dropped = 0;
