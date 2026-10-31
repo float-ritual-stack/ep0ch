@@ -110,7 +110,7 @@ describe.skipIf(!outliner)("the showcase screen: search", () => {
     try {
       expect((await cli("export", "--query", "type=errand", "--children", "--out", out)).code).toBe(0);
       const file = readFileSync(join(out, `seed-order-for-the-plot-${errand.slice(0, 8)}.md`), "utf8");
-      expect(file).toContain('type: "errand"\narea: "garden"\nctx: "2026-03-09 @ 09:27:29 AM"\ntag:\n  - "seeds"\n  - "spring"\n---\nSeed order for the plot\nBroad beans');
+      expect(file).toContain('type: "errand"\narea: "garden"\nctx: "2026-03-09 @ 09:27:29 AM"\ntag: ["seeds", "spring"]\n---\nSeed order for the plot\nBroad beans');
       expect(file).toContain("\n- Ask the neighbour about netting\n  She has a spare roll.\n");
     } finally { rmSync(out, { recursive: true, force: true }); }
     expect(S().focus).toBe("index");
