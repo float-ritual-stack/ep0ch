@@ -156,7 +156,7 @@ export interface Person<I = number> {
   typingIn: I | null;
   /** The person's keys are held (typing anywhere, a picker or panel open, a ^W chord): an agent doesn't move them. */
   busy: boolean;
-  /** Their keys are on this layout at all (false: on another screen, or in the index around a framed one): `focus` is only its own. */
+  /** Their keys are on this layout at all (false: on another screen, in the drawer or the surrounding index): `focus` is only its own. */
   here?: boolean;
   /**
    * Why an agent may not move their keys now, as the shell's one rule says it (`actorRule` for `touches: "screen"`:
@@ -1355,7 +1355,7 @@ class Step<I> {
       const own = chainOf(this.d.tree, id).find(c => c.id === e.by.closable && c.t === "tabs" && c.ids.length === 1);
       if (!e.closable && !(f.clearsOnClose && e.by.closable === `${f.kind} tiles`)) refuse(own ? `${name} stays: its place (${own.id}) keeps it${fold} · ^W P there turns closable on` : this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles${fold} · ^W P there turns closable on`));
       if (f.keeps) refuse(`${name} stays: ${f.keeps}${fold}`);
-      if (this.agent && id === this.d.focus && (!f.clearsOnClose || this.ctx.person.here !== false)) refuse(this.theirs(id, "close it"));
+      if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(this.theirs(id, "close it"));
       if (this.agent && f.running) refuse(`${name} is running ${f.running}; an agent doesn't end it`);
     }
     if (!f.clearsOnClose) this.lift(id);

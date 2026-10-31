@@ -805,7 +805,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /**
    * Who acts, where the person is, the room: what `apply` reads. Where the person is comes from the shell's one
    * answer (the whereabouts query, PIE-514): the tile they type in, and whether they're busy anywhere (here, in the
-   * drawer, in a shell the door waits under). Their focus here is this screen's own state.
+   * drawer, in a shell the door waits under). Focus is remembered; `here` follows their active address.
    */
   private layoutCtx(actor: Actor): LayoutCtx<number> {
     // While a frame is drawn, the person's context is made once: each tile's corner controls (× fold float) and its wires ask
@@ -828,7 +828,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : {}), self: this.layoutSelf(),
       beside: this.besides, opened: this.opened, inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
       actor, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
-      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: who.held, here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}) },
+      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: who.held, here: w.address === this.keys().address && (w.focus !== null || w.typingIn !== null), ...(w.yolo ? { yolo: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
   }

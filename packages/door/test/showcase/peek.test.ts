@@ -14,6 +14,16 @@ describe("showcase: collection peeks (PIE-849)", () => {
   const agent = (action: string, args: Record<string, unknown> = {}) => stage().dispatch.act({ action, tile: "garden", args }, { kind: "agent", id: "gardener" }) as Promise<any>;
   const list = () => stage().pane("garden").surface.listsDrawn[0];
   const floats = () => stage().layoutGet().tiles.filter((t: any) => t.float);
+  const agentSourceChange = async (action: "open" | "tile.close") => {
+    const control = await startControl({ app: h.app, mirror: new Mirror(177, 60), info: () => h.app.t }, join(h.scratch.root, "door", "peek.sock"));
+    try {
+      const proc = Bun.spawn([process.execPath, resolve(import.meta.dir, "../../src/main.ts"), "act", action, "tile=garden", ...(action === "open" ? [`id=${h.seeded.notes.shed.id}`] : []), "--as", "walkbot"], {
+        env: { ...process.env, ...h.scratch.env, EP0CH_CONTROL: control.path, EP0CH_STATE: join(h.scratch.root, "door"), EP0CH_SOCKET: h.scratch.sock }, stdout: "pipe", stderr: "pipe",
+      });
+      const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
+      expect(await proc.exited, out + err).toBe(0);
+    } finally { control.close(); }
+  };
   const setup = async () => {
     (h.app as any).term.info.cols = 177;
     await h.app.dispatch.act({ action: "section.try", args: { name: "peek" } }, { kind: "user" });
@@ -159,13 +169,8 @@ describe("showcase: collection peeks (PIE-849)", () => {
     const before = h.app.person(), text = reader.draft?.text;
     expect(before.focus).toBe(peek.name);
     expect(before.typingIn).toBe(editing ? peek.name : null);
-    const control = await startControl({ app: h.app, mirror: new Mirror(177, 60), info: () => h.app.t }, join(h.scratch.root, "door", "peek.sock"));
     try {
-      const proc = Bun.spawn([process.execPath, resolve(import.meta.dir, "../../src/main.ts"), "act", action, "tile=garden", ...(action === "open" ? [`id=${h.seeded.notes.shed.id}`] : []), "--as", "walkbot"], {
-        env: { ...process.env, ...h.scratch.env, EP0CH_CONTROL: control.path, EP0CH_STATE: join(h.scratch.root, "door"), EP0CH_SOCKET: h.scratch.sock }, stdout: "pipe", stderr: "pipe",
-      });
-      const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
-      expect(await proc.exited, out + err).toBe(0);
+      await agentSourceChange(action);
       const after = h.app.person();
       expect({ focus: after.focus, typingIn: after.typingIn }).toEqual({ focus: before.focus, typingIn: before.typingIn });
       expect(floats().find((t: any) => t.name === peek.name)?.showing?.id).toBe(peek.showing.id);
@@ -178,8 +183,37 @@ describe("showcase: collection peeks (PIE-849)", () => {
       if (editing) { h.press({ kind: "esc" }); await until(() => !reader.draft, "discard the scratch edit"); h.press({ kind: "esc" }); }
       expect(floats().some((t: any) => t.name === peek.name)).toBe(true);
     } finally {
-      control.close();
       if (reader.draft) { h.press({ kind: "esc" }); h.press({ kind: "esc" }); }
+      if (action === "tile.close") await act("tile.open", { kind: "reader", name: "garden", note: h.seeded.notes.peek.id }, "outside");
+    }
+  }, 20_000);
+
+  test.each(["open", "tile.close"] as const)("drawer focus: an agent's %s retires the abandoned peek without taking the drawer's keys", async action => {
+    await setup();
+    await act("tile.open", { kind: "reader", name: "outside" });
+    await act("tile.focus");
+    await act("list.enter", { on: true });
+    await act("list.pick", { n: 1 });
+    await until(() => floats().length === 1, "a picked card's float");
+    const peek = floats()[0];
+    h.press({ kind: "enter" });
+    await until(() => h.app.person().focus === peek.name, "Enter reads the peek");
+    h.press({ kind: "alt", ch: "a" });
+    try {
+      await until(() => h.app.person().keys === "host" && !!h.app.person().typingIn, "Alt+A enters the drawer");
+      const before = h.app.person();
+      await agentSourceChange(action);
+      const after = h.app.person();
+      expect({ address: after.address, keys: after.keys, typingIn: after.typingIn }).toEqual({ address: before.address, keys: before.keys, typingIn: before.typingIn });
+      const source = stage().layoutGet().tiles.find((t: any) => t.name === "garden");
+      if (action === "open") expect(source?.showing?.id).toBe(h.seeded.notes.shed.id);
+      else expect(source).toBeUndefined();
+      expect(stage().layoutGet().tiles.some((t: any) => t.tile === peek.tile)).toBe(false);
+      h.press({ kind: "alt", ch: "a" });
+      await until(() => h.app.person().keys === "screen", "Alt+A returns to the screen");
+      expect(floats()).toHaveLength(0);
+    } finally {
+      await h.app.dispatch.press("host.toggle", { open: false });
       if (action === "tile.close") await act("tile.open", { kind: "reader", name: "garden", note: h.seeded.notes.peek.id }, "outside");
     }
   }, 20_000);
