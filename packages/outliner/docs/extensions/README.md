@@ -535,8 +535,7 @@ projection per line, ordered by line:
 }
 ```
 
-- `status`: `ready`; `stale` (the last run failed, the last good result is shown, `reason` says
-  why); `not-run` (with `reason`: when it will run); `not-fetched` (data not fetched yet);
+- `status`: `ready`; `stale` (the last run failed, the last good result is shown, led by a notice of the failure and when it ran in `output.markdown` and the component view, so a reader draws it first; `fetchError` holds the bare error; `reason` is unset); `not-run` (with `reason`: when it will run); `not-fetched` (data not fetched yet);
   `unavailable` (a bad line, or a failure with nothing to show). `fetching: true` while it runs.
 - `output.markdown` is inert BlockDown: it never adds properties or provider lines to a note.
 - `output.inputsChanged` / `versionChanged`: what the line reads (the block, its children, a block it names) or the

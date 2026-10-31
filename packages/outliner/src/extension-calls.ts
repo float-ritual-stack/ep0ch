@@ -531,6 +531,10 @@ function compactAnswer(answer: VisibleBlockCollection): VisibleBlockCollection {
   return { ...answer, blocks: answer.blocks.map(row => ({ ...row, text: row.text.slice(0, EXCERPT), displayText: row.displayText.slice(0, EXCERPT) })) };
 }
 
+/** A kept view with its failure notice in front of it (PIE-1468). */
+const leadWith = (notice: string, view: Primitive): Primitive =>
+  ({ type: "stack", children: [{ type: "text", text: notice, tone: "warn", strong: true }, view] });
+
 export class ExtensionCalls {
   private readonly state = new Map<string, CallState>();
   private readonly passes = new Map<string, Promise<void>>();
@@ -1205,29 +1209,41 @@ export class ExtensionCalls {
       return { ...base, ...fetching, status: "not-run", reason: state?.running ? `${extension?.name ?? call.extensionId} is running` : waiting };
     }
     const result = row.result as { markdown?: string; title?: string; querySource?: NonNullable<ResourceProjection["output"]>["query"] } & Partial<ComponentOutput>;
-    const markdown = call.kind === "component"
+    // The one place that keeps an old drawing when a run fails (PIE-1468): the kept drawing leads with the failure and when
+    // it is from, in its markdown and in its view, so every reader (the door, Detail, the web page) draws it first, at any
+    // size, and none reads the old drawing as live. The notice is not also `reason`: said once, in front.
+    const failed = state?.error ?? row.error ?? undefined;
+    const notice = this.keptNotice(block.id, call, row);
+    const drawn = call.kind === "component"
       ? renderComponent(result as ComponentOutput, "markdown").body
       : result.markdown ?? "";
+    const markdown = notice ? `${notice}\n\n${drawn}` : drawn;
     const output = {
       markdown: inertBlockdown(markdown),
       ranAt: row.ranAt!,
       ...(result.title ? { title: cleanExtensionText(result.title) } : {}),
       ...(scriptReads(row.request) ? { reads: scriptReads(row.request) } : {}),
       ...(result.querySource ? { query: result.querySource } : {}),
-      ...(call.kind === "component" || result.view ? { component: { data: result.data ?? null, view: result.view, ...(result.placement ? { placement: result.placement } : {}) } } : {}),
+      ...(call.kind === "component" || result.view ? { component: { data: result.data ?? null,
+        view: notice && result.view ? leadWith(notice, result.view) : result.view, ...(result.placement ? { placement: result.placement } : {}) } } : {}),
       ...(storedInputs(row) !== this.inputs(block, call.line) ? { inputsChanged: true as const } : {}),
       ...(extension && row.extensionVersion !== extension.version ? { versionChanged: true as const } : {}),
     };
-    const failed = state?.error ?? row.error ?? undefined;
     return {
       ...base,
       ...fetching,
       status: failed ? "stale" : "ready",
-      ...(failed ? { reason: `the last run failed: ${failed}; showing the one from ${row.ranAt}`, fetchError: failed } : {}),
+      ...(failed ? { fetchError: failed } : {}),
       summary: cleanExtensionText(result.title ?? firstLineWithoutPropertyTokens(markdown) ?? ""),
       fetchedAt: row.ranAt!,
       output,
     };
+  }
+
+  /** What a kept drawing says first when its last run failed (PIE-1468), or nothing when it is current. */
+  private keptNotice(blockId: string, call: HandlerCall, row: ExtensionOutputRow): string | undefined {
+    const failed = this.state.get(this.outputKey(blockId, call.callKey))?.error ?? row.error ?? undefined;
+    return failed ? `the last run failed: ${failed.replace(/\s+/g, " ").trim()}; the kept drawing is from ${row.ranAt!.slice(0, 16).replace("T", " ")}Z` : undefined;
   }
 
   private dataProjection(base: Omit<ResourceProjection, "status">, call: HandlerCall, fields: readonly string[]): ResourceProjection {
@@ -1268,7 +1284,11 @@ export class ExtensionCalls {
         const row = rows.get(call.callKey);
         if (!row || row.result === null) return [];
         const result = row.result as { markdown?: string } & ComponentOutput;
-        const rendered = call.kind === "component" ? renderComponent(result, target, fallback) : renderMarkdownOutput(result.markdown ?? "", target);
+        // The web page draws from here, not from the projection: a kept drawing leads with its failure on every target.
+        const notice = this.keptNotice(blockId, call, row);
+        const rendered = call.kind === "component"
+          ? renderComponent(notice && result.view ? { ...result, view: leadWith(notice, result.view) } : result, target, fallback)
+          : renderMarkdownOutput(notice ? `${notice}\n\n${result.markdown ?? ""}` : result.markdown ?? "", target);
         return [{ blockId, line: call.line, handler: call.handlerKey, rendered }];
       });
   }
