@@ -83,7 +83,7 @@ export interface TileSpec {
   /** Where this tile's opens land: another tile's name (PIE-473). */
   altReader?: boolean;
   deliberate?: boolean;
-  wires?: { verb: "select" | "open" | "alt"; to: string; rule?: import("./layout").AltRule }[];
+  wires?: { verb: import("./screen-layout").WireVerb; to: string; rule?: import("./layout").AltRule }[];
   selectFrom?: string;
   link?: string;
   /** What that link does when it isn't the kind's default (PIE-646): `preview` follows the source's selection too, `target` is only opened into. */
@@ -104,6 +104,7 @@ export interface TileSpec {
   label?: string;
   /** A river column's filter (its clauses, as `/` takes them). */
   filter?: string;
+  sticky?: boolean; hover?: boolean; by?: string | null;
   /** A backlinks tile whose groups start open (the welcome's). */
   groups?: "open";
   /** The link groups a backlinks tile lists (PIE-693), comma-separated (`children`: the thread tile's replies); left out, every group. */

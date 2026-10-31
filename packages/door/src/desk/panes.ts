@@ -671,10 +671,11 @@ export class ReaderPane implements Pane, AttachedOwner {
     this.show(m, desk);
     return null;
   }
+  protected showSurface(m: Msg | null, host: SurfaceHost, by: Actor) { return this.surface.show(m, host, by); }
   show(m: Msg | null, desk: DeskApi, by: Actor = USER) {
     if (this.keepsOff(m)) return false;
     const host = this.host(desk);
-    const shown = this.surface.show(m, { ...host, ctx: host.contextFor!(m) }, by);
+    const shown = this.showSurface(m, { ...host, ctx: host.contextFor!(m) }, by);
     // The history a saved layout brought (PIE-643) is taken up with the note it was saved on (`wantNote`).
     if (shown && m && this.wantNav !== undefined && this.wantNote() === m.id) { const nav = this.wantNav; this.wantNav = undefined; this.surface.restoreNav(nav); }
     return shown;

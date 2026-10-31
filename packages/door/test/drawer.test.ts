@@ -87,7 +87,8 @@ describe("the drawer", () => {
       d.A.stack.pop();
       d.app.push(d.screen("main menu") as any);
       let shown = d.paint();
-      expect(shown.at(-1)).toContain("▲ claude (from EP0CH_DAILY_AGENT)");
+      expect(shown.at(-1)).toContain("▲ claude");
+      expect(d.app.drawer.chipText()).toContain("(from EP0CH_DAILY_AGENT)");
       expect(shown[27]).toBe("main menu row 27");
       d.key(ALT("a"));
       expect(d.app.drawer.open).toBe(true);
@@ -129,7 +130,7 @@ describe("the drawer", () => {
       d.type("\x1ba");                                          // alt+a, as raw bytes while in it
       expect(d.app.drawer.open).toBe(false);
       d.app.push(d.screen("kanban") as any);
-      expect(d.paint().at(-1)).toContain("▲ claude (from EP0CH_DAILY_AGENT)");
+      expect(d.paint().at(-1)).toContain("▲ claude");
       d.key(ALT("a")); const shown = d.paint();
       expect(d.app.drawer.tile!.pid).toBe(pid);
       await wait(() => d.app.drawer.tile!.text().some(l => l.includes("first")));
@@ -142,7 +143,7 @@ describe("the drawer", () => {
     try {
       d.app.push(d.screen("desk") as any);
       d.paint();
-      const chip = d.app.drawer.chipAt!;
+      let chip = d.app.drawer.chipAt!;
       expect(chip.row).toBe(29);
       d.key(mouse("down", chip.from + 1, 29)); d.key(mouse("up", chip.from + 1, 29));
       expect(d.app.drawer.open).toBe(true);
@@ -160,6 +161,7 @@ describe("the drawer", () => {
       d.key(mouse("down", 10, 20)); d.key(mouse("up", 10, 20));
       expect(d.app.drawer.entered).toBe(true);
       d.paint();
+      chip = d.app.drawer.chipAt!;
       d.key({ kind: "mouse", action: "down", button: 0, x: chip.from + 1, y: 29, mods: 8 });
       expect(d.app.drawer.desk!.overlaid()).toBe(true);           // alt+click: the agent picker
       d.key({ kind: "esc" });

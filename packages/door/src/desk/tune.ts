@@ -1,3 +1,4 @@
+import { GLASS_SETTINGS, type GlassSetting } from "../glass";
 import { declaredHints, HINT_SETTINGS } from "../surface/hints";
 import { tabStrip, type TabRow } from "../surface/chip-rows";
 import { wrap, rowLines } from "../text";
@@ -37,7 +38,18 @@ import { bgRgb, C, drawEllipsized, fg, pad, RESET, selected, selectedRow, width 
 import { ch, isDown, isUp, type Key } from "../term";
 import { type RowPress } from "../scroll";
 import { Inspector } from "../surface/inspector";
+import { keyTable } from "../surface/keymap";
+import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
+
+const TUNE_GLASS_KEYS = keyTable("tune glass", "the glass's delays and limits", [
+  { key: "G", action: "tune.section", args: { section: "values" }, label: "values" },
+  ...["k", "up"].map(key => ({ key, action: "tune.glass.pick", args: { by: -1 }, label: "pick" })),
+  ...["j", "down"].map(key => ({ key, action: "tune.glass.pick", args: { by: 1 }, label: "pick" })),
+  ...["+", "=", "l", "right"].map(key => ({ key, action: "glass.tune", args: { by: 1 }, label: "increase" })),
+  ...["-", "h", "left"].map(key => ({ key, action: "glass.tune", args: { by: -1 }, label: "decrease" })),
+  ...["e", "enter"].map(key => ({ key, action: "tune.glass.edit", label: "edit" })),
+] satisfies ModeKey[]);
 
 /** The levels the inspector offers: where each value comes from, or one level for every nudge. */
 export const TUNE_LEVELS = ["auto", ...SAVE_LEVELS] as const;
@@ -132,8 +144,9 @@ export class TunePane implements Pane {
    * applies: a named style, the page, the tile's kind…; the tile's kind for a built-in), or one picked.
    */
   level: TuneLevel = "auto";
-  section: "values" | "hints" = "values";
+  section: "values" | "hints" | "glass" = "values";
   hintSel = 0;
+  glassSel: GlassSetting = "open";
   /** A nudge is for every width, or for the width the tile is in now (its breakpoint's variant). */
   scope: "all" | "this" = "all";
   /** A nudge held on a row where something nearer wins: the choices it offers (a, o, c, or a click). */
@@ -156,7 +169,7 @@ export class TunePane implements Pane {
   unsaved() { return this.view.unsaved(); }
   keepDrafts() { return this.view.keep(); }
   dispose() { void this.view.field?.session.leave(); }
-  hint() { if (this.section === "hints") return "H values · j k pick · c card · s status · o off · R reset all"; if (this.view.field) return "editing · Enter save · Esc cancel"; return `Enter fold · f set here · e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all${this.retiredShown ? " · D drop retired keys · M move them to a hero line" : ""}`; }
+  hint() { if (this.view.field) return "editing · Enter save · Esc cancel"; if (this.section === "glass") return modeHint(TUNE_GLASS_KEYS, () => undefined); if (this.section === "hints") return "H values · j k pick · c card · s status · o off · R reset all"; return `Enter fold · f set here · e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all${this.retiredShown ? " · D drop retired keys · M move them to a hero line" : ""}`; }
   spec() { return { source: `tile:${this.source}` }; }
 
   info(desk: DeskApi): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }
@@ -289,12 +302,27 @@ export class TunePane implements Pane {
     return { lines: [...section.map(r => r.text), fg(C.cyan) + "[reset all]" + RESET, ...lines.slice(top, top + h - head)] };
   }
 
-  /** Values or Hints: the inspector's two sections, `H` between them. */
+  private renderGlass(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
+    const section = this.sectionTabs(w), lines = section.map(r => r.text);
+    this.controls = section.flatMap((r, y) => controlsOf(r, y));
+    for (const name of Object.keys(GLASS_SETTINGS) as GlassSetting[]) {
+      const setting = GLASS_SETTINGS[name], value = desk.ctx.glass?.settings[name] ?? setting.base;
+      const y = lines.length, label = `${name === this.glassSel ? ">" : " "} ${setting.about}: ${value}`;
+      lines.push(...rowLines(label, w).map(l => name === this.glassSel ? selectedRow(l, w, focused) : l));
+      for (let row = y; row < lines.length; row++) this.controls.push({ y: row, x: 0, cols: w, action: "tune.glass.pick", args: { name } });
+      const buttons = tabStrip([{ label: "[−]", hit: { action: "glass.tune", args: { name, value: Math.max(setting.min, value - setting.step) } } }, { label: "[+]", hit: { action: "glass.tune", args: { name, value: value + setting.step } } }, { label: "[edit]", hit: { action: "tune.glass.edit", args: { name } } }], { width: w });
+      for (const r of buttons) { this.controls.push(...controlsOf(r, lines.length)); lines.push(r.text); }
+    }
+    return { lines: lines.slice(0, h) };
+  }
+
+  /** Each settings owner supplies the values its section adjusts. */
   private sectionTabs(w: number): TabRow[] {
-    return tabStrip([{ label: "[values]", on: this.section !== "hints", hit: { action: "tune.section", args: { section: "values" } } }, { label: "[Hints] H", on: this.section === "hints", hit: { action: "tune.section", args: { section: "hints" } } }], { width: w });
+    return tabStrip([{ label: "[values]", on: this.section === "values", hit: { action: "tune.section", args: { section: "values" } } }, { label: "[Hints] H", on: this.section === "hints", hit: { action: "tune.section", args: { section: "hints" } } }, { label: "[Glass] G", on: this.section === "glass", hit: { action: "tune.section", args: { section: "glass" } } }], { width: w });
   }
 
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
+    if (this.section === "glass" && !this.view.field) return this.renderGlass(w, h, focused, desk);
     if (this.section === "hints") return this.renderHints(w, h, focused, desk);
     if (this.view.field) {
       const field = this.view.fieldDraw(w), top = this.view.place(field.focus, field.lines.length, h);
@@ -442,7 +470,17 @@ export class TunePane implements Pane {
     const intent = this.view.intent(k);
     if (intent) { this.run(desk, "tune.field", intent); return true; }
     const c = ch(k);
+    if (c === "G" && this.section !== "glass") { this.run(desk, "tune.section", { section: "glass" }); return true; }
     if (c === "H") { this.run(desk, "tune.section", { section: this.section === "hints" ? "values" : "hints" }); return true; }
+    if (this.section === "glass") {
+      const names = Object.keys(GLASS_SETTINGS) as GlassSetting[], at = names.indexOf(this.glassSel), setting = GLASS_SETTINGS[this.glassSel];
+      const bound = modeBinding(TUNE_GLASS_KEYS, k);
+      if (!bound) return false;
+      const by = bound.args?.by as number;
+      const args = bound.action === "tune.glass.pick" ? { name: names[Math.max(0, Math.min(names.length - 1, at + by))] }
+        : bound.action === "glass.tune" ? { name: this.glassSel, value: Math.max(setting.min, (desk.ctx.glass?.settings[this.glassSel] ?? setting.base) + by * setting.step) } : bound.args ?? {};
+      this.run(desk, bound.action, args); return true;
+    }
     if (this.section === "hints") {
       const rows = this.hintRows(desk);
       if (isUp(k) || isDown(k)) { this.run(desk, "tune.hint.pick", { id: rows[Math.max(0, Math.min(rows.length - 1, this.hintSel + (isUp(k) ? -1 : 1)))]!.id }); return true; }
@@ -488,6 +526,11 @@ export class TunePane implements Pane {
 
   /** A click on a control runs its action; on a row picks it; the wheel over a value nudges it, elsewhere moves the pick. */
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
+    if (this.section === "glass" && !this.view.field) {
+      if (k.action === "wheel-up" || k.action === "wheel-down") this.key({ kind: k.action === "wheel-up" ? "up" : "down" }, desk);
+      else if (k.action === "down") { const hit = this.controls.find(c => c.y === y && x >= c.x && x < c.x + c.cols); if (hit) this.run(desk, hit.action, hit.args); }
+      return true;
+    }
     if (this.section === "hints") {
       if (k.action === "wheel-up" || k.action === "wheel-down") {
         const rows = this.hintRows(desk), n = Math.max(0, Math.min(rows.length - 1, this.hintSel + (k.action === "wheel-up" ? -1 : 1)));
@@ -521,7 +564,7 @@ export class TunePane implements Pane {
     return true;
   }
 
-  run(desk: DeskApi, name: string, args: Record<string, unknown>) { if (name.startsWith("hints.")) { void desk.perform?.(name, args); return; } runOwn(TUNE_ACTIONS, name, args, { pane: this, desk }); }
+  run(desk: DeskApi, name: string, args: Record<string, unknown>) { if (name.startsWith("glass.")) { void desk.ctx.press!(name, args); return; } if (name.startsWith("hints.")) { void desk.perform?.(name, args); return; } runOwn(TUNE_ACTIONS, name, args, { pane: this, desk }); }
 
   /**
    * What `peek` and `act` read: the tile tuned, its width, every value with its source (and, with a level or a width
@@ -730,8 +773,15 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     args: { set: { type: "boolean", about: "only values set here" } },
     run({ set }, { pane, desk }) { pane.onlySet = set; desk.redraw(); return { set }; },
   }),
-  "tune.section": def({ summary: "show values or the personal Hints list in the tune inspector", keys: "H, click", touches: "tile", replay: "safe", args: { section: { type: "string", about: "values or hints" } }, examples: [{ act: "tune.section section=hints", does: "shows every hint and its setting" }], run: (a, { pane, desk }) => {
-    if (a.section !== "hints" && a.section !== "values") throw new ActionRefused("section is values or hints");
+  "tune.glass.pick": def({ summary: "pick a Glass setting in Tune", keys: "j k up down, click, wheel", touches: "tile", replay: "safe", args: { name: { type: "string", choices: Object.keys(GLASS_SETTINGS), about: "setting" } }, run({ name }, { pane, desk }) { pane.glassSel = name as GlassSetting; desk.redraw(); return { name }; } }),
+  "tune.glass.edit": def({ summary: "edit a Glass delay or limit in Tune", keys: "e enter, click edit", touches: "tile", replay: "safe", args: { name: { type: "string", optional: true, choices: Object.keys(GLASS_SETTINGS), about: "setting; picked when omitted" } }, async run({ name }, { pane, desk }) {
+    const field = (name ?? pane.glassSel) as GlassSetting;
+    pane.glassSel = field;
+    await pane.view.edit(field, String(desk.ctx.glass?.settings[field] ?? GLASS_SETTINGS[field].base), [], false, `glass:${field}`, value => desk.ctx.press!("glass.tune", { name: field, value: Number(value) }), { redraw: () => desk.redraw(), said: text => desk.ctx.flash(text) });
+    desk.redraw(); return { editing: field };
+  } }),
+  "tune.section": def({ summary: "show values, the personal Hints list or Glass settings in the tune inspector", keys: "H G, click", touches: "tile", replay: "safe", args: { section: { type: "string", about: "values, hints or glass" } }, examples: [{ act: "tune.section section=hints", does: "shows every hint and its setting" }], run: (a, { pane, desk }) => {
+    if (a.section !== "hints" && a.section !== "values" && a.section !== "glass") throw new ActionRefused("section is values, hints or glass");
     pane.section = a.section; pane.view.top = 0; desk.redraw(); return { section: pane.section };
   } }),
   "tune.hint.pick": def({ summary: "select a hint in the inspector", keys: "j, k, up, down, wheel, click", touches: "tile", replay: "safe", args: { id: { type: "string", about: "hint id" } }, examples: [{ act: "tune.hint.pick id=tile.collapse", does: "selects the folding hint" }], run: (a, { pane, desk }) => {

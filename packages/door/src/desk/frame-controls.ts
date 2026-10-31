@@ -1,6 +1,6 @@
 // The controls must read the same in a terminal font and the CP437 font.
 export const FRAME_GLYPHS = {
-  select: "○", open: "»", alt: "^",
+  select: "○", open: "»", alt: "^", hover: "◇",
   foldLeft: "\u25c4", // black left-pointing pointer
   foldDown: "\u25bc", // black down-pointing triangle
   menu: "\u2261", // identical to

@@ -98,9 +98,9 @@ export interface LayoutState<I = number> {
 }
 
 export type AcrossWire<I = number> = { from: I; to: string; verb: WireVerb; rule?: AltRule };
-export type WireVerb = "select" | "open" | "alt";
+export type WireVerb = "select" | "open" | "alt" | "hover";
 export type Wire<I = number> = { from: I; verb: WireVerb; to: I; rule?: AltRule };
-export const WIRE_VERBS: readonly WireVerb[] = ["select", "open", "alt"];
+export const WIRE_VERBS: readonly WireVerb[] = ["select", "open", "alt", "hover"];
 export const wireTarget = <I>(s: Pick<LayoutState<I>, "wires">, from: I, verb: WireVerb = "open"): I | undefined => s.wires.find(w => w.from === from && w.verb === verb)?.to;
 export const selectTargets = <I>(s: Pick<LayoutState<I>, "wires">, from: I): I[] => s.wires.filter(w => w.from === from && w.verb === "select").map(w => w.to);
 /** Only a float opened by the door is a peek; a person's select-wired reader stays theirs. */
@@ -503,7 +503,7 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string, othe
 }
 
 export interface PlacementRequest<I = number> {
-  where?: ListOpenWhere;
+  where?: ListOpenWhere; verb?: "hover";
   from: I;
   to?: I;
   fresh?: boolean;
@@ -549,7 +549,7 @@ function besideReader<I>(s: Pick<LayoutState<I>, "names">, ctx: Ctx<I>, id: I): 
 /** The one placement owner: explicit places, wires, containers, record policy, then screen defaults. Only the person's standing reuses an owned peek; agent opens stay independent. */
 export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across" | "collapsed" | "floats">, request: PlacementRequest<I>, ctx: Ctx<I>): NotePlacement<I> {
   const { from, to, fresh, note } = request;
-  const verb = fresh ? "alt" : "open";
+  const verb = request.verb ?? (fresh ? "alt" : "open");
   const wire = s.across.find(w => w.from === from && w.verb === verb);
   const openWire = fresh && !s.wires.some(w => w.from === from && w.verb === "alt") ? s.across.find(w => w.from === from && w.verb === "open") : undefined;
   let route = to !== undefined ? { to } : wire ? { across: wire.to, rule: wire.rule ?? "tile" as const }
@@ -575,7 +575,8 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     }
   }
   const keys = ctx.keys ?? ctx.standing;
-  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing, route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
+  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing && verb !== "hover", route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
+  if (verb === "hover" && !route) return result;
   if (route && "float" in route) {
     const followers = [...s.floats.filter(f => f.peekOf === from).map(f => f.id), ...selectTargets(s, from).filter(id => !isFloat(s, id))];
     const peek = ctx.standing ? followers.find(id => !ctx.tile(id).editing && !ctx.tile(id).holds && !ctx.tile(id).pinned) : undefined;
@@ -1585,8 +1586,8 @@ class Step<I> {
     this.present(id);
     this.guard(id, "float");
     this.drag(id);
-    if (leaves(this.d.tree).length < 2) refuse(`${this.name(id)} is the only tile in the layout; there's nothing for it to float over`);
-    this.d.tree = normalise(remove(this.d.tree, id)!);
+    if (!this.ctx.empties && leaves(this.d.tree).length < 2) refuse(`${this.name(id)} is the only tile in the layout; there's nothing for it to float over`);
+    this.d.tree = normalise(remove(this.d.tree, id) ?? { t: "tabs", ids: [], active: 0 });
     this.d.collapsed.delete(id);
     this.d.floats.push({ id, rect: this.onScreen(this.newFloatRect()) });
     if (this.takesKeys) this.d.focus = id;
@@ -1615,7 +1616,7 @@ class Step<I> {
     };
     const focus = this.d.focus;
     const base = this.isFloat(focus) || focus === id || !has(this.d.tree, focus) ? (pinnedTiles(this.d.tree).at(-1) ?? leaves(this.d.tree).at(-1)!) : focus;
-    const first = tryAt(at ?? { kind: "split", target: base, dir: "right" });
+    const first = tryAt(at ?? (base === undefined ? { kind: "edge", dir: "right" } : { kind: "split", target: base, dir: "right" }));
     const refused = why(first);
     if (at?.kind === "split" && refused) refuse(`${refused} · tile.float on=false puts it back where it was opened`);
     let next: LNode<I> | null = refused ? null : first;
@@ -2294,8 +2295,7 @@ export function keepOnScreen(r0: Rect, area: Rect, anchor?: Rect): Rect {
 //
 // Two layers: the screen layer is swapped per screen (board, river, reader, LORD), each as small as it was designed;
 // the host layer is above every screen and stays across screen switches (the agent, the admin outline and detail,
-// terminals; later a shelf for bundles in transit). The host layer is a layout like any other, so it changes by the
-// same `apply`: its tree holds one slot for whatever screen is shown (`HOST_SCREEN`) beside a real dock of tabs.
+// terminals and glass floats). Both host desks and screens change only through `apply`.
 // The person's keys move through the same transitions: a dock opened by the person takes them (to the tab shown),
 // shut it gives them back to the screen slot, where the screen's own focus is exactly as they left it. The screen
 // spec says where the host layer may appear (its policy's `host`), read by `placeHost` and by the dock operation
@@ -2322,9 +2322,9 @@ export function hostLayer(o: { tabs: string[]; names?: ReadonlyMap<string, strin
  * Menus (a tile's menu, a hint card, a completion list) are always on top, whatever they hang off. One order: the
  * frame paints it, and a click goes to the topmost layer under it.
  */
-export type Layer = "tiles" | "drawer" | "floats" | "lift" | "menus";
+export type Layer = "tiles" | "drawer" | "floats" | "lift" | "glass" | "menus";
 export function layerOrder(o: { inDrawer: boolean }): Layer[] {
-  return ["tiles", ...(o.inDrawer ? ["floats", "drawer"] as const : ["drawer", "floats"] as const), "lift", "menus"];
+  return ["tiles", ...(o.inDrawer ? ["floats", "drawer"] as const : ["drawer", "floats"] as const), "lift", "glass", "menus"];
 }
 /** The layers drawn above `layer`. */
 export const layersAbove = (order: readonly Layer[], layer: Layer): Layer[] => order.slice(order.indexOf(layer) + 1);

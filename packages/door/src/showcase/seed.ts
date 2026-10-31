@@ -522,6 +522,17 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   // A small checklist under the whiteboard, for the notebook's anchored embed of one step.
   const tap = await make(notes.whiteboard.id, "Kitchen tap\n- [~] fix the dripping tap ^t-7a9c11\n  - [ ] buy a washer\n- [ ] tighten the hinge");
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));
+  notes.glassTitle = await make(notes.root.id, `${SEED.glassTitle}\nThe full title stays readable on the glass.`);
+  notes.glass = await make(notes.root.id, `${SEED.glass}
+Point at these links after turning on the ◇ glyph in the status bar.
+
+The ((${notes.shed.id}|tool shed)) keeps the spare pots.
+The ((${notes.notebook.id}|garden notebook)) records the next planting.
+The ((${notes.peek.id}|garden gallery)) has more notes to hover.
+
+Move into the post-it to read it. ← → and the wheel over its title flip the stack.
+Alt-hover keeps one sticky, even with hover off. Esc dismisses it; alt+U clears the glass.
+Tune → Glass adjusts the delays and stack limit. ^W U keeps an ordinary tile above every screen.`);
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id, notes.chores.id));
   const readingView = await make(notes.figures.id, "Window readings [page::garden-readings] [type::virtual-branch] [query::type=window-reading] [sort::title]");
   for (let i = 1; i <= 8; i++) await make(readingView.id, `Window sample ${i} [type::window-reading] [merged-at::2026-03-04T03:47:00Z]`);
