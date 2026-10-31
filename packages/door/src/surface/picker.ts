@@ -31,6 +31,8 @@ export interface PickerSpec<T, H> {
   look?(width: number): StyleValues;
   name: string;
   items(): readonly T[];
+  /** At most this many choices in the visible window, even when more terminal rows fit. */
+  maxItems?: number;
   /** An item's rows, `w` cells wide; `on`: the cursor is on it (`pickRow` lights it). */
   row(it: T, i: number, on: boolean, w: number): string[];
   choose(it: T, i: number, host: H): void;
@@ -84,6 +86,7 @@ export class ListPicker<T, H> implements Mode<H> {
   private done = false;
   /** All the list's rows (headings too), as last drawn: the thumb's length. */
   private total = 0;
+  get totalRows(): number { return this.total; }
   constructor(readonly spec: PickerSpec<T, H>) {}
 
   ended() { return this.done; }
@@ -205,6 +208,14 @@ export class ListPicker<T, H> implements Mode<H> {
       }
     }
     const shown = rows.slice(top, top + h);
+    if (this.spec.maxItems) {
+      const indices = [...new Set(shown.filter(r => !r.inert).map(r => r.i))];
+      const end = indices.indexOf(this.sel) >= this.spec.maxItems ? indices.indexOf(this.sel) + 1 : this.spec.maxItems;
+      const allowed = new Set(indices.slice(Math.max(0, end - this.spec.maxItems), end));
+      while (shown.length && !allowed.has(shown[0]!.i)) { shown.shift(); top++; }
+      while (shown.length && !allowed.has(shown.at(-1)!.i)) shown.pop();
+      this.view.top = top;
+    }
     this.total = rows.length;
     // An item cut off at the bottom isn't shown in part (the mover's lane without what moving there would patch).
     const cut = shown.at(-1)?.i;

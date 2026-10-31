@@ -2,6 +2,7 @@
 // row contract, merged by outline-core's one matcher, with picks kept by the host. Scratch service in a temp folder;
 // every note and issue is made up.
 import { afterEach, expect, test } from "bun:test";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,9 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { mergeSourceAnswers, insertText } from "@ep0ch/outline-core/completion-source";
 import { completionRows } from "../src/completion-sources";
+import { ReferenceCompletionSession, referenceCompletionProvider } from "../src/reference-completion";
+import { renderReferenceCompletion } from "../src/reference-completion-renderer";
+import { TextBuffer } from "../src/text-buffer";
 import type { CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import type { CompletionKind } from "@ep0ch/outline-core/completion-triggers";
 import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
@@ -143,11 +147,12 @@ test("a source in no list, or keys without key::, is refused with what to write"
 });
 
 test("(( answers the notes and their anchors from the service, as the door and Detail both show them", async () => {
-  const { create, rows } = await setup();
-  await create("Greenhouse meeting\n## Heating ^heat\nWe agreed to move the seedlings.");
+  const { client, create, rows } = await setup();
+  const folder = await create("Garden club");
+  await client.request({ action: "create", parentId: folder.id, text: "Greenhouse meeting\n## Heating ^heat\nWe agreed to move the seedlings." });
   const r = await rows("block", "greenhouse");
   const list1 = merged(r, "greenhouse");
-  expect(list1[0]).toMatchObject({ label: "Greenhouse meeting", kind: "block" });
+  expect(list1[0]).toMatchObject({ label: "Greenhouse meeting", kind: "block", detail: expect.stringContaining("Garden club") });
   expect(list1.map(row => row.kind)).toContain("anchor");
 });
 
@@ -252,3 +257,66 @@ test("shell completion shows its demo and | as finds the outline's own formatter
   const custom = merged(await rows("formatter", "plant"), "plant").find(row => row.label === "plant-labels")!;
   expect(custom.definition).toBe(own.id);
 });
+
+
+test("Detail wraps a service component's docs beside its detail line and preserves Enter on a bare property (PIE-1478)", async () => {
+  const { client, create } = await setup();
+  const note = await create("Completion practice\n");
+  await create("Watering rota [trellis::north]");
+  const buffer = new TextBuffer("::graph-table");
+  buffer.moveEnd();
+  const session = new ReferenceCompletionSession(referenceCompletionProvider(client, "popup-test"), () => buffer, () => {}, () => true, () => ({ blockId: note.id, text: buffer.text }));
+  await session.refresh();
+  const state = session.state!;
+  expect(state.items[0]!.kind).toBe("component");
+  expect(state.items[0]!.docs).toBeTruthy();
+  const plain = (s: string) => s.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "").replace(/\x1b\[[\d;]*[A-Za-z]/g, "");
+  const lines = renderReferenceCompletion(state, 120, 24).map(plain);
+  expect(lines.some(line => line.includes(" │ "))).toBe(true);
+  expect(lines.join("\n")).toContain(state.items[0]!.detail!);
+  session.dismiss();
+  buffer.replaceText("[trellis::"); buffer.moveEnd();
+  await session.refresh();
+  expect(session.state!.items[0]!.label).toBe("north");
+  expect(session.chooses).toBe(false);
+  expect(renderReferenceCompletion(session.state!, 80, 24).map(plain).join("\n")).toContain("↵ new line · ⇥ insert");
+  expect(await session.accept()).toBe(true);
+  expect(buffer.text).toBe("[trellis::north]");
+});
+
+test("scrolling large completion docs stays cheap and reaches the whole passage", async () => {
+  const { client, create } = await setup();
+  const last = "The final harvest belongs on the bottom shelf.";
+  const body = Array.from({ length: 5000 }, (_, i) => `Harvest ${i}: keep the \`seed packets\` in the greenhouse until the beds are ready for planting.`).join("\n");
+  const ledger = await create(`Harvest ledger\n${body}\n${last}`);
+  const buffer = new TextBuffer("((Harvest ledger"); buffer.moveEnd();
+  const session = new ReferenceCompletionSession(referenceCompletionProvider(client, "docs-test"), () => buffer, () => {}, () => true);
+  try {
+    await session.refresh();
+    const state = session.state!;
+    const row = state.items[state.index]!;
+    for (let n = 0; !row.context?.includes(last) && n < 200; n++) await Bun.sleep(10);
+    expect(row.context).toContain(last);
+    const draw = (width = 120) => renderReferenceCompletion(state, width, 24).map(stripTerminalSequences);
+    const coldStart = performance.now();
+    expect(draw().join("\n")).toContain("Harvest 0:");
+    const coldMs = performance.now() - coldStart;
+    const scrollStart = performance.now();
+    for (let n = 0; n < 30; n++) { session.scrollDocs(3); draw(); }
+    const scrollMs = performance.now() - scrollStart;
+    console.log(`completion docs: first draw ${coldMs.toFixed(1)} ms; 30 scroll draws ${scrollMs.toFixed(1)} ms`);
+    expect(scrollMs).toBeLessThan(coldMs * 5);
+    session.scrollDocs(Number.MAX_SAFE_INTEGER);
+    expect(draw().join("\n")).toContain(last);
+    const narrow = draw(48);
+    expect(narrow.every(line => visibleWidth(line) <= 48)).toBe(true);
+    session.scrollDocs(Number.MAX_SAFE_INTEGER);
+    expect(draw(48).join("\n")).toContain(last);
+    // Context is enriched after the row first appears; a cached draw must follow that new text too.
+    const corrected = "A corrected harvest date.";
+    await client.request({ action: "update", blockId: ledger.id, text: `Harvest ledger\n${corrected}`, expectedRevision: ledger.revision, mutation: { author: "agent", actorId: "docs-editor" } });
+    session.move(0);
+    for (let n = 0; !row.context?.includes(corrected) && n < 200; n++) await Bun.sleep(10);
+    expect(draw(48).join("\n")).toContain(corrected);
+  } finally { session.dismiss(); }
+}, 20_000);

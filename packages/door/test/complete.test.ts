@@ -76,9 +76,10 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
   test("at 120 columns the docs wrap beside the list, the first word drawn and none cut; each row has its kind at the right", () => {
     const s = state(), lines = draw(s, 120);
     const row = lines.find(l => l.includes("Greenhouse meeting"))!;
-    expect(row).toMatch(/» Greenhouse meeting {2}Garden club +block +│ Watering notes/);
+    expect(row).toMatch(/» Greenhouse meeting +block +│ Watering notes/);
+    expect(lines[lines.indexOf(row) + 1]).toContain("Garden club");
     expect(lines.find(l => l.includes("^a10"))).toMatch(/anchor +│/);
-    expect(lines.find(l => l.includes("Green beds"))).toMatch(/Green beds {2}Oct 14 +page +│/);
+    expect(lines.find(l => l.includes("Green beds"))).toMatch(/Green beds +page +│/);
     expect(s.previewRect!.col).toBeGreaterThan(s.listWidth! - 1);
     // Wrapped over the rows it has, at the width it's drawn: the whole description, word by word.
     const docs = lines.map(l => l.slice(s.previewRect!.col, s.previewRect!.col + s.previewRect!.cols).trim()).filter(Boolean);
@@ -88,10 +89,10 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
     expect(lines.some(l => l.includes("↑↓ move · ⏎/tab inserts"))).toBe(true);
   });
 
-  test("at 80 columns the docs go under the list, sized to what they hold; a short list keeps them beside", () => {
+  test("at 80 columns the docs go under the list, sized to what they hold", () => {
     const short = state();
     draw(short, 80);
-    expect(short.previewRect!.col).toBeGreaterThan(30);
+    expect(short.previewRect!.col).toBeLessThanOrEqual(1);
     const s = state(), long = "^decision  We agreed to move the seedlings to the south bench once the heater is fixed";
     s.items.push({ label: long, kind: "anchor", insertion: "((m1^decision))" });
     const lines = draw(s, 80);
@@ -139,14 +140,17 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
   test("Enter inserts as Tab does; the footer says when it's a new line instead (nothing typed yet, or the row changes nothing)", () => {
     expect(enterKeeps(state())).toBeNull();
     const bare = state("## Calls ::", { target: { kind: "value", start: 9, end: 11, query: "", headingShort: true } as any });
+    bare.items[0]!.enter = "new line";
     expect(enterKeeps(bare)).toBe("new line");
-    expect(popupHint(bare)).toContain("tab inserts · ⏎ new line");
+    expect(popupHint(bare)).toContain("⏎ new line · tab inserts");
     expect(enterKeeps({ ...bare, picked: true })).toBeNull();
     const done = state("[[green-beds]]", { target: { kind: "page", start: 0, end: 14, query: "green-beds" }, index: 2 });
     expect(enterKeeps(done)).toBe("new line");
     const yaml = state("title: Fo", { target: { kind: "yaml-value", start: 7, end: 9, query: "Fo", component: "graph-meter" } as any });
+    yaml.items[0]!.enter = "new line";
     expect(enterKeeps(yaml)).toBe("new line");
     const filter = state("stage:do", { target: { kind: "filter-value", start: 6, end: 8, query: "do", key: "stage" } as any, line: true });
+    filter.items[0]!.enter = "applies";
     expect(enterKeeps(filter)).toBe("applies");
   });
 });
@@ -284,9 +288,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     expect(completionOf(d)).toBeNull();
   });
 
-  test("every key the open list takes runs one of its actions, which names that key (PIE-1339): the parity walk's rule, from an open popup", async () => {
-    const keys: Key[] = [K("down"), K("up"), { kind: "down", shift: true } as Key, { kind: "pgdn" } as Key, K("tab"), K("enter"), K("esc")];
-    for (const k of keys) {
+  test.each<Key>([ctrl("n"), ctrl("p"), K("down"), K("up"), { kind: "down", shift: true }, { kind: "up", shift: true }, { kind: "pgdn" }, { kind: "pgup" }, K("tab"), K("enter"), K("esc")])("every key the open list takes runs its declared action: %j", async (k) => {
       const { d, c } = typing("## Calls [heading-p");
       await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the keys");
       // Docs longer than they're shown, so shift+↓ and PgDn scroll them.
@@ -298,9 +300,9 @@ describe("property keys and values from the component schemas (PIE-618): the sam
       stop();
       const name = keyName(k)!;
       expect(runs.map(r => r.name), name).toHaveLength(1);
+      expect(runs[0]!.name).toStartWith("complete.");
       expect([...declaredKeys(runs[0]!.keys)], `${runs[0]!.name} names ${name}`).toContain(name);
       c.dismiss();
-    }
   });
 
   test("[heading:: offers the built-in styles and the outline's own; a value typed inside a closed property replaces through its ]", async () => {
@@ -577,8 +579,8 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 
   /** A surface editing `id`, keys typed through the surface as the person types them. */
-  async function editing(id: string) {
-    const s = new NoteSurface(), h = host();
+  async function editing(id: string, actor = USER) {
+    const s = new NoteSurface(), h = { ...host(), actor };
     s.show((await board.get(id))!, h);
     await s.edit(h);
     const d = s.draft!;
@@ -789,7 +791,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("esc")); e.press(K("enter")); e.type("::fie");
     const p = await e.settled();
     const card = () => { renderCompletion(e.pop()!, 140, 24); return e.pop()!.previewLines!.map(visible).join("\n"); };
-    expect(card()).toContain("Fields: Every place a note writes a key");
+    expect(card()).toContain("Every place a note writes a key");
     expect(card()).toContain("::fields{key=status}");
     expect(card()).toContain("[copy]");
     expect(card()).toContain("Seed list");
@@ -810,7 +812,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(typing.d.text).toEndWith("::graph-activity");
   });
 
-  test("component rows stay on the left in one line and preview their selected demo (PIE-1127 round 2)", async () => {
+  test("component labels and details stay on the left and preview their selected demo (PIE-1127 round 2)", async () => {
     const e = await editing(await create("Component layout\n"));
     e.type("::");
     const p = await e.settled();
@@ -819,7 +821,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
       const hits: (number | null)[] = [];
       const lines = renderCompletion(p, 140, 20, hits).map(visible);
       const row = hits.indexOf(p.index);
-      expect(hits.filter(i => i === p.index)).toHaveLength(1);
+      expect(lines[row + 1]).toContain(p.items[p.index]!.detail!);
       expect(lines[row]!.indexOf(label)).toBeLessThan(6);
       expect(lines[row]!.slice(0, p.listWidth).trimEnd()).toEndWith("›");
       expect(p.previewLines!.map(visible).join("\n")).toContain(label === "Fields" ? "Seed list" : label === "Button" ? "Fold the bottom" : "Properties");
@@ -841,7 +843,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(p.items[0]!.insertion).toContain("\n---\ntitle: Disk\nvalue: 0.6\n---\n::");
     expect(p.items.filter(i => i.insertion.startsWith("::graph-meter")).length).toBe(1);
     e.screen();
-    await e.s.act("complete.preview", { by: 7 }, e.h, USER);
+    for (let i = 0; i < p.previewLines!.length && !e.screen().includes("DISK"); i++) await e.s.act("complete.docs", { by: 1 }, e.h, USER);
     expect(e.screen()).toContain("DISK");
     e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
@@ -859,9 +861,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("left"));
     e.screen();
     e.s.click(col, row, e.h);
-    expect(e.d.text).toBe("Component practice\n::graph-meter");
-    e.s.click(col, row, e.h);
-    await until(() => !e.pop(), "double click inserts");
+    await until(() => !e.pop(), "click inserts");
     e.type("Photos");
     expect(e.d.lines[3]).toBe("title: Photos");
     e.press(ctrl("s"));
@@ -869,6 +869,23 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect((await board.get(e.d.blockId))!.text).toContain("title: Photos\nvalue: 0.6");
     const result: any = await e.s.act("complete", { text: "::graph-met" }, e.h, AGENT);
     expect(result.items[0].insertion).toContain("title: Disk");
+  });
+
+  test("an agent scrolling component docs is attributed before the popup redraws", async () => {
+    const e = await editing(await create("Reading component docs\n::graph-table"), AGENT);
+    try {
+      await e.s.act("complete.ask", {}, e.h, AGENT);
+      const popup = await e.settled();
+      e.screen();
+      expect(popup.previewLines!.length).toBeGreaterThan(popup.previewRect!.rows);
+      const before = { text: e.d.text, row: e.d.row, col: e.d.col, index: popup.index };
+      let shownAgent: string | undefined;
+      e.h.redraw = () => { shownAgent = e.s.describe().agent?.id; };
+      await e.s.act("complete.docs", { by: 1 }, e.h, AGENT);
+      expect(popup.previewTop).toBe(1);
+      expect(shownAgent).toBe(AGENT.id);
+      expect({ text: e.d.text, row: e.d.row, col: e.d.col, index: popup.index }).toEqual(before);
+    } finally { e.s.dispose(); }
   });
 
   test("heading shorthand uses the outline's styles and writes a bracket property (PIE-1012)", async () => {
@@ -916,7 +933,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     }
   });
 
-  test("the mouse: the wheel moves through the candidates, a click previews and a double click inserts, a click elsewhere on the popup does nothing", async () => {
+  test("the mouse: the wheel moves through the candidates, a click inserts, a click elsewhere on the popup does nothing", async () => {
     const e = await editing(ids.compost!);
     e.press(K("enter")); e.type("see [[");
     const p = await e.settled();
@@ -938,9 +955,6 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const row = shown.findIndex(l => l.includes("seeds · Seed list"));
     const col = shown[row]!.indexOf("seeds · Seed list");
     expect(row).toBeGreaterThan(header);
-    expect(e.s.click(col, row, e.h)).toBe(true);
-    expect(e.pop()!.index).toBe(target);
-    expect(e.d.lines.at(-1)).toBe("see [[seeds");
     expect(e.s.click(col, row, e.h)).toBe(true);
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe("see [[seeds]]");
@@ -1392,9 +1406,6 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     const x = lines[y]!.indexOf("seeds · Seed list");
     key({ kind: "mouse", action: "down", button: 0, x, y });
     key({ kind: "mouse", action: "up", button: 0, x, y });
-    expect(draft.lines.at(-1)).toBe("sow [[se");
-    key({ kind: "mouse", action: "down", button: 0, x, y });
-    key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => draft.lines.at(-1) === "sow [[seeds]]", "the clicked candidate");
     expect(completionOf(draft)).toBeNull();
     expect((app as any).message ?? "").not.toContain("finish the edit first");
@@ -1489,12 +1500,13 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       type("^");
       await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "passages");
       expect(completionOf(rd.draft!)!.items.every(i => i.blockId === journal.id)).toBe(true);
-      await until(() => screen().some(l => l.slice(l.indexOf(" │ ") + 3).includes("Harvest detail 0")), "the passage in its note", 2000);
+      const docs = (line: string) => line.slice(-2 - completionOf(rd.draft!)!.previewRect!.cols, -2);
+      await until(() => screen().some(l => docs(l).includes("Harvest detail 0")), "the passage in its note", 2000);
       const before = screen();
-      const y = before.findIndex(l => l.slice(l.indexOf(" │ ") + 3).includes("Harvest detail 0"));
+      const y = before.findIndex(l => docs(l).includes("Harvest detail 0"));
       const x = before[y]!.lastIndexOf("Harvest detail 0");
       key({ kind: "mouse", action: "wheel-down", button: 0, x, y });
-      expect(screen().map(l => l.slice(l.indexOf(" │ ") + 3)).join("\n")).not.toContain("Harvest detail 0:");
+      expect(screen().map(docs).join("\n")).not.toContain("Harvest detail 0:");
       key(K("enter"));
       await until(() => rd.draft!.text.includes("^harvest))"), "inserted anchor");
       type(" ((Orchard");
@@ -1558,7 +1570,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     } finally { app.pop(); }
   });
 
-  test("the board's preview under a float: a click on the float's cells doesn't reach the popup (the edit stays open, PIE-812)", async () => {
+  test("the completion popup stays above a floated tile and its visible row inserts on one click", async () => {
     const b = boardScreen(hub.id), B: any = BV.view(b);
     const was = (await board.get(beans.id))!;
     app.push(b);
@@ -1580,14 +1592,11 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       expect(y).toBeGreaterThan(0);
       // The float dragged over the popup's rows.
       await run("float.place", { col: x - 5, row: y - 2, cols: 30, rows: 6 }, "over");
-      screen();                                                            // drawn before the person clicks
+      expect(screen()[y]).toContain("seeds · Seed list");
       key({ kind: "mouse", action: "down", button: 0, x, y });
       key({ kind: "mouse", action: "up", button: 0, x, y });
-      // The float is elsewhere: the click goes to it, the hidden candidate wasn't inserted, and the edit stays open
-      // in the preview as typed, nothing saved.
-      await Bun.sleep(100);
+      await until(() => draft.lines.at(-1) === "sow [[seeds]]", "the visible completion inserts");
       expect(B.preview.draft).toBe(draft);
-      expect(draft.lines.at(-1)).toBe("sow [[se");
       expect((await board.get(beans.id))!.revision).toBe(was.revision);
       await b.dispatch.act({ action: "tile.close", tile: "over" }, USER);
       // Back in the preview's edit, esc closes it (put aside as unsent): the note as it was, for the next hosts.
