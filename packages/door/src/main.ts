@@ -20,6 +20,7 @@ import { placeOf } from "./session/place";
 import { carryDoor, forwardTo, remoteDoor, remoteOf, sshDoorArgv, sshDoorOf } from "./machine";
 import { findCommand, NOTES_USAGE, revisionsCommand, showCommand } from "./notes-cli";
 import { EXPORT_USAGE } from "./export";
+import { MIRROR_USAGE } from "./outline-mirror";
 import { LIBRARY_USAGE } from "./library/cli";
 import { NEW_USAGE, newCommand } from "./new-cli";
 import { VIEW_USAGE, viewCommand } from "./view-cli";
@@ -180,6 +181,7 @@ ${SHARE_USAGE}
                                    id, browser, who and last use; revoke signs one out now, --all every one.
                                    The web client's /sessions page does the same
 ${EXPORT_USAGE}
+${MIRROR_USAGE}
 ${LIBRARY_USAGE}
 ${DOCS_USAGE}
   ep0ch <script> [key=value …] [--as <id>]
@@ -335,6 +337,7 @@ if (args[0] === "new") process.exit(await newCommand(args));
 if (args[0] === "view") process.exit(await viewCommand(args));
 if (args[0] === "artifact") { const { artifactCommand } = await import("./artifact-cli"); process.exit(await artifactCommand(args)); }
 if (args[0] === "share" || args[0] === "reader") { const { shareCommand } = await import("./share-cli"); process.exit(await shareCommand(args)); }
+if (args[0] === "mirror") { const { mirrorCommand } = await import("./outline-mirror"); process.exit(await mirrorCommand(args)); }
 if (args[0] === "export") { const { exportCommand } = await import("./export"); process.exit(await exportCommand(args)); }
 if (args[0] === "docs") process.exit(docsCommand(args.slice(1)));
 if (args[0] === "library") { const { libraryCommand } = await import("./library/cli"); process.exit(await libraryCommand(args)); }

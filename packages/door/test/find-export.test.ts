@@ -1,7 +1,8 @@
 // PIE-534: `ep0ch find --query/--view/--under` and `ep0ch export`, on a scratch host. The outline evaluates every
 // selection; the door only asks. Exports go to temp dirs. Fictional notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readNoteFile } from "@ep0ch/outline-core/header-line";
@@ -10,7 +11,8 @@ import { exportFiles, fileName, resolveLinks } from "../src/export";
 import { selectionOf, selectionQuery, type BoardAddress } from "../src/notes-cli";
 import { queryPage } from "../src/mcp-query";
 import { SocketBoard } from "../src/socket";
-import { outliner, Scratch } from "./scratch";
+import { JsonLines, jsonLine } from "../src/jsonl";
+import { outliner, Scratch, until } from "./scratch";
 
 const MAIN = join(import.meta.dir, "../src/main.ts");
 const run = async (args: string[], env: Record<string, string> = {}) => {
@@ -64,8 +66,8 @@ describe("exported files, from records", () => {
     const [f] = exportFiles([order], byId, { format: "md", children: true, split: false, resolveLinks: false });
     expect(f!.name).toBe("seed-order-bbbbbbbb.md");
     expect(f!.content).toBe([
-      "---", 'id: "bbbbbbbb-2"', 'parent: "aaaaaaaa-1"', 'created: "2026-03-09T09:00:00.000Z"', 'updated: "2026-03-09T09:30:00.000Z"', 'author: "user"',
-      "tag:", '  - "seeds"', '  - "spring"', "---",
+      "---", 'id: "bbbbbbbb-2"', 'parent: "aaaaaaaa-1"', 'path: "/"', 'created: "2026-03-09T09:00:00.000Z"', 'updated: "2026-03-09T09:30:00.000Z"', 'author: "user"',
+      'tag: ["seeds", "spring"]', "---",
       "Seed order", "For ((aaaaaaaa-1|the plot)) and [[Seed list]], not ((ffffffff-9)) or !((aaaaaaaa-1)).", "", "- Ask about netting", "  She has a roll.", "",
     ].join("\n"));
     // The file reads back to the note's text, its header line rebuilt with ` - `.
@@ -74,10 +76,10 @@ describe("exported files, from records", () => {
 
   test("--split: each child its own file, the parent lists it; --resolve-links links what was exported, and only that", () => {
     const files = exportFiles([plot, list], byId, { format: "md", children: true, split: true, resolveLinks: true });
-    expect(files.map(f => f.name)).toEqual(["allotment-plot-aaaaaaaa.md", "seed-order-bbbbbbbb.md", "ask-about-netting-dddddddd.md", "seed-list-cccccccc.md"]);
-    expect(files[0]!.content).toContain("\n- [Seed order](seed-order-bbbbbbbb.md)\n");
+    expect(files.map(f => f.name)).toEqual(["allotment-plot-aaaaaaaa.md", "allotment-plot-aaaaaaaa/seed-order-bbbbbbbb.md", "allotment-plot-aaaaaaaa/seed-order-bbbbbbbb/ask-about-netting-dddddddd.md", "seed-list-cccccccc.md"]);
+    expect(files[0]!.content).toContain("\n- [Seed order](allotment-plot-aaaaaaaa/seed-order-bbbbbbbb.md)\n");
     // An embed stays an embed; a link to a note that wasn't exported stays as written.
-    expect(files[1]!.content).toContain("For [the plot](allotment-plot-aaaaaaaa.md) and [Seed list](seed-list-cccccccc.md), not ((ffffffff-9)) or !((aaaaaaaa-1)).");
+    expect(files[1]!.content).toContain("For [the plot](../allotment-plot-aaaaaaaa.md) and [Seed list](../seed-list-cccccccc.md), not ((ffffffff-9)) or !((aaaaaaaa-1)).");
     // The whole text (a child drawn as a list item) keeps its header line; the same links resolve there.
     expect(resolveLinks(order, new Map([["aaaaaaaa-1", { file: "a.md", title: "A" }]]), true)).toBe("Seed order [tag::seeds] [tag::spring]\nFor [the plot](a.md) and [[Seed list]], not ((ffffffff-9)) or !((aaaaaaaa-1)).");
     // A property naming a note's id is a link in the record, and stays a property in the file.
@@ -120,6 +122,59 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     board.close();
   });
   afterAll(async () => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); await scratch.dispose(); });
+
+  test.each([{ selection: ["--all"] }, { selection: ["--query", "batch=seed-packets"] }])("export writes all 1,200 selected notes with %j", async ({ selection }) => {
+    const board = new SocketBoard(scratch.sock, undefined, scratch.name);
+    const wanted: string[] = [];
+    try {
+      for (let i = 0; i < 1200; i++) wanted.push((await board.createBlock(null, `Packet ${i} [batch::seed-packets]\nSeeds for plot ${i}.`)).id);
+      {
+        const out = temp();
+        const result = await run(["export", ...selection, "--format", "json", "--out", out, "--manifest"], env);
+        expect(result.code, result.err).toBe(0);
+        const records = readdirSync(out).filter(f => f !== "manifest.json").map(f => JSON.parse(readFileSync(join(out, f), "utf8")));
+        expect(wanted.every(id => records.some(r => r.id === id))).toBe(true);
+        expect(records.find(r => r.id === wanted.at(-1))?.body).toContain("Seeds for plot 1199.");
+      }
+    } finally { for (const id of wanted) await board.trash(id); board.close(); }
+  }, 120_000);
+
+  test("mirror follows edits within a second, moves a subtree, removes trash and resumes after a host restart", async () => {
+    const board = new SocketBoard(scratch.sock, undefined, scratch.name);
+    const parent = await board.createBlock(null, "Mirror orchard");
+    const child = await board.createBlock(parent.id, "Pear ledger\nBefore the rain.");
+    const out = temp();
+    const process = Bun.spawn(["bun", MAIN, "mirror", out], { env: { ...globalThis.process.env, ...env }, stdout: "pipe", stderr: "pipe" });
+    const errors = new Response(process.stderr).text();
+    const manifest = () => JSON.parse(readFileSync(join(out, "manifest.json"), "utf8"));
+    const file = () => manifest().files.find((f: string) => f.endsWith(`-${child.id.slice(0, 8)}.md`));
+    try {
+      await until(() => existsSync(join(out, "manifest.json")) || process.exitCode !== null, "first mirror write");
+      if (process.exitCode !== null) throw new Error(await errors);
+      const before = manifest();
+      const oldFile = file();
+      expect(oldFile).toContain(`/pear-ledger-${child.id.slice(0, 8)}.md`);
+      await board.request("update", { blockId: child.id, text: "Pear ledger\nFresh words after the rain.", expectedRevision: child.revision, mutation: { author: "user" } });
+      await until(() => readFileSync(join(out, oldFile), "utf8").includes("Fresh words after the rain."), "mirrored edit", 1000);
+      await board.request("update", { blockId: parent.id, text: "Mirror meadow", expectedRevision: parent.revision, mutation: { author: "user" } });
+      await until(() => file() !== oldFile, "renamed ancestor");
+      expect(existsSync(join(out, oldFile))).toBe(false);
+      expect(readFileSync(join(out, file()), "utf8")).toContain('path: "Mirror meadow"');
+      await scratch.restart();
+      const fresh = await board.get(child.id);
+      await board.request("update", { blockId: child.id, text: "Pear ledger\nWords after restarting the host.", expectedRevision: fresh!.revision, mutation: { author: "user" } });
+      await until(() => readFileSync(join(out, file()), "utf8").includes("Words after restarting the host."), "restart catch-up");
+      expect(manifest().sequence).toBeGreaterThan(before.sequence);
+      expect(manifest().asOf > before.asOf).toBe(true);
+      const lastFile = file();
+      await board.trash(parent.id);
+      await until(() => !existsSync(join(out, lastFile)), "trashed subtree removed");
+    } finally {
+      process.kill(); await process.exited; await errors;
+      await board.trash(parent.id).catch(() => {}); board.close();
+    }
+    expect((await run(["mirror", out, "--once"], env)).code).toBe(0);
+  }, 30_000);
 
   test("find --query, --under, words and --ids, in outline order; show takes what --ids prints", async () => {
     const q = await run(["find", "--query", "type=errand", "--ids"], env);
@@ -235,14 +290,20 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     const out = temp();
     const r = await run(["export", "--query", "type=place", "--children", "--split", "--out", out], env);
     expect(r.code).toBe(0);
-    expect(readdirSync(out).sort()).toEqual([`allotment-plot-${ids.plot!.slice(0, 8)}.md`, `ask-the-neighbour-about-netting-${ids.ask!.slice(0, 8)}.md`, `seed-order-for-the-plot-${ids.order!.slice(0, 8)}.md`]);
-    const order = readFileSync(join(out, `seed-order-for-the-plot-${ids.order!.slice(0, 8)}.md`), "utf8");
-    expect(order).toContain('\nctx: "2026-03-09 @ 09:27:29 AM"\ntag:\n  - "seeds"\n  - "spring"\n---\nSeed order for the plot\nBroad beans.\nwhen:: before Friday\n');
+    const folder = `allotment-plot-${ids.plot!.slice(0, 8)}`;
+    const orderFile = `${folder}/seed-order-for-the-plot-${ids.order!.slice(0, 8)}.md`;
+    expect(existsSync(join(out, folder, `seed-order-for-the-plot-${ids.order!.slice(0, 8)}`, `ask-the-neighbour-about-netting-${ids.ask!.slice(0, 8)}.md`))).toBe(true);
+    const order = readFileSync(join(out, orderFile), "utf8");
+    expect(order).toContain('\nctx: "2026-03-09 @ 09:27:29 AM"\ntag: ["seeds", "spring"]\n---\nSeed order for the plot\nBroad beans.\nwhen:: before Friday\n');
     expect(order).toContain(`\nparent: "${ids.plot}"\n`);
     const again = temp();
     await run(["export", "--query", "type=place", "--children", "--split", "--out", again, "--manifest"], env);
-    for (const f of readdirSync(out)) expect(readFileSync(join(again, f), "utf8")).toBe(readFileSync(join(out, f), "utf8"));
-    expect(JSON.parse(readFileSync(join(again, "manifest.json"), "utf8"))).toMatchObject({ outline: scratch.name, format: "md", selection: { query: "type=place" }, exportedAt: expect.any(String) });
+    expect(readFileSync(join(again, orderFile), "utf8")).toBe(order);
+    expect(order).toContain('path: "Allotment plot"');
+    const manifest = JSON.parse(readFileSync(join(again, "manifest.json"), "utf8"));
+    expect(manifest).toMatchObject({ outline: scratch.name, format: "md", selection: { query: "type=place" }, exportedAt: expect.any(String) });
+    expect(manifest.leftOut.length).toBeGreaterThan(0);
+    expect(manifest.leftOut[0]).toMatchObject({ id: expect.any(String), extension: expect.any(String), reason: "extension page outside selection" });
   }, 30_000);
 
   test("export json to stdout; refusals say what to run", async () => {
@@ -266,5 +327,143 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     const view = await run(["find", "--view", "00000000-0000-4000-8000-000000000000"], env);
     expect([view.code, plain(view.err)]).toEqual([1, expect.stringContaining("ep0ch find --query type=virtual-branch")]);
     expect((await run(["find", "--tree", "--query", "type=errand"], env)).code).toBe(2);
+  }, 30_000);
+});
+
+describe.skipIf(!outliner)("mirror interrupted snapshots and forwards", () => {
+  const scratch = new Scratch();
+  const notes = new Map<string, string>();
+  let board: SocketBoard;
+  let serial = 0;
+  const directory = () => join(scratch.root, `mirror-${++serial}`);
+  beforeAll(async () => {
+    await scratch.start();
+    board = new SocketBoard(scratch.sock, undefined, scratch.name);
+    for (const root of await board.roots()) await board.trash(root.id);
+    for (let i = 0; i < 1001; i++) {
+      const text = `Orchard packet ${i}\nSeeds for row ${i}.`;
+      notes.set((await board.createBlock(null, text)).id, text);
+    }
+  }, 60_000);
+  afterAll(async () => { board?.close(); await scratch.dispose(); });
+
+  function mirror(dir: string, args: string[] = [], env: NodeJS.ProcessEnv = {}) {
+    const child = Bun.spawn([process.execPath, MAIN, "mirror", dir, "--ws", scratch.name, ...args], {
+      env: { ...process.env, ...scratch.env, EP0CH_SOCKET: scratch.sock, ...env }, stdout: "ignore", stderr: "pipe",
+    });
+    let errors = "";
+    const drained = (async () => { for await (const chunk of child.stderr) errors += Buffer.from(chunk).toString(); })();
+    return {
+      child, errors: () => errors,
+      manifest: () => JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as { files: string[]; leftOut: unknown[]; sequence: number },
+      async ready() {
+        await until(() => existsSync(join(dir, "manifest.json")) || child.exitCode !== null, "mirror snapshot after interruption", 10_000);
+        expect(child.exitCode, errors).toBeNull();
+      },
+      async stop() { if (child.exitCode === null) child.kill(); await child.exited; await drained; },
+    };
+  }
+
+  // Hold a real host reply so the concurrent change lands at the page/read boundary, without replacing the service.
+  async function relay(beforeReply: (action: string, reply: any) => Promise<void>) {
+    const path = join(scratch.root, `relay-${++serial}.sock`), sockets = new Set<Socket>();
+    let failure: unknown;
+    const server = createServer(client => {
+      const host = connect(scratch.sock), requests = new Map<string, string>();
+      sockets.add(client); sockets.add(host);
+      const end = () => { client.destroy(); host.destroy(); sockets.delete(client); sockets.delete(host); };
+      for (const socket of [client, host]) { socket.on("error", end); socket.on("close", end); }
+      const outgoing = new JsonLines(request => requests.set(request.id, request.action));
+      client.on("data", data => outgoing.feed(data));
+      client.pipe(host);
+      let pending = Promise.resolve();
+      const incoming = new JsonLines(reply => {
+        const action = requests.get(reply.id) ?? "";
+        requests.delete(reply.id);
+        pending = pending.then(async () => { await beforeReply(action, reply); client.write(jsonLine(reply)); })
+          .catch(error => { failure = error; end(); });
+      });
+      host.on("data", data => incoming.feed(data));
+    });
+    await new Promise<void>(resolve => server.listen(path, resolve));
+    return { path, async close() {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      if (failure) throw failure;
+    } };
+  }
+
+  test("mirror exports every remaining note when a deletion shifts the second page", async () => {
+    let deleted = "";
+    const proxy = await relay(async (action, reply) => {
+      if (!deleted && action === "blocks.query" && reply.result?.nextOffset !== undefined) {
+        deleted = reply.result.blocks[0].id;
+        await board.trash(deleted);
+        notes.delete(deleted);
+      }
+    });
+    const dir = directory(), copy = mirror(dir, ["--once"], { EP0CH_SOCKET: proxy.path });
+    try {
+      expect(await copy.child.exited, copy.errors()).toBe(0);
+      expect(deleted).not.toBe("");
+      const manifest = copy.manifest();
+      expect(manifest.leftOut).toEqual([]);
+      expect(manifest.files).toHaveLength(notes.size);
+      const contents = manifest.files.map(file => readFileSync(join(dir, file), "utf8"));
+      for (const [id, text] of notes) expect(contents.some(content => content.includes(`id: "${id}"`) && content.includes(text)), id).toBe(true);
+    } finally { await copy.stop(); await proxy.close(); }
+  }, 30_000);
+
+  test("mirror retries its first snapshot after the host restarts during its first record read", async () => {
+    let restarting: Promise<void> | undefined;
+    const proxy = await relay(async action => {
+      if (action === "blocks.records" && !restarting) {
+        restarting = (async () => { board.close(); await scratch.stop(100); await scratch.start(); })();
+        await restarting;
+      }
+    });
+    const dir = directory(), copy = mirror(dir, [], { EP0CH_SOCKET: proxy.path });
+    try {
+      await copy.ready();
+      expect(copy.errors()).toContain("connection lost");
+      expect(copy.errors()).toContain("caught up");
+      const exported = new Map(copy.manifest().files.map(file => {
+        const note = readNoteFile(readFileSync(join(dir, file), "utf8"))!;
+        return [note.identity.id, note.text.trimEnd()];
+      }));
+      for (const [id, text] of notes) expect(exported.get(id), id).toBe(text);
+    } finally { await copy.stop(); await restarting; await proxy.close(); }
+  }, 30_000);
+
+  test("mirror recreates a dead ssh forward and catches up the remote outline", async () => {
+    const here = directory(), bin = join(here, "bin"), outlines = join(here, "outlines");
+    for (const dir of [bin, outlines, join(here, "far-home")]) mkdirSync(dir, { recursive: true });
+    for (const [name, entry] of [["ssh", join(outliner!, "test/fake-ssh.ts")], ["ep0ch", MAIN]]) {
+      const path = join(bin, name!);
+      writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${entry}" "$@"\n`);
+      chmodSync(path, 0o755);
+    }
+    const env = {
+      EP0CH_SOCKET: undefined, EP0CH_OUTLINES: outlines, EP0CH_STATE: join(here, "state"), EP0CH_SSH: join(bin, "ssh"),
+      FAKE_SSH_HOME: join(here, "far-home"), FAKE_SSH_OUTLINES: scratch.outlines, FAKE_SSH_BIN: bin,
+    };
+    const ctl = join(outlines, ".remote/box-a.ctl"), dir = directory(), copy = mirror(dir, ["--machine", "box-a"], env);
+    const stopForward = async () => {
+      if (!existsSync(ctl)) return;
+      const pid = Number(readFileSync(ctl, "utf8"));
+      process.kill(pid, "SIGTERM");
+      await until(() => !existsSync(ctl), "the test's forward to stop");
+    };
+    try {
+      await copy.ready();
+      const previous = Number(readFileSync(ctl, "utf8"));
+      await stopForward();
+      const id = [...notes.keys()].at(-1)!;
+      const note = await board.get(id);
+      await board.request("update", { blockId: id, text: "Orchard packet\nFresh words after the forward died.", expectedRevision: note!.revision, mutation: { author: "user" } });
+      await until(() => existsSync(ctl), "mirror to recreate its dead ssh forward", 10_000);
+      expect(Number(readFileSync(ctl, "utf8"))).not.toBe(previous);
+      await until(() => copy.manifest().files.some(file => file.endsWith(`-${id.slice(0, 8)}.md`) && readFileSync(join(dir, file), "utf8").includes("Fresh words after the forward died.")), "remote mirror catch-up");
+    } finally { await copy.stop(); await stopForward(); }
   }, 30_000);
 });

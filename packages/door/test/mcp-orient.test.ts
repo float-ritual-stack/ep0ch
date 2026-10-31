@@ -167,16 +167,19 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
     });
 
     test("a body goes once per response: a later hit is {id, revision, see}", async () => {
-      const [a, b, q] = await t.batch([
+      const [a, b, q, detail] = await t.batch([
         { name: "outline_read", args: { ref: notes.lamp!.id } },
         { name: "outline_read", args: { ref: notes.lamp!.id } },
         { name: "outline_query", args: { query: "type=upkeep-note" } },
+        { name: "outline_read", args: { ref: notes.lamp!.id, detail: true } },
       ]);
       expect(a!.json.record.body).toContain("UNIQUE-TARGET-SENTENCE");
       expect(b!.json).toMatchObject({ id: notes.lamp!.id, revision: expect.any(Number), see: expect.stringMatching(/:record$/) });
       expect(b!.text).not.toContain("UNIQUE-TARGET-SENTENCE");
       expect(q!.json.matches[0]).toMatchObject({ id: notes.lamp!.id, see: b!.json.see });
       expect(q!.text).not.toContain("UNIQUE-TARGET-SENTENCE");
+      expect(a!.json.record.fields).toBeUndefined();
+      expect(detail!.json.record?.fields).toEqual(expect.arrayContaining([expect.objectContaining({ key: "type", offset: expect.any(Number) })]));
       // The next response starts clean.
       expect((await call("outline_read", { ref: notes.lamp!.id })).json.record.body).toContain("UNIQUE-TARGET-SENTENCE");
     });

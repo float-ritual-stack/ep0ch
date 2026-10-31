@@ -413,11 +413,12 @@ process.exit(Number(process.env.BUILDER_CODE));
   test("show draws a view note with its results, from the service's views.read, as an embedded view is drawn", async () => {
     const r = await run(["show", `((${ids.queued}))`, "--width", "60"], env);
     expect(r.code).toBe(0);
-    expect(r.out).toContain("≡ Queued chores · 2 results");
-    expect(r.out).toContain("∙ Water the beans");
-    expect(r.out).toContain("∙ Turn the compost");
+    expect(r.out).toContain("[ QUEUED CHORES ]");
+    expect(r.out).toContain("2 notes");
+    expect(r.out).toContain("Water the beans");
+    expect(r.out).toContain("Turn the compost");
     // A note that isn't a view gets no results block.
-    expect((await run(["show", ids.shed!, "--width", "60"], env)).out).not.toContain("≡");
+    expect((await run(["show", ids.shed!, "--width", "60"], env)).out).not.toContain("[table]");
     // --source is the text as written: no results.
     expect((await run(["show", ids.queued!, "--source"], env)).out).toBe("Queued chores [type::virtual-branch] [query::type=chore]\n");
   });

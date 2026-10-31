@@ -437,6 +437,7 @@ describe("OutlinerStore", () => {
     });
     expect(result).toEqual({
       blocks: [expect.objectContaining({ id: alpha.id, depth: 1 })],
+      more: false,
       completeness: { kind: "complete" },
     });
     expect(() => store.queryBlocks({
@@ -1248,14 +1249,18 @@ Second paragraph`;
       const ranked = store.queryBlocks({ ...query, rankViewId: view.id });
       expect(ranked).toEqual({
         blocks: [canonical.blocks[1], canonical.blocks[0], canonical.blocks[2]],
+        more: false,
         completeness: { kind: "complete" },
       });
       // A line-scope question is answered over the loaded graph (a ticked step's chips settle there), which counts every match.
       expect(store.queryBlocks({ ...query, rankViewId: view.id, limit: 2 })).toEqual({
-        blocks: ranked.blocks.slice(0, 2), completeness: { kind: "truncated", limit: 2, ...(propertyScope === "block" ? {} : { matched: 3 }) },
+        blocks: ranked.blocks.slice(0, 2), more: true, nextOffset: 2, completeness: { kind: "truncated", limit: 2, ...(propertyScope === "block" ? {} : { matched: 3 }) },
+      });
+      expect(store.queryBlocks({ ...query, rankViewId: view.id, limit: 2, offset: 2 })).toEqual({
+        blocks: ranked.blocks.slice(2), more: false, completeness: { kind: "complete" },
       });
       expect(store.queryBlocks({ ...query, rankViewId: view.id, text: "no-such-text" })).toEqual({
-        blocks: [], completeness: { kind: "complete" },
+        blocks: [], more: false, completeness: { kind: "complete" },
       });
     }
     const blockFilters = [{ key: "tag", value: "next" }, { key: "owner" }];
@@ -1302,6 +1307,7 @@ Second paragraph`;
           depth: 1,
         }),
       ],
+      more: true, nextOffset: 1,
       completeness: { kind: "truncated", limit: 1 },
     });
     expect(store.queryBlocks({ text: "zorbled child", limit: 2 })).toEqual({
@@ -1309,6 +1315,7 @@ Second paragraph`;
         expect.objectContaining({ id: first.id }),
         expect.objectContaining({ id: second.id }),
       ],
+      more: false,
       completeness: { kind: "complete" },
     });
     for (const limit of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {

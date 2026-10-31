@@ -96,7 +96,7 @@ export function loopWatched(): boolean {
  * connection or on its own (they don't hold their connection's queue, PIE-1413). Only reads go here.
  */
 export const WHOLE_OUTLINE_READS: ReadonlySet<string> = new Set([
-  "tree.index", "tree.query", "tree.focus", "tree.search", "views.read", "blocks.query", "blocks.records", "site.answer", "workspace.snapshot",
+  "tree.index", "tree.query", "tree.focus", "tree.search", "views.read", "blocks.query", "blocks.records", "blocks.grep", "site.answer", "workspace.snapshot",
   "callouts.types", "headings.styles", "styles.list", "components.schemas", "references.backlinks", "checklist.search", "fragments.candidates",
   "pages.complete", "properties.catalog", "properties.inventory", "query.matches", "activity.recent",
   // A board's links and choosers read these over the whole outline (PIE-1413).

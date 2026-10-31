@@ -48,6 +48,49 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     for (const [k, v] of Object.entries(oldEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }, 20_000);
 
+  test.each(["grep", "find", "read"])("whole-outline text tools: %s", async kind => {
+    await board.configureMcpAccess("read");
+    const note = await board.createBlock(null, `Orchard log [season::autumn]\nBefore the watch.\nAmber moon over the orchard.\nAfter the watch.\nSee ((${target.id})).\n${Array.from({ length: 1101 }, (_, i) => `Harvest mark ${i}`).join("\n")}`);
+    const loose = await board.createBlock(null, "Amber—moon\nWords separated by punctuation.");
+    const trashed = await board.createBlock(null, "Old harvest");
+    await board.createBlock(trashed.id, "Harvest mark in a trashed subtree");
+    await board.trash(trashed.id);
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const out: string[] = [];
+      expect(await mcpCommand(["mcp"], { input: linesOf([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })]), write: line => out.push(line), err: line => { throw new Error(line); } })).toBe(0);
+      const response = responseOf(out[0]!);
+      expect(response.error, JSON.stringify(response.error)).toBeUndefined();
+      const reply = tool(response.result);
+      expect(reply.isError, reply.content[0]!.text).not.toBe(true);
+      return JSON.parse(reply.content[0]!.text);
+    };
+    try {
+      if (kind === "grep") {
+        const all = await call("outline_grep", { pattern: "^Harvest mark \\d+$" });
+        expect(all.matches).toHaveLength(1101);
+        expect(all.matches.at(-1)).toMatchObject({ id: note.id, title: "Orchard log", line: 1106, text: "Harvest mark 1100" });
+        expect(all.more).toBe(false);
+        const first = await call("outline_grep", { pattern: "^Harvest mark", limit: 1000 });
+        expect(first).toMatchObject({ more: true, nextOffset: 1000 });
+        const rest = await call("outline_grep", { pattern: "^Harvest mark", offset: first.nextOffset });
+        expect([...first.matches, ...rest.matches]).toEqual(all.matches);
+        expect((await call("outline_grep", { pattern: "Words separated" })).matches[0].id).toBe(loose.id);
+      } else if (kind === "find") {
+        for (const semantic of [false, true]) {
+          const found = await call("outline_find", { query: '"amber moon"', semantic });
+          expect(found.matches[0]).toMatchObject({ id: note.id, lines: [{ line: 3, text: "Amber moon over the orchard.", before: "Before the watch.", after: "After the watch." }] });
+        }
+      } else {
+        const lean = await call("outline_read", { ref: note.id });
+        expect(lean.record).toMatchObject({ body: expect.stringContaining("Amber moon"), properties: [{ key: "season", values: ["autumn"] }], links: [target.id] });
+        expect(lean.record.fields).toBeUndefined();
+        const detail = await call("outline_read", { ref: note.id, detail: true });
+        expect(detail.record.fields[0]).toMatchObject({ key: "season", offset: expect.any(Number) });
+        expect(detail.record.links[0]).toMatchObject({ target: target.id, bodySpans: expect.any(Array) });
+      }
+    } finally { await board.trash(note.id); await board.trash(loose.id); }
+  }, 30_000);
+
   test("a connected MCP keeps writing across grammar and protocol installs without a connector toggle", async () => {
     // A disposable installed checkout; only the handshake numbers change, all tools still use the real host.
     const repo = join(scratch.root, "installed");
@@ -372,8 +415,8 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     // The bound outline is the one this server lists: live, read now, with its access setting.
     expect(JSON.parse(tool(response(20)?.result).content[0]!.text)).toEqual({ outlines: [{ outline: scratch.name, machine, uri: `ep0ch://${scratch.name}@${machine}`, source: "live", asOf: expect.any(String), access: "read" }], call: expect.objectContaining({ id: expect.stringMatching(/^c-[0-9a-f]{10}$/) }), tools: { writes: false, said: expect.stringContaining("only the read tools are offered") } });
     expect(JSON.parse(tool(response(7)?.result).content[0]!.text).reachability).toMatchObject({ source: "live", asOf: expect.any(String) });
-    const publishedRead = JSON.parse(tool(response(15)?.result).content[0]!.text) as { record: { links: { target: string | null; label: string }[] } };
-    expect(publishedRead.record.links.map(link => link.target)).toContain(privateNote.id);
+    const publishedRead = JSON.parse(tool(response(15)?.result).content[0]!.text) as { record: { links: string[] } };
+    expect(publishedRead.record.links).toContain(privateNote.id);
 
     const revoked: string[] = [];
     const revokingInput = (async function* () {

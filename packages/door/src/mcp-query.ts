@@ -99,7 +99,7 @@ export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAn
     ...(a.sort ? { sort: `${a.sort.field} ${a.sort.direction}` } : {}),
     limit: a.limit, offset: a.offset, total: folded.length, ...(a.fold ? { foldedFrom: ids.length } : {}), ...(ownOmitted ? { ownOmitted } : {}), ...(machineryOmitted ? { machineryOmitted } : {}),
     more, ...(more ? { nextOffset: a.offset + a.limit } : {}),
-    ...(picked.truncated ? { truncated: picked.truncated } : {}), ...(picked.hint ? { hint: picked.hint } : {}),
+    ...(picked.hint ? { hint: picked.hint } : {}),
     rows: page.flatMap(f => {
       const record = byId.get(f.id);
       const matched = picked.matches?.get(f.id);

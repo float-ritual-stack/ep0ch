@@ -17,6 +17,7 @@ export interface BlockRecord {
   parent: string | null;
   /** The service's title (the first line without its properties). */
   title: string;
+  path?: string;
   subtitle?: string;
   /** The header line's chips (header-line.ts), in order, keys as written: what a Markdown export puts in front matter. */
   header: { key: string; value: string }[];
@@ -68,6 +69,7 @@ export interface BlockRecordInput {
     author: string; actorId?: string; createdAt: string; updatedAt: string;
   };
   title: string;
+  path?: string;
   /** The service's parse of the text, in order. */
   properties: readonly { key: string; value: string; scope: PropertyScope; line: number; column: number; start: number }[];
   /** The text's literal ranges (code spans, fences), so a token in one isn't read as a header chip. */
@@ -127,6 +129,7 @@ export function blockRecord(input: BlockRecordInput): BlockRecord {
     id: block.id,
     parent: block.parentId,
     title: input.title,
+    ...(input.path !== undefined ? { path: input.path } : {}),
     subtitle: subtitleOf({ properties: input.properties.filter(p => p.scope === "block") }),
     header: h.chips.map(({ key, value }) => ({ key, value })),
     body: h.body,

@@ -401,9 +401,9 @@
     "packages/outliner/src/detail-pi.ts": 2042,
     "packages/outliner/src/publish.ts": 3392,
     "packages/outliner/src/resource-catalog.ts": 4937,
-    "packages/outliner/src/server.ts": 5102,
-    "packages/outliner/src/store.ts": 6506,
+    "packages/outliner/src/server.ts": 5101,
+    "packages/outliner/src/store.ts": 6491,
     "packages/outliner/src/tree-controller.ts": 3251,
-    "packages/outliner/src/types.ts": 3027
+    "packages/outliner/src/types.ts": 3014
   }
 }

@@ -1508,6 +1508,7 @@ export interface BlockSearchQuery {
   sort?: BlockQuerySort | string;
   /** Rows returned: 200 when left out, at most 1000. */
   limit?: number;
+  offset?: number;
   /** A property name, or a date bucket (created:month, updated:recent, due:week): the answer's `groups`, over every match. */
   group?: string;
   /** `true`: value counts for every key the matches carry; or these keys. */
@@ -1554,6 +1555,7 @@ export interface VisibleBlock extends Block {
 }
 
 export interface VisibleBlockCollection extends QuestionAnswerFields {
+  more?: boolean; nextOffset?: number;
   blocks: VisibleBlock[];
   completeness: BlockCollectionCompleteness;
   /** How many notes `machinery: hide` left out of the answer (at most 50: then there are more), when it left any (PIE-867). */
@@ -1623,6 +1625,7 @@ export interface ProjectedVisibleBlock extends ProjectedBlock {
 }
 
 export interface ProjectedBlockCollection extends QuestionAnswerFields {
+  more?: boolean; nextOffset?: number;
   blocks: ProjectedVisibleBlock[];
   completeness: BlockCollectionCompleteness;
   fields: BlockReadField[];
@@ -1721,25 +1724,8 @@ export interface TreeFocusCollection {
   completeness: BlockCollectionCompleteness;
 }
 
-export interface GotoSearchMatch {
-  subtitle?: string;
-  block: Pick<Block, "id" | "revision">;
-  title: string;
-  path: string;
-  snippet: string;
-  exact: boolean;
-  /** Jev's Score for it (0 to 3), on a ranked search (PIE-1198). */
-  score?: number;
-  /** What a ranked search reads beside its text (PIE-1199): its type, its length in characters, when it last changed. */
-  facts?: { type?: string; length: number; updated: string };
-  /** Found by meaning, not words (the deep pass, PIE-1200). */
-  deep?: true;
-  /**
-   * An empty query asked from a note (`contextBlockId`) lists, in order: what its parent and siblings link to
-   * (`linked`), notes near it (`near`), the person's own recent edits (`yours`).
-   */
-  reason?: "linked" | "near" | "yours";
-}
+export type { GotoSearchMatch } from "@ep0ch/outline-core/text-search";
+import type { GotoSearchMatch } from "@ep0ch/outline-core/text-search";
 
 export interface GotoSearchCollection {
   matches: GotoSearchMatch[];
@@ -2017,6 +2003,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
   | { id: string; action: "blocks.records"; ids: string[] }
+  | ({ id: string; action: "blocks.grep" } & import("@ep0ch/outline-core/text-search").GrepQuery)
   | ({ id: string; action: "site.answer" } & import("@ep0ch/outline-core/site").SiteAnswerRequest & WatchFields)
   /** The call a `::use` line makes (PIE-533 S4): the template, the props resolved and checked, the chain to draw its body in. Reads only. */
   | ({ id: string; action: "template.use" } & import("@ep0ch/outline-core/template-use").TemplateUseRequest & WatchFields)

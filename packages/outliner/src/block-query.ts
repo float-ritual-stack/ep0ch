@@ -1170,6 +1170,7 @@ export function normalizeBlockSearchQuery(
   if ("expression" in query) {
     throw new Error("blocks.query's expression is now where: send { where: \"type=task\" }; a structured predicate is predicate");
   }
+  if (query.offset !== undefined && (!Number.isSafeInteger(query.offset) || query.offset < 0)) throw new Error("Block search offset must be a non-negative integer");
   const limit = query.limit ?? QUESTION_DEFAULT_LIMIT;
   if (
     typeof limit !== "number" ||
@@ -1300,6 +1301,7 @@ export function normalizeBlockSearchQuery(
     ...(query.facetSearch ? { facetSearch: query.facetSearch } : {}),
     ...(facetKeys ? { facetKeys } : {}),
     limit,
+    ...(query.offset !== undefined ? { offset: query.offset } : {}),
   };
 }
 
@@ -1520,5 +1522,15 @@ export function filterCompletionTargetAtCursor(
     end: range.end,
     key,
     prefix: partialValuePrefix(rawValue),
+  };
+}
+
+/** One page of an ordered query; the same continuation for graph and ranked reads. */
+export function blockQueryPage<T>(blocks: T[], query: { limit: number; offset?: number }, counted = false) {
+  const end = (query.offset ?? 0) + query.limit, more = blocks.length > end;
+  return {
+    blocks: blocks.slice(query.offset ?? 0, end), more,
+    ...(more ? { nextOffset: end } : {}),
+    completeness: more ? { kind: "truncated" as const, limit: query.limit, ...(counted ? { matched: blocks.length } : {}) } : { kind: "complete" as const },
   };
 }
