@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Completion follows you and fills whole snippets (PIE-1480)
+
+- **Complete where you type:** one source contract and matcher in notes, the power bar and Detail. Chosen rows rise across clients; the popup lights matched letters and sits at the cursor through the shared screen float placement.
+- **Fill a whole snippet:** a component's values and an extension's `{slot}` placeholders select in order: Tab forward, Shift+Tab back, Esc to finish, one undo for the whole insertion. The editor's controls and `act snippet.next`, `snippet.previous`, `snippet.end` do the same.
+- **Bring your own rows:** Issues supplies open-issue rows and a button snippet. Uninstalling removes its rows; dismissing a popup stops a slow source.
+- **Run:** try the kitchen sink's **sources**, **completion** and **snippets** sections. The deployer must number the wire change (`completion.rows.turn`, `completion.cancel`) at rebase and run `ep0ch install --apply` on both machines; no schema migration. Matcher/slot behavior also needs the deployer's grammar decision. This branch leaves PROTOCOL and GRAMMAR unchanged.
+
 ### Completion shows the example and saves the chosen query (PIE-1479)
 
 - **Preview before inserting:** component completion shows its rendered example before the source, properties and longer docs. The kitchen sink's library picker previews Tabs, copies its drawn text and inserts a variation through the same actions.

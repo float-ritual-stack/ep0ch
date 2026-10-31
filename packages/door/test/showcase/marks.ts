@@ -19,6 +19,7 @@ export const marks: Record<string, string[]> = {
   "back-anywhere": ["Back anywhere: weekend jobs", "Seed order for the weekend"],
   "sticky-pad": ["Raised beds plan", "BED JOBS", "Turn the compost"],
   "deep-links": ["Greenhouse meeting, October", "We agreed to water the seedlings", "» comment"],
+  snippets: ["::graph-stat", "component"],
   completion: ["Ask about the beds, see ((Gree", "block"],
   // A comment ending in [[seed: the pages and an extension's issues in one list (PIE-1340).
   sources: ["Which issue is the swap, see [[seed", "issue"],

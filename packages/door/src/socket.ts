@@ -1689,7 +1689,12 @@ export class SocketBoard implements Board {
     return this.request("query.suggest", { ...input });
   }
   completionRows(input: CompletionRowsRequest, signal?: AbortSignal): Promise<CompletionRowsResult> {
-    return this.request<CompletionRowsResult>("completion.rows", { ...input }, undefined, signal);
+    if (signal?.aborted) return Promise.reject(signal.reason);
+    const turn = crypto.randomUUID();
+    const cancel = () => { void this.request("completion.cancel", { turn }).catch(() => {}); };
+    signal?.addEventListener("abort", cancel, { once: true });
+    return this.request<CompletionRowsResult>("completion.rows", { ...input, turn }, undefined, signal)
+      .finally(() => signal?.removeEventListener("abort", cancel));
   }
 
   /** A completion row was chosen: the host counts the pick, so it ranks higher next time on every client. */

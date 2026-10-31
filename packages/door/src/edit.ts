@@ -1,4 +1,5 @@
 import { landingLine } from "@ep0ch/outline-core/block-insert";
+import { SnippetSession, type SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
 import { ReaderPosition, PositionRows } from "./reader-position";
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
@@ -142,6 +143,34 @@ export class Draft {
    */
   undos: Step[] = [];
   redos: Step[] = [];
+  snippet: SnippetSession | null = null;
+  private snippetStep?: Step;
+
+  startSnippet(slots: SnippetSlot[], offset: number): void {
+    if (!slots.length) return;
+    this.snippet = new SnippetSession(slots, offset);
+    this.snippetStep = this.undos.at(-1);
+    this.selectSlot(this.snippet.current);
+  }
+  private selectSlot(slot: SnippetSlot) {
+    this.anchor = this.placeOf(slot.start);
+    const end = this.placeOf(slot.end);
+    this.row = end.row; this.col = end.col; this.follow = true;
+  }
+  moveSnippet(by: number) {
+    this.settle();
+    const slot = this.snippet?.move(by);
+    if (slot) this.selectSlot(slot); else this.endSnippet();
+    return { slot: this.snippet ? this.snippet.index + 1 : null, of: this.snippet?.slots.length ?? 0 };
+  }
+  endSnippet() { this.settle(); this.snippet = null; this.snippetStep = undefined; this.anchor = null; }
+  snippetKey(k: Key): boolean {
+    if (!this.snippet) return false;
+    const action = k.kind === "tab" ? "snippet.next" : k.kind === "backtab" ? "snippet.previous" : k.kind === "esc" ? "snippet.end" : null;
+    if (!action) return false;
+    void DRAFT_ACTIONS.run(action, {}, this, USER);
+    return true;
+  }
   /** The text as of the last step recorded: the next step's `before`. */
   private seen: string;
   /** Pasted keys are going in (a paste typed out key by key): they become one step once the paste is all in. */
@@ -228,6 +257,11 @@ export class Draft {
     this.redos = [];
     this.undoArmed = 0;
     const c = changeOf(before, after), now = Date.now(), top = this.undos.at(-1);
+    if (this.snippet && top && this.snippetStep === top && sameParty(top.by, by) && !unit && this.snippet.update(before, after)) {
+      top.after = after; top.at = now; top.caret = c.at + c.added;
+      return;
+    }
+    if (this.snippet) { this.snippet = null; this.snippetStep = undefined; }
     const small = what === "typing" && c.added <= 2 && c.removed <= 2;
     const typed = after.slice(c.at, c.at + c.added), space = c.added > 0 && !typed.trim(), word = !!typed.trim();
     if (small && top?.open && top.what === "typing" && sameParty(top.by, by) && now - top.at < TYPING_PAUSE_MS && Math.abs(c.at - top.caret) <= 2) {
@@ -283,6 +317,7 @@ export class Draft {
   undoStep(by: Actor, past = false): { asked: boolean; said: string } {
     this.settle();
     this.record(USER, "a change");
+    this.snippet = null; this.snippetStep = undefined;
     const s = this.undos.at(-1);
     if (by.kind === "agent" && (!s || !sameParty(s.by, by))) return { asked: false, said: this.undoPatch(by) };
     if (!s) throw new ActionRefused("nothing to undo in this draft");
@@ -436,6 +471,7 @@ export class Draft {
   }
 
   key(k: Key): DraftAction {
+    if (!this.busy && this.snippetKey(k)) return "keep";
     // Whatever comes after ctrl+x lets the chord go (only a ctrl+e right after it is $EDITOR).
     const chord = this.letChordGo();
     if (k.kind === "mouse") return "keep";
@@ -1009,7 +1045,7 @@ export class Draft {
   previewScroll: { lineDelta: number; row: number; text: string } | null = null;
   /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
   frame: {
-    row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" | "lands" | "attach" | "file-new" }[];
+    row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" | "lands" | "attach" | "file-new" | "snippet.next" | "snippet.previous" | "snippet.end" }[];
     /**
      * The preview's rows under the text (its rule first), and its top row and length as drawn: what its wheel scrolls.
      * `placements`: its pictures (PIE-846), on the rows they're drawn, for the host to put out with its own.
@@ -1322,6 +1358,12 @@ export type DraftActionArgs = ArgsOfSet<typeof DRAFT_ACTIONS>;
  * (`agentRefusal`: a draft the agent opened and alone typed in).
  */
 export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
+  "snippet.next": def({ summary: "select the next snippet slot; after the last, finish the snippet", keys: "tab, click next slot", touches: "draft", draft: "type", replay: "safe", args: {},
+    run(_, d) { return d.moveSnippet(1); } }),
+  "snippet.previous": def({ summary: "select the previous snippet slot", keys: "shift+tab, click previous slot", touches: "draft", draft: "type", replay: "safe", args: {},
+    run(_, d) { return d.moveSnippet(-1); } }),
+  "snippet.end": def({ summary: "finish the snippet, keeping its text and one undo step", keys: "esc, click end snippet", touches: "draft", draft: "type", replay: "safe", args: {},
+    run(_, d) { d.endSnippet(); return { ended: true }; } }),
   "draft.newline": def({
     summary: "a line break at the cursor; on a list item the next item at the same level (an empty item goes up a level or ends the list); plain=true just breaks", keys: "enter (alt+enter or shift+enter plain)",
     touches: "draft", draft: "type", replay: "ask",

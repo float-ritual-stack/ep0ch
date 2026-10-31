@@ -460,7 +460,7 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 | `respond` | an `@name` request | `{ agent, request, mark, note: { id, revision, text }, context }` | `{ message?, reply?, patches?: [{ observed, replacement, before?, after? }] }` |
 | `decorate` | a rule's hit (no `use`) | `{ rule, hit, context }` | `{ view, title? }` |
 | `act` | an action | `{ action, args?, requestedBy?, target?: { blockId, revision, line?, argument?, options? }, context, output?, scheduled? }` (no block: `context` is `{ now }`) | `{ message?, writes?: [...], copy?, open? }` |
-| `source` | a source in `sources[]`, as the person types: in the power bar, or under a completion trigger | `{ source, query, limit, context?, trigger? }` (`context`: the note in front of the person; `trigger`: `{ kind, key?, component? }` for completion) | the bar: `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }`; completion: `{ rows: [{ label, insert, kind?, detail?, docs?, id?, filter?, group?, preselect? }] }` |
+| `source` | a source in `sources[]`, as the person types: in the power bar, or under a completion trigger | `{ source, query, limit, context?, trigger? }` (`context`: the note in front of the person; `trigger`: `{ kind, key?, component? }` for completion) | the bar: `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }`; completion: `{ rows: [{ label, insert, kind?, detail?, docs?, id?, filter?, group?, preselect?, priority? }] }` |
 | `resolve`, `read`, `changed` | a provider of Resources (a `kind: "resource"` handler: Jira's, or any) | see [resource-process.md](resource-process.md) | |
 
 `context` is what the call sees of the outline, bounded and read-only:
@@ -1290,9 +1290,9 @@ and on a note a row that rules it with one (its `rule` action).
 A **completion source** (PIE-1340, ADR 0004 §4) adds rows to the list that opens where a person types a reference or
 a property: the door's editor, every line field, and the outliner's Detail, Tree and Quick Capture. It joins the
 triggers that exist, beside the built-in sources (the outline's pages, notes and their anchors, files, agents,
-components, properties, callout types), and one matcher ranks every row together: a label that starts with what's
-typed first, one that holds it after, then letters in order; among equals, what was picked more often and more lately
-(the outline host keeps the picks, so every client agrees), then the built-ins.
+components, properties, callout types). The shared matcher orders by preselect, explicit source or row priority,
+match tier, frecency, then last pick. Ordinary built-ins and extensions share priority zero. A literal match removes
+local partial and fuzzy guesses; notes keep the service's ranking. The outline host keeps picks, so every client agrees.
 
 ```json
 "sources": [{ "id": "issues", "title": "issues", "triggers": ["[[", "key::"], "keys": ["issue"],
@@ -1302,22 +1302,37 @@ typed first, one that holds it after, then letters in order; among equals, what 
 - `triggers`: which of the existing ones it answers. `key::` is a property's value; `keys` narrows it to those keys
   (`[issue::` and nothing else). There is no way to declare a new sigil.
 - **The `source` operation** gets `{ source, query, limit, trigger: { kind, key?, component? }, context? }` and returns
-  `{ rows }`, at most 20: `{ label, insert, kind?, detail?, docs?, id?, filter?, group?, preselect? }`.
+  `{ rows }`, at most 20: `{ label, insert, kind?, detail?, docs?, id?, filter?, group?, preselect?, priority? }`.
   - `insert` is what choosing it writes in place of the token (the whole `[[…` under `[[`, only the value under
-    `key::`): one line, at most 500 characters, or `{ snippet, select: { start, end } }` to leave a span selected.
+    `key::`): text, or `{ snippet, slots: [{ start, end }, ...] }`. Slots are offsets into the snippet; Tab selects the
+    next, Shift+Tab the previous, Esc ends them. `{ snippet }` also recognizes `{slot}` placeholders using the button
+    grammar. A single `select: { start, end }` remains useful for a cursor inside an empty quoted value. The insertion
+    and the values filled in its slots are one undo step in both the door and Detail.
   - `kind` is the short word at the row's right (`issue`), `detail` one dim line after the label, `docs` Blockdown
     the docs panel beside the list wraps, `filter` words the matcher reads besides the label.
   - Return every row that could fit, filtered as cheaply as you like: the person's completer ranks them. A slow source
-    is given 1.5 s; past that the list goes on without it and its footer says so.
+    is given 1.5 s; past that the list goes on without it and its footer says so. Closing or replacing the popup aborts
+    the source process immediately. `preselect: true` chooses a matching row first; `priority` is an optional number.
 - **It only answers.** An insert goes into the person's own draft, never the note; an agent completing (`act complete
   text=…`) reads the same rows.
 - **`completion.rows`** asks the service's sources and the extensions' for a token: `{ "action": "completion.rows",
   "target": { "kind": "page", "query": "seed" }, "near": "<block id>" }` → `{ answers: [{ source, rows, problem? }],
   picks }`; a client merges the answers with outline-core's `mergeSourceAnswers`. `completion.picked` `{ key, insert }`
-  counts a pick. `extensions.list` lists every serving extension's completion sources as `completionSources`.
+  counts a pick. `completion.rows` can carry `turn`; `completion.cancel` with that same `turn` aborts its sources.
+  `extensions.list` lists every serving extension's completion sources as `completionSources`.
 
 The example is [issues](../../extensions/issues): a tracker's open issues (made up, in `issues.json`), read once a
-call and offered under `[[` and `[issue::`, as pi's `github-issue-autocomplete.ts` preloads `gh issue list`.
+call and offered under `[[` and `[issue::`, as pi's `github-issue-autocomplete.ts` preloads `gh issue list`. Its second
+source answers `::button issue` with a two-slot button:
+
+```json
+{ "rows": [{ "label": "button · issue note", "kind": "snippet", "detail": "two slots: label and note",
+  "insert": { "snippet": "::button{label=\"{label}\"}\nopen id={note}\n::" } }] }
+```
+
+Try the kitchen sink's **sources** and **snippets** sections. Remove Issues in the power bar's extensions scope,
+then double-click **install Issues** to restore it (`act extensions.install id=issues` does the same). Removing its
+folder removes both sources; already inserted text stays in the draft.
 
 ## Agents in the note
 

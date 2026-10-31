@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
+import { Canvas } from "../src/canvas";
+import { drawCompletionFloat } from "../src/surface/completion-float";
 import { CommentSession } from "../src/comment";
 import { Desk } from "../src/desk/desk";
 import { boardScreen } from "./board-view";
@@ -269,9 +271,9 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     const { d, c } = typing("## Calls [heading-p");
     await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the keys");
     expect(c.state!.target).toMatchObject({ kind: "key", query: "heading-p" });
-    expect(c.state!.items.map(i => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
+    expect(c.state!.items.slice(0, 2).map(i => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
     const drawn = renderCompletion(c.state!, 110, 8).map(visible).join("\n");
-    expect(drawn).toContain("properties 1/2");
+    expect(drawn).toContain("properties 1/");
     expect(drawn).toContain("Heading styles");
     completionKey(d, K("down"), c); completionKey(d, K("up"), c);
     completionKey(d, K("enter"), c);
@@ -279,7 +281,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     // Each value with a preview: the glyph track it draws, small.
     expect(c.state!.items.map(i => i.insertion)).toEqual(["stack]", "waffle]", "uptime]", "dots]", "rule]"]);
     expect(c.state!.items[1]!.label).toMatch(/^waffle {2}[▓▒░ ]{6,}/);
-    expect(renderCompletion(c.state!, 70, 8).map(visible).join("\n")).toContain("values 1/5");
+    expect(renderCompletion(c.state!, 70, 8).map(visible).join("\n")).toContain("properties 1/5");
     for (const ch of "wa") completionKey(d, char(ch), c);
     await until(() => !!c.state && !c.state.loading && c.state.target.query === "wa", "waffle");
     completionKey(d, K("down"), c); completionKey(d, K("up"), c);
@@ -589,7 +591,12 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const press = (k: Key) => s.key(k, h);
     const pop = () => completionOf(d);
     const settled = async () => { await until(() => !!pop() && !pop()!.loading, "the completion lookup"); return pop()!; };
-    const screen = () => s.render(60, 24, h).lines.map(visible).join("\n");
+    const screen = () => {
+      const view = s.render(60, 24, h), canvas = new Canvas(60, 24), area = { col: 0, row: 0, cols: 60, rows: 24 };
+      view.lines.forEach((line, row) => canvas.text(0, row, line, 60));
+      if (view.completion) drawCompletionFloat(canvas, view.completion, area, area);
+      return canvas.lines().map(visible).join("\n");
+    };
     return { s, h, d, type, press, pop, settled, screen };
   }
 
@@ -735,7 +742,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     await board.request("delete", { blockId: template, author: "agent" });
   });
 
-  test("component ranking includes standalone uses and stays fixed while typing (PIE-1127 round 2)", async () => {
+  test("component ranking reads current standalone uses from the service while typing", async () => {
     await create('Standalone field\n::fields{key=trellis}');
     const e = await editing(await create("Ranking practice\n"));
     e.type("::");
@@ -743,7 +750,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(first[0]!.label).toBe("Fields");
     await create('A newly used button\n::button{of=water-plants}');
     e.type("b"); await e.settled(); e.press({ kind: "backspace" });
-    expect((await e.settled()).items.map(i => i.label)).toEqual(first.map(i => i.label));
+    expect((await e.settled()).items[0]!.label).toBe("Button");
   });
 
   test("file script completion shows the registered path and code (PIE-1164 round 2)", async () => {
@@ -943,7 +950,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.pop()!.index).toBe(0);
     expect(e.d.row).toBe(2);                                              // the wheel didn't move the cursor
     const lines = e.screen().split("\n");
-    const header = lines.findIndex(l => l.includes("references 1/"));
+    const header = lines.findIndex(l => l.includes("pages 1/"));
     expect(e.s.click(3, header, e.h)).toBe(true);                         // the header: the popup's, nothing chosen
     expect(e.pop()).not.toBeNull();
     expect(e.s.click(3, 0, e.h)).toBe(false);                             // above the popup: not the popup's
@@ -964,7 +971,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("enter")); e.type("see [[");
     let p = await e.settled();
     expect(p.items.some(i => i.kind === "page")).toBe(true);
-    expect(e.screen()).toContain("references 1/");
+    expect(e.screen()).toContain("pages 1/");
     expect(editHint(e.d, { save: "save" })).toBe(`${popupHint(p)} · ctrl+s save`);
     expect(popupHint(p)).toStartWith("↑↓ move · ⏎/tab inserts");
     e.type("HOME");

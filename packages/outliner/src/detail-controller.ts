@@ -297,7 +297,6 @@ export function propertyInspectorTargetLink(
 }
 
 
-
 export function backlinkGroupRegionId(kind: string): string {
   return `backlink-group:${kind}`;
 }
@@ -692,7 +691,7 @@ export interface DetailEffects {
   resolveReference(target: OutlinerLinkTarget): Promise<ResolvedOutlinerLinkTarget>;
   followResourceOccurrence(target: OutlinerLinkTarget): Promise<FollowResourceOccurrenceReceipt>;
   queryBlocks(query: BlockSearchQuery): Promise<VisibleBlockCollection>;
-  completionRows(request: CompletionRowsRequest): Promise<CompletionRowsResult>;
+  completionRows(request: CompletionRowsRequest, signal?: AbortSignal): Promise<CompletionRowsResult>;
   completionPicked(key: string, insert: string): Promise<unknown>;
   /** Make a page nobody has written yet (`pages.follow`), as a new page row does before it links it. */
   followPage(address: string): Promise<{ created: boolean; status: string; block?: Block }>;
@@ -826,7 +825,7 @@ export type DetailIntent =
   | { type: "completion.accept" }
   | { type: "completion.choose"; index:number; generation?:number }
   | { type: "completion.docs"; by:number }
-  | { type: "completion.dismiss" }
+  | { type: "completion.dismiss" | "snippet.next" | "snippet.previous" | "snippet.end" }
   | { type: "preview.navigate"; direction: "up" | "down" | "pageup" | "pagedown" | "top" | "bottom" }
   | { type: "file.navigate"; direction: "up" | "down" | "pageup" | "pagedown" | "home" | "end" }
   | { type: "file.selection.toggle" }
@@ -901,7 +900,6 @@ function annotationOffsetsForLineRange(
   if (end <= start) throw new Error("Annotation line range must contain text");
   return { start, end };
 }
-
 
 function pdfAnnotationAnchor(
   description: ResourceDescription,
@@ -1046,7 +1044,6 @@ function detailBufferPointAtOffset(text: string, offset: number): { row: number;
   const lines = before.split("\n");
   return { row: lines.length - 1, column: lines[lines.length - 1]!.length };
 }
-
 
 
 export function detailVisibleEditorHeight(
@@ -3143,7 +3140,7 @@ export function createDetailController(
 
   let completionViewport:DetailViewport={width:80,height:24};
   const completions = new ReferenceCompletionSession({
-    completionRows: request => effects.completionRows(request),
+    completionRows: (request, signal) => effects.completionRows(request, signal),
     completionPicked: (key, insert) => effects.completionPicked(key, insert),
     followPage: address => effects.followPage(address),
     ...(effects.ensureFragment ? { ensureFragment: (input: { blockId: string; lineIndex: number; expectedRevision: number }) => effects.ensureFragment!(input) } : {}),
@@ -4393,6 +4390,9 @@ export function createDetailController(
         ensureEditorCursorVisible(viewport);
         break;
       case "completion.docs": completions.scrollDocs(intent.by); break;
+      case "snippet.next": completions.dismiss(); state.buffer.moveSnippet(1); break;
+      case "snippet.previous": completions.dismiss(); state.buffer.moveSnippet(-1); break;
+      case "snippet.end": completions.dismiss(); state.buffer.endSnippet(); break;
       case "completion.dismiss":
         if (state.completion) state.status = "";
         completions.dismiss();

@@ -3,7 +3,7 @@
 // every note and issue is made up.
 import { afterEach, expect, test } from "bun:test";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -75,7 +75,7 @@ test("an extension's source joins [[ beside the pages: its rows rank with them b
   await create("Seed swap [page::Seed swap]");
   await create("Garden club [page::Garden club]");
   const listed = await list(true);
-  expect(listed.completionSources).toEqual([expect.objectContaining({ name: "ext.issues.issues", triggers: ["[[", "key::"], keys: ["issue"] })]);
+  expect(listed.completionSources).toContainEqual(expect.objectContaining({ name: "ext.issues.issues", keys: ["issue"] }));
   const r = await rows("page", "seed");
   expect(r.answers.map(a => a.source.id)).toEqual(["pages", "ext.issues.issues"]);
   const list1 = merged(r, "seed");
@@ -320,3 +320,47 @@ test("scrolling large completion docs stays cheap and reaches the whole passage"
     expect(draw(48).join("\n")).toContain(corrected);
   } finally { session.dismiss(); }
 }, 20_000);
+
+
+test("Detail fills a component and an extension button through shared slots, keeps the pick, and undoes each insertion whole", async () => {
+  const { client, list } = await setup(["issues"]);
+  await list(true);
+  for (const [query, label] of [["::graph-stat", "component"], ["::button issue", "snippet"]]) {
+    const buffer = new TextBuffer(query); buffer.moveEnd();
+    const session = new ReferenceCompletionSession(referenceCompletionProvider(client, "slot-test"), () => buffer, () => {}, () => true);
+    await session.refresh();
+    const n = session.state!.items.findIndex(i => i.kind === label);
+    expect(n).toBeGreaterThanOrEqual(0);
+    const insertion = session.state!.items[n]!.insertion;
+    expect(await session.accept(n)).toBe(true);
+    expect(buffer.selectedText).toBeTruthy();
+    buffer.insert("Garden totals");
+    buffer.moveSnippet(1);
+    expect(buffer.selectedText).toBeTruthy();
+    buffer.moveSnippet(-1);
+    expect(buffer.selectedText).toBe("Garden totals");
+    buffer.endSnippet();
+    expect(buffer.undo()).toBe(true);
+    expect(buffer.text).toBe(query);
+    const result = await client.request<CompletionRowsResult>({ action: "completion.rows", target: { kind: "component", query: "" } });
+    expect(result.picks[insertion]?.n).toBe(1);
+    session.dismiss();
+  }
+});
+
+test("cancelling a popup stops a slow extension source before its timeout", async () => {
+  const { client, extensionsFolder, list } = await setup();
+  const folder = join(extensionsFolder, "slow-garden");
+  mkdirSync(folder);
+  writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "slow-garden", version: 1, name: "Slow garden", run: ["bun", "source.ts"], sources: [{ id: "beds", title: "beds", triggers: ["[["] }] }));
+  writeFileSync(join(folder, "source.ts"), 'await Bun.stdin.json(); await Bun.write(import.meta.dir + "/started", "ready"); await Bun.sleep(10000); console.log(JSON.stringify({ok:true,value:{rows:[]}}));');
+  await list(true);
+  const pending = client.request<CompletionRowsResult>({ action: "completion.rows", turn: "garden-turn", target: { kind: "page", query: "" } });
+  for (let n = 0; n < 100 && !existsSync(join(folder, "started")); n++) await Bun.sleep(10);
+  expect(existsSync(join(folder, "started"))).toBe(true);
+  await client.request({ action: "completion.cancel", turn: "garden-turn" });
+  const answer = await pending;
+  const source = answer.answers.find(a => a.source.id === "ext.slow-garden.beds")!;
+  expect(source.problem).toMatch(/abort|cancel|stop/i);
+  expect(source.problem).not.toContain("no answer in");
+});

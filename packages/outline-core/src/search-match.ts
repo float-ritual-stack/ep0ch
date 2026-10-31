@@ -315,7 +315,7 @@ export function matchesSearchText(query: string | SearchQuery | null, fields: re
  */
 export function searchMatchSpans(text: string, query: string): number[] {
   const lit = new Set<number>(), low = [...text.toLowerCase()], joined = low.join("");
-  for (const word of query.toLowerCase().split(/\s+/).filter(Boolean)) {
+  for (const word of prepareSearchQuery(query)?.terms ?? []) {
     const unit = joined.indexOf(word), at = unit < 0 ? -1 : [...joined.slice(0, unit)].length;
     if (at >= 0) { for (let i = 0; i < [...word].length; i++) lit.add(at + i); continue; }
     let from = 0;

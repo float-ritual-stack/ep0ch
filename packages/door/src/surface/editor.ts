@@ -15,8 +15,8 @@ import { inWindow, type Placement } from "../kitty";
 import type { LinkTarget } from "../refs";
 import { rule, words } from "../text";
 import { ownTerminal, type Handover, type TileExit, type TileProgram, type Key } from "../term";
-import { agentLabel } from "./actions";
-import { popupHint, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
+import { agentLabel, declaredKeys, keyCaption } from "./actions";
+import { popupHint, completerOf, completionOf } from "./completer";
 
 export interface EditFrame {
   look?: StyleValues;
@@ -99,6 +99,15 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
     ...(f.context ?? []),
     rule(w),
   ];
+  if (d.snippet) {
+    let text = `slot ${d.snippet.index + 1}/${d.snippet.slots.length} `;
+    for (const action of ["snippet.previous", "snippet.next", "snippet.end"] as const) {
+      const from = width(text), chip = `[${action.slice("snippet.".length)}]`;
+      controls.push({ row: top.length, from, to: from + width(chip), action });
+      text += chip + " ";
+    }
+    top.push(fg(C.lcyan) + pad(text, w) + RESET);
+  }
   const all = Math.max(1, h - top.length);
   // The preview takes the lower half, once there's room for both.
   const ph = f.preview && !f.attachedPreview && d.preview && all >= 6 ? Math.floor(all / 2) : 0;
@@ -117,20 +126,9 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
     const text = d.render(Math.max(1, w - 2), room).map(l => " " + l);
     return [...top, ...text, ...(below.length ? pad0(room - text.length) : []), ...below];
   }
-  if (c.screenLayer) {
-    const text = d.render(Math.max(1, w - 2), room).map(l => " " + l);
-    c.drawn = { row: top.length + d.cursorRow + 1, cols: w, anchor: 1 + d.cursorCol, items: [] };
-    return [...top, ...text, ...(below.length ? pad0(room - text.length) : []), ...below];
-  }
-  // The completion popup opens under the cursor's row; the draft gives up that many rows to keep it.
-  const cph = Math.min(COMPLETION_ROWS, Math.max(0, room - 1));
-  const text = d.render(Math.max(1, w - 2), Math.max(1, room - cph)).map(l => " " + l);
-  const at = Math.min(text.length, d.cursorRow + 1), rows: (number | null)[] = [];
-  const popup = renderCompletion(pop, w, cph, rows, 1 + d.cursorCol, f.look);
-  // Where it went, so a click on a candidate can choose it (NoteSurface.click).
-  c.drawn = { row: top.length + at, cols: w, anchor: 1 + d.cursorCol, items: rows.slice(0, Math.max(0, room - at)) };
-  const mid = [...text.slice(0, at), ...popup, ...text.slice(at)].slice(0, room);
-  return [...top, ...mid, ...(below.length ? pad0(room - mid.length) : []), ...below];
+  const text = d.render(Math.max(1, w - 2), room).map(l => " " + l);
+  c.drawn = { row: top.length + d.cursorRow + 1, cols: w, anchor: 1 + d.cursorCol, items: [] };
+  return [...top, ...text, ...(below.length ? pad0(room - text.length) : []), ...below];
 }
 
 /**
@@ -199,6 +197,9 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
   // Without `on` it's a press: a control is hit, and its click (the release) runs it.
   if (ctl && !on) return true;
+  if (ctl && (ctl.action === "snippet.next" || ctl.action === "snippet.previous" || ctl.action === "snippet.end")) {
+    void DRAFT_ACTIONS.run(ctl.action, {}, d, actor); return true;
+  }
   // A link in the preview (PIE-592): its click follows it, beside the edit.
   const link = preview && !extend && !ctl ? f.links?.find(l => l.row === y && x >= l.from && x < l.to) : undefined;
   if (link) { if (on) on.follow?.(link.target); return true; }
@@ -225,6 +226,11 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
 export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload?: string | null; close?: "done" | "back"; place?: string; move?: boolean; follow?: boolean }): string {
   const pop = completionOf(d);
   if (pop) return `${popupHint(pop)} · ctrl+s ${o.save}`;
+  if (d.snippet) return `slot ${d.snippet.index + 1}/${d.snippet.slots.length} · ` +
+    (["snippet.next", "snippet.previous", "snippet.end", "draft.undo"] as const).map(name => {
+      const action = DRAFT_ACTIONS.def(name)!;
+      return `${keyCaption([...declaredKeys(action.keys)][0]!)} ${name.split(".")[1]}`;
+    }).join(" · ");
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
   const last = d.undos.at(-1);
   const undo = last ? ` · ctrl+z undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}` : "";

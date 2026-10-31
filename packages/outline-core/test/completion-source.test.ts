@@ -8,11 +8,12 @@ import { completionTargetAtCursor, hashtagAtCursor, referenceTargetAtCursor } fr
 const src = (id: string, more: Partial<SourceAnswer["source"]> = {}) => ({ id, title: id, by: "test", ...more });
 const labels = (rows: { label: string }[]) => rows.map(r => r.label);
 
-test("rows from two sources interleave by how well they match, not by which source answered", () => {
+test("source priority precedes match tier, and equal-priority sources interleave by match", () => {
   const pages: SourceAnswer = { source: src("pages", { priority: 10 }), rows: [{ label: "Old seed packets", insert: "[[packets]]" }, { label: "Compost heap", insert: "[[compost]]" }] };
   const issues: SourceAnswer = { source: src("issues"), rows: [{ label: "Seed swap sheet", insert: "#15" }, { label: "Turn the compost", insert: "#16" }] };
-  // The issue's title starts with the word and the page's only holds it: the issue first, though the page's source is asked first.
-  expect(labels(mergeSourceAnswers([pages, issues], "seed"))).toEqual(["Seed swap sheet", "Old seed packets"]);
+  // A declared priority takes precedence; with equal priority the stronger title match leads.
+  expect(labels(mergeSourceAnswers([pages, issues], "seed"))).toEqual(["Old seed packets", "Seed swap sheet"]);
+  expect(labels(mergeSourceAnswers([{ ...pages, source: src("pages") }, issues], "seed"))).toEqual(["Seed swap sheet", "Old seed packets"]);
   expect(labels(mergeSourceAnswers([pages, issues], "compost"))).toEqual(["Compost heap", "Turn the compost"]);
 });
 
@@ -59,6 +60,11 @@ test("picked more often and more lately comes first among equals, a preselected 
   expect(labels(mergeSourceAnswers([a], "", { picks: picks["key::x"], now }))).toEqual(["gamma", "alpha", "beta"]);
   // Two weeks halve a pick.
   expect(frecency({ n: 4, at: "2026-10-12T12:00:00Z" }, now)).toBeCloseTo(2);
+  const components: SourceAnswer = { source: src("components"), rows: [
+    { id: "graph-kpi", label: "KPI", filter: "graph-kpi statistics", insert: "kpi" },
+    { id: "graph-stat", label: "Stat", filter: "graph-stat", insert: "stat" },
+  ] };
+  expect(mergeSourceAnswers([components], "graph-stat", { now, picks: { kpi: { n: 20, at: now.toISOString() } } })[0]!.label).toBe("Stat");
 });
 
 test("an insert two sources both answer is kept once, the better-ranked one", () => {
@@ -72,7 +78,7 @@ test("a source answers its triggers, and a value only for its keys; picks are ke
   expect(sourceAnswers({ triggers: ["key::"], keys: ["issue"] }, { trigger: "key::", key: "status" })).toBe(false);
   expect(sourceAnswers({ triggers: ["key::"], keys: ["issue"] }, { trigger: "key::", key: "Issue" })).toBe(true);
   expect(triggerOf("filter-key")).toBe("filter-key");
-  expect(triggerOf("fence-setting")).toBeNull();
+  expect(sourceAnswers({ triggers: ["fence-setting"] }, { trigger: triggerOf("fence-setting") })).toBe(true);
   expect(pickKey({ trigger: "key::", kind: "value", key: "issue" })).toBe("key::issue");
   expect(pickKey({ trigger: "[[", kind: "page" })).toBe("[[");
 });
@@ -81,6 +87,7 @@ test("the matched letters the lists light are the matcher's: a word where it sit
   expect(searchMatchSpans("Seed swap sheet", "swap")).toEqual([5, 6, 7, 8]);
   expect(searchMatchSpans("Greenhouse", "gh")).toEqual([0, 5]);
   expect(searchMatchSpans("Greenhouse", "")).toEqual([]);
+  expect(searchMatchSpans("KPI", "graph-kpi")).toEqual([0, 1, 2]);
 });
 
 test("one detector: a reference keeps a title's own parentheses, and a hashtag is never inside a reference", () => {
@@ -106,4 +113,21 @@ test("a handler line (`name:: slot=value`) is an attribute trigger like a compon
     expect(completionTargetAtCursor(line, line.length)).toMatchObject({ kind: "value" });
   }
   expect(completionTargetAtCursor("img:: /tmp/flower.jpg [si", 25)).toMatchObject({ kind: "key" });
+});
+
+
+test("a literal hit drops a local fuzzy-only guess even with high priority and many picks, and carries its lit positions", () => {
+  const now = new Date("2026-10-31T12:00:00Z");
+  const answer: SourceAnswer = { source: src("garden"), rows: [
+    { label: "Basil cod", insert: "guess", priority: 99 },
+    { label: "bcd tray", insert: "literal" },
+  ] };
+  const rows = mergeSourceAnswers([answer], "bcd", { now, picks: { guess: { n: 100, at: now.toISOString() } } });
+  expect(rows.map(r => r.insert)).toEqual(["literal"]);
+  expect(rows[0]!.matches).toEqual([0, 1, 2]);
+  const components: SourceAnswer = { source: src("components"), rows: [
+    { label: "Tree", filter: "graph-tree", insert: "tree" },
+    { label: "KPI", filter: "graph-kpi", insert: "kpi" },
+  ] };
+  expect(mergeSourceAnswers([components], "graph-kpi").map(r => r.label)).toEqual(["KPI"]);
 });

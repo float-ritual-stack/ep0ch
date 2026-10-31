@@ -1,3 +1,4 @@
+import { drawCompletionFloat } from "../surface/completion-float";
 import { errorDetails } from "../status-log";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // The board's lanes (PIE-511, PIE-515): what the hub source keeps for a columns container it fills, its model. The
@@ -1498,6 +1499,8 @@ export class Lanes implements SourceModel {
     const lines = renderEditor(d, { look, title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, ...(C0.kind === "card" && C0.twin ? { twin: C0.twin.said } : {}), by: writtenBy(d, "save"), preview: (t, pw, links) => draftPreviewDoc(t, pw, { board: this.host.ctx.board, redraw: () => this.host.redraw() }, links), pick: true }, w, r.rows - 2);
     this.composerAt = r;
     lines.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
+    const completion = completerOf(d);
+    if (completion) drawCompletionFloat(canvas, completion, { col: 0, row: 0, cols: canvas.cols, rows: canvas.rows }, { ...r, col: r.col + 1, row: r.row + 1 }, look);
   }
 
 }

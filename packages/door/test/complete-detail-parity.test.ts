@@ -69,12 +69,12 @@ describe.skipIf(!outliner)("one set of rows for :: [key [key:: and > [! (PIE-134
     });
   }
 
-  test("a filter's keys and values are the service's: completion.rows answers what the door lists", async () => {
+  test("a filter's keys and values rank the same in the door and Detail", async () => {
     for (const target of [{ kind: "filter-key", query: "se" }, { kind: "filter-value", query: "", key: "season", words: true }] as const) {
       const door = await lookupCompletion(board, { ...target, start: 0, end: 0 });
-      const answered = await board.request("completion.rows", { target }) as { answers: { rows: { insert: unknown }[] }[] };
+      const answered = await lookupReferenceCompletion(detail(), { ...target, start: 0, end: 0 });
       expect(door.items.length).toBeGreaterThan(0);
-      expect(answered.answers.flatMap(a => a.rows.map(r => r.insert))).toEqual(door.items.map(i => i.insertion));
+      expect(answered.items.map(i => i.insertion)).toEqual(door.items.map(i => i.insertion));
     }
   });
 

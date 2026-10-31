@@ -24,6 +24,15 @@ const result=await runHerdrScenario({name:'detail-property-completion',async pre
   await s.waitFor('the docs scroll without changing the row',()=>s.visible(s.panes.detail),text=>text!==before&&text.includes('Components 1/'));
   await s.checkpoint('01-docs-scrolled');
   await s.keys(s.panes.detail,'enter');await s.waitVisible(s.panes.detail,'items:');
+  await s.text(s.panes.detail,'Raised beds');
+  await s.keys(s.panes.detail,'tab','shift+tab');
+  await s.text(s.panes.detail,'Harvest');
+  await s.waitFor('the first slot is replaced after backtab',()=>s.visible(s.panes.detail),text=>text.includes('title: Harvest')&&!text.includes('Raised beds'));
+  await s.keys(s.panes.detail,'escape','ctrl+z');
+  await s.waitFor('one undo removes the filled snippet',()=>s.visible(s.panes.detail),text=>text.includes('::graph-st')&&!text.includes('items:'));
+  await s.checkpoint('01-snippet-undone');
+  await s.keys(s.panes.detail,'tab');await s.waitVisible(s.panes.detail,'Components');
+  await s.keys(s.panes.detail,'enter');await s.waitVisible(s.panes.detail,'items:');
   await s.keys(s.panes.detail,'ctrl+s');
   await s.waitFor('the figure written whole',()=>s.client.request<Block>({action:'get',blockId:note.id}),b=>b.text.startsWith('PLANTING NOTES\n\n::graph-stat\n---\n')&&b.text.trimEnd().endsWith('::'));
   await s.checkpoint('02-figure-written');

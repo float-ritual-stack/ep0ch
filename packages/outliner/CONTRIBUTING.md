@@ -79,6 +79,7 @@ source evidence or distinguish authored glyphs from controls.
   `extensionRuleNotes` to read their scoped action references and the ordinary attributed property writer.
 - `src/server.ts` owns protocol dispatch, sequence, and subscriptions.
 - `src/block-grep.ts` scans live note text for matching source lines; `goto-search.ts` adds context lines and exact-phrase priority to ranked search. Their shared wire shapes and line context live in `outline-core/text-search.ts`. Clients use `blocks.grep` or `tree.search`, never fetch the whole outline to search it.
+- `src/completion-sources.ts` owns built-in completion rows; `src/completion-requests.ts` owns their shared pick history and cancellable turns. Every client merges them with outline-core's `completion-source.ts`, and Draft and TextBuffer use its `SnippetSession` for slot positions.
 - `src/query-suggest.ts` owns query-word candidates, select-only Jev judgments, aliases and acceptance. Completion sources, Detail, web search and MCP call it; `outline-core/query-clauses.ts` is the facets and suggestion writer, and `jev-suggestions.ts` serializes their records with the other suggestion writes.
 - `src/note-move.ts` owns the service’s `move`: check the read revision, resolve destination intent and place the note
   in one SQLite transaction. Tree, the door, CLI and agent tools send that intent; `store.move` is the internal graph write.

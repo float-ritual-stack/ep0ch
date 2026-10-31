@@ -12,7 +12,10 @@ const say = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, 
 const request = (await Bun.stdin.json()) as Request;
 const issues = JSON.parse(readFileSync(join(import.meta.dir, "issues.json"), "utf8")) as Issue[];
 
-if (request.operation === "source") {
+if (request.operation === "source" && request.input.source === "issue-button") {
+  say({ rows: [{ label: "button · issue note", kind: "snippet", detail: "two slots: label and note", docs: "Opens an issue note. Fill the label, Tab to the note id, then Esc to keep writing. Ctrl+z removes the whole insertion.",
+    insert: { snippet: '::button{label="{label}"}\nopen id={note}\n::' } }] });
+} else if (request.operation === "source") {
   const q = (request.input.query ?? "").trim().replace(/^#/, "").toLowerCase();
   // A number finds its issue at once; words are the completer's to rank, so every open issue is offered.
   const found = /^\d+$/.test(q) ? issues.filter(i => String(i.number).startsWith(q)) : issues;

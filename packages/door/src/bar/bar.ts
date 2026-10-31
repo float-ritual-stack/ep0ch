@@ -1,3 +1,5 @@
+import { drawCompletionFloat } from "../surface/completion-float";
+import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 import { completeCommand, commandButton, runAnswer } from "./command";
 import { probe } from "../surface/probe";
 import { clipText } from "../overflow";
@@ -22,7 +24,7 @@ import type { Ctx } from "../app";
 import type { Msg } from "../board";
 import { ListPicker, pickRow } from "../surface/picker";
 import { LineField } from "../surface/line";
-import { COMPLETION_ROWS, completerOf, completionOf, lineCompleter, renderCompletion } from "../surface/completer";
+import { completerOf, completionOf, lineCompleter } from "../surface/completer";
 import { editorLineKey } from "../surface/editor";
 import { Gesture, rowsOf, wordAt, Selection, paintRange, SELECT_BG, isCopyKey, modeKey } from "../surface/selection";
 import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note";
@@ -49,8 +51,6 @@ export function barRect(cols: number, rows: number): Rect {
   return { col: Math.floor((cols - w) / 2), row: Math.max(0, Math.floor((rows - h) / 4)), cols: w, rows: h };
 }
 
-/** The bar's line: plain words for every source (the service's search, a filter over rows), so no outline-text completion. */
-
 /** The bar's scopes: alt+← alt+→, and alt+b alt+f (Option+arrows some terminals send as word jumps), step through them. */
 const SCOPE_KEYS = tabKeys("bar.open", { prev: ["alt+left", "alt+b"], next: ["alt+right", "alt+f"], label: "scope" });
 /** The columns a row's words keep before its kind chip is drawn beside them. */
@@ -62,6 +62,7 @@ const MENU_LOOK = () => ({ on: chip(C.blue), off: chip(C.dark), key: fg(C.lcyan)
 export class PowerBar {
   /** The source it's scoped to, or null: the main list. */
   scope: string | null;
+  private typedPrefix: string | null = null;
   input: LineField;
   private readonly picker: ListPicker<BarItem, PowerBar>;
   items: BarItem[] = [];
@@ -115,7 +116,6 @@ export class PowerBar {
     this.host = { ...host, where: () => this.acceptedWhere === this.query ? this.acceptedWhere : undefined };
     this.quick = !!o.quick;
     this.scope = o.scope ? barSource(o.scope)?.id ?? null : null;
-    // The query is plain words for every source (the service's search, a filter over rows): no outline-text completion.
     this.input = this.line(o.query ?? "");
     this.picker = new ListPicker<BarItem, PowerBar>({
       stays: true,
@@ -139,8 +139,7 @@ export class PowerBar {
   private fieldW = 10;
   private compact() { return this.scope === "ask" ? compactQuestion() : null; }
 
-  /** Put away: nothing it asked for is waited on. */
-  /** The bar's line: plain words for every source, so no outline-text completion; a masked answer is never copied. */
+  /** Commands, query words and outline triggers share the editor's completer; masked answers never copy. */
   private line(text: string): LineField {
     const l = new LineField(text, false, { complete: this.scope === "ask" ? questionCompletion() ?? { grammar: "act" } : { grammar: !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act" }, id: "power-bar" });
     l.completed = item => { if (item.querySuggestion) this.acceptedWhere = item.querySuggestion.where; this.refresh(); };
@@ -165,6 +164,7 @@ export class PowerBar {
 
   /** Change to scope `s` (null: the main list). */
   setScope(s: string | null) {
+    this.typedPrefix = null;
     if (this.scope === "ask" && maskedQuestion() && s !== "ask") { this.input = this.line(""); clearPrivateForm(); }
     this.scope = s ? barSource(s)?.id ?? null : null;
     if (this.input.complete) {
@@ -198,7 +198,7 @@ export class PowerBar {
     }
     if (k.kind === "char" && !k.ctrl && !this.input.text && !this.scope) {
       const s = barSources().find(x => x.prefix === k.ch && !x.inline);
-      if (s) { void this.host.dispatch.press("bar.open", { scope: s.id, keep: true }); return true; }
+      if (s) { void this.host.dispatch.press("bar.open", { scope: s.id, keep: true }); this.typedPrefix = s.prefix; return true; }
     }
     if (k.kind === "up" && this.scope !== "ask" && !this.query && this.host.runs.length) { void this.host.dispatch.press("bar.command", { op: "recall" }); return true; }
     // The row menu's entries by their digits (the chips say 1 2 3), alt+1 too; a pick puts the menu away, so digits type again.
@@ -218,6 +218,18 @@ export class PowerBar {
       return true;
     }
     if (k.kind === "paste") { void this.host.dispatch.press("bar.edit", { op: "paste", text: k.text }); return true; }
+    if (k.kind === "char" && !k.ctrl && this.typedPrefix) {
+      const typed = this.query.slice(0, this.input.cursor) + k.ch + this.query.slice(this.input.cursor);
+      const restored = this.typedPrefix + typed, at = this.input.cursor + k.ch.length;
+      const target = completionTargetAtCursor(restored, this.typedPrefix.length + at);
+      // A scope prefix can also begin a longer trigger. The shared detector decides when the text needs it back.
+      if (target && target.kind !== completionTargetAtCursor(typed, at)?.kind) {
+        const text = this.typedPrefix + this.query, cursor = this.typedPrefix.length + this.input.cursor;
+        void this.host.dispatch.press("bar.open", { scope: "all", keep: true });
+        void this.host.dispatch.press("bar.edit", { op: "paste", text, from: 0, to: this.query.length });
+        void this.host.dispatch.press("bar.edit", { op: "select", from: cursor, to: cursor });
+      }
+    }
     const before = this.query;
     const took = this.input.take(k);
     if (this.scope === "ask" && maskedQuestion()) { this.input.undos = []; this.input.redos = []; }
@@ -269,7 +281,7 @@ export class PowerBar {
     this.refresh();
   }
 
-  clear() { if (this.scope === "ask" && maskedQuestion()) this.input = this.line(""); else this.input.splice(0, this.query.length, ""); this.refresh(); }
+  clear() { this.typedPrefix = null; if (this.scope === "ask" && maskedQuestion()) this.input = this.line(""); else this.input.splice(0, this.query.length, ""); this.refresh(); }
 
   /** A key or a click while it's open: everything is the bar's. Mouse reports are made relative to where it was drawn. */
   key(k: Key, ctx: Ctx) {
@@ -488,13 +500,6 @@ export class PowerBar {
     // After the menu and the scope's own rows, so their clicks keep their rows.
     const verdictRows = below ? wrap(verdict, w - 2).slice(0, 2).map(l => paint(" |08") + l) : [];
     const head = [tabs, line, ...menu.map(r => r.text), ...this.sourceHead, ...verdictRows];
-    const completion = completerOf(this.input), pop = completion && completionOf(this.input);
-    if (completion && pop?.target.kind === "query" && (pop.items.length || pop.message)) {
-      const rows: (number | null)[] = [];
-      const lines = renderCompletion(pop, w, Math.min(COMPLETION_ROWS, Math.max(3, rect.rows - head.length - 6)), rows);
-      completion.drawn = { row: this.rect!.row + head.length + 1, col: this.rect!.col + 1, cols: w, items: rows };
-      head.push(...lines);
-    }
     head.push(fg(C.blue) + "─".repeat(w) + RESET);
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
     const it = this.items[this.picker.sel];
@@ -592,6 +597,7 @@ export class PowerBar {
     if (k.kind === "mouse") return k.action === "down" && !!c.shown && c.click(k.y, k.x, t => this.host.ctx.copy?.(t));
     // A list still being asked for takes no ⏎: the line is the person's, and runs.
     const listed = !!c.shown?.items.length && !c.shown.loading;
+    if (!listed && this.input.snippet && ["tab", "backtab", "esc"].includes(k.kind)) { this.input.take(k); return true; }
     const keys = listed && ["up", "down", "tab", "enter", "esc", "pgup", "pgdn"].includes(k.kind);
     // → at the line's end asks as tab does (the shell's), so one completion answers both.
     const target = c.target();
@@ -599,21 +605,6 @@ export class PowerBar {
     if (!keys && !asks) return false;
     this.input.take(asks && !keys ? { kind: "tab" } : k);
     return true;
-  }
-
-  /** The line's completion list, under the word being typed, over the bar's rows: where it went is kept, so a click chooses. */
-  private drawLineCompletion(canvas: Canvas, r: Rect, values?: StyleValues) {
-    const c = completerOf(this.input), pop = c && completionOf(this.input);
-    if (!c || !pop || pop.target.kind === "query" || this.scope === "ask" || this.compact() || !pop.items.length && !pop.message) return;
-    const word = this.query.slice(0, this.input.cursor).lastIndexOf(" ") + 1, y = 3;
-    // Beside the docs, never over them: the list keeps to the rows' column where that holds one (28 cells at least).
-    const pv = this.previewRect, beside = pv && pv.col > 30 && pv.row + pv.rows > y ? pv.col - 1 : r.cols - 1;
-    const pw = Math.min(beside - 1, Math.max(28, Math.min(72, r.cols - 6)));
-    const x = Math.max(1, Math.min(3 + Math.min(width(this.query.slice(0, word)), this.fieldW - 1), beside - pw));
-    const rows: (number | null)[] = [];
-    const lines = renderCompletion(pop, pw, Math.max(3, Math.min(COMPLETION_ROWS, r.rows - y - 1)), rows, 0, values);
-    lines.forEach((l, i) => canvas.text(x, y + i, l, pw));
-    c.drawn = { row: r.row + y, col: r.col + x, cols: pw, items: rows };
   }
 
   /** Drawn over a screen `cols` by `rows`: where, and its rows. */
@@ -627,7 +618,14 @@ export class PowerBar {
     if (completion) completion.drawn = null;
     const values = lookFor(this.host.ctx, { screen: this.host.screens().at(-1)?.title }, r.cols).values;
     withRowLimit(values["rows.lines"], () => this.picker.draw(canvas, { col: 0, row: 0, cols: r.cols, rows: r.rows }, values));
-    this.drawLineCompletion(canvas, r, values);
+    if (completion?.shown && !compact) {
+      completion.drawn = { row: 3, anchor: 3 + this.input.cursorCol, items: [] };
+      // The bar's selected note stays readable beside the completion's own docs (PIE-1439).
+      const cols = this.previewRect && this.previewRect.col > 30 ? this.previewRect.col - 1 : r.cols;
+      drawCompletionFloat(canvas, completion, { col: 0, row: 0, cols, rows: r.rows }, { col: 0, row: 0, cols: r.cols, rows: r.rows }, values);
+      completion.drawn.row += r.row;
+      completion.drawn.col = (completion.drawn.col ?? 0) + r.col;
+    }
     return { rect: { ...r, cols: r.cols + 1, rows: r.rows + 1 }, lines: canvas.lines() };
   }
 
@@ -723,7 +721,7 @@ export class PowerBar {
 
   async command(op: string, n?: number) {
     if (op === "recall" && this.scope === "ask") throw new ActionRefused("recall belongs to the command line; finish or close the question first");
-    if (op === "menu") { this.menuOpen = !this.menuOpen; this.host.ctx.redraw(); return; }
+    if (op === "menu") { completerOf(this.input)?.dismiss(); this.menuOpen = !this.menuOpen; this.host.ctx.redraw(); return; }
     const line = op === "recall" ? this.host.runs.at(-1)?.line : this.commandLine(n);
     if (!line) throw new Error("type an act line first");
     if (op === "recall") { this.input.splice(0, this.query.length, line); this.refresh(); return { line }; }

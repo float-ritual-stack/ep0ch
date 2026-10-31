@@ -3,6 +3,8 @@ import {
   wordStartAfter, wordStartBefore,
 } from "@ep0ch/outline-core/graphemes";
 
+import { SnippetSession, type SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
+
 const MAX_HISTORY_ENTRIES = 100;
 
 type HistoryGroup = "typing" | "backspace" | "delete" | null;
@@ -37,6 +39,32 @@ export class TextBuffer {
   readonly #redoHistory: TextBufferSnapshot[] = [];
   #historyGroup: HistoryGroup = null;
   #groupedEdit = false;
+  snippet: SnippetSession | null = null;
+  #snippetText = "";
+
+  startSnippet(slots: SnippetSlot[], offset: number): void {
+    if (!slots.length) return;
+    this.snippet = new SnippetSession(slots, offset);
+    this.#snippetText = this.text;
+    this.selectSlot(this.snippet.current);
+  }
+  private selectSlot(slot: SnippetSlot): void {
+    const place = (at: number, extend: boolean) => {
+      const lines = this.text.slice(0, at).split("\n");
+      this.placeCursor(lines.length - 1, lines.at(-1)!.length, extend);
+    };
+    place(slot.start, false); place(slot.end, true);
+  }
+  syncSnippet(): void {
+    if (this.snippet && !this.snippet.update(this.#snippetText, this.text)) this.snippet = null;
+    this.#snippetText = this.text;
+  }
+  moveSnippet(by: number): void {
+    this.syncSnippet();
+    const slot = this.snippet?.move(by);
+    if (slot) this.selectSlot(slot); else this.endSnippet();
+  }
+  endSnippet(): void { this.syncSnippet(); this.snippet = null; this.clearSelection(); }
 
   constructor(text = "") {
     this.lines = text.split(/\r?\n/);
@@ -218,6 +246,7 @@ export class TextBuffer {
   }
 
   undo(): boolean {
+    if (this.snippet) this.endSnippet();
     const snapshot = this.#undoHistory.pop();
     if (!snapshot) return false;
     this.pushHistory(this.#redoHistory, this.snapshot());
@@ -341,6 +370,12 @@ export class TextBuffer {
 
   private recordEdit(group: HistoryGroup): void {
     if(this.#groupedEdit)return;
+    this.syncSnippet();
+    if (this.snippet) {
+      const at = this.lines.slice(0, this.row).join("\n").length + Number(this.row > 0) + this.column;
+      if (at >= this.snippet.current.start && at <= this.snippet.current.end) return;
+      this.endSnippet();
+    }
     const coalesced = group !== null && group === this.#historyGroup && this.#redoHistory.length === 0;
     if (!coalesced) this.pushHistory(this.#undoHistory, this.snapshot());
     this.#redoHistory.length = 0;

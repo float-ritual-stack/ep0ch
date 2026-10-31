@@ -711,6 +711,8 @@ export interface ExtensionsConfigured {
  * own sources' answers (`mergeSourceAnswers`): the door and Detail merge the same way, so they show the same rows.
  */
 export interface CompletionRowsRequest {
+  /** A client's lookup turn; completion.cancel stops its slow sources when typing moves on. */
+  turn?: string;
   zone?: string;
   /**
    * The token at the cursor as outline-core's detector found it, without where it sits on the line: `headingShort` (the

@@ -1,3 +1,4 @@
+import { drawCompletionFloat } from "../surface/completion-float";
 import { modeBinding, modeHint, partsHint, type HintPart, type ModeKey } from "../surface/modes";
 import { tabStrip } from "../surface/chip-rows";
 import { ZOOM_WHEEL } from "./wkeys";
@@ -3810,14 +3811,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const completion = this.views.get(this.focus)?.view.completion;
     const origin = this.contents.get(this.focus);
     if (completion?.shown && completion.drawn && origin) {
-      const height = Math.min(COMPLETION_ROWS, Math.max(Math.floor(origin.rows / 2), area.rows - 12));
-      const cursor = { col: origin.col, row: origin.row + completion.drawn.row - 1, cols: origin.cols, rows: 1 };
-      const rect = keepOnScreen({ col: area.col, row: cursor.row + 1, cols: area.cols, rows: height }, area, cursor);
-      completion.drawn.row = rect.row - origin.row;
-      const lines = withRowLimit(this.lookAt(this.panes.get(this.focus)!, rect.cols).values["rows.lines"], () => completion.inFrame(rect.cols, rect.col - origin.col, height, this.lookAt(this.panes.get(this.focus)!, rect.cols).values));
-      canvas.backdrop(this.lookAt(this.panes.get(this.focus)!, rect.cols).values);
-      canvas.clear(rect);
-      lines.forEach((line, i) => canvas.text(rect.col, rect.row + i, line, rect.cols));
+      const rect = drawCompletionFloat(canvas, completion, area, origin, this.lookAt(this.panes.get(this.focus)!, area.cols).values)!;
       this.completionFloat = { completer: completion, rect, origin };
       this.overlayHits.push(rect);
       this.raised.menus.push(rect);

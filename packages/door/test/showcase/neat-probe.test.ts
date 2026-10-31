@@ -610,11 +610,11 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     } finally { app.pop(); d.dispose(); }
   });
 
-  test("PIE-1206: saved duplicate destinations and group wires are repaired on load", async () => {
+  test("PIE-1206: saved select wires keep distinct destinations, drop duplicates and skip groups", async () => {
     const d = new Desk({ name: "wire-load", title: "Wire load", layout: { root: { t: "split", dir: "row", kids: [
       { t: "leaf", kind: "reader", name: "first" },
       { t: "leaf", kind: "reader", name: "last" },
-      { t: "leaf", kind: "backlinks", name: "links", wires: [{ verb: "select", to: "first" }, { verb: "select", to: "last" }] },
+      { t: "leaf", kind: "backlinks", name: "links", wires: [{ verb: "select", to: "first" }, { verb: "select", to: "last" }, { verb: "select", to: "first" }] },
       { t: "leaf", kind: "backlinks", name: "followed" },
       { t: "leaf", kind: "preview", name: "preview1", source: "tile:followed" },
       { t: "leaf", kind: "preview", name: "preview2", source: "tile:followed" },
@@ -623,9 +623,9 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     app.push(d);
     try {
       const tiles = d.layoutAll().tiles;
-      expect(tiles.find(t => t.name === "links")!.wires).toEqual([{ verb: "select", to: tiles.find(t => t.name === "last")!.tile }]);
+      expect(tiles.find(t => t.name === "links")!.wires).toEqual(["first", "last"].map(name => ({ verb: "select", to: tiles.find(t => t.name === name)!.tile })));
       expect(tiles.find(t => t.name === "parcel")!.wires).toEqual([]);
-      expect(tiles.find(t => t.name === "followed")!.wires).toEqual([{ verb: "select", to: tiles.find(t => t.name === "preview2")!.tile }]);
+      expect(tiles.find(t => t.name === "followed")!.wires).toEqual(["preview1", "preview2"].map(name => ({ verb: "select", to: tiles.find(t => t.name === name)!.tile })));
     } finally { app.pop(); d.dispose(); }
   });
 

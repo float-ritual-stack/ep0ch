@@ -1,5 +1,6 @@
 import {completionTargetAtCursor,type CompletionTarget} from "@ep0ch/outline-core/completion-triggers";
-import {insertSelection,insertText,mergeSourceAnswers,pickKey,triggerOf,type SourceRow} from "@ep0ch/outline-core/completion-source";
+import {insertSelection,insertSlots,insertText,mergeSourceAnswers,pickKey,triggerOf,type SourceRow} from "@ep0ch/outline-core/completion-source";
+import type {SnippetSlot} from "@ep0ch/outline-core/completion-snippet";
 import type {CompletionRowsRequest,CompletionRowsResult} from "@ep0ch/outline-core/protocol";
 import type {OutlinerRequester} from "./client-target";
 import {resolveFragment} from './fragments';
@@ -18,6 +19,7 @@ import {QUERY_WORDS_PAUSE_MS,type QuerySuggestRequest,type QuerySuggestAnswer,ty
 export interface ReferenceCompletionItem extends Omit<SourceRow,"insert"> {
   insertion:string;
   selection?:{start:number;end:number};
+  slots?:SnippetSlot[];
   /** The lit row's docs once read again from its note (ancestors and how it starts); `docs` until then. */
   context?:string;
   /** Kept for the list's subtitle: the row's detail. */
@@ -51,7 +53,7 @@ export function referenceEnterKeeps(state:ReferenceCompletionState):string|null 
 export interface ReferenceCompletionProvider {
   querySuggest?(input:QuerySuggestRequest):Promise<QuerySuggestAnswer>;
   /** The service's completion sources for the token (`completion.rows`). */
-  completionRows(request:CompletionRowsRequest):Promise<CompletionRowsResult>;
+  completionRows(request:CompletionRowsRequest,signal?:AbortSignal):Promise<CompletionRowsResult>;
   /** Count a pick, so every client ranks it higher next time (`completion.picked`). */
   completionPicked?(key:string,insert:string):Promise<unknown>;
   queryPageAddresses(query:string|undefined,limit:number):Promise<PageAddressCollection>;
@@ -68,13 +70,13 @@ function snippet(text:string):string {
   return propertyInspectorAuthoredText(text).split(/\r?\n/).slice(1).join("\n");
 }
 
-export async function lookupReferenceCompletion(provider:ReferenceCompletionProvider,target:CompletionTarget,draft?:CompletionDraft,semantic=false):Promise<ReferenceCompletionState> {
+export async function lookupReferenceCompletion(provider:ReferenceCompletionProvider,target:CompletionTarget,draft?:CompletionDraft,semantic=false,signal?:AbortSignal):Promise<ReferenceCompletionState> {
   const {start:_s,end:_e,...asked}=target;
-  const r=await provider.completionRows({target:asked,limit:LIMIT,semantic,zone:Intl.DateTimeFormat().resolvedOptions().timeZone,...(draft?{near:draft.blockId,draft}:{})});
+  const r=await provider.completionRows({target:asked,limit:LIMIT,semantic,zone:Intl.DateTimeFormat().resolvedOptions().timeZone,...(draft?{near:draft.blockId,draft}:{})},signal);
   // What a row draws (its example, its variations) is the door's: Detail lists the row's words.
   const items:ReferenceCompletionItem[]=mergeSourceAnswers(r.answers,target.query,{picks:r.picks}).flatMap(row=>[row,...(row.querySuggestion?row.variations?.filter(v=>v.queryCorrections).map(v=>({...v,from:row.from,tier:row.tier}))??[]:[])]).map(({insert,from:_f,tier:_t,example:_e,variations:_v,...row})=>{
     const selection=insertSelection(insert);
-    return {...row,insertion:insertText(insert),...(selection?{selection}:{}),...(row.detail?{subtitle:row.detail}:{}),...(row.docs?{context:row.docs}:{})};
+    return {...row,insertion:insertText(insert),slots:insertSlots(insert),...(selection?{selection}:{}),...(row.detail?{subtitle:row.detail}:{}),...(row.docs?{context:row.docs}:{})};
   });
   const truncatedLimit=r.answers.find(a=>a.truncated)?.truncated??null;
   const partial=r.answers.map(a=>a.partial).find(Boolean)??'';
@@ -93,6 +95,7 @@ const SAYS_EMPTY=new Set(['page','block','file']);
 export class ReferenceCompletionSession {
   state:ReferenceCompletionState|null=null;
   private generation=0;
+  private lookup?:AbortController;
   private accepting=false;
   private wordsTimer?:ReturnType<typeof setTimeout>;
   private offered?:QueryWords;
@@ -101,7 +104,7 @@ export class ReferenceCompletionSession {
   private selectedInsertion?:string;
   private snapshot?:{text:string;row:number;column:number;buffer:TextBuffer};
   constructor(private provider:ReferenceCompletionProvider,private buffer:()=>TextBuffer,private changed:()=>void,private active:()=>boolean,private draft:()=>CompletionDraft|undefined=()=>undefined){}
-  dismiss():void {clearTimeout(this.wordsTimer);if(!this.accepting)this.ignore();this.offered=undefined;this.generation++;this.state=null;this.snapshot=undefined;this.changed();}
+  dismiss():void {this.lookup?.abort();clearTimeout(this.wordsTimer);if(!this.accepting)this.ignore();this.offered=undefined;this.generation++;this.state=null;this.snapshot=undefined;this.changed();}
   private ignore():void {const suggestion=this.offered;this.offered=undefined;if(suggestion)void this.provider.querySuggest?.({text:suggestion.input,outcome:'ignored',suggestion}).catch(()=>{});}
   private show(state:ReferenceCompletionState):void {
     const suggestion=state.items.find(i=>i.querySuggestion)?.querySuggestion;
@@ -115,6 +118,8 @@ export class ReferenceCompletionSession {
   async refresh():Promise<void>{
     if(this.accepting)return;
     clearTimeout(this.wordsTimer);
+    this.lookup?.abort();
+    const lookup=this.lookup=new AbortController();
     const b=this.buffer(),target=completionTargetAtCursor(b.lines[b.row]??'',b.column,b.lines,b.row);
     if(!this.active()||!target){this.dismiss();return;}
     const generation=++this.generation,selected=this.state?.items[this.state.index]?.insertion??this.selectedInsertion;
@@ -122,7 +127,7 @@ export class ReferenceCompletionSession {
     this.snapshot={text:b.text,row:b.row,column:b.column,buffer:b};
     this.state={start:target.start,end:target.end,index:0,items:[],generation,loading:true,message:'Finding references…'};this.changed();
     try{
-      const result=await lookupReferenceCompletion(this.provider,target,this.draft());
+      const result=await lookupReferenceCompletion(this.provider,target,this.draft(),false,lookup.signal);
       if(!this.current(generation))return;
       if(!result.items.length&&!result.queryWords&&!SAYS_EMPTY.has(target.kind)){this.dismiss();return;}
       result.index=Math.max(0,result.items.findIndex(item=>item.insertion===selected));
@@ -131,7 +136,7 @@ export class ReferenceCompletionSession {
       this.selectedInsertion=result.items[result.index]?.insertion;
       result.generation=generation;this.show(result);void this.enrich(generation);
       if(result.queryWords)this.wordsTimer=setTimeout(async()=>{
-        const words=await lookupReferenceCompletion(this.provider,target,this.draft(),true);
+        const words=await lookupReferenceCompletion(this.provider,target,this.draft(),true,lookup.signal);
         if(!this.current(generation)||this.accepting)return;
         const selected=this.state?.items[this.state.index]?.insertion;
         const index=this.state?.moved?words.items.findIndex(item=>item.insertion===selected):0;
@@ -192,19 +197,14 @@ export class ReferenceCompletionSession {
         if(!made.block)throw Error(made.status==='deleted'?`[[${item.newPage}]] is a page in the trash: restore it there`:`The page wasn't made (${made.status})`);
       }
       const b=this.buffer();
+      const offset=b.lines.slice(0,b.row).join('\n').length+Number(b.row>0)+state.start;
       b.editTogether(()=>{
       if(item.anchor&&item.blockId===this.draft()?.blockId){
         b.replaceLine(item.anchor.lineIndex,item.anchor.line);
       }
       b.replaceCurrentLine(state.start,state.end,item.insertion);
       });
-      // A snippet's span is selected once it's in (its placeholder), so the next keys replace it.
-      // The insert may be several lines (a component's YAML): its offsets are placed by row.
-      if(item.selection){
-        const first=b.row-(item.insertion.match(/\n/g)?.length??0),at=Math.min(state.start,(b.lines[first]??'').length);
-        const place=(offset:number,extend:boolean)=>{const before=item.insertion.slice(0,offset).split('\n');b.placeCursor(first+before.length-1,(before.length===1?at:0)+before.at(-1)!.length,extend);};
-        place(item.selection.start,false);place(item.selection.end,true);
-      }
+      if(item.slots?.length)b.startSnippet(item.slots,offset);
       if(state.pickKey)void this.provider.completionPicked?.(state.pickKey,item.insertion).catch(()=>{});
       if(item.querySuggestion){this.accepted={suggestion:item.querySuggestion,text:b.text};await this.provider.querySuggest?.({text:item.querySuggestion.input,outcome:item.queryOutcome??'accepted',suggestion:item.querySuggestion,corrections:item.queryCorrections}).catch(error=>{state.message=String(error);});}
       this.dismiss();return true;
@@ -215,7 +215,7 @@ export class ReferenceCompletionSession {
 export function referenceCompletionProvider(client:OutlinerRequester,actorId:string):ReferenceCompletionProvider {
   return {
     querySuggest:input=>client.request({action:'query.suggest',...input,mutation:{author:'user'}}),
-    completionRows:request=>client.request({action:"completion.rows",...request}),
+    completionRows:(request,signal)=>requestCompletionRows(client,request,signal),
     completionPicked:(key,insert)=>client.request({action:"completion.picked",key,insert}),
     ensureFragment:input=>client.request({action:"fragments.ensure",...input,mutation:{author:"user",actorId}}),
     queryPageAddresses:(query,limit)=>client.request({action:"pages.complete",query,limit}),
@@ -223,4 +223,14 @@ export function referenceCompletionProvider(client:OutlinerRequester,actorId:str
     updateBlock:input=>client.request({action:"update",...input,mutation:{author:"user",actorId}}),
     followPage:address=>client.request({action:"pages.follow",address,author:"user"}),
   };
+}
+
+/** Dismissing a list stops its source processes as well as dropping their eventual answer. */
+export async function requestCompletionRows(client:OutlinerRequester,request:CompletionRowsRequest,signal?:AbortSignal):Promise<CompletionRowsResult> {
+  signal?.throwIfAborted();
+  const turn=crypto.randomUUID();
+  const cancel=()=>{void client.request({action:"completion.cancel",turn}).catch(()=>{});};
+  signal?.addEventListener("abort",cancel,{once:true});
+  try {return await client.request({action:"completion.rows",...request,turn});}
+  finally {signal?.removeEventListener("abort",cancel);}
 }

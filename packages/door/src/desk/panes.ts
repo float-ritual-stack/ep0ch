@@ -712,9 +712,8 @@ export class ReaderPane implements Pane, AttachedOwner {
     return "keeps the note opened into it · alt+l in another tile, then a click here, sends that tile's opens here";
   }
   render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView {
-    const draft = this.surface.writingDraft;
-    const completion = draft && completerOf(draft);
-    if (completion) completion.screenLayer = true;
+    const field = this.surface.panel?.field?.input ?? this.surface.writingDraft;
+    const completion = field && completerOf(field);
     const v = this.surface.render(w, h, desk && this.host(desk));
     if (completion?.shown) v.completion = completion;
     if (this.msg || this.surface.draft || h < 3) return v;

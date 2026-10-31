@@ -2524,12 +2524,9 @@ export type OutlinerRequestAction =
   | { id: string; action: "scripts.render"; of: string; blockId: string; line: number; props: Record<string, string[]>; deadlineMs: number }
   | ({ id: string; action: "extensions.list"; reload?: boolean } & Pick<import("@ep0ch/outline-core/site").SiteAnswerRequest, "blockId" | "line" | "draft" | "chain">)
   | ({ id: string; action: "query.suggest" } & import("@ep0ch/outline-core/query-words").QuerySuggestRequest)
-  /**
-   * The service's completion sources for the token at the cursor (PIE-1340): pages, blocks and their fragments, files,
-   * agents and the extensions' completion sources, each answering on outline-core's row contract, with the trigger's
-   * picks. `{ answers: [{ source, rows, problem?, truncated?, empty?, partial?, heading?, jev? }], picks }`.
-   */
+  /** Sources answer on outline-core's row contract with shared picks; a turn can be cancelled when its popup closes. */
   | ({ id: string; action: "completion.rows" } & import("@ep0ch/outline-core/protocol").CompletionRowsRequest)
+  | { id: string; action: "completion.cancel"; turn: string }
   /** A completion row was chosen (PIE-1340): its pick is counted, so every client ranks it higher next time. `{ picks }`. */
   | ({ id: string; action: "completion.picked" } & import("@ep0ch/outline-core/protocol").CompletionPickedRequest)
   | ({ id: string; action: "search.picked" } & import("@ep0ch/outline-core/protocol").SearchPickedRequest)
