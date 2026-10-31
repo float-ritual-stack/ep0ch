@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Run any script by its name, and neat arranges any tile (PIE-1230, PIE-1253)
+
+- **`ep0ch neat page=[[a]] right=%tree`:** a script runs by its name from a shell, `act` or the power bar, with the same slots a button passes (`script.run of=<name> key=value…`); a key written twice is a list (`page=` twice), and the run is the press's. From a shell it is an agent's run, attributed to the shell's agent id (`EP0CH_AGENT` or `--as`), said on the status bar, and it never takes your focus or keys.
+- **A script nobody has says so:** the refusal names the nearest scripts and the call that works; `ep0ch --help` and an unknown command's error name the form; the power bar completes `of=` with the outline's scripts.
+- **A button with the script's words inside `of="…"`** (`of="neat page=[[a]]` with the quote never closed) runs nothing and the line says the one to write, in the editor and on save.
+- **neat takes `left=` and `right=`:** pages, notes, Work IDs and tiles by the name you see and copy (`%tree`, `tile:cowboy`, or `terminal` / `agent` for every tile of that kind) go to the far left and right in order; a page or tile nobody has is said in the answer, with the nearest pages.
+- **neat leaves your terminals alone:** terminals, agents, pinned tiles and (with edges) the tile you are in stay as they are; `fold=terminal` or `fold=agent` asks for them to fold.
+- **Copy a tile's name:** the tile menu's Copy group has "copy tile name" (`%name`, `tile.copy-ref kind=name`).
+- **Run:** `ep0ch install --apply` and restart the outline host (the protocol moved); then `ep0ch neat page=[[a]] right=%tree` from a shell in your door's folder.
+
 ### The component library lists `property-scope` for rule notes (PIE-1466)
 
 - **A rule note's `[property-scope::…]` is among the keys the library says it takes:** `RULE_KEYS` now names it, so the rule's entry and the keys a card ignores as the rule's own agree.

@@ -45,7 +45,7 @@ import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage } from "./extensions";
+import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, SCRIPT_RUN_ACTIONS, asScriptRun, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged, referenceWords } from "./refs";
@@ -1278,6 +1278,7 @@ export class App implements Ctx {
       };
     } },
     { set: EXTENSION_INSTALL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
+    { set: SCRIPT_RUN_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
     { claims: req => req.action.startsWith("layout.") || req.action.startsWith("tile."), delegate: () => (this.screenDesk() ?? this.hostLayer.desks()[0])?.dispatch },
     { delegate: () => this.stack.at(-1)?.dispatch },
@@ -1313,6 +1314,7 @@ export class App implements Ctx {
     const who = agentLabel(actor);
     return messageContext.run({ action: req.action, ...(req.tile ? { tile: req.tile } : {}) }, async () => {
       try {
+        req = asScriptRun(req, name => this.dispatch.has(name));
         if (!this.dispatch.takes(req, actor)) throw new ActionRefused(GONE_ACTIONS[req.action] ?? this.dispatch.unknownAction(req.action));
         this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
         const r = await this.dispatch.act(req, actor);

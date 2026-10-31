@@ -74,6 +74,14 @@ value with `button.slot label="pop it" key=target value=<tile>`. A script's slot
 the notes, since neat says `[form-field::page note]`; several empty slots are asked in the order the line writes them. A button whose line reads differently than it was written
 (nested quotes that end `act=` early, stray words) runs nothing and says the line to write, in the editor as you type and on save.
 
+**From the command line (PIE-1230).** A script runs by its name, with a button's slots, wherever an action is typed: the power
+bar (ctrl+k, `neat page=[[a]] page=[[b]]`), `ep0ch act neat …` and `ep0ch neat …` from a shell. All three are one action,
+`script.run of=<name> key=value…`: any other word is a slot (`props.<key>`), a key written twice is a list (`props.page`), and the
+script's own `ext.<id>.run` runs, so it is the press's run. From a shell it is an agent's run, attributed to the shell's agent id
+(`EP0CH_AGENT`, or `--as <id>`), said on the status bar, and it never takes your focus or keys; to run it as yourself, run it
+inside the door (power bar, a `::button`, `act` from a tile you hold). A name no script has says the nearest names. `of=` names
+the script alone: `of="neat page=[[a]]"` puts its words inside the name, so the button runs nothing and the line says the one to write.
+
 ## The script note
 
 A named fence accepts `script=<name>`, `effects=write` and `mode=render` in its info string, for example
@@ -121,6 +129,11 @@ drawer links and their wires, and the `step`/`failed` pattern for reporting refu
 Install it from the power bar (ctrl+k, `&neat`, pick **install Neat**) or
 `ep0ch act extensions.install id=neat`. Then try `::button{label="neat" of=neat page=[[Garden plan]] page=[[Shed repairs]]}`.
 Without slots it arranges this outline's welcome/home and the reader with the person's keys.
+`left=` and `right=` (each repeatable) send pages, notes and tiles to the far edges, in order: `[[page]]`, `((id))`, a Work ID, or a
+tile by the name `layout.get` and the tile menu show (`%tree`, `tile:cowboy`, copied with "copy tile reference"), or a kind
+(`terminal`, `agent`) for every tile of it. `page=` stays the first left and the first right. Terminals, agents, pinned tiles and
+(with edges) the tile you are in are never folded unless named; `fold=terminal` or `fold=agent` asks for it. From a shell:
+`ep0ch neat page=[[Garden plan]] right=%tree`; in a note: `::button{label="tidy" of=neat left=[[today]] right=tile:agent}`.
 
 Script lookup uses the invoking note and its nearest ancestors first, then other outline
 script notes, outline files, then the scripts declared by installed extensions. An outline's

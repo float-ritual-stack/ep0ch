@@ -5009,7 +5009,7 @@ export class NoteSurface {
         return r;
       }
       let req;
-      try { req = actRequestOf(lineWords(p.act)); } catch (e) { throw new ActionRefused(`${p.act}: ${e instanceof Error ? e.message : String(e)}`); }
+      try { req = actRequestOf(lineWords(p.act), { repeats: "list" }); } catch (e) { throw new ActionRefused(`${p.act}: ${e instanceof Error ? e.message : String(e)}`); }
       if (req.as !== undefined) throw new ActionRefused(`${p.act}: a press runs as ${actor.kind === "user" ? "you" : "its presser"}; leave out as=`);
       const args: Record<string, unknown> = { ...(req.args ?? {}) };
       let action = req.action;

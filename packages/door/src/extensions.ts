@@ -29,8 +29,10 @@ import type { Actor, SocketBoard } from "./socket";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { printable } from "./text";
 import { partyOf, UndoHistory } from "./steps";
-import { ActionRefused, ActionSet, actionSet, asActor, def, shownLine, type ActionDef } from "./surface/actions";
-import { explainNotInstalled } from "./surface/dispatch";
+import { closest } from "./cli-words";
+import { slotWords } from "@ep0ch/outline-core/action-line";
+import { ActionRefused, ActionSet, actionSet, asActor, def, FREE_ARGS, shownLine, type ActionDef } from "./surface/actions";
+import { explainNotInstalled, nameAlso } from "./surface/dispatch";
 import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/screen-layout";
 import type { DeskApi } from "./desk/panes";
@@ -288,9 +290,38 @@ export function installWords(name: string, available: readonly AvailableExtensio
   return ext ? `${name} is ${ext.name}'s, which isn't installed: install it from its "install ${ext.name}" row in the power bar's extensions (ctrl+k then &) or with ep0ch act extensions.install id=${ext.id}` : null;
 }
 explainNotInstalled(name => installWords(name));
+nameAlso(() => scriptNames().map(s => s.name));
 
 export function scriptBindings() {
   return scriptActions().flatMap(s => s.extension.script!.keys.map(key => ({ key, action: s.action.name })));
+}
+
+/** The scripts this outline has, by the name a person types: `neat` runs `ext.<id>.run`. The one answer for "is this word a script" (a press, the power bar, `act`, `script.run`). */
+export function scriptNamed(name: string) {
+  return scriptActions().filter(s => s.extension.name === name);
+}
+
+/**
+ * A request whose action no set here has but a script of that name does, as the `script.run` that runs it (a script's own name
+ * typed as the first word: `act neat page=[[a]]`); any other request as it is. `has` says whether an action of that name exists.
+ */
+export function asScriptRun(req: { action: string; tile?: string; args?: Record<string, unknown>; as?: string }, has: (action: string) => boolean) {
+  if (has(req.action) || !scriptNamed(req.action).length) return req;
+  return { ...req, action: "script.run", args: { ...(req.args ?? {}), of: req.action } };
+}
+
+/** Every script's name with its own words about itself (its note's title or extension's about, the first of its description). */
+export function scriptNames(): { name: string; about: string }[] {
+  return scriptActions().map(s => ({ name: s.extension.name!, about: (s.extension.summary || s.action.label || "").trim() }));
+}
+
+/** Why `name` runs no script, with the nearest names and the call that works. */
+export function noScript(name: string): string {
+  const installable = installWords(name);
+  if (installable) return installable;
+  const names = scriptNames().map(s => s.name);
+  const near = closest(name, names);
+  return `no script called ${name} here${near ? `; did you mean ${near}?` : ""}${names.length ? ` Scripts: ${names.slice(0, 12).join(", ")}${names.length > 12 ? ", …" : ""}.` : " This outline has no scripts yet."} Run one with: script.run of=<name> key=value…`;
 }
 
 export function scriptActions() {
@@ -405,6 +436,35 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
 // ── running one ──────────────────────────────────────────────────────────────
 
 /**
+ * Run a script by its name with a button's slots (PIE-1230): the one action behind a script typed as the first word
+ * (`neat page=[[a]]` in the power bar, `ep0ch neat …`, `act neat …`), a key or click on its row and `act script.run`. It
+ * runs the script's own `ext.<id>.run` through the dispatcher as whoever asked, so the person's run is invited and
+ * theirs, an agent's is attributed to it, and a repeated slot is a list (`props.page`) exactly as a button's line reads it.
+ */
+export const SCRIPT_RUN_ACTIONS = actionSet<ExtOn>()("script-run", {
+  "script.run": def({
+    words: "run a script by its name with a button's slots",
+    summary: "run the script note or installed script called of=<name> with the words after it as its slots, as a ::button{of=<name> k=v…} passes them (props.<k>, a key written twice is a list). Typing the script's name first does the same: `neat page=[[a]] page=[[b]]`. Its writes and layout changes are the script's own, one undo step; an agent's run is attributed to the agent",
+    keys: [{ keys: "ctrl+k", does: "type a script's name and its slots after it, then ⏎" }, { via: "ep0ch <script> key=value… in a shell, an agent's run (ep0ch neat page=[[a]])" }],
+    touches: "nothing", replay: "ask",
+    args: {
+      of: { type: "string", kind: "script", about: "the script's name, as `actions` and the power bar list it" },
+      [FREE_ARGS]: { type: "string", optional: true, context: true, about: "any other key=value is a slot of the script (props.<key>), written as on its button; a key written twice is a list" },
+    },
+    examples: [
+      { act: 'script.run of=neat page="[[Garden plan]]" page="[[Shed repairs]]"', does: "runs neat with its two pages, as its button does" },
+      { act: 'script.run of=neat left="[[Garden plan]]" right=%tree', does: "runs neat with a page at the far left and the tree tile at the far right" },
+    ],
+    async run({ of, ...slots }, on, actor) {
+      const found = scriptNamed(of);
+      if (!found.length) throw new ActionRefused(noScript(of));
+      if (!on.ctx.dispatch) throw new ActionRefused("this screen has no dispatcher to run a script with");
+      return on.ctx.dispatch.act({ action: found[0]!.action.name, args: slots as Record<string, unknown> }, actor);
+    },
+  }),
+});
+
+/**
  * Run an extension's action through the service (`extensions.act`) and say what it did. Its writes are the
  * extension's (`ext:<id>`), whoever asked; an agent's run is said as the agent's on the status bar.
  */
@@ -429,7 +489,7 @@ export function scriptPressMessage(message: string, undo: boolean): string {
   return `${oneLine(message)}${undo ? " · ctrl+z undoes" : ""}`;
 }
 
-export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage; invitation?: string; button?: { block: string; line?: number } }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
+export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; slots?: string; passage?: Passage; invitation?: string; button?: { block: string; line?: number } }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
   connectScriptActions(ctx);
   const say = asActor(ctx, actor);
   const entry = extensionNamed(extension);
@@ -498,7 +558,9 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       invitation: { type: "string", optional: true, context: true, about: "the one-run invitation a person's press minted (src/surface/invite.ts): a script this starts may move their tiles, with it" },
       via: { type: "string", optional: true, context: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
       asked: { type: "boolean", optional: true, context: true, about: "its arguments were completed where the person typed (a / line in an edit, PIE-1076): what they left out takes its default, and nothing is asked again in the power bar" },
-      ...declaredArgs(a),
+      ...(e.script ? Object.fromEntries(Object.entries(declaredArgs(a)).map(([k, v]) => [k, { ...v, many: true as const }])) : declaredArgs(a)),
+      // A script takes any other word as a slot, as a button passes it (`left=[[a]] fold=terminal`).
+      ...(e.script ? { [FREE_ARGS]: { type: "string", optional: true, context: true, about: "any other key=value is a slot of the script (props.<key>); a key written twice is a list" } } : {}),
     } as ActionDef<ExtArgs, ExtOn>["args"],
     run({ block: named, line, with: w, invitation, via, asked, ...rest }, on, actor) {
       // The person's run on a block names none: the note in front of them. An agent always names its block.
@@ -508,6 +570,8 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       // A `motion=` on a script's press (a button's `motion=fantasia`) is the script's to read: props.motion, and it passes it on to its own acts.
       const hint = TXN.getStore()?.motion;
       const given = { ...withArgs(w), ...givenArgs(a, rest), ...(e.script && hint ? { motion: hint } : {}) };
+      // The script reads its slots whole from what was written (a repeat is a list, as a button's line reads it).
+      const slots = e.script ? slotWords(Object.fromEntries(Object.entries({ ...withArgs(w), ...rest }).filter(([k, v]) => v !== undefined && !(k === "motion")).map(([k, v]) => [k, Array.isArray(v) ? v.map(String) : String(v)]))) : "";
       // The person's own run of a script (the power bar's row, a key, their act) invites it as their button's press does
       // (src/surface/invite.ts, PIE-1186): it acts as them on their screen. Runs nobody pressed carry none (PIE-1403).
       // Minted when it runs, never for a form left unanswered.
@@ -515,6 +579,7 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       return askingFirst(on.ctx, e, a, block, given, actor, args => {
         const invited = invite();
         return runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(args).length ? { args } : {}),
+          ...(slots ? { slots } : {}),
           ...(invited ? { invitation: invited } : {}),
           ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor)
           // The run it started: the invitation belongs to it from here (and is spent when it ends).
@@ -542,7 +607,7 @@ function declaredArgs(a: ExtensionAction): Record<string, { type: string; option
 /** The declared arguments given by name (`by=price`), as the text the service takes. */
 function givenArgs(a: ExtensionAction, raw: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const x of a.args ?? []) if (raw[x.name] !== undefined) out[x.name] = String(raw[x.name]);
+  for (const x of a.args ?? []) if (raw[x.name] !== undefined) out[x.name] = String(Array.isArray(raw[x.name]) ? (raw[x.name] as unknown[]).at(-1) : raw[x.name]);
   return out;
 }
 

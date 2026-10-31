@@ -173,6 +173,10 @@ ${SHARE_USAGE}
 ${EXPORT_USAGE}
 ${LIBRARY_USAGE}
 ${DOCS_USAGE}
+  ep0ch <script> [key=value …] [--as <id>]
+                                   run a script of this folder's outline by its name with a button's slots
+                                   (PIE-1230): ep0ch neat page=[[a]] right=%tree is act script.run of=neat …, an
+                                   agent's run in its door (EP0CH_AGENT or --as), a key written twice a list
   ep0ch echo toss | nodelist | subscribe | areas …   (ep0ch echo help says each one's flags)
                                    EchoNet (PIE-779): run the echonet extension's tosser (copies in, netmail
                                    both ways, nodelist and toss log), write and print the nodelist, subscribe
@@ -227,7 +231,15 @@ ${AGENT_USAGE}
 // command's own when one is named) from anywhere (PIE-547, src/cli-words.ts).
 const words = checkWords(args);
 if (words && "help" in words) { console.log(usageFor(USAGE, words.help)); process.exit(0); }
-if (words) { console.error(`ep0ch: ${words.error}`); process.exit(2); }
+// A plain word that is no command is a script's name (PIE-1230): `ep0ch neat page=[[a]]` is `ep0ch act script.run of=neat page=[[a]]`,
+// an agent's run in the door of this folder's outline (the shell's agent id, or --as), refused in words if no script has that name.
+let notACommand: string | undefined;
+// (A word that is one typo from a command stays that command's typo, unless it has slots; --help is always about ep0ch.)
+if (words && "error" in words && /^[A-Za-z][\w.-]*$/.test(args[0] ?? "") && !words.error.startsWith("no flag") && !args.some(a => a === "--help" || a === "-h")
+  && (args.slice(1).some(a => a.includes("=")) || !words.error.includes("did you mean"))) {
+  notACommand = words.error;
+  args = ["act", "script.run", `of=${args[0]}`, ...args.slice(1)];
+} else if (words) { console.error(`ep0ch: ${words.error}`); process.exit(2); }
 // ep0ch door [<ssh-name>] [<outline>]: the ssh door's login (ssh ep0ch), carried here, and this terminal given back clean
 // however ssh ends, a dropped link included (PIE-1429, src/machine.ts).
 if (args[0] === "door") {
@@ -422,10 +434,13 @@ if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? 
     else if (args[0] === "open" && args.includes("--json") && reached.refused) { console.log(JSON.stringify({ opened: false, reason: reached.text })); process.exit(0); }
     else if (args[0] === "peek" || reached.refused) {
       console.error(`ep0ch: ${reached.text}`);
+      if (notACommand) console.error(`ep0ch: and ${notACommand}`);
       process.exit(1);
     }
   }
-  process.exit(await controlClient(args));
+  const code = await controlClient(args);
+  if (code && notACommand) console.error(`ep0ch: ${notACommand}`);
+  process.exit(code);
 }
 if (args[0] === "outline" || args[0] === "status" || args[0] === "init") {
   const cmd = parseOutlineArgs(args[0] === "outline" ? args.slice(1) : args);

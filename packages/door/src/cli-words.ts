@@ -60,7 +60,7 @@ export function closest(typed: string, words: readonly string[]): string | null 
 
 const noCommand = (word: string) => {
   const near = closest(word, COMMANDS.filter(c => c !== "help"));
-  return { error: `no command "${word}"${near ? ` · did you mean: ep0ch ${near}` : ""} · ${LISTS}` };
+  return { error: `no command "${word}"${near ? ` · did you mean: ep0ch ${near}` : ""} · a script's name runs it in the door: ep0ch <script> key=value… · ${LISTS}` };
 };
 
 /**

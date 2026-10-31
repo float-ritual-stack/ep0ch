@@ -42,7 +42,7 @@ function facts(summary: string): string[] {
 
 /** Each kind of thing an argument names, in words (ArgKind). */
 const KIND_WORDS: Record<NonNullable<ArgSpec["kind"]>, string> = {
-  layout: "a layout", file: "a file", outline: "an outline", tile: "a tile", note: "a note", page: "a page", screen: "a screen", view: "a saved view", key: "a property", value: "a property's value", "tile-kind": "a tile kind", agent: "an agent (its persona)",
+  layout: "a layout", file: "a file", outline: "an outline", tile: "a tile", note: "a note", page: "a page", screen: "a screen", view: "a saved view", key: "a property", value: "a property's value", "tile-kind": "a tile kind", agent: "an agent (its persona)", script: "a script",
 };
 /** What an argument takes, in words: its choices, a tile, a note, text, a number, true or false. */
 export const valuesOf = (s: ArgSpec): string => {

@@ -1,6 +1,7 @@
 // `::button` (PIE-957): both spellings compile to one action line; fences hold none.
 import { expect, test } from "bun:test";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot } from "../src/button-call";
+import { syntaxWarnings } from "../src/syntax-warnings";
 import { BUILTIN_COMPONENT_SCHEMAS } from "../src/component-schema";
 
 test("act= is the line; of= with slots compiles to the same kind of line; a button naming nothing says what to write", () => {
@@ -191,4 +192,15 @@ test("a button in a list item or a quote is a button, at its own line, its conta
   expect(buttonCallsOf('> ::button{label="Q"}\n> status.log\n> ::')[0]).toMatchObject({ endLine: 2, act: "status.log" });
   // A slot written back keeps the item's marker.
   expect(withButtonSlot('- ::button{label="Pop" act="tile.zoom tile={target}" target=}', "target", "t-1")).toBe('- ::button{label="Pop" act="tile.zoom tile={target}" target=t-1}');
+});
+
+// PIE-1230: Evan wrote the slot inside of=, and the quote never closed. The line runs nothing, and says the line to write.
+test("of= with its words inside it (and an unclosed quote) runs nothing and says the fixed line", () => {
+  const typed = '::button{label="neat" of="neat page=[[2026-10-23-day]]}';
+  const call = buttonCallAt([typed], 0)!;
+  expect(call.act).toBeNull();
+  expect(call.problem).toContain('Write: ::button{label=neat of=neat page=[[2026-10-23-day]]}');
+  expect(syntaxWarnings(typed).map(w => w.message).join(" ")).toContain("runs nothing: of= names the script");
+  // The right line, a repeated slot kept in order.
+  expect(buttonCallAt(['::button{label="neat" of=neat page=[[a]] page=[[b]]}'], 0)).toMatchObject({ act: 'neat page="[[a]]" page="[[b]]"' });
 });

@@ -363,6 +363,9 @@ let listing: Map<Dispatcher, { where?: Whereabouts; tiles?: TileRef[]; resolved:
 let notInstalled: (name: string) => string | null = () => null;
 /** Every dispatcher's unknown-action refusal asks this first, so the refusal names what to install wherever it lands. */
 export function explainNotInstalled(words: (name: string) => string | null) { notInstalled = words; }
+/** The names beside the actions a typed word may have meant (the scripts this outline has, set once by src/extensions.ts): a refusal's did-you-mean and the completion read it. */
+let alsoNamed: () => string[] = () => [];
+export function nameAlso(names: () => string[]) { alsoNamed = names; }
 
 export class Dispatcher {
   private nextConfirmation = 0;
@@ -471,7 +474,7 @@ export class Dispatcher {
     // An action something not installed here would answer (an extension's `ext.form.fill`, a kit's script): its name and install.
     const missing = notInstalled(name);
     if (missing) return missing;
-    const near = rankTextSearchMatches(this.list().actions.map(a => ({ id: a.name, title: a.name, text: "" })), name, 3).map(m => m.document.title);
+    const near = rankTextSearchMatches([...this.list().actions.map(a => a.name), ...alsoNamed()].map(n => ({ id: n, title: n, text: "" })), name, 3).map(m => m.document.title);
     return `nothing here answers to ${name}; \`actions\` lists them${near.length ? `; did you mean ${near.join(", ")}?` : ""}`;
   }
 

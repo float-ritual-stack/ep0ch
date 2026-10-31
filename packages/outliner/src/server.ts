@@ -2656,6 +2656,7 @@ export class OutlinerServer {
             ...(request.blockId !== undefined ? { blockId: request.blockId } : {}),
             ...(request.line !== undefined ? { line: request.line } : {}),
             ...(request.args !== undefined ? { args: request.args } : {}),
+            ...(typeof request.slots === "string" ? { slots: request.slots } : {}),
           });
         }
         return { id: request.id, ok: true, result, sequence: this.store.sequence };

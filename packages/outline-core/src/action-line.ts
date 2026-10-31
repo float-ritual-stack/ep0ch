@@ -11,8 +11,11 @@ export class ActionRefused extends Error {
   constructor(message: string) { super(message); this.name = "ActionRefused"; }
 }
 
-/** An action and its `key=value` words (`--as` and `--tile` too), every value as written: the CLI's and the power bar's. */
-export function actRequestOf(words: readonly string[]): ActRequest {
+/**
+ * An action and its `key=value` words (`--as` and `--tile` too), every value as written: the CLI's and the power bar's.
+ * A repeated key keeps its last value; with `repeats: "list"` it becomes a list of all of them (a script's slots).
+ */
+export function actRequestOf(words: readonly string[], opts: { repeats?: "list" } = {}): ActRequest {
   const rest = [...words];
   const leading: string[] = [];
   while (rest[0] === "--as" || rest[0] === "--tile") {
@@ -32,7 +35,11 @@ export function actRequestOf(words: readonly string[]): ActRequest {
     const k = w.slice(0, eq), v = w.slice(eq + 1);
     if (k === "tile") req.tile = v;
     else if (k === "as") req.as = v;
-    else req.args![k] = v;
+    else if (opts.repeats === "list" && Object.hasOwn(req.args!, k)) {
+      // A script's slot written twice (`page=a page=b`) is a list, as a button's line reads it; any other action takes the last.
+      const had = req.args![k];
+      req.args![k] = Array.isArray(had) ? [...had, v] : [had, v];
+    } else req.args![k] = v;
   }
   return req;
 }
@@ -91,6 +98,12 @@ export function actionScript(source: string, props: Record<string, string | read
     if (req.tile !== undefined) args.tile = fill(req.tile);
     return [`try { await act(${JSON.stringify(req.action)}, ${JSON.stringify(args)}); } catch (e) { throw new Error(${JSON.stringify(`Line ${index + 1} (${req.action}): `)} + e.message); }`];
   }).join("\n");
+}
+
+/** `slotPairs`' inverse: a call's arguments as slot words (a list is the word repeated), each value quoted. */
+export function slotWords(args: Readonly<Record<string, string | readonly string[]>>): string {
+  const quote = (v: string) => '"' + v.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+  return Object.entries(args).flatMap(([k, v]) => (typeof v === "string" ? [v] : v).map(x => `${k}=${quote(x)}`)).join(" ");
 }
 
 /**

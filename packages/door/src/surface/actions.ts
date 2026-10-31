@@ -35,7 +35,7 @@ export type ArgType = "string" | "number" | "boolean";
  * - `tile-kind`: a kind of tile (the tile-kind registry). `agent`: a persona of the agents here (src/bar/ask-agent.ts).
  * A boolean needs none (true or false), nor does a value from a fixed list (`choices`).
  */
-export type ArgKind = "outline" | "tile" | "note" | "page" | "screen" | "view" | "key" | "value" | "tile-kind" | "file" | "layout" | "agent";
+export type ArgKind = "outline" | "tile" | "note" | "page" | "screen" | "view" | "key" | "value" | "tile-kind" | "file" | "layout" | "agent" | "script";
 /**
  * One argument: its type, whether it may be left out, and what it means; `kind`: the kind of thing it names (ArgKind);
  * `choices`: the values it takes, when they are a fixed list (`where=left|right|…`), offered first (with a kind, the
@@ -60,6 +60,8 @@ export interface ArgSpec {
    * person is never asked it, so no form or completion offers it (PIE-1076).
    */
   context?: true;
+  /** A word written more than once reaches the action as a list (a script's slot, `props.page`); every other argument takes the last. */
+  many?: true;
 }
 
 /**
@@ -608,14 +610,22 @@ export function checkedActionArgs(action: string, spec: Record<string, ArgSpec>,
   return checked.args;
 }
 
+/** The spec entry of an action that takes any `key=value` beyond its declared ones (a script's slots): its value lists them in `actions`. */
+export const FREE_ARGS = "*";
+
 /** An action's arguments from the wire checked (unknown, missing, conflicting) and coerced to their types, or refused saying which. */
-export function coerceActionArgs(action: string, spec: Record<string, ArgSpec>, input: Record<string, unknown>): Record<string, unknown> {
+export function coerceActionArgs(action: string, spec: Record<string, ArgSpec>, given: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  const raw = checkedActionArgs(action, spec, input);
+  // A word written twice reached here as a list (actRequestOf's `repeats`): an argument that is declared takes the last, as it always did.
+  const input = Object.fromEntries(Object.entries(given).map(([k, v]) => [k, Array.isArray(v) && k in spec && !spec[k]!.many ? v.at(-1) : v]));
+  // An action that takes any other `key=value` as its own (a script's slots, as a button passes them) declares `FREE_ARGS`.
+  const free = FREE_ARGS in spec ? Object.entries(input).filter(([k]) => !(k in spec)) : [];
+  const raw = checkedActionArgs(action, spec, Object.fromEntries(Object.entries(input).filter(([k]) => !free.some(([f]) => f === k))));
   for (const [k, s] of Object.entries(spec)) {
     const v = raw[k];
     if (v === undefined || v === null) { if (!s.optional) throw new ActionRefused(`${action} needs ${k} (${s.about})`); continue; }
-    if (s.type === "string") { if (typeof v !== "string" && typeof v !== "number") throw new ActionRefused(`${action}: ${k} is text`); out[k] = String(v); }
+    if (s.many && Array.isArray(v)) out[k] = v.map(String);
+    else if (s.type === "string") { if (typeof v !== "string" && typeof v !== "number") throw new ActionRefused(`${action}: ${k} is text`); out[k] = String(v); }
     else if (s.type === "number") {
       const n = typeof v === "number" ? v : Number(v);
       if (!Number.isFinite(n)) throw new ActionRefused(`${action}: ${k} is a number, not ${JSON.stringify(v)}`);
@@ -626,6 +636,7 @@ export function coerceActionArgs(action: string, spec: Record<string, ArgSpec>, 
       out[k] = b;
     }
   }
+  for (const [k, v] of free) out[k] = Array.isArray(v) ? v.map(String) : String(v);
   for (const [k, s] of Object.entries(spec)) {
     if (out[k] === undefined) continue;
     const call = (args: Record<string, unknown>) => `ep0ch act ${shownLine(action, args)}`;
@@ -691,5 +702,5 @@ export async function parseActArgs(words: string[], stdin: () => Promise<string>
     const text = v === "@-" ? await stdin() : await Bun.file(v.slice(1)).text();
     read.push(`${w.slice(0, eq)}=${text.replace(/\n$/, "")}`);
   }
-  return actRequestOf(read);
+  return actRequestOf(read, { repeats: "list" });
 }
