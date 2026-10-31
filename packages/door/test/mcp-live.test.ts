@@ -325,12 +325,11 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
       expect(w.json).toMatchObject({ outcome: "queued", why: expect.stringContaining("didn't answer the write"), base: { source: "live" } });
       // It did land on the laptop; the answer was what got lost.
       expect((await childrenOf(ids.lamps!)).filter(t => t === "A lamp whose answer was lost")).toHaveLength(1);
-      // The next call that finds the laptop live drains it: found made, not made again.
+      // The first try and the queued retry share a request id, including when the live answer is lost.
       clock += 50_000;
       expect((await tool("outline_read", { ref: ids.lamps, outline: "attic-notes" }, gw)).json.reachability.source).toBe("live");
       const status = (await tool("outline_write_status", { queueId: w.json.queueId }, gw)).json;
       expect(status).toMatchObject({ state: "applied" });
-      expect(status.said).toContain("found made");
       expect((await childrenOf(ids.lamps!)).filter(t => t === "A lamp whose answer was lost")).toHaveLength(1);
       expect(await pull()).toMatchObject({ ok: true, taken: 0 });
     } finally { gw.stop(); outlines.close(); server.close(); }

@@ -199,8 +199,8 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
       // A proposal is a comment on a note, and the top level is none.
       if (top) throw Object.assign(new Error("A new top-level note can't be proposed: a proposal is a comment on a note, and the top level is none. Give a parent note, or ask for full access (ep0ch mcp access full)."), { name: "WorkToolRefusal" });
       // A new block can't be a draft.patch: it is offered as a comment on its parent, for its owner to make.
-      const body = `Proposed new block under this note, from ${actorLabel(o.actor.actorId)}:\n\n${String(write.input.text)}`;
-      const c = await tools.commentOn(client, { ref: write.blockId, whole: true, body }, o.actor);
+      const body = `Proposed new block under this note${write.input.position === undefined ? "" : ` at position ${write.input.position}`}, from ${actorLabel(o.actor.actorId)}:\n\n${String(write.input.text)}`;
+      const c = await tools.commentOn(client, { ref: write.blockId, whole: true, body, requestId: write.input.requestId }, o.actor);
       return { outcome: "proposed", uri: o.uri(write.blockId), said: `proposed as a comment on ${o.uri(write.blockId)} (thread ${c.thread}): this outline takes proposals, not new blocks`, detail: c };
     }
     case "outline_patch":

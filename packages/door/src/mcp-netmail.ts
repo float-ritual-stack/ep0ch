@@ -435,9 +435,6 @@ function receiptDetail(done: WriteOutcome, uri: (blockId: string) => string): Pi
   return { ...(Number.isInteger(revision) ? { revision } : {}), ...(done.outcome === "proposed" && d?.proposalId ? { proposal: uri(d.proposalId) } : {}) };
 }
 
-/** How long before its entry was queued a block counts as made by that write (a live try whose answer was lost). */
-const MADE_SLACK_MS = 60_000;
-
 /** How long after a machine's pull the gateway's drain leaves its entries to that pull. */
 export const PULL_GRACE_MS = 120_000;
 
@@ -450,15 +447,14 @@ const firstLine = (e: unknown) => (e instanceof Error ? e.message : String(e)).s
 
 /**
  * Applies one queued entry to this machine's outline, as its access allows now; `waiting` (with why) when the outcome
- * is unknown (the service didn't answer), so it is tried again later. `retry`: a write begun before and cut off, whose
- * block may already be made.
+ * is unknown (the service didn't answer), so it is tried again later. The request id keeps a write whose answer was lost from landing twice.
  */
-export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => number, retry = false): Promise<NetmailSettled | NetmailWaiting> {
-  try { return await applyOnce(board, e, now, retry); }
+export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => number): Promise<NetmailSettled | NetmailWaiting> {
+  try { return await applyOnce(board, e, now); }
   catch (err) { return { id: e.id, waiting: firstLine(err), unanswered: noAnswer(err) }; }
 }
 
-async function applyOnce(board: NotesBoard, e: NetmailEntry, now: () => number, retry: boolean): Promise<NetmailSettled | NetmailWaiting> {
+async function applyOnce(board: NotesBoard, e: NetmailEntry, now: () => number): Promise<NetmailSettled | NetmailWaiting> {
   const at = () => new Date(now()).toISOString();
   const refused = (said: string): NetmailSettled => ({ id: e.id, state: "refused", said, uri: e.uri, at: at() });
   if (!isWriteTool(e.tool)) return refused(`${e.tool} isn't a write this machine knows`);
@@ -466,14 +462,9 @@ async function applyOnce(board: NotesBoard, e: NetmailEntry, now: () => number, 
   if (level !== "propose" && level !== "full") return refused(`MCP access for ${e.outline} is ${level} here now, so the write queued at ${e.queuedAt} was dropped`);
   const info = await board.info();
   const uri = (blockId: string) => formatEp0chBlockUri({ ...board.address, blockId });
-  // A comment, a reply or a resolve carries the entry's id as its request id: tried again, the host returns the one it made.
-  const input = (e.tool === "outline_comment" || e.tool === "outline_reply" || e.tool === "outline_resolve_thread") && !e.input.requestId ? { ...e.input, requestId: `netmail:${e.id}` } : e.input;
+  // A create, comment, reply or resolve carries the entry's id as its request id: tried again, the host returns the one it made.
+  const input = (e.tool === "outline_create" || e.tool === "outline_comment" || e.tool === "outline_reply" || e.tool === "outline_resolve_thread") && !e.input.requestId ? { ...e.input, requestId: `netmail:${e.id}` } : e.input;
   const write: McpWrite = { tool: e.tool, blockId: e.blockId, input, ...(e.revision !== null ? { revision: e.revision } : {}) };
-  if (retry && e.tool === "outline_create") {
-    // Made by this write, not an older note with the same words: one made around when it was queued, or since.
-    const made = (await board.children(e.blockId)).find(c => c.text === e.input.text && c.author === e.actorId && c.createdAt >= Date.parse(e.queuedAt) - MADE_SLACK_MS);
-    if (made) return { id: e.id, state: "applied", said: `created ${uri(made.id)} under ${e.uri} (found made by a pull cut off before; queued ${e.queuedAt})`, uri: uri(made.id), at: at() };
-  }
   // Whether the note is still what the mirror showed: the same database at the same revision, or (a database replaced
   // since, whose revisions mean nothing here) the same text, read at the caller's revision. Anything else is proposed.
   let revision: number | undefined, proposeOnly = false;
@@ -515,7 +506,7 @@ export async function drainNetmail(store: Netmail, board: NotesBoard, machine: s
   const held = mine.length < entries.length ? { held: `${machine}'s pull at ${pulled} took ${entries.length - mine.length} of them and may be applying them` } : {};
   const stuck: string[] = [];
   for (const [i, e] of mine.entries()) {
-    const r = await applyEntry(board, e, now, true);
+    const r = await applyEntry(board, e, now);
     if ("waiting" in r) {
       store.release(e.id);
       if (!r.unanswered) { stuck.push(`${e.id}: ${r.waiting}`); continue; }
@@ -563,8 +554,8 @@ export async function pullNetmail(o: PullOptions): Promise<PullResult> {
       if ("error" in board) { say(`netmail: ${e.outline} isn't open here (${board.error}); its writes wait`); waiting++; why.add(`${e.outline} isn't open here: ${board.error}`); continue; }
       ledger[e.id] = { id: e.id, state: "applying", at: new Date(now()).toISOString() };
       writeLedger(o.state, ledger);
-      // Always as a retry: a write queued because its live answer was lost may already be made (found, not made again).
-      const r = await applyEntry(board, e, now, true);
+      // The same request id covers a live write whose answer was lost before it was queued.
+      const r = await applyEntry(board, e, now);
       // Unknown (the service didn't answer): it stays `applying`, and the next pull tries it again.
       if ("waiting" in r) { say(`netmail ${e.outline}: ${e.id} didn't land (${r.waiting}); it waits for the next pull`); waiting++; why.add(`${e.outline}: ${r.waiting}`); continue; }
       ledger[e.id] = r;
