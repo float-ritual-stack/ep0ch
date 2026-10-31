@@ -369,6 +369,16 @@ test("a named folder goes through the service and snapshots keep its earlier byt
   expect(await (await fetch(liveFrame)).text()).toBe("Saved by sync");
   const response = await fetch(liveFrame);
   expect(response.headers.get("content-security-policy")).toContain("frame-ancestors https://notes.example.test");
+  // Whatever claude.ai can serve, the store serves: any https origin, blob:/data: and generated code; embedding stays an allowlist.
+  const csp = response.headers.get("content-security-policy")!;
+  const directive = (name: string) => csp.split("; ").find(part => part.startsWith(`${name} `))!;
+  expect(directive("script-src")).toBe("script-src 'self' 'unsafe-inline' 'unsafe-eval' https: blob: data:");
+  expect(directive("worker-src")).toBe("worker-src 'self' blob: data:");
+  expect(directive("style-src")).toBe("style-src 'self' 'unsafe-inline' https:");
+  expect(directive("font-src")).toBe("font-src 'self' data: https:");
+  expect(directive("connect-src")).toBe("connect-src 'self' https: wss: data: blob:");
+  expect(directive("media-src")).toBe("media-src * data: blob:");
+  expect(directive("object-src")).toBe("object-src 'none'");
   expect(response.headers.get("set-cookie")).toBeNull();
   expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   expect((await fetch(new URL("assets/", liveFrame))).status).toBe(404);

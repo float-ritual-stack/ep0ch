@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An artifact serves whatever claude.ai serves
+
+- **Any https origin:** an artifact's scripts, styles, fonts, fetches, media and workers may come from any https origin, and from `blob:`/`data:` URLs and generated code, so a claude.ai artifact (Tone.js's clock worker and audio worklet, esm.sh, Google Fonts, an API it calls) runs on `my.ep0ch.sh` as it does there. The rule is Evan's, Oct 30: whatever claude.ai can serve, the store serves.
+- **What stays an allowlist:** `frame-ancestors`, who may embed an artifact, and `object-src 'none'`.
+- **Run:** `ep0ch install --apply` on float-2 (the artifact store restarts with it).
+
 ### The Lens and Workbench extension pages read in ten seconds (PIE-1474)
 
 - **Both pages lead with what you can do:** one point per line and no paragraph past three sentences, so `extension-page-shape` passes again on main. Nothing was added or dropped.

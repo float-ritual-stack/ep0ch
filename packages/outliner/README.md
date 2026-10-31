@@ -1427,8 +1427,10 @@ Deleting a snapshot never reuses its version number. Removing the live folder
 leaves its snapshots available.
 
 The static server serves files and directory `index.html` pages, with media types,
-no directory listing, no cookies set, `nosniff`, and a CSP allowing local scripts,
-inline scripts and the pinned CDN scripts. Its own origin isolates it from notes
+no directory listing, no cookies set, `nosniff`, and a CSP that lets an artifact's
+scripts, styles, fonts, fetches, media and workers come from any https origin and
+from blob:/data: URLs (the rule: whatever claude.ai can serve, this serves); only
+`frame-ancestors`, who may embed it, stays an allowlist. Its own origin isolates it from notes
 and from the person's session; frames also use a sandbox allowing scripts, popups,
 forms, pointer lock and downloads, without same-origin access or top navigation.
 An artifact's `localStorage` does not persist in that frame.

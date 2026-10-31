@@ -1,4 +1,3 @@
-import { ARTIFACT_SCRIPT_SOURCES } from "./publish-artifacts";
 import { artifactReference } from "@ep0ch/outline-core/artifacts";
 import { readFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { join, sep } from "node:path";
@@ -63,7 +62,11 @@ export async function artifactAccess(root: string, request: Request, access: Art
 
 export async function artifactResponse(root: string, request: Request, ancestors: string, access: ArtifactAccess = {}): Promise<Response> {
   const headers = {
-    "Content-Security-Policy": `default-src 'self'; script-src 'self' 'unsafe-inline' ${ARTIFACT_SCRIPT_SOURCES}; style-src 'self' 'unsafe-inline'; img-src * data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' https:; frame-ancestors ${ancestors}; object-src 'none'`,
+    // The rule (Evan, Oct 30): whatever claude.ai can serve, this store serves. An artifact is the person's own page, so
+    // its scripts, styles, fonts, fetches, media and workers may come from any https origin, and from blob:/data: URLs
+    // and generated code (Tone.js's clock worker and audio worklet need those). The store's own origin and the frame's
+    // sandbox are the isolation. What stays an allowlist is `frame-ancestors`: who may embed an artifact.
+    "Content-Security-Policy": `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: blob: data:; worker-src 'self' blob: data:; style-src 'self' 'unsafe-inline' https:; img-src * data: blob:; media-src * data: blob:; font-src 'self' data: https:; connect-src 'self' https: wss: data: blob:; frame-src 'self' https:; frame-ancestors ${ancestors}; object-src 'none'`,
     "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store",
   };
   const missing = () => new Response("Not found", { status: 404, headers });
