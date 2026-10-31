@@ -12,7 +12,7 @@ import { drawCheck } from "./figures/check";
 import { TONE as CALLOUT_TONE } from "./callouts";
 import { imageSource, type ImagePrimitive } from "@ep0ch/outline-core/media-line";
 import type { ListPrimitive } from "@ep0ch/outline-core/list-row";
-import { listRowLines, listRowsOf } from "./surface/list-view";
+import { ListView, listRowsOf } from "./surface/list-view";
 import { buttonText } from "./surface/button";
 import { viewToneAsButton } from "@ep0ch/outline-core/button-call";
 
@@ -91,13 +91,18 @@ const kids = (n: Node): unknown[] => (Array.isArray(n.children) ? n.children : [
 
 /** What the reader lends a view's drawing. */
 export interface PrimitiveDraw {
+  header?: (key: string, text: string, column: number) => string;
+  /** A table's row activation stays distinct from links carried by its individual cells. */
+  row?: (index: number, text: string) => string;
+  /** The picked row uses the same uncapped wrapping as an expanded figure row. */
+  expanded?: (index: number) => boolean;
   /**
    * Tags `text` as a press (PIE-957): a primitive that carries an action line (`act`). The reader's `[ ]` stops on it, ⏎
    * and a click run the line as the person. Without it (a page, a draft's preview) the primitive is drawn as it is.
    */
   press?(act: string, text: string): string;
   /** Tags a card's or a table row's block (`link` and `links` in the view): the reader's `[ ]` stops on it, a click opens it. */
-  link?(block: string, text: string): string;
+  link?(block: string, text: string, revision?: number): string;
   /** A `blockdown` primitive drawn as the reader draws a note's body, `width` wide. Without it, its lines as written. */
   blockdown?(text: string, width: number): string[];
   /**
@@ -127,12 +132,15 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
   const n = view as Node;
   const { link } = draw, headings = draw.headings ?? BUILTIN_HEADING_STYLE_REGISTRY;
   const inner = (v: unknown, width: number) => primitiveLines(v, width, draw, depth + 1);
-  const tag = (block: unknown, text: string) => (link && typeof block === "string" ? link(block, text) : text);
+  const tag = (block: unknown, text: string, revision?: number) => (link && typeof block === "string" ? link(block, text, revision) : text);
   const press = (act: unknown, text: string) => (typeof act === "string" && act && draw.press ? draw.press(act, text) : text);
   switch (n.type) {
     case "text":
       // Its lines are its own, as the service's terminal target keeps them; each wraps to the width.
-      return String(n.text ?? "").split("\n").flatMap(t => wrap(one(t), w)).map(l => fg(toned(n.tone ?? "default")) + (n.strong ? BOLD + press(n.act, l) + UNBOLD : press(n.act, l)) + RESET);
+      return String(n.text ?? "").split("\n").flatMap(t => wrap(one(t), w)).map(l => {
+        const text = n.link ? tag(n.link, l, n.revision as number | undefined) : press(n.act, l);
+        return fg(toned(n.tone ?? "default")) + (n.strong ? BOLD + text + UNBOLD : text) + RESET;
+      });
     case "blockdown": {
       const text = String(n.text ?? "");
       return draw.blockdown ? draw.blockdown(text, w) : text.split("\n").flatMap(t => wrap(one(t), w)).map(l => fg(C.white) + l + RESET);
@@ -171,6 +179,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       const rawRows = (Array.isArray(n.rows) ? n.rows as unknown[][] : []).map(r => (Array.isArray(r) ? r : []));
       const rows = rawRows.map(r => r.map(c => { const o = cellOf(c); return one(o ? o.text : c); }));
       const links = Array.isArray(n.links) ? n.links : [], acts = Array.isArray(n.acts) ? n.acts : [];
+      const rowLink = (index: number, text: string) => draw.row ? draw.row(index, text) : links[index] ? tag(links[index], text) : press(acts[index], text);
       if (!columns.length) throw new PrimitiveUnknown("a table needs columns");
       const widths = columns.map((c, i) => Math.max(vwidth(c), ...rows.map(r => vwidth(r[i] ?? ""))));
       // Too wide: the widest columns give room first, down to 4 cells each.
@@ -181,25 +190,25 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       }
       const line = (cells: string[]) => cells.map((c, i) => (i === cells.length - 1 ? pad(c, widths[i]!).trimEnd() : pad(c, widths[i]!))).join("  ");
       return [
-        fg(C.grey) + BOLD + line(columns) + UNBOLD + RESET,
+        fg(C.grey) + BOLD + columns.map((c, i) => { const cell = pad(c, widths[i]!); return draw.header ? draw.header(c, cell, i) : cell; }).join("  ") + UNBOLD + RESET,
         fg(C.dark) + widths.map(x => "─".repeat(x)).join("  ") + RESET,
         ...rows.flatMap((r, k) => {
-          const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!));
+          const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!, draw.expanded?.(k) ? Infinity : undefined));
           const own = rawRows[k]!.map(cellOf);
           // A row with a cell of its own draws cell by cell: that cell presses or opens, the rest take the row's link or act.
           const byCell = own.some(Boolean);
           return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, j) => {
             if (!byCell) {
               const text = line(cells.map(c => c[j] ?? ""));
-              return fg(C.white) + (links[k] ? tag(links[k], text) : press(acts[k], text)) + RESET;
+              return fg(C.white) + rowLink(k, text) + RESET;
             }
             const parts = cells.map((c, i) => {
               const padded = i === cells.length - 1 ? pad(c[j] ?? "", widths[i]!).trimEnd() : pad(c[j] ?? "", widths[i]!);
               const o = own[i];
               const ink = fg(o?.tone ? toned(o.tone) : C.white);
-              if (o?.link) return ink + tag(o.link, padded) + RESET;
+              if (o?.link) return ink + tag(o.link, padded, o.revision as number | undefined) + RESET;
               if (o?.act) return ink + press(o.act, padded) + RESET;
-              return ink + (links[k] ? tag(links[k], padded) : press(acts[k], padded)) + RESET;
+              return ink + rowLink(k, padded) + RESET;
             });
             return parts.join("  ");
           });
@@ -234,8 +243,9 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       if (!Array.isArray(n.rows)) throw new PrimitiveUnknown("a list needs rows");
       if (draw.list) return draw.list(n as unknown as ListPrimitive, w);
       // As the service's terminal target says it: a section's header, its rows under it, nothing selected.
-      const rows = listRowsOf(n as unknown as ListPrimitive);
-      return rows.length ? rows.flatMap(r => listRowLines(r, { cols: w, lines: 2 })) : [fg(C.dark) + one(n.empty ?? "nothing here") + RESET];
+      const node = n as unknown as ListPrimitive, view = new ListView("primitive");
+      view.set(listRowsOf(node));
+      return view.draw({ primitive: node, cols: w, lines: 2, focused: false, selection: false, empty: node.empty }).lines;
     }
     case "track":
       return drawTrack(primitiveStyle(n, headings, "fade"), w) ?? [fg(C.dark) + "─".repeat(w) + RESET];

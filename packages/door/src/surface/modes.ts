@@ -146,7 +146,11 @@ export class ModeStack<H> extends Modes<H, ReaderMode<H>> {
   private parked = new Set<ReaderMode<H>>();
   constructor() { super(PRECEDENCE); }
 
-  override push<N extends ReaderMode<H>>(mode: N): N { this.drop(mode.name); return super.push(mode); }
+  override push<N extends ReaderMode<H>>(mode: N): N {
+    if (mode.editing()) this.drop("list");
+    this.drop(mode.name);
+    return super.push(mode);
+  }
   focus(mode: ReaderMode<H>, on: boolean) { if (on) this.parked.delete(mode); else this.parked.add(mode); }
   active(mode: ReaderMode<H>) { return !this.parked.has(mode); }
   override top() { return this.all().find(m => this.active(m)) ?? null; }

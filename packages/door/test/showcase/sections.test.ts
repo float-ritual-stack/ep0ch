@@ -230,7 +230,9 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     expect(all.blocks[0]!.propertyMatches?.map(m => [m.scope, m.line, m.task, m.value])).toEqual([["block", 0, undefined, "chair: approve the minutes"], ["inline", 11, "todo", "members: Saturday or Sunday"]]);
     await until(() => screen().includes("line 12 to do"), "the row saying its line", 5000);
     // Following the row opens the minutes at line 12, lit, as a ::fields row does.
-    const f = await app.act({ action: "element.open", tile: "any line", args: { n: 2 }, as: "test-agent" }) as any;
+    const elements = await app.act({ action: "elements", tile: "any line", as: "test-agent" }) as any;
+    const row = elements.elements.find((element: any) => element.kind === "row" && element.label.includes("line 12 to do"));
+    const f = await app.act({ action: "element.open", tile: "any line", args: { n: row.n }, as: "test-agent" }) as any;
     expect(JSON.stringify(f)).toContain(minutes);
     await until(() => screen().includes("◆ line 12 · the line its club-ask is written on"), "the minutes lit at line 12", 5000);
     for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });

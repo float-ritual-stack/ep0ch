@@ -41,8 +41,8 @@ export function withFigureBoard<T>(board: SocketBoard, redraw: () => void, draw:
 const rep = (s: string, n: number) => s.repeat(Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0);
 
 /**
- * `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. `control`: drawn after the footer when it fits (a
- * live figure's density, tagged so a click changes it), measured by what it draws.
+ * `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. A control keeps its room before the footer is
+ * clipped, so narrowing a figure never hides how to enter it or change its density.
  */
 /** A figure's warning, wrapped to the frame's inside: read whole however narrow (PIE-1428), never cut short. */
 function errorLines(text: string, W: number): string[] { return wrap(text, Math.max(16, W) - 4).map(l => fg(C.lred) + l + RESET); }
@@ -57,7 +57,7 @@ export function frame(title: string, body: string[], W: number, footer = "", con
   const left = Math.max(1, Math.floor((w - 2 - lw) / 2)), right = Math.max(1, w - 2 - lw - left);
   const top = fg(DIM) + "+" + rep("·", left) + fg(ACCENT) + label + fg(DIM) + rep("·", right) + "+" + RESET;
   const side = (s: string) => fg(DIM) + "┊ " + RESET + pad(s, inner) + fg(DIM) + " ┊" + RESET;
-  const shown = footer ? clipText(footer, Math.max(0, w - 8)) : "";
+  const shown = footer ? clipText(footer, Math.max(0, w - 8 - (control ? vwidth(control) + 3 : 0))) : "";
   const fits = !!control && vwidth(shown) + vwidth(control) + (shown ? 3 : 0) + 8 <= w;
   const tail = fits ? (shown ? fg(DIM) + " · " : "") + fg(ACCENT) + control : "";
   const foot = shown || tail ? ` ${shown}${tail} ` : "";
@@ -412,6 +412,25 @@ const liveSiteOf = (src: FigureSource, args?: Record<string, string>): LiveSite 
   src.chain?.length || (args && Object.keys(args).length) || (src.props && Object.keys(src.props).length)
     ? { ...(src.chain?.length ? { chain: src.chain } : {}), ...(args ? { args } : {}), ...(src.props && Object.keys(src.props).length ? { props: src.props } : {}) } : undefined;
 
+/** Live tables lend their rows to Collections; their frame still belongs to the reader's figure sizing. */
+export function figureFrame(kind: string, props: Props, width: number, figures?: FiguresEnv, note?: string) {
+  const title = String(props.title ?? kind), count = figures ? (figures.drawn ??= { n: 0, titles: new Map() }) : { n: 0, titles: new Map<string, number>() };
+  const n = ++count.n, same = count.titles.get(title) ?? 0;
+  count.titles.set(title, same + 1);
+  const key = `${title}#${same}`, chosen = figures?.ui?.(key);
+  const size = readContentSize({ ...props, ...chosen?.size });
+  if (size.width === "full") width = figures?.fullWidth ?? width;
+  const density = chosen?.density ?? (isDensity(props.density) ? props.density : "cozy");
+  const finish = (body: string[], footer = "", control = "", extra: Partial<FigureInfo> = {}, displayTitle = String(props.title ?? "")) => {
+    const sizing = figures?.tag?.({ figure: key, size: true }, `↔ ${size.width}`) ?? "";
+    const drawn = frame(displayTitle, [...body, ...size.problems.map(problem => fg(C.yellow) + problem + RESET)], width, footer, [control, sizing].filter(Boolean).join(" · "));
+    const lines = figures?.viewport?.(key, drawn, width, size.height ?? (kind === "timeline" ? body.length : undefined)) ?? drawn;
+    figures?.seen?.({ key, n, kind, title, density, size, cols: width, rows: lines.length, note, line: figures.line, ...extra });
+    return lines;
+  };
+  return { key, title, chosen, density, width, finish };
+}
+
 /**
  * Render a `::graph-kind` block: `source` is its YAML (between --- lines), or the whole FigureSource (its Markdown and
  * its note too). `link`: rows that stand for a note (a live figure's, a child bullet's) are tagged with it, so the
@@ -426,29 +445,15 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   let props = read.props;
   // Props written without their `---` lines (PIE-941): said in the figure, whatever it then draws.
   const warn = read.warning ? [fg(C.lred) + read.warning + RESET] : [];
-  // The figure's name in its reader: where it is in the note, and its title.
-  const title = String(props.title ?? kind), count = figures ? (figures.drawn ??= { n: 0, titles: new Map() }) : { n: 0, titles: new Map<string, number>() };
-  const n = ++count.n, same = count.titles.get(title) ?? 0;
-  count.titles.set(title, same + 1);
-  const key = `${title}#${same}`;
+  const framing = figureFrame(kind, props, W, figures, src.note), { key, title, chosen, density, finish } = framing;
+  W = framing.width;
   // All kinds lend their row targets the same figure identity, including rows outside the current viewport.
   const rowLink = link;
   link = rowLink ? (block, text, _figure, query, at, cell) => rowLink(block, text, key, query, at, cell) : undefined;
-  const chosen = figures?.ui?.(key);
-  const size = readContentSize({ ...props, ...chosen?.size });
-  if (size.width === "full") W = figures?.fullWidth ?? W;
-  warn.push(...size.problems.map(problem => fg(C.yellow) + problem + RESET));
-  const finish = (body: string[], footer = "", control = "", extra: Partial<FigureInfo> = {}) => {
-    const sizing = figures?.tag?.({ figure: key, size: true }, `↔ ${size.width}`) ?? "";
-    const drawn = frame(String(props.title ?? ""), body, W, footer, [control, sizing].filter(Boolean).join(" · "));
-    const lines = figures?.viewport?.(key, drawn, W, size.height ?? (kind === "timeline" ? body.length : undefined)) ?? drawn;
-    figures?.seen?.({ key, n, kind, title, density: ui.density, ...(kind === "table" ? { rowCount: props.rows?.length ?? 0 } : kind === "decision" ? { rowCount: props.options?.length ?? 0 } : {}), size, cols: W, rows: lines.length, note: src.note, line: figures.line, ...extra });
-    return lines;
-  };
   const writtenLines = props.lines === undefined ? undefined : Number(props.lines);
   const validLines = writtenLines === undefined || Number.isSafeInteger(writtenLines) && writtenLines >= 0;
   if (!validLines) warn.push(fg(C.yellow) + "lines needs a whole number: 0 truncates, 1 or more wraps" + RESET);
-  const ui: FigureUI = { lines: chosen?.density ? TITLE_LINES[chosen.density] : writtenLines !== undefined && validLines ? writtenLines : isDensity(props.density) ? TITLE_LINES[props.density] : figures?.lines ?? 2, key, density: chosen?.density ?? (isDensity(props.density) ? props.density : "cozy"), ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}), ...(rows ? { rows } : {}) };
+  const ui: FigureUI = { lines: chosen?.density ? TITLE_LINES[chosen.density] : writtenLines !== undefined && validLines ? writtenLines : isDensity(props.density) ? TITLE_LINES[props.density] : figures?.lines ?? 2, key, density, ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}), ...(rows ? { rows } : {}) };
   if (figures?.tag && (kind === "table" || kind === "decision")) ui.expansion = {
     open: (row, block) => !!chosen?.expanded?.includes(row) || chosen?.selected?.row === row || !!block && chosen?.selected?.block === block,
     draw: (row, lines) => {
@@ -456,6 +461,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
       return lines.map((line, i) => open + (i ? " " : ui.expansion!.open(row) ? "▾" : "▸") + close + " " + line);
     },
   };
+  const rowInfo = () => kind === "table" ? { rowCount: props.rows?.length ?? 0 } : kind === "decision" ? { rowCount: props.options?.length ?? 0 } : {};
   // A block with query:/view: is answered from the outline now, not from copied values.
   const live = figures?.answer && (props.query || props.view || kind === "tabs") ? { ...liveProps(kind, props, figures.answer), status: "library demo", waiting: false } : resolveLive(kind, props, src.note, { ...liveSiteOf(src, read.args), ...site });
   if (live) {
@@ -469,12 +475,12 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
     if (live.error) body.push(...errorLines(live.error, W));
     if (!body.length) body.push(fg(DIM) + "no results" + RESET);
     body.push(...warn);
-    return finish(body, live.status ?? "live", densityControl(kind, ui), { ...(tabs ? { tabs } : {}), ...(tab !== undefined ? { tab } : {}) });
+    return finish(body, live.status ?? "live", densityControl(kind, ui), { ...rowInfo(), ...(tabs ? { tabs } : {}), ...(tab !== undefined ? { tab } : {}) }, String(props.title ?? ""));
   }
   const draw = KINDS[kind];
   if (!draw) return frame(props.title ?? kind, [fg(DIM) + `graph-${kind} isn't drawn in the terminal yet` + RESET], W);
   const footer = read.waiting ? "asking for its child notes…" : read.children ? "live · child notes" : "";
-  try { return finish([...withRowLimit(ui.lines, () => draw(props, Math.max(10, W - 4), link, ui)), ...warn], footer, kind === "table" ? densityControl(kind, ui) : ""); }
+  try { return finish([...withRowLimit(ui.lines, () => draw(props, Math.max(10, W - 4), link, ui)), ...warn], footer, kind === "table" ? densityControl(kind, ui) : "", rowInfo()); }
   catch (e) { return frame(kind, [fg(C.lred) + `couldn't draw: ${(e as Error).message}` + RESET], W); }
 }
 

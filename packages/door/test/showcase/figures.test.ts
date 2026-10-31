@@ -70,6 +70,25 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     return { note, surface, host, draw, bottom };
   };
 
+
+  test("review1134: an answered timeline draws its resolved title", async () => {
+    const { draw } = await sizingReader(timeline.replace("Resize log", "Log for {{this.title}}"));
+    expect(draw().join("\n")).toContain("LOG FOR SIZING REVIEW");
+    expect(draw().join("\n")).not.toContain("{{this.title}}");
+  });
+
+  test("review1134: a selected table row keeps the equals sizing key", async () => {
+    const { note, surface, host, draw } = await sizingReader(timeline.replace("graph-timeline", "graph-table").replace("date: landed", "columns: [title]\nsort: title\ndirection: asc").replace("height: 4", "height: 8"));
+    const elements = (await surface.act("elements", {}, host, USER) as any).elements;
+    const first = elements.find((e: any) => e.kind === "row" && e.label.includes("Landing 1"));
+    expect(first).toBeDefined();
+    await surface.act("element.select", { n: first.n }, host, USER);
+    draw();
+    surface.key({ kind: "char", ch: "=" }, host);
+    await surface.inTurn(async () => {});
+    await untilAsync(async () => (await board.get(note.id))!.text.includes("width: full"), "the selected table row's equals key saves full width", 1500);
+  });
+
   test("review 1: a timeline inside a callout saves height and width drags within its frame", async () => {
     const { note, surface, host, bottom, draw } = await sizingReader(`> [!note] Landings\n${timeline.split("\n").map(l => `> ${l}`).join("\n")}`);
     const { x, y } = bottom();
@@ -107,6 +126,19 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     const { note, surface, host, draw } = await sizingReader(timeline);
     const rows = draw(), y = rows.findIndex(l => l.includes("↔ fit")), x = rows[y]!.indexOf("↔ fit") + 2;
     surface.press(x, y, host); surface.release(x, y, host);
+    await surface.inTurn(async () => {});
+    expect((await board.get(note.id))!.text).toContain("width: full");
+  });
+
+  test("a live table keeps its resize controls when its rows come from a collection", async () => {
+    const { note, surface, host, bottom, draw } = await sizingReader(timeline.replace("graph-timeline", "graph-table").replace("date: landed", "columns: title\nsort: title asc").replace("height: 4", "height: 8"));
+    const { x, y } = bottom();
+    surface.press(x, y, host); surface.drag(x, y + 2, host); surface.release(x, y + 2, host);
+    await until(() => !surface.figureSizing.drag, "the table's height is saved");
+    await surface.inTurn(async () => {});
+    expect((await board.get(note.id))!.text).toContain("height: 10");
+    const rows = draw(), footer = rows.findIndex(l => l.includes("↔ fit")), toggle = rows[footer]!.indexOf("↔ fit") + 2;
+    surface.press(toggle, footer, host); surface.release(toggle, footer, host);
     await surface.inTurn(async () => {});
     expect((await board.get(note.id))!.text).toContain("width: full");
   });

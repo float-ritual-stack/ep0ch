@@ -61,10 +61,14 @@ export function siteProduced(note: string | undefined, producer: SiteProducer, s
   return read;
 }
 
-function produced(b: SocketBoard, note: string | undefined, producer: SiteProducer, site?: LiveSite): Watching<SiteProduced> {
+export function siteRequest(note: string | undefined, producer: SiteProducer, site?: LiveSite) {
   const own = site?.args && Object.keys(site.args).length ? Object.fromEntries(Object.entries(site.args).map(([k, v]) => [k, [v]])) : undefined;
   const props = site?.props && Object.keys(site.props).length ? { ...site.props, ...own } : own;
-  return watchedOn(b).read("site.answer", { ...(note ? { blockId: note } : {}), produce: producer, ...(site?.draft ? { draft: site.draft } : {}), ...(site?.chain?.length ? { chain: site.chain } : {}), ...(props ? { props } : {}) }, (r: { produced: SiteProduced }) => {
+  return { ...(note ? { blockId: note } : {}), produce: producer, ...(site?.draft ? { draft: site.draft } : {}), ...(site?.chain?.length ? { chain: site.chain } : {}), ...(props ? { props } : {}) };
+}
+
+function produced(b: SocketBoard, note: string | undefined, producer: SiteProducer, site?: LiveSite): Watching<SiteProduced> {
+  return watchedOn(b).read("site.answer", siteRequest(note, producer, site), (r: { produced: SiteProduced }) => {
     const answer = r.produced;
     return answer.kind === "figure" || answer.kind === "children" ? { ...answer, blocks: b.toMsgs(answer.blocks as any[]) } as SiteProduced : answer;
   });

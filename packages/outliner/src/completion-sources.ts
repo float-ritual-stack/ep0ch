@@ -14,7 +14,7 @@ import { pickKey, sourceAnswers, triggerOf, VALUE_TRIGGERS, type Picks, type Sou
 import { FRAGMENT_ID_SOURCE, qualifiedReference, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import type { CompletionRowsRequest, CompletionRowsResult, CompletionSourceAnswer, ExtensionCompletionSource, QuestionFacet, SearchCertainty } from "@ep0ch/outline-core/protocol";
-import { axisValues, keyCandidates, sweep, valueCandidates, variation, yamlKeyCandidates, yamlScalar, attributeScalar, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
+import { axisValues, keyCandidates, schemaProp, settingsSchemas, sweep, valueCandidates, variation, yamlKeyCandidates, yamlScalar, attributeScalar, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { querySuggestions } from "@ep0ch/outline-core/query-suggestions";
 import type { PropsSpec } from "@ep0ch/outline-core/site";
@@ -376,7 +376,11 @@ const properties: ServiceSource = {
       for (const c of keyCandidates(schemas, q)) if (!seen.has(c.key)) { seen.add(c.key); rows.push(candidateRow(schemas, c, ask, "property")); }
     } else {
       // The values the notes have first, drawn and explained where a schema knows them; then the schema's others.
-      const meant = new Map(valueCandidates(schemas, ask.key ?? "", q).map(c => [c.label, c]));
+      const configured = ask.component ? schemas.filter(s => s.id === ask.component) : settingsSchemas(schemas, ask.attrs ?? []);
+      const owners = configured.filter(s => schemaProp(s, ask.key ?? ""));
+      const scoped = owners.length ? owners : schemas;
+      const meant = new Map(valueCandidates(scoped, ask.key ?? "", q, true, ask.component).map(c => [c.label, c]));
+      const allowed = owners.flatMap(s => schemaProp(s, ask.key ?? "")?.values?.map(v => v.value) ?? []);
       // A key whose value is a query (`[query::`, `[rule-match::`) completes what the grammar can say, not only values other notes wrote.
       if (schemas.some(s => s.props.some(p => p.key === ask.key && p.complete === "query"))) {
         for (const r of await querySuggestions(ask.query, (key, prefix) => catalogOf(svc, key ? { key } : {}, prefix))) if (!/[\]\n]/.test(r.value) && !seen.has(r.value)) {
@@ -384,7 +388,7 @@ const properties: ServiceSource = {
           rows.push({ label: r.value, kind: "value", detail: r.detail, insert: ask.headingShort ? `[heading::${r.value}]` : r.open ? r.value : `${r.value}]` });
         }
       }
-      for (const c of catalog) if (!/[\]\n]/.test(c.value) && !seen.has(c.value)) {
+      for (const c of catalog) if ((!allowed.length || allowed.includes(c.value)) && !/[\]\n]/.test(c.value) && !seen.has(c.value)) {
         seen.add(c.value);
         const m = meant.get(c.value);
         rows.push(m ? { ...candidateRow(schemas, m, ask, "value"), detail: notes(c.count) }

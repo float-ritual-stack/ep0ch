@@ -142,7 +142,7 @@ const NEW_SITE_ACTOR = { id: "site.answer", author: "system" as const };
 
 export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number, budget?: SiteBudget): Bound {
   // Figures and extension argument templates can be asked outside a note: props are available, but no `this`.
-  const noteless = !!request && typeof request === "object" && request.blockId === undefined && (request.produce?.kind === "figure" || request.interpolate !== undefined);
+  const noteless = !!request && typeof request === "object" && request.blockId === undefined && ((request.produce?.kind === "figure" || request.produce?.kind === "view") || request.interpolate !== undefined);
   if (!noteless && (!request || typeof request !== "object" || typeof request.blockId !== "string" || !request.blockId!.trim())) {
     throw new Error("site.answer needs blockId: the note to read (an id, ((id)), a Work ID or a [[page]]); for example { blockId: \"PIE-12\", paths: [\"this.owner\"] }");
   }

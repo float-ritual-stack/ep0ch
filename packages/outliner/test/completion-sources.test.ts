@@ -1,4 +1,3 @@
-import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 // `completion.rows` and `completion.picked` (PIE-1340): the service's completion sources and an extension's, on one
 // row contract, merged by outline-core's one matcher, with picks kept by the host. Scratch service in a temp folder;
 // every note and issue is made up.
@@ -13,6 +12,7 @@ import { mergeSourceAnswers, insertText } from "@ep0ch/outline-core/completion-s
 import { completionRows } from "../src/completion-sources";
 import type { CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import type { CompletionKind } from "@ep0ch/outline-core/completion-triggers";
+import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import type { Block } from "../src/types";
 
@@ -49,6 +49,22 @@ async function setup(install: string[] = []) {
 }
 
 const merged = (r: CompletionRowsResult, query: string) => mergeSourceAnswers(r.answers, query, { picks: r.picks });
+
+test("layout completion belongs to the view note on its title and the hero on its image line", async () => {
+  const { client, create } = await setup();
+  const note = await create("Garden [query::type=chore]");
+  const read = async (lines: string[], row: number) => {
+    const target = completionTargetAtCursor(lines[row]!, lines[row]!.length, lines, row)!;
+    const result = await client.request<CompletionRowsResult>({ action: "completion.rows", target, draft: { blockId: note.id, text: lines.join("\n") } });
+    return merged(result, "").map(row => row.label);
+  };
+  const title = await read(["Garden [query::type=chore] [layout::"], 0);
+  expect(title).toContain("gallery");
+  expect(title).not.toContain("hero");
+  const image = await read(["Garden [query::type=chore]", "", "[img::garden.png] [layout::"], 2);
+  expect(image).toContain("hero");
+  expect(image).not.toContain("gallery");
+});
 
 test("an extension's source joins [[ beside the pages: its rows rank with them by the one matcher", async () => {
   const { create, list, rows } = await setup(["issues"]);

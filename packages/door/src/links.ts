@@ -660,7 +660,7 @@ export interface LinkBlocksEnv {
   /** The person is in component `key` (its keys are the list's). */
   entered?(key: string): boolean;
   /** Tag a row, its target `to`, as row `row` of component `key`. */
-  row?(key: string, row: string, to: LinkTarget, text: string): string;
+  row?(key: string, row: string, to: LinkTarget, text: string, group?: string): string;
   /** Tag the frame's control that goes in (or out). */
   control?(key: string, text: string): string;
   /** Block `id` drawn `width` wide, as the reader draws an embed of it. */

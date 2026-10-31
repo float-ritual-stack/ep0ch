@@ -666,7 +666,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => screen().includes("settings · Views + EchoNet areas") && screen().includes("  EchoNet areas"), "both sections", 5000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     press({ kind: "enter" });
-    for (let i = 0; i < 12 && !screen().includes("echo · text"); i++) { ch("j"); await Bun.sleep(20); }
+    for (let i = 0; i < both.fields.length && !screen().includes("echo · text"); i++) { ch("j"); await Bun.sleep(20); }
     expect(screen()).toContain("echo · text");
     press({ kind: "enter" });
     await until(() => asked()[0] === "EchoNet areas · echo · echo = plot.chat", "the area's name asked, its own first", 5000)

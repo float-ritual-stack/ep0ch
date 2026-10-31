@@ -29,16 +29,16 @@ setDefaultTimeout(20_000);
 const ALL_WORK = (stage: string) => `type=roadmap-item (project=pi-outliner OR project=ep0ch-door) work-stage=${stage}`;
 
 // What a card is born with, and what a move patches, are the service's plans (views.planWrite, PIE-490);
-// pi-herdr-outliner's test/view-writes.test.ts covers that planning. Where a new card goes is the door's.
+// pi-herdr-outliner's test/view-writes.test.ts covers that planning. The board can infer an unnamed parent.
 describe("where a new card goes", () => {
   test("where a new card goes: the lane's create-parent, else where most of its (or the board's) cards live, else refused", () => {
     const at = (parentId: string | null, id: string) => card({}, { id, parentId });
-    expect(pickParent("Doing", card({ "create-parent": "p9" }), [], [])).toEqual({ id: "p9", why: "Doing's create-parent" });
-    expect(pickParent("Doing", undefined, [at("p1", "a"), at("p1", "b"), at("p2", "c")], [])).toEqual({ id: "p1", why: "where 2 of 3 Doing's cards live" });
-    expect(pickParent("Doing", undefined, [], [at("p1", "a"), at("p1", "a"), at("p2", "c"), at("p2", "d"), at("p2", "e")])).toEqual({ id: "p2", why: "where 3 of 4 the board's cards live" });
-    expect(pickParent("Doing", undefined, [at("p1", "a"), at("p2", "b")], [at("p1", "a"), at("p2", "b")])).toEqual({ refused: "the board's cards live under different parents; give Doing a [create-parent::<block id>] to say where new cards go" });
+    expect(pickParent("Doing", "p9", [], [])).toEqual({ id: "p9", why: "Doing's create-parent" });
+    expect(pickParent("Doing", null, [at("p1", "a"), at("p1", "b"), at("p2", "c")], [])).toEqual({ id: "p1", why: "where 2 of 3 Doing's cards live" });
+    expect(pickParent("Doing", null, [], [at("p1", "a"), at("p1", "a"), at("p2", "c"), at("p2", "d"), at("p2", "e")])).toEqual({ id: "p2", why: "where 3 of 4 the board's cards live" });
+    expect(pickParent("Doing", null, [at("p1", "a"), at("p2", "b")], [at("p1", "a"), at("p2", "b")])).toEqual({ refused: "the board's cards live under different parents; give Doing a [create-parent::<block id>] to say where new cards go" });
     // Rows whose parent isn't known never vote for "top level".
-    expect(pickParent("Doing", undefined, [at(null, "a"), at(null, "b")], [])).toEqual({ refused: "there's no card on the board to take a parent from; give Doing a [create-parent::<block id>]" });
+    expect(pickParent("Doing", null, [at(null, "a"), at(null, "b")], [])).toEqual({ refused: "there's no card on the board to take a parent from; give Doing a [create-parent::<block id>]" });
   });
 
 });

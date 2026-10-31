@@ -184,12 +184,14 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const d = S().stages.get(S().sel).top as Desk;
     await until(() => d.layoutGet().tiles.some(t => t.showing?.id === seeded.notes.notebook.id), "the notebook reader");
     const tile = d.layoutGet().tiles.find(t => t.kind === "reader")!.name;
+    // The open outline dock covers the reader's title.
+    await d.dispatch.press("tile.slide", { open: false }, "tree");
     const info = () => d.layoutGet().tiles.find(t => t.name === tile)!;
     await app.act({ action: "tile.title", tile, args: { text: "" }, as: "test-agent" });
     expect(info().label).toBe(subject(seeded.notes.notebook));
     await app.act({ action: "tile.title", tile, args: { text: "Reading {{this.title}} · {{tile.kind}} {{tile.n}} · {{this.title-colour || unset}}" }, as: "test-agent" });
     expect(info().label).toContain(`Reading ${subject(seeded.notes.notebook)} · reader`);
-    expect(screen()).toContain("Reading");
+    expect(screen()).toContain(`Reading ${subject(seeded.notes.notebook)}`);
     expect(d.tileOutline().find(t => t.name === tile)!.label).toBe(info().label);
     const writtenTitle = info().label;
     expect(info().title).toBe(writtenTitle);
@@ -233,8 +235,9 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect(d.layoutGet().focus).toBe("activity");
     press({ kind: "paste", text: "Garden visitors and callers" });
     press({ kind: "enter" });
-    const frame = screen().split("\n").find(l => /\d Garden/.test(l));
-    expect(frame).toContain("[name]");
+    expect(d.layoutGet().tiles.find(t => t.name === "activity")!.label).toBe("Garden visitors and callers");
+    const frame = screen().split("\n").find(l => l.includes("[name]"));
+    expect(frame).toBeDefined();
     const chipY = screen().split("\n").indexOf(frame!), chipX = frame!.indexOf("[name]") + 1;
     press({ kind: "mouse", action: "down", button: 0, x: chipX, y: chipY });
     press({ kind: "mouse", action: "up", button: 0, x: chipX, y: chipY });

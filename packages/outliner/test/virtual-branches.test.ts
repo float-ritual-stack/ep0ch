@@ -62,7 +62,7 @@ describe("virtual branch definitions", () => {
   });
 
   test("parses bounded query and creation configuration without coupling filters to statuses", () => {
-    const parent = visibleBlock("inbox");
+    const parent = visibleBlock("parent");
     const definition = visibleBlock("doing-view", [
       { key: "type", value: "virtual-branch" },
       { key: "query", value: "status=Doing project::float priority" },
@@ -85,7 +85,7 @@ describe("virtual branch definitions", () => {
         limit: 40,
         summaryPropertyKeys: ["work-stage", "status"],
         create: { key: "status", value: "Doing" },
-        createParentId: "inbox",
+        createParentId: parent.id,
         readOnly: false,
       },
       configurationErrors: [],
@@ -141,8 +141,8 @@ describe("virtual branch definitions", () => {
       { key: "direction", value: "newest" },
     ]);
     expect(parseVirtualBranchConfig(invalid, [invalid]).configurationErrors).toEqual([
-      "Virtual branch: Sort by rank, not rank::: a sort is created, updated, title or a property key",
-      "Virtual branch direction must be asc or desc, not newest: write [direction::asc] or [direction::desc]",
+      "sort: rank:: · Sort by rank, not rank::: a sort is created, updated, title or a property key",
+      "direction: newest · Sort direction is asc or desc, not newest: write [direction::asc] or [direction::desc]",
     ]);
 
     const byRank = visibleBlock("rank-sort", [

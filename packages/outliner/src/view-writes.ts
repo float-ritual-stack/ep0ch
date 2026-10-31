@@ -52,6 +52,8 @@ export type ViewMovePlan =
 export type ViewCreatePlan =
   | {
       kind: "create";
+      /** The authored create-parent resolved by the saved-view compiler; null when none is named. */
+      parentId: string | null;
       /** The properties the block is born with: the view's plain value clauses. */
       born: BlockProperty[];
       /** The view's `[create::key=value]` default, added only when the text doesn't set that key. */
@@ -74,7 +76,7 @@ export type ViewCreatePlan =
 
 /** A saved view read for writing: its query split into what a write sets and what must already hold. */
 export type WriteView =
-  | { ok: true; id: string; name: string; expr: QueryExpression; plain: PropertyFilter[]; rest: QueryExpression[]; create: BlockProperty | null; createError?: string }
+  | { ok: true; id: string; name: string; expr: QueryExpression; plain: PropertyFilter[]; rest: QueryExpression[]; create: BlockProperty | null; parentId: string | null; createError?: string }
   | { ok: false; id: string; name: string; reason: string };
 
 /** The block a move plans against: its text (for token ordinals), properties and times. */
@@ -88,11 +90,11 @@ export type WriteSubject = Pick<Block, "id" | "text" | "revision" | "properties"
 const viewName = (definition: Pick<Block, "text">) => firstLineWithoutPropertyTokens(definition.text)?.trim() || "the view";
 
 /** A saved view's definition as a write sees it, or why there is nothing to plan against. */
-export function writeView(id: string, definition: Pick<Block, "id" | "text" | "properties"> | undefined): WriteView {
+export function writeView(id: string, definition: (Pick<Block, "id" | "text" | "properties"> & Partial<Pick<Block, "parentId">>) | undefined, physicalBlocks: Parameters<typeof parseVirtualBranchConfig>[1] = []): WriteView {
   if (!definition) return { ok: false, id, name: "the view", reason: `view ${id} is missing: Saved view not found in the active workspace` };
   const name = viewName(definition);
   if (!isVirtualBranchDefinition(definition)) return { ok: false, id, name, reason: `${name} is unsupported: only type=virtual-branch views plan writes` };
-  const parsed = parseVirtualBranchConfig(definition, []);
+  const parsed = parseVirtualBranchConfig(definition, physicalBlocks);
   if (!parsed.config) return { ok: false, id, name, reason: `${name} is invalid: ${parsed.configurationErrors[0] ?? "no reason given"}` };
   // A view that reads line chips (PIE-1277) holds a note by a line of it: a patch to its header can't stand for that.
   if (parsed.config.propertyScope) return { ok: false, id, name, reason: `${name} reads chips on any line ([property-scope::${parsed.config.propertyScope}]): write the chip on the line it's about, in the note` };
@@ -112,13 +114,11 @@ export function writeView(id: string, definition: Pick<Block, "id" | "text" | "p
     if (term.kind === "property" && !term.relation) plain.push(term.value === undefined ? { key: term.key } : { key: term.key, value: term.value });
     else rest.push(term);
   }
-  // Where a new block goes (create-parent) is the caller's choice; what it is born with is the view's.
   if (machinery) rest.push(machinery);
-  const creation = parseVirtualBranchConfig({ ...definition, properties: definition.properties.filter(p => p.key !== "create-parent") }, []);
-  let create = creation.config?.create ?? null;
-  let createError = creation.creationErrors[0];
+  let create = parsed.config.create;
+  let createError = parsed.creationErrors[0];
   if (create?.key === "deleted") { create = null; createError = "deleted=true selects Trash; it isn't a property to set"; }
-  return { ok: true, id, name, expr, plain, rest, create, ...(createError ? { createError } : {}) };
+  return { ok: true, id, name, expr, plain, rest, create, parentId: parsed.config.createParentId, ...(createError ? { createError } : {}) };
 }
 
 /** The expression in the query's own words: `(project=a OR project=b)`, `NOT stage=done`. */
@@ -216,7 +216,7 @@ export function planMoveIntoView(view: WriteView, block: WriteSubject, now = Dat
  */
 export function planCreateInView(view: WriteView, text: string | undefined, now = Date.now()): ViewCreatePlan {
   if (!view.ok) return { kind: "refused", reason: view.reason };
-  if (view.createError) return { kind: "refused", reason: `${view.name}'s create:: default is unusable: ${view.createError}` };
+  if (view.createError) return { kind: "refused", reason: `${view.name} can't create a note: ${view.createError}` };
   const dflt = view.create;
   const born: BlockProperty[] = [];
   const needs: QueryExpression[] = [];
@@ -244,7 +244,7 @@ export function planCreateInView(view: WriteView, text: string | undefined, now 
   const timeOnly = missing.find(term => !keysOf(term).length);
   if (timeOnly) return { kind: "refused", reason: `${view.name} needs ${showQueryExpression(timeOnly, true)}, which a new note doesn't meet` };
   needs.push(...missing);
-  const plan = { kind: "create" as const, born, defaults, needs: needs.map(t => showQueryExpression(t, true)), roadmap };
+  const plan = { kind: "create" as const, parentId: view.parentId, born, defaults, needs: needs.map(t => showQueryExpression(t, true)), roadmap };
   if (text === undefined || !text.trim()) return plan;
 
   const typed = parsePropertyRecords(text).filter(t => t.scope === "block").map(({ key, value }) => ({ key, value }));

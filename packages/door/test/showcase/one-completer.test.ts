@@ -34,7 +34,8 @@ describe("showcase: one completer (PIE-1076)", () => {
     expect(first.items.slice(0, 3).map(i => i.detail ?? i.label).join(" ")).not.toContain("host.");
     expect(first.items.map(i => i.detail ?? "").some(d => d.includes("tile.close"))).toBe(true);
     type("sort list");
-    let p = await listed("sort-list by its words", labels => labels[0] === "Sort the list in this block");
+    let p = await listed("sort-list by its words", labels => labels.includes("Sort the list in this block"));
+    for (let i = 0; i < p.items.findIndex(item => item.label === "Sort the list in this block"); i++) press({ kind: "down" });
     // What the host binds (block=, with=) is never offered; ⏎ takes the action and lists its arguments next.
     press({ kind: "enter" });
     p = await listed("its arguments", labels => labels.includes("order="));

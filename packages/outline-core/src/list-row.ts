@@ -4,6 +4,7 @@
 // service checks a view's `list` against this (outliner component-primitives.ts); this file does no I/O.
 
 import { prepareSearchQuery, matchesSearchText, type SearchQuery } from "./search-match";
+import { QUESTION_MAX_LIMIT } from "./protocol";
 import type { RuleTone } from "./rules";
 
 /** The tones a row is drawn in: the component primitives' (`good`, `warn`, … ). */
@@ -15,8 +16,11 @@ export type ListTone = RuleTone;
  * the dispatcher's actor rules; `insert` goes only into the picker's own draft; `copy` puts text on the person's
  * clipboard and answers an agent with the text.
  */
+export type ListOpenWhere = "current" | "beside" | "float" | "full";
+export interface ListOpen { ref: string; where?: ListOpenWhere; revision?: number; at?: number; atLabel?: string; atSays?: string }
+
 export type Activation =
-  | { open: string }
+  | { open: string | ListOpen }
   | { run: { action: string; args?: Record<string, string> } }
   | { copy: string }
   | { insert: string };
@@ -25,6 +29,9 @@ export type ActivationKind = "open" | "run" | "copy" | "insert";
 export const ACTIVATION_KINDS: readonly ActivationKind[] = ["open", "run", "copy", "insert"];
 
 /** A row of a list. `do` absent: a header (nothing to pick). `id` is unique in its list and keys its view state. */
+export type ListCell = string | number | { text: string; act?: string; link?: string; revision?: number; tone?: ListTone };
+export const listCellText = (cell: ListCell): string => typeof cell === "object" ? cell.text : String(cell);
+
 export interface ListRow {
   id: string;
   label: string;
@@ -32,13 +39,17 @@ export interface ListRow {
   mark?: string;
   tone?: ListTone;
   group?: string;
+  cells?: ListCell[];
+  cover?: string;
+  bind?: string;
+  body?: string[];
   /** What the list shows beside (or below) it while the row is selected: a block drawn as an embed, or Blockdown. */
   preview?: { block: string } | { markdown: string };
   do?: Activation;
 }
 
 /** A named run of rows, drawn under its header. `count` is how many rows it holds before any filter. */
-export interface ListGroup { name: string; label: string; glyph?: string; count: number; note?: string }
+export interface ListGroup { name: string; label: string; glyph?: string; count: number; note?: string; ids?: string[]; groups?: ListGroup[] }
 
 export const LIST_PREVIEWS = ["right", "below", "none"] as const;
 export type ListPreviewSide = (typeof LIST_PREVIEWS)[number];
@@ -47,6 +58,11 @@ export type ListPreviewSide = (typeof LIST_PREVIEWS)[number];
 export interface ListPrimitive {
   type: "list";
   rows: ListRow[];
+  arrange?: "table" | "rows" | "grid" | "lanes";
+  size?: "small" | "large";
+  columns?: string[];
+  headers?: string[];
+  page?: number;
   groups?: ListGroup[];
   /** Where the selected row's preview goes; default none. */
   preview?: ListPreviewSide;
@@ -59,15 +75,18 @@ export interface ListPrimitive {
 }
 
 /** The most rows a list holds (a component's answer cuts each group to this, with `more`). */
-export const LIST_MAX_ROWS = 200;
+export const LIST_MAX_ROWS = QUESTION_MAX_LIMIT;
 
 /** The one activation a row carries, or null for a header. A row with several (a hand-built one) answers the first in the ADR's order. */
-export function activationOf(row: Pick<ListRow, "do">): { kind: ActivationKind; value: string | { action: string; args?: Record<string, string> } } | null {
+export function activationOf(row: Pick<ListRow, "do">): ({ kind: ActivationKind; value: string | { action: string; args?: Record<string, string> } } & Omit<ListOpen, "ref">) | null {
   const d = row.do as Record<string, unknown> | undefined;
   if (!d) return null;
+  if (d.open && typeof d.open === "object") { const { ref, ...target } = d.open as ListOpen; return { kind: "open", value: ref, ...target }; }
   for (const kind of ACTIVATION_KINDS) if (d[kind] !== undefined) return { kind, value: d[kind] as string | { action: string; args?: Record<string, string> } };
   return null;
 }
+
+export const openedRef = (row: Pick<ListRow, "do">): string | undefined => row.do && "open" in row.do ? typeof row.do.open === "string" ? row.do.open : row.do.open.ref : undefined;
 
 /** How many of the four a `do` names: the validator wants exactly one. */
 export const activationCount = (d: object): number => ACTIVATION_KINDS.filter(k => (d as Record<string, unknown>)[k] !== undefined).length;
@@ -95,6 +114,13 @@ export interface ListSection { head: { name?: string; label: string; glyph?: str
  * declared group's (its header from `groups`), then the groups only a row names. A row with no `do` is a header.
  */
 export function listSections(node: Pick<ListPrimitive, "rows" | "groups">): ListSection[] {
+  if (node.groups?.some(group => group.ids)) {
+    const byId = new Map(node.rows.map(row => [row.id, row]));
+    const sections = (groups: ListGroup[], prefix = ""): ListSection[] => groups.flatMap(group => group.groups?.length
+      ? sections(group.groups, `${prefix}${group.label} / `)
+      : [{ head: { ...group, label: prefix + group.label }, rows: (group.ids ?? []).flatMap(id => byId.has(id) ? [byId.get(id)!] : []) }]);
+    return sections(node.groups);
+  }
   const out: ListSection[] = [];
   const bare = node.rows.filter(row => row.group === undefined);
   if (bare.length) out.push({ head: null, rows: bare });

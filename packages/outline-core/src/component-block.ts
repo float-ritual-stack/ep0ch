@@ -212,7 +212,7 @@ function scanFrames(lines: Iterable<string>, firstOnly: boolean, fenceStop?: (st
   const finish = (end?: number) => {
     const frame = stack.pop()!;
     if (end !== undefined) { frame.block.end = end; frame.closed = true; }
-    else if (frame.block.args !== null) frame.closed = true;
+    else if (frame.block.args !== null || frame.block.name === "view" && frame.block.attrs !== undefined && !frame.yamlSeen) frame.closed = true;
   };
   let i = -1, skipThrough = -1;
   scan: for (const raw of lines) {

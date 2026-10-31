@@ -6,7 +6,8 @@ import { HEADING_STYLE_NAME } from "@ep0ch/outline-core/heading-styles";
 import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { fileName, imageSource, parseSize } from "@ep0ch/outline-core/media-line";
 import { safeExtensionHtml } from "./extension-html";
-import { ACTIVATION_KINDS, LIST_MAX_ROWS, LIST_PREVIEWS, activationCount, listHead, listSections, type ListGroup, type ListPrimitive, type ListRow } from "@ep0ch/outline-core/list-row";
+import { figureBodyHtml } from "./publish-figures";
+import { ACTIVATION_KINDS, LIST_MAX_ROWS, LIST_PREVIEWS, activationCount, listHead, listSections, listCellText, openedRef, type ListCell, type ListGroup, type ListPrimitive, type ListRow } from "@ep0ch/outline-core/list-row";
 
 /**
  * The shared primitive catalogue a rich component (kind 3 of the extension
@@ -30,7 +31,7 @@ import { ACTIVATION_KINDS, LIST_MAX_ROWS, LIST_PREVIEWS, activationCount, listHe
 export const PRIMITIVE_TYPES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button", "list"] as const;
 /** The fields each primitive accepts besides `type` (anything else is refused): the one list the validator checks and the scripts reference prints. */
 export const PRIMITIVE_FIELDS = {
-  text: ["text", "tone", "strong", "act"],
+  text: ["text", "tone", "strong", "act", "link", "revision"],
   blockdown: ["text"],
   badge: ["label", "tone", "act"],
   button: ["label", "act", "tone"],
@@ -46,16 +47,16 @@ export const PRIMITIVE_FIELDS = {
   band: ["text", "level", "style", "pattern", "align", "row", "tone"],
   track: ["style", "pattern", "tone"],
   image: ["src", "alt", "size", "fit", "height", "caption"],
-  list: ["rows", "groups", "preview", "filter", "enter", "empty"],
+  list: ["rows", "groups", "preview", "filter", "enter", "empty", "arrange", "size", "columns", "headers", "page"],
 } as const satisfies Record<typeof PRIMITIVE_TYPES[number], readonly string[]>;
 
 export const RENDER_TARGETS = ["terminal", "markdown", "blockdown", "html", "json", "csv"] as const;
 export type RenderTarget = typeof RENDER_TARGETS[number];
 export const TONES = ["default", "good", "warn", "bad", "dim", "accent"] as const;
 /** A table cell: plain text or a number, or one that presses an action line or opens a note on its own (PIE-1461). */
-export type TableCell = string | number | { text: string; act?: ActionLine; link?: string; tone?: Tone };
+export type TableCell = ListCell;
 /** A cell's text, whatever its shape. */
-export const cellText = (value: TableCell): string => typeof value === "object" ? value.text : String(value);
+export const cellText = listCellText;
 export type Tone = typeof TONES[number];
 
 /**
@@ -67,7 +68,7 @@ export type Tone = typeof TONES[number];
 export type ActionLine = string;
 
 export type Primitive =
-  | { type: "text"; text: string; tone?: Tone; strong?: boolean; act?: ActionLine }
+  | ({ type: "text"; strong?: boolean } & Extract<TableCell, object>)
   /**
    * Blockdown a client draws with its own reader (the door's note surface, Detail's, the publisher's HTML), so its
    * headings, lists, links and properties read as they do in a note. A text target gets the source as written.
@@ -226,6 +227,18 @@ function activation(value: unknown, path: string): NonNullable<ListRow["do"]> {
   const count = activationCount(raw);
   if (count !== 1) fail(path, `must do exactly one thing, ${count ? `not ${count}` : "none given"}: one of ${ACTIVATION_KINDS.join(", ")} (a row with no \`do\` is a header)`);
   if (raw.open !== undefined) {
+    if (typeof raw.open === "object" && raw.open) {
+      const open = raw.open as Record<string, unknown>;
+      only(open, ["ref", "where", "revision", "at", "atLabel", "atSays"], `${path}.open`);
+      if (typeof open.ref !== "string" || !linkable(open.ref)) fail(`${path}.open.ref`, "must be a block id or Resource ref");
+      if (open.where !== undefined && !["current", "beside", "float", "full"].includes(open.where as string)) fail(`${path}.open.where`, "must be current, beside, float or full");
+      const revision = open.revision === undefined ? undefined : finite(open.revision, `${path}.open.revision`);
+      if (revision !== undefined && (!Number.isInteger(revision) || revision < 1)) fail(`${path}.open.revision`, "must be a positive integer");
+      const at = open.at === undefined ? undefined : finite(open.at, `${path}.open.at`);
+      if (at !== undefined && (!Number.isInteger(at) || at < 0)) fail(`${path}.open.at`, "must be a character offset from zero");
+      for (const key of ["atLabel", "atSays"] as const) if (open[key] !== undefined && typeof open[key] !== "string") fail(`${path}.open.${key}`, "must be text");
+      return { open: { ref: open.ref as string, where: open.where as "current" | "beside" | "float" | "full" | undefined, ...(revision !== undefined ? { revision } : {}), ...(at !== undefined ? { at, atLabel: open.atLabel as string | undefined, atSays: open.atSays as string | undefined } : {}) } };
+    }
     if (typeof raw.open !== "string" || !linkable(raw.open)) fail(`${path}.open`, "must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
     return { open: raw.open };
   }
@@ -249,10 +262,33 @@ function activation(value: unknown, path: string): NonNullable<ListRow["do"]> {
   })) } };
 }
 
+function tableCell(cell: unknown, at: string): TableCell {
+  if (typeof cell === "number") return finite(cell, at);
+  if (cell && typeof cell === "object" && !Array.isArray(cell)) {
+    const raw = cell as Record<string, unknown>;
+    only(raw, ["text", "act", "link", "revision", "tone"], at);
+    const out: Extract<TableCell, object> = { text: text(raw.text, `${at}.text`)! };
+    if (raw.act !== undefined) out.act = actionLine(raw.act, `${at}.act`);
+    if (raw.revision !== undefined) {
+      out.revision = finite(raw.revision, `${at}.revision`);
+      if (!Number.isInteger(out.revision) || out.revision < 1) fail(`${at}.revision`, "must be a positive integer");
+    }
+    if (raw.link !== undefined) {
+      if (typeof raw.link !== "string" || !linkable(raw.link)) fail(`${at}.link`, "must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
+      out.link = raw.link;
+    }
+    if (out.act && out.link) fail(at, "a cell presses or opens, not both");
+    const cellTone = tone(raw.tone, `${at}.tone`);
+    if (cellTone) out.tone = cellTone;
+    return out;
+  }
+  return text(cell, at)!;
+}
+
 function listRow(value: unknown, path: string): ListRow {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "must be a row: { id, label, detail?, mark?, tone?, group?, preview?, do? }");
   const row = value as Record<string, unknown>;
-  only(row, ["id", "label", "detail", "mark", "tone", "group", "preview", "do"], path);
+  only(row, ["id", "label", "detail", "mark", "tone", "group", "preview", "do", "cells", "cover", "bind", "body"], path);
   const id = oneLineText(row.id, `${path}.id`, MAX_ROW_ID);
   if (!id.trim()) fail(`${path}.id`, "must not be empty");
   let preview: ListRow["preview"];
@@ -269,6 +305,10 @@ function listRow(value: unknown, path: string): ListRow {
   return {
     id,
     label: oneLineText(row.label, `${path}.label`),
+    ...(row.cells !== undefined ? { cells: cells(row.cells, `${path}.cells`) } : {}),
+    ...(row.body !== undefined ? { body: strings(row.body, `${path}.body`) } : {}),
+    ...(row.cover !== undefined ? { cover: oneLineText(row.cover, `${path}.cover`) } : {}),
+    ...(row.bind !== undefined ? { bind: oneLineText(row.bind, `${path}.bind`) } : {}),
     ...(row.detail !== undefined ? { detail: oneLineText(row.detail, `${path}.detail`) } : {}),
     ...(row.mark !== undefined ? { mark: oneLineText(row.mark, `${path}.mark`, 8) } : {}),
     ...(tone(row.tone, `${path}.tone`) ? { tone: row.tone as Tone } : {}),
@@ -281,11 +321,28 @@ function listRow(value: unknown, path: string): ListRow {
 function listGroup(value: unknown, path: string): ListGroup {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "must be { name, label, count, glyph?, note? }");
   const raw = value as Record<string, unknown>;
-  only(raw, ["name", "label", "glyph", "count", "note"], path);
+  only(raw, ["name", "label", "glyph", "count", "note", "ids", "groups"], path);
   if (!Number.isInteger(raw.count) || (raw.count as number) < 0) fail(`${path}.count`, "must be a whole number");
   return { name: oneLineText(raw.name, `${path}.name`, MAX_ROW_ID), label: oneLineText(raw.label, `${path}.label`), count: raw.count as number,
+    ...(raw.ids !== undefined ? { ids: strings(raw.ids, `${path}.ids`) } : {}),
+    ...(raw.groups !== undefined ? { groups: groupList(raw.groups, `${path}.groups`) } : {}),
     ...(raw.glyph !== undefined ? { glyph: oneLineText(raw.glyph, `${path}.glyph`, 8) } : {}),
     ...(raw.note !== undefined ? { note: oneLineText(raw.note, `${path}.note`) } : {}) };
+}
+
+function cells(value: unknown, path: string): ListCell[] {
+  if (!Array.isArray(value)) fail(path, "must be a list of cells");
+  return (value as unknown[]).map((cell, i) => tableCell(cell, `${path}[${i}]`));
+}
+
+function strings(value: unknown, path: string): string[] {
+  if (!Array.isArray(value)) fail(path, "must be a list of text");
+  return (value as unknown[]).map((v, i) => oneLineText(v, `${path}[${i}]`));
+}
+
+function groupList(value: unknown, path: string): ListGroup[] {
+  if (!Array.isArray(value)) fail(path, "must be a list of groups");
+  return (value as unknown[]).map((v, i) => listGroup(v, `${path}[${i}]`));
 }
 
 function listPrimitive(node: Record<string, unknown>, path: string): ListPrimitive {
@@ -304,7 +361,15 @@ function listPrimitive(node: Record<string, unknown>, path: string): ListPrimiti
   }
   if (node.preview !== undefined && !(LIST_PREVIEWS as readonly string[]).includes(node.preview as string)) fail(`${path}.preview`, `must be one of ${LIST_PREVIEWS.join(", ")}`);
   for (const key of ["filter", "enter"] as const) if (node[key] !== undefined && typeof node[key] !== "boolean") fail(`${path}.${key}`, "must be true or false");
+  if (node.arrange !== undefined && !["table", "rows", "grid", "lanes"].includes(node.arrange as string)) fail(`${path}.arrange`, "must be table, rows, grid or lanes");
+  if (node.size !== undefined && !["small", "large"].includes(node.size as string)) fail(`${path}.size`, "must be small or large");
+  if (node.page !== undefined && (!Number.isInteger(node.page) || Number(node.page) < 1)) fail(`${path}.page`, "must be a positive number of rows");
   return { type: "list", rows,
+    ...(node.arrange !== undefined ? { arrange: node.arrange as ListPrimitive["arrange"] } : {}),
+    ...(node.size !== undefined ? { size: node.size as ListPrimitive["size"] } : {}),
+    ...(node.columns !== undefined ? { columns: strings(node.columns, `${path}.columns`) } : {}),
+    ...(node.headers !== undefined ? { headers: strings(node.headers, `${path}.headers`) } : {}),
+    ...(node.page !== undefined ? { page: node.page as number } : {}),
     ...(groups ? { groups } : {}),
     ...(node.preview !== undefined ? { preview: node.preview as ListPrimitive["preview"] } : {}),
     ...(node.filter !== undefined ? { filter: node.filter as boolean } : {}),
@@ -325,11 +390,12 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
     return list.map((child, index) => validatePrimitive(child, `${path}.${key}[${index}]`, depth + 1, count));
   };
   switch (node.type) {
-    case "text":
+    case "text": {
       only(node, PRIMITIVE_FIELDS.text, path);
       if (node.strong !== undefined && typeof node.strong !== "boolean") fail(`${path}.strong`, "must be true or false");
-      return { type: "text", text: text(node.text, `${path}.text`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}), ...(node.strong ? { strong: true } : {}),
-        ...(node.act !== undefined ? { act: actionLine(node.act, `${path}.act`) } : {}) };
+      const { type, strong, ...cell } = node;
+      return { type: "text", ...tableCell(cell, path) as Extract<TableCell, object>, ...(strong ? { strong: true } : {}) };
+    }
     case "blockdown":
       only(node, PRIMITIVE_FIELDS.blockdown, path);
       return { type: "blockdown", text: text(node.text, `${path}.text`, false, MAX_BLOCKDOWN)! };
@@ -361,25 +427,7 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
       if (!Array.isArray(node.rows) || node.rows.length > MAX_ROWS) fail(`${path}.rows`, `must be a list of at most ${MAX_ROWS} rows`);
       const rows = node.rows.map((row, index) => {
         if (!Array.isArray(row) || row.length !== columns.length) fail(`${path}.rows[${index}]`, `must have ${columns.length} cells`);
-        return row.map((cell, column): TableCell => {
-          const at = `${path}.rows[${index}][${column}]`;
-          if (typeof cell === "number") return finite(cell, at);
-          if (cell && typeof cell === "object" && !Array.isArray(cell)) {
-            const raw = cell as Record<string, unknown>;
-            only(raw, ["text", "act", "link", "tone"], at);
-            const out: Extract<TableCell, object> = { text: text(raw.text, `${at}.text`)! };
-            if (raw.act !== undefined) out.act = actionLine(raw.act, `${at}.act`);
-            if (raw.link !== undefined) {
-              if (typeof raw.link !== "string" || !linkable(raw.link)) fail(`${at}.link`, "must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
-              out.link = raw.link;
-            }
-            if (out.act && out.link) fail(at, "a cell presses or opens, not both");
-            const cellTone = tone(raw.tone, `${at}.tone`);
-            if (cellTone) out.tone = cellTone;
-            return out;
-          }
-          return text(cell, at)!;
-        });
+        return row.map((cell, column) => tableCell(cell, `${path}.rows[${index}][${column}]`));
       });
       let links: (string | null)[] | undefined;
       if (node.links !== undefined) {
@@ -588,8 +636,19 @@ function terminalLines(node: Primitive): string[] {
 }
 
 
+function listContent(node: ListPrimitive): Primitive {
+  if (node.arrange === "table") return { type: "table", columns: node.headers ?? node.columns ?? ["title"], rows: node.rows.map(r => r.cells ?? [r.label]) };
+  const cards = (rows: readonly ListRow[]): Primitive[] => rows.map(r => ({ type: "card", title: r.label, subtitle: r.detail,
+    children: [...(r.cover ? [{ type: "text" as const, text: r.cover }] : []), ...(r.body ?? []).map(text => ({ type: "text" as const, text }))] }));
+  if (node.arrange === "lanes" && node.groups?.length) return { type: "row", minWidth: 24, children: node.groups.map(group => ({ type: "box", title: listHead(group), children: listSections({ rows: node.rows, groups: [group] }).flatMap(section => [
+    ...(group.groups?.length && section.head ? [{ type: "text" as const, text: listHead(section.head), strong: true }] : []), ...cards(section.rows),
+  ]) })) };
+  return { type: node.arrange === "grid" ? "row" : "stack", ...(node.arrange === "grid" ? { minWidth: node.size === "large" ? 44 : 28 } : {}), children: cards(node.rows) };
+}
+
 /** A list as terminal text: a section's header, its rows indented under it, `mark label · detail`. */
 function listTerminal(node: ListPrimitive): string[] {
+  if (node.arrange) return terminalLines(listContent(node));
   const sections = listSections(node);
   if (!node.rows.length) return [oneLine(node.empty ?? "nothing here")];
   return sections.flatMap(({ head, rows }) => [
@@ -616,7 +675,10 @@ export interface MarkdownDraw {
 function markdownLines(node: Primitive, draw: MarkdownDraw = {}): string[] {
   const inner = (child: Primitive) => markdownLines(child, draw);
   switch (node.type) {
-    case "text": return [node.strong ? `**${mdInline(node.text)}**` : mdInline(node.text), ""];
+    case "text": {
+      const text = node.strong ? `**${mdInline(node.text)}**` : mdInline(node.text);
+      return [node.link && BLOCK_ID.test(node.link) ? `[${text}](#${node.link})` : text, ""];
+    }
     // Blockdown is the reader's own: as written, between blank lines.
     case "blockdown": return [node.text.replace(/\r\n?/g, "\n").trim(), ""];
     case "badge": return [`\`${oneLine(node.label).replace(/`/g, "'")}\``, ""];
@@ -640,6 +702,7 @@ function markdownLines(node: Primitive, draw: MarkdownDraw = {}): string[] {
     case "stack": return node.children.flatMap(inner);
     // A bulleted list, a group's header a bold line over its rows; the first row's preview after it.
     case "list": {
+      if (node.arrange && node.rows.length) return markdownLines(listContent(node), draw);
       if (!node.rows.length) return [`*${mdInline(node.empty ?? "nothing here")}*`, ""];
       const preview = firstPreview(node);
       return [
@@ -687,7 +750,10 @@ const toneClass = (value: Tone | undefined) => value && value !== "default" ? ` 
 
 function htmlOf(node: Primitive, count = { images: 0 }): string {
   switch (node.type) {
-    case "text": return `<p class="ext-text${toneClass(node.tone)}">${node.strong ? `<strong>${html(node.text)}</strong>` : html(node.text)}</p>`;
+    case "text": {
+      const text = node.strong ? `<strong>${html(node.text)}</strong>` : html(node.text);
+      return `<p class="ext-text${toneClass(node.tone)}">${node.link && BLOCK_ID.test(node.link) ? `<a href="#${html(node.link)}">${text}</a>` : text}</p>`;
+    }
     // The source, escaped: a reader with a Blockdown renderer draws it (the publisher, BLOCKDOWN_HTML), any other
     // shows it as written.
     case "blockdown": return `<div class="ext-blockdown">${html(node.text)}</div>`;
@@ -707,6 +773,20 @@ function htmlOf(node: Primitive, count = { images: 0 }): string {
     // A `<ul>` per section, the first row's Markdown preview after it (a page has no viewer state). Inert: a row's
     // activation runs nothing here (ADR 0005, readers read).
     case "list": {
+      if (node.arrange && node.rows.length) {
+        const link = (ref: string, label: string) => `<span data-collection-open="${html(ref)}">${html(label)}</span>`;
+        const open = (r: ListRow, label: string) => link(openedRef(r) ?? r.id, label);
+        const card = (r: ListRow) => `<article class="ext-card"><h4>${open(r, r.label)}</h4>${r.cover ? `<div class="ext-cover">${html(r.cover)}</div>` : ""}<p>${html(r.detail ?? "")}</p>${(r.body ?? []).map(line => `<p>${html(line)}</p>`).join("")}</article>`;
+        if (node.arrange === "table") return figureBodyHtml("table", {
+          headers: node.headers ?? node.columns ?? ["title"],
+          rows: node.rows.map(r => (r.cells ?? [r.label]).map(cellText)),
+          blocks: node.rows.map(r => openedRef(r) ?? r.id),
+          cellBlocks: node.rows.map(r => r.cells?.map(cell => typeof cell === "object" ? cell.link : null)),
+        }, () => null, { link: (ref, text) => `<span data-collection-open="${html(ref)}">${text}</span>` })!;
+        const style = `display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,${node.size === "large" ? 28 : 18}rem),1fr))`;
+        if (node.arrange === "lanes" && node.groups?.length) return `<div class="ext-collection-lanes" style="${style}">${node.groups.map(g => `<section><h3>${html(listHead(g))}</h3>${listSections({ rows: node.rows, groups: [g] }).map(s => `${g.groups?.length && s.head ? `<h4>${html(listHead(s.head))}</h4>` : ""}${s.rows.map(card).join("")}`).join("")}</section>`).join("")}</div>`;
+        return `<div class="ext-collection-${node.arrange}"${node.arrange === "grid" ? ` style="${style}"` : ""}>${node.rows.map(card).join("")}</div>`;
+      }
       if (!node.rows.length) return `<p class="ext-list-empty">${html(node.empty ?? "nothing here")}</p>`;
       const preview = firstPreview(node);
       return `<div class="ext-list">${listSections(node).map(({ head, rows }) =>

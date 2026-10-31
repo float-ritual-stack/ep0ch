@@ -91,7 +91,7 @@ source evidence or distinguish authored glyphs from controls.
   draws every pane's bar and hint row from it and the action registry. A new
   pane kind adds a kind there, not its own header or footer.
 - `src/detail-controller.ts` plus `src/detail-*` own Detail behavior and presentation.
-- `src/virtual-branches.ts` owns projection semantics.
+- `src/virtual-branches.ts` owns projection semantics, saved-view record compilation (`parseVirtualBranchConfig` → `virtualBranchMembershipQuery`, shared by reads, write planning and collection producers), and create-parent resolution.
 - `src/program-status-emit.ts` (a declared export, `@ep0ch/outliner/program-status-emit`) is the one emitter of
   program status (OSC 7501, PIE-614) for our own commands: whether this terminal speaks it (`EP0CH_PROGRAM_STATUS`,
   `tput Pst`, the `?` query) and where reports go; the report itself is outline-core's `encodeProgramStatus`. Tree and

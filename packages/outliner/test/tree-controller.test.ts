@@ -1,3 +1,8 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { OutlinerClient } from "../src/client";
+import { OutlinerServer } from "../src/server";
 import {OutlinerUiConfig} from "../src/ui-config";
 import { completionRows } from "../src/completion-sources";
 import { OutlinerStore } from "../src/store";
@@ -4258,4 +4263,31 @@ test("a status flashes: it shows until it expires, then the hint row returns", a
   await controller.handleAction("tree.preview.auto");
   await controller.handleAction("tree.preview.auto");
   expect(controller.view().status).toBe("Preview stays below");
+});
+
+test.each(["this", "inbox", "reference"])("Tree creates under the advertised create-parent %s", async (form) => {
+  const directory = mkdtempSync(join(tmpdir(), "tree-create-parent-"));
+  const store = new OutlinerStore(join(directory, "outline.sqlite"));
+  const socket = join(directory, "outline.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  try {
+    const parent = store.create("Flower notebooks");
+    const destination = form === "reference" ? `((${parent.id}))` : form;
+    const view = store.create(`Flowers [type::virtual-branch] [query::kind=flower] [create::kind=flower] [create-parent::${destination}]`, parent.id);
+    const client = new OutlinerClient(socket);
+    const ui = harness(() => undefined);
+    ui.effects.request = input => client.request(input);
+    const controller = createTreeController(ui.effects);
+    await controller.initialize();
+    await controller.revealBlock(view.id);
+    await controller.handleKeypress("a", { name: "a" }, "pass");
+    expect(controller.view().mode).toBe("add-child");
+    await controller.handleKeypress("Aster", {}, "pass");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    const expected = form === "this" ? parent.id : form === "inbox" ? store.queryBlocks({ where: "system-view=inbox", machinery: "show" }).blocks[0]!.id : parent.id;
+    const child = store.children(expected).find(block => block.text.startsWith("Aster"));
+    expect(child).toBeDefined();
+    expect(child!.properties).toContainEqual({ key: "kind", value: "flower" });
+  } finally { await server.close(); store.close(); rmSync(directory, { recursive: true, force: true }); }
 });

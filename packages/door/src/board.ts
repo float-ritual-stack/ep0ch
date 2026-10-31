@@ -8,7 +8,7 @@ import { prop, type Source } from "./props";
 import { linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 
 import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
-import { statusWord } from "@ep0ch/outline-core/checklist-marks";
+export { bodyMatch, matchWords } from "@ep0ch/outline-core/property-match";
 
 export interface Msg {
   /** Door-local provenance, carried between tiles; never sent as block data. */
@@ -55,13 +55,6 @@ export interface Msg {
    */
   propertyMatches?: PropertyMatch[];
 }
-
-/** The first chip a row matched on a line of its own, not the note's header: where the row opens. */
-export const bodyMatch = (m: Pick<Msg, "propertyMatches">): PropertyMatch | undefined => m.propertyMatches?.find(x => x.scope !== "block");
-
-/** Where a row matched, as its row says it: "line 12 to do club-ask: members: Saturday or Sunday". */
-export const matchWords = (x: PropertyMatch, withValue = true) =>
-  `line ${x.line + 1}${x.task ? ` ${statusWord(x.task)}` : ""} ${x.key}${withValue ? `: ${x.value}` : ""}`;
 
 export interface Caller {
   id: string;

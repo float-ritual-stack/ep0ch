@@ -75,10 +75,36 @@ test("one garden report's view table shows only the five requested readings", as
   for (const ref of [`((${view.id}))`, "garden-readings"]) {
     const note = store.create(pageReadingText(ref).replace("[page::garden-reading]", ""));
     const html = await page(`/p/${note.id}`);
-    const table = html.match(/<figure class="fig fig-table"><figcaption>Five recent readings<\/figcaption>([\s\S]*?)<\/figure>/)![1]!;
+    const table = html.match(/<figure[^>]*><figcaption>Five recent readings<\/figcaption>([\s\S]*?)<\/figure>/)![1]!;
     expect(table.match(/<tbody>([\s\S]*?)<\/tbody>/)![1]!.match(/<tr>/g)).toHaveLength(5);
     expect(table).toContain("Window sample");
   }
+});
+
+test("a collection block draws its answer in published HTML and Detail", async () => {
+  const { store, page, client } = await setup();
+  store.create("Water beans [type::garden-chore] [area::beds] [owner::Mira]\n\nWater at dusk.");
+  store.create("Wash pots [type::garden-chore] [area::shed] [owner::Sol]");
+  const note = store.create(["Garden layouts", "", ...["table", "gallery", "feed", "board"].flatMap(layout => [
+    `::view{query="type=garden-chore" layout=${layout} group=area summary-properties="title, owner"}`, "::", "",
+  ]), '::graph-table{kind=garden-chore}', '---', 'query: type={{props.kind}}', 'columns: [title, owner]', '---', '::'].join("\n"));
+  const html = await page(`/p/${note.id}`);
+  expect(html).toContain('<td class="lead"><a href=');
+  expect(html).toContain('class="ext-collection-grid"');
+  expect(html).toContain('class="ext-collection-rows"');
+  expect(html).toContain('class="ext-collection-lanes"');
+  expect(html).toContain("Water at dusk.");
+  expect(html).not.toContain("not drawn here");
+  const document = await loadDetailReadPreview(client, note);
+  const plain = (s: string) => s;
+  const theme: MarkdownTheme = { heading: plain, link: plain, linkUrl: plain, code: plain, codeBlock: plain, codeBlockBorder: plain, quote: plain, quoteBorder: plain, hr: plain, listBullet: plain, bold: plain, italic: plain, strikethrough: plain, underline: plain };
+  const drawn = renderDetailReadPreview(document, 100, theme, undefined, true).lines.map(stripTerminalSequences).join("\n");
+  expect(drawn).toContain("Water beans");
+  expect(drawn).toContain("Mira");
+  expect(drawn).toContain("Water at dusk.");
+  expect(drawn).not.toContain("::view");
+  expect(drawn).not.toContain("::graph-table");
+  expect(drawn).not.toContain("⚠");
 });
 
 test("a box renders its note's values, bold and day links inside its frame", async () => {
@@ -429,4 +455,31 @@ test("published Sources omits outputs inside a false conditional, including down
   expect(html).toContain('download="Spring.json"');
   expect(html).not.toContain("HIDDEN_HARVEST");
   expect(html).not.toContain('download="Winter.');
+});
+
+test("a public collection never resolves an unpublished linked note's title", async () => {
+  const { store, publisher } = await setup();
+  const hidden = store.create("Secret notebook title [publish::never]");
+  const visible = store.create("Open notebook [publish::public]");
+  store.create(`Hidden review [type::flower-review] [publish::public] [note::${hidden.id}]`);
+  store.create(`Open review [type::flower-review] [publish::public] [note::${visible.id}]`);
+  const page = store.create('Reviews [publish::public]\n::graph-table{query="type=flower-review" columns="title, note"}\n::');
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${page.id}?view=html`), "public");
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).toContain("Open notebook");
+  expect(html).not.toContain("Secret notebook title");
+});
+
+test.each(["automatic subtitle", "authored headers"])("graph-table keeps its %s", async (setting) => {
+  const { store, page } = await setup();
+  store.create("Aster [type::table-flower] [subtitle::Blooms in autumn]");
+  const options = setting === "authored headers" ? '\ncolumns: [title, subtitle]\nheaders: [Flower, Season]' : "";
+  const note = store.create(`Flower catalogue\n::graph-table\n---\nquery: type=table-flower${options}\n---\n::`);
+  const html = (await page(`/p/${note.id}?view=html`)).match(/<figure[\s\S]*?<\/figure>/)![0];
+  expect(html).toContain("Blooms in autumn");
+  if (setting === "authored headers") {
+    expect(html).toContain(">Flower</th>");
+    expect(html).toContain(">Season</th>");
+  }
 });

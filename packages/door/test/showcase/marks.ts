@@ -88,6 +88,8 @@ export const marks: Record<string, string[]> = {
   "links-rows": ["One line", "Two lines", "Truncate", "Carry the trestle tables"],
   // The day's plan with its outbox: the waiting letters listed, the first one previewed beside the list.
   "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
+  collection: ["Garden collection", "table", "gallery", "feed", "board", "Water the beans"],
+  sysop: ["Sysop watches the workshop", "Look now"],
   "list-view": ["One list, three ways", "OUTBOX", "Waiting letters", "Shelf actions", "Copy this note"],
   "agent-focus": ["Plan for Saturday", "@fern:3", "@moss:5", "who's online"],
   presence: ["who's online", "last callers · live"],
@@ -129,6 +131,7 @@ export const marks: Record<string, string[]> = {
   // Line chips (PIE-1277): the header-only view and the one that reads every line, which says the line.
   "line-asks": ["Club asks, header only", "Club asks, any line", "line 12 to do"],
   runbook: ["Try a terminal runbook", "[run]"],
+  "sh-lines": ["Shell lines keep their output", "ls | as files"],
   // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
   "ext-pages": ["Extensions", "## Installed", "Notifications hub", "Your GitHub notifications"],
   "ext-settings": ["Agents can't set each other off"],

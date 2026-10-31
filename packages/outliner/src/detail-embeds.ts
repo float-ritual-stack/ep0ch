@@ -1,3 +1,6 @@
+import { sourceLines } from "@ep0ch/outline-core/code-ranges";
+import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import { viewSpec } from "@ep0ch/outline-core/view-spec";
 import type { Decoration } from "./extension-rules";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { mayHaveResourceProjections, useResourceDirectiveProviders, type ResourceProviderEntry } from "./resource-references";
@@ -789,6 +792,27 @@ async function withSiteValues(requester: DetailEmbedRequester, hostBlockId: stri
   return { source: concatDocuments(parts), bindings };
 }
 
+async function withCollections(requester: DetailEmbedRequester, hostBlockId: string | undefined, source: MappedDocument, site: { chain?: SiteLink[]; props?: Record<string, string[]> }): Promise<MappedDocument> {
+  const lines = source.text.split("\n"), offsets = sourceLines(source.text), parts: MappedDocument[] = [];
+  let cursor = 0;
+  for (const block of componentBlocks(lines)) {
+    const spec = viewSpec(block, lines);
+    if (!spec) continue;
+    const start = offsets[block.start]!.start;
+    if (start < cursor) continue;
+    const end = offsets[block.end]?.contentEnd ?? source.text.length;
+    const props = { ...site.props, ...Object.fromEntries(Object.entries(spec.args ?? {}).map(([key, value]) => [key, [value]])) };
+    const answer = await requester.request<SiteAnswer>({ action: "site.answer", blockId: hostBlockId, ...site, props, produce: { kind: "view", props: spec.props } });
+    if (answer.produced?.kind !== "view") continue;
+    const words = detailComponentMarkdown(answer.produced.view);
+    if (words === null) continue;
+    parts.push(sliceDocument(source, cursor, start), generatedDocument(words, "collection answer"));
+    cursor = end;
+  }
+  parts.push(sliceDocument(source, cursor));
+  return concatDocuments(parts);
+}
+
 export function detailEmbedIds(text: string): string[] {
   return embedMatches(text).map((match) => match[1]!);
 }
@@ -801,7 +825,8 @@ export async function projectDetailRead(
   if (options.source && options.source.text !== text) throw new Error('Projection source must match its input text');
   const host = options.hostBlockId ? observeDocument({kind: 'block', blockId: options.hostBlockId}, text, options.hostRevision) : null;
   const presented = options.source ?? (host ? presentedSource(host) : generatedDocument(stripFragmentAnchors(text), 'host identity unavailable'));
-  const { source, bindings: valueBindings } = await withSiteValues(requester, options.hostBlockId, presented, { chain: options.chain, props: options.props });
+  const { source: valuedSource, bindings: valueBindings } = await withSiteValues(requester, options.hostBlockId, presented, { chain: options.chain, props: options.props });
+  const source = await withCollections(requester, options.hostBlockId, valuedSource, { chain: options.chain, props: options.props });
   const projectedSource = source.text;
   const valued = valueBindings.length ? { valueBindings } : {};
   const pendingProjections = options.hostBlockId

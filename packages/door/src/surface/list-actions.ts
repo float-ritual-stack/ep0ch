@@ -7,6 +7,7 @@
 import { ActionRefused, actionSet, def } from "./actions";
 import { actorKey, PERSON, selectable, type ListHandle, type ListViewRow } from "./list-view";
 import type { Actor } from "../socket";
+import { openedRef } from "@ep0ch/outline-core/list-row";
 
 /** What a host lends the lists' actions. */
 export interface ListHost {
@@ -26,6 +27,7 @@ export interface ListHost {
   type(list: ListHandle): void;
   /** The person's filter set by `list.filter words=`, when the host keeps it itself (its model narrows by it); else the view keeps it. */
   keep?(list: ListHandle, words: string): void;
+  choose?(list: ListHandle, action: "list.sort" | "list.group", keys: string[]): void;
   redraw(): void;
 }
 
@@ -57,7 +59,7 @@ const LIST_ARG = { type: "string", optional: true, about: "which list: its numbe
 function rowIn(list: ListHandle, who: string, { n, id }: { n?: number; id?: string }): ListViewRow {
   const rows = list.view.pickable(who);
   if (!rows.length) throw new ActionRefused(`${list.title} lists nothing${list.view.filter(who) ? ` that ${list.view.filter(who)} leaves` : " yet"}`);
-  const opens = (r: ListViewRow) => (r.do && "open" in r.do ? r.do.open : undefined);
+  const opens = openedRef;
   const row = id !== undefined ? rows.find(r => r.id === id) ?? rows.find(r => !!opens(r) && opens(r)!.startsWith(id)) : rows[n! - 1];
   if (!row) throw new ActionRefused(id !== undefined ? `${list.title} has no row for ${id}` : `${list.title} has rows 1 to ${rows.length}`);
   return row;
@@ -104,10 +106,10 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
       const row = rowIn(l, who, { n, id });
       if (!selectable(row)) throw new ActionRefused(`${row.label} is a header: it has nothing to pick`);
-      l.view.pick(who, row.id);
+      l.view.pick(who, row.id, row.group);
       if (who === PERSON) await host.picked(l, row);
       host.redraw();
-      return { list: l.n, title: l.title, row: l.view.pickable(who).findIndex(r => r.id === row.id) + 1, text: row.label, ...(row.do && "open" in row.do ? { id: row.do.open } : {}), moved: who === PERSON };
+      return { list: l.n, title: l.title, row: l.view.indexOf(who, row) + 1, text: row.label, ...(openedRef(row) ? { id: openedRef(row) } : {}), moved: who === PERSON };
     },
   }),
   "list.step": def({
@@ -125,7 +127,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
       if (!row) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} the pick in ${l.title}`);
       if (who === PERSON) await host.picked(l, row);
       host.redraw();
-      return { list: l.n, title: l.title, row: l.view.pickable(who).findIndex(r => r.id === row.id) + 1, text: row.label, moved: who === PERSON };
+      return { list: l.n, title: l.title, row: l.view.indexOf(who, row) + 1, text: row.label, moved: who === PERSON };
     },
   }),
   "list.open": def({
@@ -162,7 +164,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
       words: { type: "string", optional: true, about: "what to match; empty clears; left out, the person types it" },
     },
     examples: [{ act: "list.filter words=\"pea\"", does: "narrows the list to the rows matching pea (an agent's, for itself)" }],
-    run({ list, words }, { host, standing }, actor) {
+    async run({ list, words }, { host, standing }, actor) {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
       if (words === undefined) {
         if (!standing) throw new ActionRefused("typing a filter is the person's; an agent passes words=<text>");
@@ -173,8 +175,58 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
       // The person's own filter is the host's to keep (a links tile narrows through its model); an agent's is the view's.
       if (who === PERSON) { l.view.stopTyping(false); if (host.keep) host.keep(l, words); else l.view.setFilter(who, words); }
       else l.view.setFilter(who, words);
+      if (l.change) await l.change({ where: words }, who);
       host.redraw();
       return { list: l.n, title: l.title, filter: l.view.filter(who), rows: l.view.visible(who).length };
+    },
+  }),
+  "list.page": def({
+    summary: "turn a collection's page without changing its note", keys: "PageUp PageDown in a collection; click ‹ ›", touches: "nothing", replay: "safe",
+    args: { list: LIST_ARG, by: { type: "number", optional: true, about: "pages to turn, default 1" } },
+    run({ list, by }, { host, standing }, actor) {
+      const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
+      const pages = l.view.pageCount(who);
+      const page = l.view.turnPage(who, by ?? 1, pages);
+      host.redraw(); return { page, pages };
+    },
+  }),
+  "list.layout": def({
+    summary: "choose a collection's layout; without layout=, cycle its tabs. lane= selects a narrow board's lane",
+    keys: "tab in a collection; click a layout or lane", touches: "nothing", replay: "safe",
+    args: { list: LIST_ARG, layout: { type: "string", optional: true, about: "a layout offered by this collection" }, lane: { type: "number", optional: true, about: "lane number, from zero" } },
+    async run({ list, layout, lane }, { host, standing }, actor) {
+      const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
+      if (!l.change) throw new ActionRefused(`${l.title} has no layout tabs`);
+      if (lane !== undefined) { l.view.pickLane(who, lane); host.redraw(); return { lane }; }
+      const layouts = l.detail?.layouts as string[], current = l.view.settings.get(who)?.layout ?? l.detail?.layout;
+      const next = layout ?? layouts[(layouts.indexOf(String(current)) + 1) % layouts.length]!;
+      const answer = await l.change({ layout: next }, who);
+      host.redraw(); return answer;
+    },
+  }),
+  "list.sort": def({
+    summary: "sort a collection by a property; a header cycles ascending, descending, then the saved order. Without by=, reads the answer's available properties",
+    keys: "click a table header", touches: "nothing", replay: "safe",
+    args: { list: LIST_ARG, by: { type: "string", optional: true, about: "property name; list.sort without by lists the facets" }, order: { type: "string", optional: true, about: "asc or desc; left out, cycle" } },
+    async run({ list, by, order }, { host, standing }, actor) {
+      const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
+      if (!l.change) throw new ActionRefused(`${l.title} has no sortable question`);
+      if (!by) { if (who === PERSON) host.choose?.(l, "list.sort", (l.detail?.facets as { key: string }[] ?? []).map(f => f.key)); return { facets: l.detail?.facets }; }
+      if (order !== undefined && order !== "asc" && order !== "desc") throw new ActionRefused("order is asc or desc");
+      const current = l.view.settings.get(who)?.sort ?? l.detail?.sort;
+      const sort = order ? `${by} ${order}` : current === `${by} asc` ? `${by} desc` : current === `${by} desc` ? undefined : `${by} asc`;
+      const answer = await l.change({ sort }, who); host.redraw(); return answer;
+    },
+  }),
+  "list.group": def({
+    summary: "group a collection by one or two property names, separated by a comma; an empty by clears it. Without by=, reads the answer's facets",
+    keys: "click a group choice", touches: "nothing", replay: "safe",
+    args: { list: LIST_ARG, by: { type: "string", optional: true, about: "one or two property names; left out, lists the facets" } },
+    async run({ list, by }, { host, standing }, actor) {
+      const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
+      if (!l.change) throw new ActionRefused(`${l.title} has no grouped question`);
+      if (by === undefined) { if (who === PERSON) host.choose?.(l, "list.group", ["", ...(l.detail?.facets as { key: string }[] ?? []).map(f => f.key)]); return { facets: l.detail?.facets }; }
+      const answer = await l.change({ group: by }, who); host.redraw(); return answer;
     },
   }),
   "list.enter": def({

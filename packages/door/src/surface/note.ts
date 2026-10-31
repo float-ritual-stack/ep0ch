@@ -1,3 +1,5 @@
+import { renderPrimitiveList } from "./list-drawing";
+import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
 import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
@@ -25,8 +27,8 @@ import { HEADER_VALUES } from "@ep0ch/outline-core/component-schemas-blocks";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { InlineList, inlineRowKey } from "./inline-list";
 import { LISTVIEW_ACTIONS, listNamed, type ListHost } from "./list-actions";
-import { ListView, listRowLines, listRowsOf, PERSON, selectable, type ListHandle, type ListViewRow } from "./list-view";
-import { activationOf, type ListPrimitive } from "@ep0ch/outline-core/list-row";
+import { ListView, PERSON, selectable, type ListHandle, type ListViewRow } from "./list-view";
+import type { ListPrimitive } from "@ep0ch/outline-core/list-row";
 import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -64,7 +66,7 @@ import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
 import { childEnv, codeSpans, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { type Density, type FigureControl, type FigureInfo } from "../graphs";
-import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE, type EmbedBody } from "../embeds";
+import { embedRegion, embedsLoading, embedState, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE, type EmbedBody } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
 import { drawSources, FOLDS, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
@@ -74,7 +76,7 @@ import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
-import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
@@ -154,7 +156,7 @@ import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { MOUSE_ALT, RowPresses } from "../scroll";
 import { readState, writeState } from "../state";
 import { menuRow } from "../desk/tile-menu";
-import { centred, ListPicker, pickRow } from "./picker";
+import { centred, listFieldPicker, ListPicker, pickRow } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
@@ -170,7 +172,7 @@ import { AGENT_BG, selectText, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt
  * How a note was opened: a followed link (`link`), into a new reader (`fresh`), and by whom (`by`, PIE-514: the actor
  * itself, carried to where it lands, so an agent's open is an agent's there too: it never takes the person's keys).
  */
-export interface OpenHow { link?: boolean; fresh?: boolean; by?: Actor; standing?: boolean }
+export interface OpenHow { where?: import("@ep0ch/outline-core/list-row").ListOpenWhere; link?: boolean; fresh?: boolean; by?: Actor; standing?: boolean }
 /**
  * A link that names something outside the door: a web page (`browser`) or a file (`viewer`, a figure). The person's
  * follow opens it there; an agent's never does (`launched: false`): it is given the address instead.
@@ -592,7 +594,7 @@ const sameElementLink = (a: Link, b: Link) => a.press || b.press
   ? !!a.press && !!b.press && a.press.block === b.press.block && a.press.line === b.press.line && a.label === b.label
   : a.role === b.role && sameLink(a, b) && same(a.task, b.task, taskBase) && same(a.callout, b.callout, calloutBase)
     && same(a.figure, b.figure, figureElemBase) && a.inlineList?.key === b.inlineList?.key && a.inlineList?.row === b.inlineList?.row
-    && a.listRow?.key === b.listRow?.key && a.listRow?.row === b.listRow?.row;
+    && a.listRow?.key === b.listRow?.key && a.listRow?.row === b.listRow?.row && a.listRow?.group === b.listRow?.group;
 const same = <T,>(a: T | undefined, b: T | undefined, base: (x: T) => unknown) => (a && b ? base(a) === base(b) : !a === !b);
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
@@ -832,7 +834,7 @@ type GripMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { describe(): { movi
 type ComposerMove = FloatMove;
 type SplitFrame = { target: "comment" | "sources" | "list-preview" | "edit-preview"; beside: boolean; w: number; h: number; edge: number };
 /** The person asked to go somewhere while a comment is unsent (PIE-785): what they asked for waits on their choice. */
-interface LeaveAsk { what: string; name: keyof NoteActionArgs & string; args: Record<string, unknown>; elem?: string }
+interface LeaveAsk { what: string; name: keyof NoteActionArgs & string | "list.open"; args: Record<string, unknown>; elem?: string }
 /** The answers to leaving an unsent comment, with their keys: the draft kept and on, back to writing, or let go. */
 export type LeaveChoice = "save" | "keep" | "discard";
 /** How the power bar says each answer (src/bar/ask.ts asks it). */
@@ -2299,9 +2301,10 @@ export class NoteSurface {
     // The reading ruler: the current element's block, and a focus mark's, in one calm tint. An expanded
     // thread's passage is highlighted while it's open (the ruler, where both are, wins).
     const reading = this.readingRows();
-    const readingBand: [number, number] | null = reading && readingRuler() && !this.printed ? [top + reading[0], top + reading[1]] : null;
+    const framedList = this.framedList(current);
+    const readingBand: [number, number] | null = reading && readingRuler() && !this.printed && !framedList ? [top + reading[0], top + reading[1]] : null;
     // The element the cursor is on, when it is one row of something (a figure's row, a step): its rows are item-focused.
-    const itemRows: [number, number] | null = current?.item && !this.printed ? current.item : null;
+    const itemRows: [number, number] | null = current?.item && !this.printed && !framedList ? current.item : null;
     const rulers = [markRows].filter((r): r is [number, number] => !!r);
     const ruled = (row: number) => rulers.some(([a, b]) => row >= a && row < b);
     const quoted = marks.filter(k => this.expanded.has(k.thread)).map(k => [top + k.rows[0], top + k.rows[1]] as const);
@@ -2543,7 +2546,7 @@ export class NoteSurface {
     const { doc: rendered, points, lines: noteLines } = this.body(m, env, src, drawn, tokens, (source, noteLines) => {
       const regions = regionsByLine(outline ? projectionsOf(m, src) : [], noteLines), bodyText = source.split("\n");
       // A view note's results under its body, drawn as an embedded view (the service's answer).
-      const last = bodyText.length - 1, results = outline ? (width: number) => viewResults(m, width, src, drawn, env.inlineList) : null;
+      const last = bodyText.length - 1, results = outline ? (width: number) => renderCollection({ props: { of: `((${m.id}))` }, key: "^view" }, m.id, width, this.listEnv, (to, text) => tagged(drawn, to, text)) : null;
       const view = !!results && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch";
       // The rules' decorations (PIE-600): above or below what they matched, in its place, or around it.
       const plan = planDecorations(decorations, noteLines, { row: extDraw.row, press: (act, text) => tagged(drawn, { role: "control", label: text, press: { act, block: m.id, line: 0 } }, text), markdown: extDraw.markdown, blockdown: extDraw.blockdown, image: extDraw.image, headings: headingStylesOf(src) }, bodyText);
@@ -2745,7 +2748,7 @@ export class NoteSurface {
     this.listEnv = this.printed ? undefined : {
       list: (key, signature) => this.listFor(key, false, signature),
       entered: key => this.listIn === key,
-      row: (key, row, to, x) => tagged(drawn, { ...to, listRow: { key, row } }, x),
+      row: (key, row, to, x, group) => tagged(drawn, { ...to, listRow: { key, row, group } }, x),
       control: (key, x) => tagged(drawn, { role: "control", label: key, listRow: { key } }, x),
       ...(preview ? { preview } : {}),
       seen: info => blocks.push(info),
@@ -2964,7 +2967,7 @@ export class NoteSurface {
       return buttonRows(label, { ...call.look, ...pressed, ...(refused ? { state: "disabled", why: refused } : {}) },
         t => tagged(drawn, { role: "control", label, press: { act: call.act!, steps: call.steps, ...(call.alt ? { alt: call.alt } : {}), block, line, label: call.label } }, t));
     };
-    const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m?.id ?? "", env.inlineList);
+    const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m?.id ?? "", env.inlineList, undefined, this.listEnv);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
     const presenter = (noteText: string) => (t: string, linked: boolean) => presentLinks(t, false, src, noteText, linked ? undefined : drawn);
     // A live ::graph-check row's box: a step of its own note, whose mark writes the property its `done:` names.
@@ -2981,7 +2984,7 @@ export class NoteSurface {
       return st && steps ? LINK_ON + tagged(drawn, { role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }, shown) + LINK_OFF : null;
     };
     return {
-      spanPreview: (startLine, endLine, width) => m ? embedRegion(m.id, undefined, 0, width, src, inner, drawn, m.id, env.inlineList, { note: m, startLine, endLine, task: (line, box) => task(noteLines.indexOf(line), box) }) : [],
+      spanPreview: (startLine, endLine, width) => m ? embedRegion(m.id, undefined, 0, width, src, inner, drawn, m.id, env.inlineList, { note: m, startLine, endLine, task: (line, box) => task(noteLines.indexOf(line), box) }, this.listEnv) : [],
       present: presenter(m?.text ?? ""), ...(outline ? { liveStep } : {}),
       ...(outline ? { embed: embedHook } : {}),
       ...(m && outline ? { use: useHook(m.id, noteLines, undefined, 0, env.regions), button: buttonHook(m.id, noteLines) } : {}),
@@ -3018,7 +3021,7 @@ export class NoteSurface {
     this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0, this.imageRefOf(m, noteLines));
     this.keepCurrent(host);
     const current = this.elems.find(e => e.key === this.cur);
-    const lines = doc.lines.map((l, r) => (current && r >= current.ruler[0] && r < current.ruler[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
+    const lines = doc.lines.map((l, r) => (current && !this.framedList(current) && r >= current.ruler[0] && r < current.ruler[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
     const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
     for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
     // Every row of a wrapped heading is its disclosure (PIE-1349).
@@ -4246,37 +4249,8 @@ export class NoteSurface {
 
   // ── the inline lists (PIE-693, PIE-747): a ::links component, an extension's list view; their rows, picks, the person in one ──
 
-  /**
-   * An extension's `list` view drawn (PIE-747): the rows are the primitive's, the view is this reader's (`#n` among the
-   * lists the note draws), and each row is the element its one activation makes it: a block or Resource it opens, an
-   * action line it presses, text it copies or puts in the person's draft.
-   */
   private viewList(node: ListPrimitive, width: number, run: (act: string) => LinkTarget, lb: LinkBlocksEnv | undefined, drawn: Link[], markdown: (text: string) => string[]): string[] {
-    if (!lb) return listRowsOf(node).flatMap(r => listRowLines(r, { cols: width, lines: 2 }));
-    const n = ++(lb.drawn ??= { n: 0 }).n, key = `#${n}`;
-    const view = this.listFor(key, true, "list"), entered = this.listIn === key;
-    view.set(listRowsOf(node));
-    const previewing = node.preview !== undefined && node.preview !== "none" && view.rows.some(r => r.preview);
-    const tag = (row: ListViewRow, x: string): string => {
-      const a = activationOf(row);
-      if (!a) return x;
-      const at = { listRow: { key, row: row.id } };
-      const to: LinkTarget = a.kind === "open" ? (isResourceRef(a.value as string) ? { resourceRef: a.value as string, label: a.value as string, role: "row" } : { block: a.value as string, role: "row" })
-        : a.kind === "run" ? run(actionLine({ action: (a.value as { action: string }).action, args: (a.value as { args?: Record<string, string> }).args }))
-        : { role: "row", label: row.label, listText: a.kind === "copy" ? { copy: a.value as string } : { insert: a.value as string } };
-      return tagged(drawn, { ...to, ...at }, x);
-    };
-    const drawing = view.draw({
-      cols: width, focused: entered, selection: entered || previewing, tag, empty: node.empty ?? "nothing here",
-      ...(previewing ? { preview: { side: node.preview!, of: (row: ListViewRow, w: number) => {
-        const p = row.preview;
-        return !p ? null : "block" in p ? lb.preview?.(p.block, w) ?? null : markdown(p.markdown);
-      } } } : {}),
-    });
-    lb.seen?.({ n, key, title: `list ${n}`, view, entered, detail: { preview: null } });
-    // The frame's control, above the rows: ⏎ in (or esc out), unless the view said the list takes no keys.
-    const control = node.enter !== false && lb.control ? [" ".repeat(Math.max(0, width - 7)) + lb.control(key, entered ? "esc out" : "⏎ in")] : [];
-    return [...control, ...drawing.lines];
+    return renderPrimitiveList(this, node, width, run, lb, (to, text) => tagged(drawn, to, text), markdown);
   }
 
   /** The list the reader keeps for component `key`, made when first drawn. `narrows`: whether the view narrows its rows by a typed filter (a links component's model does that itself). */
@@ -4291,6 +4265,12 @@ export class NoteSurface {
   /** The lists the last layout drew, numbered in drawing order. */
   get listsDrawn(): ListHandle<any>[] { return this.linkBlocksDrawn; }
 
+  /** Arranged lists mark their own selection; the reader's item band would cover neighboring cards and cells. */
+  private framedList(e: Element | undefined): boolean {
+    const key = e?.link?.listRow?.key;
+    return key !== undefined && this.listViews.get(key)?.selectionStyle === "frame";
+  }
+
   /**
    * The list of this reader the actions name, `named` as `list.*` takes it (its number, `^name` or title); left out, the
    * one the person is in, else the one the [ ] position is in, else the note's only one.
@@ -4298,11 +4278,11 @@ export class NoteSurface {
   listNamed(named?: string): ListHandle<any> { return listNamed(this.listHost(), named); }
 
   /** The element drawn for row `row` of list `key`, and its number among the elements (from 1), or null. */
-  linkRowElement(key: string, row: string): { e: Element; n: number; row?: number } | null {
-    const i = this.elems.findIndex(e => e.link?.listRow?.key === key && e.link.listRow.row === row);
+  linkRowElement(key: string, row: string, group?: string): { e: Element; n: number; row?: number } | null {
+    const i = this.elems.findIndex(e => e.link?.listRow?.key === key && e.link.listRow.row === row && (group === undefined || e.link.listRow.group === group));
     if (i >= 0) return { e: this.elems[i]!, n: i + 1 };
     for (const [listKey, list] of this.inlineLists) {
-      const index = list.rows.findIndex(r => r.target.listRow?.key === key && r.target.listRow.row === row);
+      const index = list.rows.findIndex(r => r.target.listRow?.key === key && r.target.listRow.row === row && (group === undefined || r.target.listRow.group === group));
       const n = this.elems.findIndex(e => e.link?.inlineList?.key === listKey);
       if (index >= 0 && n >= 0) return { e: this.inlineRowElement(this.elems[n]!, index), n: n + 1, row: index + 1 };
     }
@@ -4333,9 +4313,9 @@ export class NoteSurface {
   }
 
   /** The person's pick in list `l` moves to row `row`: the [ ] position goes with it, so the ruler and the preview agree. */
-  selectListRow(l: ListHandle<any>, row: string) {
-    l.view.pick(PERSON, row);
-    const at = this.linkRowElement(l.key, row);
+  selectListRow(l: ListHandle<any>, row: string, group?: string) {
+    l.view.pick(PERSON, row, group);
+    const at = this.linkRowElement(l.key, row, group);
     if (at) this.setElem(at.e);
     this.reveal = true;
   }
@@ -4345,7 +4325,7 @@ export class NoteSurface {
     if (!on) { this.leaveList(l.key); this.letGo(); return; }
     this.modes.push(this.listMode(l.key, l.title));
     const first = l.view.picked(PERSON) ?? l.view.visible().find(selectable);
-    if (first) this.selectListRow(l, first.id);
+    if (first) this.selectListRow(l, first.id, first.group);
   }
   /** Out of the list the person is in (any, or only `key`): its typed filter goes with it. */
   private leaveList(key?: string) {
@@ -4385,15 +4365,19 @@ export class NoteSurface {
       if (k.kind === "enter") view.stopTyping(true);
       else if (k.kind === "esc") view.stopTyping(false);
       else if (!T.take(k)) return true;
+      if (l.change) void l.change({ where: view.filter() }, PERSON).then(() => host.redraw());
       host.redraw();
       return true;
     }
+    if (k.kind === "tab" && l.change) { void this.runList("list.layout", { list }, host); return true; }
     const n = view.visible().filter(selectable).length, c = ch(k);
     const to = (i: number) => { if (n && i >= 0 && i < n) void this.runList("list.pick", { list: String(l.n), n: i + 1 }, host); return true; };
     if (isDown(k) || isUp(k)) {
-      void this.runKey("reading.step", { by: isDown(k) ? 1 : -1 }, host);
+      void this.runList("list.step", { list, by: isDown(k) ? 1 : -1 }, host);
       return true;
     }
+    if (l.change && (c === "s" || c === "g")) { void this.runList(c === "s" ? "list.sort" : "list.group", { list }, host); return true; }
+    if (l.change && (k.kind === "pgup" || k.kind === "pgdn")) { void this.runList("list.page", { list, by: k.kind === "pgup" ? -1 : 1 }, host); return true; }
     if (k.kind === "home") return to(0);
     if (k.kind === "end") return to(n - 1);
     if (k.kind === "enter" || k.kind === "alt-enter") { if (n) void this.runList("list.open", { list: String(l.n), ...(k.kind === "alt-enter" ? { where: "new" } : {}) }, host); return true; }
@@ -4414,20 +4398,30 @@ export class NoteSurface {
   listHost(host?: SurfaceHost): ListHost {
     const here = () => { if (!host) throw new ActionRefused("this list action needs the reader's host"); return host; };
     return {
-      lists: () => this.listsDrawn,
+      lists: () => this.listsDrawn.map(list => ({ ...list, entered: this.listIn === list.key })),
       current: () => this.listIn ?? this.inView()?.link?.listRow?.key ?? null,
       none: "this note draws no list (a ::links component, or an extension's list view)",
-      picked: (l, row) => { this.selectListRow(l, row.id); this.previewRow(here()); },
+      picked: (l, row) => { this.selectListRow(l, row.id, row.group); this.previewRow(here()); },
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
       enter: (l, on) => { if (on || this.listIn === l.key) this.enterList(l, on); },
       type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(filterLine); },
+      choose: (l, action, keys) => here().overlay?.(listFieldPicker(l.title, action, keys, by => { void this.runList(action, { list: l.key, by }, here()); })),
       redraw: () => host?.redraw(),
     };
   }
 
-  /** Open a row of list `l` for real: the element it is drawn as, opened as `element.open` opens it (fresh: alt+⏎). */
+  /** An agent's row may be outside the person's answer, so follow its target without needing a drawn element. */
   private async openListRow(l: ListHandle<any>, row: ListViewRow<any>, where: "home" | "new", actor: Actor, host: SurfaceHost, standing: boolean): Promise<unknown> {
-    const at = this.linkRowElement(l.key, row.id);
+    const target = listOpenTarget(row);
+    if (target) {
+      const asked = this.askLeave("list.open", { list: l.key, id: row.id, where }, actor, host);
+      if (asked) return asked;
+      const result = await this.followTarget(target, { ...host, actor }, { link: true, fresh: where === "new", by: actor, standing });
+      this.noteAgent(actor, `opened ${row.label}`);
+      host.redraw();
+      return result && "id" in result ? { opened: result.id, title: subject(result) } : result;
+    }
+    const at = this.linkRowElement(l.key, row.id, row.group);
     if (!at) throw new ActionRefused(`${row.label} isn't drawn in ${l.title} now`);
     // A row that runs an action line is a press (button.press), as whoever asks.
     if (at.e.link?.press) return NOTE_ACTIONS.run("button.press", { n: at.n }, { surface: this, host, standing }, actor);
@@ -4519,7 +4513,8 @@ export class NoteSurface {
     // An element is found again by its key: what's drawn above it may have changed (the kept comment's line).
     const n = ask.elem ? this.elems.findIndex(e => e.key === ask.elem) + 1 : 0;
     if (ask.elem && !n) return { choice, ...(said ? { said } : {}), then: "the element isn't drawn any more" };
-    const then = await this.runKey(ask.name, (n ? { ...ask.args, n } : ask.args) as never, host);
+    const then = ask.name === "list.open" ? await this.runList(ask.name, ask.args as never, host)
+      : await this.runKey(ask.name, (n ? { ...ask.args, n } : ask.args) as never, host);
     return { choice, ...(said ? { said } : {}), then };
   }
 
@@ -5488,7 +5483,7 @@ export class NoteSurface {
     const current = this.selectedElement();
     const figure = current?.link?.figure?.figure;
     const links = current?.link?.listRow?.key;
-    if (figure || links) {
+    if (figure || (links && !current.link?.inlineList)) {
       const entries = this.elems.filter(e => figure ? e.kind === "row" && e.link?.figure?.figure === figure : e.link?.listRow?.key === links && e.link?.listRow?.row !== undefined);
       const entry = entries[0];
       const inline = current.link?.inlineList ?? entry?.link?.inlineList;
@@ -5598,7 +5593,7 @@ export class NoteSurface {
     this.link = l ? this.links.findIndex(x => sameLink(x, l)) : -1;
     // A row of an inline ::links (PIE-693): it's that component's selection too, and its preview follows.
     const lb = l?.listRow;
-    if (lb?.row) { try { this.listViews.get(lb.key)?.pick(PERSON, lb.row); } catch { /* a row the list no longer draws */ } }
+    if (lb?.row) { try { this.listViews.get(lb.key)?.pick(PERSON, lb.row, lb.group); } catch { /* a row the list no longer draws */ } }
   }
 
   /** The current element while the person can see it (or it's about to be brought into view). */
@@ -5674,7 +5669,7 @@ export class NoteSurface {
     if (e.kind === "task") { if (select) this.openPicker(e); host.redraw(); return { step: e.task?.step.itemId ?? null, choice: select }; }
     // A callout's icon or type opens its type choice under it (the person's; an agent changes it by callout.type).
     if (e.kind === "callout") { if (select) this.openCalloutPicker(e); host.redraw(); return { callout: e.label, choice: select, types: calloutsOf(this.src).types.map(t => t.name) }; }
-    const how: OpenHow = { link: true, fresh };
+    const how: OpenHow = { link: true, fresh, by: actor, standing: select };
     const l = e.link!;
     if (e.value !== undefined) return this.followValue({ key: e.value, target: l.block ? { block: l.block } : { page: l.page! } }, host, how);
     return this.followTarget(l, host, how);
@@ -6125,7 +6120,10 @@ export class NoteSurface {
    * A key this reader takes ahead of its host's own while a live figure's element is current (tab and shift+tab
    * cycle a desk's tiles, ← → step a river's columns or a BBS reader's messages otherwise): the host asks first.
    */
-  claims(k: Key): boolean { return this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H"); }
+  claims(k: Key): boolean {
+    const list = this.listsDrawn.find(l => l.key === this.listIn);
+    return !!list && (!!list.view.typing || k.kind === "tab" && !!list.change) || this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H");
+  }
 
   /**
    * The image action key `k` runs while an image is the current element (PIE-532): + - its size (a header's height),
@@ -6753,6 +6751,7 @@ export class NoteSurface {
 
   /** Open what a link names: media in the system viewer, web pages in the browser (openOutside), blocks and pages through the host (`how`, where). */
   private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | Outside | TagList | null> {
+    how = { ...how, ...(l.openWhere && !how.fresh ? { where: l.openWhere } : {}) };
     if (l.query !== undefined) {
       if (!host.query) { host.ctx.flash(`${l.query}: this screen has nowhere to list notes · / searches the outline`); return null; }
       return host.query(l.query, { ...how, ...(host.actor ? { by: host.actor } : {}) });

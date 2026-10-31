@@ -9,12 +9,21 @@
 import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
 import { interpolate } from "@ep0ch/outline-core/interpolation";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
-import { asksPerItem, cellBlockId, CHILDREN_QUERY, figureQuestion, liveAsk, sortProblem } from "@ep0ch/outline-core/figure-live";
+import { asksPerItem, cellBlockId, CHILDREN_QUERY, figureQuestion, itemField, liveAsk, sortProblem, tableOf } from "@ep0ch/outline-core/figure-live";
+import { recordProperties, valuesOf } from "@ep0ch/outline-core/block-record";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { frontMatterLines } from "@ep0ch/outline-core/header-line";
+import { bodyMatch, matchWords } from "@ep0ch/outline-core/property-match";
+import { VIEW, checkValue } from "@ep0ch/outline-core/component-schema";
+import { viewWords } from "@ep0ch/outline-core/view-spec";
+import { listCellText, type ListGroup, type ListPrimitive } from "@ep0ch/outline-core/list-row";
+import type { QuestionGroup } from "@ep0ch/outline-core/protocol";
 import { displayTitleOfText } from "./references";
 import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/outline-core/site";
 import type { BlockSearchQuery, SavedViewReadResult, TreeIndexBlock, VisibleBlock, VisibleBlockCollection } from "./types";
 import type { Bound } from "./site-answer";
 import { queryRelations, type QueryRelationKind, type ValueBinder } from "./block-query";
+import { parseVirtualBranchConfig, virtualBranchMembershipQuery } from "./virtual-branches";
 import { StillCounting } from "./site-budget";
 
 type Props = Record<string, any>;
@@ -105,7 +114,7 @@ function cutStore(store: ProducerStore, world: Bound["world"]): ProducerStore {
     get: id => store.get(id),
     children: id => store.children(id),
     linkNeighbours: (ids, which) => store.linkNeighbours(ids, which),
-    queryBlocks: (input, binder) => store.queryBlocks(input, binder, blocks => visibleMatches(store, world, blocks, input.where)),
+    queryBlocks: (input, binder, select) => store.queryBlocks(input, binder, blocks => { const shown = visibleMatches(store, world, blocks, input.where); return select ? select(shown, input.where) : shown; }),
     readSavedView: (viewId, options, format) => store.readSavedView(viewId, options, format, (blocks, where) => visibleMatches(store, world, blocks, where)),
     matchQuery: (expression, ids, narrow, binder, draft) => {
       const matched = store.matchQuery(expression, ids, narrow, binder, draft);
@@ -181,7 +190,7 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
   const error = done.error ? `done: ${done.error}` : now.error ? `now: ${now.error}` : undefined;
   const titles = kind === "timeline" && p.meta === "parent"
     ? Object.fromEntries([...new Set(a.blocks.flatMap(b => b.parentId ? [b.parentId] : []))].flatMap(id => { const parent = store.get(id); return parent ? [[id, displayTitleOfText(parent.text) ?? id]] : []; }))
-    : kind === "table" || kind === "tabs" ? cellTitles(store, a.blocks, Array.isArray(p.columns) ? p.columns.map(String) : undefined) : undefined;
+    : kind === "table" || kind === "tabs" ? cellTitles(tools, a.blocks, Array.isArray(p.columns) ? p.columns.map(String) : undefined) : undefined;
   // (A `link:` property's notes are the rows' links; they need no title.)
   return {
     kind: "figure", blocks: a.blocks, truncated: a.truncated, ...(a.total !== undefined ? { total: a.total } : {}), ...(titles ? { titles } : {}),
@@ -191,6 +200,87 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
   };
 }
 
+/** The collection record compiles here; clients receive rows, groups and cells, never a query to interpret. */
+function collection(store: ProducerStore, bound: Bound, tools: SiteTools, written: Props, state: Props = {}): Extract<SiteProduced, { kind: "view" }> {
+  let p: Props = { sort: "updated", ...written }, title = "Collection", source: string | undefined;
+  const empty = (error: string): Extract<SiteProduced, { kind: "view" }> => ({ kind: "view", title, layout: "table", layouts: ["table"], question: {}, view: { type: "list", rows: [], empty: error }, truncated: false, error });
+  try {
+    if (written.of) {
+      const ref = String(written.of);
+      const id = tools.read(`${ref.startsWith("((") || ref.startsWith("[[") ? ref : `((${ref}))`}.id`);
+      if (id.problem) return empty(id.problem.message);
+      source = id.values![0]!;
+      const saved = store.readSavedView(source, {}, "tree");
+      if (saved.status !== "ready") return empty(saved.errors.join("; "));
+      const note = store.get(source)!;
+      title = displayTitleOfText(note.text) ?? "Collection";
+      p = Object.fromEntries(parsePropertyRecords(note.text).filter(field => field.scope === "block").map(field => [field.key, field.value]));
+      // A saved note's page address is not a page size; numeric values and inline/layout overrides still configure the collection.
+      if (p.page !== undefined && Number.isNaN(Number(p.page))) delete p.page;
+      const where = [p.where, written.where].filter(Boolean).map(w => `(${w})`).join(" AND ");
+      p = { ...p, ...written, ...(where ? { where } : {}) };
+    }
+    const layouts = viewWords(p.layout ?? "table");
+    const allowed = VIEW.props.find(prop => prop.key === "layout")!.values!.map(value => value.value);
+    const bad = layouts.find(layout => !allowed.includes(layout));
+    if (bad) return empty(`layout: ${bad} is unknown; write ${allowed.join(", ")}`);
+    const layout = state.layout ?? layouts[0] ?? "table";
+    if (!allowed.includes(layout)) return empty(`layout: ${layout} is unknown; write ${allowed.join(", ")}`);
+    p = { ...p, ...Object.fromEntries(Object.entries(p).filter(([key]) => key.startsWith(`${layout}.`)).map(([key, value]) => [key.slice(layout.length + 1), value])) };
+    p = { ...p, ...state, where: [p.where, state.where].filter(Boolean).map(w => `(${w})`).join(" AND ") };
+    for (const property of VIEW.props) if (property.key !== "direction" && p[property.key] !== undefined && (property.type === "enum" || property.type === "int")) {
+      const problem = checkValue(property, String(p[property.key]));
+      if (problem) return empty(problem);
+    }
+    title = String(p.title ?? title);
+    if (title.includes("{{")) title = interpolate(title, span => { const value = tools.read(span.expression); return value.values && !value.hidden ? value.values : undefined; });
+    const compiled = parseVirtualBranchConfig({ id: source ?? "", properties: Object.entries({ type: "virtual-branch", ...p }).map(([key, value]) => ({ key, value: Array.isArray(value) ? value.join(",") : String(value) })) }, []);
+    if (!compiled.config) return empty(compiled.configurationErrors.join("; "));
+    const question: BlockSearchQuery = {
+      ...virtualBranchMembershipQuery(source ?? "", compiled.config, compiled.config.limit),
+      ...(bound.site.this ? { this: bound.site.this.id } : {}), facets: true,
+    };
+    const answer = store.queryBlocks(question, tools.binder);
+    // Excluding the record must keep the question's warnings; a publication cut still owns which hints it reveals.
+    const found = source ? { ...store.queryBlocks(question, tools.binder, blocks => blocks.filter(block => block.id !== source)), ...(answer.hint ? { hint: answer.hint } : {}) } : answer;
+    const items = found.blocks.map(block => ({ ...block, properties: recordProperties(block.properties), author: block.author ?? null, title: displayTitleOfText(block.text) ?? block.id, createdAt: Date.parse(block.createdAt), updatedAt: Date.parse(block.updatedAt) }));
+    const writtenColumns = p["summary-properties"] ?? p.columns;
+    const table = tableOf({ ...p, ...(writtenColumns ? { columns: viewWords(writtenColumns) } : {}) }, items);
+    const columns = table.columns;
+    const titles = cellTitles(tools, found.blocks, columns);
+    const bodyLines = Number(p.body ?? (layout === "feed" ? 6 : 0));
+    const rowValue = (block: VisibleBlock, key: string, label: string, body: string[]) => {
+      if (key === "description") return valuesOf(block, key).join(", ") || body[0] || "";
+      const raw = itemField({ ...block, properties: recordProperties(block.properties), author: block.author ?? null, title: label, createdAt: Date.parse(block.createdAt), updatedAt: Date.parse(block.updatedAt) }, key);
+      const named = cellBlockId(raw);
+      return named && titles?.[named] ? { text: titles[named], link: named } : raw;
+    };
+    const rows = found.blocks.map((block, i) => {
+      const match = bodyMatch(block);
+      const label = (displayTitleOfText(block.text) ?? block.id) + (match ? ` · ${matchWords(match, false)}` : "");
+      const front = frontMatterLines(block.text);
+      const body = block.text.split("\n").filter((_, i) => !front.has(i)).join("\n").trim().split("\n");
+      const cells = columns.map(key => rowValue(block, key, label, body)).map(cell => typeof cell === "object" && cell.link === table.blocks[i] && table.rowRevisions?.[i] ? { ...cell, revision: table.rowRevisions[i]! } : cell);
+      const cover = viewWords(p.cover).map(key => valuesOf(block, key).join(", ")).find(Boolean);
+      return { id: block.id, label, cells, bind: `((${block.id}))`, body: body.slice(0, bodyLines),
+        detail: columns.flatMap((key, i) => key === "title" || !listCellText(cells[i]!) ? [] : [`${key}: ${listCellText(cells[i]!)}`]).join(" · "),
+        ...(cover ? { cover } : {}), preview: { block: block.id },
+        do: { open: p.open || table.rowRevisions?.[i] || match ? { ref: table.blocks[i]!, ...(p.open ? { where: p.open } : {}), ...(table.rowRevisions?.[i] ? { revision: table.rowRevisions[i]! } : {}), ...(match ? { at: match.start, atLabel: match.raw, atSays: `the line its ${match.key} is written on` } : {}) } : table.blocks[i]! },
+      };
+    });
+    const groups = (sourceGroups: QuestionGroup[], parent = ""): ListGroup[] => sourceGroups.map(group => ({
+      name: `${parent}/${group.value ?? "\u0000"}`, label: group.value ?? "NONE", count: group.count, ids: group.ids,
+      ...(group.groups ? { groups: groups(group.groups, `${parent}/${group.value ?? "\u0000"}`) } : {}),
+    }));
+    const arrange: Record<string, NonNullable<ListPrimitive["arrange"]>> = { table: "table", gallery: "grid", feed: "rows", board: "lanes" };
+    return { kind: "view", title, layout, layouts, question: { ...question, where: compiled.config.query, ...(compiled.config.sort ? { sort: `${compiled.config.sort.field} ${compiled.config.sort.direction}` } : {}) }, view: {
+      type: "list", rows, arrange: arrange[layout], size: p.card ?? "small", columns, headers: table.headers, page: Number(p.page ?? 200),
+      ...(found.groups ? { groups: groups(found.groups) } : {}), empty: found.hint ?? "No matching notes",
+    }, ...(found.groups ? { groups: found.groups } : {}), ...(found.facets ? { facets: found.facets } : {}),
+      ...(found.hint ? { hint: found.hint } : {}), truncated: found.completeness.kind === "truncated" };
+  } catch (error) { return empty(sortProblem(own(error), p.sort, p.direction ?? "desc")); }
+}
+
 /** The most cells naming a note one table answers with titles. */
 const MAX_CELL_TITLES = 500;
 
@@ -198,7 +288,7 @@ const MAX_CELL_TITLES = 500;
  * The titles of the notes a table's rows name by id in their properties (PIE-1388: a record's `note::<uuid>`), so every
  * reader draws the title, linked, where the value is a uuid. Ids of notes that aren't there are left as written.
  */
-function cellTitles(store: ProducerStore, blocks: readonly { properties?: { key: string; value: string }[] }[], columns?: readonly string[]): Record<string, string> | undefined {
+function cellTitles(tools: SiteTools, blocks: readonly { properties?: { key: string; value: string }[] }[], columns?: readonly string[]): Record<string, string> | undefined {
   const out: Record<string, string> = {};
   let n = 0;
   // Only the columns the table draws (a table that names none draws title and updated: no property cells).
@@ -207,8 +297,8 @@ function cellTitles(store: ProducerStore, blocks: readonly { properties?: { key:
     if (!columns.includes(property.key)) continue;
     const id = cellBlockId(property.value ?? "");
     if (!id || id in out || n++ >= MAX_CELL_TITLES) continue;
-    const named = store.get(id);
-    if (named) out[id] = displayTitleOfText(named.text) ?? id;
+    const named = tools.read(`((${id})).title`);
+    if (!named.hidden && named.values?.[0]) out[id] = named.values[0];
   }
   return Object.keys(out).length ? out : undefined;
 }
@@ -261,8 +351,9 @@ export function produce(raw: ProducerStore, bound: Bound, producer: SiteProducer
   // A limited reader's producers ask a store that leaves out what it can't answer for (`cutStore`).
   const store = bound.world.cut ? cutStore(raw, bound.world) : raw;
   const thisId = bound.site.this?.id;
-  if (!thisId && producer.kind !== "figure" && producer.kind !== "unknowable") return { answer: { kind: "if", holds: false, problem: { message: "this run has no note to read", didYouMean: [] } } };
+  if (!thisId && producer.kind !== "figure" && producer.kind !== "view" && producer.kind !== "unknowable") return { answer: { kind: "if", holds: false, problem: { message: "this run has no note to read", didYouMean: [] } } };
   switch (producer.kind) {
+    case "view": return { answer: collection(store, bound, tools, producer.props, producer.state), anyChange: true };
     case "figure": {
       if (!producer.figure || typeof producer.figure !== "string" || !producer.props || typeof producer.props !== "object") throw new Error("produce a figure with { kind: \"figure\", figure: \"table\", props: { query: \"type=ticket\" } }");
       const answer = figure(store, tools, thisId, producer.figure, producer.props as Props), t = (producer.props as Props).title;

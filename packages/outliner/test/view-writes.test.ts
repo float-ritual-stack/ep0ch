@@ -70,12 +70,12 @@ describe("planning a move", () => {
 
 describe("planning a new note", () => {
   test("born with the plain clauses; an OR group is left for the text or the create:: default", () => {
-    expect(planCreateInView(view("Doing", "stage=doing track=door"), undefined)).toEqual({ kind: "create", born: [{ key: "stage", value: "doing" }, { key: "track", value: "door" }], defaults: [], needs: [], roadmap: false });
+    expect(planCreateInView(view("Doing", "stage=doing track=door"), undefined)).toEqual({ kind: "create", parentId: null, born: [{ key: "stage", value: "doing" }, { key: "track", value: "door" }], defaults: [], needs: [], roadmap: false });
     expect(planCreateInView(view("Doing", ALL_WORK("doing")), undefined)).toEqual({
-      kind: "create", born: [{ key: "type", value: "roadmap-item" }, { key: "work-stage", value: "doing" }], defaults: [], needs: ["(project=pi-outliner OR project=ep0ch-door)"], roadmap: true,
+      kind: "create", parentId: null, born: [{ key: "type", value: "roadmap-item" }, { key: "work-stage", value: "doing" }], defaults: [], needs: ["(project=pi-outliner OR project=ep0ch-door)"], roadmap: true,
     });
     expect(planCreateInView(view("Queued", ALL_WORK("queued"), "[create::project=ep0ch-door]"), "")).toEqual({
-      kind: "create", born: [{ key: "type", value: "roadmap-item" }, { key: "work-stage", value: "queued" }], defaults: [{ key: "project", value: "ep0ch-door" }], needs: [], roadmap: true,
+      kind: "create", parentId: null, born: [{ key: "type", value: "roadmap-item" }, { key: "work-stage", value: "queued" }], defaults: [{ key: "project", value: "ep0ch-door" }], needs: [], roadmap: true,
     });
     for (const s of ["review", "validate", "done", "superseded"]) {
       expect(planCreateInView(view("Late", ALL_WORK(s)), undefined)).toEqual({ kind: "refused", reason: `Late lists work-stage=${s}: roadmap items are created in Queued or Doing, then moved` });
@@ -83,9 +83,9 @@ describe("planning a new note", () => {
     expect(planCreateInView(view("Odd", "stage=a stage=b"), undefined)).toEqual({ kind: "refused", reason: "Odd asks for stage to be a and b at once; a note has one value" });
     expect(planCreateInView(view("Old", "stage=doing created < 2020-01-01"), undefined)).toEqual({ kind: "refused", reason: "Old needs created < 2020-01-01, which a new note doesn't meet" });
     expect(planCreateInView(view("Clash", "stage=doing", "[create::stage=done]"), undefined)).toEqual({ kind: "refused", reason: "Clash's create:: default stage=done contradicts its query (stage=doing)" });
-    expect(planCreateInView(view("Bin", "stage=doing", "[create::deleted=true]"), undefined)).toEqual({ kind: "refused", reason: "Bin's create:: default is unusable: deleted=true selects Trash; it isn't a property to set" });
-    // Where a new note goes is the caller's choice: a create-parent the service can't resolve doesn't block planning.
-    expect(planCreateInView(view("Doing", "stage=doing", "[create-parent::((not-a-block))]"), undefined).kind).toBe("create");
+    expect(planCreateInView(view("Bin", "stage=doing", "[create::deleted=true]"), undefined)).toEqual({ kind: "refused", reason: "Bin can't create a note: deleted=true selects Trash; it isn't a property to set" });
+    // An authored parent must resolve before the board can offer creation there.
+    expect(planCreateInView(view("Doing", "stage=doing", "[create-parent::((not-a-block))]"), undefined).kind).toBe("refused");
   });
 
   test("the text: needed properties go on the first line unless the text says so; a contradiction is refused; the whole query decides", () => {

@@ -1,24 +1,17 @@
 // Where a new card in a lane goes (PIE-406). What it is born with, and the text or roadmap item it is
 // saved as, is the service's plan (`views.planWrite`); the board (delivery.ts) asks for it and writes.
-import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { subject, type Msg } from "../board";
 import { ellipsize } from "../style";
-import { prop } from "../props";
 
 export interface ParentPick { id: string; why: string }
 
 /**
- * Where a new card in a lane goes: the lane's `[create-parent::<id>]`; else the parent most of the
+ * Where a new card in a lane goes: the service's resolved parent; else the parent most of the
  * lane's cards share, else most of the board's. "Most" means more than half: a board whose cards
  * are spread across parents gets no guess, and the reason says how to name one.
  */
-export function pickParent(laneName: string, def: Msg | undefined, laneItems: Msg[], boardItems: Msg[]): ParentPick | { refused: string } {
-  const named = def?.properties.filter(p => p.key === "create-parent") ?? [];
-  if (named.length > 1) return { refused: `${laneName} has more than one create-parent::` };
-  if (named.length === 1) {
-    const id = referencedBlock(named[0]!.value)?.blockId ?? named[0]!.value.trim();
-    return { id, why: `${laneName}'s create-parent` };
-  }
+export function pickParent(laneName: string, parentId: string | null, laneItems: Msg[], boardItems: Msg[]): ParentPick | { refused: string } {
+  if (parentId) return { id: parentId, why: `${laneName}'s create-parent` };
   const majority = (items: Msg[], where: string): ParentPick | null => {
     // A row's parent is only known when the service sent one; top-level cards don't vote for "top level".
     const withParent = items.filter(m => m.parentId);

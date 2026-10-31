@@ -13,7 +13,7 @@ export const DETAIL_ROW_LANGUAGE = /^ep0ch-row(?:\s+(\d{1,3}))?\s*$/;
 export const COLUMN_BREAK = "␞";
 
 /** Whether a view holds a row anywhere. */
-const hasRow = (node: Primitive): boolean => node.type === "row" ||
+const hasRow = (node: Primitive): boolean => node.type === "row" || node.type === "list" ||
   ((node.type === "box" || node.type === "stack" || node.type === "card") && (node.children ?? []).some(hasRow));
 
 /**
