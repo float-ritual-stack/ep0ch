@@ -602,7 +602,7 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
           ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor)
           // The run it started: the invitation belongs to it from here (and is spent when it ends).
           .then(r => { if (invited && r.undo) INVITES.bind(invited, r.undo); return r; });
-      }, !!asked);
+      }, !!asked, !via && !slots && !Object.keys(given).length);
     },
   };
 }
@@ -645,7 +645,7 @@ const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "prope
  * (src/bar/ask.ts), its choices from the service (`extensions.args`: a property's from the rows it would act on) and its
  * value now lit, then the action runs with them. An agent is never asked: what it leaves out takes its default, or is refused.
  */
-export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>, asked = false): Promise<R | { asking: string; action: string }> {
+export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>, asked = false, optionals = false): Promise<R | { asking: string; action: string }> {
   if (actor.kind !== "user" || !ctx.dispatch || asked) return run(given);
   const catalog: PropertyCatalog = (key, prefix) => ctx.board.propertyCatalog(key, prefix, 30);
   // A form from the note (PIE-828): what it asks is the note's, so the service says it (a form it can't read is refused there).
@@ -657,11 +657,20 @@ export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: Ex
     const r = await askInBar(ctx, a.label, open.map(x => asQuestion(x.fromBlock ? { ...x, required: !!x.required } : x, catalog)), given, actor, run);
     return r && typeof r === "object" && "asking" in r ? { asking: (r as { asking: string }).asking, action: a.name } : r;
   }
-  const open = (a.args ?? []).filter(x => asks(x) && given[x.name] === undefined);
-  if (!open.length) return run(given);
+  const declared = (a.args ?? []).filter(x => given[x.name] === undefined);
+  const open = declared.filter(asks);
+  if (!open.length && !(optionals && declared.length)) return run(given);
+  // An action with a slot that may be left out (PIE-1473) opens as a form over every slot it declares, the needed first
+  // (tab moves between them, an empty optional one is left out); the rest is asked one at a time.
+  const form = optionals && declared.some(x => !asks(x));
+  const ask = form ? [...declared.filter(x => x.required), ...declared.filter(x => !x.required)] : open;
   let specs: ExtensionArgChoice[];
-  try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch { specs = open; }
-  const r = await askInBar(ctx, a.label, open.map(x => asQuestion({ ...x, ...specs.find(y => y.name === x.name) }, catalog)), given, actor, run);
+  try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch { specs = ask; }
+  // In a form anything typed is an answer, except to a fixed list of choices (src/bar/form.ts, fieldQuestion).
+  const questions = ask.map(x => asQuestion({ ...x, ...specs.find(y => y.name === x.name) }, catalog)).map(q => form && !("free" in q) && !(q as { choices?: string[] }).choices?.length ? { ...q, free: true } : q);
+  const r = form
+    ? await askInBar(ctx, a.label, questions, given, actor, args => run(Object.fromEntries(Object.entries(args).filter(([, v]) => v !== ""))), { action: a.name, check: () => null })
+    : await askInBar(ctx, a.label, questions, given, actor, run);
   return r && typeof r === "object" && "asking" in r ? { asking: (r as { asking: string }).asking, action: a.name } : r;
 }
 

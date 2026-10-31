@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The power bar's Run lens asks every slot, `query` too (PIE-1473)
+
+- **A script's form offers all its declared slots:** ctrl+k, "Run lens" opens one form with the needed slots first, then the optional ones (`query`, `view`, `columns`, `limit`, ...); an empty optional slot is left out, ⏎ on the act line runs it. It used to ask only the required and choice/property slots, so the lens's `query` never appeared.
+- **A `query` slot completes in the form:** `type=meeting AND un` offers `under:`/`unread:`, and a clause that starts one fills the input and asks again, as in a settings field.
+- **Unchanged:** an agent's `act` of the same line, a button's press and a typed line that already names slots run without asking.
+- **Run:** restart your door to get it.
+
 ### Query completion knows the whole grammar (PIE-1472)
 
 - **Typing a query offers what the grammar can say:** the atoms (`under:`, `parent:`, `links:`, `linkedfrom:`, `child:`, `#tag`, `title~`, `text~`, `by:`, `call:`), `this` after a relation (`under:this`), `NOT`/`AND`/`OR`, `{{this.page}}` and `{{this.<key>}}` after `=`, and `-7d`, `today`, `+3d` after `updated >=` or any comparison, beside the keys and values the notes have. Each row says in a few words what it means, from the grammar's own tables in outline-core (`QUERY_ATOM_HELP`, `QUERY_CONNECTIVE_HELP`, `QUERY_DATE_HELP`).
