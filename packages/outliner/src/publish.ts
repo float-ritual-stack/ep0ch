@@ -57,7 +57,7 @@ import { drawSteps, placeStepSentinels, STEP_MENU_STYLE, STEP_STYLE, type Publis
 import { ReaderLeases } from "./publish-reader-lease";
 import { READER_COMPOSE_STYLE } from "./publish-reader-style";
 import { PAGE_ROUTE, PageMarginalia, readerScriptPath, webmcpScriptPath, sameOrigin, type PageShare, type PageView } from "./publish-page";
-import { completeAt, SEARCH_STYLE, searchForm, searchNotes, searchResultsHtml, searchScriptPath, summaryWords, type SearchHost } from "./publish-search";
+import { completeAt, querySearchCompletion, SEARCH_STYLE, searchForm, searchNotes, searchResultsHtml, searchScriptPath, summaryWords, type SearchHost } from "./publish-search";
 import { ANNOTATION_TYPE, extractAnnotationBody, isAnnotationBlock } from "./annotations";
 import { RECENT_REPLIES_QUERY, UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
@@ -1265,6 +1265,7 @@ export class Publisher {
         return respond(`${JSON.stringify({ ok: false, error: "the outline could not be reached; try again" })}\n`, "application/json; charset=utf-8", 502);
       }
     }
+    if (audience === "tailnet" && (path === "/search" || path === "/search/")) return await this.serveSearch(request);
     if (request.method !== "GET" && request.method !== "HEAD") {
       return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
     }
@@ -1297,7 +1298,6 @@ export class Publisher {
       // Recent replies (a bookmark on the phone): every reply on his threads, newest first, the unread marked.
       if (audience === "tailnet" && (path === "/replies" || path === "/replies/")) return await this.serveReplies(await this.readIndex());
       // Search, as the door's power bar finds notes (PIE-789): a page of results, or the box's results as JSON.
-      if (audience === "tailnet" && (path === "/search" || path === "/search/")) return await this.serveSearch(request);
       if (path === "/index.txt") return respond(renderIndexText(await this.readIndex(), this.basePath, this.publicHrefs()), "text/plain; charset=utf-8");
       if (path === "/index.json") return respond(`${JSON.stringify(readerIndex(await this.readIndex()), null, 2)}\n`, "application/json; charset=utf-8");
       if (!path.startsWith("/p/")) return notFound();
@@ -1440,18 +1440,14 @@ export class Publisher {
     return this.serveEntry(entry.type === "block" ? entry : { ...entry, type: "block" }, index, shown, "tailnet", share);
   }
 
-  /**
-   * Search (PIE-789): the service's one search (`tree.search`, the power bar's, from the note the page was on), as a page
-   * here may show its notes: on the tailnet every note but a locked one; inside a share only its notes. A page of
-   * results (it works with no script), or with `format=json` the box's results (publish-search.js).
-   */
   private async serveSearch(request: Request, share?: PageShare): Promise<Response> {
-    if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
     const url = new URL(request.url);
+    if (url.searchParams.get("format") === "query") return this.signedInOwner() && !share ? querySearchCompletion(this.client, request) : Response.json({ answers: [], picks: {} });
+    if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
     const near = url.searchParams.get("near")?.trim();
     const from = near && BLOCK_ID.test(near) && (await this.openIds([near], share)).has(near) ? near : undefined;
     const index = share ? await this.shareIndex(share) : await this.readIndex();
-    const answer = await searchNotes(this.searchHost(index, share), url.searchParams.get("q") ?? "", from);
+    const answer = await searchNotes(this.searchHost(index, share), url.searchParams.get("q") ?? "", from, url.searchParams.get("where") ?? undefined);
     if (url.searchParams.get("format") === "json") return respond(`${JSON.stringify(answer)}\n`, "application/json; charset=utf-8");
     const base = share?.base ?? this.basePath;
     const top = share?.scope.kind === "note" ? noteTitle(share.scope.title) || "shared note" : this.rootLabel();

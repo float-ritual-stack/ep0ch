@@ -1,3 +1,4 @@
+import type { Clause } from "@ep0ch/outline-core/query-clauses";
 import { PROPERTY_QUERY_SCOPES as QUERY_SCOPES } from "@ep0ch/outline-core/protocol";
 import { MACHINE_KEY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
 import { StillCounting } from "./site-budget";
@@ -679,6 +680,13 @@ class ExpressionParser {
   }
 }
 
+/** The facet pick a query clause names, including a learned alias or a corrected suggestion. */
+export function queryClausePick(expression: QueryExpression, mode: Clause["mode"] = "include"): Clause | undefined {
+  if (expression.kind === "not") return queryClausePick(expression.operand, "exclude");
+  if (expression.kind === "tag") return { key: "tag", value: expression.tag, mode };
+  if (expression.kind === "property" && !expression.relation && !expression.from) return { key: expression.key, value: expression.value, mode };
+}
+
 /** Parse query text in the documented grammar into a boolean expression. */
 export function parseQueryExpression(input: string): QueryExpression {
   const { tokens } = lexQueryExpression(input);
@@ -1235,6 +1243,7 @@ export function normalizeBlockSearchQuery(
   if (query.facetKeys !== undefined && !(Number.isInteger(query.facetKeys) && query.facetKeys >= 1 && query.facetKeys <= QUESTION_MAX_LIMIT)) {
     throw new BlockQueryError(`facetKeys is how many keys facets lists, 1 to ${QUESTION_MAX_LIMIT}`);
   }
+  if (query.facetSearch !== undefined && typeof query.facetSearch !== "string") throw new BlockQueryError("facetSearch is text to match against every value");
   const facetValues = facets && query.facetValues !== undefined ? query.facetValues : undefined;
   const facetKeys = facets && query.facetKeys !== undefined ? query.facetKeys : undefined;
 
@@ -1288,6 +1297,7 @@ export function normalizeBlockSearchQuery(
     ...(group ? { group } : {}),
     ...(facets ? { facets } : {}),
     ...(facetValues ? { facetValues } : {}),
+    ...(query.facetSearch ? { facetSearch: query.facetSearch } : {}),
     ...(facetKeys ? { facetKeys } : {}),
     limit,
   };

@@ -439,7 +439,16 @@ async function proposalsTool(outlines: McpOutlines, args: Record<string, unknown
 
 const QUERY_LIMIT_RULE: LimitRule = QUERY_LIMIT;
 
-/** outline_query: the views' grammar, or a saved view, over one outline; the service answers, records come back. */
+async function suggestQuery(outlines: McpOutlines, args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
+  const named = namedOutline(args.outline);
+  if (named && "error" in named) return toolError(named.error);
+  const target = await outlines.board(named);
+  if ("error" in target) return toolError(target.error);
+  const status = await requireReadAccess(outlines, target);
+  if ("error" in status) return toolError(status.error);
+  return toolText(await target.board.querySuggest({ text: stringField(args, "text")!, where: stringField(args, "where"), zone: stringField(args, "zone"), mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" } }));
+}
+
 async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, scope?: ResponseScope, caller?: McpCaller): Promise<ToolResult> {
   const query = stringField(args, "query")?.trim(), view = stringField(args, "view")?.trim();
   if (!query === !view) return toolError("Give query (the views' grammar: type=ticket NOT work-stage=done) or view (a saved view's block id), one of them.");
@@ -837,6 +846,11 @@ function toolsFor(outlines: McpOutlines) {
       }, additionalProperties: false },
     },
     {
+      name: "query_suggest",
+      description: "Turn words into a proposed query in the views' grammar through query.suggest. Extends where first; the answer explains each clause, leftovers as text search, alternatives and scope widening. Does not apply the query or touch the person's completion. Only typed words and candidate keys/values go to Jev; learned aliases and grammar complete in code.",
+      inputSchema: { type: "object", required: ["text"], properties: { text: { type: "string" }, where: { type: "string" }, zone: { type: "string", description: "Reader's IANA time zone; weeks begin Monday" }, outline: outlineProperty(outlines), call: CALL_PROPERTY }, additionalProperties: false },
+    },
+    {
       name: "outline_query",
       description: `Run a query in ${which}, read-only, in the grammar the views use ([query::…], virtual branches, ::graph-table): clauses like type=outbox-item outbox=next, AND/OR/NOT, groups, updated >= -7d, any property compared as a date or number (due <= +3d, wait-until <= today, release-window = today, rating > 3), or a saved view by its block id. hint says a key no note has, or values a comparison couldn't read. ` +
         `The outline evaluates it, so the rows are the ones a view shows in the door. Answers block records (title, properties, revision, uri) with total and completeness; more says there are further rows, nextOffset is where to continue. Requires ${grant}. Give query or view. ` +
@@ -1157,6 +1171,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
   if (params.name === "outline_proposals") return proposalsTool(outlines, args, caller);
   if (params.name === "outline_threads") return threadsTool(outlines, args);
   if (params.name === "outline_query") return queryTool(outlines, args, scope, caller);
+  if (params.name === "query_suggest") return suggestQuery(outlines, args, caller);
   if (params.name === "outline_write_status" && caller) return writeStatusTool(outlines, args, caller);
   if ((params.name === "outline_new" || params.name === "outline_archive") && caller && outlines.admin) return adminTool(outlines, outlines.admin, params.name, args, caller);
   if (params.name === "outline_find") return findBlocks(outlines, args);

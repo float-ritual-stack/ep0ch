@@ -31,6 +31,43 @@
   const close = el("button", { type: "button", class: "sx-close", text: "Cancel", hidden: "", onclick: () => shut() });
   form.querySelector(".sx-row").append(close);
   form.append(panel);
+  const queryPanel = el("div", { class: "sx-query", hidden: "" });
+  const where = el("input", { type: "hidden", name: "where", value: "" });
+  form.append(queryPanel, where);
+  let suggestions = [], wordsTimer = 0, grammarTimer = 0, accepted, unavailableSaid = false, queryTurn = 0;
+  const record = (row, outcome) => row?.querySuggestion && fetch(`${form.action}?format=query`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: row.querySuggestion.input, suggestion: row.querySuggestion, outcome, acceptedWhere: input.value, corrections: row.queryCorrections }),
+  });
+  function dropWords() {
+    queryTurn++; clearTimeout(wordsTimer); clearTimeout(grammarTimer);
+    record(suggestions[0], "ignored"); suggestions = []; queryPanel.hidden = true;
+  }
+  function acceptWords(row) {
+    queryTurn++; clearTimeout(wordsTimer); clearTimeout(grammarTimer);
+    input.value = typeof row.insert === "string" ? row.insert : row.insert.snippet;
+    record(row, row.queryOutcome || "accepted");
+    accepted = row; suggestions = []; queryPanel.hidden = true;
+    where.value = input.value; asked = ""; look();
+  }
+  async function completeQuery(semantic) {
+    const turn = queryTurn, text = input.value, params = new URLSearchParams({ format: "query", q: text, semantic: semantic ? "1" : "0", zone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    const response = await fetch(`${form.action}?${params}`);
+    if (!response.ok) return;
+    const answer = await response.json();
+    const source = answer.answers?.find(a => a.source.id === "query-words");
+    if (turn !== queryTurn || input.value !== text || document.activeElement !== input) { if (source?.rows?.[0]) record(source.rows[0], "ignored"); return; }
+    suggestions = source?.rows ?? [];
+    if (!semantic && suggestions.some(row => row.querySuggestion)) clearTimeout(wordsTimer);
+    queryPanel.replaceChildren();
+    for (const row of suggestions) {
+      const why = el("details", {}, el("summary", { text: "why" }), el("pre", { text: row.docs || row.detail || "Query grammar" }));
+      for (const alternative of row.variations?.filter(r => r.queryCorrections) ?? []) why.append(el("button", { type: "button", text: alternative.label, onclick: () => acceptWords(alternative) }));
+      queryPanel.append(el("button", { type: "button", text: `${row.label}${row.detail ? ` · ${row.detail}` : ""}`, onclick: () => acceptWords(row) }), why);
+    }
+    if (source?.problem && !unavailableSaid) { unavailableSaid = true; queryPanel.append(el("p", { text: source.problem })); }
+    queryPanel.hidden = !queryPanel.childNodes.length;
+  }
   input.setAttribute("aria-controls", "sx-results");
   const phone = window.matchMedia("(max-width: 40rem)");
 
@@ -46,6 +83,7 @@
     if (input.value.trim()) look();
   }
   function shut() {
+    dropWords();
     form.classList.remove("open");
     close.hidden = true;
     panel.hidden = true;
@@ -93,6 +131,7 @@
     asked = query;
     if (!query) { draw({ query: "", hits: [], terms: [] }); return; }
     const params = new URLSearchParams({ q: query, format: "json" });
+    if (where.value) params.set("where", where.value);
     if (near && near.value) params.set("near", near.value);
     try {
       const response = await fetch(`${form.action}?${params}`, { cache: "no-store", headers: { accept: "application/json" } });
@@ -108,11 +147,18 @@
 
   input.addEventListener("focus", () => { if (phone.matches || input.value.trim()) open(); });
   input.addEventListener("input", () => {
+    dropWords();
+    if (accepted) { record(accepted, "edited"); accepted = undefined; }
+    where.value = "";
+    grammarTimer = setTimeout(() => void completeQuery(false), 120);
+    wordsTimer = setTimeout(() => void completeQuery(true), 650);
     if (!form.classList.contains("open")) open();
     clearTimeout(timer);
     timer = setTimeout(look, 120);
   });
   input.addEventListener("keydown", (event) => {
+    if (event.key === "Tab" && suggestions.length) { event.preventDefault(); acceptWords(suggestions[0]); return; }
+    if (event.key === "Escape" && !queryPanel.hidden) { event.preventDefault(); dropWords(); return; }
     if (event.key === "Escape") { event.preventDefault(); shut(); return; }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       if (!rows.length) return;

@@ -1,3 +1,4 @@
+import { matchesSearchText } from "@ep0ch/outline-core/search-match";
 // What a question answers besides its rows (ADR 0004 contract 1): its groups and facets, counted over every match,
 // and the hint for a key no note carries. The service computes them once, here, so no client narrows, groups or
 // counts rows itself and every terminal gets the same answer. Pure: the store passes the matches and how to read a
@@ -83,7 +84,7 @@ export function questionGroups(matches: readonly Block[], rows: readonly Block[]
  * them, then by name; values by count, then in the key's value order. At most QUESTION_FACET_CAP keys, and `valueCap` values each (QUESTION_FACET_CAP unless the question says);
  * a key's `more` says how many values were left out.
  */
-export function questionFacets(matches: readonly Block[], keys: true | readonly string[], valuesOf: ValuesOf, keysOf: (block: Block) => string[], valueCap = QUESTION_FACET_CAP, keyCap = QUESTION_FACET_CAP): QuestionFacet[] {
+export function questionFacets(matches: readonly Block[], keys: true | readonly string[], valuesOf: ValuesOf, keysOf: (block: Block) => string[], valueCap = QUESTION_FACET_CAP, keyCap = QUESTION_FACET_CAP, search = ""): QuestionFacet[] {
   // One pass over the matches, each asked only for the keys it carries (PIE-1396: every key over every note took
   // seconds on pie). `tag` reads `tags` too, as block-query's tag clause does.
   const tally = new Map<string, { count: number; counts: Map<string, { n: number; last: string }> }>();
@@ -112,7 +113,9 @@ export function questionFacets(matches: readonly Block[], keys: true | readonly 
   // Keys are ranked before their values are sorted: only the keys kept pay for it.
   return [...tally].sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0])).slice(0, keyCap).map(([key, { count, counts }]): QuestionFacet => {
     const order = valueOrder(key);
-    const values = [...counts].sort((a, b) => b[1].n - a[1].n || order(a[0], b[0])).map(([value, seen]) => ({ value, count: seen.n, last: seen.last }));
+    const words = search.split(/\s+/).filter(Boolean);
+    const hit = (value: string) => words.some(word => matchesSearchText(word, [value]));
+    const values = [...counts].sort((a, b) => Number(hit(b[0])) - Number(hit(a[0])) || b[1].n - a[1].n || order(a[0], b[0])).map(([value, seen]) => ({ value, count: seen.n, last: seen.last }));
     return { key, count, values: values.slice(0, valueCap), ...(values.length > valueCap ? { more: values.length - valueCap } : {}) };
   });
 }

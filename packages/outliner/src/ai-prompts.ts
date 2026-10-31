@@ -15,6 +15,13 @@ export interface PromptRevision {
   text: string;
 }
 
+export async function loadQuerySuggestPrompt() {
+  const revision = await readPrompt(DEFAULT_AI_PROMPT_DIRECTORY, "query-suggest.json");
+  const keys = ["gate", "pick", "negate", "words", "date", "dateGate", "text"] as const;
+  const data = object(json(revision), revision.path, [...keys], "document");
+  return { ...Object.fromEntries(keys.map(key => [key, nonempty(data[key], revision.path, key)])) as Record<typeof keys[number], string>, revisions: [revision] };
+}
+
 export class PromptFileError extends Error {
   constructor(path: string, problem: string) {
     super(`AI prompt ${basename(path)}: ${problem} (${path})`);

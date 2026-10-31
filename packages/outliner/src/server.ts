@@ -59,7 +59,7 @@ import { readSources } from "./site-sources";
 import { placeOutput } from "./place";
 import { quoteInto, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate, type TemplateStampResult } from "./template-stamp";
-import { keepSuggestion, readKeep } from "./jev-suggestions";
+import { keepSuggestion, readKeep, SuggestionWrites } from "./jev-suggestions";
 import type { RecordCache } from "./records";
 import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { attachText, findTwins, recordTwin, tallyTwins, twinRefusal, writerName } from "./work-twins";
@@ -82,6 +82,7 @@ import { addExtension, removeExtension } from "./extension-install";
 import { ResourceExtensionRuntime, keychainItem, scrubCredentials, userExtensionsFolderInUse, type ExtensionRunStatus } from "./resource-extensions";
 import { readExtensionFolder, type ExtensionOrigin } from "./extension-manifest";
 import { settingsOf, writeExtensionSettings } from "./extension-settings";
+import { QuerySuggester, querySuggestReply } from "./query-suggest";
 import { readGroupSecrets, secretGroupAllowed } from "./extension-secrets";
 import { extensionKeyLines, keyRows, scopeAllows, scopesFor, readScopesFile } from "./secret-keys";
 import { InstalledResourceProviderClient } from "./installed-resource-provider";
@@ -1566,13 +1567,10 @@ export class OutlinerServer {
   }
 
   /** The `suggestions.keep` in progress (PIE-1251): the next waits for it. */
-  private suggestionKeeps: Promise<void> = Promise.resolve();
+  private querySuggester?: QuerySuggester;
+  private readonly suggestionKeeps = new SuggestionWrites();
   /** What the records' writer looked up (records.ts RecordCache): the Records page and templates, kept across keeps. */
   private recordCache: RecordCache = {};
-  /**
-   * A ranked search (or one Jev couldn't answer) counted on the day's `jev-run` (search-records.ts), after the answer
-   * has gone: one at a time, on the same turn as Jev's other records, so the day's run is made once.
-   */
   /**
    * The deep pass (search-deep.ts): asked when the ranked search isn't sure (or found nothing by its words), its finds
    * added to the text's candidates and the whole ranked again, so they're scored and said as any hit is. Never throws.
@@ -1614,7 +1612,7 @@ export class OutlinerServer {
     this.searchTallyTimer = setTimeout(() => {
       this.searchTallyTimer = null;
       if (this.stopping) return;
-      this.suggestionKeeps = this.suggestionKeeps.then(() => this.searchTallies.flush(own), () => undefined);
+      void this.suggestionKeeps.run(() => this.searchTallies.flush(own)).catch(() => {});
     }, Number.isFinite(wait) ? wait : SEARCH_TALLY_MS);
     this.searchTallyTimer.unref?.();
   }
@@ -2407,6 +2405,7 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
+    if (request.action === "query.suggest") return querySuggestReply(this.querySuggester ??= new QuerySuggester(this.own, this.suggestionKeeps), request, () => this.store.sequence);
     if (request.action === "completion.rows" || request.action === "completion.picked") {
       // Completion (PIE-1340): the service's sources and the extensions' answer on one contract; picks are kept here so
       // every client ranks the same way.
@@ -2518,8 +2517,7 @@ export class OutlinerServer {
         const own = this.own;
         // One at a time: the day's run is found, made and counted by each, and two at once would make it twice.
         // The Records page and templates are looked up once and kept (records.ts writeRecord looks again when one is gone).
-        const turn = this.suggestionKeeps.then(() => keepSuggestion(own, keep, this.componentSchemas().schemas, this.recordCache));
-        this.suggestionKeeps = turn.then(() => undefined, () => undefined);
+        const turn = this.suggestionKeeps.run(() => keepSuggestion(own, keep, this.componentSchemas().schemas, this.recordCache));
         const settled = await turn;
         return { id: request.id, ok: true, result: { settled }, sequence: this.store.sequence };
       } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
@@ -3982,6 +3980,7 @@ export class OutlinerServer {
         case "artifacts.upload.finish":
         case "artifacts.upload.abort":
           throw new Error("Artifact requests require asynchronous dispatch.");
+        case "query.suggest":
         case "suggestions.keep":
           throw new Error("suggestions.keep requires asynchronous dispatch.");
         case "roadmap.items.similar":

@@ -60,6 +60,7 @@ export async function querySuggestions(typed: string, catalog: PropertyCatalog):
   const eq = clause.indexOf("=");
   const keyed = async () => {
     const rows = eq >= 0 ? await catalog(clause.slice(0, eq), clause.slice(eq + 1)) : await catalog(undefined, clause);
+    if (eq < 0) for (const r of rows) add(`${before}${lead}${r.key}=`, `values of ${r.key}`, true);
     for (const r of rows) add(`${before}${lead}${r.key}=${r.value}`, `${r.count} note${r.count === 1 ? "" : "s"}`);
     // A value may read the note the question is asked for: `owner={{this.owner}}`, `when={{this.page}}`.
     if (eq > 0) {

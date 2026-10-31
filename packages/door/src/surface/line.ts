@@ -21,6 +21,7 @@ const LINE_CTRL = new Set(["a", "e", "k", "u", "w", "x", "z", "y"]);
 const LINE_KEYS = new Set<Key["kind"]>(["char", "paste", "backspace", "delete", "left", "right", "home", "end", "alt-backspace"]);
 
 export class LineField extends Draft {
+  completed?: (item: import("./completer").CompletionItem) => void;
   /** Prefilled (a layout's own name): shown lit, the first key typed replaces it, ⏎ keeps it. */
   private fresh: boolean;
   /**

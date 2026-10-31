@@ -20,10 +20,11 @@ import { parsePropertyRecords } from "./property-parse";
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
  * `yaml-value` the same inside a component block's YAML. `tile`: a `%tile` in an ask line (the door's alone: its tiles).
  */
-export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value" | "fence-setting" | "button-step" | "action" | "tile" | "formatter";
+export type CompletionKind = "query" | "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value" | "fence-setting" | "button-step" | "action" | "tile" | "formatter";
 
 export interface CompletionTarget {
   kind: CompletionKind;
+  where?: string;
   /** Where the token starts on the line (its opening delimiter) and where a choice replaces up to. */
   start: number;
   end: number;

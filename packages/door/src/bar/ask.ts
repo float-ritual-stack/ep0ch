@@ -18,12 +18,14 @@ import type { Actor } from "../socket";
 import { headedTitle } from "../board";
 import { C, fg, pad, RESET, width } from "../style";
 import { argKind } from "./arg-kinds";
+import type { LineCompletion } from "../surface/line-hooks";
 import { registerBarSource, unregisterBarSource, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 
 /** One question: an extension's argument with its choices, or the door's own. */
 export interface BarQuestion {
   name: string;
   masked?: boolean;
+  complete?: LineCompletion;
   /** `note`: one of `choices`, or a note found by its words (answered with its id). */
   type: "text" | "choice" | "property" | "number" | "note";
   label?: string;
@@ -82,13 +84,14 @@ let waiting: { title: string; questions: BarQuestion[]; answers: Record<string, 
 
 /** The question asked now, or null (a form's act line). */
 export const maskedQuestion = () => !!question()?.masked;
+export const questionCompletion = () => question()?.complete;
 export function clearPrivateForm() { if (waiting && (!waiting.form || waiting.questions.some(q => q.masked) || waiting.form?.cancel)) { const cancel = waiting.form?.cancel; waiting = null; unregisterBarSource(ASK_SCOPE); cancel?.(); } }
 const question = () => (waiting?.form ? waiting.questions[waiting.focus] ?? null : waiting?.questions.find(q => waiting!.answers[q.name] === undefined) ?? null);
 
 /** Simple in-note questions share the bar's editor and picker in a small frame by the status bar. */
 export function compactQuestion(): { title: string; choice: boolean } | null {
   const q = question();
-  if (!waiting || waiting.form || !q || q.suggest || q.kind || !["text", "number", "choice"].includes(q.type)) return null;
+  if (!waiting || waiting.form || !q || q.complete || q.suggest || q.kind || !["text", "number", "choice"].includes(q.type)) return null;
   return { title: `${waiting.title}${q.label === "" ? "" : ` ${q.label ?? q.name}`}:`, choice: q.type === "choice" };
 }
 

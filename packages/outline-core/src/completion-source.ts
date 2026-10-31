@@ -16,11 +16,11 @@ export const EXTENSION_TRIGGERS = ["[[", "((", "@", "::", "[key", "key::", "yaml
  * Every trigger the sources answer: the extensions', and those only the service's built-ins answer (a component's
  * attributes and a filter's words, PIE-1366), whose insert needs what the ask carries (the quote, the filter's words).
  */
-export const SOURCE_TRIGGERS = [...EXTENSION_TRIGGERS, "attribute", "attribute-value", "filter-key", "filter-value", "| as"] as const;
+export const SOURCE_TRIGGERS = [...EXTENSION_TRIGGERS, "attribute", "attribute-value", "filter-key", "filter-value", "query", "| as"] as const;
 export type SourceTrigger = (typeof SOURCE_TRIGGERS)[number];
 
 const TRIGGER_OF: Partial<Record<CompletionKind, SourceTrigger>> = {
-  formatter: "| as",
+  query: "query", formatter: "| as",
   page: "[[", block: "((", agent: "@", component: "::", key: "[key", value: "key::", "yaml-key": "yaml-key", "yaml-value": "yaml-value",
   attribute: "attribute", "attribute-value": "attribute-value", "filter-key": "filter-key", "filter-value": "filter-value", file: "[file::", callout: "> [!",
 };
@@ -39,6 +39,9 @@ export type SourceInsert = string | { snippet: string; select?: { start: number;
  * with the service first (the note still there, the anchor still once) and what it makes (a new page, an anchor).
  */
 export interface SourceRow {
+  querySuggestion?: import("./query-words").QueryWords;
+  queryOutcome?: "accepted" | "edited";
+  queryCorrections?: { from: string[]; clause: string }[];
   /** Unique within its source's answer; the insert's text when absent. */
   id?: string;
   label: string;

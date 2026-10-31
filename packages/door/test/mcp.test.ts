@@ -176,6 +176,21 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     expect(readFileSync(join(scratch.outlines, ".artifacts/live/mcp-garden/index.html"), "utf8")).toBe("<h1>Agent garden</h1>");
   }, 30_000);
 
+  test("query_suggest gives an agent the same learned query through the spawned MCP CLI", async () => {
+    await board.configureMcpAccess("read");
+    await board.request("create", { text: 'Query words [type::rule] [rule-name::query-words]\n[alias::seedlings=text~"Addressable seed"]' });
+    const request = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "query_suggest", arguments: { text: "seedlings" } } };
+    const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "../src/main.ts"), "--ws", scratch.name, "mcp"], {
+      env: { ...process.env, ...scratch.env }, stdin: new Blob([JSON.stringify(request) + "\n"]), stdout: "pipe", stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code, err).toBe(0);
+    const result = JSON.parse(out.trim()).result;
+    expect(result.isError).not.toBe(true);
+    const suggestion = JSON.parse(result.content[0].text);
+    expect((await board.queryNotes(suggestion.where)).notes.map(b => b.id)).toContain(target.id);
+  }, 30_000);
+
   test("MCP usage survives the server and reports bytes, redacted shapes and percentiles", async () => {
     await board.request("mcp.access.configure", { level: "read" });
     const state = join(scratch.root, "usage-state");
