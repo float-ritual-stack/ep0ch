@@ -400,8 +400,9 @@ function normalizeCreatorProvenance(
   if (provenance === undefined) {
     return { actorId: null, sessionId: null, taskId: null };
   }
-  if (author !== "agent") {
-    throw new Error("Only agent-authored blocks may include agent provenance");
+  // A person's block may record the run they asked for (session, task), never an actor id; the system's records none.
+  if (author === "system" || (author === "user" && provenance.actorId !== undefined)) {
+    throw new Error("Only agent-authored blocks may include an actor id; a person's carry a session or task only");
   }
 
   const normalizeOptionalId = (value: string | undefined, label: string): string | null => {
@@ -411,7 +412,7 @@ function normalizeCreatorProvenance(
     return normalized;
   };
   const actorId = normalizeOptionalId(provenance.actorId, "Provenance actorId");
-  if (actorId === null) throw new Error("Provenance actorId cannot be empty");
+  if (author === "agent" && actorId === null) throw new Error("Provenance actorId cannot be empty");
 
   return {
     actorId,

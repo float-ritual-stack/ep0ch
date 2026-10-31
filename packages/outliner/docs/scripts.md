@@ -424,7 +424,7 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
   undo step; scripts start each other at most four deep, never one already in the chain, and stopping the caller stops it. The only boundary is the MCP access level, for outside agents. EchoNet packets
   never execute.
 - **Who wrote it.** A run somebody asked for (a press, `act`, `script_run`, the CLI) writes as them: `author: user` for the
-  person at their keyboard, `author: agent` with the agent's own actor id for an agent, the run's undo id as the session, and
+  person at their keyboard (a note, comment or reply it creates records the run too, PIE-1464), `author: agent` with the agent's own actor id for an agent, the run's undo id as the session, and
   the task id `trigger:script:<extension id>` saying a script was how (`ep0ch revisions` reads "by you · via script"; the change
   feed's `action` names it, `script:<name>`, and `requestedBy` repeats who asked). A run nobody asked for (a rule, a schedule, a
   background run) writes as the script: `author: agent`, actor id `script:<name>`. One owner decides it, `ScriptRuns.start`
