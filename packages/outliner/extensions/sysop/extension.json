@@ -1,0 +1,48 @@
+{
+  "contract": 2,
+  "id": "sysop",
+  "version": 1,
+  "name": "Sysop",
+  "description": "The boring infrastructure monk: every machine's memory, load, disk and failed units on one page, a glyph a day, and a page in the door before the kernel kills anything.",
+  "demo": "demo",
+  "run": [
+    "bun",
+    "sysop.ts"
+  ],
+  "deadline": "50s",
+  "env": [
+    "EP0CH_SSH",
+    "SSH_AUTH_SOCK",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS"
+  ],
+  "actions": [
+    {
+      "id": "look",
+      "label": "Look at every machine",
+      "on": "outline",
+      "effects": "write",
+      "description": "Samples the page\u2019s machines, updates their health notes and opens a trip when a limit is crossed",
+      "schedule": {
+        "every": "1m",
+        "once": "host"
+      }
+    },
+    {
+      "id": "calm",
+      "label": "Calm a machine",
+      "on": "outline",
+      "effects": "write",
+      "description": "Restarts the user unit or container recorded on the machine\u2019s open trip, then samples again and records the result",
+      "args": [
+        {
+          "name": "machine",
+          "type": "text",
+          "required": true,
+          "label": "Machine",
+          "description": "the machine with an open trip, as the page names it"
+        }
+      ]
+    }
+  ]
+}

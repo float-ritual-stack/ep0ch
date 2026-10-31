@@ -21,7 +21,7 @@ import { USER, hostRequest, type Actor, SocketBoard } from "../socket";
 import { prop } from "../props";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
-import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, PROGRAM_EXAMPLES, RULE_EXAMPLES, SOURCE_EXAMPLES, VIEW_EXAMPLES } from "./tickets/install";
+import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, installSysopDemo, PROGRAM_EXAMPLES, RULE_EXAMPLES, SOURCE_EXAMPLES, VIEW_EXAMPLES } from "./tickets/install";
 
 import { SEED, SEED_AGENT, SHOWCASE_MARK, type SeedName, WORK_PREFIX } from "./seed/names";
 
@@ -721,6 +721,13 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   // The gallery (PIE-827): its cards first, so the line's first run draws them.
   // Machinery (PIE-867): one question asked twice, of what people wrote and of what tools stamped for their own bookkeeping.
   const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch OR notify.key]";
+  notes.sysop = await make(notes.root.id, `${SEED.sysop} [page::sysop] [machines::kiln, notebook] [memory-free-min::2G] [load-max::8] [disk-free-min::10%]\n\nThese machines are made up. Look and calm run through the real extension against a fake ssh.\n\n::button{label="Look now" act="ext.sysop.look"}`);
+  if (opts.ticketsConfig && rulesFrom) {
+    installSysopDemo(opts.ticketsConfig, rulesFrom);
+    await board.listExtensions(true);
+    await board.request("extensions.schedule.run", { extension: "sysop", entry: "action:look" });
+    notes.sysop = (await board.get(notes.sysop.id))!;
+  }
   notes.machineryPeople = await make(notes.root.id, `${SEED.machineryPeople} [type::virtual-branch] ${MACHINERY_QUERY}`);
   notes.machineryTools = await make(notes.root.id, `${SEED.machineryTools} [type::virtual-branch] ${MACHINERY_QUERY} [machinery::only]`);
   // Line chips (PIE-1277): an ask buried on a step of long minutes, one ticked already; one query, asked of the header and of every line.

@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The sysop monk watches every machine and records a calm restart (PIE-1476)
+
+- **Open `sysop`:** current memory, load, disk and failed user units, with a daily health glyph per machine and “asleep since” for a missed sample.
+- **A trip names the fix:** a `needs` note and warning band identify the process and its restart command once per crossing; `ext.sysop.calm machine=<name>` runs it with attribution and records the reading after.
+- **Your edits stay:** ticks update their figures and properties; removing the extension with `--demo remove` keeps notes another writer edited or added children under.
+- **Run:** install `sysop` in the outline that should hold the page, and `shout` for warning bands; edit the page's machines and threshold properties.
+
 ### An artifact serves whatever claude.ai serves
 
 - **Any https origin:** an artifact's scripts, styles, fonts, fetches, media and workers may come from any https origin, and from `blob:`/`data:` URLs and generated code, so a claude.ai artifact (Tone.js's clock worker and audio worklet, esm.sh, Google Fonts, an API it calls) runs on `my.ep0ch.sh` as it does there. The rule is Evan's, Oct 30: whatever claude.ai can serve, the store serves.

@@ -2,7 +2,7 @@
 // (tickets.ts, a contract 2 folder like the outliner's Jira extension) into a scratch service's config, register
 // a Source for it, and fetch tickets through the service, so readers have tickets to show. Only for a scratch or showcase service: the
 // door's readers never do any of this; they only read projections (src/projection.ts).
-import { copyFileSync, cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SocketBoard } from "../../socket";
 
@@ -95,4 +95,20 @@ export function installExamples(configDir: string, outlinerCheckout: string, ids
     done.push(id);
   }
   return done;
+}
+
+/** The real monk over made-up machines: only this scratch copy gets a fake ssh, never the installed extension. */
+export function installSysopDemo(configDir: string, outlinerCheckout: string): void {
+  installExamples(configDir, outlinerCheckout, ["sysop"]);
+  const dir = join(configDir, "pi-herdr-outliner", "extensions", "sysop");
+  copyFileSync(join(outlinerCheckout, "test", "fixtures", "sysop-machine.ts"), join(dir, "machine.ts"));
+  writeFileSync(join(dir, "machines.json"), JSON.stringify({ free: 1024 ** 3, asleep: true, failed: false, command: "docker", restarts: [] }));
+  const quote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+  const ssh = join(dir, "ssh");
+  writeFileSync(ssh, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(dir, "machine.ts"))} ${quote(join(dir, "machines.json"))} remote "$@"\n`);
+  chmodSync(ssh, 0o755);
+  writeFileSync(join(dir, "showcase.ts"), `process.env.EP0CH_SSH = ${JSON.stringify(ssh)};\nawait import("./sysop.ts");\n`);
+  const manifest = JSON.parse(readFileSync(join(dir, "extension.json"), "utf8"));
+  manifest.run = ["bun", "showcase.ts"];
+  writeFileSync(join(dir, "extension.json"), JSON.stringify(manifest));
 }

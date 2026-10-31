@@ -408,6 +408,10 @@ extensions/notify/demo/
   out, also after the folder is gone. The page stays while anything is under it, and goes with the last of it.
 - At most 64 notes, 32 KiB each. A demo's `@name` line asks its agent when it's written, like any note's.
 
+- **Generated output:** a program can put `[ext.generated::<its id>]` on notes it creates to include them in the same
+  `--demo remove` cleanup. Only that extension's own creations qualify. A note another writer edited, even before a
+  later scheduled update, or added a child under, stays and is named. Sysop uses this for its page, health and trip notes.
+
 **Installing from the outline.** `extensions.install { extension: "<id>" }` copies one of the repo's extensions in
 (`ep0ch ext add <id>`: the user folder, or `where: "outline"` this outline's own) and answers once its page and demo
 notes are written: `{ id, lines, page, hub, state, error? }`. `extensions.uninstall { extension, demo }` removes one
@@ -1589,7 +1593,9 @@ available to other extensions through `site.answer`.
 ### Writes anywhere, through the normal paths
 
 Over its connection an extension may **read** (`get`, `children`, `pages.resolve`, `blocks.query`, `tree.search`,
-`annotations.list`, `changes.since`, `notes.address`, `notes.render`, …) and **write** through the paths a person's or an agent's writes take:
+`annotations.list`, `changes.since`, `notes.address`, `notes.render`, …) and **write** through the paths a person's or an agent's writes take.
+Use `fragments.candidates` with `blockIds` and `fragments.read` to locate generated components without replacing
+nearby prose; `properties.preview` returns the shared parser's token offsets and scopes for property edits.
 
 | Write | Request | What holds |
 |---|---|---|

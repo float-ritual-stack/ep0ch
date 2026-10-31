@@ -442,9 +442,12 @@ export class ExtensionPages {
   removeDemo(id: string, requestedBy?: MutationProvenance): DemoRemoval {
     const state = this.read();
     const seeded = state.demos[id];
-    if (!seeded) return { trashed: 0, kept: [] };
-    const records = Object.values(seeded.notes).map((record) => ({ record, block: this.live(record.id) }))
+    const records = Object.values(seeded?.notes ?? {}).map((record) => ({ record, block: this.live(record.id) }))
       .filter((entry): entry is { record: Seeded; block: Block } => !!entry.block);
+    for (const block of this.generated(id)) {
+      if (records.some(r => r.block.id === block.id)) continue;
+      records.push({ block, record: { id: block.id, revision: this.store.hasOtherTextWriter(block.id, extensionActorId(id)) ? -1 : block.revision } });
+    }
     const seededIds = new Set(records.map((entry) => entry.block.id));
     const revisionOf = new Map(records.map((entry) => [entry.block.id, entry.record.revision]));
     const memo = new Map<string, boolean>();
@@ -463,7 +466,7 @@ export class ExtensionPages {
     this.store.changes.run(this.store.changes.attribution({ action: "extensions.uninstall", actor: SYSTEM, ...(requestedBy ? { requestedBy } : {}) }), () => {
       for (const { block } of records) {
         if (!clean(block.id)) {
-          if (block.revision !== revisionOf.get(block.id)) kept.push(firstLineWithoutPropertyTokens(block.text) ?? block.id);
+          kept.push(firstLineWithoutPropertyTokens(block.text) ?? block.id);
           continue;
         }
         // Only the top of a clean subtree goes to Trash; what's under it goes with it (and comes back with a restore).
@@ -474,8 +477,10 @@ export class ExtensionPages {
       }
     });
     // Remembered: what is still in the outline (someone changed it). Forgotten: what went to Trash, or was gone already.
-    for (const [key, record] of Object.entries(seeded.notes)) if (gone.has(record.id) || !this.live(record.id)) delete seeded.notes[key];
-    if (!Object.keys(seeded.notes).length) delete state.demos[id];
+    if (seeded) {
+      for (const [key, record] of Object.entries(seeded.notes)) if (gone.has(record.id) || !this.live(record.id)) delete seeded.notes[key];
+      if (!Object.keys(seeded.notes).length) delete state.demos[id];
+    }
     this.write(state);
     return { trashed, kept };
   }
@@ -488,7 +493,12 @@ export class ExtensionPages {
   /** How many of an extension's demo notes are still in the outline. */
   demoCount(id: string): number {
     const seeded = this.read().demos[id];
-    return seeded ? Object.values(seeded.notes).filter((record) => this.live(record.id)).length : 0;
+    return new Set([...Object.values(seeded?.notes ?? {}).filter(record => this.live(record.id)).map(record => record.id), ...this.generated(id).map(block => block.id)]).size;
+  }
+
+  /** Programs opt their own output into the same removal path as demo notes; another writer's note never qualifies. */
+  private generated(id: string): Block[] {
+    return this.store.extensionGeneratedNotes(id);
   }
 
   private pageText(entry: ExtensionEntry, loaded: LoadedExtension | undefined, demo: Demo): string {
