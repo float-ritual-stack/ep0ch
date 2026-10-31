@@ -7,6 +7,8 @@ import { liveSource, siteProduced, siteRequest, type LiveSite } from "./live";
 import type { LinkBlocksEnv } from "./links";
 import type { LinkTarget } from "./refs";
 import { ListView, PERSON, listRowsOf } from "./surface/list-view";
+import { LISTVIEW_ACTIONS } from "./surface/list-actions";
+import { keysText } from "./surface/actions";
 import { tabStrip } from "./surface/chip-rows";
 import { BOLD, C, fg, RESET } from "./style";
 import { rowLines } from "./text";
@@ -52,7 +54,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
     width: Math.max(8, width - 4), overflow: "wrap", style: { on: BOLD, off: "", sep: " · " },
     tag: (text, i) => press("list.layout", { layout: answer.layouts[i]! }, text),
   }).map(row => row.text);
-  const footer = `${answer.view.rows.length} notes${answer.truncated ? " · more matches" : ""} · tab layout · / filter`;
+  const footer = `${answer.view.rows.length} notes${answer.truncated ? " · more matches" : ""} · ${keysText(LISTVIEW_ACTIONS.def("list.layout")!.keys)}`;
   const controls = [press("list.sort", {}, "sort"), press("list.group", {}, "group"),
     ...(answer.view.rows.length > (answer.view.page ?? 200) ? [press("list.page", { by: "-1" }, "‹"), `${view.page + 1}/${Math.ceil(answer.view.rows.length / answer.view.page!)}`, press("list.page", { by: "1" }, "›")] : [])].join(" · ");
   const warning = answer.error ?? (answer.view.rows.length ? answer.hint : undefined);
