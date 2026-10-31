@@ -1,3 +1,5 @@
+import { LIST_KEYS, COLLECTION_KEYS } from "./list-keys";
+import { modeActionKeys } from "./modes";
 // The lists' actions (PIE-747, ADR 0004 contract 3): one ActionSet for every list the door draws, whichever tile holds
 // it. `list.blocks` reads the lists as drawn, `list.pick`, `list.step`, `list.open`, `list.filter` and `list.enter` move
 // them, each with a key, a click and `act`. A host (the reader, whose lists are its inline `::links` components and its
@@ -80,7 +82,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
             n: l.n, key: l.key, title: l.title, ...(l.about ? { query: l.about } : {}), ...(l.detail ?? {}), entered: l.entered,
             ...(l.view.filter(PERSON) ? { filter: l.view.filter(PERSON) } : {}),
             ...(mine ? { selected: mine.id } : {}),
-            ...(who !== PERSON ? { yours: { ...(yours ? { picked: yours.id } : {}), ...(l.view.filter(who) ? { filter: l.view.filter(who), rows: l.view.pickable(who).length } : {}) } } : {}),
+            ...(who !== PERSON ? { yours: { page: l.view.pageOf(who) + 1, pages: l.view.pageCount(who), ...(yours ? { picked: yours.id } : {}), ...(l.view.filter(who) ? { filter: l.view.filter(who), rows: l.view.pickable(who).length } : {}) } } : {}),
             agents: l.view.others().filter(o => o.who !== who).map(o => ({ by: o.who, ...(o.row ? { picked: o.row.id } : {}), ...(o.filter ? { filter: o.filter } : {}) })),
             rows: l.view.describe(who, l.describeRow, PERSON),
           };
@@ -114,16 +116,17 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.step": def({
     summary: "move the pick `by` rows (1 the next, -1 the one before) among the rows that can be picked, as j and k do; list= which list. The person's moves their selection and the [ ] position; an agent's is its own, in its tint",
-    keys: [{ keys: "j k ↑ ↓ Home End", does: "in the list" }, { keys: "wheel", does: "over a links tile" }],
+    get keys() { return [{ keys: modeActionKeys([LIST_KEYS, COLLECTION_KEYS], "list.step")!, does: "row, column or group in the list" }, { keys: "wheel", does: "over a links tile" }]; },
     touches: "nothing", replay: "safe", says: r => (r.moved ? null : `stepped to row ${r.row} of ${r.title}`),
     args: {
       list: LIST_ARG,
-      by: { type: "number", about: "1 the next row, -1 the one before" },
+      by: { type: "number", about: "1 forward, -1 back" },
+      axis: { type: "string", optional: true, choices: ["row", "column", "group"], about: "row (default): down/up a grid; column: across grid columns or board lanes; group: next/previous group" },
     },
     examples: [{ act: "list.step by=1", does: "moves to the next row, as j does" }],
-    async run({ list, by }, { host, standing }, actor) {
+    async run({ list, by, axis }, { host, standing }, actor) {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
-      const row = l.view.step(who, by);
+      const row = l.view.step(who, by, axis as "row" | "column" | "group" | undefined);
       if (!row) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} the pick in ${l.title}`);
       if (who === PERSON) await host.picked(l, row);
       host.redraw();
@@ -181,12 +184,13 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
     },
   }),
   "list.page": def({
-    summary: "turn a collection's page without changing its note", keys: "PageUp PageDown in a collection; click ‹ ›", touches: "nothing", replay: "safe",
+    summary: "turn a collection's page without changing its note", get keys() { return modeActionKeys([COLLECTION_KEYS], "list.page")! + "; click ◀ ▶"; }, touches: "nothing", replay: "safe",
     args: { list: LIST_ARG, by: { type: "number", optional: true, about: "pages to turn, default 1" } },
-    run({ list, by }, { host, standing }, actor) {
+    async run({ list, by }, { host, standing }, actor) {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
       const pages = l.view.pageCount(who);
-      const page = l.view.turnPage(who, by ?? 1, pages);
+      const page = l.view.turnPage(who, by ?? 1, pages), row = l.view.picked(who);
+      if (who === PERSON && row) await host.picked(l, row);
       host.redraw(); return { page, pages };
     },
   }),

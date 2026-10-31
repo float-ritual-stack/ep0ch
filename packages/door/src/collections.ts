@@ -35,7 +35,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   for (const [who, state] of view.settings) if (who !== PERSON) {
     const read = siteProduced(note, { kind: "view", props: spec.props, state }, site);
     const value = read && "value" in read ? read.value : undefined;
-    if (value?.kind === "view") view.setAnswer(who, listRowsOf(value.view));
+    if (value?.kind === "view") view.setAnswer(who, listRowsOf(value.view), value.view);
   }
   const press = (action: string, args: Record<string, string>, text: string) => tag?.({ role: "control", label: text, press: { act: actionLine({ action, args: { list: key, ...args } }), block: note ?? "", line: 0 } }, text) ?? text;
   const row = (r: typeof view.rows[number], text: string) => {
@@ -48,6 +48,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
     link: (id, text, revision) => tag?.({ block: id, role: "row", revision, figure }, text) ?? text,
     header: (by, text) => press("list.sort", { by }, text),
     lane: (lane, text) => press("list.layout", { lane }, text),
+    pageControl: (by, text) => press("list.page", { by: String(by) }, text),
   });
   const pages = view.pageCount(PERSON);
   blocks?.seen?.({ n, key, title: answer.title, view, entered, about: answer.question.where,
@@ -61,7 +62,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
       await watchedOn(board).settled();
       const read = siteProduced(note, { kind: "view", props: spec.props, state: next }, site);
       const result = read && "value" in read ? read.value : undefined;
-      if (result?.kind === "view") view.setAnswer(who, listRowsOf(result.view));
+      if (result?.kind === "view") view.setAnswer(who, listRowsOf(result.view), result.view);
       liveSource().redraw();
       return result;
     },
@@ -71,8 +72,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
     tag: (text, i) => press("list.layout", { layout: answer.layouts[i]! }, text),
   }).map(row => row.text);
   const footer = `${answer.view.rows.length} notes${read?.state === "loading" ? " · updating…" : ""}${answer.truncated ? " · more matches" : ""} · ${keysText(LISTVIEW_ACTIONS.def("list.layout")!.keys)}`;
-  const controls = [press("list.sort", {}, "sort"), press("list.group", {}, "group"),
-    ...(pages > 1 ? [press("list.page", { by: "-1" }, "‹"), `${view.page + 1}/${pages}`, press("list.page", { by: "1" }, "›")] : [])].join(" · ");
+  const controls = [press("list.sort", {}, "sort"), press("list.group", {}, "group")].join(" · ");
   const warning = answer.error ?? (answer.view.rows.length ? answer.hint : undefined);
   const body = [...tabs, controls, ...(warning ? rowLines(warning, Math.max(8, width - 4)).map(line => fg(C.lred) + line + RESET) : []), ...drawing.lines];
   const control = blocks?.control?.(key, entered ? "esc out" : "⏎ in");

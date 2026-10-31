@@ -1,3 +1,4 @@
+import { LIST_KEYS, COLLECTION_KEYS, listBinding } from "./list-keys";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
@@ -226,7 +227,7 @@ export interface SurfaceHost {
    * The person's selection in a list drawn in the note (an inline `::links` row) moved to `m`: the host shows it where
    * this reader's selection goes (a preview following it, its preview link), without moving anything else (PIE-794).
    */
-  preview?(m: Msg): void;
+  preview?(m: Msg, where?: OpenHow["where"]): void;
   /** The summary keys of the view this note is shown from (a lane's `[summary-properties::…]`), if any. */
   summaryKeys?(m: Msg): readonly string[] | null | undefined;
   /**
@@ -4305,11 +4306,13 @@ export class NoteSurface {
     return undefined;
   }
 
-  previewRow(host: SurfaceHost) {
+  async previewRow(host: SurfaceHost, target = this.selectedElement()?.link) {
     const selected = this.cur;
-    const target = this.selectedElement()?.link;
     if (!target?.block || target.role !== "row" || !host.preview) return;
-    void host.ctx.board.get(target.block).then(m => { if (m && this.cur === selected) host.preview!(m); }, () => {});
+    const m = await host.ctx.board.get(target.block);
+    const list = target.listRow, pick = list && this.listViews.get(list.key)?.picked();
+    const current = list?.row ? pick?.id === list.row && pick?.group === list.group : this.cur === selected;
+    if (m && current) host.preview!(m, target.openWhere);
   }
 
   /** The person's pick in list `l` moves to row `row`: the [ ] position goes with it, so the ruler and the preview agree. */
@@ -4350,7 +4353,7 @@ export class NoteSurface {
       },
       rows: () => null,
       leave: async () => { this.leaveList(); return { left: "nothing" }; },
-      hint: () => this.listViews.get(list)?.typing ? "type to filter the list · ⏎ keep · esc clear" : `${title} · j k row · ⏎ open · alt+⏎ new detail · / filter · esc out`,
+      hint: () => this.listViews.get(list)?.typing ? "type to filter the list · ⏎ keep · esc clear" : `${title} · ${modeHint([...LIST_KEYS, ...(this.listsDrawn.find(l => l.key === list)?.change ? COLLECTION_KEYS : [])], name => LISTVIEW_ACTIONS.def(name))}`,
       state: () => "in a list",
       describe: () => ({ list, title, selected: this.listViews.get(list)?.picked(PERSON)?.id ?? null, typing: this.listViews.get(list)?.typing?.text ?? null }),
     };
@@ -4369,20 +4372,8 @@ export class NoteSurface {
       host.redraw();
       return true;
     }
-    if (k.kind === "tab" && l.change) { void this.runList("list.layout", { list }, host); return true; }
-    const n = view.visible().filter(selectable).length, c = ch(k);
-    const to = (i: number) => { if (n && i >= 0 && i < n) void this.runList("list.pick", { list: String(l.n), n: i + 1 }, host); return true; };
-    if (isDown(k) || isUp(k)) {
-      void this.runList("list.step", { list, by: isDown(k) ? 1 : -1 }, host);
-      return true;
-    }
-    if (l.change && (c === "s" || c === "g")) { void this.runList(c === "s" ? "list.sort" : "list.group", { list }, host); return true; }
-    if (l.change && (k.kind === "pgup" || k.kind === "pgdn")) { void this.runList("list.page", { list, by: k.kind === "pgup" ? -1 : 1 }, host); return true; }
-    if (k.kind === "home") return to(0);
-    if (k.kind === "end") return to(n - 1);
-    if (k.kind === "enter" || k.kind === "alt-enter") { if (n) void this.runList("list.open", { list: String(l.n), ...(k.kind === "alt-enter" ? { where: "new" } : {}) }, host); return true; }
-    if (c === "/") { void this.runList("list.filter", { list: String(l.n) }, host); return true; }
-    if (k.kind === "esc") { void this.runList("list.enter", { list: String(l.n), on: false }, host); return true; }
+    const binding = listBinding(k, !!l.change, view.pickable().length);
+    if (binding) { void this.runList(binding.action as ListActionName, { list, ...binding.args } as never, host); return true; }
     // Any other key: out of the list, and the key does what it does in the reader.
     this.leaveList();
     host.redraw();
@@ -4401,7 +4392,7 @@ export class NoteSurface {
       lists: () => this.listsDrawn.map(list => ({ ...list, entered: this.listIn === list.key })),
       current: () => this.listIn ?? this.inView()?.link?.listRow?.key ?? null,
       none: "this note draws no list (a ::links component, or an extension's list view)",
-      picked: (l, row) => { this.selectListRow(l, row.id, row.group); this.previewRow(here()); },
+      picked: (l, row) => { this.selectListRow(l, row.id, row.group); if (l.change) this.enterList(l, true); const target = listOpenTarget(row); return this.previewRow(here(), target ? { ...target, listRow: { key: l.key, row: row.id, group: row.group } } : undefined); },
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
       enter: (l, on) => { if (on || this.listIn === l.key) this.enterList(l, on); },
       type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(filterLine); },
@@ -6122,7 +6113,7 @@ export class NoteSurface {
    */
   claims(k: Key): boolean {
     const list = this.listsDrawn.find(l => l.key === this.listIn);
-    return !!list && (!!list.view.typing || k.kind === "tab" && !!list.change) || this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H");
+    return !!list && (!!list.view.typing || !!listBinding(k, !!list.change, list.view.pickable().length)) || this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H");
   }
 
   /**
@@ -6642,7 +6633,10 @@ export class NoteSurface {
       const i = this.elems.indexOf(e), inline = e.link?.inlineList;
       const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
       const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was });
-      void this.runKey(g === "open" || (g === "select" && fresh) ? "element.open" : "element.select", { n: i + 1, ...(fresh ? { fresh: true } : {}) }, host);
+      if (lbk?.row) {
+        const n = this.listViews.get(lbk.key)!.indexOf(PERSON, { id: lbk.row, group: lbk.group }) + 1;
+        void this.runList(g === "open" || fresh ? "list.open" : "list.pick", { list: lbk.key, n, ...(fresh ? { where: "new" } : {}) }, host);
+      } else void this.runKey(g === "open" || (g === "select" && fresh) ? "element.open" : "element.select", { n: i + 1, ...(fresh ? { fresh: true } : {}) }, host);
       host.redraw();
       return true;
     }
