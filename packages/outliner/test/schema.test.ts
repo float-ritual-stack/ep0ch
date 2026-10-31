@@ -92,6 +92,34 @@ test("schema 7 requires 0008; a served file stays untouched, and migrated create
   expect(readFileSync(path).equals(migrated)).toBe(true);
 });
 
+test.each([7, 8])("a failed 0008 migration leaves committed WAL bytes untouched at schema %i", async (version) => {
+  const path = join(directory(), "outliner.sqlite");
+  const store = new OutlinerStore(path);
+  const note = store.create("Before interruption");
+  store.close();
+  const writer = Bun.spawn(["bun", "-e", `
+    import { Database } from "bun:sqlite";
+    const db = new Database(process.argv[1]);
+    db.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0");
+    db.query("UPDATE blocks SET text = ? WHERE id = ?").run("Committed before interruption", process.argv[2]);
+    db.exec("PRAGMA user_version = " + process.argv[3]);
+    process.kill(process.pid, "SIGKILL");
+  `, path, note.id, String(version)], { env: { ...process.env }, stdout: "pipe", stderr: "pipe" });
+  await writer.exited;
+  expect(writer.signalCode).toBe("SIGKILL");
+  const before = readFileSync(path), wal = readFileSync(`${path}-wal`);
+  expect(wal.length).toBeGreaterThan(32);
+  const child = Bun.spawn(["bun", join(import.meta.dir, "../scripts/migrations/0008-create-requests.ts"), path], {
+    env: { ...process.env }, stdout: "pipe", stderr: "pipe",
+  });
+  const code = await child.exited, err = await new Response(child.stderr).text();
+  expect({ code, err }).toMatchObject({ code: 1, err: expect.stringContaining(version === 8 ? "Expected schema 7, found 8" : "already exists") });
+  expect({
+    database: readFileSync(path).equals(before),
+    wal: existsSync(`${path}-wal`) && readFileSync(`${path}-wal`).equals(wal),
+  }).toEqual({ database: true, wal: true });
+});
+
 test("a database from before schema versions is refused, untouched, with the command that upgrades it", () => {
   const path = join(directory(), "outliner.sqlite");
   unstamped(path);

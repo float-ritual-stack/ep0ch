@@ -5,12 +5,15 @@ import { acquireWorkspaceOwnership } from "../../src/workspace-ownership";
 export function migrateCreateRequests(path: string): void {
   const release = acquireWorkspaceOwnership(path);
   let database: Database | undefined;
+  let reader: Database | undefined;
   try {
+    // Keep a read-only connection until failure cleanup finishes, so closing the writer cannot checkpoint an interrupted WAL.
+    reader = new Database(path, { readonly: true });
+    const { user_version } = reader.query("PRAGMA user_version").get() as { user_version: number };
+    if (user_version !== 7) throw new Error(`Expected schema 7, found ${user_version}`);
     database = new Database(path, { create: false, readwrite: true });
     const db = database;
     db.transaction(() => {
-      const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
-      if (user_version !== 7) throw new Error(`Expected schema 7, found ${user_version}`);
       db.exec(`CREATE TABLE create_requests (
         request_id TEXT PRIMARY KEY,
         payload_hash TEXT NOT NULL,
@@ -19,8 +22,10 @@ export function migrateCreateRequests(path: string): void {
       )`);
       db.exec("PRAGMA user_version = 8");
     }).immediate();
+    reader.close();
   } finally {
     database?.close();
+    reader?.close();
     release();
   }
 }
