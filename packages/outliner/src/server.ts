@@ -3467,12 +3467,8 @@ export class OutlinerServer {
           result = request.revision !== undefined ? this.store.revisionText(request.blockId, request.revision) : request.latest ? this.store.revisions(request.blockId, true) : this.store.revisions(request.blockId);
           break;
         case "create":
-          result = this.store.create(
-            titled(request.text),
-            request.parentId,
-            request.author,
-            request.provenance,
-          );
+          result = this.store.create(titled(request.text), request.parentId, request.author, request.provenance,
+            { position: request.position, requestId: request.requestId });
           break;
         case "notes.create":
           result = this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance);
@@ -4128,6 +4124,7 @@ export class OutlinerServer {
         break;
       }
       case "create":
+        if ((response.result as Block & { deduplicated?: true }).deduplicated) return null;
       case "edit-recovery.separate":
         domain = "content";
         blockId = (response.result as Block).id;

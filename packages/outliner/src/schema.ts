@@ -25,7 +25,7 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  * including those one subsystem uses alone (workflows, agent mentions), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -179,6 +179,12 @@ export const SCHEMA_SQL = `
     ON page_addresses(block_id) WHERE kind = 'page';
   CREATE UNIQUE INDEX IF NOT EXISTS page_addresses_work_id_per_block
     ON page_addresses(block_id) WHERE kind = 'work-id';
+  CREATE TABLE IF NOT EXISTS create_requests (
+    request_id TEXT PRIMARY KEY,
+    payload_hash TEXT NOT NULL,
+    block_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS capture_requests (
     request_id TEXT PRIMARY KEY,
     block_id TEXT NOT NULL,

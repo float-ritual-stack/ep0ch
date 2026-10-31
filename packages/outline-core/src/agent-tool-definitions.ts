@@ -293,16 +293,17 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     target: "parent",
     description:
       "Create a block under {parent}, at `position` among its siblings (0 is first; default last). " + WRITE_RULES + " " +
-      "Returns its id, ((ref)) and revision. " + NOTE_HOLDS,
+      "Returns its id, ((ref)) and revision. With requestId, a retry of the same input returns that block with deduplicated: true; different input under that id is refused. " + NOTE_HOLDS,
     properties: {
       parent: { type: "string", description: "The parent: a ref, or root" },
       text: { type: "string" },
       position: { type: "integer", minimum: 0 },
+      requestId: { type: "string", description: "Stable id for this create; reuse it with the same input when retrying." },
     },
     required: ["parent", "text"],
     command(input) {
       if (!nonEmpty(input.parent) || !nonEmpty(input.text)) return "Give the parent and non-empty text.";
-      return { operation: "create", input: inputOf(input, ["parent", "text", "position"]) };
+      return { operation: "create", input: inputOf(input, ["parent", "text", "position", "requestId"]) };
     },
   },
   {
