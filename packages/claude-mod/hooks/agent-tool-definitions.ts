@@ -159,9 +159,11 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "Text alone is a search, ranked as ep0ch find ranks it (Jev over the text matches, at most 30): each row its `score` (0 to 3), " +
       "and `search` says how sure it is: verdict strong (\"sure\"), weak (\"not sure\" over a top Jev scores as a match, else \"no strong match\": the closest named, not claimed) or none (\"no strong match\": nothing here answers it), " +
       "with `exists` (Jev's \"is it among these?\", 0 to 1). With anything else, text is a filter (every word, any order). " +
-      "Returns rows (id, title, revision, parentId, created, updated); read one with outline_read.",
+      "Returns rows (id, title, revision, parentId, created, updated); read one with outline_read. `properties: true` adds each row's " +
+      "`properties` (each key once with its `values`, as outline_read gives them), so a table over many rows needs no read per row.",
     properties: {
       text: { type: "string" },
+      properties: { type: "boolean", description: "Each row carries its properties ([{ key, values }]), the way outline_read gives them" },
       property: { type: "string", description: "key=value, or key for any value" },
       hasKey: { type: "string" },
       query: { type: "string" },
@@ -176,7 +178,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       if (!["text", "property", "hasKey", "query", "view"].some(key => nonEmpty(input[key]))) {
         return "Give text, property, hasKey, query or view to find blocks by.";
       }
-      return { operation: "find", input: inputOf(input, ["text", "property", "hasKey", "query", "view", "under", "limit", "machinery", "propertyScope"]) };
+      return { operation: "find", input: inputOf(input, ["text", "property", "hasKey", "query", "view", "under", "limit", "machinery", "propertyScope", "properties"]) };
     },
   },
   {
@@ -281,16 +283,17 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     target: "parent",
     description:
       "Create a block under {parent}, at `position` among its siblings (0 is first; default last). " + WRITE_RULES + " " +
-      "Returns its id, ((ref)) and revision. " + NOTE_HOLDS,
+      "Returns its id, ((ref)) and revision. With requestId, a retry of the same input returns that block with deduplicated: true; different input under that id is refused. " + NOTE_HOLDS,
     properties: {
       parent: { type: "string", description: "The parent: a ref, or root" },
       text: { type: "string" },
       position: { type: "integer", minimum: 0 },
+      requestId: { type: "string", description: "Stable id for this create; reuse it with the same input when retrying." },
     },
     required: ["parent", "text"],
     command(input) {
       if (!nonEmpty(input.parent) || !nonEmpty(input.text)) return "Give the parent and non-empty text.";
-      return { operation: "create", input: inputOf(input, ["parent", "text", "position"]) };
+      return { operation: "create", input: inputOf(input, ["parent", "text", "position", "requestId"]) };
     },
   },
   {

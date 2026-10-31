@@ -1,7 +1,7 @@
 import {resolveAnnotationPassage, passageResolutionStatus, passageDocumentRepresentation} from "./annotation-passages";
 import {observeDocument} from "./document-provenance";
 import {resourceDocumentObservation} from "./document-resources";
-import { blockCommentTarget } from "./block-comments";
+import { blockCommentTarget, commentRequestIdentity } from "./block-comments";
 import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
 import { isMarkLifecycle, markCurrent, TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import { resourceCommentSource, resourceCommentTarget } from "./resource-comments";
@@ -362,7 +362,7 @@ export class AnnotationRepository {
     if (!Array.isArray(operations) || operations.length === 0 || operations.length > 100) {
       throw new Error("Annotation batch must contain 1-100 operations");
     }
-    const hash = payloadHash(operations);
+    const hash = payloadHash(operations.map(commentRequestIdentity));
     return this.database.transaction((): AnnotationBatchReceipt => {
       const existing = this.database.query(
         "SELECT payload_hash, annotation_ids FROM annotation_requests WHERE request_id = ?",

@@ -131,6 +131,72 @@ test("a player asleep in the fields can be ambushed; the news says so and the in
   } finally { stop(); }
 }, 60_000);
 
+test("an ambush survives a stale fold and a stopped run; the next press finishes that event once", async () => {
+  const { one, play, chips, store, client, server, player, stop } = await realm();
+  const handle = server.handleAsync.bind(server);
+  try {
+    const town = one("type=wyrm-world");
+    const ash = player("Ash", { hp: 100, str: 200, gold: 50 }, town.id);
+    const birch = player("Birch", { hp: 1, gold: 40, rest: "fields" }, town.id);
+    let raced = false, stopped = false, run = "";
+    server.handleAsync = async (...args) => {
+      const request = args[0];
+      if (request.action === "draft.patch" && request.mutation.sessionId) {
+        run = request.mutation.sessionId;
+        if (request.blockId === ash && !raced) {
+          raced = true;
+          const note = store.require(ash);
+          await client.request({ action: "update", blockId: ash, expectedRevision: note.revision,
+            text: note.text.replace("[gold::50]", "[gold::57]"), mutation: { author: "user" } });
+        }
+      }
+      if (request.action === "blocks.records" && request.ids.includes(birch) && chips(ash).gold === "97" && !stopped) {
+        stopped = true;
+        await client.request({ action: "scripts.stop", run, mutation: { author: "user" } });
+      }
+      return handle(...args);
+    };
+    expect((await play(ash, { do: "ambush", target: birch })).reason).not.toBe("done");
+    expect(chips(ash).gold).toBe("97");
+    expect(chips(birch).gold).toBe("40");
+    const events = store.queryBlocks({ where: `parent:((${town.id})) verb=ambush` }).blocks;
+    expect(events).toHaveLength(1);
+    expect((await play(birch, { do: "sleep", where: "fields" })).message).toBe("Birch is dead until tomorrow");
+    expect(chips(birch)).toMatchObject({ gold: "0", dead: "1", "wyrm-through": chips(ash)["wyrm-through"] });
+    expect((await play(ash, { do: "ambush", target: birch })).message).toBe("Birch is already dead");
+    expect(chips(ash)).toMatchObject({ gold: "97", ambushes: "2" });
+    expect(store.queryBlocks({ where: `parent:((${town.id})) verb=ambush` }).blocks.map(b => b.id)).toEqual(events.map(b => b.id));
+  } finally { server.handleAsync = handle; stop(); }
+}, 30_000);
+
+test.each(["sleeper", "attacker"])("overlapping ambushes sharing one %s record only one fight", async (shared) => {
+  const { one, play, chips, store, server, player, stop } = await realm();
+  const handle = server.handleAsync.bind(server);
+  const together = Promise.withResolvers<void>();
+  try {
+    const town = one("type=wyrm-world");
+    const ash = player("Ash", shared === "attacker" ? { hp: 1, str: 1, gold: 50 } : { hp: 100, str: 200 }, town.id);
+    const elm = player("Elm", { hp: 100, str: 200, rest: "fields" }, town.id);
+    const birch = player("Birch", shared === "attacker" ? { hp: 100, str: 200, rest: "fields" } : { hp: 1, gold: 40, rest: "fields" }, town.id);
+    let arrivals = 0;
+    server.handleAsync = async (...args) => {
+      const request = args[0];
+      if (request.action === "create" && request.requestId?.startsWith("wyrm:ambush:")) {
+        if (++arrivals === 2) together.resolve();
+        await together.promise;
+      }
+      return handle(...args);
+    };
+    const answers = await Promise.all([play(ash, { do: "ambush", target: birch }),
+      play(shared === "attacker" ? ash : elm, { do: "ambush", target: shared === "attacker" ? elm : birch })]);
+    expect([ash, elm, birch].map(id => Number(chips(id).gold)).sort((a, b) => a - b)).toEqual([0, 0, shared === "attacker" ? 50 : 40]);
+    expect(store.queryBlocks({ where: `parent:((${town.id})) verb=ambush` }).blocks).toHaveLength(1);
+    expect(answers.filter(a => a.reason === "done")).toHaveLength(1);
+    expect(answers.find(a => a.reason !== "done")?.message).toContain("Press ambush again");
+    if (shared === "attacker") expect((await play(ash, { do: "ambush", target: elm })).message).toBe("Ash is dead until tomorrow");
+  } finally { together.resolve(); server.handleAsync = handle; stop(); }
+}, 30_000);
+
 test("a defender who died yesterday and wins the ambush has risen: the fight is saved with their morning, and the healer mends what's left", async () => {
   const { one, play, chips, today, player, stop } = await realm();
   try {
