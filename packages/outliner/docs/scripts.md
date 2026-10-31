@@ -566,6 +566,8 @@ folded into chips through `outline_set_property` at the read revision. Each play
 saved with those chips; a stale fold rereads, and an interrupted fold finishes on the next press. Compaction and a
 rule that folds events from other appenders are the next slice. When a player's sheet is being edited, the fold
 joins that draft; the chips become saved state when the person saves it.
+The last ambush event names the next create's request ID, read before either player is folded. Two simultaneous
+presses can append only one next fight; the other refreshes the players and asks for another press.
 
 ## Worked examples
 

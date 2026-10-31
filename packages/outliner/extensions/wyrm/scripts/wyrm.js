@@ -136,6 +136,10 @@ if (verb === "join") {
 
 if (typeOf(here) !== "wyrm-player") throw new Error("press this from a player's sheet (a note with [type::wyrm-player]); join from the town note");
 const world = await worldOf(here);
+// Read the log head before either balance: one next event admits the fight for both participants together.
+const ambushAfter = verb === "ambush"
+  ? (await query({ where: `parent:((${world.id})) type=wyrm-event verb=ambush`, sort: "created desc", limit: 1 })).rows[0]?.id ?? "start"
+  : null;
 here = await foldPlayer(world, here.id);
 if (here.foldInDraft) return `${here.title}'s pending ambush is folded into the open draft; save it before the next move`;
 let me = stats(here);
@@ -315,9 +319,16 @@ switch (verb) {
       : `${name} tried to kill ${victimNote.title} in their sleep. ${victimNote.title} woke up and won.`;
     const event = { type: "wyrm-event", verb: "ambush", by: `((${here.id}))`, on: `((${victimNote.id}))`, gold,
       winner: won ? "by" : "on", "by-hp": won ? Math.max(1, a) : 0, "on-hp": won ? 0 : Math.max(1, b), xp, day: today };
-    await tools.outline_create({ parent: world.id,
-      requestId: `wyrm:ambush:${victimNote.id}@${victimNote.revision}`,
-      text: `${line} ${Object.entries(event).map(([key, value]) => `[${key}::${value}]`).join(" ")}` });
+    try {
+      await tools.outline_create({ parent: world.id,
+        requestId: `wyrm:ambush:${world.id}:${ambushAfter}`,
+        text: `${line} ${Object.entries(event).map(([key, value]) => `[${key}::${value}]`).join(" ")}` });
+    } catch (error) {
+      if (!String(error).includes("Create request ID was already used with different input")) throw error;
+      await foldPlayer(world, here.id);
+      await foldPlayer(world, victimNote.id);
+      throw new Error("Another ambush landed first; the players' sheets are refreshed. Press ambush again.");
+    }
     await foldPlayer(world, here.id);
     await foldPlayer(world, victimNote.id);
     if (won) {
