@@ -1,5 +1,6 @@
 import { viewSpec, type ViewSpec } from "@ep0ch/outline-core/view-spec";
 import { renderComponent } from "./component-primitives";
+import { isVirtualBranchDefinition } from "./virtual-branches";
 // What a published page asks the service for its built-in components (src/publish-figures.ts draws them): a
 // `::graph-*` figure's question and what its answer becomes (outline-core's figure-props.ts and figure-live.ts, the
 // same reading the door's figures use), a `::links` component's groups, and a saved view's rows. The service owns the
@@ -20,7 +21,7 @@ import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/searc
 import type { AuthoredLinksSnapshot } from "./authored-links";
 import { hostBusy } from "./client";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
-import { componentSourceHtml, fieldsHtml, figureBodyHtml, figureFrame, linksHtml, viewLaneHtml, type FigureRows, type LinkGroupHtml, type LinkRowHtml, type ViewLane, type ViewRow } from "./publish-figures";
+import { componentSourceHtml, fieldsHtml, figureBodyHtml, figureFrame, linksHtml, viewLaneHtml, viewRowsHtml, type FigureRows, type LinkGroupHtml, type LinkRowHtml, type ViewLane, type ViewRow } from "./publish-figures";
 import { checklistItems } from "./checklist-items";
 import { placeFigureStep, type PublishedStep } from "./publish-steps";
 import { DEFAULT_PROPERTY_SUMMARY_KEYS, parsePropertySummaryKeys, propertySummarySegments } from "./property-summary";
@@ -95,7 +96,9 @@ export async function drawNoteComponents(
 }
 
 async function drawCollection(host: LiveHost, note: string, spec: ViewSpec): Promise<string> {
-  const answer = await produced(host, note, { kind: "view", props: spec.props }, spec.args);
+  let answer: SiteProduced;
+  try { answer = await produced(host, note, { kind: "view", props: spec.props }, spec.args); }
+  catch (error) { return figureFrame("view", String(spec.props.title ?? "Collection"), "", "live", trouble(error)); }
   if (answer.kind !== "view") return "";
   const html = renderComponent({ data: null, view: answer.view }, "html").body.replace(/<span data-collection-open="([^"]+)">([\s\S]*?)<\/span>/g, (_, id: string, label: string) => {
     const href = host.href(id);
@@ -372,6 +375,15 @@ async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Pro
 
 const property = (properties: readonly BlockProperty[] | undefined, key: string) =>
   [...(properties ?? [])].reverse().find(candidate => candidate.key.toLowerCase() === key)?.value;
+
+export const hasCollectionLayout = (view: { properties?: BlockProperty[] }): boolean =>
+  isVirtualBranchDefinition({ properties: view.properties ?? [] }) && property(view.properties, "layout") !== undefined;
+
+export async function drawViewPage(host: LiveHost, view: { id: string; properties?: BlockProperty[] }, title: string): Promise<string> {
+  if (hasCollectionLayout(view)) return drawCollection(host, view.id, { props: { of: `((${view.id}))` } });
+  const lane = await readViewLane(host, view, title);
+  return `<section class="inside view"><h2>Rows <span class="dim">${lane.count}${lane.truncated ? "+" : ""}</span></h2>\n${viewRowsHtml(lane)}</section>\n`;
+}
 
 /**
  * A saved view as the service reads it (`views.read`: its members in its order, its sort and limit), with the rows

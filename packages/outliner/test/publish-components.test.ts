@@ -159,6 +159,41 @@ test("a view's own page lists its rows, grouped by its [group::] property", asyn
   expect(html).not.toContain("Compost secret recipe");
 });
 
+test("a saved gallery page draws cards from its view record", async () => {
+  const { store, page } = await setup();
+  store.create("Water beans [type::garden-chore] [stage::ready]\n\nWater at dusk.");
+  store.create("Wash pots [type::garden-chore] [stage::later]");
+  const view = store.create('Garden gallery [type::virtual-branch] [query::type=garden-chore] [where::stage=ready] [layout::gallery] [body::2]\n\nChores ready for today.');
+  const html = await page(`/p/${view.id}`);
+  expect(html).toContain('class="ext-collection-grid"');
+  expect(html).toContain("Water beans");
+  expect(html).toContain("Water at dusk.");
+  expect(html).toContain("Chores ready for today.");
+  expect(html).not.toContain("Wash pots");
+  expect(html).not.toContain('class="kids view-rows"');
+});
+
+test("a saved board page groups public cards without exposing locked members or cell titles", async () => {
+  const { store, publisher } = await setup();
+  const hidden = store.create("Secret notebook title [publish::never]");
+  const visible = store.create("Open notebook [publish::public]");
+  const beans = store.create(`Water beans [type::garden-chore] [area::beds] [note::${hidden.id}] [publish::public]`);
+  store.create(`Wash pots [type::garden-chore] [area::shed] [note::${visible.id}] [publish::public]`);
+  store.create("Secret compost recipe [type::garden-chore] [area::vault] [publish::never]");
+  const view = store.create('Garden board [type::virtual-branch] [query::type=garden-chore] [layout::board] [group::area] [summary-properties::title, note] [publish::public]');
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${view.id}?view=html`, { headers: { accept: "text/html" } }), "public");
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).toContain('class="ext-collection-lanes"');
+  expect(html).toMatch(/<h3>beds[\s\S]*?Water beans/);
+  expect(html).toMatch(/<h3>shed[\s\S]*?Wash pots/);
+  expect(html).toContain(`href="/share/p/${beans.id}?view=html"`);
+  expect(html).toContain("Open notebook");
+  expect(html).not.toContain("Secret notebook title");
+  expect(html).not.toContain("Secret compost recipe");
+  expect(html).not.toContain("<h3>vault");
+});
+
 test("figures draw live from the service, links list the note's links, and an embedded view draws as its lane", async () => {
   const { store, page } = await setup();
   const { sowing } = seed(store);
