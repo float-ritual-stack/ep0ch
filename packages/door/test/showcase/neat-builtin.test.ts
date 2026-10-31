@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { extensionList, scriptActions } from "../../src/extensions";
+import { extensionList } from "../../src/extensions";
 import { barSource } from "../../src/bar/source";
 import type { Desk } from "../../src/desk/desk";
 import { openScreen } from "../../src/desk/screen-specs";
@@ -121,17 +121,29 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     await press(seeded.notes.neat.id);
   }, 40_000);
 
+  const startFromBar = async () => {
+    const { app } = h;
+    h.press({ kind: "char", ch: "k", ctrl: true });
+    for (const c of "neat") h.ch(c);
+    await app.bar!.settled();
+    h.press({ kind: "enter" });
+    // A bare script offers its optional slots (PIE-1473); leaving them out runs with the outline and reader defaults.
+    await until(() => !!app.bar?.describe().form, "neat's optional slots");
+    await app.bar!.settled();
+    expect(app.bar!.items[0]!.row.label).toBe("leave it out");
+    h.press({ kind: "alt-enter" });
+  };
+
   /** neat run as the person runs it from the power bar: what it said on the status line. */
   const fromBar = async () => {
     const { app } = h;
     const before = new Set(app.describe().messages.map(row => row.id));
-    // The bar's run row ends in the person's own press of the script's action (src/bar/sources.ts, `run <line>`).
-    const neat = scriptActions().find(s => s.extension.name === "neat" || s.extension.id === "neat")!;
-    expect(neat).toBeDefined();
-    await app.dispatch.press(neat.action.name, {});
-    const said = () => app.describe().messages.find(row => !before.has(row.id) && /(^|· )neat:/.test(row.message));
-    await until(() => !!said(), "neat finished", 10_000).catch(error => { throw new Error(`${error.message}; last messages: ${JSON.stringify(app.describe().messages.slice(-3))}`); });
-    return said()!.message;
+    try {
+      await startFromBar();
+      const said = () => app.describe().messages.find(row => !before.has(row.id) && /(^|· )neat:/.test(row.message));
+      await until(() => !!said(), "neat finished", 10_000).catch(error => { throw new Error(`${error.message}; last messages: ${JSON.stringify(app.describe().messages.slice(-3))}`); });
+      return said()!.message;
+    } finally { await app.dispatch.press("bar.close"); }
   };
 
   test("neat from the power bar on a plain desk, the person's keys in a reader: every step works (PIE-1403)", async () => {
@@ -149,7 +161,7 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     } finally { app.pop(); }
   }, 30_000);
 
-  test("a script line typed in the power bar and run with ⏎: ctrl+z puts the layout back with the bar still open and the answer kept (PIE-1230)", async () => {
+  test("a bare neat line runs with its slots left out: the form closes and ctrl+z undoes the run (PIE-1230)", async () => {
     const { app, board } = h;
     await app.loadExtensions(true);
     const desk = openScreen("desk") as Desk;
@@ -163,17 +175,11 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
       const second = await open("Reading the path log", "path");
       await app.dispatch.act({ action: "tile.focus", tile: second }, USER);
       const seen = new Set(app.describe().messages.map(m => m.id));
-      h.press({ kind: "char", ch: "k", ctrl: true });
-      for (const c of "neat") h.ch(c);
-      await app.bar!.settled();
-      h.press({ kind: "enter" });
+      await startFromBar();
       await until(() => app.describe().messages.some(m => !seen.has(m.id) && /(^|· )neat:/.test(m.message)), "neat finished", 10_000);
-      // The status line says ctrl+z undoes, and the bar is still open on the line with its answer: that key is the undo.
-      expect(app.bar && !app.bar.ended()).toBe(true);
+      await until(() => !app.bar, "the submitted form closes");
       h.press({ kind: "char", ch: "z", ctrl: true });
-      await until(() => !app.bar, "ctrl+z puts the bar away and takes the run back");
-      await Bun.sleep(100);
-      expect(app.describe().messages.some(m => m.action === "layout.undo" && m.message.includes("put the layout back"))).toBe(true);
+      await until(() => app.describe().messages.some(m => !seen.has(m.id) && m.action === "layout.undo" && m.message.includes("put the layout back")), "ctrl+z takes the run back");
     } finally { app.pop(); }
   }, 30_000);
 
