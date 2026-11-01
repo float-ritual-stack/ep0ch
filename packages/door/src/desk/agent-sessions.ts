@@ -3,7 +3,7 @@
 // An agent session is a program (claude, codex, pi, …, plus its arguments, from an agent config in the outline or the
 // ones installed here), a folder (its cwd) and a persona. The door session owns it: it is a terminal tile's program
 // (`PtyPane`), kept by the session's terminal host, so it outlives a detach like any terminal's. Where it is shown now
-// (your drawer, a tile on a screen, a Herdr pane its tile attaches) is not what it is: moving the tile moves the same
+// (your drawer, a tile on a screen, a named hc terminal its tile attaches) is not what it is: moving the tile moves the same
 // process and the same conversation. Nothing here keeps a second registry: the sessions are read off the door's live
 // terminals each time they're asked for.
 //
@@ -47,7 +47,7 @@ export interface AgentProcess { pid: number; program: string; argv: string[]; cw
 
 /** Where a session is shown now. */
 export type Shown =
-  | { in: "drawer"; tile: string; name: string; herdr?: string }
+  | { in: "drawer"; tile: string; name: string; address?: string }
   | { in: "screen"; screen: string; tile: string; name: string; here: boolean }
   /** Kept by the session's terminal host under `key`, with no tile; `at`: when it last wrote (null: not since this door started). */
   | { in: "no tile"; key: string; at: number | null }
@@ -169,8 +169,8 @@ export function asSession(p: PtyPane, o: { own?: boolean; proc?: string; now?: n
   if (!p.running) return null;
   // The mark is the launch's: once the agent it started has exited, what runs in the shell left is read as it is.
   const mark = p.agentExit === null ? p.run.session : undefined;
-  // The launcher's tile shows an agent that runs in Herdr: its agent is the launcher's --agent, in the tile's folder.
-  if (p.herdr) return { program: mark?.program ?? programName(p.run.cmd), folder: p.run.cwd ?? process.cwd(), persona: mark?.persona ?? null, config: mark?.config ?? null, how: mark ? "started" : o.own ? "drawer" : "found", pane: p };
+  // hc owns a named agent's program and folder; the local attach's process cannot describe them.
+  if (p.named) return { program: agentOfApp(p.status.app) ?? p.named.config.program[0] ?? p.named.config.persona, folder: p.named.config.folder, persona: p.named.config.persona, config: null, how: "drawer", pane: p };
   const proc = o.proc ?? "/proc";
   // What the program says it is (OSC 7501's app, kept by the tile) is the answer; its processes are looked at only for
   // what they know that a report doesn't (the folder it runs in, its persona) and for programs that send no reports.
@@ -229,7 +229,7 @@ export function pickSession<T extends AgentSession>(rows: readonly T[], sel: str
 
 /** Where it's shown, in words. */
 export function shownWords(s: Shown, now = Date.now()): string {
-  if (s.in === "drawer") return `in your drawer (${s.name})${s.herdr ? ` · Herdr pane ${s.herdr}` : ""}`;
+  if (s.in === "drawer") return `in your drawer (${s.name})${s.address ? ` · hc ${s.address}` : ""}`;
   if (s.in === "screen") return s.here ? `here (${s.name})` : `on the ${s.screen} (${s.name})`;
   if (s.in === "no tile") return `no tile · ${s.at ? `wrote ${ago(s.at, now)} ago` : "quiet since the restart"}`;
   return "not shown";

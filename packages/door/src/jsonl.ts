@@ -1,5 +1,5 @@
 // Newline-JSON over a socket, one way everywhere: the outline service's socket, the door's control socket and every
-// client of it (`ep0ch act|peek`, `ep0ch where`, the Herdr agent's tile). `jsonLine` writes a value as a line,
+// client of it (`ep0ch act|peek`, `ep0ch where`, hc events). `jsonLine` writes a value as a line,
 // `JsonLines` reads them as chunks arrive, `ask` is a one-shot request and its answer, and `listening` is the one
 // liveness probe (a control socket, the session's, its terminal host's).
 import { connect } from "node:net";

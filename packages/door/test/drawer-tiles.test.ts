@@ -320,7 +320,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           expect(await d.app.dispatch.act({ action: "host.agent", args: { name } }, USER)).toMatchObject({ agent: name });
         } else {
           // By the picker: its row, then ⏎.
-          const row = d.app.drawer.agents().findIndex(a => a.name === name && !a.herdr);
+          const row = d.app.drawer.agents().findIndex(a => a.name === name);
           for (let i = 0; i < row; i++) d.key({ kind: "down" });
           d.key({ kind: "enter" });
         }
@@ -371,36 +371,6 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         expect(reads).toBeLessThanOrEqual(1);
       } finally { hidden.text = text; }
     } finally { d.app.quit(); }
-  });
-
-  test("round 2: the shown Herdr terminal and built-in session retain independent polls (PIE-1172)", async () => {
-    const herdr = join(state, "herdr");
-    writeFileSync(herdr, '#!/bin/sh\nif [ "$3" = "other" ]; then while [ ! -e "' + join(state, "release") + '" ]; do sleep 0.01; done; fi\nif [ "$1 $2" = "agent get" ]; then\ncase "$3" in\nown) echo \'{"result":{"agent":{"agent_status":"blocked"}}}\';;\n*) echo \'{"result":{"agent":{"agent_status":"idle"}}}\';;\nesac\nfi\n');
-    chmodSync(herdr, 0o755);
-    process.env.EP0CH_HERDR_BIN = herdr;
-    const d = await door();
-    try {
-      d.key({ kind: "alt", ch: "a" }); d.paint();
-      await until(() => !!d.app.drawer.tile?.running, "the built-in runs");
-      const drawer = d.app.drawer.desk!;
-      await drawer.dispatch.act({ action: "tile.herdr", tile: "drawer.agent", args: { pane: "own", name: "own" } }, USER);
-      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
-      await drawer.dispatch.act({ action: "tile.herdr", tile: "kettle", args: { pane: "other", name: "other" } }, USER);
-      await drawer.dispatch.act({ action: "tab.select", tile: "kettle" }, USER);
-      d.app.drawer.state();
-      d.app.drawer.sessions();
-      await until(() => d.app.drawer.sessions().some(s => s.shown.in === "drawer" && s.pane === d.app.drawer.tile && s.state === "waiting"), "the built-in needs you while the shown terminal's poll is pending", 1000);
-      writeFileSync(join(state, "release"), "");
-      await until(() => {
-        const shown = d.app.drawer.state();
-        const own = d.app.drawer.sessions().find(s => s.shown.in === "drawer" && s.pane === d.app.drawer.tile);
-        return shown === "idle" && own?.state === "waiting";
-      }, "the chip is idle while the built-in session needs you");
-      await drawer.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
-      expect(d.app.drawer.state()).toBe("blocked");
-      await drawer.dispatch.act({ action: "tab.select", tile: "kettle" }, USER);
-      expect(d.app.drawer.state()).toBe("idle");
-    } finally { writeFileSync(join(state, "release"), ""); d.app.quit(); }
   });
 
   test("round 2: a moved terminal's stale knowledge never advertises an unavailable restart (PIE-1172)", async () => {
@@ -1266,7 +1236,6 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       const note = await board.createBlock(null, 'Fold bottom\n::box{bg=sunken border=round tone=amber pad=1}\n::button{label="Fold the bottom" act="agent.lift"}\n::');
       d.key({ kind: "alt", ch: "a" }); d.paint();
       await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
-      await d.app.act({ action: "tile.herdr", tile: DRAWER_TILE_ID, args: { pane: "door-claude" }, as: "door" });
       const own = d.app.drawer.tile!, pid = own.pid;
       const lib = openScreen("library") as any; d.app.push(lib); d.paint();
       await lib.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "note" }, tile: "library" }, USER);

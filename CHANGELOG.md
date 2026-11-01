@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The drawer attaches to a named agent and offers a card when it ends (PIE-1487)
+
+- Declare persona, machine, folder and program in `.ep0ch/agents.toml`, then `ep0ch agent start <persona>`. One kept hc terminal carries its outline and persona. The drawer attaches by name, reads status from hc events, and a second door on the same machine observes.
+- A missing or ended agent shows the names available there, start and login-shell rows, and the exit's final output. Opening the drawer never starts an agent. `ep0ch install --apply` restarts this machine's declared agents.
+- The Herdr daily launcher and its pane ownership are removed. The kitchen sink's **named-agent** section demonstrates the card, attach and observer on its own scratch core. No schema change; this branch leaves PROTOCOL unchanged for the deployer.
+
 ### Post-its peel, dock, tuck and collect on shelves (PIE-1485)
 
 - **Keep or drop an entry:** a post-it's peel control (`alt+E`) pins its shown entry while the hover keeps its stack. Drop (`alt+X`) removes just that entry. The tile menu docks it into the work area or tucks it in the drawer; peel brings it back. Drag its title onto a work-area header to land it there.

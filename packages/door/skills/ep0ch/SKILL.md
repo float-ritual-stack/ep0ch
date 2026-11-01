@@ -137,22 +137,21 @@ open: in a door tile it lands where that tile's opens go (`from=$EP0CH_TILE`), t
 saying which; in Herdr outside a door, `show` uses the Outliner Detail beside Claude (the Tree-linked one, opened when there is none, never taking focus); elsewhere it answers the `((id))`.
 It never moves the person's focus, and a door's refusal is the answer, never a reason to open it elsewhere.
 
-**Three ways a door agent starts, one environment.** Each gets the same variables (`agentVars`,
+**Local door agents share one environment.** Each gets the same variables (`agentVars`,
 `src/desk/agent-env.ts`): `EP0CH_CONTROL`, `EP0CH_TILE`, `EP0CH_TILE_ID`, `EP0CH_NEST`, `EP0CH_IN_DOOR`, and
 the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them.
 1. `^W o s` on the desk, then `claude` in that shell: a terminal tile's program.
 2. The `▲ claude` chip on the status bar, or `alt+a`: your drawer, pulled up over any screen. Its agents are terminal
-   tabs with role `agent`; `host.agent name=<agent> [herdr=true]` (the chip's picker) starts one in a new tab and saves
-   it as what the next one starts (`EP0CH_DAILY_AGENT` overrides it; none chosen: a shell). Nothing it does ends an agent. Chosen "in Herdr", it runs in the session's own pane (`door-<outline>[--<machine>]-<hash>`,
-   `EP0CH_CONTROL` a link the launcher points at the attached door). Any tile put in it travels with the person.
-   Every agent starts inside the person's login shell: when it exits, the tile is their shell, nothing restarted.
+   tabs with role `agent`; `host.agent name=<agent>` (the chip's picker) starts one in a new tab and saves
+   it as what the next one starts (`EP0CH_DAILY_AGENT` overrides it; none chosen: a shell). Nothing it does ends an agent. Any tile put in the drawer travels with the person.
+   Every local agent starts inside the person's login shell: when it exits, the tile is their shell, nothing restarted.
 
 **A Claude reads these, and the mod, only as it starts.** If the mod changed after it started (a `git pull` of
 the ep0ch checkout), or it started without them, it has no door tools or old ones. The chip says so:
 `▲ claude · door tools` when current, `▲ claude · started before update ⟳` (or `no door tools ⟳`) when not.
 `ep0ch act agent.knows` says the same with why; `ep0ch doctor` lists every door agent on an older mod.
 A click on `⟳`, `alt+R` or `ep0ch act agent.restart` restarts the door's agent, keeping the conversation
-(a bare `claude` gets `--continue` on this restart only, and only when its folder holds a conversation with a turn in it; in Herdr it comes back in the session's pane). Your `agent.restart` is refused while the person types in the agent. A `claude` you started in a tile
+(a bare `claude` gets `--continue` on this restart only, and only when its folder holds a conversation with a turn in it). Your `agent.restart` is refused while the person types in the agent. A `claude` you started in a tile
 yourself (path 1): `/exit`, then `claude --continue`.
 
 - **Who it's from:** each act and open goes with `--as`, the same actor id the mod's outline writes carry
@@ -352,3 +351,12 @@ For writing or invoking scripts and macros, read [ep0ch-outline: Scripts](../ep0
 
 `ep0ch peek` first (it shows the state the door acts on), then `ep0ch actions` for what's possible right
 now. A refusal message says why and what to do instead.
+
+## Named agents in the drawer
+
+When the folder's `.ep0ch` names an agent, the drawer attaches by that name in hc. Opening it starts nothing.
+`ep0ch agent start <persona>` reads `.ep0ch/agents.toml` (persona, machine, folder, program); install restarts
+this machine's declared agents through the same launcher. `hc ls` is the terminal list. An absent or ended
+agent shows a card with start and login-shell rows; an exit also shows its final lines. Use `act agent.launch`,
+`agent.attach` (look again), or `agent.shell` on that tile. The person's Enter, r and s and clicks do the same.
+A second door on the same machine observes; closing a door leaves the kept agent running.

@@ -13,7 +13,6 @@ import { Desk } from "../src/desk/desk";
 import { builtin, makeTile } from "../src/desk/tiles";
 import { PtyPane } from "../src/desk/pty";
 import { DRAWER_TILE_ID, MAX_SHARE, MIN_SHARE, nextStep } from "../src/drawer";
-import { WATCH_TITLE } from "../src/desk/herdr-agent";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { where as whereIs } from "../src/where";
@@ -332,7 +331,7 @@ describe("the drawer", () => {
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
-  test("the chip says what the agent is doing: off, working while it writes, Herdr's state while attached through Herdr, exited", async () => {
+  test("the chip says what the agent is doing: off, working while it writes, exited", async () => {
     const d = door();
     try {
       d.app.push(d.screen("main menu") as any);
@@ -342,37 +341,9 @@ describe("the drawer", () => {
       d.type("x\r");
       await wait(() => d.app.drawer.state() === "working");
       expect(d.app.drawer.state(Date.now() + 5000)).toBe("idle");
-      // The launcher says it lives in Herdr: the door asks Herdr (read-only) for its state.
-      const r: any = await d.app.act({ action: "tile.herdr", tile: DRAWER_TILE_ID, args: { pane: "door-claude" }, as: "door" });
-      expect(r).toMatchObject({ tile: d.app.drawer.agentId(), name: "claude", herdr: { pane: "door-claude" } });
-      d.app.drawer.state();
-      await wait(() => d.app.drawer.state() === "blocked");
-      expect(d.app.drawer.chipText()).toBe("▼ claude (from EP0CH_DAILY_AGENT) · needs you");
-      expect(readFileSync(join(dir, "calls"), "utf8")).toContain("agent get door");
-      expect(d.app.describe().drawer).toMatchObject({ herdr: { pane: "door-claude" } });
       d.type("\x04");                                            // ctrl+d: cat ends
       await wait(() => d.app.drawer.state() === "exited");
       expect(d.app.drawer.chipText()).toBe("▼ claude (from EP0CH_DAILY_AGENT) · exited 0 · shell");   // the agent gone, its shell left (no dead pane)
-    } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
-  });
-
-  test("a second door's drawer says it's only watching the Herdr pane, and that ⏎ would take it from the other door", async () => {
-    // The launcher, refused the attach because another door has the pane, watches it and titles its terminal so.
-    const watcher = join(dir, "claude-watcher");
-    writeFileSync(watcher, `#!/bin/sh\nprintf '\\033]2;%s\\007' ${JSON.stringify(WATCH_TITLE)}\nexec cat\n`);
-    chmodSync(watcher, 0o755);
-    process.env.EP0CH_DAILY_AGENT = watcher;
-    const d = door();
-    try {
-      d.app.push(d.screen("main menu") as any);
-      d.key(ALT("a")); d.paint();
-      await wait(() => d.app.drawer.tile?.running === true);
-      await d.app.act({ action: "tile.herdr", tile: DRAWER_TILE_ID, args: { pane: "door-claude" }, as: "door" });
-      await wait(() => d.app.drawer.state() === "watching");
-      expect(d.app.drawer.chipText()).toBe("▼ claude (from EP0CH_DAILY_AGENT) · watching");
-      const shown = d.paint().join("\n");
-      expect(shown).toContain("another door has it");
-      expect(shown).toContain("⏎ takes it over");
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 

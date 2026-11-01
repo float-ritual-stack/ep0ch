@@ -1455,88 +1455,53 @@ the drawer; a terminal you made yourself stays yours.
 | `kill -9` | nothing in the door runs: a small watcher it started puts the terminal back, and the next door sweeps the stale control socket and copies a `ctrl+e` editor's file to `drafts/` (saying so). Unsaved drafts in the door's memory are lost |
 | a restart | a layout's terminal tiles start their programs again (claude, nvim on the same file); a `ctrl+e` edit tile isn't restored (its file was copied to `drafts/` when the door ended) |
 
-### The daily agent in Herdr
+### Named agents in hc (PIE-1487)
 
-Choose an agent "in Herdr" in the drawer's picker (`host.agent name=claude herdr=true`) and a new agent tab runs it in
-a Herdr pane of this outline's session and shows it. Herdr lists it (`herdr agent list`), other
-agents message it (`herdr agent prompt door-<outline>-<hash> "…"`), and it keeps running when the door quits.
+A named agent is one kept terminal owned by `hc`. Your drawer attaches to it by name; opening the drawer
+never starts the agent. The nearest `.ep0ch/config.toml` names its outline, machine and persona:
 
-- **Where it runs.** The launcher (`scripts/door-agent-herdr.ts --session <outline>[@machine] --agent <agent>`)
-  looks on the default Herdr server (`HERDR_SOCKET_PATH`, else Herdr's own default) for this session's own pane,
-  labelled `door-<outline>-<hash>` (`door-pie-hole--float-2-<hash>` for one on a machine; a long name is cut). The
-  hash is of the exact `outline@machine`, so two outlines that read alike never share a pane; the pane's Herdr id is
-  written down beside its link (`agent-door-<outline>-<hash>.sock.pane`) and attach, typing and a session's end go to
-  that pane.
-  Sessions are one per outline, so each has its own agent, started with that session's `EP0CH_CONTROL`: a door on
-  another outline never attaches it.
-  - If the pane isn't there, the launcher makes it: a tab in the workspace labelled `door` (made too if
-    missing), in the drawer's folder, without taking Herdr's focus.
-  - It starts the agent there inside your login shell (`$SHELL -l -c '<agent>; exec $SHELL -l'`): `/exit`, or a
-    crash, leaves a working shell in the pane, never a dead one. Once Herdr detects the agent, the launcher names
-    it like the pane.
-  - Ending the session (`E`, `ep0ch session end`) closes its pane; never another session's, never an old `door-claude`.
-  - `EP0CH_HERDR_PANE`, `EP0CH_HERDR_NAME` and `EP0CH_HERDR_WORKSPACE` change those three names.
-  - Only your own door uses them: the default state dir with its control socket in it. A door on its own
-    `EP0CH_STATE` or `EP0CH_CONTROL` (a test door, the showcase) starts no Herdr agent and says why; with
-    `EP0CH_HERDR_SCOPED=1` it adds a second hash, of that state, to all three
-    (`door-garden-1a2b3c4d-5e6f7a8b`, workspace `door-5e6f7a8b`). Either way it
-    never attaches to, or types into, your own panes.
-  - Two doors starting at once make one pane: the wrapper looks for it and makes it holding a lock beside the
-    link below (`agent-door-<outline>-<hash>.sock.lock`).
-- **The tile is attached, not the owner.** The tile runs `herdr terminal attach` on the pane.
-  - `ctrl+b q` detaches: the tile says the program exited, and `⏎` attaches again. `ctrl+b ctrl+b` sends a
-    `ctrl+b` to the agent (Herdr's attach keeps `ctrl+b` for itself).
-  - The mouse is passed through as the agent asked for it.
-  - While attached, the tile's size is the pane's size: Herdr locks the pane to the attached client, so a
-    Herdr client viewing the same pane sees it at the tile's size.
-  - **Copying** (PIE-797): Herdr's attach doesn't pass a pane's OSC 52 on (herdrdev/herdr#4612), so Claude Code's copy
-    would never reach you through the tile. On a machine with no display of its own, reached over ssh, the pane gets the door's
-    `wl-copy` (`scripts/clip/wl-copy`) first on `PATH` and `WAYLAND_DISPLAY=ep0ch-clip`: Claude copies through it,
-    and it sends the text to the door showing the pane (`terminal.clip`, over the pane's `EP0CH_CONTROL`), which copies
-    it as the tile's own OSC 52 would be, only if you typed or clicked in the tile in the last 2 minutes. It also
-    writes the OSC 52 to the pane, so a Herdr client in the foreground gets it as before. A pane started before this
-    gets it when its agent is started again (`agent.restart`). Nothing else in the pane changes (PIE-799): there's
-    no `wl-paste`, so Claude's image paste and clipboard reads fail over as before; the pane carries the door's
-    `SSH_CONNECTION`, so Claude still prints login and OAuth links instead of trying a browser. Remove it once Herdr's
-    attach passes OSC 52 on (`clipVars` in `src/desk/herdr-agent.ts` and `scripts/clip`).
-- **Quitting the door** ends only the attach. The agent keeps running in its pane, so quitting doesn't ask
-  twice for it (it still does for other programs running in tiles).
-  - The next door's daily tile attaches to it again.
-  - In Herdr (on float-2, or from the laptop, where float-2's panes show under the `ep0ch` machine) it is
-    the session's `door-<outline>-<hash>` pane in the `door` workspace, named the same in the agent list. Open it there to carry on.
-- **A second door** attaches without `--takeover`, so it doesn't take the agent from the door showing it.
-  If another door has the agent, the tile watches it read-only instead: Herdr's observer stream, drawn at
-  the tile's size.
-  - The tile's title says `watching`. `⏎` takes the agent over, and the other door's tile starts watching.
-    `q` stops watching.
-  - Only the attached door gets the agent's `ep0ch act` and `show` (below).
-- **Which door the agent's actions reach.** Every terminal tile gets the door's own control socket as
-  `EP0CH_CONTROL`, the tile's name in the layout as `EP0CH_TILE` (the name the desk gave it, `pty2`, when you
-  opened it without one), the tile's id as `EP0CH_TILE_ID` and `EP0CH_IN_DOOR=1`.
-  Otherwise it gets your environment (a shell in a tile is your shell), less the door's Herdr pane and tab and
-  how the door was started (`EP0CH_DAILY_AGENT`, `EP0CH_LANDING`): one list, `tileEnv` in `src/desk/pty.ts`.
-  - It also gets `EP0CH_NEST`, the layers it runs in (`ssh:pts/5 › herdr:w1:p1 › door:<pid>/desk/t1:claude`),
-    and `ep0ch where` checks each one and says where your keys are ([where am I](docs/AGENT-INTERFACE.md#where-am-i-ep0ch_nest-and-ep0ch-where)).
-  - The wrapper tells the door it attached (`tile.herdr`, as its tile), so quitting the door says it ends only
-    the attach. The door no longer reads this from the tile's title, which any program can set.
-  - The agent's pane gets the same variables as an agent in a tile (one function, `agentVars` in
-    `src/desk/agent-env.ts`): `EP0CH_NEST` (the tile's, then `herdr:door-<outline>-<hash>`), `EP0CH_TILE`,
-    `EP0CH_TILE_ID`, `EP0CH_IN_DOOR`, the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them, and an
-    `EP0CH_CONTROL` that is a link in the door's state
-    (`agent-door-<outline>-<hash>.sock`). The launcher points the link at its door's socket each time it attaches.
-    The agent is started with `env -u` for what the pane mustn't inherit from the Herdr server's own
-    environment (how a door was started, an agent variable this door doesn't set).
-  - So `ep0ch act …` and the Outliner's `show` from the agent reach the door that shows it now.
-  - When the attach ends (`ctrl+b q`, or the door quits or crashes), the wrapper removes the link if it still
-    points at its door. With no door attached, `show` finds no door and splits Claude's pane in Herdr.
-  - The Outliner's `show` opens the note where an agent's open lands (`open from=$EP0CH_TILE`: the agent is the
-    host layer's, so it lands where the focused tile's opens go, or a reader that follows), as an agent's `open`,
-    which never moves your focus.
-- **No Herdr.** If Herdr isn't installed, no server answers (or one doesn't answer within 10s), or Herdr can't
-  make the pane, the tile runs the agent directly, as before, and says why when it isn't simply "no server".
-- **Messages are unattributed.** `herdr agent prompt` types the text into the agent's prompt, and nothing
-  says who sent it. An agent that messages `door` should say who it is and why ("from loki, on
-  PIE-123: …"). The agent should treat an unsigned message as it would text typed by an unknown person.
+```toml
+ws = "garden"
+machine = "garden-box"
+agent = "fern"
+```
+
+Put the launch line in `.ep0ch/agents.toml` beside that config:
+
+```toml
+[[agents]]
+persona = "fern"
+machine = "garden-box"
+folder = "~/work/garden"
+program = ["claude", "--continue"]
+```
+
+Run `ep0ch agent start fern` there, or override its location with `--on <machine>` and `--cwd <folder>`.
+The CLI, the drawer's start row and install share `src/named-agent.ts`: one
+`hc run --bg --no-parent --keep --name` command, with `ep0ch.outline` and `ep0ch.persona` labels.
+Starting a name that already runs attaches to the existing terminal; it never duplicates it.
+`ep0ch install --apply` reads this file after updating and restarts the entries for this machine.
+Machines reached through hc must already be configured (`hc machine ls`).
+
+The drawer displays `hc attach <machine/persona>` in the shared terminal tile. A second door on the same
+machine watches with `--observe`; its title says **watching** and it cannot type or resize the agent.
+The chip and agent list read the program's OSC 7501 status through `hc events`.
+Closing a tile or ending a door ends its attach; the kept agent runs on. Ctrl+\ detaches from hc.
+
+If the name is absent, the card says which names `hc ls` has on that machine. If the agent ended, the card
+shows its exit code and the last lines from `hc read`. Both cards have two pressable rows:
+
+- **ep0ch agent start fern** — Enter starts or finds the agent and attaches.
+- **a shell here** — `s` opens your login shell in a tab with your keys in it.
+
+`r` looks again without starting anything. The same actions are `agent.launch`, `agent.shell` and
+`agent.attach` through `act`. An agent's action leaves your focus and keys where they were.
+There is no hidden respawn. The agent gets its outline and persona, with no launcher's door or tile
+pointer; `ep0ch where` and the outline's normal door lookup find a door when one is open.
+
+Try the kitchen sink's **named-agent** section: Fern and a mirror use a private hc core. Start Fern,
+look again in mirror, type `work`, `ready`, or `quit` in Fern, then use the exit card. Tests use a private
+`HC_SESSION` and scratch XDG directories, together with `scripts/agent-env`; they never use your core.
 
 The current layout is saved to `desk.json` in the outline's folder of the state dir
 (`~/.local/state/ep0ch-door/sessions/local/<name>/`; see [Sessions](#sessions-quit-is-detach)). A drag in a reader

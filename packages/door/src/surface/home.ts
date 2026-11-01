@@ -6,6 +6,18 @@ import type { Key } from "../term";
 /** Empty places use the document's buttons and keys figure, without inventing a note in the outline. */
 export class HomeSurface {
   private controls: { row: number; from: number; to: number; action: string }[] = [];
+  card(title: string, detail: string[], buttons: { label: string; action: string }[], cols: number, rows: number): string[] {
+    const lines = renderDoc(title, { width: cols, cellW: 9, cellH: 16, graphics: false, maxImageRows: 0, unfold: true }).lines;
+    lines.push("");
+    this.controls = [];
+    for (const b of buttons) {
+      const drawn = buttonRows(b.label, {});
+      this.controls.push({ row: lines.length, from: 0, to: width(drawn[0] ?? ""), action: b.action });
+      lines.push(...drawn);
+    }
+    lines.push("", ...detail.flatMap(line => renderDoc(line, { width: cols, cellW: 9, cellH: 16, graphics: false, maxImageRows: 0, unfold: true }).lines));
+    return lines.slice(0, rows);
+  }
   render(title: string, cols: number, rows: number, agents = false): string[] {
     const buttons = agents
       ? [['New Agent', 'agents.new'], ['Shell', 'host.shell']]

@@ -1,3 +1,4 @@
+import { restartNamedAgents } from "../named-agent";
 import { publishLinkInstall, linkInstallResult, linkInstallSummary, linkStates, reconcileLinkInstall } from "@ep0ch/outliner/link";
 import { withSecretsFacts } from "@ep0ch/outliner/with-secrets";
 import { fixOutlineFiles, outlineFiles } from "./outline-files";
@@ -186,6 +187,12 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
   const say = (s: string) => { record(s); show(`    ✓ ${s}`); };
   const child = task.child;
   switch (step.id) {
+    case "named-agents": {
+      const agents = await restartNamedAgents(f.repo.root, env);
+      for (const agent of agents) say(`${agent.name}: restarted as ${agent.address}`);
+      if (!agents.length) say("no named agents declared for this machine in .ep0ch/agents.toml");
+      return;
+    }
     case "with-secrets": {
       const w = f.withSecrets!;
       mkdirSync(dirname(w.installed), { recursive: true });

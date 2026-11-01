@@ -737,14 +737,13 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     machines,
     drawers: await (async () => {
       const { placeDirs, readPlace } = await import("../session/place");
-      const { sessionSlug } = await import("../desk/herdr-agent");
       const root = env.EP0CH_STATE ?? defaultStateDir(env);
       return placeDirs(root).flatMap(dir => {
         const pl = readPlace(dir);
         if (!pl) return [];
         const p = drawerProgram({ env, outline: pl.outline, machine: pl.machine ?? null, dir, state: root, home });
         const session = `${pl.outline}${pl.machine ? `@${pl.machine}` : ""}`;
-        return [{ session, cmd: p.cmd, programWhy: p.programWhy, from: p.from, ...(p.herdr ? { pane: sessionSlug(session) } : {}) }];
+        return [{ session, cmd: p.cmd, programWhy: p.programWhy, from: p.from }];
       });
     })(),
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },

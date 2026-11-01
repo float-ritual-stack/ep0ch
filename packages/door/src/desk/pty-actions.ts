@@ -1,3 +1,4 @@
+import { shellQuote } from "./drawer-program";
 // A terminal tile's own actions (PIE-510, A2): the terminal kind's ActionSet, as the tree's tree.* are the tree
 // kind's. `act` routes them to tile=<tile> when it's a terminal (a program an extension names is one too), else
 // the focused terminal, else the first; the desk's keys (⏎, e, a click, ctrl+]) run the same actions through the
@@ -6,6 +7,8 @@ import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { Desk } from "./desk";
 import type { DeskApi } from "./panes";
 import type { PtyPane } from "./pty";
+import { NAMED_AGENT_KEYS } from "./named-agent-pane";
+import { modeActionKeys } from "../surface/modes";
 
 interface On { pane: PtyPane; desk: DeskApi; tile: string }
 
@@ -19,6 +22,26 @@ const host = (desk: DeskApi): Desk => {
 const TERMINAL = "Terminal";
 
 export const PTY_ACTIONS = actionSet<On>()("terminal", {
+  "agent.launch": def({
+    words: "start the named agent", summary: "Start the named hc terminal through ep0ch agent start, then attach this tile. A live terminal is reused.",
+    keys: modeActionKeys([NAMED_AGENT_KEYS], "agent.launch"), touches: "tile", while: "typing", replay: "ask", says: r => `started ${r.persona}`,
+    args: {},
+    async run(_, { pane }) { if (!pane.named) throw new ActionRefused("this tile has no named agent"); return pane.named.launch(); },
+  }),
+  "agent.attach": def({
+    words: "look for the named agent again", summary: "Read hc ls and attach the named terminal if it runs; never start it.",
+    keys: modeActionKeys([NAMED_AGENT_KEYS], "agent.attach"), touches: "tile", while: "typing", replay: "safe", args: {},
+    async run(_, { pane }) { if (!pane.named) throw new ActionRefused("this tile has no named agent"); await pane.named.refresh(); return pane.named.describe(); },
+  }),
+  "agent.shell": def({
+    words: "a shell here", summary: "Open your login shell beside the named agent's card.",
+    keys: modeActionKeys([NAMED_AGENT_KEYS], "agent.shell"), touches: "shape", replay: "ask", args: {},
+    async run(_, { desk, tile }, actor) {
+      const done = await host(desk).openTile({ kind: "pty", cmd: `${shellQuote(process.env.SHELL || "/bin/sh")} -l`, cwd: process.cwd() }, tile, "tabs", actor);
+      if (actor.kind !== "agent") await desk.perform?.("tile.enter", {}, actor, done.tile);
+      return done;
+    },
+  }),
   "tile.type": def({
     words: "send text to the terminal's program, as typed keys",
     summary: "send text=<text> to the program in terminal tile=<tile>, as typed keys (\\n is ⏎). Refused to an agent for the terminal the person is in",
@@ -77,7 +100,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
   }),
   "terminal.clip": def({
     words: "copy what the terminal's program copied",
-    summary: "the program in terminal tile=<tile> copied text=<text> (PIE-797): passed on to the person's clipboard as its own OSC 52 would be, if they typed or clicked in the tile in the last 2 min, with the \"copied from <tile>\" toast. Said by the door's wl-copy (scripts/clip) for Claude Code in a Herdr pane, whose OSC 52 Herdr's direct attach doesn't pass on (herdrdev/herdr#4612). It comes over the control socket like any program's request, so the rule is the tile's: nothing reaches the clipboard unless the person used that tile lately",
+    summary: "the program in terminal tile=<tile> copied text=<text> (PIE-797): passed on to the person's clipboard as its own OSC 52 would be, if they typed or clicked in the tile in the last 2 min, with the \"copied from <tile>\" toast. It comes over the control socket like any program's request, so the rule is the tile's: nothing reaches the clipboard unless the person used that tile lately",
     touches: "nothing", replay: "safe",
     args: { text: { type: "string", about: "what the program copied" } },
     examples: [
@@ -89,20 +112,5 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
       return { tile, copied: [...text].length };
     },
   }),
-  "tile.herdr": def({
-    words: "show an agent that lives in a Herdr pane in this terminal tile",
-    summary: "terminal tile=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). Said by scripts/door-agent-herdr.ts, the program in the tile, while it attaches: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
-    // Flagged, quitting the door doesn't warn that it ends the program: never set by an agent on the terminal the
-    // person types in. Cleared (on=false), the warning comes back: anyone, any time.
-    touches: "tile", touchesWith: a => (a.on === false ? "nothing" : "tile"), while: "typing", way: "an agent doesn't flag the terminal they're typing in (quitting would no longer warn that it ends its program)",
-    replay: "ask", says: (r, a) => (a.on === false ? `${r.tile} no longer shows an agent in Herdr` : `${r.tile} shows ${a.pane} in Herdr (quitting the door leaves it running)`),
-    args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-<outline>)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: the tile no longer shows a Herdr agent" } },
-    examples: [
-      { act: "tile.herdr tile=agent pane=door-garden", does: "marks the agent tile as showing the Herdr pane door-garden; quitting leaves it running" },
-      { act: "tile.herdr tile=agent on=false", does: "the tile no longer shows a Herdr agent; quitting warns again" },
-    ],
-    run({ pane: label, name, on }, { pane, desk, tile }, actor) {
-      return host(desk).herdrTerminal(tile, pane, label, on, actor, name);
-    },
-  }),
+
 });

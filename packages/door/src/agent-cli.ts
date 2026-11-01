@@ -5,7 +5,9 @@ import { resolve } from "node:path";
 import { ask } from "./jsonl";
 import { resolveDoor } from "./door-resolve";
 
-export const AGENT_USAGE = `  ep0ch agent ls [--machine <ssh-name>] [--json]
+export const AGENT_USAGE = `  ep0ch agent start <persona> [--on <machine>] [--cwd <folder>]
+                                   start the kept named hc terminal declared in .ep0ch/agents.toml; a live one is reused
+  ep0ch agent ls [--machine <ssh-name>] [--json]
                                    the Claude Code sessions here (or on that machine, over ssh): name, short id, kind
                                    (background: the daemon's job; interactive: a terminal owns it, with where it runs
                                    when the process's parents say), busy or waiting, and the version each runs beside
@@ -65,6 +67,7 @@ export function agentArgs(argv: readonly string[], cwd = process.cwd()): { args:
 }
 
 export async function agentCommand(argv: readonly string[], env: Record<string, string | undefined> = process.env, cwd = process.cwd()): Promise<number> {
+  if (argv[0] === "start") return (await import("./named-agent")).namedAgentCommand(argv.slice(1), env, cwd);
   if (argv[0] === "splits") {
     const [{ agentSplits }, { realFleetIO }] = await Promise.all([import("./claude-splits"), import("./agent-fleet")]);
     return agentSplits(argv.slice(1), env, realFleetIO);
