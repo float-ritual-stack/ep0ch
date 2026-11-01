@@ -187,6 +187,14 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
   const say = (s: string) => { record(s); show(`    ✓ ${s}`); };
   const child = task.child;
   switch (step.id) {
+    case "named-agents": {
+      const here = f.machineName?.chosen || f.machineName?.configured || f.machineName?.env || f.machineName?.suggested || "";
+      const result = await ensureNamedAgents({ home: f.home, here, extra: [f.repo.root], env });
+      for (const line of result.lines) { record(line); show(`    ${line}`); }
+      if (!result.ok) throw new StepFailed("some named agents could not start", result.lines.join("; "));
+      if (!result.lines.length) say("no named agents declared for this machine");
+      return;
+    }
     case "with-secrets": {
       const w = f.withSecrets!;
       mkdirSync(dirname(w.installed), { recursive: true });
@@ -815,13 +823,6 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
         linked.push(line); say(`    ${line}`);
       }
     } else { linked.push("machine links: checkout is not verified on origin/main; nothing sent"); say(`    ! ${linked[0]}`); }
-  }
-  // Named agents on this machine that are down. A live terminal is left alone, so a phone session is not dropped.
-  // A failure here is a line: the checkout has already moved.
-  const here = facts.machineName?.chosen || facts.machineName?.configured || facts.machineName?.env || "";
-  for (const line of ensureNamedAgents({ home: facts.home, here, extra: [facts.repo.root], env }).lines) {
-    const ok = line.startsWith("started ") || line.includes("already live");
-    say(`    ${ok ? "·" : "!"} ${line}`);
   }
   status?.report({ state: "done", msg: results.some(s => s.done) ? `installed${waiting.length ? `; ${waiting.length} step${waiting.length === 1 ? "" : "s"} left for you` : ""}` : "nothing to do" });
   if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: !clientBlocked, steps: results, linked, notDone: [...waiting.map(s => `${s.title}: ${s.why}`), ...sessionFailures], notes: plan.notes }, null, 2));

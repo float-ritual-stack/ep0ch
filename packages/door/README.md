@@ -1455,15 +1455,23 @@ the drawer; a terminal you made yourself stays yours.
 
 ### A named agent
 
-A named agent is one hc terminal. The persona in `.ep0ch` (`agent = "loki"`) matches a row in `.ep0ch/agents.toml`. The drawer attaches to that terminal by name, or shows a card. It does not start the process.
+A named agent is one kept hc terminal. The persona in `.ep0ch/config.toml` (`agent = "fern"`, `ws = "garden"`) matches a row in `.ep0ch/agents.toml`:
 
-- **One launch line.** `ep0ch agent start <persona>` runs `hc run --bg --no-parent --keep --name <persona> --cwd <folder> --label ep0ch.outline=<name> --label ep0ch.persona=<persona>`, and `--on <machine>` when the row names one. Flags left out come from that row. The card's start row and `ep0ch install --apply` call the same function. Apply starts this machine's rows that are down. A live terminal is left alone, including one a phone is attached to. Nothing starts an agent unasked.
-- **Two machines.** `.ep0ch`'s `machine` is where the outline lives. The row's `machine` is where the process runs. They are different fields.
-- **The card.** No terminal of that name: the drawer shows "no agent named loki on float-box", what `hc ls` has there, and two rows, `start loki` and `a shell here` (alt+s). One that ended says the exit and the last lines `hc read` kept, with the same two rows. A name whose labels are another outline's is not started.
-- **Attach.** A live terminal: the tab runs `hc attach <machine/persona>`. A second door attaches with `--observe`. Status is the program's OSC 7501, which the tile already reads. `hc read` strips those bytes, so the door attaches.
-- **`^W o s` then `claude`.** A shell tile. It does not go through this, and it stays.
-- **One process.** Herdr, the door, hc and the phone are viewers. A second `claude --continue` while the first is live is a split (`ep0ch agent splits`). The phone is `mosh` to that machine, then `hc attach <persona>` (detach is ctrl+\\), or Claude Code Remote Control on the same local process. Restarting that process drops the phone.
-- **Herdr stays a window host.** `ep0ch where` still names Herdr panes. The daily launcher is gone. `host.agent herdr=true` is refused. `tile.herdr` remains for a tile that already recorded a pane. The clip shim stays for a Herdr pane that still needs it. An `hc attach` tile gets the program's OSC 52 directly.
+```toml
+[[agent]]
+persona = "fern"
+machine = "garden-box"
+folder = "~/greenhouse"
+program = "claude"
+```
+
+- **One launch line.** `ep0ch agent start fern [--on garden-box] [--cwd '~/greenhouse']` runs `hc run --bg --no-parent --keep --name fern --cwd <folder>` with `ep0ch.outline` and `ep0ch.persona` labels. Omitted flags come from the row. An explicit start leaves a live terminal alone. The card's start row and install use that same launch function.
+- **Bring agents back after an install.** `ep0ch install --apply` reads declarations under the home folder and the installed checkout, restarts the rows for this machine, and reports each result in its normal steps (including JSON output). Restarting a live program ends its phone connection too.
+- **Two machines.** `.ep0ch/config.toml`'s `machine` is where the outline lives; an agent row's `machine` is where its program runs. Leave the row's machine out to run here. `folder` is on that machine; a remote `~` stays remote.
+- **The card.** With no terminal named fern, the tab shows what `hc ls` has there and two pressable rows: `ep0ch agent start fern` (Enter) and `a shell here` (s). An ended terminal shows its exit and last lines. `r` looks again. These are `named.start`, `named.shell`, and `named.attach` actions, available to keys, clicks and `act`. The shell is your login shell in this folder. Opening a drawer or returning to a card never launches the agent.
+- **Attach.** The tab runs `hc attach <machine/persona>`. A second door on the same client watches with `--observe`, without sending input or resizing. The status chip reads the program's OSC 7501 reports through `hc events`; the terminal stream carries the picture and clipboard. Leaving the door leaves the hc program running.
+- **One process, several viewers.** A shell tile (`^W o s`, then `claude`) remains an ordinary shell tile. A named agent is the same process seen from the door, `hc attach` in a terminal, or a phone over mosh to its machine. `ctrl+\` detaches hc. A second `claude --continue` while the first is live is a split (`ep0ch agent splits`).
+- **Try it.** The kitchen sink's **named-agent** section starts its own scratch hc core. Start Fern, attach the watching tile, type `work`, `ready`, then `quit`, and use either recovery row. Herdr remains a window host, reported by `ep0ch where`; it no longer owns the drawer agent.
 
 The current layout is saved to `desk.json` in the outline's folder of the state dir
 (`~/.local/state/ep0ch-door/sessions/local/<name>/`; see [Sessions](#sessions-quit-is-detach)). A drag in a reader

@@ -111,7 +111,7 @@ export async function agentCommand(argv: readonly string[], env: Record<string, 
 const START_USAGE = "ep0ch agent start <persona> [--on <machine>] [--cwd <folder>] [--program <cmd>] [--outline <name>]";
 
 /** The one `hc run` line. Flags left out are the persona's row in the nearest `.ep0ch/agents.toml`. */
-function agentStart(argv: readonly string[], env: Record<string, string | undefined>, cwd: string): number {
+async function agentStart(argv: readonly string[], env: Record<string, string | undefined>, cwd: string): Promise<number> {
   let persona = "", machine: string | undefined, folder: string | undefined, program: string | undefined, outline: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -122,7 +122,7 @@ function agentStart(argv: readonly string[], env: Record<string, string | undefi
     };
     try {
       if (a === "--on") machine = value();
-      else if (a === "--cwd") folder = resolve(cwd, value().replace(/^~(?=$|\/)/, env.HOME ?? homedir()));
+      else if (a === "--cwd") folder = value();
       else if (a === "--program") program = value();
       else if (a === "--outline") outline = value();
       else if (a.startsWith("--")) throw new Error(`no flag ${a}`);
@@ -135,27 +135,16 @@ function agentStart(argv: readonly string[], env: Record<string, string | undefi
   const home = env.HOME ?? homedir();
   const readFile = (p: string) => { try { return readFileSync(p, "utf8"); } catch { return undefined; } };
   let agent: NamedAgent;
-  if (!folder) {
-    let dot;
-    try { dot = nearestDotEp0ch(cwd, { readFile, exists: existsSync }); }
-    catch (e) { console.error(`ep0ch agent start: ${(e as Error).message}`); return 2; }
-    if (!dot) { console.error(`ep0ch agent start ${persona}: no .ep0ch above ${cwd}, and no --cwd. Run it in the project folder, or pass --cwd <folder> --outline <name>.`); return 2; }
-    const file = join(dot.folder, ".ep0ch", "agents.toml");
-    const text = readFile(file);
-    if (text === undefined) { console.error(`ep0ch agent start ${persona}: ${file} is missing. Add an [[agent]] row (persona, folder, and optional machine and program), or pass --cwd and --outline.`); return 2; }
-    let rows;
-    try { rows = parseAgentsToml(text, file, outline ?? dot.name, home); }
-    catch (e) { console.error((e as Error).message); return 2; }
-    const row = rows.find(r => r.persona === persona);
-    if (!row) { console.error(`ep0ch agent start ${persona}: ${file} has no persona ${persona}. Personas there: ${rows.map(r => r.persona).join(", ") || "(none)"}.`); return 2; }
-    agent = { ...row, outline: outline ?? row.outline, ...(machine !== undefined ? { machine } : {}), ...(program ? { program } : {}) };
-  } else {
-    let ws = outline;
-    if (!ws) { try { ws = nearestDotEp0ch(folder, { readFile, exists: existsSync })?.name; } catch { ws = undefined; } }
-    if (!ws) { console.error(`ep0ch agent start ${persona}: no outline name for the label. Pass --outline <name>, or put a .ep0ch in ${folder}.`); return 2; }
-    agent = { persona, machine: machine ?? "", folder, program: program ?? "claude", outline: ws };
-  }
-  const r = startNamedAgent(agent, env);
+  try {
+    const dot = nearestDotEp0ch(cwd, { readFile, exists: existsSync });
+    const file = dot ? join(dot.folder, ".ep0ch", "agents.toml") : null;
+    const text = file ? readFile(file) : undefined;
+    const row = text !== undefined ? parseAgentsToml(text, file!, dot!.name, home).find(r => r.persona === persona) : undefined;
+    const ws = outline ?? row?.outline ?? dot?.name;
+    if (!ws || (!row && !folder)) throw new Error(`no launch line for ${persona}. Add an [[agent]] row in .ep0ch/agents.toml, or pass --cwd <folder> --outline <name>.`);
+    agent = { persona, machine: machine ?? row?.machine ?? "", folder: folder ?? row!.folder, program: program ?? row?.program ?? "claude", outline: ws, ...(dot?.machine ? { outlineMachine: dot.machine } : {}) };
+  } catch (e) { console.error(`ep0ch agent start: ${(e as Error).message}`); return 2; }
+  const r = await startNamedAgent(agent, env);
   if (!r.ok) { console.error(r.error); return 1; }
   console.log(r.started ? `started ${agent.persona} at ${r.address}` : `${agent.persona} already live at ${r.address}`);
   return 0;

@@ -21,6 +21,7 @@ import { tileRegistry } from "./tile-registry";
 
 /** One tile as saved: what it is, its name, and what it needs to be built again. */
 export interface TileSpec {
+  namedAgent?: import("./named-agent").NamedAgent;
   t: "leaf";
   /** Its kind: a name in the tile-kind registry (an extension's too). */
   kind: TileKindName;

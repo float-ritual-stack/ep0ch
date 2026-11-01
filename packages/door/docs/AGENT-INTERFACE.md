@@ -38,8 +38,7 @@ start a program in a terminal tile (`tile.open kind=pty cmd=…`), and `as=` is 
 0600 from the moment it is created, in a folder that is the user's alone (0700, owner checked, the nvim sockets' check); in a folder anyone
 else can reach, the door serves no socket and says why. A request line longer than 16 Mi characters is refused and cut off (well above any note's whole text for `edit.text`). Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, its tile's name as
 `EP0CH_TILE` and its id as `EP0CH_TILE_ID`, so a program in a tile
-reaches the door it runs in (for a named agent, the door that ran `hc attach`; see the
-README's "A named agent"). It is also told its outline's session folder as `EP0CH_PLACE` (PIE-604), so it
+reaches the door it runs in. A named hc agent keeps its independent outline and persona; an attachment does not give it a viewer's socket. It is also told its outline's session folder as `EP0CH_PLACE` (PIE-604), so it
 follows its door through a handover or restart: `ep0ch act|peek|open|where` and the outliner's `door-open` (so the
 Claude mod) take `EP0CH_CONTROL` while it answers from that folder, else the outline's `door.sock` there, never another
 outline's door (outline-core's `door-reach.ts`, the one rule). An `EP0CH_CONTROL` outside that folder that answers nothing is refused, naming it and `scripts/agent-env`: no door is reached, never the place's (PIE-1363). `ep0ch where` says when the environment is stale and
@@ -106,7 +105,6 @@ characters (past that, the oldest layers after the first become one `…`). `src
 | a Herdr pane | the door, from `HERDR_PANE_ID` before it drops it, unless the nest already ends in a Herdr layer | `herdr:w1:p1` |
 | a door tile | the door, for each terminal tile (`tileEnv`) | `door:<pid>/<layout or view>/<tile id>:<tile name>` |
 | the drawer | the door, for each terminal tab started in it (PIE-498), an agent tab too; a terminal put in it from a screen keeps the layer it started with | `door:<pid>/drawer/<tile id>:claude` |
-| a recorded Herdr pane | `tile.herdr`, for a tile that already recorded one. The daily launcher is gone | `herdr:<pane label>` |
 
 The three routes:
 
@@ -352,7 +350,7 @@ else a shell), and `host.agent` opens another. Any tile can join it and leave it
 running in it puts them in the drawer (`shell went into your drawer · alt+a shows it`) instead of refusing. It's pulled up from the status bar's chip (`▲ claude`,
 `▲ shell +2`) over (or beside) whatever screen is shown, as that screen's policy says (`host`: `over`, `beside`,
 `none`). `peek` gives its state as `drawer` (`open`, `entered`, `share`, `host`, `rect`, `state`, `openedBy`,
-`herdr`, the shown tab's `terminal`, `runs` (what a new agent tab runs, its folder and why), and `tiles`: each tab's `name`, `id`,
+the shown tab's `terminal`, `runs` (what a new agent tab runs, its folder and why), and `tiles`: each tab's `name`, `id`,
 `kind`, `title`, `shown`, and a terminal's `pid`).
 
 | Action | Args | Keys, mouse | Agent rules |
@@ -361,22 +359,23 @@ running in it puts them in the drawer (`shell went into your drawer · alt+a sho
 
 | Action | Args | Keys, mouse | Agent rules |
 |---|---|---|---|
-| `host.agent` | `name` (an agent installed here, or `shell`), `herdr` (run it in the session's own Herdr pane), `default` (for every outline, not only this session), `in` (the folder it starts in, saved with it) | the person's picker, "a new agent tab" (alt+click or a right-click on the chip; offered on the drawer's first pull; the power bar names it), ⏎ in it | no name: an agent gets the list (`agents`, `now`, `from`), the person the picker. Starts it in a new agent tab (inside the person's login shell), the person's shown with their keys in it, an agent's behind the tab shown; ends nothing (PIE-1331). Saved for the outline's session as what the next new agent tab runs; `EP0CH_DAILY_AGENT` still overrides it. Said on screen |
+| `host.agent` | `name` (an agent installed here, or `shell`), `default` (for every outline, not only this session), `in` (the folder it starts in, saved with it) | the person's picker, "a new agent tab" (alt+click or a right-click on the chip; offered on the drawer's first pull; the power bar names it), ⏎ in it | no name: an agent gets the list (`agents`, `now`, `from`), the person the picker. Starts it in a new agent tab (inside the person's login shell), the person's shown with their keys in it, an agent's behind the tab shown; ends nothing (PIE-1331). Saved for the outline's session as what the next new agent tab runs; `EP0CH_DAILY_AGENT` still overrides it. Said on screen |
 | `host.shell` | | `alt+s` | a new shell (`$SHELL`, the drawer's folder) as a drawer tab: the person's is shown and takes their keys; an agent's opens behind the tab shown |
 | `host.toggle` | `open` (true, false; left out, it toggles) | `alt+a`, a click on the chip; `Esc` (after `ctrl+]`) puts it away | pulling it up is a move of the person's screen: refused while they're typing (in the drawer too) and within 2s of their last key, as `screen.open` is; said on the status bar and in the drawer's title. Never enters it: their keys stay where they were. Refused to put it away while they're in it |
 | `host.size` | `share` (0.2 to 0.9 of the rows above the status bar) | drag its top edge; `alt+A` steps 40, 50, 60, 75% | refused while they're in it |
 | `agent.type` | `text` (`\n` ⏎, `\e` Esc) | the person types in the drawer | to the agent tab used last (`drawer.agent`; `tile.type tile=<id>` types into any one). Refused while the person types in it, and while it isn't running; said on the status bar |
 | `agent.knows` | | the chip says it: `· door tools`, `· started before update ⟳`, `· no door tools ⟳` | read-only: the agent process's own environment and start time against the installed Claude mod (`current`, `stale`, `no-door`, `unknown`, with why) |
-| `agent.restart` | | a click on the chip's `⟳`; `alt+R` | the agent tab used last: its process alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (in Herdr: the session's own pane again). Refused while the person types in the drawer, or within 10s of their last key in the agent; said on the status bar |
+| `agent.restart` | | a click on the chip's `⟳`; `alt+R` | the agent tab used last: its process alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (a named hc agent is left running; its tile looks again and attaches). Refused while the person types in the drawer, or within 10s of their last key in the agent; said on the status bar |
 | `agent.lift` | `on`, `reach` (`column`, the default, or `full`), `drawer` (`true` brings a folded or put-away drawer up with the lift) | `✦a`; a status-bar button (`::button{label="▲ lift" act="agent.lift"}`) | a **preset** (`preset()` in `src/surface/actions.ts`): `tile.zoom reach=column` on the agent tab you're using (`Drawer.liftPick`): the one lifted (so again drops it), else the one you last typed in or clicked (an agent started from `alt+g` counts; `role:agent`, alias `drawer.agent`). Its steps first: a folded or put-away drawer stays as it is (the lift is `tile.zoom`'s alone, as `tile.zoom tile=role:agent reach=column` is), unless `drawer=true` brings it up as `alt+a` does and goes into it. The person's lift takes their keys and clicks into the lifted tile, the drawer down too (`host.enter` goes into a lifted tile of the drawer where it is, as a click in it does: a `then` step after the zoom, PIE-1359), until it drops, when they're the screen's again; an agent tab on a screen that isn't shown comes into the drawer; with none open, a new one opens running the last pick. A tab behind another comes to the front of its tabs as it lifts. After a handover the drawer's saved tabs answer from the first ask, drawn or not, their kept programs reattached (PIE-1342). Again, or `on=false`, drops it. An agent's is refused while the person types in the drawer, and never replaces the person's lift |
 
-An agent tab's program is told its own tile's id (`EP0CH_TILE_ID=t-…`) and `EP0CH_TILE=claude` (`shell` for a shell), as
-any terminal's is, and its nest layer is `door:<pid>/drawer/<tile id>:claude`. The Herdr launcher's `tile.herdr
-tile=drawer.agent` reaches the App on any screen. `ep0ch where` names the drawer as the tile (`the drawer`), and says when the person is typing in it; a
+A door-owned agent tab's program is told its own tile's id (`EP0CH_TILE_ID=t-…`) and `EP0CH_TILE=claude` (`shell` for a shell), as any terminal's is; its nest layer is `door:<pid>/drawer/<tile id>:claude`.
+`ep0ch where` names the drawer as the tile (`the drawer`), and says when the person is typing in it; a
 terminal put in from a screen keeps the `EP0CH_TILE_ID` it started with, and `where` finds it in the drawer by its
 program. A program that names its tile (`from=$EP0CH_TILE_ID`, or `from=$EP0CH_TILE`) is found by what it was told when no tile has
 that name, so an open from an agent tab's program (told `shell` or `claude`) lands where that
 tile's `open` wire points, wherever the tile is now.
+
+A named hc agent has its own outline and persona, independent of any viewer's control socket or tile id. Its tab runs `hc attach`; `named.attach tile=<name>` looks again, `named.start tile=<name>` starts or reuses that persona, and `named.shell tile=<name>` opens a login shell here. The missing/ended card offers the latter two as click rows (Enter and s); r attaches again. Status comes from hc's events. A second door on the same client watches without sending input or resizing. Exiting a door leaves the named process running.
 
 An agent can put its own tile in the drawer: `ep0ch where --json` names it (`door.tile.id`, found by its program's pid
 even after it moved, so not the `EP0CH_TILE_ID` it started with), then `ep0ch act tile.drawer tile=<that id> --as <you>`
@@ -643,7 +642,6 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `tile.type`, `tile.restart` (both `touches: tile`, `while: typing`) | `tile` (default: the focused terminal, or the only one; with several and none focused, refused until one is named), `text` | never into the terminal the person is in (the desk's `claude` tile included while they type in it in the drawer) |
 | `tab.select` | `tile`, `by` | never hides the person's tab |
 | `open` | `id`, `reader`, or `from=<tile>` | shows the note in that tile, or with `from`, where that tile's opens land (its link; unlinked, where an agent's open naming neither puts it: where the focused tile's opens land, never a reader the person types in). The board takes `from` too (unlinked, its detail). A program in a tile passes `from=$EP0CH_TILE_ID` (or `from=$EP0CH_TILE`) and never names a reader. `ep0ch open <id>` is this action. The person's own open gives the tile the keys, an agent's never does. On the welcome and the brief (desks) an agent's lands their own way (the welcome's preview, the brief's step). A screen with no `open` of its own (the menu, a list, a message reader) has the shell's: a message reader opens over it once the person is idle, as for any screen change |
-| `tile.herdr` | `tile`, `pane` (the Herdr pane's label), `on=false` | the terminal tile shows an agent that lives in Herdr: quitting the door ends only the attach. The daily launcher is gone. A tile that already recorded a pane can still say it; cleared when the program exits. Setting it is refused on the terminal the person is typing in (quitting would no longer warn that it ends its program); `on=false` is anyone's |
 | `view.scrollTo` | `tile`, `line` or `text`, `block` | scrolls a reader's view; never the person's [ ] position, selection or keys, and never their edit |
 | `block.mark` | `id` (default: the note `tile` shows), or `line` for an nvim tile; `reason` | framed and labelled in every tile showing it, or an nvim extmark |
 | `block.unmark` | `n`, or `id`, or neither (the focused tile's) | |
@@ -728,7 +726,6 @@ at, and what it does while they're typing:
 | `ext.*` | no | allowed: the service runs it, attributed to the extension |
 | `agents.yolo` | no | `on=true` (and a toggle with no `on=`) refused, on the person's press too (`personAlways`: they hand the door over); `on=false` allowed. While it's on, every row of this table says allowed: no person guard holds an agent back, the person's keys, focus and the tile they type in included (an agent may move them), and revisions and the layout's shape still do. Only the words being typed stay the person's: `draft.replace` waits until they're sent or closed, and `draft.patch` lands in the draft. It tells the outline service as well (PIE-973, `agents.yolo` on the wire): the MCP access level reads `full`, any proposal can be applied or dismissed, an agent's `r` releases a line waiting for a person, and the dropped-structure guard lets an edit through; the service drops it when the door that set it goes |
 | `changes.machinery` | what "what changed" shows is the person's | refused: an agent reads changes itself (`changes.since`, `activity.recent`: both take `machinery`) |
-| `tile.herdr` | no | allowed |
 | `scroll`, `back`, `forward` (a reader's own) | no | refused on a reader that has the person's keys (a host that doesn't say otherwise); elsewhere a scroll never lets go of their `[ ]` position. `view.scrollTo` is the agent's |
 | the river's `column.select` (by row or `id=`), `column.scroll`, `column.filter` | no | refused on the column the person has the keys in (its cursor is theirs, `id=` too), with the agent's way named (another column, `search`, `open from=`, `column.tag`); said on the status bar elsewhere |
 | the board's `card.select` | no: an agent's selection is its own | allowed |

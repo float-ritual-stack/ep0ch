@@ -164,6 +164,7 @@ export interface PtySpec {
 }
 
 export class PtyPane implements Pane {
+  get named(): import("./named-agent-pane").NamedAgentPane | null { return null; }
   /** `pty`, or a kind of its own for a program the service names (an extension's tile, ProgramTile). */
   readonly kind: string = "pty";
   /** What its exit line offers besides ⏎: ^W x closes it (the drawer's own tile, which never closes, offers nothing). */
@@ -184,16 +185,8 @@ export class PtyPane implements Pane {
    * runs, so a program adopted after a session handover (never spawned here) is read the same.
    */
   private get wrapped(): boolean { return this.run.inShell ?? (isAgentCmd(this.run.cmd) || !!this.run.session); }
-  /** The program's own title (OSC 0/2), if it set one (the Herdr launcher says it's only watching with it). */
+  /** The program's own title (OSC 0/2), if it set one. */
   programTitle = "";
-  /**
-   * It shows an agent that lives in this Herdr pane: quitting the door ends only the attach, not the agent.
-   * Set by `tile.herdr` (PIE-491: a typed field, not what the program puts in its title). The daily launcher
-   * that used to call it is gone. A tile that already recorded a pane can still say it. Cleared when the program starts again or exits.
-   */
-  get herdr(): { pane: string; name?: string } | null { return this.herdrPane; }
-  set herdr(h: { pane: string; name?: string } | null) { this.herdrPane = h; this.remember(); }
-  private herdrPane: { pane: string; name?: string } | null = null;
   /**
    * Which tile this is, by the tile registry's id (`t-<uuid>`), for its program's tile query (`OSC 7501 ; ?tile`, PIE-1306):
    * given by the desk it starts on (the registry can't be imported here: it reaches this module through the tile kinds).
@@ -234,7 +227,7 @@ export class PtyPane implements Pane {
   personKeyAt = 0;
   /** When the person last clicked in it, went into it (a click, e or ⏎: tile.enter; the drawer's host.enter) or picked its tab. */
   personClickAt = 0;
-  /** The next start only: a restart that keeps the conversation (`sessionCommand`, and the Herdr launcher told so). */
+  /** The next start only: a restart that keeps the conversation (`sessionCommand`). */
   private continueNext = false;
   /** It asked for SGR mouse reports (mode 1006): clicks and drags are sent that way. */
   private sgr = false;
@@ -270,6 +263,8 @@ export class PtyPane implements Pane {
   dispose() { this.kill(); this.term?.dispose(); this.term = null; this.stopForegroundWatch(); dropStatus(this); }
 
   get running() { return !!this.proc && this.exited === null; }
+  /** A recovery card uses its own actions instead of the terminal's input and exit keys. */
+  get showsTerminal(): boolean { return true; }
   get pid() { return this.proc?.pid; }
   /** The file the program edits: nvim's current buffer when it has told us, else the file it was started on. */
   get file() { return this.nvim?.view?.file || this.run.file; }
@@ -335,7 +330,7 @@ export class PtyPane implements Pane {
    * wrote meanwhile is replayed into a fresh emulator, and it's asked to draw itself again at the tile's size.
    */
   protected start(cols: number, rows: number) {
-    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.herdrPane = null; this.agentExit = null; this.exitTail = "";
+    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.agentExit = null; this.exitTail = "";
     this.term?.dispose();
     this.kbd.reset();
     const term = new XTerm({ cols, rows, scrollback: 1000, allowProposedApi: true });
@@ -433,7 +428,6 @@ export class PtyPane implements Pane {
         this.soon();
       });
       this.socket = kept.meta.socket ?? null;
-      this.herdrPane = kept.meta.herdr ?? null;
       this.toldId = kept.meta.toldId ?? this.tileId;
       if (this.socket) this.attach(this.socket);
       if (kept.exited !== null) { this.ended(kept.proc, kept.exited, this.socket); return; }
@@ -444,7 +438,6 @@ export class PtyPane implements Pane {
     // door's control socket: `ep0ch act` from the program reaches the door it runs in.
     const env = tileEnv(process.env, this.programTile, controlPath, this.tileId, this.place);
     this.toldId = this.tileId;
-    if (keep) env.EP0CH_AGENT_CONTINUE = "1";
     // The service's variables for its program (an extension's tile); the door's own (EP0CH_*) stay the door's.
     for (const [k, v] of Object.entries(this.run.env ?? {})) if (!k.startsWith("EP0CH_")) env[k] = v;
     for (const [k, v] of Object.entries(this.run.own ?? {})) { if (v === null) delete env[k]; else env[k] = v; }
@@ -496,7 +489,7 @@ export class PtyPane implements Pane {
     if (socket) void unlink(socket).catch(() => {});
     if (this.proc !== proc) return;
     this.exited = code;
-    this.herdrPane = null;
+
     LIVE.delete(this);
     this.stopForegroundWatch();
     // After the emulator has read all it wrote: a report in its last output never outlives it.
@@ -508,9 +501,7 @@ export class PtyPane implements Pane {
   }
 
   /**
-   * The program copied `text` some other way than OSC 52 in its own output (PIE-797: Claude Code in a Herdr pane, which
-   * Herdr's direct attach doesn't pass OSC 52 on from, copies through the door's `wl-copy`, scripts/clip): the same as
-   * an OSC 52 it wrote, with the same rule (the person used the tile lately), cap and toast.
+   * A program copied `text` through the control socket: the same recent-use rule, cap and toast as its own OSC 52.
    */
   programCopied(text: string) {
     const bytes = Buffer.byteLength(text);
@@ -535,9 +526,8 @@ export class PtyPane implements Pane {
 
   /** Start the emulator over from what the program wrote (a host's resync). */
   private resync: ((replay: Uint8Array) => void) | null = null;
-  /** What the terminal host keeps with the program for the next daemon: its command, nvim's socket, a Herdr attach. */
-  private meta(): PtyMeta { return { cmd: this.run.cmd, socket: this.socket, herdr: this.herdrPane, toldId: this.toldId, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.session ? { session: this.run.session } : {}) }; }
-  private remember() { const k = this.keptAs; if (k && this.running) ptyBackend().meta(k, this.meta()); }
+  /** What the terminal host keeps with the program for the next daemon: its command and nvim's socket. */
+  private meta(): PtyMeta { return { cmd: this.run.cmd, socket: this.socket, toldId: this.toldId, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.session ? { session: this.run.session } : {}) }; }
 
   /** Connect to nvim's socket and ask it to report its view. A failure leaves the tile a plain terminal. */
   private attach(path: string) {
@@ -554,7 +544,7 @@ export class PtyPane implements Pane {
 
   /**
    * Run it again after it exited (⏎ on the tile, or `tile.restart`). `keep`: the conversation is kept: a bare
-   * `claude` gets --continue, and the Herdr launcher is told to do the same in its pane (`agent.restart`).
+   * `claude` gets --continue (`agent.restart`).
    */
   restart(keep = false) { if (this.run.rerun) return this.run.rerun(); this.startAgain(keep); }
 

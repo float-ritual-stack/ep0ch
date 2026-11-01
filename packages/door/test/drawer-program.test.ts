@@ -24,10 +24,6 @@ describe("the drawer's own program", () => {
     expect(set.cmd).toEqual(["claude", "--model", "x"]);
     expect(set.name).toBe("claude");
     expect(set.programWhy).toContain("remove: export EP0CH_DAILY_AGENT='claude --model x'");
-    // The Herdr launcher is a Claude too; another program is its own name.
-    expect(programName(["/x/scripts/door-agent-herdr.ts", "--agent", "codex"])).toBe("codex");
-    expect(programName(["/x/scripts/door-agent-herdr.ts"])).toBe("claude");
-    expect(programName(["bun", "/x/scripts/door-agent-herdr.ts"])).toBe("claude");
     expect(programName(["htop"])).toBe("htop");
   });
 
@@ -60,26 +56,18 @@ describe("the drawer's agent: chosen per session, detected, started inside the p
     expect(program()).toMatchObject({ cmd: ["/bin/zsh"], name: "shell", from: "none" });
     writeFileSync(join(state, "drawer-agent.json"), JSON.stringify({ agent: "pi" }));
     expect(program()).toMatchObject({ cmd: ["pi"], name: "pi", from: "default", programWhy: "your default (pi)" });
-    writeFileSync(join(session, "drawer-agent.json"), JSON.stringify({ agent: "codex", herdr: true }));
+    writeFileSync(join(session, "drawer-agent.json"), JSON.stringify({ agent: "codex" }));
     const p = program();
-    expect(p.herdr).toBe(false);
-    expect(p.cmd).toEqual(["/bin/zsh"]);
-    expect(p.name).toBe("shell");
+    expect(p.cmd).toEqual(["codex"]);
+    expect(p.name).toBe("codex");
     expect(p.from).toBe("session");
-    expect(p.programWhy).toContain("ep0ch agent start");
-    expect(p.programWhy).toContain("codex");
     expect(program({ EP0CH_DAILY_AGENT: "claude" })).toMatchObject({ cmd: ["claude"], from: "env" });
-    // The deleted launcher is not executed.
-    const launched = program({ EP0CH_DAILY_AGENT: "/x/scripts/door-agent-herdr.ts" });
-    expect(launched.cmd).toEqual(["/bin/zsh"]);
-    expect(launched.programWhy).toContain("gone");
   });
 
   test("the agents offered: a shell first, then those on PATH. The Herdr launcher is not a choice", () => {
     const on = new Set(["claude", "pi", "herdr"]);
     const a = detectAgents({ env, which: c => (on.has(c) ? `/usr/bin/${c}` : null), session: "allotment@far" });
     expect(a.map(x => x.name)).toEqual(["shell", "claude", "pi"]);
-    expect(a.some(x => x.herdr)).toBe(false);
     expect(detectAgents({ env, which: () => null }).map(x => x.name)).toEqual(["shell"]);
   });
 
@@ -87,8 +75,6 @@ describe("the drawer's agent: chosen per session, detected, started inside the p
     expect(isAgentCmd(["claude", "--model", "x"])).toBe(true);
     expect(isAgentCmd(["/opt/bin/codex"])).toBe(true);
     expect(isAgentCmd(["nvim", "a.md"])).toBe(false);
-    // The Herdr launcher only attaches; its pane wraps the agent: never a shell around it here.
-    expect(isAgentCmd(["bun", "/x/scripts/door-agent-herdr.ts", "--agent", "claude"])).toBe(false);
     const argv = inLoginShell(["claude", "--model", "it's"], "/bin/zsh");
     expect(argv.slice(0, 3)).toEqual(["/bin/zsh", "-l", "-c"]);
     expect(argv[3]).toStartWith("exec /bin/sh -c ");          // any login shell (fish too) only runs the exec; sh runs the rest
@@ -100,22 +86,18 @@ describe("the drawer's agent: chosen per session, detected, started inside the p
   });
 });
 
-describe("a named agent, and the deleted launcher", () => {
-  test("EP0CH_DAILY_AGENT naming the launcher is a shell, and sh still wins over agents.toml", () => {
-    const p = drawerProgram({ env: { EP0CH_DAILY_AGENT: "bun /x/scripts/door-agent-herdr.ts --agent codex", SHELL: "/bin/zsh", EP0CH_OUTLINES: outlines }, outline: "allotment", start: root, home });
-    expect(p.cmd).toEqual(["/bin/zsh"]);
-    expect(p.herdr).toBe(false);
-    expect(p.programWhy).toContain("gone");
+describe("a named agent", () => {
+  test("the project names its kept terminal and an explicit scratch shell still wins", () => {
     const named = join(root, "named");
     mkdirSync(join(named, ".ep0ch"), { recursive: true });
-    writeFileSync(join(named, ".ep0ch", "config.toml"), 'ws = "allotment"\nagent = "loki"\n');
-    writeFileSync(join(named, ".ep0ch", "agents.toml"), '[[agent]]\npersona = "loki"\nmachine = "float-box"\nfolder = "~/projects/ep0ch"\nprogram = "claude"\n');
+    writeFileSync(join(named, ".ep0ch", "config.toml"), 'ws = "allotment"\nagent = "fern"\n');
+    writeFileSync(join(named, ".ep0ch", "agents.toml"), '[[agent]]\npersona = "fern"\nmachine = "garden-box"\nfolder = "~/greenhouse"\nprogram = "claude"\n');
     const row = drawerProgram({ env: { SHELL: "/bin/zsh", EP0CH_OUTLINES: outlines }, outline: "allotment", start: named, home });
     expect(row.from).toBe("named");
-    expect(row.name).toBe("loki");
-    expect(row.cmd).toEqual(["hc", "attach", "float-box/loki"]);
-    expect(row.cwd).toBe(join(home, "projects", "ep0ch"));
-    expect(row.named?.persona).toBe("loki");
+    expect(row.name).toBe("fern");
+    expect(row.cmd).toEqual(["hc", "attach", "garden-box/fern"]);
+    expect(row.cwd).toBe("~/greenhouse");
+    expect(row.named?.persona).toBe("fern");
     // A test door's shell still wins, so it never attaches a real agent.
     expect(drawerProgram({ env: { EP0CH_DAILY_AGENT: "sh", EP0CH_OUTLINES: outlines }, outline: "allotment", start: named, home }).cmd).toEqual(["sh"]);
   });
@@ -128,8 +110,8 @@ describe("the drawer reads the door's own outline and machine", () => {
     process.env.EP0CH_OUTLINES = outlines;
     try {
       const host = (machine?: string) => ({ redraw() {}, statusChanged() {}, flash() {}, ctx: () => ({ outline: "allotment", ...(machine ? { machine } : {}) }) as any });
-      expect(new AgentDrawer(host(), false, null).runs.cwd).toBe(join(outlines, "allotment"));
-      const far = new AgentDrawer(host("far"), false, null).runs;
+      expect(new AgentDrawer(host(), false).runs.cwd).toBe(join(outlines, "allotment"));
+      const far = new AgentDrawer(host("far"), false).runs;
       expect(far.cwd).not.toBe(join(outlines, "allotment"));
       expect(far.folderWhy).not.toMatch(/the outline's own folder/);
     } finally { if (saved === undefined) delete process.env.EP0CH_OUTLINES; else process.env.EP0CH_OUTLINES = saved; }

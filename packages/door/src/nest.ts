@@ -1,6 +1,6 @@
 // Where am I: EP0CH_NEST, the stack of layers a program runs in, outermost first, one line.
 //
-//   ssh:pts/5 › herdr:w1:p1 › door:1388380/drawer/drawer.agent:claude › herdr:door-pie-1a2b3c4d
+//   ssh:pts/5 › herdr:w1:p1 › door:1388380/drawer/drawer.agent:claude
 //
 // Each layer appends itself as it starts the next, since each one only knows its own variables:
 // - a door, in each terminal tile's environment (`tileEnv`): `door:<pid>/<layout or screen>/<tile id>:<tile name>`;
@@ -8,7 +8,6 @@
 //   `ssh:-` without a tty: the client's address is never recorded) and the Herdr pane it runs in (`herdr:<workspace>:<pane>`), which
 //   `tileEnv` then drops so a tile can't claim that pane;
 // - a door's drop shell (`screen.shell`, src/drop.ts): `shell:<door pid>`, the door waiting under it;
-// - a Herdr pane that already recorded one (`tile.herdr`): `herdr:<pane label>`. The daily launcher is gone.
 //
 // The nest says how the program was started, not what is true now: a tile moved to another layout keeps its
 // launch-time place, and the Herdr agent's pane keeps the door that made it while another door shows it.
@@ -83,8 +82,7 @@ export function herdrPaneOf(env: Record<string, string | undefined>): string | n
 /**
  * The layers outside this process that its environment shows and `nest` doesn't record yet, outermost first:
  * the ssh session (unless the nest has one: ssh doesn't pass EP0CH_NEST on, so a recorded one is this one),
- * then the Herdr pane (unless the nest ends in a Herdr layer, such as the launcher's `herdr:door-pie-1a2b3c4d`,
- * which is that same pane under its label).
+ * then the Herdr pane (unless the nest already ends in a Herdr layer).
  */
 export function outerLayers(env: Record<string, string | undefined>, nest: string | undefined | null): string[] {
   const had = nestLayers(nest).map(parseLayer);

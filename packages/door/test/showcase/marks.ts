@@ -57,6 +57,7 @@ export const marks: Record<string, string[]> = {
   terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
   lift: ["Allotment notebook", "Our plot at the Elm Row allotments."],
   addresses: ["Allotment notebook", "first", "second", "third"],
+  "named-agent": ["no agent named fern", "ep0ch agent start fern", "a shell here"],
   drawer: ["the kettle: a terminal tile to put in your drawer", "kettle"],
   // A fake deploy reporting its status (OSC 7501) beside the waiting-on-you list that follows it.
   status: ["a fake deploy, saying what it does with OSC 7501", "waiting on you"],

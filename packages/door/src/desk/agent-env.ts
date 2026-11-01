@@ -1,12 +1,7 @@
 // A door agent's environment, and what a running agent knows (the ▲ claude chip, `ep0ch doctor`).
 //
-// One function, `agentVars`, builds the variables that tell an agent which door and tile it runs in. All three
-// ways a person starts one use it:
-// - a terminal tile (`^W o s`, then `claude`): `tileEnv` (src/desk/pty.ts);
-// - the drawer's agent (the ▲ claude chip, alt+a: the host layer's, PIE-513, with no tile on any screen): a
-//   `PtyPane`, so `tileEnv` too;
-// - a named agent's hc terminal (`ep0ch agent start`, src/desk/named-agent.ts): the drawer attaches, or
-//   shows a card. The old Herdr launcher is gone. `agentConfig` remains for a pane `ep0ch where` still names.
+// `agentVars` binds a door-owned terminal program to its door and tile. The drawer uses the same PtyPane.
+// A kept hc agent has its own outline and persona (named-agent.ts); attaching never binds it to one viewer.
 //
 // The Outliner's Claude mod reads these once, as a session starts: it registers its `door_*` tools only when
 // EP0CH_CONTROL is set, and its `ep0ch where` context needs EP0CH_NEST and EP0CH_TILE. A running Claude never
@@ -17,7 +12,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, delimiter, join } from "node:path";
 
-/** The drawer agent's tile id (src/drawer.ts): what EP0CH_TILE_ID tells its program, in a tile or its Herdr pane. */
+/** The drawer agent's tile id (src/drawer.ts): what EP0CH_TILE_ID tells its program, in a tile. */
 export const DRAWER_TILE_ID = "drawer.agent";
 /** The host layer's agent tile's name: what `EP0CH_TILE` tells its program (`open from=claude`). */
 export const DRAWER_NAME = "claude";
@@ -25,10 +20,10 @@ export const DRAWER_NAME = "claude";
 /** What every door agent gets: the door's control socket, its tile's name and id, the nest, and that it's in a door. */
 export const AGENT_VARS = ["EP0CH_CONTROL", "EP0CH_TILE", "EP0CH_TILE_ID", "EP0CH_NEST", "EP0CH_IN_DOOR"] as const;
 /**
- * How a door was opened: a door started inside a tile or the agent's pane mustn't repeat it (the daily agent,
- * the landing). EP0CH_AGENT_CONTINUE is a restart's word to the Herdr launcher (`agent.restart`): that start only.
+ * How a door was opened: a door started inside a tile or an agent mustn't repeat it (the daily agent,
+ * the landing).
  */
-export const DOOR_START_VARS = ["EP0CH_DAILY_AGENT", "EP0CH_LANDING", "EP0CH_AGENT_CONTINUE"] as const;
+export const DOOR_START_VARS = ["EP0CH_DAILY_AGENT", "EP0CH_LANDING"] as const;
 /**
  * A Claude Code session's own identity, as a program it runs inherits it (PIE-1432): CLAUDECODE, every CLAUDE_CODE_*
  * (its session id, child-session mark, messaging socket and token), CLAUDE_PID, CLAUDE_JOB_DIR, AI_AGENT. A door started
@@ -47,8 +42,7 @@ export function withoutOuterClaude(env: Record<string, string | undefined>): Rec
 /**
  * The folder of the outline's session in the state dir (src/session/place.ts), where that outline's door serves
  * `door.sock` whichever process it is now: with it, the agent's `ep0ch` and the Claude mod follow the door through a
- * handover or restart (outline-core's door-reach.ts, PIE-604). Not one of AGENT_VARS: a Herdr agent's pane has none
- * (its EP0CH_CONTROL is a link each door re-points), and one started before it isn't stale for lacking it.
+ * handover or restart (outline-core's door-reach.ts, PIE-604). Optional for a door serving outside a session.
  */
 export const PLACE_VAR = "EP0CH_PLACE";
 /**
@@ -68,11 +62,11 @@ export interface AgentAt {
   tileId?: string | null;
   /** The whole nest, this layer included (src/nest.ts). */
   nest: string;
-  /** The outline's session folder its door serves in (EP0CH_PLACE); null: none (a Herdr pane, a door serving elsewhere). */
+  /** The outline's session folder its door serves in (EP0CH_PLACE); null: a door serving elsewhere. */
   place?: string | null;
 }
 
-/** The one place a door agent's variables are made. `env`: the door's (or the launcher's) own, for CARRIED_VARS. */
+/** The one place a door agent's variables are made. `env`: the door's own, for CARRIED_VARS. */
 export function agentVars(env: Record<string, string | undefined>, at: AgentAt): Record<string, string> {
   const out: Record<string, string> = { EP0CH_TILE: at.tile, EP0CH_IN_DOOR: "1", EP0CH_NEST: at.nest };
   const mod = modStamp(modDirs(env));

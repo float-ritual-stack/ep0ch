@@ -253,8 +253,8 @@ export interface Facts {
   /** What a door opened here gives its drawer as its own tab (src/desk/drawer-program.ts): the program, the folder, and why. */
   /** `retiredCwd`: EP0CH_DAILY_CWD is set, which no door reads since agent sessions (PIE-737): said, with what replaces it. */
   drawer?: { cmd: string[]; cwd: string; programWhy: string; folderWhy: string; retiredCwd?: string };
-  /** Each outline session's drawer: what its own tab runs, where the choice came from, and its own Herdr pane when it runs there. */
-  drawers?: { session: string; cmd: string[]; programWhy: string; from: string; pane?: string }[];
+  /** Each outline session's drawer: what its own tab runs, where the choice came from. */
+  drawers?: { session: string; cmd: string[]; programWhy: string; from: string }[];
   claude: {
     settingsPath: string;
     /** CLAUDE_CODE_PLUGIN_DIRS in Claude Code's settings (what new sessions load); null when unset. */
@@ -268,7 +268,7 @@ export interface Facts {
     mentions?: { listed: boolean; mode?: string };
     forceHyperlink?: string;
     /**
-     * The Claude processes started in a door tile or a door's Herdr pane, each judged against the mod Claude
+     * The Claude processes started in a door tile, each judged against the mod Claude
      * loads (src/desk/agent-env.ts); undefined when not looked for.
      */
     agents?: DoorAgent[];

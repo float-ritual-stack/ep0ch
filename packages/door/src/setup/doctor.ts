@@ -143,7 +143,7 @@ export function doctorChecks(f: Facts): Check[] {
     const change = d.cmd[0] === "hc"
       ? "a named hc terminal: `ep0ch agent start <persona>` (the row in .ep0ch/agents.toml). The drawer only attaches"
       : `${CHANGE_AGENT}${d.from === "env" ? " (and unset EP0CH_DAILY_AGENT, which overrides it)" : ""}`;
-    add("ep0ch", `drawer ${d.session}`, "info", `runs ${d.cmd.map(c => c.split("/").pop()).join(" ")} (${d.programWhy})${d.pane ? ` · Herdr pane ${d.pane}` : ""}`, `change it: ${change}`);
+    add("ep0ch", `drawer ${d.session}`, "info", `runs ${d.cmd.map(c => c.split("/").pop()).join(" ")} (${d.programWhy})`, `change it: ${change}`);
   }
   for (const entry of f.outlineFiles ?? []) {
     if (entry.binding) add("outlines", `${entry.folder}/.ep0ch`, "behind", "old binding file; move to .ep0ch/config.toml and keep .ep0ch.bak", `cd ${JSON.stringify(entry.folder)} && ep0ch doctor --fix`);
@@ -254,14 +254,14 @@ export const AGENT_RESTART_FIX = {
   drawer: "restart it: show its tab in the drawer, then the ⟳ on the drawer chip (▲ claude), alt+R, or `ep0ch act agent.restart` (it keeps the conversation)",
   tile: "restart it: /exit in its tile, then claude --continue",
 };
-/** An agent tab in a door's drawer (its nest's door layer is `door:<pid>/drawer/…`), or the door's Herdr pane: `agent.restart` restarts it. */
-const isDrawerAgent = (env: Record<string, string> | null) => /(^| › )door:[^›]*\/drawer\//.test(env?.EP0CH_NEST ?? "") || /(^| › )herdr:[^›]*$/.test(env?.EP0CH_NEST ?? "") && !!env?.EP0CH_NEST?.includes("door:");
+/** An agent tab in a door's drawer (its nest's door layer is `door:<pid>/drawer/…`): `agent.restart` restarts it. */
+const isDrawerAgent = (env: Record<string, string> | null) => /(^| › )door:[^›]*\/drawer\//.test(env?.EP0CH_NEST ?? "");
 
-/** Door agents (Claude in a door tile or the door's Herdr pane) running on an older mod, or without door tools. */
+/** Door agents (Claude in a door tile) running on an older mod, or without door tools. */
 export function doorAgentChecks(f: Facts): Check[] {
   const agents = f.claude.agents;
   if (!agents) return [];
-  if (!agents.length) return [{ group: "claude", name: "door agents", status: "info", detail: "no Claude running in a door tile or the door's Herdr pane" }];
+  if (!agents.length) return [{ group: "claude", name: "door agents", status: "info", detail: "no Claude running in a door tile" }];
   return agents.map(a => {
     const where = a.env?.EP0CH_NEST?.split(" › ").at(-1) ?? a.env?.EP0CH_TILE ?? "a door";
     const name = `agent ${a.pid}`;

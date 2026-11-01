@@ -41,8 +41,7 @@ export class HomeSurface {
   renderCard(card: HomeCard, cols: number, rows: number): string[] {
     const body = [
       card.title, "",
-      ...(card.lines ?? []), "",
-      ...card.buttons.map(([label, act]) => `::button{label="${label.replaceAll('"', "'")}" act="${act}"}`),
+      ...card.buttons.map(([label, act]) => `::button{label="${label.replaceAll('"', "'")}" act="${act}"}`), "", ...(card.lines ?? []),
       ...(card.keys?.length ? ["", "::graph-keys", "---", "title: Keys", "---", ...card.keys.map(k => `- ${k}`), "::"] : []),
     ].join("\n");
     const doc = renderDoc(body, {

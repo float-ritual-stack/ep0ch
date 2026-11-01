@@ -2,12 +2,12 @@
 // starts in. One answer, read where the drawer makes its tile, where its picker lists the choices and where
 // `ep0ch doctor` says it, so they never disagree.
 //
-// - The agent: EP0CH_DAILY_AGENT when set (an override, for a test door or a one-off); else the choice saved for this
+// - The agent: EP0CH_DAILY_AGENT when set (an override, for a test door or a one-off); else the named persona in .ep0ch/agents.toml; else the choice saved for this
 //   outline's session (drawer-agent.json in its folder of the state dir, made by the drawer's picker, `host.agent`); else
 //   the person's default (drawer-agent.json in the state dir, `host.agent default=true`); else none chosen yet: a shell,
 //   and the drawer offers its picker the first time it's pulled up.
 // - The agents offered: those installed here (Herdr's supported agent kinds, found on PATH), and always a shell.
-//   The Herdr daily launcher is gone. A named agent (`.ep0ch` `agent` plus `.ep0ch/agents.toml`) is an hc terminal:
+//   A named agent (`.ep0ch` `agent` plus `.ep0ch/agents.toml`) is an hc terminal:
 //   the drawer attaches, or shows a card. It never starts the process.
 // - Every agent that runs in a tile starts inside the person's login shell (`inLoginShell`): when it exits, or
 //   crashes, the tile is a working shell in the same folder with the same environment, and says the agent exited.
@@ -26,18 +26,16 @@ import { hcAttachArgv, namedFromFolder, type NamedAgent } from "./named-agent";
 /** The folder the door was started from (a session's daemon: where its first client started it). */
 const START = process.cwd();
 
-/** An agent the drawer can run: its name and its command. `herdr` is no longer offered. */
-export interface DrawerAgent { name: string; cmd: string[]; herdr?: boolean }
+/** An agent the drawer can run: its name and its command. */
+export interface DrawerAgent { name: string; cmd: string[] }
 /** What a choice is saved as (drawer-agent.json): the agent by name or command line, where it runs, and in which folder. */
-export interface DrawerChoice { agent: string; herdr?: boolean; folder?: string }
+export interface DrawerChoice { agent: string; folder?: string }
 
 export interface DrawerProgram {
   cmd: string[];
   cwd: string;
   /** What the drawer's own tab is called: the agent's name (`claude`, `codex`), or `shell`. */
   name: string;
-  /** Kept for a tile that already recorded a Herdr pane. A new program never sets this. */
-  herdr: boolean;
   /** Where the choice came from. `named`: `.ep0ch/agents.toml` names this outline's persona. */
   from: "env" | "session" | "default" | "none" | "named";
   /** Why this program, in words (`ep0ch doctor`, `peek`). */
@@ -63,13 +61,8 @@ const SHELLS = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "nu", "elvis
 /** A shell's program name (`bash`, `-zsh` as a login shell names itself, `/bin/sh`). */
 export const isShellName = (name: string) => SHELLS.has(basename(name).replace(/^-/, ""));
 const tilde = (s: string, home: string) => s.trim().replace(/^~(?=$|\/)/, home);
-/** A command line that still names the deleted Herdr daily launcher. */
-export const isDailyLauncher = (cmd: readonly string[]) => cmd.some(c => basename(c) === "door-agent-herdr.ts");
-const isLauncher = isDailyLauncher;
-
-/** The tab's name for a program: the agent it runs (the launcher's too), shell, or the program's own name. */
+/** The tab's name for a program: the agent it runs, shell, or the program's own name. */
 export function programName(cmd: readonly string[]): string {
-  if (isLauncher(cmd)) { const i = cmd.indexOf("--agent"); return i >= 0 && cmd[i + 1] ? programName(cmd.slice(i + 1)) : "claude"; }
   const first = basename(cmd[0] ?? "");
   if (SHELLS.has(first)) return "shell";
   const known = KNOWN_AGENTS.find(([, c]) => c === first);
@@ -79,13 +72,12 @@ export function programName(cmd: readonly string[]): string {
 }
 
 /**
- * A command that starts an agent (one of KNOWN_AGENTS): it runs inside the person's shell. Never the Herdr launcher:
- * it only attaches, and its pane wraps the agent itself (runLine); a tile left a shell when the attach ends would say
- * "exited" while the agent runs on in Herdr.
+ * A command that starts an agent (one of KNOWN_AGENTS) runs inside the person's shell.
+ * An hc attachment ends independently of the kept agent, so it is not wrapped.
  */
 export function isAgentCmd(cmd: readonly string[]): boolean {
   const first = basename(cmd[0] ?? "");
-  return !isLauncher(cmd) && (KNOWN_AGENTS.some(([, c]) => c === first) || /claude/.test(first));
+  return KNOWN_AGENTS.some(([, c]) => c === first) || /claude/.test(first);
 }
 
 /** A word as the shell reads it back. */
@@ -105,7 +97,7 @@ export function inLoginShell(cmd: readonly string[], shell: string, name = progr
   return [shell, "-l", "-c", `exec /bin/sh -c ${shellQuote(`${line}; c=$?; ${say}; exec ${shellQuote(shell)} -l`)}`];
 }
 
-/** The agents installed here, a shell first. The Herdr daily launcher is not one of them. */
+/** The agents installed here, a shell first. */
 export function detectAgents(o: { env?: Record<string, string | undefined>; which?: (c: string) => string | null; session?: string | null } = {}): DrawerAgent[] {
   const env = o.env ?? process.env, which = o.which ?? ((c: string) => Bun.which(c, { PATH: env.PATH ?? "" }));
   const shell = env.SHELL || "sh";
@@ -117,7 +109,7 @@ export function detectAgents(o: { env?: Record<string, string | undefined>; whic
 export const sessionLabel = (p: { outline?: string | null; machine?: string | null }) => (p.outline ? `${p.outline}${p.machine ? `@${p.machine}` : ""}` : null);
 
 const readChoice = (file: string): DrawerChoice | null => {
-  try { const x = JSON.parse(readFileSync(file, "utf8")); return x && typeof x.agent === "string" && x.agent.trim() ? { agent: x.agent.trim(), ...(x.herdr === true ? { herdr: true } : {}), ...(typeof x.folder === "string" && x.folder.trim() ? { folder: x.folder.trim() } : {}) } : null; } catch { return null; }
+  try { const x = JSON.parse(readFileSync(file, "utf8")); return x && typeof x.agent === "string" && x.agent.trim() ? { agent: x.agent.trim(), ...(typeof x.folder === "string" && x.folder.trim() ? { folder: x.folder.trim() } : {}) } : null; } catch { return null; }
 };
 /** The choice file of a session's folder (`dir`), or the person's default (the state dir). */
 export const choiceFile = (dir: string) => join(dir, "drawer-agent.json");
@@ -126,7 +118,7 @@ export const choiceFile = (dir: string) => join(dir, "drawer-agent.json");
  * The drawer's program and folder, read now. `dir`: this session's folder of the state dir (its saved choice);
  * `state`: the state dir (the person's default).
  */
-export function drawerProgram(o: { env?: Record<string, string | undefined>; outline?: string | null; machine?: string | null; start?: string; home?: string; dir?: string | null; state?: string | null } = {}): DrawerProgram {
+export function drawerProgram(o: { env?: Record<string, string | undefined>; outline?: string | null; machine?: string | null; start?: string; home?: string; dir?: string | null; state?: string | null; picked?: boolean } = {}): DrawerProgram {
   const env = o.env ?? process.env, home = o.home ?? env.HOME ?? homedir(), start = o.start ?? START;
   const shell = env.SHELL || "sh";
   const session = sessionLabel(o);
@@ -150,36 +142,28 @@ export function drawerProgram(o: { env?: Record<string, string | undefined>; out
     }
     return { cwd: start, why: "the folder the door was started from" };
   })();
-  const gone = "The Herdr daily launcher is gone. Run: ep0ch agent start <persona>. A shell is alt+s, or ^W o s then claude.";
   const answer = (cmd: string[], from: DrawerProgram["from"], programWhy: string, extra: { cwd?: string; folderWhy?: string; name?: string; named?: NamedAgent } = {}): DrawerProgram => ({
-    cmd: cmd.length ? cmd : [shell], cwd: extra.cwd ?? folderOf.cwd, name: extra.name ?? programName(cmd), herdr: false, from, programWhy,
+    cmd: cmd.length ? cmd : [shell], cwd: extra.cwd ?? folderOf.cwd, name: extra.name ?? programName(cmd), from, programWhy,
     folderWhy: extra.folderWhy ?? folderOf.why, ...(extra.named ? { named: extra.named } : {}),
   });
-  // A real EP0CH_DAILY_AGENT (a test door's sh) wins. The deleted launcher does not: it falls through.
-  if (set && !isLauncher(words(set))) {
+  // A scratch door's explicit shell keeps it off any configured agent.
+  if (set) {
     return answer(words(set), "env", `EP0CH_DAILY_AGENT (${set}), which overrides the drawer's choice. Check ~/.zshrc, ~/.zprofile, ~/.profile or the door launcher; remove: export EP0CH_DAILY_AGENT=${shellQuote(set)}`);
   }
-  if (o.outline) {
+  if (o.outline && !o.picked) {
     try {
       const named = namedFromFolder({ start, outline: o.outline, machine: o.machine ?? null, home });
       if (named) {
         const where = named.machine || "this machine";
-        const ignored = set && isLauncher(words(set)) ? " EP0CH_DAILY_AGENT names the old Herdr launcher and is ignored." : "";
-        return answer(hcAttachArgv(named), "named", `named agent ${named.persona} on ${where}: the drawer attaches when that hc terminal is live, and shows a card when it is not. Start it with: ep0ch agent start ${named.persona}.${ignored}`, {
+        return answer(hcAttachArgv(named, false, env), "named", `named agent ${named.persona} on ${where}: the drawer attaches when that hc terminal is live, and shows a card when it is not. Start it with: ep0ch agent start ${named.persona}.`, {
           cwd: named.folder, folderWhy: `the folder in .ep0ch/agents.toml (${named.folder})`, name: named.persona, named,
         });
       }
     } catch (e) { return answer([shell], "none", (e as Error).message); }
   }
-  if (choice && !choice.herdr) {
+  if (choice) {
     const agent = words(choice.agent === "shell" ? shell : choice.agent);
     return answer(agent, saved ? "session" : "default", `${saved ? `chosen for ${session ?? "this session"}` : "your default"} (${choice.agent})`);
-  }
-  if (choice?.herdr || (set && isLauncher(words(set)))) {
-    const why = set && isLauncher(words(set))
-      ? `EP0CH_DAILY_AGENT names the Herdr launcher, which is gone. ${gone}`
-      : `the saved choice was ${choice!.agent} in Herdr. ${gone}`;
-    return answer([shell], choice ? (saved ? "session" : "default") : "env", why);
   }
   return answer([shell], "none", "a shell: no agent chosen yet (the drawer's picker, alt+g, chooses one)");
 }
