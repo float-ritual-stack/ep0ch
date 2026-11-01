@@ -17,6 +17,11 @@ are its record. The outliner's entries from then are kept below, under
 - **Keep your place:** post-it arrows use the same saved back/forward history as every reader (`alt+←` / `alt+→`). Agents can `glass.pin ref=… shelf=seeds`, attributed on screen, while your focus and selection stay put. An agent's clear keeps the tile you're in.
 - **Run:** open the kitchen sink's **glass** section (`ep0ch try --showcase`) and press **Three refs on a shelf**. Door only; no protocol, grammar or schema change.
 
+### Completion keeps every letter you type (PIE-1486)
+
+- **Narrow the list:** property and page completion keep every query term; a one-letter term starts a word. `[heading-p` and `[heading-pa` offer pattern and padding, then `[heading-pat` offers only pattern. Note search keeps its typo and missing-word tolerance.
+- **Run:** try `[heading-p` in the kitchen sink's **completion** section. No protocol, grammar or schema change.
+
 ### Completion follows you and fills whole snippets (PIE-1480)
 
 - **Complete where you type:** one source contract and matcher in notes, the power bar and Detail. Chosen rows rise across clients; the popup lights matched letters and sits at the cursor through the shared screen float placement.

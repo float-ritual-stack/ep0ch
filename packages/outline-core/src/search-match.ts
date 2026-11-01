@@ -10,9 +10,10 @@ import { subtitleOf } from "./block-record";
  * missing word. Exact evidence always ranks first: a typo or a missing word
  * never puts a note above one that holds every word as typed.
  *
- * The door filters lists it already holds with it on every key, importing
- * this file from outline-core. Any change to what matches or how it ranks
- * bumps GRAMMAR (protocol.ts).
+ * Completion uses the same rungs with every query term kept and required as typed;
+ * a one-letter term starts a word. Note search keeps its prose and typo tolerance.
+ * The door filters lists it already holds with it on every key, importing this file
+ * from outline-core. Any change to what matches or how it ranks bumps GRAMMAR (protocol.ts).
  *
  * The rungs, best first (a document scores on the first rung it reaches):
  *
@@ -182,7 +183,9 @@ function words(f: Field): string[] {
 }
 
 /** A query, prepared once for every document it is matched against. */
+type SearchMode = "search" | "completion";
 export interface SearchQuery {
+  mode: SearchMode;
   /** `searchNormalize`d: what ids compare against. */
   raw: string;
   /** The folded query, or the raw one when folding leaves nothing (a query of punctuation, `((` or `#`). */
@@ -194,14 +197,18 @@ export interface SearchQuery {
   distances: Map<string, number>[];
 }
 
-export function prepareSearchQuery(query: string): SearchQuery | null {
+export function prepareSearchQuery(query: string, mode: SearchMode = "search"): SearchQuery | null {
   const raw = searchNormalize(query);
   if (!raw) return null;
   const folded = searchFold(query);
   const all = folded ? folded.split(" ") : [];
   const useful = all.filter(term => term.length >= 2 && !QUERY_FILLER.has(term));
-  const terms = useful.length ? useful : all;
-  return { raw, phrase: folded || raw, folded: !!folded, terms, budgets: terms.map(typoBudget), distances: terms.map(() => new Map()) };
+  const terms = mode === "completion" ? all : useful.length ? useful : all;
+  return { mode, raw, phrase: folded || raw, folded: !!folded, terms, budgets: terms.map(term => mode === "completion" ? 0 : typoBudget(term)), distances: terms.map(() => new Map()) };
+}
+
+function hasTerm(q: SearchQuery, f: Field, term: string): boolean {
+  return q.mode === "completion" && term.length === 1 ? words(f).some(word => word.startsWith(term)) : f.folded.includes(term);
 }
 
 function closest(q: SearchQuery, index: number, f: Field): number {
@@ -228,6 +235,7 @@ export function scoreSearchDocument<T extends SearchDocument>(document: T, q: Se
 
   const subtitle = document.subtitle ?? searchSubtitle(document.text);
   const titleField = field(subtitle ? `${title} ${subtitle}` : title), textField = field(document.text);
+  if (q.mode === "completion" && q.terms.some(term => term.length === 1 && !hasTerm(q, titleField, term) && !hasTerm(q, textField, term))) return null;
   const titleText = q.folded ? titleField.folded : searchNormalize(title);
   const bodyText = q.folded ? textField.folded : searchNormalize(document.text);
   const headings = [title, ...(subtitle ? [subtitle] : [])].map(t => q.folded ? field(t).folded : searchNormalize(t));
@@ -241,7 +249,7 @@ export function scoreSearchDocument<T extends SearchDocument>(document: T, q: Se
     let inTitle = 0, inText = 0, typed = 0, typos = 0, distance = 0, titled = 0, telling = 0;
     const missing: number[] = [];
     q.terms.forEach((term, index) => {
-      const t = titleText.includes(term), x = bodyText.includes(term);
+      const t = hasTerm(q, titleField, term), x = hasTerm(q, textField, term);
       if (t) inTitle++;
       if (x) inText++;
       if (t || x) { typed++; if (t) titled++; if (term.length >= 3) telling++; } else missing.push(index);
@@ -266,9 +274,9 @@ export function scoreSearchDocument<T extends SearchDocument>(document: T, q: Se
     const matched = typed + typos, penalty = Math.min(distance, 5) * 100;
     const near = shortness / 2 + 300 * (q.phrase.length / Math.max(q.phrase.length, titleText.length));
     if (matched === n) return { document, kind: "typo-terms", score: 16_000 + (titled / n) * 2_000 + (typed / n) * 1_000 + near - penalty, title, inTitle: titled / n, edits: distance };
-    if (n >= 2 && matched === n - 1) return { document, kind: "partial-terms", score: 12_700 + (titled / n) * 1_000 + (typed / n) * 800 + near - penalty, title, inTitle: titled / n, edits: distance };
+    if (q.mode === "search" && n >= 2 && matched === n - 1) return { document, kind: "partial-terms", score: 12_700 + (titled / n) * 1_000 + (typed / n) * 800 + near - penalty, title, inTitle: titled / n, edits: distance };
     // A two-letter term ("no" of "no-such-thing") is in too many words to be evidence on its own.
-    if (telling > 0) return { document, kind: "some-terms", score: 12_000 + (typed / n) * 150, title, inTitle: inTitle / n };
+    if (q.mode === "search" && telling > 0) return { document, kind: "some-terms", score: 12_000 + (typed / n) * 150, title, inTitle: inTitle / n };
   }
   if (q.phrase.length >= 3) {
     const titleScore = subsequenceScore(q.phrase, titleText);
@@ -280,9 +288,9 @@ export function scoreSearchDocument<T extends SearchDocument>(document: T, q: Se
 }
 
 /** Every document that matches, best first: score, then title, then id. */
-export function rankTextSearchMatches<T extends SearchDocument>(documents: readonly T[], query: string, limit = Infinity): TextSearchMatch<T>[] {
+export function rankTextSearchMatches<T extends SearchDocument>(documents: readonly T[], query: string, limit = Infinity, mode: SearchMode = "search"): TextSearchMatch<T>[] {
   if (limit !== Infinity && (!Number.isInteger(limit) || limit <= 0)) throw new Error("Search limit must be positive");
-  const q = prepareSearchQuery(query);
+  const q = prepareSearchQuery(query, mode);
   if (!q) return [];
   const matches: TextSearchMatch<T>[] = [];
   for (const document of documents) {
@@ -313,9 +321,9 @@ export function matchesSearchText(query: string | SearchQuery | null, fields: re
  * The positions (code points) of `text` a `query` lights, as every list draws its matched letters (the completion list,
  * the tile menu): each query word where it sits whole, else its letters in order. Case-folded; nothing for no query.
  */
-export function searchMatchSpans(text: string, query: string): number[] {
+export function searchMatchSpans(text: string, query: string, mode: SearchMode = "search"): number[] {
   const lit = new Set<number>(), low = [...text.toLowerCase()], joined = low.join("");
-  for (const word of prepareSearchQuery(query)?.terms ?? []) {
+  for (const word of prepareSearchQuery(query, mode)?.terms ?? []) {
     const unit = joined.indexOf(word), at = unit < 0 ? -1 : [...joined.slice(0, unit)].length;
     if (at >= 0) { for (let i = 0; i < [...word].length; i++) lit.add(at + i); continue; }
     let from = 0;
