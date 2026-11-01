@@ -67,7 +67,7 @@ import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme, themed } from "../theme";
 import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term";
-import { DOCK_DROP, dropAt, dropOp, handleDrop, type Drop, type DropTile, type DropPlace } from "./drop";
+import { DOCK_DROP, dropAt, dropArgs, dropOp, floatLanding, handleDrop, type Drop, type DropTile, type DropPlace, type DropReceive } from "./drop";
 import { drawDrop } from "./drop-drawing";
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
@@ -607,6 +607,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private handles: { id: number; from: number; to: number; dock: Dock<number> }[] = [];
   private dividers: Divider<number>[] = [];
   private area: Rect = { col: 0, row: 0, cols: 80, rows: 22 };
+  private rootArea = this.area;
   /** Attention marks (door-local until PIE-423's service store; only the desk's are saved). */
   private marksStore: MarkStore;
   private headOut = "";
@@ -3678,7 +3679,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const top = band ? Math.max(0, Math.min(rows - 6, band.kind.rows(band.pane, cols, rows, this))) : 0;
     this.bandHits = top ? [{ col: 0, row: 0, cols, rows: top }] : [];
     const area: Rect = host?.area ?? { col: 0, row: top, cols, rows: rows - (this.holder ? 1 : 2) - top };
-    this.area = area;
+    this.area = area; this.rootArea = host?.root ?? area;
     this.slid = [];
     const zoomed = this.zoom !== null && this.panes.has(this.zoom);
     if (zoomed) {
@@ -5681,12 +5682,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   private tile(sel: string | undefined) { return this.tileNamed(sel)!; }
 
-  /**
-   * Where each tile is right now, placed from the tree as it is (not as last painted: paints are coalesced, and
-   * a key that follows a change within a frame must see the change).
-   */
+  /** Current tree and float rectangles, including changes before the next coalesced paint. */
   private rectsNow(): Map<number, Rect> {
-    const rects = rectsOf(this.layout, this.area, this.holds);
+    const rects = rectsOf(this.layout, this.rootArea, this.holds);
     for (const f of this.floats) if (rects.has(f.id)) rects.set(f.id, this.floatRect(f));
     return rects;
   }
@@ -6328,6 +6326,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   dockTile(sel: string | undefined, pin: boolean | undefined, edge: Dir | "other" | undefined, actor: Actor, container0?: string): TileDone {
     const t = this.tile(sel);
+    if (this.ctx.hostLayer?.isDrawer(this) && this.isFloat(t.id)) return this.ctx.glass!.dock(t.name, pin, edge, actor, container0);
     // A tile living in a dock's container (`shuts`: the board's outline, the list and its preview) goes in and out
     // of its dock with that container whole.
     const holder = chainOf(this.root, t.id).find(c => c.policy?.shuts);
@@ -7156,6 +7155,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** A float is being moved or sized by the mouse: the drag stays this screen's until the button comes up, over the drawer too. */
   floatGesture(): boolean { return !!this.floatDrag; }
+  draggedFloat(): string | null { return this.floatDrag && !this.floatDrag.size ? this.nameOf(this.floatDrag.id) : null; }
+  floatDrop(): Drop<number> | null { return this.floatDrag?.drop ?? null; }
   get lifted() { return this.layout.lift; }
   /** Pane `p` is the tile lifted on this desk. */
   liftsPane(p: Pane): boolean { const l = this.layout.lift; return !!l && this.panes.get(l.tile) === p; }
@@ -7576,7 +7577,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!host) throw new ActionRefused("this door has no drawer here (the logon and the logoff have none)");
     const t = this.tile(sel);
     if (host.isDrawer(this)) {
-      if (on === true) { if (this.isFloat(t.id)) this.floatTile(t.name, actor, false); return { ...this.tileAnswer(t.id), inDrawer: true }; }
+      if (this.isFloat(t.id) && on !== false) return host.put(this, t.name, actor);
+      if (on === true) return { ...this.tileAnswer(t.id), inDrawer: true };
       return host.take(t.name, to, where, actor);
     }
     // From a screen, on=false brings the drawer's tab shown here, beside tile= (^W A); a tile in the drawer by name is the drawer's own request.
@@ -7826,23 +7828,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The tile the person is dragging by its header now (a drop on the drawer takes it there), or null. */
   draggedTile(): string | null { return this.dragging ? this.nameOf(this.dragging.src) : null; }
   /** The drag ends with nothing moved here (it was dropped on the drawer, or outside this screen). */
-  cancelDrag() { this.dragging = null; this.headPress = null; this.foreign = null; this.redraw(); }
+  cancelDrag() { this.dragging = null; this.floatDrag = null; this.headPress = null; this.foreign = null; this.redraw(); }
   /** The dragged tile is over the drawer (the status bar's chip, or the dock): the drag says it lands there. */
   drawerHover(label: string | null) { if (this.dragging && (this.dragging.drawer ?? null) !== label) { this.dragging = { ...this.dragging, drawer: label }; this.redraw(); } }
   /**
    * A tile from outside this screen (the drawer's) dragged over it at x, y: where it would land here, by the same drop
    * zones a tile of this screen gets, with the reason policy refuses it; drawn as the ghost until `cancelDrag`.
    */
-  foreignAt(x: number, y: number, moving: { name: string; kind: string }): { to?: string; where: Where; label: string; refused?: string } | null {
+  foreignAt(x: number, y: number, moving: { name: string; kind: string; pane?: Pane }, floating = false): { to?: string; where: Where; label: string; refused?: string; receive?: DropReceive } | null {
     const refuse = (to: DropPlace<number>) => refusal(this.layout, { op: "open", tile: this.nextId, kind: moving.kind, name: moving.name, loose: true, at: to.kind === "swap" ? { kind: "tabs", target: to.target } : to }, this.layoutCtx(USER));
-    const drop = this.saysDocked(dropAt(this.dropTiles(), this.area, x, y, -1, true, refuse));
+    const tiles = this.dropTiles(moving.pane);
+    let drop = this.saysDocked(dropAt(tiles, this.rootArea, x, y, -1, true, refuse));
+    if (drop && floating && !floatLanding(drop, tiles, y)) drop = null;
     this.foreign = drop ? { name: moving.name, drop, x, y } : null;
     this.redraw();
     if (!drop) return null;
     const where: Where = drop.kind === "edge" ? `edge-${drop.dir}` : drop.kind === "split" ? drop.dir : "tabs";
-    return { ...(drop.kind !== "edge" ? { to: this.nameOf(drop.target) } : {}), where, label: drop.label, ...(drop.refused ? { refused: drop.refused } : {}) };
+    return { ...(drop.kind !== "edge" ? { to: this.nameOf(drop.target) } : {}), where, label: drop.label, ...(drop.refused ? { refused: drop.refused } : {}), ...(drop.receive ? { receive: drop.receive } : {}) };
   }
-  /** A drop as `layout.move`'s arguments (a drag's release, a float docked by its title). */
   /**
    * The pointer moved with alt (or ctrl) held since the press in reader `p` (PIE-1247): from two cells away, the part
    * of its note under the press is being dragged (its line, its target under the pointer). False when it's no part
@@ -7892,7 +7895,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!t) { this.ctx.flash("not moved: drop a part on another note, a tile's side or header, or the screen's edge"); return this.redraw(); }
     if (t.kind === "detach") {
       if (t.drop.refused) { this.ctx.flash(`not detached: ${t.drop.refused}`); return this.redraw(); }
-      const place = this.moveArgs(t.drop);
+      const place = dropArgs(t.drop, id => this.nameOf(id));
       return void this.run("element.detach", { line: e.line + 1, ...(place.to ? { to: place.to } : {}), where: place.where }, src);
     }
     // The line as the person saw it: lines written above it while the choice is open don't move where it lands.
@@ -7903,10 +7906,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.redraw();
   }
 
-  private moveArgs(drop: Drop<number>): Record<string, unknown> {
-    if (drop.kind === "swap") return { to: this.nameOf(drop.target) };
-    return drop.kind === "edge" ? { where: `edge-${drop.dir}` } : drop.kind === "tabs" ? { to: this.nameOf(drop.target), where: "tabs", ...(drop.index !== undefined ? { index: drop.index } : {}) } : { to: this.nameOf(drop.target), where: drop.dir };
-  }
   /**
    * Where float `id` docks with its title dragged to x, y (PIE-591), by the same drop zones a tile's drag has, but only
    * those that can't be meant as a move: a shut dock's handle, the screen's outer edge, a tile's header (its tabs).
@@ -7916,10 +7915,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const handles = this.handles.map(h => ({ from: h.from, to: h.to, row: this.hintRow, shows: shown(h.dock.kid)[0] ?? h.id, edge: h.dock.edge }));
     const onHandle = handleDrop(handles, this.area, x, y, id, refuse);
     if (onHandle) return onHandle;
-    const d = dropAt(this.dropTiles(), this.area, x, y, id, true, refuse);
+    const tiles = this.dropTiles(this.panes.get(id)), d = dropAt(tiles, this.area, x, y, id, true, refuse);
     if (!d) return null;
-    const header = d.kind === "tabs" && this.dropTiles().some(t => t.id === d.target && t.rect.row === y);
-    return d.kind === "edge" || header ? this.saysDocked(d) : null;
+    return floatLanding(d, tiles, y) ? this.saysDocked(d) : null;
   }
   /** A drop beside or into a tile in a dock says it docks there (a dock's tiles stay on this screen). */
   private saysDocked(d: Drop<number> | null): Drop<number> | null {
@@ -8034,8 +8032,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return null;
   }
 
-  /** A click on a header's "⇤ dock": it undocks (tile.dock, so a view's own docks undock their way: the board's). */
-
   /** Where a header's grip ends: just past its last label (its number and title, or its tabs, and marks). */
   private gripEnd(r: Rect): number {
     const inRow = (h: { row: number; from: number; to: number }) => h.row === r.row && h.from >= r.col && h.to <= r.col + r.cols;
@@ -8044,11 +8040,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** The tiles as the drag sees them: each shown tile's frame, and a tab set's tab labels. */
-  private dropTiles(): DropTile<number>[] {
-    // A float isn't a place in the tree: nothing is dropped into it (o puts it back).
-    return this.hits.filter(([id]) => !this.isFloat(id)).map(([id, rect]) => {
+  private dropTiles(from?: Pane): DropTile<number>[] {
+    // A float takes content only when its kind describes a receiver; it has no place in the tree to split or swap.
+    return this.hits.flatMap(([id, rect]) => {
+      const pane = this.panes.get(id)!, receive = from && pane !== from ? kindOf(pane)?.receive?.(pane, from, this) : null;
+      if (this.isFloat(id) && !receive) return [];
       const set = tabsOf(this.root, id);
-      return { id, rect, ...(set && set.ids.length > 1 ? { tabs: this.heads.filter(h => h.row === rect.row && set.ids.includes(h.id) && h.from >= rect.col && h.to <= rect.col + rect.cols).map(h => ({ id: h.id, from: h.from, to: h.to })) } : {}) };
+      return [{ id, rect, ...(receive ? { receive } : {}), ...(this.isFloat(id) ? { floating: true } : {}), ...(set && set.ids.length > 1 ? { tabs: this.heads.filter(h => h.row === rect.row && set.ids.includes(h.id) && h.from >= rect.col && h.to <= rect.col + rect.cols).map(h => ({ id: h.id, from: h.from, to: h.to })) } : {}) }];
     });
   }
 
@@ -8113,7 +8111,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const g = this.floatDrag;
         this.floatDrag = null;
         if (g.size) resizeEnded();
-        if (g.drop && !g.drop.refused) return void this.run("layout.move", this.moveArgs(g.drop), this.nameOf(g.id));
+        if (g.drop && !g.drop.refused) return void this.run(g.drop.receive?.action ?? "layout.move", g.drop.receive?.args ?? dropArgs(g.drop, id => this.nameOf(id)), this.nameOf(g.id));
         if (g.drop?.refused) this.ctx.flash(`not docked: ${g.drop.refused}`);
         this.save(); return this.redraw();
       }
@@ -8132,7 +8130,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.dragging = null; this.headPress = null;
       if (d?.drop) {
         const drop = d.drop;
-        this.run(drop.kind === "swap" ? "layout.swap" : "layout.move", this.moveArgs(drop), this.nameOf(d.src));
+        this.run(drop.receive?.action ?? (drop.kind === "swap" ? "layout.swap" : "layout.move"), drop.receive?.args ?? dropArgs(drop, id => this.nameOf(id)), this.nameOf(d.src));
       } else if (d?.into) {
         this.endGroupGhost();
         const into = d.into;
@@ -8178,7 +8176,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const into = handleDrop(handles, this.area, k.x, k.y, h.id, refuse) ? null : this.groupDropAt(k.x, k.y, h.id);
         if (into) { this.dragging = { src: h.id, drop: null, x: k.x, y: k.y, into }; return this.redraw(); }
         this.endGroupGhost();
-        this.dragging = { src: h.id, drop: handleDrop(handles, this.area, k.x, k.y, h.id, refuse) ?? this.saysDocked(dropAt(this.dropTiles(), this.area, k.x, k.y, h.id, leaves(this.root).length > 1, refuse)), x: k.x, y: k.y };
+        this.dragging = { src: h.id, drop: handleDrop(handles, this.area, k.x, k.y, h.id, refuse) ?? this.saysDocked(dropAt(this.dropTiles(this.panes.get(h.id)), this.area, k.x, k.y, h.id, leaves(this.root).length > 1, refuse)), x: k.x, y: k.y };
         return this.redraw();
       }
       if (this.mouseTile && this.dragOut(k)) return;

@@ -530,9 +530,20 @@ The ((${notes.shed.id}|tool shed)) keeps the spare pots.
 The ((${notes.notebook.id}|garden notebook)) records the next planting.
 The ((${notes.peek.id}|garden gallery)) has more notes to hover.
 
-Move into the post-it to read it. ← → and the wheel over its title flip the stack.
+Move into the post-it. Its header's peel keeps this entry as its own pin; drop takes it off the stack.
+Use the tile menu to dock it or tuck it in the drawer. Peel returns it from the drawer. Drag its title to a work-area header to land it there.
+← → and the title wheel share the reader's back/forward history. In any reader, alt+← goes back and alt+→ goes forward, after a restart too.
 Alt-hover keeps one sticky, even with hover off. Esc dismisses it; alt+U clears the glass.
-Tune → Glass adjusts the delays and stack limit. ^W U keeps an ordinary tile above every screen.`);
+
+::button{label="Three refs on a shelf" of=glass-shelf}
+Drag a post-it onto the shelf. Its header switches list/grid and colour; its tile menu renames it. A row selects and previews on one click, opens on the second.
+Tune → Glass adjusts delays and the soft pin limit. Shelves count too. ^W U keeps any tile above every screen.`);
+  await make(notes.glass.id, `Three refs on a shelf [script::glass-shelf] [effects::write]
+\`\`\`js
+const shelf = await act('glass.shelf', { name: 'seeds', colour: 'amber' });
+for (const ref of ${JSON.stringify([notes.shed.id, notes.notebook.id, notes.glassTitle.id])}) await act('glass.shelve', { ref, shelf: shelf.tile });
+return 'The seeds shelf has three refs. Switch list/grid in its header, or drag a post-it onto it.';
+\`\`\``);
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id, notes.chores.id));
   const readingView = await make(notes.figures.id, "Window readings [page::garden-readings] [type::virtual-branch] [query::type=window-reading] [sort::title]");
   for (let i = 1; i <= 8; i++) await make(readingView.id, `Window sample ${i} [type::window-reading] [merged-at::2026-03-04T03:47:00Z]`);

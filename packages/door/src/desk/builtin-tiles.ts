@@ -1,4 +1,5 @@
 import { PostIt, POST_IT_ACTIONS } from "./post-it";
+import { SHELF_KIND } from "./shelf";
 import { holdsEdit } from "../whereabouts";
 import { errorDetails } from "../status-log";
 import { readNote } from "./outline-boards";
@@ -101,6 +102,7 @@ const startReader: NonNullable<TileKind["start"]> = async (p, env) => {
 
 /** The entries, made when they're registered (so a module cycle never meets them half-built). */
 const builtins = (): TileKind[] => [
+  SHELF_KIND,
   {
     ...reading, kind: "post-it", about: "a note or cut-off value above every screen, with a hover history to flip",
     actions: POST_IT_ACTIONS, inherits: [READER_ACTIONS],

@@ -7,6 +7,7 @@ import { startControl } from "../../src/control";
 import { Desk } from "../../src/desk/desk";
 import { ReaderPane } from "../../src/desk/panes";
 import { PostIt } from "../../src/desk/post-it";
+import { Shelf } from "../../src/desk/shelf";
 import { Mirror } from "../../src/mirror";
 import { SECTIONS } from "../../src/showcase/showcase";
 import { traceActions } from "../../src/surface/actions";
@@ -23,16 +24,18 @@ describe("showcase: the glass", () => {
   const post = () => floats().find(f => f.pane instanceof PostIt && f.pane.hover)!;
   const paper = () => { const p = post().pane; if (!(p instanceof PostIt)) throw new Error("hover is not a post-it"); return p; };
   const lines = () => h.painted.map(visible);
-  const cell = (words: string) => { const y = lines().findIndex(l => l.includes(words)); expect(y, words).toBeGreaterThan(-1); return { x: lines()[y]!.indexOf(words), y }; };
-  const sgr = (button: number, x: number, y: number, up = false) => {
+  const cell = (words: string) => { const y = lines().findIndex(l => l.includes(words)); expect(y, `${words}\n${lines().join("\n")}`).toBeGreaterThan(-1); return { x: lines()[y]!.indexOf(words), y }; };
+  const input = (bytes: string) => {
     const decoder = new KeyDecoder(h.app.terminalSize);
     decoder.keyHandler = h.press;
-    decoder.feed(`\x1b[<${button};${x + 1};${y + 1}${up ? "m" : "M"}`);
+    decoder.feed(bytes);
   };
+  const sgr = (button: number, x: number, y: number, up = false) => input(`\x1b[<${button};${x + 1};${y + 1}${up ? "m" : "M"}`);
   const hover = (p: { x: number; y: number }, alt = false) => sgr(35 + (alt ? 8 : 0), p.x, p.y);
   const click = (p: { x: number; y: number }, alt = false) => { sgr(alt ? 8 : 0, p.x, p.y); sgr(alt ? 8 : 0, p.x, p.y, true); };
   const setup = async (cols = 177) => {
     await act("glass.clear"); await act("glass.mode", { set: "off" });
+    await act("host.toggle", { open: false });
     h.app.terminalSize.cols = cols;
     await act("section.try", { name: "glass" });
     for (const [name, value] of Object.entries({ open: 80, close: 160, grace: 120, stack: 3 })) await act("glass.tune", { name, value });
@@ -51,6 +54,210 @@ describe("showcase: the glass", () => {
       return out;
     } finally { control.close(); }
   };
+
+  test("peel keeps the hover stack; drop removes only its shown stop and forward shares the reader's history", async () => {
+    await setup();
+    await act("glass.mode", { set: "sticky" });
+    hover(cell("tool shed")); await until(() => !!post(), "the first hover");
+    hover(cell("garden notebook"));
+    await until(() => paper().msg?.id === h.seeded.notes.notebook.id, "the second hover");
+    const source = post().tile, trail = paper().surface.trailOf();
+    const peeled = await act("postit.peel", {}, source);
+    expect(floats().find(f => f.tile === peeled.tile)?.pane).toBeInstanceOf(PostIt);
+    expect(paper().surface.trailOf()).toEqual(trail);
+    await act("back", {}, source);
+    expect(paper().msg?.id).toBe(h.seeded.notes.shed.id);
+    await act("forward", {}, source);
+    expect(paper().msg?.id).toBe(h.seeded.notes.notebook.id);
+    await act("postit.drop", {}, source);
+    expect(paper().msg?.id).toBe(h.seeded.notes.shed.id);
+    expect(paper().surface.trailOf().forward).toEqual([]);
+    expect((floats().find(f => f.tile === peeled.tile)!.pane as PostIt).msg?.id).toBe(h.seeded.notes.notebook.id);
+  }, 20_000);
+
+  test("a named coloured shelf takes refs, draws list and grid, and restores them with the host layout", async () => {
+    await setup();
+    await act("button.press", { label: "Three refs on a shelf" }, "links");
+    await until(() => floats().some(f => f.pane instanceof Shelf && f.pane.refs.length === 3), "the kitchen-sink button's shelf");
+    const shelf = floats().find(f => f.pane instanceof Shelf)!;
+    h.app.flush();
+    expect(lines().join("\n")).toContain("amber");
+    expect(lines().join("\n")).toContain("seeds");
+    const rows = await act("list.blocks", {}, shelf.tile);
+    expect(JSON.stringify(rows)).toContain(h.seeded.notes.shed.id);
+    await act("shelf.layout", { set: "grid" }, shelf.tile);
+    const host = h.app.drawer.made!;
+    const saved = JSON.parse(JSON.stringify(host.savedState()));
+    const restored = new Desk(host.spec, { saved, writes: false });
+    restored.enter(h.app);
+    try {
+      await until(() => JSON.stringify(restored.layoutGet()).includes(h.seeded.notes.notebook.id), "the restored shelf refs");
+      expect(JSON.stringify(restored.layoutGet())).toContain("grid");
+      expect(JSON.stringify(restored.layoutGet())).toContain("amber");
+    } finally { restored.dispose(); }
+  }, 20_000);
+
+  test("a glass float docks on the work area and tucks into the drawer without a second tile", async () => {
+    await setup();
+    await act("screen.save", { name: "glass-before-dock" });
+    await act("glass.mode", { set: "sticky" });
+    hover(cell("tool shed")); await until(() => !!post(), "the hover to dock");
+    const pin = post();
+    const pane = floats().find(f => f.tile === pin.tile)!.pane;
+    const docked = await act("tile.dock", { on: true, edge: "left" }, pin.tile);
+    expect(stage().layoutGet().tiles.some(t => t.tile === docked.tile)).toBe(true);
+    expect(stage().pane(docked.tile)).toBe(pane);
+    expect(floats().some(f => f.pane === pane)).toBe(false);
+    const tucked = await act("tile.drawer", { on: true }, docked.tile);
+    expect(h.app.drawer.made!.pane(tucked.tile)).toBe(pane);
+    h.app.flush();
+    const r = h.app.drawer.made!.tileInfo(tucked.tile).rect!;
+    click({ x: r.col + 3, y: r.row + 3 });
+    input("\x1bE");
+    await until(() => floats().some(f => f.tile === tucked.tile), "the peel key returns the drawer's post-it");
+    const peeled = tucked;
+    expect(floats().find(f => f.tile === peeled.tile)?.pane).toBe(pane);
+    await act("float.place", { col: 2, row: 30, cols: 56, rows: 20 }, peeled.tile); h.app.flush();
+    hover(cell("garden notebook"));
+    await until(() => !!post() && post().pane !== pane, "a new hover leaves the drawer's peeled pin alone");
+    expect((pane as PostIt).msg?.id).toBe(h.seeded.notes.shed.id);
+    await act("tile.drawer", {}, peeled.tile);
+    expect(floats().some(f => f.pane === pane)).toBe(false);
+    expect(h.app.drawer.tabs().some(t => h.app.drawer.made!.pane(t.name) === pane)).toBe(true);
+    expect(h.app.drawer.made!.floatingTiles().some(f => f.pane === pane)).toBe(false);
+    await act("tile.close", {}, peeled.tile);
+    await act("layout.load", { name: "glass-before-dock" });
+  }, 20_000);
+
+  test("a shelf follows a burst of title changes without rereading for every write", async () => {
+    await setup();
+    const writer = new SocketBoard(h.scratch.sock);
+    let note = await writer.createBlock(h.seeded.notes.root.id, "Seed tray 0");
+    const shelf = await act("glass.shelf", { name: "seed trays", colour: "amber" });
+    await act("glass.shelve", { ref: note.id, shelf: shelf.tile });
+    h.app.flush();
+    const get = h.board.get.bind(h.board);
+    let reads = 0;
+    h.board.get = async (...args) => { if (args[0] === note.id) reads++; return get(...args); };
+    try {
+      for (let n = 1; n <= 20; n++) note = await writer.update(note.id, `Seed tray ${n}`, note.revision!);
+      await until(() => lines().some(l => l.includes("Seed tray 20")), "the shelf's latest title");
+      console.info("shelf refresh:", { writes: 20, reads });
+      expect(reads, "a burst gets one refresh, plus a change arriving during its read").toBeLessThanOrEqual(2);
+    } finally { h.board.get = get; writer.close(); }
+  }, 20_000);
+
+  test.each([177, 80])("a post-it dragged off the glass lands in the work area's layout at %i columns", async cols => {
+    await setup(cols);
+    await act("screen.save", { name: "glass-before-drag" });
+    const pin = await act("glass.pin", { ref: h.seeded.notes.shed.id });
+    const pane = floats().find(f => f.tile === pin.tile)!.pane;
+    await act("float.place", { col: 2, row: 30, cols: 56, rows: 20 }, pin.tile); h.app.flush();
+    const d = stage(), r = d.layoutGet().tiles.find(t => t.name === "title")!.rect!;
+    const x = d.screenOrigin.col + r.col + 24, y = d.screenOrigin.row + r.row;
+    sgr(0, 24, 30); sgr(32, x, y); sgr(0, x, y, true);
+    await until(() => !floats().some(f => f.pane === pane), "the float lands on the work area");
+    const landed = d.layoutGet().tiles.find(t => d.pane(t.tile) === pane);
+    expect(d.floatingTiles().some(f => f.pane === pane)).toBe(false);
+    expect(landed).toBeDefined();
+    await act("tile.close", {}, landed!.tile);
+    await act("layout.load", { name: "glass-before-drag" });
+  }, 20_000);
+
+  test("dragging a post-it onto a shelf uses its drop zone and removes the loose post-it", async () => {
+    await setup();
+    const shelf = await act("glass.shelf", { name: "cuttings", colour: "green" });
+    await act("float.place", { col: 82, row: 4, cols: 76, rows: 24 }, shelf.tile);
+    const ran: string[] = [], stop = traceActions(r => ran.push(r.name));
+    try {
+      for (const note of [h.seeded.notes.shed, h.seeded.notes.notebook]) {
+        const pin = await act("glass.pin", { ref: note.id });
+        await act("float.place", { col: 2, row: 30, cols: 56, rows: 20 }, pin.tile); h.app.flush();
+        sgr(0, 24, 30); sgr(32, 104, 12); h.app.flush();
+        expect(lines().join("\n")).toContain("shelve on cuttings");
+        sgr(0, 104, 12, true);
+        await until(() => !floats().some(f => f.tile === pin.tile), "the post-it lands on the shelf");
+        expect(JSON.stringify(await act("list.blocks", {}, shelf.tile))).toContain(note.id);
+      }
+      expect(ran).toContain("postit.shelve");
+    } finally { stop(); }
+  }, 20_000);
+
+  test.each([177, 80])("peel and drop by key and header, then select and open a shelf in list and grid at %i columns", async cols => {
+    await setup(cols);
+    await act("glass.mode", { set: "sticky" });
+    hover(cell("tool shed")); await until(() => !!post(), "the hover stack");
+    const original = post();
+    await act("float.place", { col: 1, row: 24, cols: 76, rows: 26 }, original.tile); h.app.flush();
+    click({ x: 4, y: 27 });
+    const ran: string[] = [], stop = traceActions(r => ran.push(r.name));
+    try {
+      input("\x1bE");
+      await until(() => floats().length === 2, "the peel key keeps the hover stack");
+      const pin = floats().find(f => f.pane !== original.pane)!;
+      await act("tile.close", {}, pin.tile); h.app.flush();
+      click({ x: lines()[24]!.indexOf("peel", 1), y: 24 }); await until(() => floats().length === 2, "the peel header");
+      const copy = floats().find(f => f.pane !== original.pane)!;
+      await act("float.place", { col: 1, row: 2, cols: 76, rows: 20 }, copy.tile); h.app.flush();
+      click({ x: 4, y: 5 }); input("\x1bX");
+      await until(() => floats().length === 1, "the drop key closes the last entry");
+      const stops = () => { const trail = (original.pane as PostIt).surface.trailOf(); return trail.back.length + trail.forward.length + ((original.pane as PostIt).msg ? 1 : 0); };
+      const before = stops();
+      h.app.flush(); click({ x: lines()[24]!.indexOf("drop", 1), y: 24 }); await until(() => stops() === before - 1, "the drop header removes one entry");
+      await act("glass.clear");
+      await act("glass.mode", { set: "off" });
+      const shelf = await act("glass.shelf", { name: "seed-shelf", colour: "amber" });
+      await act("float.place", { col: 1, row: 2, cols: cols === 177 ? 156 : 76, rows: 22 }, shelf.tile);
+      for (const note of [h.seeded.notes.shed, h.seeded.notes.notebook, h.seeded.notes.glassTitle]) await act("glass.shelve", { ref: note.id, shelf: shelf.tile });
+      const p = floats().find(f => f.tile === shelf.tile)!.pane as Shelf;
+      for (const layout of ["list", "grid"] as const) {
+        await act("shelf.layout", { set: layout }, shelf.tile); h.app.flush();
+        const point = cell("Bike shed"); click(point);
+        await until(() => floats().some(f => f.pane instanceof ReaderPane && f.pane.msg?.id === h.seeded.notes.shed.id), "one click selects and previews");
+        expect(p.selected()?.id).toBe(h.seeded.notes.shed.id);
+        expect(h.app.person().address).toBe(shelf.tile);
+        const preview = floats().find(f => f.pane instanceof ReaderPane && f.pane.msg?.id === h.seeded.notes.shed.id)!;
+        expect(preview, "a shelf row has a preview").toBeDefined();
+        h.app.flush(); click(point);
+        await until(() => h.app.person().address === preview.tile, "the second click opens the same preview");
+        await act("tile.close", {}, preview.tile);
+      }
+      h.app.flush(); click({ x: 5, y: 20 }); h.ch("v");
+      await until(() => p.layout === "list", "the shelf layout key");
+      h.app.flush(); click(cell("grid")); await until(() => p.layout === "grid", "the grid header");
+      h.app.flush();
+      h.press({ kind: "right" });
+      await until(() => p.selected()?.id === h.seeded.notes.notebook.id, "the shared list key crosses grid columns");
+      h.ch("c"); await until(() => p.colour !== "amber", "the colour key");
+      const colour = p.colour; h.app.flush(); click(cell(colour));
+      await until(() => p.colour !== colour, "the colour header");
+      expect(ran).toEqual(expect.arrayContaining(["postit.peel", "postit.drop", "shelf.layout", "shelf.colour", "list.pick", "list.open"]));
+    } finally { stop(); }
+  }, 30_000);
+
+  test("an agent pins onto a shelf without changing the person's post-it or selection, and clear keeps an entered shelf", async () => {
+    await setup();
+    const shelf = await act("glass.shelf", { name: "garden-shelf", colour: "violet" });
+    await act("float.place", { col: 82, row: 2, cols: 76, rows: 24 }, shelf.tile);
+    await act("glass.shelve", { ref: h.seeded.notes.shed.id, shelf: shelf.tile });
+    const pin = await act("glass.pin", { ref: h.seeded.notes.notebook.id });
+    await act("float.place", { col: 1, row: 28, cols: 76, rows: 24 }, pin.tile); h.app.flush();
+    click({ x: 4, y: 31 });
+    const before = floats().find(f => f.tile === pin.tile)!, p = floats().find(f => f.tile === shelf.tile)!.pane as Shelf;
+    const selected = p.list.pickedId();
+    const said = await agent("glass.pin", [`ref=${h.seeded.notes.glassTitle.id}`, `shelf=${shelf.tile}`]);
+    expect(said).toContain("garden-shelf");
+    expect(h.app.person().address).toBe(pin.tile);
+    expect(floats().find(f => f.tile === pin.tile)?.rect).toEqual(before.rect);
+    expect(p.list.pickedId()).toBe(selected);
+    expect(p.refs.find(r => r.ref === h.seeded.notes.glassTitle.id)?.by).toBe("gardener");
+    expect(h.app.glass.describe().pinned).toBe(2);
+    h.app.flush(); expect(lines().join("\n")).toContain("gardener");
+    click({ x: 85, y: 22 });
+    await agent("glass.clear", []);
+    expect(floats().map(f => f.tile)).toEqual([shelf.tile]);
+    expect(h.app.person().address).toBe(shelf.tile);
+  }, 20_000);
 
   test("a post-it keeps its stack and the person's keys while travelling across screens", async () => {
     await setup();
@@ -81,8 +288,14 @@ describe("showcase: the glass", () => {
     expect(h.app.drawer.entered).toBe(false);
     const rect = { ...post().rect };
     expect(rect.col + rect.cols / 2 < cols / 2).toBe(origin.x >= cols / 2);
-    hover(cell("garden notebook"));
-    await until(() => paper().msg?.id === h.seeded.notes.notebook.id, "a second hover in the same post-it");
+    const tile = post().tile, get = h.board.get;
+    // Hold the real host's answer past the close delay: the hovered link is still under the pointer.
+    if (cols === 80) h.board.get = async id => { const m = await get.call(h.board, id); if (id === h.seeded.notes.notebook.id) await Bun.sleep(240); return m; };
+    try {
+      hover(cell("garden notebook"));
+      await until(() => !!post() && paper().msg?.id === h.seeded.notes.notebook.id, "a second hover in the same post-it");
+      expect(post().tile).toBe(tile);
+    } finally { h.board.get = get; }
     expect(post().rect).toEqual(rect);
     expect(floats()).toHaveLength(1);
     await act("glass.tune", { name: "grace", value: 400 });
@@ -338,7 +551,7 @@ describe("showcase: the glass", () => {
     await act("tile.group", { with: "title", name: "garden-group" }, "links");
     await act("glass.pin", { ref: h.seeded.notes.shed.id });
     await act("host.toggle", { open: true }); h.app.flush();
-    expect(lines().some(l => l.includes("post-it 1/1"))).toBe(true);
+    expect(lines().join("\n")).toContain("post-it 1/1");
     await act("host.toggle", { open: false });
     await act("glass.clear");
     await act("tile.group", {}, "garden-group");
