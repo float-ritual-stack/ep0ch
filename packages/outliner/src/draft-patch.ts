@@ -429,7 +429,8 @@ function proposer(proposal: DraftProposal): string {
  */
 export function proposalLine(text: string, properties: readonly { key: string; value: string }[]): string | null {
   const proposal = parseProposal(text);
-  if (!proposal) return null;
+  // A payload that parses but isn't a patch (an edit with no spans, a group with no writes) is drawn by its title instead.
+  if (!proposal || !proposal.edits.every(edit => Array.isArray(edit?.patches)) || (proposal.group !== undefined && !Array.isArray(proposal.group?.writes))) return null;
   const changes = proposalChanges(proposal);
   return `1 edit${changes > 1 ? ` (${changes} changes)` : ""} from ${proposer(proposal)}, ${proposalStatus(properties)}`;
 }

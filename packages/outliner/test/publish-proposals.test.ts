@@ -98,3 +98,33 @@ test("the whole subtree on one page (?view=full, and its Markdown) never prints 
     expect(body).not.toContain("draft-patch");
   }
 });
+
+test("a [publish::never] proposal or delivery is a locked row, its proposer, status and title never shown", async () => {
+  const rows = store.create("Pea row\nSow the second row in May.", null, "user");
+  const patch: DraftProposal = {
+    version: 1,
+    edits: [{ blockId: rows.id, revision: rows.revision, patches: [{ observed: "in May", replacement: "in early May" }] }],
+    reason: "the note was saved since it was read",
+    actor: { author: "agent", actorId: "hedge" },
+  };
+  const text = withProposalStatus(proposalText(patch, () => "Pea row"), "applied").replace("\n", " [publish::never]\n");
+  store.create(text, rows.id, "agent");
+  store.create("Delivery PEA-2/sowing [type::delivery] [machine::delivery] [publish::never]", rows.id, "agent");
+  const html = await page(`/pub/p/${rows.id}`);
+  const [, changes = ""] = html.split('<details class="changes">');
+  expect(changes).toMatch(/<summary>2 changes \(1 proposal, 1 delivery\)/);
+  expect(changes.match(/<li class="locked">locked note<\/li>/g)?.length).toBe(2);
+  expect(changes).not.toContain("@hedge");
+  expect(changes).not.toContain("applied");
+  expect(changes).not.toContain("PEA-2");
+});
+
+test("a proposal whose patch is malformed still draws its page, as its title line", async () => {
+  const beds = store.create("Raised beds\nTop up with compost.", null, "user");
+  const broken = Buffer.from(JSON.stringify({ version: 1, edits: [{}] }), "utf8").toString("base64url");
+  store.create(`Proposed edit to the beds [type::draft-proposal] [proposal-status::open]\n[draft-patch::${broken}]`, beds.id, "agent");
+  const html = await page(`/pub/p/${beds.id}`);
+  const [, changes = ""] = html.split('<details class="changes">');
+  expect(changes).toContain(">Proposed edit to the beds<");
+  expect(html).not.toContain(broken);
+});

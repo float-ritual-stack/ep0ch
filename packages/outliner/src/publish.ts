@@ -1754,7 +1754,7 @@ export class Publisher {
     const links = new Map(notes.map((note) => [note.id, note]));
     const unlocked = !share && this.signedInOwner();
     const row = (child: Block) => folderRow(child, titles.get(child.id) ?? "", index, base, counts.get(child.id), links, unlocked);
-    const inside = insideHtml(parts, { row, href: (block) => `${base}${notePath(block, index)}`, title: (block) => noteTitle(titles.get(block.id) ?? "") });
+    const inside = insideHtml(parts, { row, locked: (block) => !unlocked && blockPublishIntent(block.properties) === "never", href: (block) => `${base}${notePath(block, index)}`, title: (block) => noteTitle(titles.get(block.id) ?? "") });
     const bookmarks = system.find((block) => getProperty(block.properties, "system-view")?.toLowerCase() === "bookmarks");
     const top = share ? "" : `<footer>${bookmarks ? `<a href="${escapeHtml(`${base}/p/${bookmarks.id}`)}">bookmarks</a> · ` : ""}<a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
     const sources = entry ? await pageSources(host, entry.blockId, this.outlineName ?? "this outline", (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text, sourceRegions, base) : "";

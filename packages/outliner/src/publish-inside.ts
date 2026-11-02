@@ -38,7 +38,10 @@ export function insideParts(blocks: readonly Block[]): InsideParts {
 
 /** How the publisher draws a row: a note's folder row, and a change's link and title. */
 export interface InsideRows {
+  /** A note's folder row: a locked one (`[publish::never]`, to anyone but the signed-in owner) draws as a locked row. */
   row: (block: Block) => string;
+  /** Whether this reader sees `block` as a locked row (the same rule `row` follows). */
+  locked: (block: Block) => boolean;
   href: (block: Block) => string;
   title: (block: Block) => string;
 }
@@ -62,6 +65,8 @@ export function insideHtml(parts: InsideParts, rows: InsideRows): string {
 
 /** A change as one line: a proposal says who sent how many edits and what became of them, anything else its title. */
 function changeRow(block: Block, rows: InsideRows): string {
+  // A locked change says nothing of itself (proposer, status, title): its folder row is the locked row.
+  if (rows.locked(block)) return rows.row(block);
   const said = (derivedOf(block) === "proposal" ? proposalLine(block.text, block.properties) : null) ?? (rows.title(block) || "untitled");
   return `<li data-block="${escapeHtml(block.id)}"><a href="${escapeHtml(rows.href(block))}"><span class="t">${escapeHtml(said)}</span></a><span class="m">${timeHtml(block.updatedAt)}</span></li>`;
 }
