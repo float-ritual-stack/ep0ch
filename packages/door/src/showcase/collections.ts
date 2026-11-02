@@ -22,6 +22,13 @@ export const COLLECTION_SECTIONS: Section[] = [
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · collection settings", panes: [r], names: ["garden"] }, show, [[r, n.collectionTune]]); },
   },
   {
+    key: "figure-settings", need: "tune a live figure by the keys it reads, written into its own YAML",
+    part: "the one SettingsCard over the figure's own component schema (parts describe themselves), binding.set into the block's YAML, settings.undo for ctrl+z, and the views' collection renderer drawing a ::graph-table's layout",
+    files: "src/surface/settings.ts, src/surface/binding.ts, src/collections.ts, outline-core/src/view-spec.ts, outline-core/src/component-schemas-figures.ts",
+    aside: "a sprint-like note with one live ::graph-table · hover or enter it: its control row ends in ≡ settings · comma or a click on ≡ opens the table's own keys (title, query, columns, sort, layout…), never the view's · pick layout, Enter, choose feed: the rows redraw as a feed and layout: \"feed\" lands in the block's YAML · ctrl+z puts it back · reopen the note: still a feed · columns offers the properties the rows carry · a key the table doesn't take (layot:) is said under the figure, with the one it may mean · agents: act settings list=^sprint, then settings.set key=layout value=feed",
+    stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · figure settings", panes: [r], names: ["sprint"] }, show, [[r, n.figureSettings]]); },
+  },
+  {
     key: "collection", need: "draw a saved query as a table, gallery, feed or board, inline too", part: "VIEW schema → site.answer → list primitive → ListView over RowView", files: "src/collections.ts, src/surface/list-view.ts, outline-core/src/view-spec.ts, outliner/src/site-producers.ts",
     aside: "one garden record, four layouts in one control row · click a layout or table header to change layout or sort · arrows or j k pick the lit row, h l cross columns or lanes, H L cross groups, PgUp PgDn turn pages; Enter opens; Esc lets go; comma tunes; the wheel scrolls its rows first, then the note (PIE-1501) · feed draws the notes through the reader · / filters with the query grammar · act list.layout layout=board, list.group by=area,owner, list.sort by=owner · NONE is last · a narrow table becomes named record cards, a narrow board offers lane tabs · Tab out, then S explains the collection and r asks again",
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · collection", panes: [r], names: ["garden"] }, show, [[r, n.collection]]); },

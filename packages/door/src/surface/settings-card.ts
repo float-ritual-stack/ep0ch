@@ -42,14 +42,15 @@ export const settingsSchema = (schemas: readonly ComponentSchema[], props: Props
 
 /**
  * The card's fields, a section per schema: in each, the declaring property first, then the note's other properties in
- * that schema's order. A key two schemas both take is the first one's field (one property, one field).
+ * that schema's order. A key two schemas both take is the first one's field (one property, one field). `where` is the
+ * place the fields are written: a note's header (`note`), or a figure's YAML (`yaml`, PIE-1513).
  */
-export function settingFields(schemas: ComponentSchema | readonly ComponentSchema[], props: Props): SettingField[] {
+export function settingFields(schemas: ComponentSchema | readonly ComponentSchema[], props: Props, where: PropSchema["where"] = "note"): SettingField[] {
   const list: readonly ComponentSchema[] = Array.isArray(schemas) ? schemas : [schemas as ComponentSchema];
   const out: SettingField[] = [], seen = new Set<string>();
   list.forEach((schema, section) => {
     const name = schema.source.note?.name;
-    const own = schema.props.filter(p => p.where === "note" && !seen.has(p.key));
+    const own = schema.props.filter(p => p.where === where && !seen.has(p.key));
     for (const prop of [...own.filter(p => p.key === name), ...own.filter(p => p.key !== name)]) {
       seen.add(prop.key);
       out.push({ n: out.length + 1, prop, order: schema.props.find(p => p.key === prop.question?.order), value: props.find(p => p.key.toLowerCase() === prop.key)?.value ?? null, section });
