@@ -200,13 +200,22 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       label: { type: "string", optional: true, about: "screen: what its title (and its spine) says" },
       to: { type: "string", optional: true, kind: "tile", about: "the tile it opens beside (default the focused one; tile= also names it)" },
       where: { type: "string", optional: true, choices: WHERE, about: "left, right, up, down or tabs (default right); next: the column after its own in a flow" },
+      with: { type: "string", optional: true, about: "an extension's tile: its args as JSON (names to text), the ones its kind declares; saved with the tile (PIE-1506)" },
     },
     examples: [
       { act: "tile.open kind=reader note=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=tree where=right", does: "opens a reader beside the tree on the seed-swap note" },
       { act: "tile.open kind=pty cmd=\"nvim garden.md\" file=garden.md where=down", does: "opens a terminal below running nvim on garden.md" },
+      { act: "tile.open kind=rota.list with='{\"which\":\"type=chore\"}'", does: "opens an extension's drawn tile with its which= arg" },
     ],
-    async run({ kind, to, where, mode, id, ...t }, { d, reader }, actor) {
+    async run({ kind, to, where, mode, id, with: w, ...t }, { d, reader }, actor) {
       if (id !== undefined && t.note === undefined) t.note = id;
+      // An extension's tile args (PIE-1506): the state its kind draws from, as the ext actions take theirs (with=).
+      if (w !== undefined) {
+        let given: unknown;
+        try { given = JSON.parse(w); } catch { throw new ActionRefused(`tile.open: with= is JSON (names to text), not ${w}`); }
+        if (!given || typeof given !== "object" || Array.isArray(given) || Object.values(given).some(v => typeof v !== "string")) throw new ActionRefused("tile.open: with= is JSON of names to text, like with='{\"which\":\"type=chore\"}'");
+        (t as { state?: Record<string, unknown> }).state = given as Record<string, string>;
+      }
       const opening = canonSpec({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "pinned" | "held" } : {}), ...t });
       const wrong = tileKind(opening.kind)?.check?.({ ...opening, cmd: opening.cmd === undefined ? undefined : lineWords(opening.cmd) }, opening);
       if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);

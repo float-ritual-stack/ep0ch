@@ -11,7 +11,7 @@ import type { SourceEntry } from "@ep0ch/outline-core/sources";
 import { scriptsAt } from "./script-sources";
 import { actRequestOf, lineWords, slotPairs } from "@ep0ch/outline-core/action-line";
 import type { AgentToolsClient } from "./agent-tools";
-import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
+import { validateInsert, type ExtensionActRequest, type ExtensionActResult } from "./extension-calls";
 import type { LoadedExtension, ScriptSource } from "./extension-manifest";
 import type { ExtensionRegistry } from "./extension-registry";
 import type { ExtensionWrites } from "./extension-writes";
@@ -55,6 +55,14 @@ export function scriptView(value: unknown): ComponentOutput | null {
   if ("view" in value) return validateComponent({ data: null, ...value });
   if ((PRIMITIVE_TYPES as readonly unknown[]).includes((value as { type?: unknown }).type)) return validateComponent({ data: null, view: value });
   return null;
+}
+
+/** A script's `{ insert, message? }` answer (PIE-1507): the text to put at the person's cursor, checked as an action's `insert` is. */
+export function insertAnswer(value: unknown): { insert: { text: string }; message?: string } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !("insert" in value)) return null;
+  const v = value as { insert: unknown; message?: unknown };
+  const insert = validateInsert(typeof v.insert === "string" ? { text: v.insert } : v.insert);
+  return { insert, ...(typeof v.message === "string" && v.message ? { message: v.message.slice(0, 500) } : {}) };
 }
 
 /** What a script returned, as the text a run note or a drawn line shows: a string as it is, a view as Blockdown, the rest as JSON. */
@@ -171,7 +179,7 @@ export class ScriptRuns {
    * notes it read and their revisions then (what it must be drawn again for). No run note, no undo step, and nothing
    * written: the API is read-only, and a refused write says so. Called by ExtensionCalls' one producer path.
    */
-  async render(source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number; hidden?: string[]; site?: Pick<SiteAnswerRequest, "chain" | "props">; onCandidates?: (ids: string[]) => void }): Promise<ScriptRendered> {
+  async render(source: ScriptSource, input: { blockId?: string; line?: number; argument: string | null; signal?: AbortSignal; deadlineMs: number; hidden?: string[]; site?: Pick<SiteAnswerRequest, "chain" | "props">; onCandidates?: (ids: string[]) => void }): Promise<ScriptRendered> {
     const reads = new Map<string, number | null>();
     const queries: ScriptRendered["queries"] = [];
     let untracked = false;
@@ -245,7 +253,7 @@ export class ScriptRuns {
   }
 
   /** A formatter is an ordinary script called through the existing read-only renderer. */
-  async format(input: { of: string; blockId: string; line: number; props: Record<string, string[]>; deadlineMs: number }) {
+  async format(input: { of: string; blockId?: string; line?: number; props: Record<string, string[]>; deadlineMs: number }) {
     await this.registry.reload();
     const entries = scriptsAt(this.store, this.registry.list().extensions, input).filter(e => e.script);
     const entry = entries.find(e => e.name === input.of);
@@ -256,7 +264,7 @@ export class ScriptRuns {
     }
     const source = this.registry.extension(entry.id)?.script;
     if (!source) throw new Error(entry.error ?? `${input.of} has no runnable script`);
-    return this.render(source, { blockId: input.blockId, line: input.line, argument: null, site: { props: input.props }, deadlineMs: Math.min(input.deadlineMs, source.deadlineMs ?? MAX_DEADLINE_MS) });
+    return this.render(source, { ...(input.blockId !== undefined ? { blockId: input.blockId } : {}), ...(input.line !== undefined ? { line: input.line } : {}), argument: null, site: { props: input.props }, deadlineMs: Math.min(input.deadlineMs, source.deadlineMs ?? MAX_DEADLINE_MS) });
   }
 
   /**
@@ -384,6 +392,8 @@ export class ScriptRuns {
     // Its words are the run's to change as it goes: the answer (`answered`) is what stands when it ends.
     const result: { -readonly [K in keyof ExtensionActResult]: ExtensionActResult[K] } = { extension: extension.id, action: "run", message: `${extension.name} working`, state: "running", written, undo, undoOn: request.blockId ?? source.blockId, writtenAs: asked ? (asked.author === "user" ? "you" : asked.actorId) : actor.actorId ?? actor.author };
     let returned: string | undefined;
+    /** What the run answered to be put at the person's cursor (PIE-1507). */
+    let inserted: { text: string } | undefined;
     const update = () => captured(() => {
       if (!log) return;
       const now = this.store.require(log.id);
@@ -567,7 +577,14 @@ export class ScriptRuns {
         lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}] [machine::script]`;
         for (const output of result.output) if (output.type === "text") lines.push(output.text);
         if (result.ok) {
-          if (result.value !== undefined) {
+          // An answer for its caller (PIE-1507): `{ insert: { text } }` (or `insert: "<line>"`) with its own `message`,
+          // never drawn as JSON; the client puts the text at the person's cursor in the note the run was about.
+          const asks = insertAnswer(result.value);
+          if (asks) {
+            inserted = asks.insert;
+            if (asks.message) message = asks.message;
+            lines.push(`insert: ${asks.insert.text.split("\n")[0]}`);
+          } else if (result.value !== undefined) {
             const text = scriptText(result.value);
             returned = text;
             lines.push(text);
@@ -627,8 +644,10 @@ export class ScriptRuns {
           });
           if (proposed.length) result.proposed = proposed;
           if (returned !== undefined && returned !== result.message) result.answer = returned;
+          if (inserted && reason === "done") result.insert = inserted;
           if (trace && failure) { trace.problem = failure; trace.result.text += `\n${failure}`; }
           this.ended?.({ run: undo, reason, ...(sequence ? { sequence: true } : {}), message: result.message, written, requestedBy, undo: (sequence !== undefined || reason === "done") && undoAvailable,
+            ...(result.insert && reason === "done" ? { insert: { ...result.insert, ...(request.blockId ? { block: request.blockId } : {}) } } : {}),
             ...(request.clientId && !request.background ? { targetClientId: request.clientId } : {}) });
         }
       }

@@ -24,6 +24,16 @@
 // computed column: `cost="qty * price"` is JavaScript over the row's properties (hyphens read as underscores,
 // numbers as numbers) and `row` (title, created, updated, props, n(key), list(key)).
 
+// Run as an action (the power bar's Run lens, a key, `act ext.script-lens.run`, an agent): nothing to draw yet. The
+// answer asks the door to put the `lens::` line at the cursor of the note the run is about (PIE-1507: an action's
+// `insert`), where its own drawing takes over; one ctrl+z takes it back. A line's drawing comes with `caller`.
+if (!caller) {
+  try { void this.id; } catch { throw new Error("open a note first, then run lens: its lens:: line goes at the note cursor"); }
+  const quoted = v => `"${v.replace(/(["\\])/g, "\\$1")}"`;
+  const words = Object.entries(props).flatMap(([k, vs]) => (k === "motion" ? [] : vs.map(v => `${k}=${quoted(v)}`)));
+  return { insert: `lens::${words.length ? ` ${words.join(" ")}` : ""}`, message: "lens inserted" };
+}
+
 const RESERVED = new Set(["query", "view", "under", "columns", "edit", "sort", "dir", "group", "sum", "avg", "count", "limit", "title", "empty", "link", "max"]);
 const slots = { ...props };
 const one = key => slots[key]?.[0];

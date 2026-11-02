@@ -50,7 +50,7 @@ import { AgentsPane } from "../desk/agents-panel";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as joinPath } from "node:path";
-import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type TileKind } from "../desk/tile-kinds";
+import { registerTileKind, serviceKind, ServiceTile, tileKind, tileKinds, UnavailableTile, type KindHost, type TileKind } from "../desk/tile-kinds";
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
@@ -60,7 +60,7 @@ import { RowView } from "../scroll";
 import { WaitingYouPane } from "../desk/waiting-you";
 import { AccessMatrixPane } from "../desk/access-matrix";
 import { accessDemoEnv, seedAccessFiles } from "./seed/access";
-import { WhatChangedPane } from "../desk/what-changed";
+import { followChanges, WHAT_CHANGED_TILE, type WhatChanged } from "../desk/what-changed";
 import type { FleetIO, SessionRow } from "../agent-fleet";
 import type { AgentLevel } from "../surface/agent-level";
 
@@ -372,7 +372,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "at-revision", need: "open a note as it was at a revision, beside how it is now, to see what a patch or an agent's edit changed: from a suggestions page row, or from the note's history (PIE-1433)",
-    part: "the reader's revision compare (src/surface/revision-compare.ts, the `revision` ReaderMode in NoteSurface): drawn beside the note through the attached surface's split as THREAD is (beside at 110 columns and wider, below when narrower), its rows what-changed's one diff (revisionDiff, which changeDiff calls) of revision R against the next revision kept, or against the note now; a live table's `at:` names the property holding a row's revision (outline-core figure-live tableOf rowRevisions), carried on the row's link (LinkTarget.revision) into the reveal the landing reader takes; the history is a ListPicker over block.revisions",
+    part: "the reader's revision compare (src/surface/revision-compare.ts, the `revision` ReaderMode in NoteSurface): drawn beside the note through the attached surface's split as THREAD is (beside at 110 columns and wider, below when narrower), its rows the one diff (revisionDiff) of revision R against the next revision kept, or against the note now; a live table's `at:` names the property holding a row's revision (outline-core figure-live tableOf rowRevisions), carried on the row's link (LinkTarget.revision) into the reveal the landing reader takes; the history is a ListPicker over block.revisions",
     files: "src/surface/revision-compare.ts, src/surface/note.ts (openRevision, revision.* actions), src/surface/attached-keys.ts (REVISION_KEYS), src/desk/what-changed.ts (revisionDiff), src/graphs.ts (table rowRevisions), src/reveal.ts, outline-core/src/figure-live.ts (tableOf at:), outliner src/jev-suggestions.ts (at: revision on the page's tables)",
     aside: "top: Jev's suggestions page · double-click (or ⏎ on) the Shed status row: the note below opens as it is now with revision 1 beside it, marked against revision 2 (- was there, + its writer's fix) · ← → older and newer, n against the note now, Esc back to the note · the note's tile menu has history: its revisions, a row opens the compare · in a tile narrower than 110 columns the compare sits below the note · a comment half-written on the note stays where it is beside the compare, keeping the keys until a click in the compare · agents: act revision.compare revision=1 tile=note reads the diff and opens nothing",
     stage(n, show) {
@@ -539,7 +539,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "kinds", need: "add a kind of tile (a built-in, or an extension's whole tile); fill a container from data", part: "the tile-kind registry: registerTileKind, one TileKind entry per kind (make, keys, actions, policy, accepts, save); serviceKind for a tile the service draws; a tile source fills columns (hub:<id>, one query tile per view)", files: "src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/query.ts",
-    aside: "the left tile is a service-drawn kind (ServiceTile) whose rows are the registry itself; an extension's kind (PIE-507) registers the same way, its rows from the service. Over the reader, columns filled from the house board's hub: a query tile per view, as the board's lanes are",
+    aside: "the left tile is a service-drawn kind (ServiceTile) whose rows are the registry itself; an extension's kind registers the same way (PIE-507, PIE-1506): tiles[] with run (a program in a terminal), render (a shipped render script's view, its list the door's one ListView: the what-changed extension's list in the changes section, ^W o W) or view (a query, as a query tile). Over the reader, columns filled from the house board's hub: a query tile per view, as the board's lanes are",
     stage(n, show) {
       // The registry listed by a tile drawn the way an extension's is: its render answers rows, the door draws them.
       const list = serviceKind({
@@ -636,12 +636,12 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "changes", need: "show what others changed since the person last looked, and take them to it", part: "what changed (PIE-647, src/desk/what-changed.ts): the status bar's +N new is the distinct notes others changed since you looked, from the service's change feed (the person's own edits aren't news); changes.open (alt+o, a click on +N new) opens the list in your drawer, a tile kind of its own: who, what and when, ⏎ or a click opens the note where opens land, alt+⏎ in a new detail, d shows the change (block.revisions); the person's looking marks it seen, kept per outline, an agent's never does", files: "src/desk/what-changed.ts, src/drawer.ts (changes.open, changes.list), src/app.ts (the status bar's count), src/showcase/seed.ts (LOGS)",
-    aside: "garden-agent edited the three log notes and posted a comment linking HOME-042: open the comment from what-changed, follow its outlink, or follow on back to the log · the status bar says +4 new · the list on the left shows them newest first, with who changed each and what, a ● on the ones you haven't looked at; d on a row shows the change under it (the note's earlier text against the new); with the list focused, ^W and a pause lists its keys first (\"this tile: changes\"), and a click on d the change does the same (PIE-1338) · ⏎ or a click opens the note in the reader on the right, alt+⏎ or an alt-click in a new detail · a click on +4 new, or alt+o on any screen, opens the same list in your drawer, and looking clears the count (x does too) · `act changes.list` reads the rows as an agent, `act changes.open` opens the tab behind yours, and neither clears what you haven't seen",
+    key: "changes", need: "show what others changed since the person last looked, and take them to it", part: "what changed (PIE-647, src/desk/what-changed.ts): the status bar's +N new is the distinct notes others changed since you looked, from the service's change feed (the person's own edits aren't news); the list is the what-changed extension's tile (PIE-1506, outliner/extensions/what-changed: a render script over tools.outline_changes, drawn as a service tile, its rows the door's one ListView): changes.open (alt+o, a click on +N new) opens it in your drawer with since= and unseen= from the store; who, what and when, ⏎ or a click opens the note where opens land, alt+⏎ in a new detail, / filters; the person's looking marks it seen, kept per outline, an agent's never does", files: "outliner/extensions/what-changed, src/desk/what-changed.ts (the store), src/drawer.ts (changes.open, changes.list), src/app.ts (the status bar's count), src/showcase/seed.ts (LOGS)",
+    aside: "garden-agent edited the three log notes and posted a comment linking HOME-042: open the comment from what-changed, follow its outlink, or follow on back to the log · the status bar says +4 new · the list on the left is the what-changed extension's tile: newest first, who changed each and what, a ● on the ones you haven't looked at · ⏎ or a click opens the note in the reader on the right, alt+⏎ or an alt-click in a new detail, / filters the rows · a click on +4 new, or alt+o on any screen, opens the same list in your drawer, and looking clears the count · `act changes.list` reads the rows as an agent, `act changes.open` opens the tab behind yours, and neither clears what you haven't seen · without the extension the tile says how to install it and the count still shows",
     stage(n, show) {
-      const list = new WhatChangedPane(), r = new ReaderPane(true), links = new BacklinksPane("reader", true);
-      // The scripted agent: three notes edited by garden-agent, each visit one round further.
-      const withAgent: Shower = after => show(ctx => { void gardenRound(ctx.board, n); after(ctx); });
+      // The extension's tile (installed with the showcase's examples), its args following the store once shown; the scripted agent: three notes edited by garden-agent, each visit one round further.
+      const list = tileKind(WHAT_CHANGED_TILE)?.make({ kind: WHAT_CHANGED_TILE, state: {} }) ?? new UnavailableTile(WHAT_CHANGED_TILE, "the what-changed extension (on by default) was uninstalled here: ep0ch act extensions.install id=what-changed brings it back"), r = new ReaderPane(true), links = new BacklinksPane("reader", true);
+      const withAgent: Shower = after => show(ctx => { const store = (ctx as unknown as { whatChanged?: WhatChanged }).whatChanged; if (store && list instanceof ServiceTile) followChanges(list, store); void gardenRound(ctx.board, n); after(ctx); });
       return deskOf({ title: "showcase · what changed", panes: [list, r, links], names: ["changes", "reader", "links"], layout: ([a, b, c]) => pair("row", 0.4, leaf(a!), pair("col", 0.7, leaf(b!), leaf(c!))) }, withAgent, [[r, n.logBeans]]);
     },
   },

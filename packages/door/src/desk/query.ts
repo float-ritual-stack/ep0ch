@@ -29,6 +29,7 @@ import { summarySegments, viewSummaryKeys, prop } from "../props";
 import { clamp, pressOn, wheelRows, type RowPress } from "../scroll";
 import { hasUnsent } from "../draft-session";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
+import type { TileKindName } from "./tile-kinds";
 
 /** Stage-named lanes get the delivery order; anything else keeps the hub's own order. */
 const PREFERRED = ["validate", "doing", "queued", "review", "done"];
@@ -105,7 +106,8 @@ async function readBehind() {
 }
 
 export class QueryPane implements Pane {
-  readonly kind = "query" as const;
+  /** Its kind: `query`, or an extension's view kind drawn through it (PIE-1506, serviceKind). */
+  kind: TileKindName = "query";
   /** The view: its block (null until read), and what the service answered for it. */
   def: Msg | null = null;
   items: Msg[] | null = null;
