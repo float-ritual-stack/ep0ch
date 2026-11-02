@@ -9,7 +9,7 @@ import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KE
 import { modeBinding, modeHint, modeActionKeys } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
-import { commandButton } from "../bar/command";
+import { insertButton, insertNoteLine } from "./note-insert";
 import { buttonRows, buttonText, pressing, pressState } from "./button";
 import { figurePropertyPatch } from "@ep0ch/outline-core/figure-patch";
 import { figureActions, FIGURE_SIZE_KEYS } from "./figure-actions";
@@ -10763,18 +10763,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "draft", draft: "type", replay: "ask", person: "inserting at the person's cursor belongs to them",
     args: { line: { type: "string", about: "the act line the button runs" } },
     examples: [{ act: 'edit.button line="tile.collapse on=true"', does: "inserts a collapse button at the note cursor, leaving the draft unsaved" }],
-    async run({ line }, { surface, host }, actor) {
-      const button = commandButton(line);
-      const session = await surface.ensureDraft(host);
-      if (session.openedBy.kind !== "user") throw new ActionRefused("this draft belongs to an agent; open your own edit first");
-      const d = session.draft;
-      // Source line zero is the title; a button belongs below it.
-      if (d.row === 0) d.place(0, d.lines[0]!.length);
-      const before = d.text.slice(0, d.offsetOf(d.row, d.col)), after = d.text.slice(d.offsetOf(d.row, d.col));
-      await session.act("draft.paste", { text: (before && !before.endsWith("\n") ? "\n" : "") + button + (after && !after.startsWith("\n") ? "\n" : "") }, actor);
-      host.redraw();
-      return { inserted: button, dirty: session.dirty };
-    },
+    run: ({ line }, { surface, host }, actor) => insertButton(line, surface, host, actor),
+  }),
+  "edit.insert": def({
+    summary: "insert text on its own line at the note cursor; a reader saves it, an open draft keeps it unsaved; either is one undo step",
+    touches: "draft", draft: "type", replay: "ask",
+    args: { text: { type: "string", about: "the line to insert" } },
+    run: ({ text }, { surface, host }, actor) => insertNoteLine(text, surface, host, actor),
   }),
   "edit.text": def({
     summary: "replace the draft's whole text (opens the edit first if needed); like text coming back from $EDITOR. An agent's replaces only an edit it opened, never while the person types in that reader (draft.patch lands in theirs)",
@@ -13048,7 +13043,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: ({ by }, { surface, host }) => surface.scrollSources(host, by),
   }),
   "sources.undo": def({
-    summary: "undo the last sources.set made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the line changed again since",
+    summary: "undo the last source edit or line insertion made in this reader while reading this note (an agent undoes its own, the person theirs); refused if that text changed again since",
     keys: modeActionKeys(ATTACHED_KEYS, "sources.undo"), touches: "draft", draft: "write", replay: "ask",
     args: {}, run: (_, { surface, host }, actor) => surface.undoSource(host, actor),
   }),

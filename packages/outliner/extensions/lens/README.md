@@ -20,7 +20,8 @@ lens:: view="[[open-jobs]]" group=priority edit=stage choices-stage="todo|doing|
   - A seed order has a computed `cost` and its sum.
   - Jobs are grouped by priority with a pressable stage.
 - **Your own notes:** write a `lens::` line anywhere.
-  - The power bar (`lens`) offers its slots.
+  - The power bar (`lens`, or **Run lens**) offers its slots. Run it with Alt+Enter: the `lens::` line is saved at the note cursor and the table draws there. In an open draft the line is one unsaved edit; save the draft to keep it.
+  - Open a note first. Missing settings report failure and keep the line editable.
   - `columns=`, `edit=`, `sort=` and `group=` pick from the properties the outline has.
 
 ## The line
