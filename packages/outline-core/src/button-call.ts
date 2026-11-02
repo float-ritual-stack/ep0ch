@@ -103,6 +103,16 @@ function balanced(text: string): boolean {
   return !quote;
 }
 
+/** Where the quote `value` opens with closes (-1 when it doesn't): a backslash escapes inside double quotes, as `balanced` reads it. */
+function closingQuote(value: string): number {
+  const q = value[0];
+  for (let i = 1; i < value.length; i++) {
+    if (value[i] === "\\" && q !== "'") { i++; continue; }
+    if (value[i] === q) return i;
+  }
+  return -1;
+}
+
 /** An attribute written back: `key="value"`, in the quote the value allows. */
 const written = (key: string, value: string) => (/^[^\s"'{}\\]+$/.test(value) ? `${key}=${value}` : !/["\\]/.test(value) ? `${key}="${value}"` : !value.includes("'") ? `${key}='${value}'` : `${key}="${value.replace(/(["\\])/g, "\\$1")}"`);
 
@@ -119,7 +129,7 @@ const written = (key: string, value: string) => (/^[^\s"'{}\\]+$/.test(value) ? 
  */
 function misread(label: string | undefined, act: string, strays: readonly { key: string; value: string }[], words: readonly string[], kept: (key: string) => boolean): string | null {
   const at = words.findIndex(w => /^act=/i.test(w)), value = at >= 0 ? words[at]!.slice(4) : "", q = value[0];
-  const close = q === '"' || q === "'" ? value.indexOf(q, 1) : -1;
+  const close = q === '"' || q === "'" ? closingQuote(value) : -1;
   const early = !balanced(act) || (close > 0 && close < value.length - 1);
   if (!early && !strays.length) return null;
   const read = early ? act.replace(/["']/g, "").trim() : act;

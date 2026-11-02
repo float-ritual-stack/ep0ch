@@ -156,6 +156,10 @@ test("a button that misreads says what it read and the corrected line, and runs 
   // A {slot} with no word of its own on the line names the one to add.
   expect(buttonCallAt(['::button{label="x" act="tile.zoom tile={target}"}'], 0)!.problem).toContain("target=");
   // The honest forms stay buttons: alt=, label=, quotes inside the other kind, a filled and an empty slot.
+  // An escaped quote inside act= is text, not its end (Codex on #1200).
+  const escaped = buttonCallAt(['::button{act="note.comment text=\\"hello world\\""}'], 0)!;
+  expect(escaped.problem).toBeUndefined();
+  expect(escaped.act).toBe('note.comment text="hello world"');
   for (const ok of ['::button{label="x" act="tile.zoom" alt="theme.cycle"}', `::button{act='tile.collapse on=true tile="links"'}`, `::button{act="edit.button line='a b'"}`, '::button{act="go {t}" t=}'])
     expect(buttonCallAt([ok], 0)!.problem).toBeUndefined();
 });

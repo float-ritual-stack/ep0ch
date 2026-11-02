@@ -10,11 +10,20 @@
 // swallow is a click elsewhere and then a click on the button inside 200ms meaning to lift it back.
 
 import type { Actor } from "../socket";
+import { INVITES } from "../surface/invite";
 
 /** How long a drop stays the current input's: a press's toggle lands within milliseconds of the key or click. */
 const SAME_INPUT_MS = 200;
 
-let dropped: { desk: object; tile: number; reach: string; at: number } | null = null;
+type Drop = { desk: object; tile: number; reach: string; at: number; spent?: true };
+let dropped: Drop | null = null;
+
+/** The drop the person's current input made, while it is that input's and not yet used. */
+const fresh = (): Drop | null => (dropped && !dropped.spent && performance.now() - dropped.at <= SAME_INPUT_MS ? dropped : null);
+
+// A press minted by that input (a one-action-per-line button runs as an invited script run) carries the drop as its cause,
+// so the run's toggle, whenever it lands, is the click's too.
+INVITES.inputCause = fresh;
 
 /** The person's click or key dropped `desk`'s lift of `tile` (Desk.liftInput, Desk.dropLiftElsewhere). */
 export function droppedForInput(desk: object, lift: { tile: number; reach: string }): void {
@@ -22,12 +31,13 @@ export function droppedForInput(desk: object, lift: { tile: number; reach: strin
 }
 
 /**
- * Whether the person's toggle of `tile`'s lift at `reach` (tile.zoom with no on=; Desk.zoomTile asks) is the input that
- * just dropped it, so it stays dropped (on=false). Asked once: a yes is used up.
+ * Whether a toggle of `tile`'s lift at `reach` (tile.zoom with no on=; Desk.zoomTile asks) was caused by the input that just
+ * dropped it, so it stays dropped (on=false): the person's own action is caused by their current input, a run's action by
+ * the press that invited it. Asked once: a yes uses the drop up.
  */
 export function keptDropped(desk: object, tile: number, reach: string, actor: Actor, liftedNow: boolean): boolean {
-  const d = dropped;
-  if (actor.kind !== "user" || liftedNow || !d || d.desk !== desk || d.tile !== tile || d.reach !== reach) return false;
-  dropped = null;
-  return performance.now() - d.at <= SAME_INPUT_MS;
+  const d = (actor.kind === "user" ? fresh() : INVITES.causeOf(actor.invitation)) as Drop | null | undefined;
+  if (liftedNow || !d || d.spent || d.desk !== desk || d.tile !== tile || d.reach !== reach) return false;
+  d.spent = true;
+  return true;
 }

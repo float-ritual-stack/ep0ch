@@ -998,6 +998,9 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   // lifted it again: the second press never dropped it.
   test("a note's button that toggles a lift: lift by ⏎, the next ⏎ drops it and it stays down, the next lifts it", async () => {
     const d = await door();
+    // The service's events reach this door: a one-action-per-line press runs as a script run it hears end.
+    listen = e => d.app.event(e);
+    await d.app.loadExtensions();
     try {
       const note = await board.createBlock(null, 'Lift the kettle\n::button{label="popit" act="tile.zoom tile=kettle reach=column"}');
       await d.desk.dispatch.act({ action: "open", args: { id: note.id }, tile: "reader" }, USER);
@@ -1016,7 +1019,18 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await Bun.sleep(100); d.paint();
       expect(lifted()).toBe(false);
       await enter(); await until(lifted, "the third ⏎ lifts it again");
-    } finally { d.app.quit(); }
+      // The same button written one action per line (what a misread one is steered to): its step runs as the press's
+      // invited run, and the drop travels with the press as its cause.
+      await d.desk.dispatch.act({ action: "tile.zoom", args: { reach: "column", on: false }, tile: "kettle" }, USER);
+      const body = await board.createBlock(null, 'Lift the kettle by lines\n::button{label="popit"}\ntile.zoom tile=kettle reach=column\n::');
+      await d.desk.dispatch.act({ action: "open", args: { id: body.id }, tile: "reader" }, USER);
+      d.paint();
+      await enter();
+      await until(lifted, "the body form's first ⏎ lifts");
+      await enter(); await until(() => !lifted(), "its second ⏎ drops it");
+      await Bun.sleep(300); d.paint();
+      expect(lifted()).toBe(false);
+    } finally { listen = null; d.app.quit(); }
   });
 
   // PIE-1285 (Evan, Oct 25): `lift` on the component library said "no tile drawer.agent on the component library" with the
