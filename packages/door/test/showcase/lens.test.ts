@@ -104,7 +104,7 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
     await app.dispatch.act({ action: "bar.cancel" }, USER).catch(() => {});
   }, 30_000);
 
-  test("Run lens keeps its live line in the note where the person runs it (PIE-1488)", async () => {
+  test("Run lens keeps its live line in the reader and one ctrl+z takes it back (PIE-1488)", async () => {
     const { app, board } = h;
     await app.dispatch.act({ action: "section.try", args: { name: "lens" } }, USER);
     const note = await board.createBlock(null, "Garden jobs\nPut the table here.\nKeep these instructions.");
@@ -124,6 +124,11 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
     expect((await board.get(note.id))!.text).toBe('Garden jobs\nPut the table here.\nlens:: query="type=job" columns="title,stage"\nKeep these instructions.');
     expect(await drawn(note.id, "Fix the gate latch")).toContain("Mend the hose");
     expect((await board.get(note.id))!.text).toContain("Keep these instructions.");
+    const runMessage = app.describe().messages.find(row => !before.has(row.id) && /lens.*(done|failed|inserted)/.test(row.message))!.message;
+    h.press({ kind: "char", ch: "z", ctrl: true });
+    await until(() => (h.sc.tilesHere()!.pane("jobs") as ReaderPane).surface.msg?.text === note.text, "ctrl+z restored the reader's text");
+    expect((await board.get(note.id))!.text).toBe(note.text);
+    expect(runMessage).toContain("ctrl+z undoes");
   }, 30_000);
 
   test("Run lens says where to run it when no note is open (PIE-1488)", async () => {
@@ -146,7 +151,7 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
     expect(app.describe().messages.filter(row => !before.has(row.id)).some(row => /lens done/.test(row.message))).toBe(false);
   }, 30_000);
 
-  test.each(["open", "put aside"])("Run lens keeps a %s draft unsaved and reports its missing slot (PIE-1488)", async state => {
+  test.each(["open", "put aside"])("Run lens keeps a %s draft unsaved, reports errors and undoes with ctrl+z (PIE-1488)", async state => {
     const { app, board } = h;
     await app.dispatch.act({ action: "section.try", args: { name: "lens" } }, USER);
     const note = await board.createBlock(null, "Garden draft\nSaved paragraph.");
@@ -163,6 +168,12 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
       expect((await board.get(note.id))!.text).toBe(note.text);
       await app.dispatch.act({ action: "draft.undo", tile: "jobs" }, USER);
       expect(draft.text).toBe(unsaved);
+      const run = await app.dispatch.act({ action: "script.run", args: { of: "lens", query: "type=job", asked: true } }, USER) as { said: string };
+      expect(draft.text).toContain('lens:: query="type=job"');
+      expect(run.said).toContain("ctrl+z undoes");
+      h.press({ kind: "char", ch: "z", ctrl: true });
+      await until(() => draft.text === unsaved, "ctrl+z restored the unsaved draft");
+      expect((await board.get(note.id))!.text).toBe(note.text);
     } finally {
       if ((h.sc.tilesHere()!.pane("jobs") as ReaderPane).surface.draft) await app.dispatch.act({ action: "edit.close", tile: "jobs", args: { discard: true } }, USER);
       await board.trash(note.id);

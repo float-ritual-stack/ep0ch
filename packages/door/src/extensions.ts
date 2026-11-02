@@ -663,7 +663,7 @@ async function insertScriptLine(ctx: ExtOn["ctx"], name: string, block: string, 
     const problem = read.projections.find(p => p.anchor.line === inserted.line && p.status === "unavailable");
     if (problem) throw new ActionRefused(`${name} failed · line kept in the note: ${problem.reason}`);
   }
-  const said = `${name} inserted in ${inserted.dirty ? "the draft · save to draw it" : "the note"}`;
+  const said = scriptPressMessage(`${name} inserted in ${inserted.dirty ? "the draft · save to draw it" : "the note"}`, true);
   asActor(ctx, actor).flash(said);
   ctx.redraw();
   return { ...inserted, said };

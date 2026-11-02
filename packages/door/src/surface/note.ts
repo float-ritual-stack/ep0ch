@@ -10823,7 +10823,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: ({ line }, { surface, host }, actor) => insertButton(line, surface, host, actor),
   }),
   "edit.insert": def({
-    summary: "insert text on its own line at the note cursor; a reader saves it, an open draft keeps it as one unsaved edit",
+    summary: "insert text on its own line at the note cursor; a reader saves it, an open draft keeps it unsaved; either is one undo step",
     touches: "draft", draft: "type", replay: "ask",
     args: { text: { type: "string", about: "the line to insert" } },
     run: ({ text }, { surface, host }, actor) => insertNoteLine(text, surface, host, actor),
@@ -13209,7 +13209,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: ({ by }, { surface, host }) => surface.scrollSources(host, by),
   }),
   "sources.undo": def({
-    summary: "undo the last sources.set made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the line changed again since",
+    summary: "undo the last source edit or line insertion made in this reader while reading this note (an agent undoes its own, the person theirs); refused if that text changed again since",
     keys: modeActionKeys(ATTACHED_KEYS, "sources.undo"), touches: "draft", draft: "write", replay: "ask",
     args: {}, run: (_, { surface, host }, actor) => surface.undoSource(host, actor),
   }),
