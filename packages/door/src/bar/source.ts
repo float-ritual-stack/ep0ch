@@ -41,6 +41,8 @@ export interface BarRow {
    * when it's done, and a refusal keeps the line to fix, its reason under "this session". What's typed always lands.
    */
   holds?: true;
+  /** A live choice: keep the line and selection while its source applies it, then refresh its rows. */
+  stays?: true;
   /** The note it stands for (a notes hit), in another outline when `outline` says: its row menu copies its address (note.copy-ref). */
   note?: { id: string; outline?: string };
   data?: unknown;

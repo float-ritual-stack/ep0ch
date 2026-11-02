@@ -30,6 +30,7 @@ export interface ListHost {
   /** The person's filter set by `list.filter words=`, when the host keeps it itself (its model narrows by it); else the view keeps it. */
   keep?(list: ListHandle, words: string): void;
   choose?(list: ListHandle, action: "list.sort" | "list.group", keys: string[]): void;
+  tune?(list: ListHandle, actor: Actor, standing: boolean): Promise<unknown>;
   redraw(): void;
 }
 
@@ -88,6 +89,15 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
           };
         }),
       };
+    },
+  }),
+  "list.tune": def({
+    summary: "open the collection's existing settings card; agents read its fields without taking the person's keys",
+    keys: ", or the collection's ≡ settings", touches: "nothing", replay: "safe", args: { list: LIST_ARG },
+    async run({ list }, { host, standing }, actor) {
+      const l = listNamed(host, list);
+      if (!host.tune || !l.binding) throw new ActionRefused("this list has no settings record");
+      return host.tune(l, actor, standing);
     },
   }),
   "list.pick": def({

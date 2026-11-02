@@ -8,6 +8,13 @@ import { deskOf, type Section } from "./showcase";
 export const COLLECTION_SECTIONS: Section[] = [
   PEEK_SECTION, GLASS_SECTION,
   {
+    key: "collection-tune", need: "tune a collection over its view without editing the source",
+    part: "the existing SettingsCard over VIEW, toggle and pick-order BarQuestions over the matched rows' facets, binding.set at the read revision",
+    files: "src/surface/settings.ts, src/surface/settings-card.ts, src/surface/binding.ts, src/bar/ask.ts, src/desk/settings.ts",
+    aside: "press , over the garden · toggle board on and table off · Sort: J/K reorder · summary-properties: space hides owner · the view redraws under the card and its source keeps the keys · an agent writes the same keys without taking your focus",
+    stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · collection settings", panes: [r], names: ["garden"] }, show, [[r, n.collectionTune]]); },
+  },
+  {
     key: "collection", need: "draw a saved query as a table, gallery, feed or board, inline too", part: "VIEW schema → site.answer → list primitive → ListView over RowView", files: "src/collections.ts, src/surface/list-view.ts, outline-core/src/view-spec.ts, outliner/src/site-producers.ts",
     aside: "one garden record, four layouts · enter the list then tab changes layouts; click a table header to cycle sort · j k pick; Enter opens · / filters with the query grammar · act list.layout layout=board, list.group by=area,owner, list.sort by=owner · NONE is last · a narrow table becomes record cards, a narrow board offers lane tabs · the saved note's keys and inline ::view blocks are the same record",
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · collection", panes: [r], names: ["garden"] }, show, [[r, n.collection]]); },

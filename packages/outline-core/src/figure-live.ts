@@ -32,7 +32,8 @@ import { dateWords } from "./dates";
 import type { QuestionGroup } from "./protocol";
 import { referencedBlock, pageAddressReferences, tryNormalizePageAddress } from "./link-syntax";
 import { isChecklistStatus, type ChecklistStatus } from "./checklist-marks";
-import { subtitleOf, valueOf, type BlockRecord } from "./block-record";
+import { valueOf, type BlockRecord } from "./block-record";
+import { viewField } from "./view-fields";
 import { addCell, dayOf, dayState, decisionState, isoOf, localDay, monthOf, today, uptimeDays, type Cells, type Props } from "./figure-props";
 
 /** One result as a live figure reads it: its note, its title and properties, and when it was made and changed. */
@@ -119,12 +120,9 @@ export function liveAsk(kind: string, p: Props): { props: Props; ask: Props; gro
 export const liveStatus = (a: { items: readonly unknown[]; truncated: boolean; total?: number }) =>
   `live · ${a.items.length}${a.truncated && a.total === undefined ? "+" : ""} result${a.items.length === 1 ? "" : "s"}${a.total !== undefined && a.total > a.items.length ? ` · +${a.total - a.items.length} more` : ""}`;
 
-const date = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-
 /** A column of a live table, or a row's field (`title`, `updated`, `created`, `author`, or any property). */
-export function itemField(m: FigureItem, key: string): string {
-  return key === "subtitle" ? subtitleOf(m) ?? "" : key === "title" ? m.title : key === "updated" ? date(m.updatedAt) : key === "created" ? date(m.createdAt)
-    : key === "author" ? m.author ?? "" : valueOf(m, key) ?? "";
+export function itemField(m: FigureItem, key: string, body?: readonly string[]): string {
+  return viewField(m, key, body) ?? valueOf(m, key) ?? "";
 }
 
 /**

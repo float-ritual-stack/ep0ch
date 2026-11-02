@@ -624,9 +624,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect(await text()).not.toContain("rule-cap");
     await expect(app.act({ action: "settings.clear", tile: "reader", args: { key: "rule-name" }, as: "test-agent" })).rejects.toThrow("what makes this note");
     await until(() => screen().includes("good"), "the card shows the new tone", 5000);
-    // The person's ⏎ on rule-match asks in the power bar: the query built from what this outline's notes have. The card
-    // holds the reader's keys once the person is in it (⏎ enters, as the property panel's does).
-    press({ kind: "enter" });
+    // Comma entered the card; ⏎ on rule-match asks over this outline's own properties.
     ch("j");
     await until(() => screen().includes("rule-match · query"), "rule-match selected", 3000).catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     // The bar is the App's, over the showcase: what it lists is read from it.
@@ -672,7 +670,6 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     ch(",");
     await until(() => screen().includes("settings · Views + EchoNet areas") && screen().includes("  EchoNet areas"), "both sections", 5000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
-    press({ kind: "enter" });
     for (let i = 0; i < both.fields.length && !screen().includes("echo · text"); i++) { ch("j"); await Bun.sleep(20); }
     expect(screen()).toContain("echo · text");
     press({ kind: "enter" });
