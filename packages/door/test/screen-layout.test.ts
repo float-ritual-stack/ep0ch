@@ -983,3 +983,48 @@ describe("an open naming no tile reaches the readers inside mounts (PIE-1306)", 
     } finally { extra = {}; }
   });
 });
+
+// PIE-1522: where an open lands has one owner. Every entry (a key, a click, a link, `act open`, the drawer's lists)
+// builds one request and placement answers it; the desk only applies the destination. Each row is a request on a plain
+// state and the destination it gets, the drawer's hand-off to the screen shown (`Ctx.screen`) and the welcome's own
+// fresh open (`Ctx.freshAction`) among them, so no caller decides ahead of it.
+describe("where an open lands: one table of requests and destinations (PIE-1522)", () => {
+  /** The drawer: its what-changed list (1), a reader (2), a terminal (3). The screen shown's tile `@desk/reader` takes what it hands out. */
+  const DRAWER = new Map([[1, "changes"], [2, "reader"], [3, "pty"]]);
+  const drawer = (tree: LNode = splitOf("row", [leaf(1), leaf(2), leaf(3)], [0.3, 0.4, 0.3])) => init({ tree, names: DRAWER });
+  const LIST: Partial<TileFacts> = { kind: "changes", lists: true, notes: false, opensOut: true };
+  const out = { kind: "across" as const, target: "@desk/reader", rule: "tile" as const, source: true as const, screen: true as const };
+  const on = (s: LayoutState, request: Parameters<typeof placement>[1], actor: Actor = PERSON, more: Partial<Ctx> = {}, person: Partial<Person> = {}) =>
+    placement(s, request, { ...ctxOf(actor, { focus: request.from as number, ...person }), ...more });
+  type Row = [string, () => LayoutState, Parameters<typeof placement>[1], Partial<Ctx>, Record<number, Partial<TileFacts>>, unknown, Actor?];
+  const rows: Row[] = [
+    ["a drawer list's open, nothing wired: the screen shown, though the drawer has a reader", () => drawer(), { from: 1, note: "n" }, { screen: "@desk/reader" }, { 1: LIST }, out],
+    ["the same, fresh (alt+⏎)", () => drawer(), { from: 1, note: "n", fresh: true }, { screen: "@desk/reader" }, { 1: LIST }, out],
+    ["the same from an agent", () => drawer(), { from: 1, note: "n" }, { screen: "@desk/reader" }, { 1: LIST }, out, AGENT],
+    ["a drawer list wired to its reader: the wire", () => ok(drawer(), { op: "link", tile: 1, to: 2 }).state, { from: 1, note: "n" }, { screen: "@desk/reader" }, { 1: LIST }, { kind: "swap", tile: 2 }],
+    ["a drawer list with no screen to take it: refused, said", () => drawer(), { from: 1, note: "n" }, { screen: null }, { 1: LIST }, { kind: "none", reason: "this screen has no tiles to open it in · q goes back to one", refused: true }],
+    ["a tile's open off the drawer (no Ctx.screen): its own reader", () => drawer(), { from: 1, note: "n" }, {}, { 1: LIST }, { kind: "swap", tile: 2 }],
+    ["an open naming no tile in the drawer (an agent's): the drawer's reader", () => drawer(), { from: 1, note: "n", default: true }, { screen: "@desk/reader" }, { 1: LIST }, { kind: "swap", tile: 2 }, AGENT],
+    ["a drawer tile with no reader to land in (the terminal, the reader gone): the screen shown", () => drawer(splitOf("row", [leaf(1), leaf(3)], [0.5, 0.5])), { from: 3, note: "n" }, { screen: "@desk/reader" }, { 1: LIST }, out],
+    ["an agent's open naming no tile in a drawer with no reader: the screen shown", () => drawer(splitOf("row", [leaf(1), leaf(3)], [0.5, 0.5])), { from: 3, note: "n", default: true }, { screen: "@desk/reader" }, { 1: LIST }, out, AGENT],
+    ["a mount with no reader: out to the tile holding it, its own landing", () => drawer(splitOf("row", [leaf(1), leaf(3)], [0.5, 0.5])), { from: 3, note: "n" }, { outward: "group-tile" }, {}, { kind: "across", target: "group-tile", rule: "tile", source: true }],
+    ["the welcome's fresh open from one of its tiles: its own action", () => fresh(), { from: 1, note: "n", fresh: true }, { freshAction: "welcome.read" }, {}, { kind: "action", action: "welcome.read" }],
+    ["the welcome's open naming no tile, fresh: not its action (a new detail by the rule)", () => fresh(), { from: 2, note: "n", fresh: true, default: true }, { freshAction: "welcome.read" }, {}, { kind: "swap", tile: 2 }],
+    ["the tree's open: the first reader", () => fresh(), { from: 1, note: "n" }, {}, {}, { kind: "swap", tile: 2 }],
+    ["an agent's open from the tree: the first reader, the keys left alone", () => fresh(), { from: 1, note: "n" }, {}, {}, { kind: "swap", tile: 2 }, AGENT],
+    ["an open naming a reader: that reader", () => fresh(), { from: 1, to: 3, note: "n" }, {}, { 3: { kind: "reader", notes: true } }, { kind: "swap", tile: 3 }],
+    ["an open aimed at a pinned reader: a new one beside it", () => fresh(), { from: 1, note: "n" }, {}, { 2: { kind: "reader", notes: true, pinned: true } }, { kind: "new", at: { kind: "split", target: 2, dir: "right" } }],
+    ["a reader's own link in place (PIE-1516): it takes it in place", () => ok(fresh(), { op: "link", tile: 2, to: 2 }).state, { from: 2, note: "n" }, {}, {}, { kind: "swap", tile: 2, inPlace: true }],
+    ["into the screen's container (the board's details): a new one there", () => fresh(), { from: 1, note: "n", at: { kind: "in", key: "readers" } }, {}, {}, { kind: "new", at: { kind: "in", key: "readers" } }],
+  ];
+  for (const [what, state, request, more, tiles, want, actor] of rows) {
+    test(what, () => {
+      extra = tiles;
+      try {
+        const plan = on(state(), request, actor ?? PERSON, more);
+        expect(plan.destination).toEqual(want as never);
+        if ((actor ?? PERSON).kind === "agent") { expect(plan.keys).toBeUndefined(); expect(plan.giveNewKeys).toBe(false); expect(plan.reveal).toBe(false); }
+      } finally { extra = {}; }
+    });
+  }
+});

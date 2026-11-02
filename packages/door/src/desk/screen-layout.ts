@@ -117,6 +117,7 @@ export interface TileFacts {
   tabs?: readonly string[];
   /** It takes notes: a link or an opens-into may name it. */
   notes?: boolean;
+  /** In the drawer, its opens nothing wires go to the screen shown (`Ctx.screen`): the what-changed and waiting-on-you lists. */ opensOut?: boolean;
   /** This tile keeps a NoteSurface reading trail that can receive another reader's history. */
   history?: boolean;
   /**
@@ -132,27 +133,19 @@ export interface TileFacts {
   keeps?: string;
   /** Its kind's own words for why its kind's policy keeps it (closable or draggable off), said whole in place of the policy's. */
   stays?: string;
-  /** The edit or comment it holds: it isn't closed under it. */
-  editing?: string;
-  /** The program running in it: an agent doesn't end it. */
-  running?: string;
-  /** Its kind shows what a tile it follows picks (a preview): a link to it is a preview unless said otherwise. */
-  follower?: boolean;
-  /** Its home (PIE-794): the reader its opens land in when no link or container says (the links tile's): a name. */
-  home?: string;
-  /** It only holds a place (the blank tile): an agent may replace it under the person's keys. */
-  placeholder?: boolean;
-  /** It holds work (a draft): in a flow, its column resists compression. */
-  holds?: boolean;
+  /** The edit or comment it holds: it isn't closed under it. */ editing?: string;
+  /** The program running in it: an agent doesn't end it. */ running?: string;
+  /** Its kind shows what a tile it follows picks (a preview): a link to it is a preview unless said otherwise. */ follower?: boolean;
+  /** Its home (PIE-794): the reader its opens land in when no link or container says (the links tile's): a name. */ home?: string;
+  /** It only holds a place (the blank tile): an agent may replace it under the person's keys. */ placeholder?: boolean;
+  /** It holds work (a draft): in a flow, its column resists compression. */ holds?: boolean;
 }
 
 /** Where the person is: their keys, the tile they're typing in (an edit, a comment, a terminal), whether they're busy. */
 export interface Person<I = number> {
   focus: I;
-  /** The tile the person is typing in, or null. PIE-514: a shell-owned query; here it is only ever an input. */
-  typingIn: I | null;
-  /** The person's keys are held (typing anywhere, a picker or panel open, a ^W chord): an agent doesn't move them. */
-  busy: boolean;
+  /** The tile the person is typing in, or null. PIE-514: a shell-owned query; here it is only ever an input. */ typingIn: I | null;
+  /** The person's keys are held (typing anywhere, a picker or panel open, a ^W chord): an agent doesn't move them. */ busy: boolean;
   /** Their keys are on this layout at all (false: on another screen, in the drawer or the surrounding index): `focus` is only its own. */
   here?: boolean;
   /**
@@ -187,12 +180,10 @@ export interface Ctx<I = number> {
   /** It may be left with no tile (the drawer: its last tab may leave for a screen, as it may close). */
   empties?: boolean;
   beside?: ReadonlyMap<I, I>;
-  outward?: string;
-  /**
-   * The screen mounted in tile `id` (a group, a board in a tile, PIE-651) takes an open naming no tile: the path to the
-   * tile its own such open starts from (`welcome/welcome`), asked only when this screen has no reader (PIE-1306). The hop
-   * in, as `outward` is the hop out.
-   */
+  /** A mount with no reader: the tile holding it, where an open naming no tile hops out. */ outward?: string;
+  /** The drawer's hand-off (PIE-1522): the screen shown's tile taking what the drawer doesn't keep; null when it has none (refused). */ screen?: string | null;
+  /** The screen's own action for an open fresh from one of its tiles (`ScreenSpec.fresh`: the welcome's). */ freshAction?: string;
+  /** A mount (a group, a board in a tile, PIE-651) takes an open naming no tile: the path to the tile its own starts from (`welcome/welcome`), asked when this screen has no reader (PIE-1306); the hop in, as `outward` is out. */
   inside?(id: I): string | undefined;
   opened?: ReadonlyMap<string, { ids: I[]; active: I | null }>;
   /** What this layout is called to the person (PIE-1346): its lock's refusals and answers name it. Left out, the screen. */
@@ -501,6 +492,7 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string, othe
 
 export interface PlacementRequest<I = number> {
   where?: ListOpenWhere; verb?: "hover";
+  /** How it was opened, for the one door.open it emits: left out, the action's own (`openMethod`). */ method?: "link" | "alt";
   from: I;
   to?: I;
   fresh?: boolean;
@@ -518,7 +510,7 @@ export interface PlacementRequest<I = number> {
   inspect?: true;
 }
 export type NotePlacement<I = number> = {
-  destination: { kind: "swap"; tile: I; inPlace?: true } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true } | { kind: "none"; reason: string };
+  destination: { kind: "swap"; tile: I; inPlace?: true } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true; screen?: true } | { kind: "action"; action: string } | { kind: "none"; reason: string; refused?: true };
   keep?: { tile: I; at: At<I> };
   merge?: I;
   reuse?: { reveal: boolean };
@@ -535,6 +527,8 @@ export type NotePlacement<I = number> = {
   noSpine?: true;
 };
 
+/** The drawer's hand-off to the screen shown (`Ctx.screen`), or its refusal when that screen has no tiles. */
+const handOut = (screen: string | null): NotePlacement<never>["destination"] => screen === null ? { kind: "none", reason: "this screen has no tiles to open it in · q goes back to one", refused: true } : { kind: "across", target: screen, rule: "tile", source: true, screen: true };
 /** The reader opened beside tile `id` last (`Ctx.beside`), while it's here and can take an open. */
 function besideReader<I>(s: Pick<LayoutState<I>, "names">, ctx: Ctx<I>, id: I): I | undefined {
   const at = ctx.beside?.get(id);
@@ -572,6 +566,11 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     }
   }
   const keys = ctx.keys ?? ctx.standing;
+  // The welcome's fresh open from its tiles is its own action; the drawer's lists hand what nothing routes (fresh: its plain open) to the screen.
+  const fromTile = to === undefined && !request.default && !request.container && !request.at && !request.newNote && !request.history && verb !== "hover";
+  if (fromTile && fresh && ctx.freshAction) return { destination: { kind: "action", action: ctx.freshAction }, reveal: false, route, giveNewKeys: false };
+  const routed = fresh ? !!wire || !!openWire || s.wires.some(w => w.from === from && (w.verb === "alt" || w.verb === "open")) || !!landing(s, from, "open", ctx.tile(from), ctx.tile) : !!route;
+  if (fromTile && !routed && ctx.screen !== undefined && ctx.tile(from).opensOut) return { destination: handOut(ctx.screen), reveal: false, route, giveNewKeys: false };
   const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing && verb !== "hover", route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
   if (verb === "hover" && !route) return result;
   if (route && "float" in route) {
@@ -672,6 +671,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     const target = route && "to" in route ? route.to : ctx.tile(from).notes ? from : readers.find(id => !ctx.tile(id).pinned) ?? readers[0];
     if (target === undefined) {
       if (ctx.outward) result.destination = { kind: "across", target: ctx.outward, rule: "tile", source: true };
+      else if (ctx.screen !== undefined) result.destination = handOut(ctx.screen);
       return result;
     }
     const facts = ctx.tile(target);

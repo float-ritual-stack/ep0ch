@@ -1,7 +1,7 @@
 import { returnPlace, mapPlace } from "./return-place";
 import { AGAIN_PART, LEAVE_PART, readerHeldParts } from "../hint-parts";
 import type { Visit } from "../trail";
-import { openCause, openMethod, opening, landed as openLanded } from "./open-event";
+import { openCause, opening, landed as openLanded } from "./open-event";
 import type { DoorOpen } from "@ep0ch/outline-core/door-open";
 import { drawCompletionFloat } from "../surface/completion-float";
 import { hintKey, modeBinding, modeHint, Modes, partsHint, type HintPart, type ModeKey } from "../surface/modes";
@@ -18,7 +18,7 @@ import { COMPLETION_ROWS, type Completer } from "../surface/completer";
 import { floatTheme } from "../theme";
 import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
 import { HintCard, hintStatus, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
-import { revealOn, type Reveal } from "../reveal";
+import type { Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
 import { readNote, outlineBoards, type NoteAddress } from "./outline-boards";
 import { MIN_ROWS, OPEN_RULES, OPEN_RULE_WORDS, SPINES, besideDockStrips, type AltRule } from "./layout";
@@ -789,6 +789,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
       ...(k?.follower ? { follower: true } : {}),
+      ...(k?.opensOnScreen ? { opensOut: true } : {}),
       ...(home !== undefined ? { home } : {}),
       ...(p instanceof ReaderPane && p.editing && !(closesWithEdit && p.surface.drafting) ? { editing: sessionName(p) } : {}),
       ...(p instanceof PtyPane && p.running ? { running: p.run.cmd[0] ?? "a program" } : {}),
@@ -833,6 +834,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return {
       ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : {}), self: this.layoutSelf(),
       beside: this.besides, opened: this.opened, inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
+      ...this.handOut(),
       actor, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: who.held, here: w.address === this.keys().address && (w.focus !== null || w.typingIn !== null), ...(w.yolo ? { yolo: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
@@ -1937,16 +1939,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.placeNote(m, { from: this.idOf(opts.from) ?? this.focus, to: this.idOf(opts.to)!, note: m.id, keys: opts.keys, ...(opts.keep ? { keep: true } : {}) }, by);
       return;
     }
-    // An open fresh (alt+⏎, a ctrl- or alt-click) from one of its tiles runs the screen's own action for it, as whoever
-    // opened it (the welcome reads it in its detail: `ScreenSpec.fresh`).
-    if (opts.fresh && this.spec.fresh && this.idOf(opts.from) !== undefined) { void this.perform(this.spec.fresh, { id: m.id }, by); return; }
     const at = this.idOf(opts.from) ?? this.focus;
     if (!(opts.link || opts.reveal || opts.fresh)) { this.follow(at, m, by); return this.redraw(); }
-    // Drawer lists use the screen's open rule only when no wire gives the open a destination.
-    if (opts.from && kindOf(opts.from)?.opensOnScreen && this.ctx.hostLayer?.isDrawer(this) && !this.routes(opts.from, opts.fresh ? "alt" : "open")) {
-      return this.ctx.hostLayer.openOnScreen(m.id, !!opts.fresh, by, undefined, revealOn.get(m)).then(() => this.redraw());
-    }
-    if (this.landFrom(at, m, opts, by)) return this.redraw();
+    // Placement says where (PIE-1522): a wire, the screen's own fresh action (the welcome's), the drawer's hand-off to the screen shown, a reader.
+    if (this.placeNote(m, { from: at, fresh: !!opts.fresh, note: m.id, where: opts.where, ...(opts.fresh ? { method: "alt" as const } : opts.link ? { method: "link" as const } : {}) }, by)) return this.redraw();
     // Nothing here takes it (no wire, no reader that isn't pinned): said, with how to give it somewhere to land.
     if (this.dispatch.standing(by)) this.ctx.flash(`no tile here takes ${subject(m)} · alt+l, then click a reader: ⏎ and double-click open there`);
     this.redraw();
@@ -2147,46 +2143,45 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return placement(this.layout, { from, fresh, note, where, inspect: true }, this.layoutCtx(by));
   }
 
-  private landFrom(at: number, m: Msg, opts: OpenHow & { reveal?: boolean }, by: Actor): boolean {
-    const method = this.ctx.board.inScriptRun ? "script" : opts.fresh ? "alt" : opts.link ? "link" : openMethod(this.ctx, by);
-    return openCause.run({ ...openCause.getStore(), method }, () => !!this.placeNote(m, { from: at, fresh: !!opts.fresh, note: m.id, where: opts.where }, by));
-  }
-
   private placedDuringTake?: (landed: { desk: Desk; id: number }) => void;
 
-  private placeNote(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor): { desk: Desk; id: number; why?: string } | null {
+  private placeNote(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor): { desk: Desk; id: number; why?: string; performed?: Promise<unknown> } | null {
     const landed = this.applyPlacement(m, request, by);
     if (landed) this.placedDuringTake?.(landed);
     return landed;
   }
 
-  private applyPlacement(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor, delivery?: "preview" | "shown"): { desk: Desk; id: number; why?: string; event?: DoorOpen } | null {
+  private applyPlacement(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor, delivery?: "preview" | "shown"): { desk: Desk; id: number; why?: string; event?: DoorOpen; performed?: Promise<unknown> } | null {
     const from = this.panes.get(request.from), tile = from ? this.tileId(request.from) : undefined;
-    const cause = opening(this.ctx, by, tile, from ? this.showing(from)?.id : undefined, delivery === "preview", request.verb, { name: this.nameOf(request.from), screen: this.spec.name, drawer: !!this.ctx.hostLayer?.isDrawer(this) });
+    const cause = opening(this.ctx, by, tile, from ? this.showing(from)?.id : undefined, delivery === "preview", request.method ?? request.verb, { name: this.nameOf(request.from), screen: this.spec.name, drawer: !!this.ctx.hostLayer?.isDrawer(this) });
     return openCause.run(cause, () => {
       const landed = delivery === "shown" ? { desk: this, id: request.to ?? request.from } : delivery === "preview"
         ? this.previewLanding(this.panes.get(request.to!)!, m, by, request.from) ? { desk: this, id: request.to! } : null
         : this.placeOpen(m, request, by) ?? (request.history ? { desk: this, id: request.from } : null);
-      if (!landed || "event" in landed) return landed;
+      if (!landed || "event" in landed || "performed" in landed) return landed;
       const d = landed.desk;
       const event = openLanded(d.ctx, by, cause, d.tileId(landed.id), m.id, subject(m), { name: d.nameOf(landed.id), screen: d.spec.name ?? d.title, drawer: !!d.ctx.hostLayer?.isDrawer(d), at: mapPlace(returnPlace(d.layout, landed.id), n => d.tileId(n)), mount: d.holder ? tileRegistry.knownId(d.holder.tile) : undefined }, m.address);
       return { ...landed, event };
     });
   }
-  private placeOpen(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor): { desk: Desk; id: number; why?: string; event?: DoorOpen } | null {
+  private placeOpen(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor): { desk: Desk; id: number; why?: string; event?: DoorOpen; performed?: Promise<unknown> } | null {
     probe("open.plan");
     const plan = placement(this.layout, request, this.layoutCtx(by));
     const dest = plan.destination;
     if (dest.kind === "none") {
-      if (request.to !== undefined || request.container) throw new ActionRefused(dest.reason);
+      if (request.to !== undefined || request.container || dest.refused) throw new ActionRefused(dest.reason);
       return null;
     }
     if (dest.kind === "across") {
       const target = this.resolveTile(dest.target, { shown: true }); // a wire lands only on a tile shown now: one on a screen behind waits for it (PIE-1520)
       if (!target) return null;
       const d = target.desk, id = d.idNamed(target.tile.id!)!;
+      // The drawer's hand-off: the screen shown takes it as its own open naming no tile, the opener's keys and all.
+      if (dest.screen) return d.placeNote(m, d.landingRequest(id, m.id, !!request.fresh), by);
       return d.placeNote(m, { ...(dest.source ? d.landingRequest(id, m.id) : { from: id, to: id, rule: dest.rule, keep: dest.rule === "tile" ? false : undefined }), fresh: request.fresh, note: m.id, keys: false }, by);
     }
+    // The screen's own fresh action (the welcome's welcome.read): it opens through placement itself, so that open emits the one door.open.
+    if (dest.kind === "action") return { desk: this, id: request.from, performed: this.perform(dest.action, { id: m.id }, by) };
     if (dest.kind === "into") return null;
     const id = this.nextId;
     const target = dest.kind === "swap" ? this.panes.get(dest.tile) : undefined;
@@ -2670,7 +2665,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * An open naming no tile, from tile `from`: the tile the spec says (`ScreenSpec.lands`), else its container, else the
    * screen's default. One request for `ep0ch open <id>` here and for one handed in from the screen around (PIE-1306) or out of a mount.
    */
-  private landingRequest(from: number, note: string): import("./screen-layout").PlacementRequest<number> {
+  private landingRequest(from: number, note: string, fresh = false): import("./screen-layout").PlacementRequest<number> {
+    // Fresh: a new detail in the screen's container (the board's readers row), else beside the tile, as alt+⏎ on a link opens one.
+    const key = this.hasPlaces() ? this.layout.policy.opensInto! : undefined;
+    if (fresh) return key ? { from, note, container: key, at: { kind: "in", key } } : { from, note, fresh: true };
     const target = this.spec.lands === undefined ? undefined : this.specTile(this.spec.lands);
     return { from, note, to: target, ...(target === undefined && this.spec.lands ? { container: this.spec.lands } : { default: true }) };
   }
@@ -2692,61 +2690,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return plan.destination.kind === "swap" ? this.namedReaders().find(r => r.id === (plan.destination as { tile: number }).tile) : undefined;
   }
 
-  /** `open fresh=true` naming no tile (the power bar's alt+⏎): a new detail beside the focused tile, as alt+⏎ on a link opens one; the keys go there only for the person. */
-  async openFresh(id: string, actor: Actor): Promise<{ tile: string | null; name?: string; id: string }> {
-    const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
-    if (!m) throw new ActionRefused(`no block ${id}`);
-    const landed = this.placeNote(m, { from: this.focus, fresh: true, note: m.id }, actor);
-    this.redraw();
-    return { ...(landed ? landed.desk.tileAnswer(landed.id) : { tile: null }), id: m.id };
-  }
-
-  /**
-   * Tile `from`'s explicit link across an edge (the drawer's what-changed list → a reader of the screen, PIE-700) takes
-   * note `id`: the path of the tile it opened in, or null when `from` has no such link or the tile didn't take it (said).
-   * An open from a linked tile never asks where focus last was.
-   */
-  async openOnLink(id: string, from: string, actor: Actor): Promise<string | null> {
-    const t = this.tile(from);
-    const plan = this.placeFrom(t.id, false, actor, id);
-    if (plan.destination.kind !== "across") return null;
-    const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
-    if (!m) throw new ActionRefused(`no block ${id}`);
-    const landed = this.placeNote(m, { from: t.id, note: m.id }, actor);
-    return landed ? this.pathTo(landed.desk.panes.get(landed.id)!) ?? landed.desk.nameOf(landed.id) : null;
-  }
-
-  /**
-   * `open from=<tile>` (PIE-491): the note lands where tile `from`'s opens go, its link (the daily layout's claude
-   * tile links to middle). Unlinked, where `ep0ch open <id>` puts it. The caller names its own tile, never a reader.
-   */
-  async openFrom(id: string, from: string, actor: Actor, fresh = false): Promise<{ tile: string | null; name?: string; id: string }> {
-    const t = this.resolveTile(from);
-    if (!t) throw new ActionRefused(`no tile ${from}`);
-    const d = t.desk, source = d.idNamed(t.tile.id!)!;
-    const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
-    if (!m) throw new ActionRefused(`no block ${id}`);
-    const landed = d.placeNote(m, { from: source, fresh, note: m.id }, actor);
-    // A tile of the drawer with no wire opens where the drawer's own landing says; with no reader to take it, the screen shown does, as for the drawer's lists (`openFromTile`).
-    if (!landed) {
-      const host = d.ctx?.hostLayer;
-      if (!host?.isDrawer(d.top())) return d.land(m, actor);
-      try { return d.land(m, actor); } catch (e) { if (e instanceof ActionRefused) return host.openOnScreen(m.id, fresh, actor); throw e; }
-    }
-    this.redraw(); landed.desk.redraw();
-    return { ...landed.desk.tileAnswer(landed.id), id: m.id };
-  }
-
-  /**
-   * An agent's `open id=` naming no reader and no tile (`ep0ch open <id>`): where this screen puts an agent's
-   * open (`openBlock`: the desk's focused tile's link or a following reader, the board's detail, the welcome's
-   * preview, the brief's step), never the reader the person types in.
-   */
-  async openLanding(id: string, by: Actor): Promise<{ tile: string | null; name?: string; id: string }> {
-    const m = await readNote(this.ctx, id);
-    if (!m) throw new ActionRefused(`no block ${id}`);
-    return this.land(m, by);
-  }
   /**
    * `open fragment=` (`ep0ch open <uri>#<fragment>`, `((id^fragment))`): the reader that shows the note scrolls to the
    * fragment and marks it, as a followed link does (PIE-425); an agent's never scrolls the reader the person is in.
@@ -3298,25 +3241,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
-   * `open tile=detail|new-detail|float`: into the container the screen's opens land in (the board's readers row): the
-   * tile an open lands in there now, a new one, or a new one floating. `from`: the tile it was opened from (its own
-   * links open in place, if it's one opened there).
-   */
-  async openPlace(id: string, place: string, actor: Actor, from?: number): Promise<{ tile: string | null; name?: string; id: string; why?: string }> {
-    const key = this.layout.policy.opensInto;
-    if (!key) throw new ActionRefused(`the ${this.title} has no ${place === "float" ? "details to float" : "detail"}; tile=<a reader> names one`);
-    const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
-    if (!m) throw new ActionRefused(`no block ${id}`);
-    const landed = this.placeNote(m, { from: from ?? this.focus, note: m.id,
-      container: key,
-      ...(place === "float" ? { at: { kind: "float" as const, near: this.focus } } : place === "new-detail" ? { at: { kind: "in" as const, key } } : {}) }, actor);
-    if (!landed) throw new ActionRefused(`no reader in ${key} takes this open`);
-    this.openedIn(key).active = landed.id;
-    this.redraw();
-    return { ...landed.desk.tileAnswer(landed.id), id: m.id, ...(landed.why ? { why: landed.why } : {}) };
-  }
-
-  /**
    * The newest copy of note `id` on this screen (a tile's), or null (PIE-1403): a whole note beats a list
    * row's partial one, then the higher revision wins, a tile's on a tie (the one that saved it has it first).
    */
@@ -3329,19 +3253,37 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The container the screen's opens land in (its own policy's `opensInto`, a container's key), if any. */
   private opensIntoKey(): string | undefined { const k = this.layout.policy.opensInto; return k && node(this.root, k) ? k : undefined; }
 
-  /** `open tile=<reader>`: the note lands in that reader (beside it, when it's pinned) and the person's open gives it the keys. */
-  async openIn(id: string, sel?: string, actor: Actor = USER): Promise<{ tile: string; name?: string; id: string }> {
-    // The reader is picked before the note is fetched: `expected=` was checked against the layout as it is
-    // now, so a `#2` means this layout's second tile, not whatever moved there while the service answered.
-    const r = this.pickReader(sel);
-    const m = await readNote(this.ctx, id);
+  /**
+   * `open id=` (PIE-1522): the one request an open naming a note makes here, placed by placement() and applied once.
+   * `tile`: a place word (the screen's container: its detail, a new one, a float) or a reader (beside it, when it's
+   * pinned); `from`: where that tile's opens land (its wire; the drawer's: the screen shown), `fresh` a new tile there.
+   * Naming neither: the person's lands in the reader they're in (a flow's next column), else the first; an agent's
+   * where this screen's opens land (`landingRequest`), never their keys; `fresh` a new detail beside the focused tile.
+   */
+  async openBy(id: string, o: { tile?: string; from?: string; fresh?: boolean; standing?: boolean }, actor: Actor): Promise<{ tile: string | null; name?: string; id: string; why?: string }> {
+    const t = o.from !== undefined ? this.resolveTile(o.from) : null;
+    if (o.from !== undefined && !t) throw new ActionRefused(`no tile ${o.from}`);
+    const d = t?.desk ?? this;
+    // A reader named is picked before the note is fetched: `expected=` was checked against the layout as it is now, so a
+    // `#2` means this layout's second tile, not whatever moved there while the service answered.
+    const place = !t && (o.tile === "detail" || o.tile === "new-detail" || o.tile === "float") && d.hasPlaces() ? d.layout.policy.opensInto! : undefined;
+    const r = !t && !place && (o.tile !== undefined || (o.standing !== false && !o.fresh && !d.focusInFlow())) ? d.pickReader(o.tile) : undefined;
+    const m = r ? await readNote(this.ctx, id) : o.standing === false && !t && !place && !o.fresh ? await readNote(this.ctx, id) : d.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
-    if (!this.all().includes(r.id) || this.panes.get(r.id) !== r.pane) throw new ActionRefused(`reader ${r.name} closed while the note was fetched; nothing was opened`);
-    this.mayOpen(r.pane, actor);
-    const landed = this.placeNote(m, { from: this.focus, to: r.id, note: m.id }, actor);
-    if (!landed) throw new ActionRefused(`no reader takes this open`);
-    this.redraw();
-    return { ...landed.desk.tileAnswer(landed.id), id: m.id };
+    if (r && (!d.all().includes(r.id) || d.panes.get(r.id) !== r.pane)) throw new ActionRefused(`reader ${r.name} closed while the note was fetched; nothing was opened`);
+    if (r) d.mayOpen(r.pane, actor);
+    const request: import("./screen-layout").PlacementRequest<number> = t ? { from: d.idNamed(t.tile.id!)!, fresh: !!o.fresh, note: m.id }
+      : place ? { from: d.focus, note: m.id, container: place, ...(o.tile === "float" ? { at: { kind: "float" as const, near: d.focus } } : o.tile === "new-detail" ? { at: { kind: "in" as const, key: place } } : {}) }
+      : r ? { from: d.focus, to: r.id, note: m.id }
+      : o.fresh ? d.landingRequest(d.focus, m.id, true)
+      : o.standing === false ? d.landingRequest(d.focus, m.id)
+      : { from: d.focus, note: m.id };
+    const landed = d.placeNote(m, request, actor);
+    if (!landed) throw new ActionRefused(place ? `no reader in ${place} takes this open` : "no reader takes this open; tile.open kind=reader gives it a destination");
+    if (place) d.openedIn(place).active = landed.id;
+    if (landed.performed) await landed.performed;
+    this.redraw(); d.redraw(); landed.desk.redraw();
+    return { ...landed.desk.tileAnswer(landed.id), id: m.id, ...(landed.why ? { why: landed.why } : {}) };
   }
 
   /**
@@ -3436,7 +3378,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.ctx.flash(`${made} · the new note opens where this screen's opens land`);
     }
     // A refusal of the open is said as it is (thrown): note.new puts the empty note away.
-    const at = empty ? await this.openIn(m.id, from, actor) : await this.openFrom(m.id, from, actor, true);
+    const at = await this.openBy(m.id, empty ? { tile: from } : { from, fresh: true }, actor);
     const rd = at.tile ? this.pane(at.tile) : undefined;
     if (!(rd instanceof ReaderPane) || rd.msg?.id !== m.id) return null;
     this.focusTile(at.tile!, actor);
@@ -4480,7 +4422,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const { names, across } = this.linkedFrom(pane);
     let out = names.length ? ` ← ${names.join(", ")}` : "";
     if (pane instanceof ReaderPane && !across && (names.length > 0 || (wireTarget(this.layout, id) !== undefined)) && this.openLandingReader(USER)?.id === id) out += " opens land here";
-    if (kindOf(pane)?.opensOnScreen && this.ctx?.hostLayer?.isDrawer(this) && !this.routes(pane)) {
+    const hand = this.placeFrom(id).destination;
+    if (hand.kind === "across" && hand.screen) {
       const to = this.otherDesk()?.landingName();
       if (to) out += ` open → ${to}`;
     }
@@ -5335,6 +5278,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return "linking";
   }
 
+  /** What placement hands out of this screen (PIE-1522): the drawer's to the screen shown's focused tile (`Ctx.screen`), and its own fresh action (`Ctx.freshAction`). */
+  private handOut(): { screen?: string | null; freshAction?: string } {
+    const shown = this.otherDesk(), focus = shown?.panes.has(shown.focus) ? shown.focus : shown?.all()[0];
+    const drawer = !!this.ctx?.hostLayer?.isDrawer(this);
+    return { ...(drawer ? { screen: shown && focus !== undefined ? shown.tileId(focus) : null } : {}), ...(this.spec.fresh ? { freshAction: this.spec.fresh } : {}) };
+  }
   private otherDesk(): Desk | undefined {
     const host = this.ctx?.hostLayer;
     return host?.isDrawer(this) ? host.desks().find(d => !host.isDrawer(d)) : undefined;
@@ -8626,24 +8575,12 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   }),
 });
 
-/** Where `open` puts a note: the screen's places, a flow's next column, a tile's link, an agent's landing, a reader. */
+/** `open id=`: the person's naming no tile with their keys in a mounted screen (a group, a board in a tile) is that screen's own open; else the desk's one request (`Desk.openBy`). */
 function openNote({ id, from, fresh }: { id: string; from?: string; fresh?: boolean }, { d, reader, standing }: DeskOn, actor: Actor): Promise<{ tile: string | null; name?: string; id: string }> {
-  // An agent naming neither (`ep0ch open <id>`): where the focused tile's opens land, never the reader the
-  // person types in (openShown). The person's own goes to the focused reader and gives it the keys.
-  // The screen's places (its opens land in a container: the board's readers row); elsewhere a tile by that name.
-  if ((reader === "detail" || reader === "new-detail" || reader === "float") && d.hasPlaces()) return d.openPlace(id, reader, actor);
-  // The person's open naming no tile with their keys in a mounted screen (a group, a board in a tile): its readers take it,
-  // so / and the power bar there open where that screen's own opens go, never refused for the screen around it having none.
+  // A mount's readers take it, so / and the power bar there open where that screen's own opens go, never refused for the screen around it having none.
   const mount = from === undefined && reader === undefined && standing ? d.focusedMount() : null;
-  if (mount) return (mount.dispatch.act({ action: "open", args: { id, ...(fresh ? { fresh } : {}) } }, actor) as Promise<{ tile: string | null; name?: string; id: string }>)
-;
-  // fresh=true naming neither (the power bar's alt+⏎): a new detail beside the tile with the keys, as alt+⏎ on a link opens one.
-  if (fresh && from === undefined && reader === undefined) return d.openFresh(id, actor);
-  // The person's open naming no tile, with their keys in a flow (the river's search): the next column, as ⏎ there does.
-  if (from === undefined && reader === undefined && standing && d.focusInFlow()) return d.openFrom(id, d.focusedName(), actor, !!fresh);
-  return from !== undefined ? d.openFrom(id, from, actor, !!fresh)
-    : reader === undefined && !standing ? d.openLanding(id, actor)
-    : d.openIn(id, reader, actor);
+  if (mount) return mount.dispatch.act({ action: "open", args: { id, ...(fresh ? { fresh } : {}) } }, actor) as Promise<{ tile: string | null; name?: string; id: string }>;
+  return d.openBy(id, { tile: reader, from, fresh, standing }, actor);
 }
 
 /** A tree with its tiles' ids mapped (a group's tiles under this screen's ids as it spills, PIE-651). */
