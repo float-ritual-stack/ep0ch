@@ -312,11 +312,11 @@ export function commandOn(command: readonly string[], machine: string | undefine
  * What a read says when the host it reached has no outline `outline` (PIE-938): that nothing was made (a read never
  * creates one; only opening a door, `outline create` and `init` do), which machines have it (this machine's host, the
  * shared forwards in `.remote/` and the machines opened before: `everyOutline`) and the command that reads it there.
- * `command` is the `ep0ch` argv as typed. Null when the host has it.
+ * `command` is the `ep0ch` argv as typed. Null when the host has it. A host that doesn't answer never says the outline
+ * is missing: the read says the host is down, and where else the outline is known to be.
  */
 export async function readMissing(o: { outline: string; path: string; machine?: string; command?: readonly string[] }): Promise<string | null> {
   const has = await outlinesAt(o.path);
-  if (!has) return outlineHostProblem(o.path, o.machine);
   if (has?.includes(o.outline)) return null;
   const there = o.machine ?? `this machine (${hostname()})`;
   const every = await everyOutline(hostSocketOf());
@@ -328,6 +328,13 @@ export async function readMissing(o: { outline: string; path: string; machine?: 
     ...(local ? [["this machine has it:", again(undefined)] as [string, string]] : []),
   ];
   const w = Math.max(0, ...rows.map(r => r[0].length)) + 2;
+  if (!has) {
+    // The host didn't answer, so whether it has the outline is unknown (PIE-1325): say that, and where else it is.
+    // With no machine named and nowhere else known, null: the socket may be a plain service (EP0CH_SOCKET), and the
+    // board's own connect says "no carrier" with the real error when it is dead.
+    if (!rows.length && !o.machine) return null;
+    return [outlineHostProblem(o.path, o.machine), ...rows.map(([k, v]) => `  ${k.padEnd(w)}${v}`)].join("\n");
+  }
   return [
     `${there} has no outline ${o.outline}. Nothing was created (a read never makes one).`,
     ...rows.map(([k, v]) => `  ${k.padEnd(w)}${v}`),
