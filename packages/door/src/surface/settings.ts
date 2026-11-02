@@ -105,7 +105,8 @@ async function read(on: On, list?: string): Promise<SettingsSubject> {
 }
 
 function fieldOf(subject: SettingsSubject, key: string): SettingField {
-  const field = subject.fields.find(f => f.prop.key === key.trim().toLowerCase());
+  // A key matches whatever its case; the field keeps the schema's own spelling (`titleColumn`) for the write.
+  const field = subject.fields.find(f => f.prop.key.toLowerCase() === key.trim().toLowerCase());
   if (!field) throw new ActionRefused(`${subject.schemas.map(s => s.title).join(" + ")} has no field ${key}; its fields are ${subject.fields.map(f => f.prop.key).join(", ")}`);
   return field;
 }

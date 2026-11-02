@@ -68,6 +68,27 @@ describe("showcase: a live table's settings stick, and it can switch to a feed (
     await expect(act("settings.set", { key: "card", value: "large" })).rejects.toThrow(/has no field card/);
   }, 40_000);
 
+  test("a figure written with attributes shows them as set, and toggling a column keeps the others (PIE-1513 review)", async () => {
+    await show();
+    const now = (await h.board.get(note().id))!;
+    const attrs = now.text.replace(/::graph-table \^sprint\n---\n[\s\S]*?\n---\n::/, '::graph-table{query="collection=garden" columns="title, owner" layout=feed} ^sprint\n::');
+    expect(attrs).not.toBe(now.text);
+    await h.board.update(now.id, attrs, now.revision!, { kind: "user" });
+    await until(() => surface().msg?.text.includes('layout=feed') ?? false, "the attribute form arrived");
+    const settings = await act("settings", { list: "^sprint" });
+    const value = (key: string) => settings.fields.find((f: any) => f.key === key).value;
+    expect(value("query")).toBe("collection=garden");
+    expect(value("columns")).toBe("title, owner");
+    expect(value("layout")).toBe("feed");
+    await act("settings.toggle", { key: "columns", value: "stage" });
+    expect(await text()).toContain('columns="title, owner, stage"');
+    expect((await act("settings.set", { key: "titlecolumn", value: "1" })).saved).toBe(true);
+    expect(await text()).toContain('titleColumn="1"');
+    // Put the seeded YAML form back for the next test.
+    const back = (await h.board.get(note().id))!;
+    await h.board.update(back.id, now.text, back.revision!, { kind: "user" });
+  }, 40_000);
+
   test("an agent writes a column choice without taking the keys, attributed; a key the table doesn't take is said under it", async () => {
     await show();
     await act("settings.toggle", { key: "columns", value: "owner" }, { kind: "agent", id: "gardener" });

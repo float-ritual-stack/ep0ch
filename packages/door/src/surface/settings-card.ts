@@ -53,7 +53,7 @@ export function settingFields(schemas: ComponentSchema | readonly ComponentSchem
     const own = schema.props.filter(p => p.where === where && !seen.has(p.key));
     for (const prop of [...own.filter(p => p.key === name), ...own.filter(p => p.key !== name)]) {
       seen.add(prop.key);
-      out.push({ n: out.length + 1, prop, order: schema.props.find(p => p.key === prop.question?.order), value: props.find(p => p.key.toLowerCase() === prop.key)?.value ?? null, section });
+      out.push({ n: out.length + 1, prop, order: schema.props.find(p => p.key === prop.question?.order), value: props.find(p => p.key.toLowerCase() === prop.key.toLowerCase())?.value ?? null, section });
     }
   });
   return out;
