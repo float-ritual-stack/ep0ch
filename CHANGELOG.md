@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An action's preview shows the line to type (PIE-1502, #1180)
+
+- **In the power bar:** an action that takes arguments opens with "type glass.mode set=off|on|sticky · ⏎ for a form" and an Examples box of lines to click or Tab in; the shell form stays in `ep0ch actions --doc`.
+- **Run:** `ep0ch install --apply`. No protocol or schema change.
+
+### Collections scroll and step like the live tables (PIE-1501, #1181)
+
+- **Wheel and keys:** the wheel scrolls a note over its collection; `j`/`k`, `[ ]` and clicks move through its rows or cards as through a `::graph-table`, with no enter/leave mode.
+- **Run:** `ep0ch install --apply`. No protocol or schema change.
+
 ### Page embeds reach another machine's outline (PIE-1350)
 
 - **Read across machines:** `![[attic:Plan]]` and `![[attic:Plan^part]]` use the host's existing forwards to draw the page or its anchored part. A missing page stays saved and offers nearby pages inline; a name ending in `^word` explains the anchor reading and gives its block reference.
