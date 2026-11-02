@@ -2285,7 +2285,8 @@ export class NoteSurface {
     // thread's passage is highlighted while it's open (the ruler, where both are, wins).
     const reading = this.readingRows();
     const framedList = this.framedList(current);
-    const readingBand: [number, number] | null = readingRuler() && !this.printed && !framedList ? current?.ruler ?? (reading ? [top + reading[0], top + reading[1]] : null) : null;
+    // A row inside a figure or list keeps its container's tint on the whole block (PIE-969): its own lines are the item band.
+    const blockBand: [number, number] | null = reading ? [top + reading[0], top + reading[1]] : null, readingBand = readingRuler() && !this.printed && !framedList ? (current?.item && blockBand ? blockBand : current?.ruler ?? blockBand) : null;
     // The element the cursor is on, when it is one row of something (a figure's row, a step): its rows are item-focused.
     const itemRows: [number, number] | null = current?.item && !this.printed && !framedList ? current.item : null;
     const rulers = [markRows].filter((r): r is [number, number] => !!r);
