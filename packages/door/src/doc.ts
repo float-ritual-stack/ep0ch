@@ -247,7 +247,7 @@ export interface Doc {
  * Rows `env.after` inserts, with where the generated regions among them are (PIE-956): `at` is the row of `rows` a region's
  * first row is, `rows` how many it spans (its body and the panel under it). The reader draws each one's mark in the gutter.
  */
-export interface AfterRows { rows: string[]; regions?: { key: string; at: number; rows: number }[]; heads?: Doc["heads"]; folds?: FoldPoint[] }
+export interface AfterRows { rows: string[]; regions?: { key: string; at: number; rows: number }[]; heads?: Doc["heads"]; folds?: FoldPoint[]; parts?: DocPart[] }
 /** A generated region as drawn: where its rows are in `lines`, and the key the reader knows it by. */
 export interface DocRegion { key: string; row: number; rows: number }
 
@@ -513,6 +513,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     if (!Array.isArray(got)) {
       for (const r of got.regions ?? []) regions.push({ key: r.key, row: out.length + r.at, rows: r.rows });
       for (const h of got.heads ?? []) heads.push({ ...h, row: out.length + h.row });
+      for (const p of got.parts ?? []) parts.push({ ...p, row: out.length + p.row, line });
       // The inserted text is read here; editing still belongs to the line that inserted it.
       for (const p of got.folds ?? []) folds.push({ ...p, line, end: line + 1, order: { line: [line, ...(p.order?.line ?? [p.line])], end: [line, ...(p.order?.end ?? [p.end])] } });
     }

@@ -136,16 +136,20 @@ describe.skipIf(!outliner)("the home base", () => {
     } finally { await direct.end(); stopUnder(home); }
   }, 30_000);
 
-  test("an existing macOS host for another folder: n names the refusal and a command that serves this scratch folder", async () => {
+  test.each(["darwin", "linux"])("an existing %s host for another folder: n keeps its unit and names a command that serves this scratch folder", async platform => {
     // The recovery command must remain visible even when the installed folder has a long name.
-    const home = join(dir, "host-serving-a-different-folder"), work = join(home, "work"), outlines = join(home, "scratch");
-    for (const p of ["work", "Library/LaunchAgents"]) mkdirSync(join(home, p), { recursive: true });
-    const unit = join(home, "Library/LaunchAgents/io.ep0ch.outliner-host.plist");
-    const original = `<plist><dict><key>ProgramArguments</key><array><string>${process.execPath}</string><string>${join(outliner!, "src/host-main.ts")}</string></array><key>EnvironmentVariables</key><dict><key>EP0CH_OUTLINES</key><string>${join(home, "outlines")}</string></dict></dict></plist>`;
+    const home = join(dir, `host-serving-a-different-folder-${platform}`), work = join(home, "work"), outlines = join(home, "scratch");
+    for (const p of ["work", "Library/LaunchAgents", ".config/systemd/user"]) mkdirSync(join(home, p), { recursive: true });
+    const unit = join(home, platform === "darwin" ? "Library/LaunchAgents/io.ep0ch.outliner-host.plist" : ".config/systemd/user/outliner-host.service");
+    const original = platform === "darwin"
+      ? `<plist><dict><key>ProgramArguments</key><array><string>${process.execPath}</string><string>${join(outliner!, "src/host-main.ts")}</string></array><key>EnvironmentVariables</key><dict><key>EP0CH_OUTLINES</key><string>${join(home, "outlines")}</string></dict></dict></plist>`
+      : `[Service]\nExecStart="${process.execPath}" "${join(outliner!, "src/host-main.ts")}"\nEnvironment="EP0CH_OUTLINES=${join(home, "outlines")}"\n`;
     writeFileSync(unit, original);
-    writeFileSync(join(home, "platform.ts"), 'Object.defineProperty(process, "platform", { value: "darwin" });');
+    writeFileSync(join(home, "platform.ts"), `Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)} });`);
+    const services = fakeServiceManager(home);
     const h = new Home(work, [], {
       HOME: home, EP0CH_OUTLINES: outlines, EP0CH_STATE: join(home, "state"), EP0CH_CONTROL: join(home, "door.sock"),
+      PATH: `${services.bin}:${process.env.PATH}`,
     }, ["--preload", join(home, "platform.ts")]);
     let host: ReturnType<typeof Bun.spawn> | undefined;
     try {
@@ -153,7 +157,8 @@ describe.skipIf(!outliner)("the home base", () => {
       h.type("n");
       await Bun.sleep(300);
       h.type("\x15meadow\r");
-      const refusal = await h.on(p => p.messages?.some((m: any) => m.kind === "error" || m.kind === "refusal"), "the creation refusal", 5000);
+      const refusal = await h.on(p => existsSync(join(outlines, "meadow.sqlite")) || p.messages?.some((m: any) => m.kind === "error" || m.kind === "refusal"), "the creation result", 5000);
+      expect(readFileSync(unit, "utf8")).toBe(original);
       expect(refusal.text.join("\n")).toContain("already serves");
       expect(refusal.text.join("\n")).toContain("host-main.ts");
       expect(readFileSync(unit, "utf8")).toBe(original);
@@ -169,7 +174,7 @@ describe.skipIf(!outliner)("the home base", () => {
       await h.on(p => p.outline === "meadow" && p.screen !== "home base", "the created outline");
       expect(existsSync(join(outlines, "meadow.sqlite"))).toBe(true);
       expect(readFileSync(unit, "utf8")).toBe(original);
-    } finally { await h.end(); if (host) { host.kill(); await host.exited; } }
+    } finally { await h.end(); if (host) { host.kill(); await host.exited; } stopUnder(home); }
   }, 30_000);
 
   test("by keys: n names a new outline, ⏎ makes it, the offer to write .ep0ch is declined, and the door opens on it", async () => {

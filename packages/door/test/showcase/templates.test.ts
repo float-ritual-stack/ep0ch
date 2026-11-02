@@ -9,7 +9,7 @@ import { SECTIONS } from "../../src/showcase/showcase";
 import { SocketBoard, USER } from "../../src/socket";
 import type { Desk } from "../../src/desk/desk";
 import type { ReaderPane } from "../../src/desk/panes";
-import { RULER_BG } from "../../src/surface/selection";
+import { ITEM_BG, RULER_BG } from "../../src/surface/selection";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
@@ -181,6 +181,51 @@ describe.skipIf(!outliner)("the showcase screen: templates (PIE-533 S4)", () => 
     h.press({ kind: "enter" });
     await until(() => reader.surface.msg?.text.startsWith("Water the beans") === true, "Enter opens the template's job");
     expect((await board.get(seeded.notes.templatePlan.id))!.text).toBe(seeded.notes.templatePlan.text);
+  }, 30_000);
+
+  test("a selected figure in a template tints only its own rows, leaving prose and the other figure alone", async () => {
+    const template = await board.createBlock(null, `Two reminders [type::template]
+
+Before the reminders.
+
+::graph-tabs
+---
+title: Morning reminder
+query: type=day-plan-job day=2026-10-14
+group: slot
+order: [morning, afternoon]
+columns: [title]
+lines: 1
+---
+::
+
+Between the reminders.
+
+::graph-table
+---
+title: Evening reminder
+headers: [Task]
+rows: [["Close the greenhouse"]]
+---
+::
+
+After the reminders.`, { kind: "agent", id: "test-agent" });
+    const page = await board.createBlock(null, `Garden reminders\n\n::use{of=((${template.id}))}`, { kind: "agent", id: "test-agent" });
+    await app.dispatch.act({ action: "section", args: { name: "template-steps" } }, USER);
+    const desk = S().stages.get(S().sel).top as Desk;
+    await desk.dispatch.press("open", { id: page.id }, "plan");
+    await until(() => { const text = screen(); return text.includes("Close the greenhouse") && text.includes("Carry the seed trays"); }, "both template figures", 12_000);
+    await app.dispatch.act({ action: "section.try" }, USER);
+    const reader = desk.pane("plan") as ReaderPane;
+    const current = () => { screen(); return reader.surface.describeElements().find(e => e.current); };
+    for (let i = 0; i < 30 && !current()?.label.startsWith("Carry the seed trays"); i++) h.ch("]");
+    expect(current()).toMatchObject({ kind: "row", label: expect.stringContaining("Carry the seed trays") });
+    const rows = h.sc.render(app).lines;
+    const row = (text: string) => { const line = rows.find(l => strip(l).includes(text)); expect(line).toBeDefined(); return line!; };
+    expect(row("Carry the seed trays")).toContain(ITEM_BG);
+    expect(row("morning 1")).toContain(RULER_BG);
+    for (const text of ["Before the reminders.", "Between the reminders.", "Close the greenhouse", "After the reminders."])
+      expect(row(text)).not.toContain(RULER_BG);
   }, 30_000);
 
   test("PIE-1492: previewing a list in one template call leaves the other call expanded", async () => {

@@ -1,5 +1,5 @@
 // Installing and starting the local host is shared by install and the first outline opened on a new machine.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { hostLive, hostSocketOf, outlinesDir } from "../discover";
@@ -71,7 +71,8 @@ export async function ensureLocalHost(socket: string, env: Env = process.env): P
     unit = { ...unit, state: await unitState(unit, undefined, env) };
     await command(hostUnitArgv(unit, "start", process.getuid?.() ?? 0), env);
   } else {
-    const install = hostInstall({ platform, home, outlines, bun: process.execPath, program: hostProgram, path: env.PATH ?? "" });
+    const at = hostUnitPath(platform, home);
+    const install = hostInstall({ platform, home, outlines, bun: process.execPath, program: hostProgram, path: env.PATH ?? "", taken: at && existsSync(at.path) ? at.path : null });
     if (!install) throw new Error(await localHostHelp(socket, env));
     await installHost(install, env);
     unit = install.unit;

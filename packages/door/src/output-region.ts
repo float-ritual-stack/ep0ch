@@ -78,21 +78,22 @@ export function regionRows(d: RegionDraw, book: RegionBook | undefined): AfterRo
   const body = "lines" in d.body ? d.body.lines : d.body;
   const offset = d.notesFirst ? notes : 0;
   const rows = offset ? [...tail.slice(0, offset), ...body, ...tail.slice(offset)] : [...body, ...tail];
-  return { rows, regions: [{ key: d.key, at: 0, rows: rows.length }], ...(doc ? { heads: doc.heads.map(h => ({ ...h, row: h.row + offset })), folds: doc.folds } : {}) };
+  return { rows, regions: [{ key: d.key, at: 0, rows: rows.length }], ...(doc ? { heads: doc.heads.map(h => ({ ...h, row: h.row + offset })), folds: doc.folds, parts: doc.parts?.map(p => ({ ...p, row: p.row + offset })) } : {}) };
 }
 
 /** Row groups in order as one: plain rows and a region's, with each region's `at` moved to where its rows land. */
 export function joinRows(parts: readonly (readonly string[] | AfterRows)[]): string[] | AfterRows {
   const rows: string[] = [], regions: NonNullable<AfterRows["regions"]> = [];
-  const heads: Doc["heads"] = [], folds: NonNullable<Doc["folds"]> = [];
+  const heads: Doc["heads"] = [], folds: NonNullable<Doc["folds"]> = [], drawn: NonNullable<Doc["parts"]> = [];
   for (const part of parts) {
     if ("rows" in part) {
       for (const r of part.regions ?? []) regions.push({ ...r, at: r.at + rows.length });
       for (const h of part.heads ?? []) heads.push({ ...h, row: h.row + rows.length });
+      for (const p of part.parts ?? []) drawn.push({ ...p, row: p.row + rows.length });
       folds.push(...part.folds ?? []);
       rows.push(...part.rows);
     }
     else rows.push(...part);
   }
-  return regions.length || heads.length ? { rows, regions, heads, folds } : rows;
+  return regions.length || heads.length || drawn.length ? { rows, regions, heads, folds, parts: drawn } : rows;
 }

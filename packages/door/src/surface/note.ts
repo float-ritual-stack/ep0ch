@@ -2211,11 +2211,11 @@ export class NoteSurface {
       const row = r - this.scroll;
       if (row >= 0 && row < room) this.hits.push({ row: top + row, from: bx, to: w, pick: i });
     }
-    // The reading ruler: the current element's block, and a focus mark's, in one calm tint. An expanded thread's passage
-    // is highlighted while it's open (the ruler, where both are, wins). A row in a figure keeps the container's tint on
-    // the whole block (PIE-969); its own lines are the item band.
+    // A template's figures share one source line, so their container tint uses the figure's drawn bounds;
+    // the selected row's own lines are the item band (PIE-969). The ruler wins over an open thread's passage tint.
     const reading = this.readingRows(), framedList = this.framedList(current);
-    const blockBand: [number, number] | null = reading ? [top + reading[0], top + reading[1]] : null, readingBand = readingRuler() && !this.printed && !framedList ? (current?.item && blockBand ? blockBand : current?.ruler ?? blockBand) : null;
+    const figure = current?.link?.figure && doc.parts?.find(p => p.kind === "figure" && p.figure === current.link?.figure?.figure);
+    const blockBand: [number, number] | null = figure ? [top + figure.row, top + figure.row + (figure.rows ?? 1)] : reading ? [top + reading[0], top + reading[1]] : null, readingBand = readingRuler() && !this.printed && !framedList ? (current?.item && blockBand ? blockBand : current?.ruler ?? blockBand) : null;
     // The element the cursor is on, when it is one row of something (a figure's row, a step): its rows are item-focused.
     const itemRows: [number, number] | null = current?.item && !this.printed && !framedList ? current.item : null;
     const rulers = [markRows].filter((r): r is [number, number] => !!r);
