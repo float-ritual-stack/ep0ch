@@ -147,4 +147,6 @@ export const TRAIL_TILE: TileKind = {
   kind: "trail", noun: "a Trail tile", about: "The day's forest of visits: what opened what, dwell and closed tiles; ⏎ reopens where it was",
   make: s => new TrailPane(s.source?.startsWith("tile:") ? s.source.slice(5) : "reader", s.state as Partial<Options> | undefined), openArgs: ["source"], actions: TRAIL_ACTIONS,
   describe: p => ({ source: `tile:${(p as TrailPane).source}` }), peek: (p, desk) => ({ trail: (p as TrailPane).describe(desk) }),
+  // A list of visits: wired to itself (PIE-1516), a visit's note opens in its tile.
+  lists: () => true,
 };

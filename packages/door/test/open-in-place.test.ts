@@ -111,9 +111,13 @@ describe.skipIf(!outliner)("open in place: a tile wired to itself", () => {
     await until(() => list() instanceof ReaderPane && list().msg?.id === porch.id, "the porch in place, in the group");
     await inner.dispatch.act({ action: "back", tile: "links" }, { kind: "user" });
     await until(() => list() instanceof BacklinksPane, "back: the list, in the group");
-    // Moved out of the group whole (the path a tile takes into the drawer too), it keeps its wire to itself.
+    // Moved out of the group whole (the path a tile takes into the drawer too), it keeps its wire to itself; open in place
+    // as it moves, it travels as its list, as the layout saves it.
+    await inner.dispatch.act({ action: "list.open", args: { n }, tile: "links" }, { kind: "user" });
+    await until(() => list() instanceof ReaderPane, "in place again");
     await inner.dispatch.act({ action: "layout.move", args: { out: true }, tile: "links" }, { kind: "user" });
     expect(D().wireDescription("links", "open")).toBe("in place");
+    expect(desk.pane("links")).toBeInstanceOf(BacklinksPane);
   }, 30_000);
 
   test("a pinned reader wired to itself replaces in place; the self rule says it for every tile", async () => {

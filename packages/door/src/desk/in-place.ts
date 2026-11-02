@@ -36,6 +36,9 @@ export class ListsBeneath {
     return reader;
   }
 
+  /** Tile `id`'s list put back before it travels to another desk (the drawer, a group), so it moves as the layout saves it: the list, or undefined. */
+  restore(id: number): Pane | undefined { const p = this.desk.panes.get(id); return p instanceof ReaderPane && this.beneath.has(p) && this.back(id, p) === null ? this.desk.panes.get(id) : undefined; }
+
   /** ← back past the reader's first stop: the list is the tile again, as it was. */
   private back(id: number, reader: ReaderPane): string | null {
     const list = this.beneath.get(reader);

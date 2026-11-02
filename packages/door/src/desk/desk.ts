@@ -2121,6 +2121,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return !!q && !!k?.previews && (k.lists?.(q) ?? !(q instanceof ReaderPane));
   }
 
+  private inPlaceable(id: number) { const f = this.facts(id); return !!(f.notes || f.lists); }   // a tile whose open may be wired to itself (PIE-1516)
   opensInPlace(from: Pane): boolean { const id = this.idOf(from); if (id === undefined) return false; const d = this.placeFrom(id).destination; return d.kind === "swap" && !!d.inPlace; }   // DeskApi's, placement's answer
   /** DeskApi.opensShow: the note shown where tile `from`'s opens land (placement's answer), or null. */
   opensShow(from: Pane): string | null {
@@ -2844,7 +2845,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       verb === "open" ? `Click a tile to send it there, or ${tile} itself to open in place.` : `Click a tile to send it there; alt+click an edge or gap for beside.`,
     ], keys: [{ keys: "h j k l / 1-9", does: "choose a tile" }],
       choices: [ ...targets.flatMap(({ pane }, i) => {
-        if (pane === desk.panes.get(from) || !this.linkAccepts(pane)) return pane === desk.panes.get(from) && verb === "open" ? [{ label: `${i + 1} · ${tile} itself: open in place`, key: i < 9 ? String(i + 1) : undefined, act: { action: "tile.link", tile, args: { verb, to: desk.pathTo(pane)! } } }] : [];
+        if (pane === desk.panes.get(from) || !this.linkAccepts(pane)) return pane === desk.panes.get(from) && verb === "open" && desk.inPlaceable(from) ? [{ label: `${i + 1} · ${tile} itself: open in place`, key: i < 9 ? String(i + 1) : undefined, act: { action: "tile.link", tile, args: { verb, to: desk.pathTo(pane)! } } }] : [];
         const owner = desk.relatives().find(d => d.idOf(pane) !== undefined)!;
         return [{ label: `${i + 1} · ${owner.nameOfPane(pane)}`, key: i < 9 ? String(i + 1) : undefined, act: { action: "tile.link", tile, args: { verb, to: desk.pathTo(pane)! } } }];
       }), ...WIRE_VERBS.map(v => ({ label: `change ${v} wire`, key: v === "select" ? "s" : v === "open" ? "o" : v === "hover" ? "v" : "a", current: v === verb, act: { action: "tile.link", tile, args: { ask: true, verb: v } } })),
@@ -4233,7 +4234,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.headOut += sgr + text + RESET; x += cells;
     };
     const pane = this.panes.get(id)!;
-    if (this.linking && (pane !== this.linkingFrom() || this.linking.verb === "open" && !this.linking.pick) && this.linkAccepts(pane)) {
+    if (this.linking && (pane !== this.linkingFrom() || this.linking.verb === "open" && !this.linking.pick && this.inPlaceable(id)) && this.linkAccepts(pane)) {
       // A pick's click chooses a value for what asked, and wires nothing; an open wire's own tile opens in place (PIE-1516).
       put(`${this.numLabel(id)}⌖ ${this.linking.pick ? "click to choose" : pane === this.linkingFrom() ? "click to open in place" : "click to link here"}`, fg(C.lmagenta));
       return this.headOut;
@@ -5301,10 +5302,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   linkToPane(target: Pane, beside = false) {
     const pending = this.linking;
     if (!pending) return;
-    const { desk, from, verb } = pending;
     if (pending.pick) return this.pickedPane(target);
     this.linking = null;
-    const path = desk.pathTo(target), unlink = target === desk.panes.get(from) && !beside && (verb !== "open" || desk.layout.wires.some(w => w.from === from && w.verb === "open" && w.to === from));
+    const { desk, from, verb } = pending, path = desk.pathTo(target), unlink = target === desk.panes.get(from) && !beside && (verb !== "open" || !desk.inPlaceable(from) || desk.layout.wires.some(w => w.from === from && w.verb === "open" && w.to === from));
     if (path === undefined) { this.ctx.flash("not linked: that tile isn't reachable from here"); return this.redraw(); }
     desk.run("tile.link", { verb, ...(unlink ? {} : { to: path, ...(beside && verb === "alt" ? { rule: "beside" } : {}) }) }, desk.nameOf(from));   // itself: an open in place (PIE-1516); again, or another verb, unlinks
   }
@@ -7562,7 +7562,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const why = this.takeRefusal(sel, actor, !!heir);
     if (why) throw new ActionRefused(why);
     const t = this.tile(sel);
-    const pane = this.panes.get(t.id)!;
+    const pane = this.beneath.restore(t.id) ?? this.panes.get(t.id)!;   // a reader in place travels as its list (PIE-1516)
     // Its links go with it (a group's edge, PIE-696): where it opens into, and the tiles that open into it, are tiles of another desk now.
     const links: ExtLink[] = [];
     const into: [number, WireVerb, AltRule | undefined][] = [];
