@@ -1202,7 +1202,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const to = references.get(savedTo) ?? savedTo;
       const target = [...names].find(([id, n]) => this.tileId(id) === to || n === to)?.[0];
       if (target === undefined) { if (!across.some(w => w.from === from && w.verb === verb && w.to === to)) across.push({ from, to, verb, rule }); continue; }
-      if (target === from && !own && !rule) continue;
+      if (target === from && !own && !rule && verb !== "open") continue;   // an open wired to itself is in place (PIE-1516): kept through a restart and into a group
       if (!wires.some(w => w.from === from && w.verb === verb && w.to === target)) wires.push({ from, verb, to: target, ...(rule ? { rule } : {}) });
     }
     // The open rule is the screen's policy now (PIE-513); a spec's `rule` says it as it did.
@@ -2223,8 +2223,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // The reader opened beside a pinned one (or a tile whose opens go beside it) takes the next open aimed there too.
       if (dest.kind === "new" && plan.besideOf !== undefined) this.besides.set(plan.besideOf, id);
     }
-    const landed = dest.kind === "swap" ? dest.tile : id;
-    const pane = dest.kind === "swap" && dest.inPlace && !(this.panes.get(landed) instanceof ReaderPane) ? this.beneath.read(landed, this.displayTitle(landed)) : this.panes.get(landed)!;
+    const landed = dest.kind === "swap" ? dest.tile : id, pane = dest.kind === "swap" && dest.inPlace && !(this.panes.get(landed) instanceof ReaderPane) ? this.beneath.read(landed, this.displayTitle(landed)) : this.panes.get(landed)!;
     if (dest.kind === "swap" && !plan.reuse) {
       const kind = kindOf(pane);
       if (!kind?.take) throw new ActionRefused(`${this.nameOf(landed)} cannot show a note`);
@@ -7589,7 +7588,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (heir) { this.put(heir); this.startTile(hid); }
     for (const [z, verb, rule] of into) this.addExt(z, { pane, verb, rule, found: true });
     this.save(); this.redraw();
-    return { pane, name: t.name, spec, from: this.title, typing, links, ...(agents ? { agents } : {}), ...(fold ? { fold: { ...fold } } : {}) };
+    return { pane, name: t.name, spec, from: this.title, typing, links, ...(agents ? { agents } : {}), ...(fold ? { fold: { ...fold } } : {}), ...(keepLinks && spec.link !== undefined && spec.link === spec.id ? { inPlace: true as const } : {}) };
   }
   // ── picking tiles to gather into a group (PIE-696) ──
 
@@ -7774,6 +7773,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (moved.agents) { try { this.apply({ op: "agents", tile: id, level: moved.agents }, USER); } catch { /* the group's own rule stands */ } }
     if (moved.fold) { try { this.apply({ op: "collapse", tile: id, on: true, ...(moved.fold.dir === "h" ? { dir: "h" as const } : {}) }, USER); } catch { /* a place that can't fold it */ } }
     for (const w of moved.links ?? []) this.addExt(id, w);
+    if (moved.inPlace) this.apply({ op: "link", tile: id, to: id, verb: "open" }, USER);   // its open wired to itself goes with it (PIE-1516)
     this.relink();
     // The terminal the person was typing in came with them: they type in it here.
     if (moved.typing && this.dispatch.standing(actor) && moved.pane instanceof PtyPane && this.focus === id) this.ptyIn = moved.pane;
@@ -8380,7 +8380,7 @@ export interface TileLine {
   mode?: "follows" | "held" | "pinned";
 }
 
-export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[]; agents?: AgentLevel; fold?: Fold }
+export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[]; agents?: AgentLevel; fold?: Fold; inPlace?: true }
 /** A link whose far end is on another desk of the family (a group's tile and one outside it): its pane, or its path until it is found. */
 /** What a tile's attachment is: a reader's comment, Sources, list or edit preview; a facets tile's Matches (PIE-1443). */
 type AttachedKind = "comment" | "sources" | "list-preview" | "edit-preview" | "matches" | "settings";

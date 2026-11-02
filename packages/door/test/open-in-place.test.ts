@@ -98,6 +98,24 @@ describe.skipIf(!outliner)("open in place: a tile wired to itself", () => {
     await until(() => desk.pane("links") instanceof BacklinksPane, "two back: the list");
   }, 30_000);
 
+  test("gathered into a group, the links tile stays wired to itself and opens in place there", async () => {
+    await setup();
+    await act("tile.link", { to: "links" }, "links");
+    const g = await act("tile.group", { with: "reader" }, "links");
+    const inner = D().pane(g.tile).inner;
+    expect(inner.wireDescription("links", "open")).toBe("in place");
+    const list = () => inner.pane("links");
+    await until(() => list() instanceof BacklinksPane && list().rows().some((r: any) => r.kind === "backlink" && r.source.blockId === porch.id), "the group's links listed");
+    const n = list().rows().findIndex((r: any) => r.kind === "backlink" && r.source.blockId === porch.id) + 1;
+    await inner.dispatch.act({ action: "list.open", args: { n }, tile: "links" }, { kind: "user" });
+    await until(() => list() instanceof ReaderPane && list().msg?.id === porch.id, "the porch in place, in the group");
+    await inner.dispatch.act({ action: "back", tile: "links" }, { kind: "user" });
+    await until(() => list() instanceof BacklinksPane, "back: the list, in the group");
+    // Moved out of the group whole (the path a tile takes into the drawer too), it keeps its wire to itself.
+    await inner.dispatch.act({ action: "layout.move", args: { out: true }, tile: "links" }, { kind: "user" });
+    expect(D().wireDescription("links", "open")).toBe("in place");
+  }, 30_000);
+
   test("a pinned reader wired to itself replaces in place; the self rule says it for every tile", async () => {
     await setup();
     await act("reader.pin", {}, "reader");
