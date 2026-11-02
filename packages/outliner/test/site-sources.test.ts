@@ -64,6 +64,26 @@ async function setup() {
 }
 
 
+test("Sources describes figures that read child notes, with their rows and provenance", async () => {
+  const { create, client } = await setup();
+  for (const [text, children] of [
+    ["Garden jobs\n::graph-check\n---\nrows: children\n---\n::", ["[ ] Water beans", "[x] Plant peas"]],
+    ["Garden year\n::graph-timeline\n---\ntitle: Garden year\n---\n::", ["March: sow peas", "April: plant beans"]],
+  ] as const) {
+    const note = create(text);
+    const rows = children.map(text => create(text, note.id));
+    create("A comment [type::annotation]", note.id);
+    const answer = await client.request<SourcesAnswer>({ action: "site.sources", blockId: note.id });
+    const source = answer.sources[0]!;
+    expect(source.live).toBe(true);
+    expect(source.transform.label).toMatch(/child/i);
+    expect(source.query.text).toContain(note.id);
+    expect(source.result.rows).toBe(2);
+    expect(source.result.table?.map(row => row[0]).sort()).toEqual(rows.map(row => row.id).sort());
+    expect(source.result.text).toContain(children[0]);
+  }
+});
+
 test("a note's generated regions are listed with their query, transform, result and when each read", async () => {
   const { create, client, output } = await setup();
   const script = create(`Beds table [script::beds-table] [mode::render]\n\`\`\`js\nreturn view.table({ columns: ["Owner", "Week"], rows: [[(await resolve("this.owner")).values[0], props.week[0]]] });\n\`\`\``);
@@ -76,7 +96,7 @@ test("a note's generated regions are listed with their query, transform, result 
   await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
   await until("both lines", () => output(note.id).length >= 2);
   const a = await client.request<SourcesAnswer>({ action: "site.sources", blockId: note.id });
-  expect(a.sources.map(s => [s.kind, s.name])).toEqual([["handler", "beds-table"], ["expr", "::="], ["use", `::use ((${template.id}))`], ["fields", "::fields crop"], ["if", "::if"], ["figure", "graph-table"], ["output", "rota"]]);
+  expect(a.sources.map(s => [s.kind, s.name])).toEqual([["handler", "beds-table"], ["expr", "::="], ["use", `::use ((${template.id}))`], ["fields", "::fields crop"], ["if", "::if"], ["view", "Collection"], ["output", "rota"]]);
   const by = (kind: string) => a.sources.find(s => s.kind === kind)!;
   // handler: its slots as fields, its script as the transform (with a jump), its table as rows, when it ran.
   expect(by("handler").query).toMatchObject({ params: [{ key: "week", value: "42" }], text: "beds-table:: week=42", editable: true });
@@ -88,9 +108,10 @@ test("a note's generated regions are listed with their query, transform, result 
   expect(by("use").result.text).toContain("Who: Kit");          // the result is what it drew, with the call's props in
   expect(by("fields").result.table?.[0]?.[0]).toBe("peas");
   expect(by("if").result.text).toContain("holds");
-  expect(by("figure").query.params).toEqual(expect.arrayContaining([{ key: "query", value: "crop=beans" }]));
-  expect(by("figure").transform.kind).toBe("figure");
-  expect(by("figure").result.rows).toBeGreaterThanOrEqual(1);
+  // The graph-table with a query is a collection (PIE-1491): the collection part describes itself.
+  expect(by("view").query.params).toEqual(expect.arrayContaining([{ key: "query", value: "crop=beans" }, { key: "layout", value: "table" }]));
+  expect(by("view").transform.label).toBe("Collection · table");
+  expect(by("view").result.rows).toBeGreaterThanOrEqual(1);
   expect(by("output").transform).toMatchObject({ kind: "script", block: script.id });
   expect(by("output").key).toBe("#out-rota-1");
   // Reading writes nothing.

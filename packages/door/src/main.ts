@@ -1,14 +1,11 @@
 #!/usr/bin/env bun
-import { RECORD_USAGE } from "./record-cli";
-import { REVIEW_USAGE } from "./review-cli";
-import { WORK_USAGE } from "./work-cli";
-import { SEARCH_USAGE } from "./search-cli";
 // ep0ch-door: a BBS door into a pi-herdr-outliner outline, over its socket.
 import { join } from "node:path";
+import { renderHelp, completionCommand } from "./cli-help";
 import { SocketBoard } from "./socket";
 import { Term } from "./term";
 import { clientRows, controlClient, formatClients } from "./control";
-import { DOCS_USAGE, docsCommand } from "./docs";
+import { docsCommand } from "./docs";
 import { skillCommand } from "./skills";
 import { resolveTarget } from "./discover";
 import { nameTheOutline, parseOutlineArgs, runOutlineCommand } from "./outlines";
@@ -18,19 +15,14 @@ import { connectTarget, guardDoor, homeBase, openDoor, writeLastCall, type Door 
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
 import { placeOf } from "./session/place";
 import { carryDoor, forwardTo, remoteDoor, remoteOf, sshDoorArgv, sshDoorOf } from "./machine";
-import { findCommand, NOTES_USAGE, revisionsCommand, showCommand } from "./notes-cli";
-import { waitCommand, WAIT_USAGE } from "./wait-cli";
-import { EXPORT_USAGE } from "./export";
-import { MIRROR_USAGE } from "./outline-mirror";
-import { LIBRARY_USAGE } from "./library/cli";
-import { NEW_USAGE, newCommand } from "./new-cli";
-import { VIEW_USAGE, viewCommand } from "./view-cli";
-import { SHARE_USAGE } from "./share-cli";
-import { MCP_USAGE, mcpCommand } from "./mcp";
-import { AGENT_USAGE, agentCommand } from "./agent-cli";
-import { BACKUP_USAGE } from "./backup/usage";
+import { findCommand, revisionsCommand, showCommand } from "./notes-cli";
+import { waitCommand } from "./wait-cli";
+import { newCommand } from "./new-cli";
+import { viewCommand } from "./view-cli";
+import { mcpCommand } from "./mcp";
+import { agentCommand } from "./agent-cli";
 import { showcaseTry } from "./showcase/route";
-import { COMMANDS, checkWords, scriptCall, screenArg, screenUriArgs, usageFor } from "./cli-words";
+import { COMMANDS, checkWords, scriptCall, screenArg, screenUriArgs } from "./cli-words";
 import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { isLocalMachine } from "@ep0ch/outliner/machine-name";
 import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
@@ -64,196 +56,10 @@ if (commandAt && (COMMANDS as readonly string[]).includes(args[commandAt] ?? "")
   }
   args = [args[commandAt]!, ...args.slice(commandAt + 1), ...flags];
 }
-const USAGE = `ep0ch: a BBS door into an outline
-
-  ep0ch [--ws <name>] [--machine <ssh-name> [--create] | --here]
-        [--screen <name> [<target>] | --layout <name>]
-                                   open the door (the logon, then the main menu, by default);
-                                   --screen <name> opens that screen instead: a menu item (board,
-                                   desk, river, brief, welcome, waiting, who…) or any registered screen
-                                   (ep0ch act screen.list names them), with its target where it takes
-                                   one: --screen board <hub-id>, --screen detail <id | ((ref)) | ep0ch://…>
-                                   (a URI also names the outline and machine; it never creates one).
-                                   EP0CH_LANDING=<name> opens that screen after the logon instead
-                                   (EP0CH_LANDING=brief, =welcome).
-                                   --layout daily opens the desk laid out as a named layout (daily,
-                                   river, board, desk, or one saved with ^W w).
-                                   Which outline: --ws <name> from anywhere, else EP0CH_WS, else the
-                                   nearest .ep0ch from this folder up (it holds ws = "<name>"). A name
-                                   nobody has yet is created on this machine (like herdr --session <name>);
-                                   on another machine never: the home base says so and offers the one here,
-                                   creating it there, or cancel (without a terminal, the commands), and
-                                   --create makes it there on purpose. Where none is
-                                   named, the home base: this machine's outlines (open, new, import) and the
-                                   machines opened from here (add one from ~/.ssh/config); choosing one opens
-                                   it and offers to write the folder's .ep0ch.
-                                   Outlines are <name>.sqlite in EP0CH_OUTLINES (~/outlines).
-                                   Which machine: --machine <ssh-name> (a Host in ~/.ssh/config), else
-                                   EP0CH_MACHINE, else the machine = "<ssh-name>" of the .ep0ch that named
-                                   the outline; none is this machine (--here says so outright, over
-                                   EP0CH_MACHINE and the .ep0ch's machine). The door keeps an ssh forward to that
-                                   machine's outline host (~/outlines/.remote/<ssh-name>.sock), shared by
-                                   every client here and started again when it drops; a command says
-                                   "<ssh-name> via ssh" when it starts the forward (EP0CH_VERBOSE=1: every
-                                   time). EP0CH_SOCKET names
-                                   a host's socket outright
-  ep0ch --showcase [--reset]       every shared door part, live, on its own seeded outline of made-up notes
-                                   (the same as ep0ch try --showcase); --reset reseeds it
-  ep0ch door [<ssh-name>] [<outline>]
-                                   ssh -t to the ssh door (ssh ep0ch: the login whose command is the door),
-                                   <ssh-name> default ep0ch, then this terminal back clean however it ends:
-                                   a dropped link too (mouse, the alternate screen and paste turned off), with
-                                   the command that reattaches. ssh's keepalives end a dead link in a minute
-  ep0ch --remote <ssh-name> [door flags]
-                                   this terminal on the door session running on that machine (ssh -t
-                                   <ssh-name> ep0ch [door flags]), like herdr --remote; an outline that
-                                   machine doesn't have is asked about first, as for --machine (--create
-                                   makes it there)
-  ep0ch log [--ws <name>] [--machine <ssh-name>] [--follow]
-                                   print the session message log as JSON lines; --follow tails it
-  ep0ch session list [--json] | attach [--watch] | end [--yes] [--all] | upgrade [--clients] [--all] | restart
-                                   the door sessions, one per outline (like herdr --session <name>): list shows
-                                   every one (outline, machine, pid, code, terminals attached, programs); attach,
-                                   end, upgrade and restart act on this folder's outline's, or --ws <name>
-                                   [--machine <ssh-name>]'s (with none named, the only one running). attach
-                                   --watch is read-only; end asks while programs run (--all ends every one,
-                                   asking first); upgrade hands it to a new daemon on this checkout's code (its
-                                   programs keep running; --clients only restarts the terminals; --all does
-                                   every session); restart does so anyway. The door is a session: quitting
-                                   detaches, ep0ch attaches again; --no-daemon (or EP0CH_DAEMON=0) opens the door
-                                   in this terminal instead
-${MCP_USAGE}
-  ep0ch init [<name>] [--create] [--json]
-                                   name this folder's outline: attach to it (creating it when nobody has; on
-                                   another machine only with --create), and write .ep0ch; without a name, the
-                                   folder's (or its repository's)
-  ep0ch outline list [--all] [--archived] [--lines] | attach <name> [--create] | create <name> | import <database.sqlite> <name>
-                | stop <name> | archive <name> | unarchive <name> | delete <name> [--yes]      [--json]
-                                   the host's outlines (one an agent made over MCP shows who made it and why;
-                                   archive hides one and keeps its database, unarchive restores it, --archived
-                                   lists them): --all lists every machine's (this one's, then each
-                                   machine opened before, one not connected said, nothing started), --lines
-                                   as name<TAB>machine<TAB>problem; attach opens the door on one (the same as
-                                   --ws <name>; on another machine --create makes one it lacks); import makes a new outline from an older database (its
-                                   notes, properties, pages and work ids; the file is only read); stop
-                                   releases its database; delete moves it to .deleted/, after asking
-  ep0ch link setup|serve|connect|status   outbound HTTPS link for a machine
-  ep0ch status [--json]            the outline host: its socket, its outlines folder, open outlines
-  ep0ch doctor [--backups] [--json]
-                                   every piece of the stack (bun, the ep0ch checkout, ep0ch on PATH, the plugin
-                                   in Herdr, the outlines folder and its host and unit, which outline this folder
-                                   opens, the backups (each Litestream unit, its log's errors, how far each replica
-                                   or mirror trails), Herdr's keys, the Claude mod): ✓ current, ! behind, ✗ missing,
-                                   with the command that fixes each. Read-only; --backups also restores each newest
-                                   snapshot into a temp folder and runs integrity_check
-${BACKUP_USAGE}
-  ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in]
-                [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client]
-                                   bring the stack up to date: a dry run by default (the plan). --apply backs
-                                   up every ~/outlines/*.sqlite to ~/backups/ep0ch/<time>/ first, then updates the
-                                   ep0ch checkout (fast-forward only, bun install when needed), links ep0ch on
-                                   PATH and restarts the outline host through its unit; each step is skipped when
-                                   current. Units, Herdr's config and its plugin link are said, never edited.
-                                   It names this machine once (~/outlines/.host/machine-name: what ep0ch://
-                                   links and EchoNet call it; give it the ssh name other machines use for it):
-                                   asked at a terminal, the short host name otherwise; --machine-name renames.
-                                   --dials-in: this machine calls the others for EchoNet and is never called
-                                   (its inbound ssh off or gated; ~/outlines/.host/dials-in); --no-dials-in undoes
-                                   .host/clients lists the ssh clients updated after the host, one per line.
-                                   --add-client and --remove-client manage it (--apply saves); --as-client
-                                   runs one client leg without updating further clients. Busy doors stay running.
-  ep0ch try --ws <name> [--copy] [--hub <id>]
-  ep0ch try --showcase [--reset]
-                                   the door on a private copy, or on the showcase outline (scripts/try-it.sh)
-${NOTES_USAGE}
-${WAIT_USAGE}
-${RECORD_USAGE}
-${REVIEW_USAGE}
-${WORK_USAGE}
-${SEARCH_USAGE}
-${NEW_USAGE}
-${VIEW_USAGE}
-  ep0ch artifact put <file-or-folder> [--name <name>] [--machine <ssh-name>]
-  ep0ch artifact ls | show|versions|snapshot|rm <name> [--machine <ssh-name>]
-  ep0ch artifact import --ws <name> [--machine <ssh-name>]
-                                   live artifact folders and frozen snapshots, outside the outline
-  ep0ch artifact lease [<name>] [--ws <name>] [--json]
-                                   a one-time link to send a file (a page, a zip, a tar) into the inbox: prints the curl
-  ep0ch device add <name> [--ws <name>] | ls | revoke <name|id>
-                                   a phone's Shortcut token for the same inbox, made, listed and ended
-${SHARE_USAGE}
-  ep0ch loki lease [--ttl 1h] | lease --revoke
-                                   a read-only Loki URL, or end all leases; run on the publisher host over ssh
-  ep0ch web sessions [--json] | web revoke <id> | --all
-                                   the browsers signed in to the web client (https://my.ep0ch.sh): each one's
-                                   id, browser, who and last use; revoke signs one out now, --all every one.
-                                   The web client's /sessions page does the same
-${EXPORT_USAGE}
-${MIRROR_USAGE}
-${LIBRARY_USAGE}
-${DOCS_USAGE}
-  ep0ch <script> [key=value …] [--as <id>]
-                                   run a script of this folder's outline by its name with a button's slots
-                                   (PIE-1230): ep0ch neat page=[[a]] right=%tree is act script.run of=neat …, an
-                                   agent's run in its door (EP0CH_AGENT or --as), a key written twice a list; exit 1 with the
-                                   failed steps on stderr when the script said some failed (PIE-1469)
-  ep0ch echo toss | nodelist | subscribe | areas …   (ep0ch echo help says each one's flags)
-                                   EchoNet (PIE-779): run the echonet extension's tosser (copies in, netmail
-                                   both ways, nodelist and toss log), write and print the nodelist, subscribe
-                                   to an area by node mask, or list the areas an outline offers and reads
-  ep0ch ext [--ws <name>] ls | add <name|path> | remove <name> | act <name> <action> [--block <id>]
-        | run <name> <action:id|handler:key>
-                                   the outline's extensions: ls lists each folder, what it serves and each
-                                   schedule (every or cron, next run, last run and what it did); act runs an
-                                   action as the extension; run runs a schedule now (the outliner's ext command)
-  ep0ch keys list | check <KEY> | who <KEY> | set <group> <KEY> | grant|revoke <group>[/<KEY>] <scope>
-                                   which secrets (with-secrets groups) exist here, where, and who may have each:
-                                   names, places and modes, never a value; check exits 1 when a key isn't there;
-                                   set, grant and revoke are the person's (PIE-887; ep0ch keys with no word says more)
-  ep0ch machinery backfill [--ws <name>] [--apply] [--json]
-                                   stamp [machine::<producer>] on what tools wrote before they stamped (file
-                                   touches, EchoNet's logs and receipts, deliveries, prior art, backup runs, fetched notifications): a dry
-                                   run says how many; --apply stamps them (PIE-867)
-  ep0ch route <note> | --all [--dry-run] [--ws <name>] [--json]
-                                   route a note (an id, ((id)), [[page]] or Work ID), or every note, by the
-                                   outline's routing rules: notes with [type::route] [query::…] [route-to::((id))],
-                                   listed in the Routing view; the first whose query holds for a note moves it
-                                   there, as ext:route. --dry-run says what would move where and why (PIE-1010)
-  ep0ch resource rebind <folder> [--ws <name>] [--json]
-                                   read a file link's folder where it leads now, after a link in its path
-                                   changed or another folder took its place: the command a refused file link
-                                   names. A folder deleted and made again in the same place needs nothing
-  ep0ch clients [--ws <name>] [--machine <ssh-name>]
-                                   who is connected to the service, every role (observers too)
-  ep0ch peek [<section>] [--json] [--xray] [--full]
-                                   what the door shows now: by default the compact text (where, the person, speed,
-                                   and the screen as text, a few KB); --json one JSON object and nothing else (the
-                                   whole state, and the screen as "text"); a <section> (speed, person, layout, …) just that part;
-                                   the layout is in brief, as layout.get gives it: --full has each tile's whole description
-  ep0ch actions | snap <png> | open <id|ep0ch://outline@machine/b/id|file:/path> [--json] | act <action> [key=value ...]
-                                   drive a running door; EP0CH_CONTROL names which one, else the one on
-                                   this folder's outline, else the only one running. open <id> is
-                                   act open id=<id>; a URI names its outline and machine first; open file:<path>
-                                   [diff=true] shows a file (or its git diff) where opens land; --as <id> (or EP0CH_AGENT) names the agent
-  ep0ch trace on|off|show [action] [--last N] [--json]
-                                   prove which code ran in this door: ordered probes, running revision and handler findings
-${AGENT_USAGE}
-  ep0ch where [--json|--source]    the checkout, AGENTS.md, docs, skills and sha; --source prints just its path.
-                                   Where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
-                                   checked (the door's pid and control socket, the Herdr pane, the tile), and where
-                                   the person's keys are. Read-only; "not in a door" outside one
-  ep0ch subscribe [type,...]       the door's live feed: focus.changed, viewport, cursor, layout.changed,
-                                   marks.changed, one JSON event per line (docs/AGENT-INTERFACE.md)
-  ep0ch --skill [--all] [<name>]
-                                   the stack's skills (this door's and the installed Outliner's), or the
-                                   path of one skill's SKILL.md; --all adds contributor skills
-  ep0ch help [<command>]           this, or one command's part of it; --help and -h do the same anywhere
-                                   (ep0ch session --help). A word ep0ch doesn't know, command or door flag,
-                                   is said with the closest one it does (exit 2), and opens no door`;
 // A word ep0ch doesn't know is said, with the closest it does, and opens no door; --help, -h and help print usage (the
 // command's own when one is named) from anywhere (PIE-547, src/cli-words.ts).
 const words = checkWords(args);
-if (words && "help" in words) { console.log(usageFor(USAGE, words.help)); process.exit(0); }
+if (words && "help" in words) { console.log(renderHelp(words.help, args.includes("--more"))); process.exit(0); }
 // A plain word that is no command is a script's name (PIE-1230): `ep0ch neat page=[[a]]` is `ep0ch act script.run of=neat page=[[a]]`,
 // an agent's run in the door of this folder's outline (the shell's agent id, or --as), refused in words if no script has that name.
 let notACommand: string | undefined;
@@ -263,6 +69,7 @@ if (words && "error" in words && /^[A-Za-z][\w.-]*$/.test(args[0] ?? "") && !wor
   notACommand = words.error;
   args = ["act", "script.run", `of=${args[0]}`, ...args.slice(1)];
 } else if (words) { console.error(`ep0ch: ${words.error}`); process.exit(2); }
+if (args[0] === "completions") process.exit(completionCommand(args.slice(1)));
 // ep0ch door [<ssh-name>] [<outline>]: the ssh door's login (ssh ep0ch), carried here, and this terminal given back clean
 // however ssh ends, a dropped link included (PIE-1429, src/machine.ts).
 if (args[0] === "door") {

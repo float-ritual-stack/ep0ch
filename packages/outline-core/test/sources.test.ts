@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { figureItemCount } from "../src/figure-props";
 import { outputRegionText } from "../src/output-region";
 import { slotArgument, sourceCalls, withSlotProps, yamlParams } from "../src/sources";
 
@@ -6,9 +7,13 @@ test("a note's own generated lines are found in order: ::use, ::fields, ::if , a
   const region = outputRegionText({ label: "rota", producer: "p1", anchor: "out-rota-1", body: "- Mon" });
   const text = ["Plot", "", "::use{of=[[meeting]] who=Kit}", "::fields{key=crop}", '::if{where="owner=sam"}', "inside", "::", "::graph-table", "---", "query: crop=beans", "limit: 5", "---", "::", region].join("\n");
   const calls = sourceCalls(text);
-  expect(calls.map(c => [c.kind, c.line, c.name])).toEqual([["use", 2, "::use [[meeting]]"], ["fields", 3, "::fields crop"], ["if", 4, "::if"], ["figure", 7, "graph-table"], ["output", 13, "rota"]]);
+  // A graph-table with a query is a collection, as the reader draws it (PIE-1491); one with authored rows stays a figure.
+  expect(calls.map(c => [c.kind, c.line, c.name])).toEqual([["use", 2, "::use [[meeting]]"], ["fields", 3, "::fields crop"], ["if", 4, "::if"], ["view", 7, "Collection"], ["output", 13, "rota"]]);
   expect(calls[0]!.params).toEqual([{ key: "who", value: "Kit" }]);
-  expect(yamlParams(calls[3]!.figure!.yaml)).toEqual([{ key: "query", value: "crop=beans" }, { key: "limit", value: "5" }]);
+  expect(calls[3]!.view?.props).toMatchObject({ query: "crop=beans", limit: 5, layout: "table" });
+  const figure = sourceCalls(["Plot", "::graph-table", "---", "headers: [a]", "rows: [[1]]", "---", "::"].join("\n"));
+  expect(figure.map(c => [c.kind, c.name])).toEqual([["figure", "graph-table"]]);
+  expect(yamlParams(figure[0]!.figure!.yaml)).toEqual([{ key: "headers", value: "[\"a\"]" }, { key: "rows", value: "[[1]]" }]);
 });
 
 test("a code fence's generated-looking lines are code, and a region's inside lines are its own", () => {
@@ -41,4 +46,8 @@ test("editing one slot leaves quoted words and spacing alone, and only the first
 test("code inside a component's body is still code", () => {
   const text = 'Note\n::if{where="x=y"}\n```\n::use{of=[[fake]]}\n```\n::';
   expect(sourceCalls(text).map(c => c.kind)).toEqual(["if"]);
+});
+
+test("Sources counts a written waterfall's items", () => {
+  expect(figureItemCount("waterfall", { items: [{ label: "Start", value: 10 }, { label: "Used", value: -3 }] })).toBe(2);
 });

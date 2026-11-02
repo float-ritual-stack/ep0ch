@@ -84,4 +84,17 @@ export const EDIT_PREVIEW_KEYS: readonly ModeKey[] = keyTable("edit preview", "a
 
 export const EDIT_PREVIEW_READER_KEYS = EDIT_PREVIEW_KEYS.filter(row => row.action === "draft.preview");
 
-export const ATTACHED_KEYS = [SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REVISION_KEYS, COMMENT_KEYS, EDIT_PREVIEW_KEYS];
+/** The settings card (PIE-786, PIE-1491): one more user of the attached surface, with its placements, grip and pointer rows. */
+export const SETTINGS_KEYS: readonly ModeKey[] = keyTable("settings", "the settings card, comma over a configurable note or a collection", [
+  ...["tab", "j", "down"].map(key => say(row(key, "settings.pick", "field", { by: 1 }), "select the next field of the card")),
+  ...["backtab", "k", "up"].map(key => say(row(key, "settings.pick", "field", { by: -1 }), "select the previous field of the card")),
+  row("enter", "settings.set", "edit"), row("e", "settings.set", "edit"),
+  row("x", "settings.clear", "clear"), row("delete", "settings.clear", "clear"),
+  row("i", "props", "every property"),
+  ...["esc", "q", ","].map(key => row(key, "props.close", "close")),
+  say(row("ctrl+o", "settings.place", "placement"), "choose where the settings card sits"), row("ctrl+g", "settings.grip", "move"),
+  ...["settings.pick", "settings.set", "settings.place", "settings.focus"].map(action => row("click", action, "")),
+  row("wheel", "settings.pick", ""),
+]);
+
+export const ATTACHED_KEYS = [SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REVISION_KEYS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, SETTINGS_KEYS];

@@ -524,6 +524,16 @@ process.exit(Number(process.env.BUILDER_CODE));
     expect((await run(["revisions", "SHED-9"], env)).code).toBe(1);
   });
 
+  test("show --json reports every missing or trashed id while keeping available records", async () => {
+    const missing = "00000000-0000-4000-8000-000000000000";
+    for (const asked of [[missing], [ids.gone!], [ids.oil!, missing, ids.gone!]]) {
+      const shown = await run(["show", "--json", ...asked], env);
+      expect(shown.code, shown.err).toBe(1);
+      expect(JSON.parse(shown.out).map((record: { id: string }) => record.id)).toEqual(asked.filter(id => id === ids.oil));
+      for (const id of asked.filter(id => id !== ids.oil)) expect(shown.err).toContain(`no note ${id} in this outline`);
+    }
+  });
+
   test("refusals: no such note, a bad width, nothing to show, an outline nobody names", async () => {
     const none = await run(["show", "00000000-0000-4000-8000-000000000000"], env);
     expect([none.code, none.err]).toEqual([1, expect.stringContaining("no note")]);

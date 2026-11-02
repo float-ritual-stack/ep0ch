@@ -1,4 +1,6 @@
 import type { RenderElement } from 'claude-code'
+import { bindCall } from './outline-binding'
+export { bindCall } from './outline-binding'
 
 import type { BindingFacts, FolderFacts, WhereFacts } from '../types'
 
@@ -101,11 +103,6 @@ function sameOutline(f: BindingFacts): boolean {
   if (f.folder.kind !== 'bound' || !door?.outline) return false
   const ws = f.folder.workspace
   return ws.outline === door.outline && (ws.machine ?? null) === doorMachine(f)
-}
-
-/** The call that binds this session to an outline, with a real name: `outline_bind {"name":"garden"}`. */
-export function bindCall(name: string, machine?: string | null): string {
-  return `outline_bind ${JSON.stringify({ name, ...(machine ? { machine } : {}) })}`
 }
 
 /**

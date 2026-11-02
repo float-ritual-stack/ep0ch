@@ -9,47 +9,6 @@ import { ask } from "./jsonl";
 import { resolveDoor } from "./door-resolve";
 import { HC_NAME, parseAgentsToml, startNamedAgent, type NamedAgent } from "./desk/named-agent";
 
-export const AGENT_USAGE = `  ep0ch agent ls [--machine <ssh-name>] [--json]
-                                   the Claude Code sessions here (or on that machine, over ssh): name, short id, kind
-                                   (background: the daemon's job; interactive: a terminal owns it, with where it runs
-                                   when the process's parents say), busy or waiting, and the version each runs beside
-                                   the one installed, marked "behind" when it is older
-  ep0ch agent restart <name | short id | --all> [--if-update] [--fresh-daemon] [--check-env <VAR>] [--now] [--dry-run]
-                      [--machine <ssh-name>]
-                                   restart a background session at a safe moment (between turns, its builders done
-                                   and pushed), detached: it prints where the log is and returns. An interactive one
-                                   is its terminal's: refused, with how. --if-update: only one behind the installed
-                                   version (after a Claude Code update); --all: every background session, one at a
-                                   time (interactive ones left out, said); --fresh-daemon: so a changed ~/.bashrc
-                                   reaches it; --check-env: and check the new process carries <VAR>; --now: don't
-                                   wait; --dry-run: say the plan, change nothing. It runs scripts/agent-restart here
-                                   or on --machine (only that flag names the machine, never EP0CH_MACHINE or a .ep0ch)
-  ep0ch agent splits [--session <id>] [--machine <ssh-name>] [--json]
-                                   the Claude sessions running twice here (or on that machine): each process with
-                                   its pid, start and state, the command that stops it and, for a background job, the
-                                   one that attaches it (the door's ⚠ ×2 chip and the Claude mod read the same)
-  ep0ch agent stop <pid> --session <session id> [--machine <ssh-name>]
-                                   stop one process of a Claude session that runs twice (two \`claude --continue\`s
-                                   on one session, both writing its transcript; the door's ⚠ ×2 chip): only while
-                                   that pid is still a process of that session and another still holds it, else
-                                   nothing is stopped
-  ep0ch agent use <name> [--everywhere]
-                                   choose and restart the drawer agent for this outline, or every outline
-  ep0ch agent start <persona> [--on <machine>] [--cwd <folder>] [--program <cmd>] [--outline <name>]
-                                   start that persona's hc terminal, or say it is already live. One launch
-                                   line (hc run --bg --no-parent --keep --name <persona>). Flags left out
-                                   come from the nearest .ep0ch/agents.toml. A live terminal is not started
-                                   again, so a phone session stays up
-  ep0ch agent exec -- <program> [args…]
-                                   run in this terminal with this machine's EP0CH_SOURCE (the named hc agent's launch path)
-  ep0ch agent [--program <name>] [--in <folder>] [--persona <name>] [--new] [--json]
-                                   start an agent session in this folder (or --in one), or attach the one already
-                                   running there: the same program in the same folder is the same session. It opens
-                                   in the door on this folder's outline, as a tab in its drawer (alt+g lists every
-                                   session: jump to it, pull it into the drawer, dock it), continuing the program's
-                                   last conversation in that folder. --program: an agent config in the outline
-                                   ([agent-config::<name>]) or one installed here (claude, codex, pi); left out, the
-                                   drawer's agent, else claude. --new starts another beside the one running`;
 
 /** The arguments `ep0ch agent` takes, as agent.start's; or what's wrong. */
 export function agentArgs(argv: readonly string[], cwd = process.cwd()): { args: Record<string, unknown>; json: boolean } | { error: string } {

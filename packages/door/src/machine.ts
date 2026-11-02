@@ -6,7 +6,7 @@
 //
 // EP0CH_SSH names the ssh to run (tests give a fake one); ssh is the default.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { type Forward, type ForwardState, forwardState } from "@ep0ch/outline-core/machine";
 import { forwardFor, forwardOptions } from "@ep0ch/outliner/machine-forward";
@@ -134,6 +134,12 @@ export function forwardedMachines(env: Env = process.env): string[] {
 /** An outline someone can open from here (`machine`: none is this machine), or a machine whose outlines can't be read now (no `name`, a `problem`). */
 export interface KnownOutline { name?: string; machine?: string; problem?: string }
 
+/** A failed host read never establishes whether an outline exists there. */
+export function outlineHostProblem(socket: string, machine?: string, env: Env = process.env): string {
+  const via = machine ? `forward ${socket} (link socket ${join(outlineLayout(outlinesDir(env)).remoteDir, `${machine}.link.sock`)})` : `socket ${socket}`;
+  return `the outline host on ${machine ?? `this machine (${hostname()})`} did not answer via ${via}. Retry: ep0ch outline list${machine ? ` --machine ${machine}` : " --here"}`;
+}
+
 /** Keep a link's or a previously opened alias when folding one SSH Host line into one machine. */
 export async function knownMachines(env: Env = process.env): Promise<string[]> {
   const hosts = sshConfigHosts(env), seen = new Set<string>();
@@ -153,14 +159,14 @@ export async function knownMachines(env: Env = process.env): Promise<string[]> {
  */
 export async function everyOutline(socket: string, env: Env = process.env): Promise<KnownOutline[]> {
   const here = hostLive(socket, 3000).then((live): KnownOutline[] => live
-    ? live.outlines.map(name => ({ name }))
-    : [{ problem: `no outline host answers at ${socket}` }]);
+    ? live.outlines.length ? live.outlines.map(name => ({ name })) : [{}]
+    : [{ problem: outlineHostProblem(socket, undefined, env) }]);
   const machines = await knownMachines(env);
   const there = machines.map(async (machine): Promise<KnownOutline[]> => {
     try {
       const s = await machineStatus(machine, env);
-      if (s.outlines) return s.outlines.length ? s.outlines.map(name => ({ name, machine })) : [{ machine, problem: "no outlines yet" }];
-      return [{ machine, problem: s.connected ? "connected, but no outline host answers" : "not connected" }];
+      if (s.outlines) return s.outlines.length ? s.outlines.map(name => ({ name, machine })) : [{ machine }];
+      return [{ machine, problem: outlineHostProblem(s.socket, machine, env) }];
     } catch (e) { return [{ machine, problem: (e as Error).message }]; }
   });
   return (await Promise.all([here, ...there])).flat();

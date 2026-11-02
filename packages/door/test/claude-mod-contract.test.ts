@@ -10,6 +10,7 @@ import { Mirror } from "../src/mirror";
 import { Desk } from "../src/desk/desk";
 import { useShowcaseScreen } from "./showcase/harness";
 import { SocketBoard } from "../src/socket";
+import { answerMcp, boundOutlines } from "../src/mcp";
 import { Scratch, scratchDir } from "./scratch";
 
 const MAIN = join(import.meta.dir, "../src/main.ts");
@@ -50,6 +51,44 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     } finally { board.close(); }
   });
   afterAll(() => scratch.dispose());
+
+  test("reads name the newest writer after MCP, agent CLI and editor saves (PIE-1393)", async () => {
+    const board = Object.assign(new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name), { address: { outline: scratch.name, machine: "garden-box" } });
+    const outlines = boundOutlines(board);
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const reply = await answerMcp(outlines, JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }), { sub: "stdio", clientId: "garden-agent" });
+      const result = (reply!.reply as { result: { isError?: boolean; content: { text: string }[] } }).result;
+      expect(result.isError, result.content[0]!.text).not.toBe(true);
+      return JSON.parse(result.content[0]!.text);
+    };
+    const agent = async (op: string, input: unknown) => {
+      const p = Bun.spawn(["bun", OUTLINER_CLI, "agent", op, "--actor", "pruner", "--stdin"], {
+        env: { ...clean, ...env, OUTLINER_FIGURE_FIT: "off" }, stdin: new Blob([JSON.stringify(input)]), stdout: "pipe", stderr: "pipe",
+      });
+      const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      expect(code, stderr).toBe(0);
+      return JSON.parse(stdout);
+    };
+    try {
+      await board.configureMcpAccess("full");
+      const made = await call("outline_create", { ref: note, text: "Pear tree\nPlanted.", persona: "planter" });
+      const id = made.uri.split("/b/")[1];
+      const first = (await call("outline_read", { ref: id })).record;
+      expect(first.actor).toContain("planter/");
+      await agent("edit", { ref: id, expectedRevision: first.revision, text: "Pear tree\nPruned." });
+      const history = await board.request<{ revisions: { actorId?: string; revision: number }[] }>("block.revisions", { blockId: id, latest: true });
+      expect(history.revisions[0]).toMatchObject({ actorId: "pruner", revision: first.revision + 1 });
+      const newest = (await call("outline_read", { ref: id })).record;
+      expect(newest).toMatchObject({ revision: first.revision + 1, actor: "pruner", author: "agent" });
+      const shown = await run(["ep0ch", "show", "--json", id], { env });
+      expect(shown.exitCode, shown.stderr).toBe(0);
+      expect(JSON.parse(shown.stdout)[0]).toMatchObject({ actor: "pruner", revision: newest.revision });
+      expect(await agent("read", { ref: id })).toMatchObject({ actorId: "pruner", revision: newest.revision });
+      await board.request("update", { blockId: id, text: "Pear tree\nWatered.", expectedRevision: newest.revision, mutation: { author: "user" } });
+      expect((await call("outline_read", { ref: id })).record).toMatchObject({ actor: null, author: "user", revision: newest.revision + 1 });
+      expect((await agent("read", { ref: id })).actorId).toBeUndefined();
+    } finally { board.close(); }
+  }, 30_000);
 
   test("the session guide points agents to making the outline do new things", async () => {
     const { GUIDE_ARGV, guideText } = await mod("outline-guide.ts");

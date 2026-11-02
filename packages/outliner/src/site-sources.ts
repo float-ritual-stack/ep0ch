@@ -3,14 +3,18 @@
 // (`extensions.outputs`), `template.use`, the figure/fields/if producers (`site.answer`'s `produce`) and the output
 // regions' text grammar. The door's Sources inspector draws this answer and the published page's panel, so a second client agrees with it.
 // A page shows none of it by default; "where this comes from" asks. Reads only.
-import { figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
+import { figureChildRows, figureItemCount, figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
+import { asksPerItem, figureQuestion, liveAsk } from "@ep0ch/outline-core/figure-live";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import { noteTitleLine } from "@ep0ch/outline-core/property-parse";
 import type { SiteProduced } from "@ep0ch/outline-core/site";
 import { slotArgument, sourceCalls, yamlParams, type SourceEntry, type SourcesAnswer, type SourcesRequest } from "@ep0ch/outline-core/sources";
 import { answerSite } from "./site-answer";
+import { collectionSource } from "./site-producers";
 import { slotProps } from "./script-runs";
 import type { ResourceProjection } from "./resource-projection";
 import { templateUse, type TemplateUseStore } from "./template-use";
+import type { VisibleBlock } from "./types";
 
 /** What the extension registry says of the code behind a handler: its script's note and text, else the extension's id. */
 export interface TransformOf { kind: "script" | "extension"; label: string; block?: string; text?: string }
@@ -62,6 +66,7 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
   const host = store.resolveBlockRef(request.blockId);
   const text = host.text;
   const lines = text.split("\n");
+  const bodyStart = noteTitleLine(text).line + 1;
   const readAt = new Date(clock()).toISOString();
   const out: SourceEntry[] = [];
 
@@ -104,18 +109,40 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
         out.push({ ...base, readAt, live: true, query: { params: c.params, text: c.text, editable: true },
           transform: a.template ? { kind: "template", label: a.template.title, block: a.template.id, text: a.template.text } : { kind: "none", label: "no template" },
           result: a.template ? resultOf(read({ blockId: a.template.id, chain: a.chain, props: a.props, interpolate: { text: a.template.text, fences: "template" } }).interpolated?.text ?? a.template.text) : { rows: 0, text: "" }, ...(a.problems[0] ? { problem: a.problems[0].message } : {}) });
+      } else if (c.kind === "view") {
+        const args = c.view?.args && Object.keys(c.view.args).length ? Object.fromEntries(Object.entries(c.view.args).map(([k, v]) => [k, [v]])) : undefined;
+        const answer = read({ blockId: host.id, produce: { kind: "view", props: c.view?.props ?? { of: `((${host.id}))` } }, ...(args ? { props: args } : {}) });
+        const produced = answer.produced as Extract<SiteProduced, { kind: "view" }>;
+        const source = collectionSource(produced, readAt);
+        out.push({ ...base, ...source, ...(c.view?.error ? { problem: [c.view.error, source.problem].filter(Boolean).join(" · ") } : {}) });
       } else if (c.kind === "figure" && c.figure) {
         const block = componentBlocks(lines).find(b => b.start === c.line);
-        const src = figureSource(lines.slice(c.line + 1, block?.end ?? c.endLine), host.id, false, block?.attrs);
-        const parsed = figureProps(c.figure.kind, src);
+        const src = figureSource(lines.slice(c.line + 1, block?.end ?? c.endLine), host.id, lines.slice(bodyStart, c.line).every(line => !line.trim()), block?.attrs);
+        let childNotes: VisibleBlock[] | undefined;
+        const parsed = figureProps(c.figure.kind, src, note => {
+          const answer = read({ blockId: note, produce: { kind: "children" } });
+          const produced = answer.produced as Extract<SiteProduced, { kind: "children" }>;
+          childNotes = produced.blocks as VisibleBlock[];
+          deps.depend?.(childNotes.map(child => child.id));
+          return { rows: figureChildRows(childNotes), waiting: false };
+        });
         if ("error" in parsed) throw new Error(parsed.error);
         const props = parsed.props;
-        const answer = read({ blockId: host.id, produce: { kind: "figure", figure: c.figure.kind, props } });
-        const produced = answer.produced as Extract<SiteProduced, { kind: "figure" }> | undefined;
-        const question = typeof props.query === "string" ? props.query : typeof props.view === "string" ? `view ${props.view}` : "";
+        if (!parsed.children && props.rows !== "children") childNotes = undefined;
+        if (!childNotes && !asksPerItem(c.figure.kind, props) && !figureQuestion(liveAsk(c.figure.kind, props).ask)) {
+          const count = figureItemCount(c.figure.kind, props);
+          out.push({ ...base, live: false, query: { params: [], text: "", editable: false },
+            transform: { kind: "figure", label: `Written in the note · ${count} item${count === 1 ? "" : "s"}`, text: lines.slice(c.line, c.endLine + 1).join("\n") },
+            result: { rows: 0, text: "" } });
+          continue;
+        }
+        const answer = childNotes ? undefined : read({ blockId: host.id, produce: { kind: "figure", figure: c.figure.kind, props } });
+        const produced = answer?.produced as Extract<SiteProduced, { kind: "figure" }> | undefined;
+        const question = childNotes ? `Children of ((${host.id}))` : typeof props.query === "string" ? props.query : typeof props.view === "string" ? `view ${props.view}` : "";
+        const rows = childNotes ?? produced?.blocks;
         out.push({ ...base, readAt, live: true, query: { params: [...yamlParams(c.figure.yaml), ...c.params], text: question || c.text, editable: true },
-          transform: { kind: "figure", label: `${c.name} figure`, text: c.figure.yaml || lines.slice(c.line, c.endLine + 1).join("\n") },
-          result: produced ? blocksResult(produced.blocks) : { rows: 0, text: "" }, ...(produced?.error ? { problem: produced.error } : {}) });
+          transform: { kind: "figure", label: `${c.name} figure${childNotes ? " · child notes" : ""}`, text: c.figure.yaml || lines.slice(c.line, c.endLine + 1).join("\n") },
+          result: rows ? blocksResult(rows) : { rows: 0, text: "" }, ...(produced?.error ? { problem: produced.error } : {}) });
       } else if (c.kind === "fields") {
         const answer = read({ blockId: host.id, produce: { kind: "fields", key: c.of ?? "", ...(c.params.find(p => p.key === "of") ? { of: c.params.find(p => p.key === "of")!.value } : {}) } });
         const produced = answer.produced as Extract<SiteProduced, { kind: "fields" }> | undefined;

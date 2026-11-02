@@ -117,7 +117,6 @@ import {
 import {
   BINDING_BLOCK,
   BINDING_COMMAND,
-  bindCall,
   bindHint,
   type BindingFacts,
   bindingText,
@@ -129,6 +128,7 @@ import {
   type WhereFacts,
   whereFactsOf,
 } from './binding'
+import { bindingProblem, outlineListing, type OutlineListing } from './outline-binding'
 import {
   ANY_ITEM_QUERY,
   BOARD_QUERY,
@@ -1011,15 +1011,11 @@ async function notBoundText($: EngineInterface, why?: string): Promise<string> {
 }
 
 /** Every outline `ep0ch outline list --all --lines` shows (this machine's, then each machine opened), or why it could not. */
-async function outlinesListed($: EngineInterface): Promise<{ outlines: { name: string; machine: string | null }[] } | { why: string }> {
+async function outlinesListed($: EngineInterface): Promise<OutlineListing | { why: string }> {
   const ran = await $.process.run(['ep0ch', 'outline', 'list', '--all', '--lines'], { cwd: await startFolderOf($), timeoutMs: 15_000 })
     .catch((error: unknown) => ({ exitCode: 1, stdout: '', stderr: String(error) }))
   if (ran.exitCode !== 0) return { why: failureReasonOf(ran.stderr) || ran.stderr.trim() || '`ep0ch outline list` failed' }
-  const outlines = ran.stdout.split('\n').flatMap(line => {
-    const [name, machine] = line.split('\t')
-    return name && OUTLINE_NAME.test(name) ? [{ name, machine: machine?.trim() || null }] : []
-  })
-  return { outlines }
+  return outlineListing(ran.stdout)
 }
 
 /**
@@ -1040,12 +1036,8 @@ async function bindSessionNow($: EngineInterface, option: PluginOptions, name: s
   if (machine && !MACHINE_NAME.test(machine)) throw Error(`"${machine}" isn't an ssh config name (a Host in ~/.ssh/config). Leave machine out for an outline on this machine.`)
   const listed = await outlinesListed($)
   if ('why' in listed) throw Error(`could not check that ${name} exists: ${listed.why}. Try \`ep0ch outline list --all\`.`)
-  const same = (o: { name: string; machine: string | null }) => o.machine === (machine ?? null) || (!machine && !o.machine)
-  if (!listed.outlines.some(o => o.name === name && same(o))) {
-    const here = listed.outlines.filter(o => same(o)).map(o => o.name)
-    const other = listed.outlines.filter(o => o.name === name && !same(o)).map(o => o.machine)
-    throw Error(`there is no outline "${name}"${machine ? ` on ${machine}` : ' on this machine'}${other.length ? ` (a "${name}" is on ${other.map(m => m ?? 'this machine').join(', ')}: ${bindCall(name, other[0])})` : ''}. ${here.length ? `Here: ${here.join(', ')}; e.g. ${bindCall(here[0]!, machine)}.` : 'Run `ep0ch outline list --all`.'}`)
-  }
+  const problem = bindingProblem(listed, name, machine)
+  if (problem) throw Error(problem)
   await loadingReferences?.catch(() => {})
   touchGlobs = null
   rebound = { outline: name, ...(machine ? { machine } : {}) }
