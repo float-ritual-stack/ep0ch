@@ -11,19 +11,19 @@ export const COLLECTION_SECTIONS: Section[] = [
     key: "quiet-collection", need: "read what is waiting, with controls quiet until wanted",
     part: "the collection's own header and footer, ListView's title and pick, and the existing settings card",
     files: "src/collections.ts, src/surface/list-view.ts, src/surface/settings-card.ts",
-    aside: "two notes with type and ticket properties, each keeping its title · hover to reveal one control row · click a note to pick it, arrows or j k move the light, Enter opens · comma or ≡ opens settings · Tab or Esc leaves the list · choose feed to read the notes' callouts, bold, headings and resolved values · S lists the collection's query, layout, count and read time; r asks again · try at 44 and 120 columns",
+    aside: "two notes with type and ticket properties, each keeping its title · hover to reveal one control row · click a note to pick it, arrows or j k move the light, Enter opens · comma or ≡ opens settings · Tab or Esc leaves the list · choose feed to read the notes' callouts, bold, headings and resolved values · Tab out, then S lists the collection's query, layout, count and read time; r asks again · try at 44 and 120 columns",
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · quiet collection", panes: [r], names: ["garden"] }, show, [[r, n.collectionQuiet]]); },
   },
   {
     key: "collection-tune", need: "tune a collection over its view without editing the source",
     part: "SettingsCard over VIEW in the reader's attached surface (ADR 0007), toggle and pick-order BarQuestions over the matched rows' facets, binding.set at the read revision",
     files: "src/surface/settings.ts, src/surface/settings-card.ts, src/surface/binding.ts, src/bar/ask.ts, src/desk/settings.ts",
-    aside: "press , over the garden · ctrl+o or the placement chip offers inline, floating, split, popup and its own tile · choose split and toggle board on: the view redraws beside the card · a long query wraps in its field · ctrl+g moves a float or tile · Esc returns to the picked row · S opens Sources alongside · Sort: J/K reorder · summary-properties: space hides owner · an agent writes the same keys without taking your focus",
+    aside: "press , over the garden · ctrl+o or the placement chip offers inline, floating, split, popup and its own tile · choose split and toggle board on: the view redraws beside the card · a long query wraps in its field · ctrl+g moves a float or tile · Esc returns to the picked row · Tab out, then S opens Sources alongside · Sort: J/K reorder · summary-properties: space hides owner · an agent writes the same keys without taking your focus",
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · collection settings", panes: [r], names: ["garden"] }, show, [[r, n.collectionTune]]); },
   },
   {
     key: "collection", need: "draw a saved query as a table, gallery, feed or board, inline too", part: "VIEW schema → site.answer → list primitive → ListView over RowView", files: "src/collections.ts, src/surface/list-view.ts, outline-core/src/view-spec.ts, outliner/src/site-producers.ts",
-    aside: "one garden record, four layouts in one control row · click a layout or table header to change layout or sort · arrows or j k pick the lit row; Enter opens; Tab or Esc leaves; comma tunes · feed draws the notes through the reader · / filters with the query grammar · act list.layout layout=board, list.group by=area,owner, list.sort by=owner · NONE is last · a narrow table becomes named record cards, a narrow board offers lane tabs · S explains the collection and r asks again",
+    aside: "one garden record, four layouts in one control row · click a layout or table header to change layout or sort · arrows or j k pick the lit row; Enter opens; Tab or Esc leaves; comma tunes · feed draws the notes through the reader · / filters with the query grammar · act list.layout layout=board, list.group by=area,owner, list.sort by=owner · NONE is last · a narrow table becomes named record cards, a narrow board offers lane tabs · Tab out, then S explains the collection and r asks again",
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · collection", panes: [r], names: ["garden"] }, show, [[r, n.collection]]); },
   },
   {

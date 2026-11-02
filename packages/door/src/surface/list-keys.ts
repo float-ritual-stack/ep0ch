@@ -1,5 +1,6 @@
 import { keyTable } from "./keymap";
-import { modeBinding, modeHint, type ModeKey } from "./modes";
+import { modeBinding, type ModeKey } from "./modes";
+import { keyCaption } from "./actions";
 import type { Key } from "../term";
 
 export const LIST_KEYS = keyTable<ModeKey>("list", "While a list has the keys", [
@@ -34,7 +35,15 @@ export function listBinding(key: Key, collection: boolean, count: number): ModeK
   return b?.action === "list.pick" && !b.args ? { ...b, args: { n: count } } : b;
 }
 
-export const collectionHint = () => modeHint([
-  ...LIST_KEYS.filter(row => ["up", "down", "j", "k", "enter", "esc"].includes(row.key)),
-  ...COLLECTION_KEYS.filter(row => row.action === "list.tune" || row.key === "tab"),
-], () => undefined).replaceAll(" · ", " ").replace(/\btab\b/g, "⇥");
+/** The hint while the cursor is in a collection (PIE-1491): only its own keys, from the tables above, in plain words. */
+export const collectionHint = () => {
+  const rows = [...LIST_KEYS, ...COLLECTION_KEYS];
+  // Each group names its keys in the order given, so the hint reads the same every time.
+  const keys = (action: string, names: string[], join = " ") => names.filter(name => rows.some(r => r.action === action && r.key === name)).map(keyCaption).join(join);
+  return [
+    `${keys("list.step", ["up", "down"], "")} ${keys("list.step", ["j", "k"])} pick`,
+    `${keys("list.open", ["enter"])} open`,
+    `${keys("list.enter", ["tab", "esc"])} leave`,
+    `${keys("list.tune", [","])} tune`,
+  ].join(" · ");
+};

@@ -19,18 +19,9 @@ import { selectedRow, bg, C, drawEllipsized, fg, pad, RESET, width } from "../st
 import { rowLines, rule } from "../text";
 import { attachedPlaceOf, type AttachedPlace, type FloatRect } from "./attached";
 import { readState } from "../state";
-import { keyTable } from "./keymap";
-import { modeHint, type ModeKey } from "./modes";
+import { modeHint } from "./modes";
+import { SETTINGS_KEYS } from "./attached-keys";
 
-export const SETTINGS_KEYS = keyTable<ModeKey>("settings", "the attached settings card", [
-  ...["tab", "j", "down"].map(key => ({ key, action: "settings.pick", args: { by: 1 }, label: "field" })),
-  ...["backtab", "k", "up"].map(key => ({ key, action: "settings.pick", args: { by: -1 }, label: "field" })),
-  { key: "enter", action: "settings.set", label: "edit" }, { key: "e", action: "settings.set", label: "edit" },
-  { key: "x", action: "settings.clear", label: "clear" }, { key: "delete", action: "settings.clear", label: "clear" },
-  { key: "i", action: "props", label: "every property" },
-  ...["esc", "q", ","].map(key => ({ key, action: "props.close", label: "close" })),
-  { key: "ctrl+o", action: "settings.place", label: "placement" }, { key: "ctrl+g", action: "settings.grip", label: "move" },
-]);
 
 /**
  * One field of the card: a property a schema says the declaring note takes, its value on the note (null: unset), and

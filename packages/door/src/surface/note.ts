@@ -11607,7 +11607,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (_, { surface, host }) => surface.gripSources(host),
   }),
   "sources.move": def({
-    summary: "move or size the floating Sources panel inside its reader", keys: "drag its header or corner; ctrl+g then arrows or shift+arrows",
+    summary: "move or size the floating Sources panel inside its reader", keys: "drag its header or corner; ctrl+g then arrows or shift+arrows; 0 its usual place",
     touches: "tile", person: "the panel belongs to the person", replay: "ask", args: FLOAT_MOVE_ARGS,
     examples: [{ act: "sources.move dx=2 dy=-1", does: "moves floating sources right and up" }],
     run: (args, { surface, host }) => surface.moveSources(args, host),
@@ -11683,7 +11683,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.move": def({
     summary: "move or size the floating comment being written (PIE-785): dx dy step it (columns, rows), col row put its corner there, dcols drows or cols rows size it (the reader's cells); reset=true puts it back in its usual place beside the passage. Moving it never changes the passage it's on. For this sitting only: never kept, so a comment opened again (or read later) is in its usual place",
-    keys: "drag its top edge (≡ move), drag its ◢ corner or edges; ctrl+g then arrows (shift: size)",
+    keys: "drag its top edge (≡ move), drag its ◢ corner or edges; ctrl+g then arrows (shift: size); 0 its usual place",
     touches: "draft", draft: "type", replay: "ask",
     args: FLOAT_MOVE_ARGS,
     examples: [

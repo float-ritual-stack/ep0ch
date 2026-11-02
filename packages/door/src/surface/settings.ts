@@ -12,8 +12,9 @@ import { EditConflict, mutationFor, type Actor } from "../socket";
 import { askInBar, changedQuestionValue } from "../bar/ask";
 import { ActionRefused, def } from "./actions";
 import { PropertyPanel } from "./props-panel";
-import { SettingsCard, SETTINGS_KEYS, settingFields, settingOptions, settingProblem, settingQuestion, settingValue, type SettingField, type SettingSources } from "./settings-card";
+import { SettingsCard, settingFields, settingOptions, settingProblem, settingQuestion, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { modeBinding, modeActionKeys } from "./modes";
+import { ATTACHED_KEYS, SETTINGS_KEYS } from "./attached-keys";
 import { ATTACHED_PLACES, attachedPlaceOf, moveFloat, type AttachedSide } from "./attached";
 import { writeState } from "../state";
 import type { Key } from "../term";
@@ -145,7 +146,7 @@ const describe = (subject: SettingsSubject) => ({ id: subject.note.id, revision:
 
 export const SETTINGS_DEFS = {
   "settings.pick": def({
-    summary: "pick a field in the attached settings card", keys: modeActionKeys([SETTINGS_KEYS], "settings.pick"), touches: "nothing", replay: "safe", person: "the field selection is the person's",
+    summary: "pick a field in the attached settings card", keys: modeActionKeys(ATTACHED_KEYS, "settings.pick"), touches: "nothing", replay: "safe", person: "the field selection is the person's",
     args: { n: { type: "number", optional: true, about: "field from one" }, by: { type: "number", optional: true, about: "step through fields" } },
     run({ n, by }, { surface, host }: On) {
       const card = surface.panel?.card;
@@ -161,7 +162,7 @@ export const SETTINGS_DEFS = {
     run({ on }, { surface, host }: On) { const mode = surface.modes.get("panel"); if (mode) surface.modes.focus(mode, on); if (on) { surface.attachedKeys("settings"); host.enterMode?.(); } host.redraw(); return { focused: on }; },
   }),
   "settings.place": def({
-    summary: "place settings through the reader's attached surface", keys: modeActionKeys([SETTINGS_KEYS], "settings.place"), touches: "tile", replay: "safe", person: "the placement belongs to the person",
+    summary: "place settings through the reader's attached surface", keys: modeActionKeys(ATTACHED_KEYS, "settings.place"), touches: "tile", replay: "safe", person: "the placement belongs to the person",
     args: { place: { type: "string", optional: true, about: "inline, floating, split, popup or tile; omitted opens the placement menu" }, side: { type: "string", optional: true, about: "left, right, up or down for its tile" } },
     async run({ place, side }, { surface, host }: On) {
       if (!surface.panel?.card) throw new ActionRefused(", opens settings first");
@@ -176,12 +177,12 @@ export const SETTINGS_DEFS = {
     },
   }),
   "settings.move": def({
-    summary: "move or resize the floating settings card", keys: "drag", touches: "tile", replay: "safe", person: "the placement belongs to the person",
+    summary: "move or resize the floating settings card", keys: "drag its header or corner; ctrl+g then arrows or shift+arrows, h j k l or H J K L; 0 its usual place", touches: "tile", replay: "safe", person: "the placement belongs to the person",
     args: { ...Object.fromEntries(["row", "col", "rows", "cols", "dx", "dy", "drows", "dcols"].map(key => [key, { type: "number" as const, optional: true, about: key }])), reset: { type: "boolean", optional: true, about: "the usual position and size" } },
     run(args, { surface, host }: On) { const card = surface.panel?.card; if (!card?.frame || card.place !== "floating") throw new ActionRefused("settings.place place=floating floats the card first"); card.float = args.reset ? null : moveFloat(card.float ?? card.frame, args, card.room); host.redraw(); return card.float; },
   }),
   "settings.grip": def({
-    summary: "move or resize settings with the attached surface's grip keys", keys: modeActionKeys([SETTINGS_KEYS], "settings.grip"), touches: "tile", replay: "ask", person: "the placement belongs to the person", args: {},
+    summary: "move or resize settings with the attached surface's grip keys", keys: modeActionKeys(ATTACHED_KEYS, "settings.grip"), touches: "tile", replay: "ask", person: "the placement belongs to the person", args: {},
     async run(_, { surface, host }: On) { const card = surface.panel?.card; if (!card) throw new ActionRefused(", opens settings first"); if (card.place !== "floating" && card.place !== "tile") await surface.placeAttachment("settings", "floating", host); surface.modes.push(surface.gripMode(card, "settings")); host.redraw(); return { moving: true }; },
   }),
   settings: def({
