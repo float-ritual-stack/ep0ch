@@ -29,9 +29,12 @@ export class Trail {
   private readonly titles = new Map<string, string>();
   constructor(private readonly visitChanged?: (visit: Visit) => void) {
     const kept = readState<{ visits: Visit[]; places: Record<string, TrailPlace>; settings: TrailSettings }>("trail.json", this.dir);
-    this.visits = kept?.visits ?? [];
+    const visits = Array.isArray(kept?.visits) ? kept.visits : [];
+    this.visits = visits.filter(v => v.open?.at !== undefined);
+    const dropped = visits.length - this.visits.length;
+    if (dropped) console.warn(`Trail: dropped ${dropped} visits from trail.json without open.at.`);
     this.places = kept?.places ?? {};
-    this.settings = kept?.settings ?? { ...DEFAULTS };
+    this.settings = { ...DEFAULTS, ...kept?.settings };
     this.prune();
   }
   current(tile: string): Visit | undefined { return this.visits.findLast(v => v.open.target.tile === tile && v.left === undefined); }

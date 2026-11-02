@@ -9,6 +9,8 @@ import type { DoorOpen } from "@ep0ch/outline-core/door-open";
 import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
 import { Trail } from "../../src/trail";
+import { TrailPane } from "../../src/desk/trail-tile";
+import { outlineState, readState, writeState } from "../../src/state";
 
 describe.skipIf(!outliner)("showcase: the trail", () => {
   const h = useShowcaseScreen(177);
@@ -58,6 +60,7 @@ describe.skipIf(!outliner)("showcase: the trail", () => {
     const note = await h.board.get(saved.note);
     expect(note?.text).toContain(preview.open.target.note);
     expect(note?.text).toContain("read");
+    expect(note?.parentId).toBe(await h.board.inboxId());
     h.app.trail.flush();
     const restored = new Trail();
     expect(restored.get(preview.open.target.visit)?.attention.opens).toBeGreaterThan(0);
@@ -128,8 +131,9 @@ describe.skipIf(!outliner)("showcase: the trail", () => {
       await until(() => remote.some(e => e.target.visit === barrier.target.visit), "service barrier");
       expect(remote.filter(e => e.method === "select")).toHaveLength(0);
       const preview = visit();
-      await act("scroll", "reader", { by: 1 });
-      await until(() => remote.some(e => e.target.visit === preview.open.target.visit), "scrolled preview delivered");
+      await act("reading.step", "reader", { by: 1 });
+      expect(h.app.trail.skim(preview)).toBe(false);
+      await until(() => remote.some(e => e.target.visit === preview.open.target.visit), "j/k preview delivered");
       await act("scroll", "reader", { by: 1 });
       await act("list.pick", "links", { n: indices[1] });
       const selected = visit();
@@ -148,6 +152,80 @@ describe.skipIf(!outliner)("showcase: the trail", () => {
       expect(remote.filter(e => e.target.visit === jumped.open.target.visit)).toHaveLength(1);
     } finally { off(); observer.destroy(); h.app.pop(); }
   }, 30_000);
+
+  test("regression: a selected visit stays selected when today's visits push yesterday down", async () => {
+    const { desk, act, visit } = screen();
+    try {
+      h.app.trail.forget({ all: true });
+      await act("open", "reader", { id: h.seeded.notes.trailGate.id });
+      const yesterday = visit();
+      yesterday.open.at -= 86_400_000;
+      const other = await h.board.createBlock(null, "Today's seed list");
+      await act("tile.open", "trail", { kind: "reader", name: "today", note: other.id, where: "down" });
+      await act("trail.fold", "trail", { on: false });
+      const trail = desk.paneNamed("trail") as TrailPane;
+      const picked = () => trail.describe(desk).rows[trail.describe(desk).at - 1]?.visit;
+      await act("trail.pick", "trail", { n: trail.rows(desk).findIndex(r => r.visit === yesterday) + 1 });
+      await act("open", "today", { id: h.seeded.notes.trailGate.id });
+      desk.render(h.app);
+      expect(picked()).toBe(yesterday.open.target.visit);
+      const saved = await act("trail.save", "trail");
+      expect((await h.board.get(saved.note))?.text).toContain(yesterday.title);
+      await act("trail.forget", "trail");
+      expect(h.app.trail.get(yesterday.open.target.visit)).toBeUndefined();
+      expect(h.app.trail.get(visit("today").open.target.visit)).toBeDefined();
+    } finally { h.app.pop(); }
+  });
+
+  test("regression: Trail clicks select, double-click reopens, and alt-click uses open here", async () => {
+    const { desk, act, visit } = screen();
+    try {
+      h.app.trail.forget({ all: true });
+      await act("open", "reader", { id: h.seeded.notes.trailGate.id });
+      const before = visit();
+      await act("tile.focus", "trail");
+      h.app.flush();
+      const trail = desk.paneNamed("trail") as TrailPane;
+      const click = (mods = 0) => {
+        const r = desk.rectOf(trail)!;
+        const lines = h.painted.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, ""));
+        const y = lines.findIndex(line => line.slice(r.col).includes(before.title));
+        expect(y).toBeGreaterThan(-1);
+        const x = r.col + 3;
+        h.press({ kind: "mouse", action: "down", button: 0, mods, x, y });
+        h.press({ kind: "mouse", action: "up", button: 0, mods, x, y });
+      };
+      click();
+      await Bun.sleep(100);
+      expect(visit()).toBe(before);
+      click();
+      await until(() => visit() !== before, "double-click reopened the visit");
+      h.app.flush();
+      click(8);
+      await until(() => h.app.doorOpens().at(-1)?.method === "alt", "alt-click used open here");
+      expect(h.app.doorOpens().at(-1)?.target.note).toBe(before.open.target.note);
+    } finally { h.app.pop(); }
+  }, 15_000);
+
+  test("regression: trail.json from an earlier build keeps visits and defaults missing thresholds", async () => {
+    h.app.trail.flush();
+    const kept = readState<any>("trail.json", outlineState());
+    const load = async (visits: unknown) => {
+      writeState("trail.json", { ...kept, visits, settings: { days: 7, idle: 60 } }, outlineState());
+      const child = Bun.spawn([process.execPath, "-e", `import { Trail } from './packages/door/src/trail'; const t = new Trail(); console.log(JSON.stringify({ settings: t.settings, visits: t.visits }));`], { cwd: new URL("../../../..", import.meta.url).pathname, env: { ...process.env }, stdout: "pipe", stderr: "pipe" });
+      const [output, warning, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      expect(exit).toBe(0);
+      return { ...JSON.parse(output), warning };
+    };
+    try {
+      const restored = await load([...kept.visits, { open: {} }, { open: {} }]);
+      expect(restored.settings).toMatchObject({ held: 300, read: 60, linger: 5, days: 7, idle: 60 });
+      expect(restored.visits).toEqual(kept.visits);
+      expect(restored.warning.trim().split("\n")).toHaveLength(1);
+      expect(restored.warning).toContain("2 visits");
+      expect((await load({})).visits).toEqual([]);
+    } finally { writeState("trail.json", kept, outlineState()); }
+  });
 
   test("regression: a foreign visit reopens in place, opens here and saves an addressed link", async () => {
     await hostRequest(h.scratch.sock, "outlines.create", { name: "orchard" });

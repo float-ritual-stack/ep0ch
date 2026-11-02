@@ -743,11 +743,12 @@ export class ExtensionCalls {
    * Runs what a block's lines ask for and keeps the results. `open` and
    * `save` follow each handler's `effects`; `refresh` runs every line (or the
    * one on `line`) now. A pass asked for while one runs on that block runs
-   * after it (a save during a slow call is never lost); a refresh runs at once.
+   * after it (a save during a slow call is never lost); a refresh waits too, so its answer contains the finished output.
    */
   refreshOutput(blockId: string, reason: CallReason, options: PassOptions = {}): Promise<void> {
     const running = this.passes.get(blockId);
-    if (running && reason !== "refresh") {
+    if (running && reason === "refresh") return running.then(() => this.refreshOutput(blockId, reason, options));
+    if (running) {
       const queued = this.queued.get(blockId);
       // One pass waits behind the running one; a save's options win over an open's.
       if (queued) {

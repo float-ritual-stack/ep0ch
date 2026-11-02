@@ -27,7 +27,7 @@ import { actionPage } from "../surface/action-page";
 import { DRAFT_ACTIONS } from "../edit";
 import { keepUnsent, unsent } from "../draft-session";
 import { Desk, DESK_ACTIONS } from "../desk/desk";
-import { TRAIL_SECTIONS } from "./trail";
+import { trailSections } from "./trail";
 import { FRAME_LEGEND } from "../desk/frame-controls";
 import { openScreen } from "../desk/screen-specs";
 import { type SavedTree, type TileSpec } from "../desk/tiles";
@@ -285,7 +285,7 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · zoom", panes: [plan], names: ["plan"] }, show, [[plan, n.zoomPlan]]);
     },
   },
-  ...TRAIL_SECTIONS,
+  ...trailSections(deskOf),
   {
     key: "back-anywhere", need: "go back in any tile to what it showed before, whichever tile or key changed it: a preview changed by a list's pick, a link's open or b, and the links tile changed by b", part: "each tile's own back and forward (PIE-1426, Pane.trail): a reader's is its surface's stacks (NoteSurface.track, now around a wired preview too: Desk.previewIntoPane), the links tile's the notes it listed (BacklinksPane.trail); back and forward in a reader, tile.travel in the links tile (alt+←), the trail lists both",
     files: "src/desk/desk.ts (previewIntoPane, travelTile), src/desk/panes.ts (TileTrail, ReaderPane.trail), src/desk/backlinks-pane.ts (trail), src/desk/tile-actions.ts (tile.travel)",

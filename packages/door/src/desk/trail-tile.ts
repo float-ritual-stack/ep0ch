@@ -2,7 +2,7 @@ import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { readNote } from "./outline-boards";
 import { C, fg, pad, RESET } from "../style";
-import { RowView, wheelRows } from "../scroll";
+import { RowView, wheelRows, pressOn, type RowPress } from "../scroll";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { keyTable } from "../surface/keymap";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
@@ -38,7 +38,8 @@ type Row = TrailRow & { stop?: HistoryRow };
 export class TrailPane implements Pane {
   readonly kind = "trail";
   readonly bindings = TRAIL_KEYS;
-  at = 1;
+  private at = 1;
+  private selectedVisit: string | null | undefined;
   readonly scroll = new RowView();
   options: Options = { view: "forest", folded: true, agents: "dim", q: "" };
   constructor(public source = "reader", options?: Partial<Options>) { Object.assign(this.options, options); if (this.options.view === "history") this.at = -1; }
@@ -51,7 +52,18 @@ export class TrailPane implements Pane {
     if (view === "history") { const trail = desk.paneNamed?.(this.source)?.trail; return trail ? historyRows(trail.stops()).map(stop => ({ title: trailLine(stop), stop, heading: stop.dir === 0 })) : []; }
     return desk.ctx.trail ? trailRows(desk.ctx.trail, { ...this.options, view }) : [];
   }
-  picked(rows: readonly Row[]): number { return Math.max(0, Math.min(rows.length - 1, this.at < 0 ? rows.findIndex(r => r.stop?.dir === 0) : this.at)); }
+  pick(rows: readonly Row[], at: number) {
+    this.at = Math.max(0, Math.min(rows.length - 1, at));
+    this.selectedVisit = rows[this.at]?.visit?.open.target.visit ?? null;
+  }
+  resetPick() { this.at = this.options.view === "history" ? -1 : 0; this.selectedVisit = undefined; this.scroll.forget(); }
+  picked(rows: readonly Row[]): number {
+    if (this.options.view !== "history") {
+      if (this.selectedVisit === undefined && rows.length) this.pick(rows, this.at);
+      if (this.selectedVisit) return rows.findIndex(r => r.visit?.open.target.visit === this.selectedVisit);
+    }
+    return Math.max(0, Math.min(rows.length - 1, this.at < 0 ? rows.findIndex(r => r.stop?.dir === 0) : this.at));
+  }
   async go(desk: DeskApi, actor: Actor, n?: number) {
     const rows = this.rows(desk), stop = rows[n === undefined ? this.picked(rows) : n - 1]?.stop, trail = desk.paneNamed?.(this.source)?.trail;
     if (!stop || !trail) throw new ActionRefused(`pick a history stop in ${this.source} first`);
@@ -62,7 +74,9 @@ export class TrailPane implements Pane {
     return { went: stop.title, [stop.dir < 0 ? "back" : "forward"]: stop.steps };
   }
   visit(desk: DeskApi, id?: string): Visit {
-    const v = id ? desk.ctx.trail?.get(id) : this.rows(desk)[this.at]?.visit;
+    this.picked(this.rows(desk));
+    const selected = id ?? this.selectedVisit;
+    const v = selected ? desk.ctx.trail?.get(selected) : undefined;
     if (!v) throw new ActionRefused("pick a visit first (j/k or click), or name visit=<id> from trail.recent");
     return v;
   }
@@ -77,12 +91,13 @@ export class TrailPane implements Pane {
     const b = modeBinding(TRAIL_KEYS, k); if (!b) return false;
     void desk.press?.(this, TILE_ACTIONS.has(b.action) ? TILE_ACTIONS : TRAIL_ACTIONS, b.action, b.args ?? {}); return true;
   }
-  mouse(k: Extract<Key, { kind: "mouse" }>, _x: number, y: number, desk: DeskApi): boolean {
+  mouse(k: Extract<Key, { kind: "mouse" }>, _x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
     if (k.action === "wheel-up" || k.action === "wheel-down") { void desk.press?.(this, TRAIL_ACTIONS, "trail.pick", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
     if (k.action !== "down") return true;
     const rows = this.rows(desk), n = this.top + y; if (n >= rows.length) return true;
-    const action = rows[n]?.folded ? "trail.fold" : n === this.picked(rows) && (rows[n]?.visit || rows[n]?.stop) ? "trail.open" : "trail.pick";
-    void desk.press?.(this, TRAIL_ACTIONS, action, action === "trail.pick" ? { n: n + 1 } : {}); return true;
+    const gesture = this.scroll.press(n, pressOn(k, press, n === this.picked(rows)));
+    const action = rows[n]?.folded ? "trail.fold" : !(rows[n]?.visit || rows[n]?.stop) ? "trail.pick" : gesture === "fresh" ? "trail.here" : gesture === "open" ? "trail.open" : "trail.pick";
+    void desk.press?.(this, TRAIL_ACTIONS, action, action === "trail.pick" ? { n: n + 1 } : rows[n]?.visit ? { visit: rows[n]!.visit!.open.target.visit } : {}); return true;
   }
   describe(desk: DeskApi) { const rows = this.rows(desk); return { ...this.options, rows: rows.map(r => ({ title: r.title, visit: r.visit?.open.target.visit, folded: r.folded })), at: rows.length ? this.picked(rows) + 1 : 0 }; }
 }
@@ -93,7 +108,7 @@ const menu = (label: string, key: string) => ({ label, key, group: "Trail" });
 export const TRAIL_ACTIONS = actionSet<KindHost>()("trail", {
   "trail.pick": def({ examples: [{ act: "trail.pick tile=trail n=2", does: "selects the first visit below the day heading" }], summary: "Pick a visit without opening it", touches: "tile", replay: "safe",
     args: { n: { type: "number", optional: true, about: "row from 1" }, by: { type: "number", optional: true, about: "rows to move" } },
-    run({ n, by }, { pane, desk }) { const p = paneOf(pane), rows = p.rows(desk); p.at = Math.max(0, Math.min(rows.length - 1, n !== undefined ? n - 1 : p.picked(rows) + (by ?? 1))); p.scroll.reveal(); desk.redraw(); return { at: p.at + 1 }; } }),
+    run({ n, by }, { pane, desk }) { const p = paneOf(pane), rows = p.rows(desk); p.pick(rows, n !== undefined ? n - 1 : p.picked(rows) + (by ?? 1)); p.scroll.reveal(); desk.redraw(); return { at: p.picked(rows) + 1 }; } }),
   "trail.open": def({ examples: [{ act: "trail.open tile=trail visit=visit-garden", does: "opens the visit returned by trail.recent in its original place" }], summary: "Go to a history stop or open a visit where it was, restoring its closed tile", touches: "shape", replay: "ask", args: visitArg, menu: menu("open where it was", "enter"),
     async run({ visit }, { pane, desk }, actor) { const p = paneOf(pane); if (!visit && p.options.view === "history") return p.go(desk, actor); if (!desk.reopenTrail) throw new ActionRefused("this screen cannot reopen tiles"); return desk.reopenTrail(p.visit(desk, visit), actor); } }),
   "trail.go": def({ summary: "Go back or forward to a stop in the source tile's history", touches: "tile", replay: "ask",
@@ -106,7 +121,7 @@ export const TRAIL_ACTIONS = actionSet<KindHost>()("trail", {
       const branch = trail.branch(v.open.target.visit);
       const tree = treeRows([v], parent => branch.filter(child => child.open.source?.visit === parent.open.target.visit));
       const text = `Trail · ${v.title}\n\n` + tree.map(({ node: v, lead }) => `${lead}${visitLink(v)} · ${trail.dwell(v)} · ${v.open.method} · ${new Date(v.open.at).toLocaleString()}${v.open.actor.kind === "agent" ? ` · ${v.open.actor.id}` : ""}`).join("\n");
-      const note = await desk.ctx.board.createBlock(null, text, actor); desk.ctx.flash(`Saved trail as ((${note.id}|${note.text.split("\n")[0]}))`); return { note: note.id }; } }),
+      const { note } = await desk.ctx.board.newNote(text, undefined, actor); desk.ctx.flash(`Saved trail as ((${note.id}|${note.text.split("\n")[0]}))`); return { note: note.id }; } }),
   "trail.forget": def({ examples: [{ act: "trail.forget tile=trail day=2026-10-22", does: "forgets the visits from that day" }], summary: "Forget a branch, a day (YYYY-MM-DD), or all visits", touches: "nothing", replay: "ask", menu: menu("forget branch", "delete"),
     args: { ...visitArg, day: { type: "string", optional: true, about: "YYYY-MM-DD" }, all: { type: "boolean", optional: true, about: "clear all visits" } },
     run({ visit, day, all }, { pane, desk }) { const n = desk.ctx.trail!.forget({ visit: all || day ? undefined : paneOf(pane).visit(desk, visit).open.target.visit, day, all }); desk.redraw(); return { forgotten: n }; } }),
@@ -114,10 +129,10 @@ export const TRAIL_ACTIONS = actionSet<KindHost>()("trail", {
     args: { on: { type: "boolean", optional: true, about: "fold flips" } }, run({ on }, { pane, desk }) { const p = paneOf(pane); p.options.folded = on ?? !p.options.folded; desk.redraw(); return { folded: p.options.folded }; } }),
   "trail.search": def({ examples: [{ act: "trail.search tile=trail q=garden", does: "finds visits by their note or tile words" }], summary: "Search the trail with the shared note matcher", touches: "tile", replay: "safe", menu: menu("search trail", "/"),
     args: { q: { type: "string", optional: true, about: "words to find; empty clears" } },
-    run({ q }, { pane, desk }, actor) { const p = paneOf(pane); const set = async (q: string) => { p.options.q = q; p.at = 0; desk.redraw(); return { q }; };
+    run({ q }, { pane, desk }, actor) { const p = paneOf(pane); const set = async (q: string) => { p.options.q = q; p.resetPick(); desk.redraw(); return { q }; };
       return q !== undefined ? set(q) : askInBar(desk.ctx as never, "Search the trail", [{ name: "q", type: "text", value: p.options.q }], {}, actor, a => set(a.q ?? "")); } }),
   "trail.view": def({ examples: [{ act: "trail.view tile=trail view=timeline", does: "shows visits in time order" }], summary: "Switch between source history, forest, timeline and per-tile views", touches: "tile", replay: "safe", menu: menu("switch view", "t"),
-    args: { view: { type: "string", optional: true, choices: ["history", "forest", "timeline", "tile"], about: "view" } }, run({ view }, { pane, desk }) { const p = paneOf(pane); const views = ["history", "forest", "timeline", "tile"] as const; p.options.view = view as View ?? views[(views.indexOf(p.options.view) + 1) % views.length]!; p.at = p.options.view === "history" ? -1 : 0; desk.redraw(); return { view: p.options.view }; } }),
+    args: { view: { type: "string", optional: true, choices: ["history", "forest", "timeline", "tile"], about: "view" } }, run({ view }, { pane, desk }) { const p = paneOf(pane); const views = ["history", "forest", "timeline", "tile"] as const; p.options.view = view as View ?? views[(views.indexOf(p.options.view) + 1) % views.length]!; p.resetPick(); desk.redraw(); return { view: p.options.view }; } }),
   "trail.agents": def({ examples: [{ act: "trail.agents tile=trail mode=dim", does: "dims visits opened by agents" }], summary: "Show, dim or hide visits opened by agents", touches: "tile", replay: "safe", menu: menu("show, dim or hide agents", "a"),
     args: { mode: { type: "string", optional: true, choices: ["show", "dim", "hide"], about: "visibility" } }, run({ mode }, { pane, desk }) { const p = paneOf(pane); const modes = ["show", "dim", "hide"] as const; p.options.agents = mode as TrailView["agents"] ?? modes[(modes.indexOf(p.options.agents) + 1) % 3]!; desk.redraw(); return { agents: p.options.agents }; } }),
 });

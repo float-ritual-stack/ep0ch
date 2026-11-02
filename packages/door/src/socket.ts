@@ -188,7 +188,7 @@ export const DRAFT_TOUCH_MS = 1000;
 export const DRAFT_LEASE_MS = 15_000, DRAFT_HEARTBEAT_MS = 5_000;
 
 export interface OutlineEvent {
-  open?: import("@ep0ch/outline-core/door-open").DoorOpen;
+  door?: import("@ep0ch/outline-core/door-open").DoorOpen;
   ask?: import("@ep0ch/outline-core/protocol").AskProgress;
   script?: import("@ep0ch/outline-core/protocol").ScriptActionCall;
   /** On a `scripts.ended` event (PIE-957): a run ended; on `scripts.undone`: a run's writes were taken back. */

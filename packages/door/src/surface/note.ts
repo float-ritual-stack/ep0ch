@@ -2411,7 +2411,7 @@ export class NoteSurface {
     // A host's own rows after the note (EchoNet's tear line, origin and SEEN-BY): drawn after the body, never elements.
     const footRows = host?.footer?.(m, Math.max(1, w - this.bx - this.bxRight)) ?? [];
     const key = `${footRows.join("\n")}|${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}|${openKey ?? ""}|${this.cur ?? ""}`;
-    if (this.sourcesMode?.place !== "inline" && !this.laid?.sourcesInline && onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
+    if (!this.form && this.sourcesMode?.place !== "inline" && !this.laid?.sourcesInline && onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid; // Live forms redraw to register their clickable choices each frame.
     this.fieldsDrawing.clear();
     // The header image is drawn above the title (render), so its line here is only its caption.
     const bw = Math.max(1, w - this.bx - this.bxRight - mcols);

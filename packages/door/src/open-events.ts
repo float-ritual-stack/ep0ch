@@ -13,7 +13,7 @@ export class OpenEvents {
   start() {
     this.stop = traceRequests(r => {
       if (r.actor.kind !== "user" || !r.tile?.id) return;
-      const what = /scroll/.test(r.action) ? "scrolls" : /select|pick|cursor|ruler/.test(r.action) ? "selections" : r.action === "tile.focus" ? "returns" : null;
+      const what = (r.action === "reading.step" || /scroll/.test(r.action)) ? "scrolls" : /select|pick|cursor|ruler/.test(r.action) ? "selections" : r.action === "tile.focus" ? "returns" : null;
       if (what) this.trail.attend(r.tile.id, what);
     });
   }
