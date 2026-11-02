@@ -184,9 +184,14 @@ folder's (or its repository's)
 ## outline
 
 ```text
-ep0ch outline list [--all] [--archived] [--lines] | attach <name> [--create] | create <name> | import <database.sqlite> <name>
-| stop <name> | archive <name> | unarchive <name> | delete <name> [--yes]      [--json]
+ep0ch outline list [--all] [--archived] [--lines] | snapshot <name> [--link | --out <file>] [--ttl 15m] | attach <name> [--create]
+| create <name> | import <database.sqlite> <name> | stop <name> | archive <name> | unarchive <name> | delete <name> [--yes]      [--json]
 ```
+
+snapshot writes a consistent, integrity-checked SQLite copy of the outline (PIE-931): --out <file>
+on the outline's own machine (refused with --machine: run it there, or take the link), --link a
+curl command for a one-time download that ends after --ttl (default 15m); --json prints bytes,
+sha256, schema and asOf
 
 the host's outlines (one an agent made over MCP shows who made it and why;
 archive hides one and keeps its database, unarchive restores it, --archived

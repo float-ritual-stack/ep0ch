@@ -151,6 +151,15 @@ describe("the rule, without a process", () => {
       expect(checkWords(args)).toBeNull();
     }
   });
+  test("every subcommand the outline parser accepts is a row of help outline", () => {
+    // outlines.ts's parseCommand: `snapshot` has its own branch, the rest are `case "<op>"`; init is `ep0ch init`, its own command.
+    const source = readFileSync(join(import.meta.dir, "../src/outlines.ts"), "utf8").split("function parseCommand(")[1]!.split("\n}\n")[0]!;
+    const accepted = new Set([...source.matchAll(/case "([a-z]+)"|args\[0\] === "([a-z]+)"/g)].map(m => m[1] ?? m[2]!));
+    accepted.delete("init"); accepted.delete("status");
+    expect(accepted.size).toBeGreaterThan(8);
+    const rows = new Set(CLI_COMMANDS.find(c => c.name === "outline")!.children!.map(c => c.name));
+    for (const op of accepted) expect(rows, op).toContain(op);
+  });
   test("--screen needs a name; the landing flags it replaced are refused with the exact command", () => {
     const error = (args: string[]) => {
       const r = checkWords(args);
