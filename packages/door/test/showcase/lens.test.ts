@@ -131,11 +131,13 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
     expect(runMessage).toContain("ctrl+z undoes");
   }, 30_000);
 
-  test("Run lens says where to run it when no note is open (PIE-1488)", async () => {
+  test("Run lens says where to run it when no note is open (PIE-1488): lens's own run says it, heard when it ends (PIE-1507)", async () => {
     const { app } = h;
     app.push(new MainMenu());
     try {
-      await expect(app.dispatch.act({ action: "script.run", args: { of: "lens", query: "type=job", asked: true } }, USER)).rejects.toThrow(/open a note/i);
+      const before = new Set(app.describe().messages.map(row => row.id));
+      await app.dispatch.act({ action: "script.run", args: { of: "lens", query: "type=job", asked: true } }, USER);
+      await until(() => app.describe().messages.some(row => !before.has(row.id) && /open a note/i.test(row.message)), "lens's refusal");
     } finally { app.pop(); }
   });
 
@@ -146,7 +148,9 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
     await app.dispatch.act({ action: "open", tile: "jobs", args: { id: note.id } }, USER);
     await app.dispatch.act({ action: "tile.focus", tile: "jobs" }, USER);
     const before = new Set(app.describe().messages.map(row => row.id));
-    await expect(app.dispatch.act({ action: "script.run", args: { of: "lens", asked: true } }, USER)).rejects.toThrow(/needs query=/);
+    // The line lands (lens answers its insert, PIE-1507), and the door says what its drawing found wrong, line kept.
+    await app.dispatch.act({ action: "script.run", args: { of: "lens", asked: true } }, USER);
+    await until(() => app.describe().messages.some(row => !before.has(row.id) && /needs query=/.test(row.message)), "the missing slot said");
     expect((await board.get(note.id))!.text).toContain("lens::");
     expect(app.describe().messages.filter(row => !before.has(row.id)).some(row => /lens done/.test(row.message))).toBe(false);
   }, 30_000);
@@ -161,16 +165,21 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
       await app.dispatch.act({ action: "tile.focus", tile: "jobs" }, USER);
       await app.dispatch.act({ action: "edit.text", tile: "jobs", args: { text: unsaved } }, USER);
       if (state === "put aside") await app.dispatch.act({ action: "edit.close", tile: "jobs", args: { discard: true } }, USER);
-      await expect(app.dispatch.act({ action: "script.run", args: { of: "lens", asked: true } }, USER)).rejects.toThrow(/needs query=/);
+      // The person's run answers when it ends (PIE-1507): the line goes in the draft, and a bad line is said at once.
+      const said = (words: RegExp) => { const before = new Set(app.describe().messages.map(row => row.id)); return () => until(() => app.describe().messages.some(row => !before.has(row.id) && words.test(row.message)), `${words}`); };
+      let heard = said(/needs query=/);
+      await app.dispatch.act({ action: "script.run", args: { of: "lens", asked: true } }, USER);
+      await heard();
       const draft = (h.sc.tilesHere()!.pane("jobs") as ReaderPane).surface.draft!;
       expect(draft.text).toContain("lens::");
       expect(draft.text).toContain("Unfinished thoughts.");
       expect((await board.get(note.id))!.text).toBe(note.text);
       await app.dispatch.act({ action: "draft.undo", tile: "jobs" }, USER);
       expect(draft.text).toBe(unsaved);
-      const run = await app.dispatch.act({ action: "script.run", args: { of: "lens", query: "type=job", asked: true } }, USER) as { said: string };
+      heard = said(/ctrl\+z undoes/);
+      await app.dispatch.act({ action: "script.run", args: { of: "lens", query: "type=job", asked: true } }, USER);
+      await heard();
       expect(draft.text).toContain('lens:: query="type=job"');
-      expect(run.said).toContain("ctrl+z undoes");
       h.press({ kind: "char", ch: "z", ctrl: true });
       await until(() => draft.text === unsaved, "ctrl+z restored the unsaved draft");
       expect((await board.get(note.id))!.text).toBe(note.text);

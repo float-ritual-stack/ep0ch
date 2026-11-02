@@ -1101,6 +1101,15 @@ actions yet; `r` is its path today.
 - `act` may also return `open` (PIE-754): a block id, or a [Resource ref](#opening-a-resource) (`file:/path`,
   `web:https://…`, `resource:<id>`). The door opens it where the asker's opens land (a Resource registered first when
   it must be); `outliner ext act` prints `open <ref>`.
+- `act` may also return `insert: { text }` (PIE-1507): text for the person's cursor in the note the action was about
+  (`target.blockId`: the note in front of them, or `block=`). The door puts it there through its one insertion
+  (`edit.insert`: a reader saves it, an open draft keeps it unsaved, either one ctrl+z); a line that names a render
+  script (`lens:: …`) is drawn once first, so a bad line is said at once and kept. Nothing else in the answer is
+  needed: an action that only inserts is `effects: read`. A script answers the same way, `return { insert: "<line>",
+  message? }` (its `insert` may be the text itself). Worked example, the [lens](../../extensions/lens) extension's
+  Run: its render script, run as an action (no `caller`), answers
+  `{ insert: 'lens:: query="type=job" columns="title,stage"', message: "lens inserted" }`, and the door has no
+  lens-specific code; a person's press hears the answer when the run ends (`scripts.ended` carries `insert`).
 - Runbook actions return `runbook: { steps: RunbookStep[] }` (PIE-1098; `outline-core/runbook.ts`).
   The service parses runnable fences and supplies their document-order context and bindings in `context.runbook`.
   The door owns private prompts and one terminal tile per press, using the shared PtyBackend. The extension records

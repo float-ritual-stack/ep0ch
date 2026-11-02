@@ -30,7 +30,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0c
 import { printable } from "./text";
 import { partyOf, UndoHistory } from "./steps";
 import { closest } from "./cli-words";
-import { slotWords } from "@ep0ch/outline-core/action-line";
+import { slotPairs, slotWords } from "@ep0ch/outline-core/action-line";
 import { ActionRefused, ActionSet, actionSet, asActor, def, FREE_ARGS, shownLine, type ActionDef } from "./surface/actions";
 import { explainNotInstalled, nameAlso } from "./surface/dispatch";
 import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
@@ -162,6 +162,8 @@ export interface ExtensionActResult {
   copy?: string;
   /** What to open once it answers (PIE-754): a block id, or a Resource ref (file:, web:, resource:). */
   open?: string;
+  /** What to put at the person's cursor in the note it was about (PIE-1507): one undo step. */
+  insert?: { text: string };
   /** The passage it acted on, as the service checked it (moved when the text moved since it was read). */
   passage?: Passage;
   /** Its writes landed as one step (PIE-784): `extensions.undo` with this takes them back whole. */
@@ -539,6 +541,34 @@ export function scriptPressMessage(message: string, undo: boolean): string {
   return `${oneLine(message)}${undo ? " · ctrl+z undoes" : ""}`;
 }
 
+/**
+ * An action's `insert` answer (PIE-1507): its text goes at the person's cursor in the note the action was about, through
+ * the one insertion (`edit.insert`: a reader saves it, an open draft keeps it unsaved, either one ctrl+z). A render
+ * script's line (`name:: …`) put in a draft is drawn once by the service first, so a bad line is said now ("line kept
+ * in the draft"), not after the save; in a saved note the line's own drawing says it. Refused when no note is open.
+ */
+export async function insertAnswer(ctx: ExtOn["ctx"], name: string, block: string | undefined, text: string, actor: Actor): Promise<{ block: string; line: number; dirty: boolean; said: string }> {
+  if (!block) throw new ActionRefused(`open a note first, then run ${name}: what it inserts goes at the note cursor`);
+  if (!ctx.dispatch) throw new ActionRefused(`${name} inserts a line, and this screen has no note to put it in`);
+  const inserted = await ctx.dispatch.act({ action: "edit.insert", tile: block, args: { text } }, actor) as { block: string; line: number; dirty: boolean };
+  const line = /^([a-z][\w-]*)::(?:\s|$)/i.exec(text.split("\n")[0]!);
+  const script = line && scriptNamed(line[1]!).length ? line[1]! : null;
+  if (inserted.dirty && script) {
+    const props: Record<string, string[]> = {};
+    for (const { key, value } of slotPairs(text.split("\n")[0]!.slice(line![0].length))) (props[key] ??= []).push(value);
+    try { await ctx.board.request("scripts.render", { of: script, blockId: inserted.block, line: inserted.line, props, deadlineMs: 15_000 }, 20_000); }
+    catch (error) { throw new ActionRefused(`${name} failed · line kept in the draft: ${error instanceof Error ? error.message : String(error)}`); }
+  } else if (!inserted.dirty && script) {
+    const read = await ctx.board.refreshProjections(inserted.block, inserted.line, actor);
+    const problem = read.projections.find(p => p.anchor.line === inserted.line && p.status === "unavailable");
+    if (problem) throw new ActionRefused(`${name} failed · line kept in the note: ${problem.reason}`);
+  }
+  const said = scriptPressMessage(`${name} inserted in ${inserted.dirty ? "the draft · save to keep it" : "the note"}`, true);
+  asActor(ctx, actor).flash(said);
+  ctx.redraw();
+  return { ...inserted, said };
+}
+
 export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; slots?: string; passage?: Passage; invitation?: string; button?: { block: string; line?: number } }, actor: Actor): Promise<ExtensionActResult & { said: string; failed?: string[] }> {
   connectScriptActions(ctx);
   const say = asActor(ctx, actor);
@@ -572,9 +602,12 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
     // What it asks to have opened (PIE-754): a block or a Resource, where this actor's opens land.
     if (r.open && ctx.dispatch) await ctx.dispatch.act({ action: "open", args: isResourceRef(r.open) ? { resource: r.open } : { id: r.open } }, actor)
       .catch((e: Error) => say.flash(`${name}: couldn't open ${oneLine(r.open)}: ${oneLine(e.message)}`, undefined, errorDetails(e)));
+    // What it asks to have put at the person's cursor (PIE-1507), in the note it was about; one ctrl+z takes it back.
+    // A person's script press answers before its run ends: that insert comes with `scripts.ended` (App.scriptEvent).
+    const inserted = r.insert ? await insertAnswer(ctx, name, target.blockId, r.insert.text, actor) : undefined;
     ctx.redraw();
     const failed = script ? takeFailedSteps(r.undo) : undefined;
-    return { ...r, ...(message !== undefined ? { message } : {}), ...(failed ? { failed } : {}), said };
+    return { ...r, ...(message !== undefined ? { message } : {}), ...(failed ? { failed } : {}), ...(inserted ? { inserted, said: inserted.said } : { said }) };
   } catch (e) {
     say.flash(`${name}: ${a.label.toLowerCase()} refused: ${oneLine(e instanceof Error ? e.message : String(e))}`, undefined, errorDetails(e));
     ctx.redraw();
@@ -601,7 +634,6 @@ export async function passageByQuote(board: Pick<SocketBoard, "get">, block: str
 function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, ExtOn> {
   if (a.on === "passage") return passageAction(e, a);
   const handler = a.on?.startsWith("handler:") ? a.on.slice(8) : null, bar = a.on === "bar", outline = a.on === "outline";
-  const render = e.script && a.id === "run" ? e.handlers.find(h => h.kind === "output") : undefined;
   const k = keyOf(a.key);
   const key = k && handler && !READER_OWN_KEYS.has(k) ? k : undefined;
   const unbound = a.key && !key ? ` Its key ${a.key} isn't bound here (${!keyOf(a.key) ? "the door binds one printable character" : "the reader keeps it"}): a click on its control, or act.` : "";
@@ -609,8 +641,7 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
     words: a.label,
     summary: `${e.name ?? e.id}: ${a.label}${a.description ? `. ${a.description}` : ""}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : outline ? " (on the outline: no block)" : " (on block=<id>)"}. The service runs it and attributes its writes${a.effects === "write" ? "" : " (it only answers)"}.${a.fieldsFrom === "block" ? ` It also asks for the fields the note writes as [form-field::<name> <type> …] (read the note for them): give them as with='{"<field>":"<value>"}'.` : ""}${unbound}`,
     ...(e.script?.keys.length ? { keys: `${e.script.keys.join(", ")}, click` } : key ? { keys: `${key}, click` } : { keys: "click" }),
-    // Render scripts insert through the note's draft action; other scripts run in the service.
-    touches: "nothing", replay: render || a.effects === "write" ? "ask" : "safe",
+    touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     args: {
       block: { type: "string", optional: true, context: true, about: handler ? `the note with the ${handler}:: line` : e.script ? "the note the script is about, its `this` (the person's: default the note in front of them)" : `the block it acts on${!bar && !outline ? " (the person's: default the note in front of them)" : ""}` },
       line: { type: "number", optional: true, context: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
@@ -626,7 +657,6 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       // The person's run on a block names none: the note in front of them. An agent always names its block.
       // A script is an action on the outline that is still about a note: the one in front of the person is its `this`.
       const block = named ?? (actor.kind === "user" && !handler && !bar && (!outline || !!e.script) ? on.ctx.noteInFront?.() ?? undefined : undefined);
-      if (render && !via && !block) throw new ActionRefused(`open a note first, then run ${e.name}: its ${render.key}:: line goes at the note cursor`);
       if (!block && !bar && !outline) throw new ActionRefused(`${a.name} acts on ${handler ? `a ${handler}:: line: say block=<the note's id>` : "a block: say block=<id>"}`);
       // A `motion=` on a script's press (a button's `motion=fantasia`) is the script's to read: props.motion, and it passes it on to its own acts.
       const hint = TXN.getStore()?.motion;
@@ -638,7 +668,6 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       return askingFirst(on.ctx, e, a, block, given, actor, async args => {
         // Include the form's answers; typed repeated slots remain lists, as on a button's line.
         const props = e.script ? Object.fromEntries(Object.entries({ ...withArgs(w), ...args, ...rest }).filter(([k, v]) => v !== undefined && k !== "motion").map(([k, v]) => [k, Array.isArray(v) ? v.map(String) : [String(v)]])) : {};
-        if (render && !via) return insertScriptLine(on.ctx, render.key, block!, props, actor);
         const slots = slotWords(props);
         const invited = invite();
         return runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(args).length ? { args } : {}),
@@ -650,25 +679,6 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       }, !!asked, !via && !Object.keys(rest).length && !Object.keys(given).length);
     },
   };
-}
-
-/** A render script's Run keeps its caller in the note; the service owns the drawing and its errors. */
-async function insertScriptLine(ctx: ExtOn["ctx"], name: string, block: string, props: Record<string, string[]>, actor: Actor) {
-  const slots = slotWords(props);
-  const inserted = await ctx.dispatch!.act({ action: "edit.insert", tile: block, args: { text: `${name}::${slots ? ` ${slots}` : ""}` } }, actor) as { block: string; line: number; dirty: boolean };
-  if (inserted.dirty) {
-    // The draft stays unsaved; the same read-only renderer still reports a bad call before Run says it worked.
-    try { await ctx.board.request("scripts.render", { of: name, blockId: inserted.block, line: inserted.line, props, deadlineMs: 15_000 }, 20_000); }
-    catch (error) { throw new ActionRefused(`${name} failed · line kept in the draft: ${error instanceof Error ? error.message : String(error)}`); }
-  } else {
-    const read = await ctx.board.refreshProjections(inserted.block, inserted.line, actor);
-    const problem = read.projections.find(p => p.anchor.line === inserted.line && p.status === "unavailable");
-    if (problem) throw new ActionRefused(`${name} failed · line kept in the note: ${problem.reason}`);
-  }
-  const said = scriptPressMessage(`${name} inserted in ${inserted.dirty ? "the draft · save to draw it" : "the note"}`, true);
-  asActor(ctx, actor).flash(said);
-  ctx.redraw();
-  return { ...inserted, said };
 }
 
 /** An action's declared arguments as its def's (PIE-784): `act ext.<id>.<action> by=price`, listed with their choices. */

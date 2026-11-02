@@ -78,6 +78,8 @@ export interface ScriptEnded {
   message: string;
   written: readonly string[];
   undo: boolean;
+  /** What the run answered to be put at the person's cursor (PIE-1507), and the note it was about: the door that pressed inserts it. */
+  insert?: { text: string; block?: string };
 }
 
 /** A block as the service sends it whole. Projected reads (`fields`) send a subset. */

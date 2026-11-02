@@ -40,6 +40,23 @@ test("a script that returns more than a line answers it whole, and a quiet succe
   expect(sweep).toMatchObject({ message: "Sweep done", state: "done" });
 });
 
+test("a script answers `insert` (PIE-1507): the text for the person's cursor comes back checked, with its own message, never as JSON", async () => {
+  const { client, create, extensionOf, store } = await setup();
+  const note = create("Garden jobs\nPut the table here.");
+  create("Lens-like [script::lens-like]\n```js\nreturn { insert: `lens:: query=\"${props.query?.[0] ?? ''}\"`, message: 'lens-like inserted' };\n```");
+  const act = await client.request<Answer & { insert?: { text: string } }>({ action: "extensions.act", extension: (await extensionOf("lens-like")).id, extensionAction: "run", blockId: note.id, args: { query: "type=job" } });
+  expect(act.insert).toEqual({ text: 'lens:: query="type=job"' });
+  expect(act.message).toBe("lens-like inserted");
+  expect(act.state).toBe("done");
+  expect(act.answer).toBeUndefined();
+  // Its run note says what it asked for, not a JSON line.
+  for (const b of store.liveBlocks()) if (b.text.includes("[script-run::")) expect(b.text).not.toContain('{"insert"');
+  create("Bad [script::bad-insert]\n```js\nreturn { insert: 42 };\n```");
+  const bad = await client.request<Answer>({ action: "extensions.act", extension: (await extensionOf("bad-insert")).id, extensionAction: "run" });
+  expect(bad.state).toBe("failed");
+  expect(bad.message).toContain("insert must be { text }");
+});
+
 test("a run still going after the wait says so and how to stop it, never just working", async () => {
   const { client, create, extensionOf } = await setup();
   create("Kettle [script::kettle]\n```js\nwhile (true) await wait(25);\n```");
