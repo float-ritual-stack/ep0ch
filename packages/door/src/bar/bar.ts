@@ -479,8 +479,9 @@ export class PowerBar {
       });
     }
     // In another source's scope (never an answer's, `alone`), the row a source names outright comes first: a typed action line runs from anywhere.
+    // A query line (`grammar: "query"`, PIE-1508) is no action line: nothing names a row there.
     const scoped = this.scope ? barSource(this.scope) : undefined, q = this.query.trim();
-    const guests = scoped && !scoped.alone && q ? barSources().filter(s => s !== scoped && s.named).flatMap((s): BarItem[] => {
+    const guests = scoped && !scoped.alone && scoped.grammar !== "query" && q ? barSources().filter(s => s !== scoped && s.named).flatMap((s): BarItem[] => {
       try { const row = s.named!(q, this.host); return row ? [{ source: s, row: { ...row, exact: true }, heading: s.title }] : []; } catch { return []; }
     }) : [];
     const runs: BarSource = {
