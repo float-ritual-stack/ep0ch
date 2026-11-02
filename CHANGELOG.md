@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A fresh machine can open its first outline from the home base (PIE-1489)
+
+- **Create locally:** `n`, a name and Enter start the local host and open the new outline, installing its launchd agent on macOS or systemd user unit on Linux when missing. `ep0ch --ws garden` uses the same startup path; a failed start is shown on the status line.
+- **Find other machines:** home discovers SSH-configured machines and machine links, then lists their outlines without requiring an earlier visit. Missing-host guidance names the platform's command.
+- **Run:** `ep0ch install --apply`, then open `ep0ch` from an unbound folder. No protocol, grammar or schema change.
+
 ### The drawer attaches to a named agent and offers recovery when it ends (PIE-1487)
 
 - **Keep one agent:** declare a persona, machine, folder and program in `.ep0ch/agents.toml`, then `ep0ch agent start <persona>`. The drawer attaches by hc name; a second door on the same client watches. The status chip follows hc events.

@@ -98,13 +98,12 @@ export function sshConfigNames(env: Env = process.env): string[] {
 
 // ── every outline the person can open from here ──
 
-/** The machines with a shared forward (or a machine file) in this machine's `.remote/`, by name: `<machine>.sock` and `<machine>.json`. */
+/** The machines with SSH forwards, machine files or outbound links in this machine's `.remote/`. */
 export function forwardedMachines(env: Env = process.env): string[] {
   try {
     const names = new Set<string>();
     for (const f of readdirSync(outlineLayout(outlinesDir(env)).remoteDir)) {
-      if (f.endsWith(".link.sock") || f.endsWith(".link.json")) continue;
-      const m = /^(.+)\.(sock|json)$/.exec(f)?.[1];
+      const m = /^(.+?)(?:\.link)?\.(sock|json)$/.exec(f)?.[1];
       if (m && isMachineName(m)) names.add(m);
     }
     return [...names].sort();
@@ -114,8 +113,13 @@ export function forwardedMachines(env: Env = process.env): string[] {
 /** An outline someone can open from here (`machine`: none is this machine), or a machine whose outlines can't be read now (no `name`, a `problem`). */
 export interface KnownOutline { name?: string; machine?: string; problem?: string }
 
+/** The home base and outline listing share the machines known through history, links and ssh config. */
+export function knownMachines(env: Env = process.env): string[] {
+  return [...new Set([...usedMachines(env.EP0CH_STATE).map(m => m.name), ...forwardedMachines(env), ...sshConfigNames(env)])];
+}
+
 /**
- * This machine's host's outlines, then each machine the person has opened (the most recent first) with its outlines,
+ * This machine's host's outlines, then known machines (history, forwards, links and SSH config) with their outlines,
  * read as the home base and `ep0ch doctor` read them (`hostLive`, `machineStatus`): no forward is started, so a machine
  * not connected now is one row saying so.
  */
@@ -123,10 +127,7 @@ export async function everyOutline(socket: string, env: Env = process.env): Prom
   const here = hostLive(socket, 3000).then((live): KnownOutline[] => live
     ? live.outlines.map(name => ({ name }))
     : [{ problem: `no outline host answers at ${socket}` }]);
-  // The machines opened before, then any whose shared forward is in `.remote/` (another state dir's, a program's): the
-  // forward is the proof a machine is reachable from here, whoever started it.
-  const used = usedMachines(env.EP0CH_STATE).map(m => m.name);
-  const machines = [...used, ...forwardedMachines(env).filter(m => !used.includes(m))];
+  const machines = knownMachines(env);
   const there = machines.map(async (machine): Promise<KnownOutline[]> => {
     try {
       const s = await machineStatus(machine, env);

@@ -1411,11 +1411,17 @@ checked against the desk's, the surface's and the other screens':
 ### The home base (a spec on the desk)
 
 Bare `ep0ch` where nothing names an outline (src/home.ts, `homeSpec`): one tile of its own kind (`home`), the logo
-over a RowView list of this machine's outlines and the machines opened from here; its choices are `HOME_ACTIONS`,
+over a RowView list of this machine's outlines and machines known through history, links and SSH config
+(`machine.ts`, `knownMachines`); its choices are `HOME_ACTIONS`,
 and what one needs typed or picked is a list picker over the screen (`DeskApi.overlay`). It runs in a door that is on
 no outline yet (`homeBase` in src/door.ts: `Ctx.home` is how a choice ends it); opened by name elsewhere it makes,
 connects and opens nothing. Its policy keeps the whole screen (`host: none`), and its digits are its own (none bound).
 More sections (running agents, switching outlines from a sidebar) are tiles a later spec adds beside it.
+
+The first local create or open starts the host through `setup/host.ts`, shared with install: the same service
+definition, `hostUnit` discovery, service-manager commands and readiness check. The home name prompt dispatches
+through `Desk.press`; its dispatcher owns refusals on the status line. Initial machine discovery uses the shared
+`forwardTo` transport, and never creates outlines there.
 
 | Key | Home base | Clash found | Decision |
 |---|---|---|---|
