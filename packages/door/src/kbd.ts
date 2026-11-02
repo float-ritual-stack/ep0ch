@@ -26,19 +26,37 @@ export function kbdWanted(env: Record<string, string | undefined> = process.env)
 }
 
 /** One key report. `mods`: the modifier bits (1 shift, 2 alt, 4 ctrl, 8 super, 64 caps lock, 128 num lock); 0 none. */
-export interface KeyReport { code: number; shifted?: number; base?: number; mods: number; event: number; eventType?: true }
+export interface KeyReport {
+  code: number; shifted?: number; base?: number; mods: number; event: number; eventType?: true;
+  /** Sent in the legacy-shaped form (`CSI 1;mods[:event] A`, `CSI 5;mods[:event] ~`): the number and final it came with. */
+  legacy?: { n: number; final: string };
+}
 
 /**
  * A key report: `CSI code[:shifted[:base]] [; mods[:event] [; text]] u`, or xterm's modifyOtherKeys form
  * `CSI 27 ; mods ; code ~` (tmux and Herdr can send it). The query reply (`CSI ? flags u`) isn't one.
  */
 const REPORT = String.raw`\x1b\[(?:(\d+)(?::(\d*))?(?::(\d*))?(?:;(\d*)(?::(\d+))?)?(?:;[\d:]*)?u|27;(\d+);(\d+)~)`;
-export const REPORT_AT = new RegExp(`^${REPORT}`);
-const REPORTS = new RegExp(REPORT, "g");
+/**
+ * The arrows, Home and End (`CSI 1;mods[:event] A…D H F`) and the `~` keys (`CSI 2|3|5|6;mods[:event] ~`) once a report
+ * carries mods or an event: under flag 2 Ghostty sends ↑ as `CSI 1;1:1A` and its release as `CSI 1;1:3A`, and a lock key
+ * adds 64 or 128 to the mods. A bare `CSI A` stays legacy.
+ */
+const FUNC = String.raw`\x1b\[(?:1;(\d*)(?::(\d+))?([ABCDHF])|([2356]);(\d*)(?::(\d+))?~)`;
+const FUNC_AT = new RegExp(`^${FUNC}`);
+export const REPORT_AT = new RegExp(`^(?:${REPORT}|${FUNC})`);
+const REPORTS = new RegExp(`${REPORT}|${FUNC}`, "g");
+/** The key each legacy-shaped report stands for, as the keypad's private-use code the door already reads. */
+const FUNC_CODE: Record<string, number> = { A: 57419, B: 57420, C: 57418, D: 57417, H: 57423, F: 57424, "2": 57425, "3": 57426, "5": 57421, "6": 57422 };
 
 /** The report `seq` starts with, or null. */
 export function parseReport(seq: string): (KeyReport & { length: number }) | null {
-  const m = REPORT_AT.exec(seq);
+  const f = FUNC_AT.exec(seq);
+  if (f) {
+    const final = f[3] ?? "~", n = f[3] ? 1 : Number(f[4]), mods = f[3] ? f[1] : f[5], event = f[3] ? f[2] : f[6];
+    return { code: FUNC_CODE[f[3] ?? f[4]!]!, mods: Math.max(0, (mods ? Number(mods) : 1) - 1), event: event ? Number(event) : 1, ...(event ? { eventType: true as const } : {}), legacy: { n, final }, length: f[0].length };
+  }
+  const m = new RegExp(`^${REPORT}`).exec(seq);
   if (!m) return null;
   if (m[6] !== undefined) return { code: Number(m[7]), mods: Math.max(0, Number(m[6]) - 1), event: 1, length: m[0].length };
   const num = (s: string | undefined) => (s ? Number(s) : undefined);
@@ -76,7 +94,14 @@ export function reportKey(r: KeyReport): Key | null {
   if (r.code === 57442 || r.code === 57448) return r.event === 2 ? null : { kind: "modifier", key: "ctrl", event: r.event === 3 ? "release" : r.eventType ? "press" : "tap" };
   if (r.event === 3) return null;
   const kp = KEYPAD[r.code];
-  if (typeof kp === "object") return kp;
+  if (typeof kp === "object") {
+    // Shift moves a draft's selection with an arrow, Home or End; alt (or the old meta) moves by word or card.
+    const shift = !!(r.mods & SHIFT), alt = !!(r.mods & (ALT | SUPER));
+    const dir = kp.kind === "up" || kp.kind === "down" || kp.kind === "left" || kp.kind === "right";
+    if (alt && dir) return { kind: `alt-${kp.kind}` } as Key;
+    if (shift && (dir || kp.kind === "home" || kp.kind === "end")) return { ...kp, shift: true } as Key;
+    return kp;
+  }
   if (typeof kp === "number") r = { ...r, code: kp, shifted: undefined };
   const m = r.mods & 15, shift = !!(m & SHIFT), alt = !!(m & ALT), ctrl = !!(m & CTRL);
   // Hyper (⌃⌥⇧⌘ together, PIE-699) with a printable key, while the layer is on: its own kind, the base key whatever shift made of it.
@@ -119,6 +144,11 @@ export function rawKey(s: string): Key | null {
 /** The report for a program with the protocol on, carrying only what its `flags` asked for. */
 export function kittyBytes(r: KeyReport, flags: number): string {
   if (r.event === 3 && !(flags & 2)) return "";
+  if (r.legacy) {
+    const ev = flags & 2 && r.event > 1 ? `:${r.event}` : "", eventIn = flags & 2 && r.eventType ? `:${r.event}` : ev;
+    const tail = r.mods || eventIn ? `;${r.mods + 1}${eventIn}` : "";
+    return r.legacy.final === "~" ? `\x1b[${r.legacy.n}${tail}~` : `\x1b[${tail ? `1${tail}` : ""}${r.legacy.final}`;
+  }
   let s = `\x1b[${r.code}`;
   if (flags & 4 && (r.shifted || r.base)) s += `:${r.shifted ?? ""}${r.base ? `:${r.base}` : ""}`;
   const ev = flags & 2 && r.event > 1 ? `:${r.event}` : "";
@@ -130,20 +160,25 @@ export function kittyBytes(r: KeyReport, flags: number): string {
  * The report as a legacy terminal sends it (to a program that didn't ask for the protocol). Super (cmd) keys have
  * no legacy bytes, as a legacy terminal sends none for them: cmd+c never reaches such a program as a typed `c`.
  */
-export function legacyBytes(r: KeyReport): string {
+export function legacyBytes(r: KeyReport, appCursor = false): string {
   if (r.event === 3) return "";
+  if (r.legacy) {
+    // As an xterm sends it: with shift, alt or ctrl the modified form (CSI 1;3 D), lock keys and the event left off.
+    const m = r.mods & 15;
+    if (m) return r.legacy.final === "~" ? `\x1b[${r.legacy.n};${m + 1}~` : `\x1b[1;${m + 1}${r.legacy.final}`;
+  }
   if (r.code === KP_INSERT) return "\x1b[2~";
   const alt = !!(r.mods & ALT);
   const k = reportKey({ ...r, mods: r.mods & ~ALT });
-  const s = k ? keyBytes(k) : null;
+  const s = k ? keyBytes(k, appCursor) : null;
   if (s === null) return "";
   return alt && !s.startsWith("\x1b") ? `\x1b${s}` : s;
 }
 
 /** Every report in `s` re-encoded for a program whose protocol flags are `flags` (0: legacy); the rest as it came. */
-export function translateReports(s: string, flags: number): string {
+export function translateReports(s: string, flags: number, appCursor = false): string {
   if (!s.includes("\x1b[")) return s;
-  return s.replace(REPORTS, seq => { const r = parseReport(seq); return !r ? seq : flags ? kittyBytes(r, flags) : legacyBytes(r); });
+  return s.replace(REPORTS, seq => { const r = parseReport(seq); return !r ? seq : flags ? kittyBytes(r, flags) : legacyBytes(r, appCursor); });
 }
 
 /** Legacy ctrl with a key that isn't a letter, as xterm sends it (ctrl+/ and ctrl+_ are both 0x1f, ctrl+2 is NUL). */
