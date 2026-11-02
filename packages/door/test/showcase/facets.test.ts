@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { bindExtensions } from "../../src/extensions";
+import { Desk } from "../../src/desk/desk";
+import { afterEach, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
 import { FacetsPane } from "../../src/desk/facets";
 import { facetSource, facetSources } from "../../src/facet-sources";
@@ -7,6 +11,96 @@ import { useShowcaseScreen } from "./harness";
 
 describe.skipIf(!outliner)("showcase: facets over sources", () => {
   const h = useShowcaseScreen(177);
+
+  const catalogues: string[] = [];
+  afterEach(async () => {
+    for (const id of catalogues.splice(0)) {
+      await h.app.dispatch.act({ action: "extensions.uninstall", args: { id, demo: "remove" } }, USER);
+      await h.app.loadExtensions(true);
+    }
+  });
+
+  async function catalogue(id: string, answer: string) {
+    const folder = join(h.scratch.workspace, "extensions", id);
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id, version: 1, name: id, run: ["bun", "rows.ts"],
+      actions: [{ id: "rows", label: "Read rows", on: "outline", effects: "read" }], facetSources: [{ id: "seeds", title: id, read: "rows" }] }));
+    writeFileSync(join(folder, "rows.ts"), `await Bun.stdin.json(); console.log(JSON.stringify({ok:true,value:{answer:${JSON.stringify(answer)}}}));`);
+    catalogues.push(id);
+    await h.app.loadExtensions(true);
+    return `ext.${id}.seeds`;
+  }
+
+  test("switching to a broken source clears the previous notes and pins", async () => {
+    const source = await catalogue("broken-seeds", "not JSON");
+    await h.app.act({ action: "section", args: { name: "facets" }, as: "facet-builder" });
+    const desk = h.S().stages.get(h.S().sel).top;
+    const act = (action: string, args: Record<string, unknown> = {}) => desk.dispatch.act({ action, args, tile: "tags" }, USER);
+    const pane: FacetsPane = desk.paneNamed("tags");
+    await act("facets.source", { source: "notes" });
+    const old = pane.notes()[0]!;
+    await act("facets.pin", { id: old.id, on: true });
+    try {
+      await act("facets.source", { source });
+      expect(pane.describe().error).toBeTruthy();
+      expect(pane.describe().notes).toEqual([]);
+      expect(pane.describe().matches.groups).toEqual([]);
+      expect([...pane.pinnedIds()]).toEqual([]);
+      await expect(pane.openRow(old, desk, USER)).rejects.toThrow(/no longer.*source/);
+    } finally { await act("facets.source", { source: "notes" }); }
+  }, 60_000);
+
+  test("a restored facets tile recovers when its extension sources bind", async () => {
+    bindExtensions(null);
+    const desk = new Desk({ name: "restored-facets", title: "Restored facets", layout: { root: { t: "leaf", kind: "facets", name: "seeds", source: "ext.facet-garden.seeds" } } });
+    h.app.push(desk); desk.render(h.app);
+    try {
+      const pane = desk.paneNamed("seeds") as FacetsPane;
+      await until(() => !!pane.describe().error, "source unavailable before registration");
+      await h.app.loadExtensions(true);
+      await until(() => pane.notes().some(n => n.id === "bean-runner"), "restored extension rows without a manual refresh");
+      expect(pane.describe().error).toBeUndefined();
+    } finally { h.app.pop(); }
+  }, 60_000);
+
+  test("extension rows keep the repeated-value message contract", async () => {
+    await h.app.act({ action: "section", args: { name: "facets" }, as: "facet-builder" });
+    const desk = h.S().stages.get(h.S().sel).top;
+    await desk.dispatch.act({ action: "facets.source", args: { source: "ext.facet-garden.seeds" }, tile: "tags" }, USER);
+    const pane: FacetsPane = desk.paneNamed("tags");
+    expect(pane.notes().find(n => n.id === "bean-runner")!.properties.filter(p => p.key === "colour")).toEqual([{ key: "colour", value: "red" }, { key: "colour", value: "green" }]);
+  }, 60_000);
+
+  test("extension property names follow the query grammar", async () => {
+    const at = new Date().toISOString();
+    const source = await catalogue("mixed-keys", JSON.stringify([{ id: "seed", title: "Seed", createdAt: at, updatedAt: at, properties: { Status: ["open"], status: ["ready"] } }]));
+    await h.app.act({ action: "section", args: { name: "facets" }, as: "facet-builder" });
+    const desk = h.S().stages.get(h.S().sel).top;
+    const act = (action: string, args: Record<string, unknown> = {}) => desk.dispatch.act({ action, args, tile: "tags" }, USER);
+    await act("facets.source", { source });
+    await act("facets.query", { text: "Status=open status=ready" });
+    expect((await act("facets.list")).notes.map((n: { id: string }) => n.id)).toEqual(["seed"]);
+    await act("facets.source", { source: "notes" });
+  }, 60_000);
+
+  test("invalid extension dates omit the bad rows with one visible explanation", async () => {
+    const at = new Date().toISOString();
+    const source = await catalogue("dated-seeds", JSON.stringify([
+      { id: "good", title: "Good seed", createdAt: at, updatedAt: at, properties: { status: ["open"] } },
+      { id: "bad", title: "Bad seed", createdAt: at, updatedAt: "yesterday", properties: { status: ["open"] } },
+      { id: "bad-created", title: "Bad creation", createdAt: "yesterday", updatedAt: at, properties: { status: ["open"] } },
+    ]));
+    await h.app.act({ action: "section", args: { name: "facets" }, as: "facet-builder" });
+    const desk = h.S().stages.get(h.S().sel).top;
+    const act = (action: string, args: Record<string, unknown> = {}) => desk.dispatch.act({ action, args, tile: "tags" }, USER);
+    await act("facets.source", { source });
+    await act("facets.set", { key: "status", value: "open" });
+    await act("facets.query", { text: "status=open" });
+    expect((await act("facets.list")).notes.map((n: { id: string }) => n.id)).toEqual(["good"]);
+    const pane: FacetsPane = desk.paneNamed("tags");
+    expect(pane.render(120, 40, true, desk).lines.join("\n")).toContain("invalid dates");
+    await act("facets.source", { source: "notes" });
+  }, 60_000);
 
   test("text comparisons agree for multi-value notes and extension rows", async () => {
     await h.app.act({ action: "section", args: { name: "facets" }, as: "facet-builder" });

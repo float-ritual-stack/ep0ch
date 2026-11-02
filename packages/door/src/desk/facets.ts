@@ -2,7 +2,7 @@ import { buttonText } from "../surface/button";
 import { keyTable } from "../surface/keymap";
 import { modeBinding, type ModeKey } from "../surface/modes";
 import "../trail-facets";
-import { facetSource, facetSources, sourceAnswer, type SourceRow } from "../facet-sources";
+import { facetSource, facetSources, onFacetSources, sourceAnswer, type SourceRow } from "../facet-sources";
 import type { FacetNotes } from "../socket";
 // Facets keep the selection and its presentation; a source owns the answer. Notes ask the service, while
 // visits and extension rows use the same pure query grammar and counter through the source contract.
@@ -84,7 +84,9 @@ export class FacetsPane implements Pane, AttachedOwner {
     return sourceAnswer(result);
   }
   async openRow(note: Msg, desk: DeskApi, actor: Actor, fresh = false) {
-    return facetSource(this.sourceId).open(this.sourceRows.get(note.id)!, desk, this.source(), actor, fresh);
+    const row = this.sourceRows.get(note.id);
+    if (!row) throw new ActionRefused("that row is no longer in this source · facets.reload reads it again");
+    return facetSource(this.sourceId).open(row, desk, this.source(), actor, fresh);
   }
   previewRow(note: Msg, desk: DeskApi, actor: Actor) {
     const row = this.sourceRows.get(note.id);
@@ -97,6 +99,8 @@ export class FacetsPane implements Pane, AttachedOwner {
     facetSource(id);
     this.sourceId = id; this.raw = query; this.clauses = []; this.day = null; this.open.clear(); this.sourceRows.clear();
     this.views = []; this.extra.clear(); this.extraMore.clear(); this.extraFor = null;
+    this.answer = null; this.all = null; this.pinned = []; this.error = null; this.dayCounts.clear();
+    this.at = 0; this.setRows(); desk.redraw();
     await this.load(desk); desk.keepLayout?.(); desk.redraw();
     return this.describe();
   }
@@ -128,6 +132,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   private asked = 0;
   private reload: Timer | null = null;
   private stopSource?: () => void;
+  private stopSources?: () => void;
   /** The query being typed (`e`): applied on ⏎, dropped on esc. */
   draft: LineField | null = null;
   private wordPicks: Clause[] = [];
@@ -231,12 +236,15 @@ export class FacetsPane implements Pane, AttachedOwner {
       ...(this.group !== "updated:recent" ? { group: this.group } : {}), ...(this.calendar !== (this.kind === "facets") ? { calendar: this.calendar } : {}), ...(this.day ? { day: this.day } : {}) } };
   }
 
-  init(desk: DeskApi) { if (!this.answer) void this.refresh(desk); }
+  init(desk: DeskApi) {
+    this.stopSources = onFacetSources(id => { if (id === this.sourceId) this.onEvent(desk); });
+    if (!this.answer) void this.refresh(desk);
+  }
   onEvent(desk: DeskApi) {
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => { this.reload = null; void this.refresh(desk); }, 400);
   }
-  dispose() { this.stopSource?.(); if (this.reload) clearTimeout(this.reload); }
+  dispose() { this.stopSources?.(); this.stopSource?.(); if (this.reload) clearTimeout(this.reload); }
 
   /** Ask the service for the selection's facets and notes (and, to dim the ones it leaves at 0, every note's facets). */
   /** A refresh (an outline change, `r`, `z`): in turn with the selection's own reads, so none supersedes another. */
@@ -999,7 +1007,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const home = p.viewsHome() ?? (await findBoards(board))[0]?.hub.id ?? null;
       const save = async (label: string, hub: string | null) => {
         const title = (label.trim() || q).replace(/[\[\]\n]/g, " ").slice(0, 60);
-        const made = await board.createBlock(hub, `${title} [type::${facetSource(p.sourceId).notes ? "virtual-branch" : "facet-view"}] [query::${q}]${facetSource(p.sourceId).notes ? "" : ` [facet-source::${p.sourceId}]`}\n${facetSource(p.sourceId).notes ? "" : `::button{label="Open facets"}\n${shownLine("tile.open", { kind: "facets", source: p.sourceId, query: q })}\n::`}`, actor);
+        const made = await board.createBlock(hub, `${title} [type::${facetSource(p.sourceId).notes ? "virtual-branch" : "facet-view"}] [query::${q}]${facetSource(p.sourceId).notes ? "" : ` [facet-source::${p.sourceId}]`}${facetSource(p.sourceId).notes ? "" : `\n::button{label="Open facets"}\n${shownLine("tile.open", { kind: "facets", source: p.sourceId, query: q })}\n::`}`, actor);
         // Listed at once, whether the views are open or folded: the next v on this pick names it.
         p.viewSaved(made);
         desk.ctx.flash(`saved "${title}" as a view${hub ? ` under ${p.homeName(hub) ?? "its hub"}` : ""}`);

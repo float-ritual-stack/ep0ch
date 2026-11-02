@@ -1,3 +1,4 @@
+import { normalizePropertyKey } from "./query-properties";
 import { bindThis, compileQueryExpression, expressionPropertyKeys, parseQueryExpression } from "./query-expression";
 import { questionFacets, questionGroups } from "./query-facets";
 import { missingPropertyHint } from "./property-hint";
@@ -51,6 +52,12 @@ export function readFacetRows(answer: string): FacetRow[] {
       || Object.values(row.properties).some(v => !Array.isArray(v) || v.some(x => typeof x !== "string"))) {
       throw new Error("a facet row needs id, title, createdAt, updatedAt and properties mapping keys to string arrays");
     }
+    const properties: Record<string, string[]> = {};
+    for (const [key, values] of Object.entries(row.properties as Record<string, string[]>)) {
+      const normalized = normalizePropertyKey(key);
+      (properties[normalized] ??= []).push(...values);
+    }
+    row.properties = properties;
     if (row.open !== undefined && (!row.open || typeof row.open.action !== "string" || (row.open.args !== undefined && (!row.open.args || typeof row.open.args !== "object" || Array.isArray(row.open.args))))) {
       throw new Error("a facet row's open is { action, args? }");
     }

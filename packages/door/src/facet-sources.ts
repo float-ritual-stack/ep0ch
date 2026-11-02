@@ -18,8 +18,13 @@ export interface FacetSource {
 }
 
 const sources = new Map<string, FacetSource>();
-export function registerFacetSource(source: FacetSource) { sources.set(source.id, source); }
-export function unregisterFacetSource(id: string) { sources.delete(id); }
+const listeners = new Set<(id: string) => void>();
+export function onFacetSources(changed: (id: string) => void): () => void {
+  listeners.add(changed);
+  return () => { listeners.delete(changed); };
+}
+export function registerFacetSource(source: FacetSource) { sources.set(source.id, source); for (const changed of listeners) changed(source.id); }
+export function unregisterFacetSource(id: string) { sources.delete(id); for (const changed of listeners) changed(id); }
 export function facetSources(): FacetSource[] { return [...sources.values()]; }
 export function facetSource(id: string): FacetSource {
   const source = sources.get(id);
@@ -28,7 +33,7 @@ export function facetSource(id: string): FacetSource {
 }
 
 export function sourceMessage(row: SourceRow): Msg {
-  return row.note ?? { id: row.id, text: row.title, properties: Object.entries(row.properties).map(([key, value]) => ({ key, value: JSON.stringify(value) })),
+  return row.note ?? { id: row.id, text: row.title, properties: Object.entries(row.properties).flatMap(([key, values]) => values.map(value => ({ key, value }))),
     parentId: null, childIds: [], createdAt: Date.parse(row.createdAt), updatedAt: Date.parse(row.updatedAt), author: null };
 }
 export function sourceAnswer(result: FacetResult<SourceRow>): FacetAnswer {
@@ -59,8 +64,15 @@ export function extensionFacetSource(extension: string, declaration: { id: strin
     async query(request, desk) {
       const answer = await desk.ctx.board.actExtension(extension, declaration.read);
       if (answer.answer === undefined) throw new Error(`${declaration.title} returned no rows; its read action must return answer as a JSON array`);
-      const rows = readFacetRows(answer.answer);
-      return facetRows(rows, request);
+      const invalid: string[] = [];
+      const rows = readFacetRows(answer.answer).filter(row => {
+        if (Number.isFinite(Date.parse(row.createdAt)) && Number.isFinite(Date.parse(row.updatedAt))) return true;
+        invalid.push(row.id);
+        return false;
+      });
+      const result = facetRows(rows, request);
+      if (invalid.length) result.hint = [result.hint, `omitted rows with invalid dates: ${invalid.join(", ")}`].filter(Boolean).join(" · ");
+      return result;
     },
     async open(row, desk, pane, actor) {
       if (!row.open) throw new ActionRefused(`${row.title} has no open action`);

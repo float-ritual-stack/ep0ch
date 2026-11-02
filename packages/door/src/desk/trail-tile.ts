@@ -111,7 +111,7 @@ export const TRAIL_ACTIONS = actionSet<KindHost>()("trail", {
     summary: "Open facets over the trail: narrow visits by dwell, day, method or any property",
     menu: menu("facets over the trail", "S"), touches: "shape", replay: "safe", args: {},
     examples: [{ act: "trail.facets tile=trail", does: "opens the facets tile over visits" }],
-    run(_, { pane, desk }, actor) { return desk.within!("facets.trail", {}, actor, pane); },
+    run(_, { desk }, actor) { return desk.ctx.dispatch!.act({ action: "facets.trail" }, actor); },
   }),
   "trail.pick": def({ examples: [{ act: "trail.pick tile=trail n=2", does: "selects the first visit below the day heading" }], summary: "Pick a visit without opening it", touches: "tile", replay: "safe",
     args: { n: { type: "number", optional: true, about: "row from 1" }, by: { type: "number", optional: true, about: "rows to move" } },

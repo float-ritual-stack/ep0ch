@@ -271,7 +271,7 @@ export function sortPropertyKey(field: string): string | null {
  * either direction; text without case; blocks without the property last in either direction; ties keep the order
  * they came in (outline order).
  */
-export const sortParts = (sort: BlockQuerySort | string): BlockQuerySort[] => typeof sort === "string" ? sort.split(", ").map(part => { const [field, direction] = part.trim().split(/\s+/); return { field: field!, direction: direction as "asc" | "desc" }; }) : [sort];
+export const sortParts = (sort: BlockQuerySort | string): BlockQuerySort[] => typeof sort === "string" ? sort.split(/\s*,\s*/).map(part => { const [field, direction] = part.trim().split(/\s+/); return { field: field!, direction: direction as "asc" | "desc" }; }) : [sort];
 export const sortText = (sort: BlockQuerySort | string): string => typeof sort === "string" ? sort : sortParts(sort).map(s => `${s.field} ${s.direction}`).join(", ");
 
 export function sortQueriedBlocks<T extends Pick<Block, "id" | "createdAt" | "updatedAt" | "properties"> & { text?: string }>(

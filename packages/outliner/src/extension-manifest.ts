@@ -758,7 +758,9 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
   }
   for (const source of manifest.facetSources ?? []) {
     const action = manifest.actions?.find(a => a.id === source.read);
-    if (!action || action.on !== "outline" || action.effects !== "read") throw new ExtensionLoadError(`facet source ${source.id} needs a read action on outline: ${source.read}`);
+    if (!action) throw new ExtensionLoadError(`facet source ${source.id}: action ${source.read} is not declared in actions[]`);
+    if (action.on !== "outline") throw new ExtensionLoadError(`facet source ${source.id}: action ${source.read} needs on=outline (got ${action.on ?? "block"})`);
+    if ((action.effects ?? "read") !== "read") throw new ExtensionLoadError(`facet source ${source.id}: action ${source.read} needs effects=read (got ${action.effects})`);
   }
   const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0 || barIds.size > 0;
   if (needsRun && !manifest.run && !script) throw new ExtensionLoadError("extension.json: handlers, actions, agents, sources and rules that decorate with code need run (the program each call starts)");
