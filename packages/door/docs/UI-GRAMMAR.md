@@ -816,7 +816,7 @@ Table rows use the shared selection band; every table keeps the note's title eve
 properties omit it. A single-layout view without grouping or sorting shows its rows and count quietly.
 Hovering it or moving the cursor into it reveals one control row. At narrow widths its layout control cycles
 the layouts and `≡` opens settings. In every layout, arrows or j/k pick, Enter opens, Tab or Esc leaves,
-and comma tunes. The entered collection's hint shows only these keys, from `list-keys.ts`.
+and comma tunes. The entered collection's hint shows only these keys, from `list-keys.ts` (`↑↓ pick · ⏎ open · tab esc leave · , tune`, whole at 44 columns).
 Feed bodies use the reader's embed renderer without a duplicate title: callouts, headings, bold and values
 are drawn against each card's own note. The kitchen sink's **quiet-collection** section shows this with a type/ticket view.
 

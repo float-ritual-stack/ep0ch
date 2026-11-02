@@ -35,13 +35,16 @@ export function listBinding(key: Key, collection: boolean, count: number): ModeK
   return b?.action === "list.pick" && !b.args ? { ...b, args: { n: count } } : b;
 }
 
-/** The hint while the cursor is in a collection (PIE-1491): only its own keys, from the tables above, in plain words. */
+/**
+ * The hint while the cursor is in a collection (PIE-1491): only its own keys, from the tables above, in plain words,
+ * short enough to fit a 44-column reader whole (j k stay in the keys box).
+ */
 export const collectionHint = () => {
   const rows = [...LIST_KEYS, ...COLLECTION_KEYS];
   // Each group names its keys in the order given, so the hint reads the same every time.
   const keys = (action: string, names: string[], join = " ") => names.filter(name => rows.some(r => r.action === action && r.key === name)).map(keyCaption).join(join);
   return [
-    `${keys("list.step", ["up", "down"], "")} ${keys("list.step", ["j", "k"])} pick`,
+    `${keys("list.step", ["up", "down"], "")} pick`,
     `${keys("list.open", ["enter"])} open`,
     `${keys("list.enter", ["tab", "esc"])} leave`,
     `${keys("list.tune", [","])} tune`,
