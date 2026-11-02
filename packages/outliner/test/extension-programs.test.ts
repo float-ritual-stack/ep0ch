@@ -594,3 +594,45 @@ say({ message: JSON.stringify(said) });`);
   expect(mine.map((change) => change.kind)).toEqual(["move", "delete"]);
   for (const change of mine) expect(change).toMatchObject({ action: "ext.sorter.sort", requestedBy: LOKI });
 });
+
+test("door opens reach a narrow extension subscription and on.open's action with the same cause", async () => {
+  const { root, client, install, create, store } = await setup();
+  const ready = join(root, "listening");
+  const note = await create("The seed bed [type::garden]");
+  const event = { type: "door.open" as const, at: Date.now(), actor: { kind: "agent" as const, id: "garden-helper" },
+    target: { note: note.id, tile: "t-garden", visit: "visit-garden" }, source: { tile: "t-seeds", note: "seed-note", visit: "visit-seeds" }, method: "agent" as const };
+  const listed = await install("trail-listener", {
+    actions: [{ id: "listen", label: "Listen", on: "outline", effects: "read" }, { id: "remember", label: "Remember", on: "block", effects: "write" }],
+    rules: [{ id: "opened", match: { query: "type=garden" }, on: { open: "remember" } }],
+  }, `${CALL}
+if (input.action === "remember") {
+  say({ writes: [{ op: "create", parentId: input.target.blockId, text: "Open receipt\\n" + JSON.stringify(input.trigger.open) }] });
+} else {
+  const socket = connect(process.env.EP0CH_SOCKET); let buffer = "", events = [];
+  await new Promise((resolve, reject) => {
+    socket.on("error", reject);
+    socket.on("data", async data => {
+      buffer += data;
+      for (;;) {
+        const n = buffer.indexOf("\\n"); if (n < 0) break;
+        const message = JSON.parse(buffer.slice(0, n)); buffer = buffer.slice(n + 1);
+        if (message.result?.subscribed) await Bun.write(request.config.ready, "ready");
+        if (message.event) { events.push(message.event); if (message.event.action === "door.open") { socket.end(); resolve(); } }
+      }
+    });
+    socket.write(JSON.stringify({ id: "sub", action: "events.subscribe", outline: process.env.EP0CH_WS, grant: process.env.EP0CH_EXT_GRANT, client: { clientId: "garden-listener", contextId: "garden", role: "observer" } }) + "\\n");
+  });
+  say({ message: JSON.stringify(events) });
+}`, { config: { ready } });
+  expect(listed.extensions.find(e => e.id === "trail-listener")?.error).toBeUndefined();
+  const listening = client.request<{ message: string }>({ action: "extensions.act", extension: "trail-listener", extensionAction: "listen" });
+  await until("the installed process subscribed", () => existsSync(ready));
+  await create("A write the door-only subscriber must not hear");
+  await client.request({ action: "door.open", body: event });
+  const answer = JSON.parse((await listening).message) as OutlinerEvent[];
+  expect(answer.map(e => e.action)).toEqual(["door.open"]);
+  expect(answer[0]?.open).toEqual(event);
+  const receipt = await until("on.open wrote its receipt", () => store.liveBlocks().find(b => b.text.startsWith("Open receipt")));
+  expect(JSON.parse(receipt.text.split("\n").slice(1).join("\n"))).toEqual(event);
+  expect(receipt.actorId).toBe("ext:trail-listener");
+}, 20_000);

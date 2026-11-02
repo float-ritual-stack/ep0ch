@@ -366,7 +366,7 @@ const RuleSchema = Type.Object(
      */
     on: Type.Optional(Type.Object(
       {
-        start: Type.Optional(ID), stop: Type.Optional(ID), change: Type.Optional(ID), quiet: Type.Optional(Duration),
+        start: Type.Optional(ID), stop: Type.Optional(ID), change: Type.Optional(ID), open: Type.Optional(ID), quiet: Type.Optional(Duration),
         from: Type.Optional(Type.Array(Type.String({ pattern: "^(user|agent|ext:[a-z][a-z0-9-]{0,31})$" }), { minItems: 1, maxItems: 16 })),
         batch: Type.Optional(Duration),
         cap: Type.Optional(Type.String({ pattern: "^[1-9][0-9]{0,3}(/day)?$" })),
@@ -699,14 +699,14 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     }
     const ruleDeadline = durationMs(rule.decorate?.deadline);
     if (ruleDeadline !== undefined && ruleDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`${where}/decorate/deadline is longer than 5m`);
-    for (const when of ["start", "stop", "change"] as const) {
+    for (const when of ["start", "stop", "change", "open"] as const) {
       const id = rule.on?.[when];
       if (id === undefined) continue;
       const action = (manifest.actions ?? []).find((candidate) => candidate.id === id);
       if (!action) throw new ExtensionLoadError(`${where}/on/${when} names ${id}, which actions[] doesn't declare`);
       if ((action.on ?? "block") !== "block") throw new ExtensionLoadError(`${where}/on/${when} names ${id}, which acts on ${action.on}; a rule's action acts on the block (on: block)`);
     }
-    if (rule.on && !rule.on.start && !rule.on.stop && !rule.on.change) throw new ExtensionLoadError(`${where}/on names no action: give start, stop or change`);
+    if (rule.on && !rule.on.start && !rule.on.stop && !rule.on.change && !rule.on.open) throw new ExtensionLoadError(`${where}/on names no action: give start, stop, change or open`);
     for (const wait of ["quiet", "batch"] as const) {
       const ms = durationMs(rule.on?.[wait]);
       if (ms !== undefined && ms > 86_400_000) throw new ExtensionLoadError(`${where}/on/${wait} is longer than a day (24h at most)`);

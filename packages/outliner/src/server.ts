@@ -385,6 +385,7 @@ export class OutlinerServer {
   private captureTransfer?: {token: string; clientId: string; requestId: string; revision: number; deadline: number};
   private server: Server | null = null;
   private readonly navigationLinks = new Map<string, OutlinerViewAddress>();
+  private readonly eventKinds = new WeakMap<Socket, readonly string[]>();
   private readonly subscribers = new Map<Socket, OutlinerClientRegistration>();
   /** The live drafts doors hold (PIE-501), and the requests to them waiting for an answer. */
   private readonly draftHolds = new DraftHolds();
@@ -3029,9 +3030,12 @@ export class OutlinerServer {
           if (request.semantic) throw new Error("Semantic search requires asynchronous dispatch");
           result = visibleGotoResults(readGoto(this.store, request), request.limit);
           break;
-        case "events.subscribe":
-          result = { subscribed: true, client: subscribedClient ?? request.client };
+        case "door.open":
+          this.broadcast({ id: request.body.target.visit, domain: "door", action: "door.open", sequence: this.store.sequence, open: request.body });
+          this.extensionRules.opened(request.body);
+          result = { received: true };
           break;
+        case "events.subscribe": result = { subscribed: true, client: subscribedClient ?? request.client }; break;
         case "changes.since":
           result = // The feed is also how a client catches up on what it missed, so it holds everything unless asked: `hide`/`only` are for readers.
           this.store.changes.since(request.sequence, request.limit, request.machinery === undefined ? "show" : parseMachineryMode(request.machinery));
@@ -4462,6 +4466,7 @@ export class OutlinerServer {
       : line;
     for (const [subscriber, client] of this.subscribers) {
       if (subscriber.destroyed || subscriber.readableEnded || subscriber.writableEnded) continue;
+      if (this.eventKinds.get(subscriber)?.length && !this.eventKinds.get(subscriber)!.includes(event.action)) continue;
       if (event.domain === "ui" && event.command?.targetClientId !== client.clientId) {
         continue;
       }
@@ -4699,13 +4704,6 @@ export class OutlinerServer {
     };
   }
 
-  /**
-   * A request from an extension's own process, made the extension's (PIE-754): a read as it is, a write through
-   * its normal path with every actor field it carries set to `ext:<id>` (an annotation's source an agent's). An
-   * `update` becomes a `draft.patch` under the `edit` policy, as an action's update is: a door's live draft gets it,
-   * the guard refuses one that drops linked structure, and while the person types in that passage it is a
-   * proposal (the answer is draft.patch's). Anything else is refused with what it may do.
-   */
   private asExtension(request: OutlinerRequest, grant: ExtensionGrant): OutlinerRequest {
     const action = String(request.action);
     const actor = grantActor(grant);
@@ -4718,6 +4716,7 @@ export class OutlinerServer {
     // EchoNet's mail is a node's, never an agent's (ADR 0005): it writes no block, and the access level doesn't hold it.
     if (ECHONET_MAIL_ACTIONS.has(action)) return rest as OutlinerRequest;
     if (action !== "secrets.group" && action !== "mcp.access.status") this.crossOutlineAccess(action, grant);
+    if (rest.action === "events.subscribe") return { ...rest, kinds: rest.kinds ?? ["door.open"] };
     if (!EXTENSION_WRITES.has(action)) {
       if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action) || action === "secrets.group") return rest as OutlinerRequest;
       throw new Error(`${actor.actorId} can read, create, update, move, trash, comment and annotate over its connection; ${action} isn't one of them` +
@@ -4939,6 +4938,7 @@ export class OutlinerServer {
       const subscribedClient = request.action === "events.subscribe"
         ? this.registerSubscriber(socket, request.client)
         : undefined;
+      if (request.action === "events.subscribe") this.eventKinds.set(socket, grant && this.grantedLevel(grant) !== "full" ? ["door.open"] : request.kinds ?? []);
       const current = request;
       if (grant && String(current.action) === "secrets.group") {
         response = { id: request.id, ok: true, result: await this.grantSecrets(current, grant), sequence: this.store.sequence } as OutlinerResponse;

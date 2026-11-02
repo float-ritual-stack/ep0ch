@@ -447,3 +447,18 @@ test.each([
   await expect(client.request({ action: "extensions.act", extension: "script:chosen", extensionAction: "run", blockId: local.id })).rejects.toThrow(reason);
   expect(store.children(outer.id)).toEqual([]);
 });
+
+test("an on.open rule gives a script the opening cause through its usual input", async () => {
+  const { store, create, client, extensionOf } = await setup();
+  const script = create("Arrival [script::arrival] [results::keep]\n```js\nreturn JSON.stringify(input.trigger.open);\n```");
+  await extensionOf("arrival");
+  create("Open rule [rule-name::arrival] [rule-match::type=seed] [rule-on-open::script:arrival]");
+  await until("the open rule", async () => (await client.request<{ rules: RuleListEntry[] }>({ action: "extensions.list" })).rules.some(r => r.on?.open));
+  const hit = create("Broad beans [type::seed]");
+  const event = { type: "door.open" as const, at: Date.now(), actor: { kind: "user" as const }, method: "select" as const,
+    target: { note: hit.id, tile: "t-seeds", visit: "visit-beans" } };
+  await client.request({ action: "door.open", body: event });
+  const note = await until("the script's arrival record", () => store.children(script.id).find(b => b.text.includes("visit-beans")));
+  expect(note.text).toContain('"method":"select"');
+  expect(note.text).toContain(hit.id);
+}, 30_000);

@@ -1,62 +1,67 @@
-// The trail section (PIE-208): a reader walks five linked notes, then lists where it has been and goes straight back
-// to a stop. The person's alt+T opens the list over the screen; an agent's act reads it and opens nothing; a choice is
-// back that many steps, so back and forward walk the same trail after. Scratch service, made-up notes.
 import { describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
 import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
-import { marks } from "./marks";
+import { Trail } from "../../src/trail";
 
-describe.skipIf(!outliner)("showcase: trail (PIE-208)", () => {
+describe.skipIf(!outliner)("showcase: the trail", () => {
   const h = useShowcaseScreen(177);
   const as = "test-agent";
 
-  test("five stops walked; alt+T lists them by title; a choice two back lands there; an agent's trail reads the same", async () => {
+  test("the day's forest retains a closed tile and reopens its visit in place", async () => {
     await h.app.act({ action: "section", args: { name: "trail" }, as });
-    await until(() => marks.trail!.every(m => h.screen().includes(m)), "the trail section", 15_000);
-    const stage = () => h.S().stages.get(h.S().sel).top;
-    const walk = () => stage().pane("walk").surface;
-    // The person, by keys: into the stage, then ] to the walk's link and ⏎, four times.
+    const desk = h.S().stages.get(h.S().sel).top;
+    await h.app.act({ action: "trail.settings", args: { read: 0.05, held: 0.15, linger: 0.05 }, as });
+    await desk.dispatch.act({ action: "open", args: { id: h.seeded.notes.trailGate.id }, tile: "walk" }, USER);
+    const seed = await h.board.createBlock(null, "Seed catalogue\n\nSeeds for spring.");
+    const opened = await desk.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "seed", note: seed.id, where: "right" }, tile: "walk" }, USER);
+    await until(() => h.app.trail.current(opened.tile) !== undefined, "the second tile's visit");
+    const visit = h.app.trail.current(opened.tile)!;
+    await until(() => h.app.trail.dwell(visit) === "held", "a held visit");
+    await desk.dispatch.act({ action: "tile.close", tile: "seed" }, USER);
+    expect(h.app.trail.places[opened.tile]?.closed).toBeTruthy();
     h.press({ kind: "enter" } as never);
-    expect(h.S().focus).toBe("stage");
-    for (const [i, stop] of ["the pond", "the orchard", "the shed", "the compost heap"].entries()) {
-      // The note shown drawn first, so ] steps through its own elements.
-      await until(() => h.screen().includes(`Stop ${i + 1} of 5`), "the stop drawn", 8000);
-      await until(() => {
-        h.ch("]"); h.screen();
-        return walk().describeElements().some((e: { current: boolean; kind: string }) => e.current && e.kind === "link");
-      }, "the next stop's link selected");
-      h.press({ kind: "enter" } as never);
-      await until(() => walk().msg?.text.startsWith(`Garden walk: ${stop}`), `walked to ${stop}`, 10_000);
-    }
-    // The reader's last row and the hint row say how to find it.
-    await until(() => h.screen().includes("≡ trail") && h.screen().includes("alt+T trail"), "the ≡ trail chip and the hint", 8000);
-    // An agent reads it: every stop back, nearest first; nothing opens over the person's screen.
-    const read = (await h.app.act({ action: "trail", tile: "walk", as })) as { here: { title: string }; back: { title: string }[]; shown: boolean };
-    expect(read.shown).toBe(false);
-    expect(read.here.title).toBe("Garden walk: the compost heap");
-    expect(read.back.map(s => s.title)).toEqual(["Garden walk: the shed", "Garden walk: the orchard", "Garden walk: the pond", "Garden walk: the gate"]);
-    // The person's: a trail tile beside the reader (PIE-1425), docked, resized and closed like any tile, the note shown lit.
-    const tiles = () => stage().tiles().length as number, before = tiles();
-    h.press({ kind: "alt", ch: "T" } as never);
-    await until(() => tiles() === before + 1 && stage().panes.get(stage().focus)?.kind === "trail", "the trail tile beside the walk", 8000);
-    await until(() => h.screen().includes("● Garden walk: the compost heap · here"), "the trail drawn", 8000);
-    expect(h.screen()).toContain("← Garden walk: the orchard · 2 back");
-    await stage().dispatch.act({ action: "tile.resize", args: { by: 1, axis: "col" }, tile: "trail" }, USER);
-    // ↓ ↓ ⏎: two stops back, at once; the trail stays beside it, the note shown lit again.
-    h.press({ kind: "down" } as never); h.press({ kind: "down" } as never); h.press({ kind: "enter" } as never);
-    await until(() => walk().msg?.text.startsWith("Garden walk: the orchard"), "two stops back", 10_000);
-    expect(walk().describeHistory().forward.map((s: { title: string }) => s.title)).toEqual(["Garden walk: the shed", "Garden walk: the compost heap"]);
-    await until(() => h.screen().includes("● Garden walk: the orchard · here"), "the trail follows its reader", 8000);
-    // alt+T again is the same tile; esc closes it, the keys back in the walk.
-    h.press({ kind: "alt", ch: "T" } as never);
-    expect(tiles()).toBe(before + 1);
-    h.press({ kind: "esc" } as never);
-    await until(() => tiles() === before, "esc closed the trail tile", 8000);
-    expect(stage().nameOf(stage().focus)).toBe("walk");
-    // Forward walks the same trail.
-    await stage().dispatch.act({ action: "forward", tile: "walk" }, USER);
-    await until(() => walk().msg?.text.startsWith("Garden walk: the shed"), "forward one", 10_000);
-    for (let i = 0; i < 4 && h.S().focus === "stage"; i++) h.press({ kind: "esc" } as never);
+    await desk.dispatch.act({ action: "trail", tile: "walk" }, USER);
+    await until(() => h.screen().includes("Today") && h.screen().includes("tile closed"), "the forest and its closed visit");
+    await desk.dispatch.act({ action: "trail.open", args: { visit: visit.open.target.visit }, tile: "trail" }, USER);
+    expect(desk.paneNamed("seed")?.msg?.id).toBe(seed.id);
+    const recent = await h.app.act({ action: "trail.recent", as }) as { open: { target: { note: string } } }[];
+    expect(recent[0]?.open.target.note).toBe(seed.id);
+    expect(h.screen()).toContain("●");
+    await h.app.act({ action: "trail.settings", args: { read: 60, held: 300, linger: 30 }, as });
+    await desk.dispatch.act({ action: "tile.open", args: { kind: "backlinks", source: "tile:walk", name: "links", where: "down" }, tile: "walk" }, USER);
+    await desk.dispatch.act({ action: "tile.link", args: { to: "seed", verb: "select" }, tile: "links" }, USER);
+    await desk.dispatch.act({ action: "backlinks", args: { id: h.seeded.notes.trailGate.id }, tile: "links" }, USER);
+
+    const links = desk.paneNamed("links");
+    const nextRow = () => links.rows().findIndex((r: { kind: string }) => r.kind === "outlink") + 1;
+    await until(() => { h.screen(); return nextRow() > 0; }, "the walk's outlink listed");
+    await desk.dispatch.act({ action: "list.pick", args: { n: nextRow() }, tile: "links" }, USER);
+    await until(() => h.app.trail.current(opened.tile)?.open.method === "select", "a preview visit");
+    const preview = h.app.trail.current(opened.tile)!;
+    expect(h.app.trail.skim(preview)).toBe(true);
+    expect(h.screen()).toContain("skimmed 1 from links");
+    await desk.dispatch.act({ action: "tile.focus", tile: "seed" }, USER);
+    await until(() => { h.screen(); h.ch("]"); return desk.paneNamed("seed").surface.describeElements().some((e: { current: boolean; kind: string }) => e.current && e.kind === "link"); }, "a link in the preview");
+    expect(preview.attention.selections).toBeGreaterThan(0);
+    h.press({ kind: "enter" });
+    await until(() => h.app.trail.visits.some(v => v.open.source?.visit === preview.open.target.visit), "jumping from the preview makes it the parent");
+    expect(h.app.trail.skim(preview)).toBe(false);
+    expect(h.app.trail.dwell(preview)).toBe("read");
+    const saved = await desk.dispatch.act({ action: "trail.save", args: { visit: preview.open.target.visit }, tile: "trail" }, USER);
+    const note = await h.board.get(saved.note);
+    expect(note?.text).toContain(preview.open.target.note);
+    expect(note?.text).toContain("read");
+    h.app.trail.flush();
+    const restored = new Trail();
+    expect(restored.get(preview.open.target.visit)?.attention.opens).toBeGreaterThan(0);
+    expect(restored.places[opened.tile]?.name).toBe("seed");
+    const focused = desk.focus;
+    const children = await h.app.act({ action: "trail.children", args: { visit: preview.open.target.visit }, as });
+    expect(children).toBeArray();
+    expect(children).not.toEqual([]);
+    expect(desk.focus).toBe(focused);
+    await desk.dispatch.act({ action: "trail.forget", args: { visit: preview.open.target.visit }, tile: "trail" }, USER);
+    expect(await h.app.act({ action: "trail.branch", args: { visit: preview.open.target.visit }, as })).toEqual([]);
   }, 90_000);
 });

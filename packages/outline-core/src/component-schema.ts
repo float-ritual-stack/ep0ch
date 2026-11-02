@@ -211,6 +211,8 @@ const RULE: ComponentSchema = {
     { key: "rule-was-on", where: "note", type: "action", meaning: "the kept start action while its extension is uninstalled; reinstall restores rule-on" },
     { key: "rule-on-stop", where: "note", type: "action", meaning: "an action it runs on a block that stops matching" },
     { key: "rule-was-on-stop", where: "note", type: "action", meaning: "the kept stop action while its extension is uninstalled; reinstall restores rule-on-stop" },
+    { key: "rule-on-open", where: "note", type: "action", meaning: "an action it runs when a door opens a matching note; input.trigger.open carries the cause" },
+    { key: "rule-was-on-open", where: "note", type: "action", meaning: "the kept open action while its extension is uninstalled; reinstall restores rule-on-open" },
     { key: "rule-on-change", where: "note", type: "action", meaning: "an action it runs on a block saved while it matches" },
     { key: "rule-was-on-change", where: "note", type: "action", meaning: "the kept change action while its extension is uninstalled; reinstall restores rule-on-change" },
     { key: "rule-from", where: "note", type: "writers", meaning: "whose saves set it off: user, agent, ext:<extension> (an EchoNet arrival is ext:echonet)", default: "user, agent", samples: ["user, ext:echonet"] },

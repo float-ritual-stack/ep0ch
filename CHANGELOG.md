@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The Trail remembers the notes and tiles you left (PIE-1234)
+
+- Alt+T opens the day's forest across tiles: what opened what, · flipped / ◐ read / ● held, closed tiles and attributed agent visits. Enter restores a visit where it was; o opens it here, s saves its branch, f folds flips, / searches, t changes view and a dims or hides agents. Visits stay in per-outline session state for a configurable week; `trail.forget` clears a branch, day or all.
+- Quick previews fold together until you linger, scroll, select or follow a link from them. Back/forward and layout undo retain their own histories. The kitchen sink's **trail** and **events** sections demonstrate the forest and its causes.
+- Each landing emits one `door.open` envelope locally and sends it without waiting to the service. Extensions subscribe over their existing connection; `on.open` rules and scripts receive `input.trigger.open`. Agents read `door.opens since=0` and `trail.recent` without moving your view.
+- **Run:** `ep0ch install --apply` on float-2, float-box, the laptop and the mini, handing the host and every door over together. PROTOCOL 302; GRAMMAR 25 and SCHEMA 8 stay unchanged.
+
 ### Tile edges have room to breathe (PIE-1282)
 
 - The screen saves `gap` (0–8) and `inset` in cells. Set them with `^W P` on screen, or `act layout.policy gap=1 inset=1`; the layout places every tile inside that spacing. The kitchen sink’s **spacing** section shows 0, 1 and 2 by key, click and act.

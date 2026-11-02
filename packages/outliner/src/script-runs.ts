@@ -445,6 +445,7 @@ export class ScriptRuns {
     const slot = (k: string, v: unknown) => { const all = buttonProps && Object.hasOwn(buttonProps, k) ? buttonProps[k] : undefined; return all && all.at(-1) === String(v) ? all : [String(v)]; };
     let site = this.bind(source, { blockId: request.blockId, line: request.line, trigger: !!request.trigger,
       props: { ...Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, slot(k, v)])), ...(request.slots ? slotProps(request.slots) : {}) } });
+    if (request.trigger) site.globals.input = { trigger: request.trigger };
     let caller: { text: string; span: DraftPatchSpan } | undefined;
     // place(): the plan is made on the note as its draft has it now, sent as this script, applied or one proposal at the caller.
     const place = async (content: string, opts: { at?: string; mode?: string; label?: string; interpolate?: boolean }) => {

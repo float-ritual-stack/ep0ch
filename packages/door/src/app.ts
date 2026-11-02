@@ -1,3 +1,7 @@
+import type { Trail } from "./trail";
+import { OpenEvents } from "./open-events";
+import { TRAIL_QUERIES } from "./trail-actions";
+import type { DoorOpen } from "@ep0ch/outline-core/door-open";
 import { Canvas, type Rect } from "./canvas"; import { doorLocation } from "./session/place";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { pressEnded } from "./surface/button";
@@ -174,6 +178,9 @@ export function pressOf(k: Key): string | null {
 export const TEST_APPS = Symbol.for("ep0ch.test.apps");
 
 export interface Ctx {
+  readonly trail?: Trail;
+  opened?(event: DoorOpen): void;
+  lastOpen?(tile: string): DoorOpen | undefined;
   readonly glass?: Glass;
   /** Where a framed screen sits in a desk's undo order (the desk's `layoutUndoSeq`/`untrash`), so a reader in a tile hands ctrl+z on as one on the desk does (PIE-1470). */
   layoutUndoSeq?(): number | undefined;
@@ -652,7 +659,7 @@ export class App implements Ctx {
     this.splits = new SplitWatch({
       fleet: realFleetIO, env: process.env, now,
       machines: () => [undefined, ...(this.machine ? [this.machine] : [])],
-      seen: () => this.viewers.size > 0 || !this.display.unseen?.(),
+      seen: () => this.openEvents.seen || !this.display.unseen?.(),
       changed: () => this.statusChanged(),
     });
     this.display = isDisplay(term) ? term : new Painter(term as RawTerm);
@@ -691,6 +698,7 @@ export class App implements Ctx {
     // It goes to the terminal the door runs in too, when that terminal speaks the protocol (the door as a program).
     this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); }, this.drawer);
     this.reportStatus();
+    this.openEvents.start();
     this.whatChanged.subscribe(() => { this.bar?.refresh(true); this.redraw(); });
     this.waitingAsks.subscribe(() => this.redraw());
     this.heldAsks.subscribe(() => this.redraw());
@@ -728,6 +736,7 @@ export class App implements Ctx {
     if (this.publishTimer) clearTimeout(this.publishTimer);
     if (this.reportTimer) clearTimeout(this.reportTimer);
     this.timer = null; this.paintTimer = null; this.publishTimer = null; this.reportTimer = null;
+    this.openEvents.close();
     this.waitingAsks.stop();
     unbindExtensions(this.board);
   }
@@ -932,54 +941,21 @@ export class App implements Ctx {
   private flashes = 0;
 
   // ── the live feed (view.subscribe): what the person sees, pushed as it changes ──
-  private viewers = new Set<(e: ViewEvent) => void>();
-  private shown: { screen: string; focus: string; layout: string; tiles: Map<string, string>; cursors: Map<string, string>; marks: string } | null = null;
-
-  /** Hear every change to what the person sees. The first event is the whole state (`hello`). */
-  subscribe(f: (e: ViewEvent) => void): () => void {
-    this.catchUp();
-    const s = this.stack.at(-1);
-    const state = s?.viewState?.() ?? null;
-    f({ type: "hello", at: Date.now(), screen: s?.title ?? null, state });
-    this.viewers.add(f);
-    // Every subscriber starts from what the hello said: what changes after it comes as events.
-    if (s && state && !this.shown) this.shown = this.snapshot(s.title, state);
-    return () => { this.viewers.delete(f); };
-  }
-
-  private snapshot(screen: string, v: ViewState) {
-    return { screen, focus: JSON.stringify(v.focus), layout: JSON.stringify(v.layout), tiles: new Map(v.tiles.map(t => [t.tile, JSON.stringify(t.viewport)] as const)), cursors: new Map(v.tiles.map(t => [t.tile, JSON.stringify(t.cursor ?? null)] as const)), marks: JSON.stringify(v.marks ?? null) };
-  }
+  private readonly openEvents = new OpenEvents();
+  get trail() { return this.openEvents.trail; }
+  opened(e: DoorOpen) { this.openEvents.opened(e, this); }
+  lastOpen(tile: string) { return this.openEvents.last(tile); }
+  doorOpens(since = 0) { return this.openEvents.since(since); }
+  subscribe(f: (e: ViewEvent) => void): () => void { this.catchUp(); return this.openEvents.subscribe(f, this.stack.at(-1)); }
 
   /** After paints: the feed is published at most every 50ms, from what's on screen then. */
   private publishTimer: Timer | null = null;
   private schedulePublish() {
-    if (!this.viewers.size) { this.shown = null; return; }
+    if (!this.openEvents.seen) { this.openEvents.unseen(); return; }
     if (this.publishTimer) return;
-    this.publishTimer = setTimeout(() => { this.publishTimer = null; const s = this.stack.at(-1); if (s) this.publishView(s); }, 50);
+    this.publishTimer = setTimeout(() => { this.publishTimer = null; const s = this.stack.at(-1); if (s) this.openEvents.publishView(s); }, 50);
   }
 
-  /** After a paint: what changed since the last one, as events to every subscriber. */
-  private publishView(s: Screen) {
-    if (!this.viewers.size) { this.shown = null; return; }
-    const v = s.viewState?.();
-    const at = Date.now();
-    const send = (e: Omit<ViewEvent, "at">) => { for (const f of this.viewers) { try { f({ ...e, at } as ViewEvent); } catch { /* a subscriber's own problem */ } } };
-    if (!v) { if (this.shown?.screen !== s.title) send({ type: "screen", screen: s.title }); this.shown = { screen: s.title, focus: "", layout: "", tiles: new Map(), cursors: new Map(), marks: "" }; return; }
-    const was = this.shown?.screen === s.title ? this.shown : null;
-    const now = { screen: s.title, focus: JSON.stringify(v.focus), layout: JSON.stringify(v.layout), tiles: new Map<string, string>(), cursors: new Map<string, string>(), marks: JSON.stringify(v.marks ?? null) };
-    if (this.shown && this.shown.screen !== s.title) send({ type: "screen", screen: s.title });
-    if (was?.layout !== now.layout) send({ type: "layout.changed", layout: v.layout });
-    if (was?.focus !== now.focus) send({ type: "focus.changed", ...v.focus });
-    for (const t of v.tiles) {
-      const vp = JSON.stringify(t.viewport), cu = JSON.stringify(t.cursor ?? null);
-      now.tiles.set(t.tile, vp); now.cursors.set(t.tile, cu);
-      if (was?.tiles.get(t.tile) !== vp) send({ type: "viewport", tile: t.tile, name: t.name, viewport: t.viewport });
-      if (t.cursor !== undefined && was?.cursors.get(t.tile) !== cu) send({ type: "cursor", tile: t.tile, name: t.name, cursor: t.cursor });
-    }
-    if (was?.marks !== now.marks && v.marks !== undefined) send({ type: "marks.changed", marks: v.marks });
-    this.shown = now;
-  }
   /**
    * The person's clipboard (OSC 52), and a "copied to clipboard" toast over the bottom of the screen for a
    * moment, as Herdr's `ui.toast.clipboard` shows: the status bar's "copied N chars" is easy to miss. Every
@@ -1241,6 +1217,7 @@ export class App implements Ctx {
   recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run); }
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
+    { set: TRAIL_QUERIES, takes: "none", on: () => this },
     { set: STRIP_ACTIONS, takes: "screen", claims: req => STRIP_ACTIONS.has(req.action), on: at => ({ strips: this.strips, tile: at.tile?.id ?? (at.name ? (this.screenDesk() ?? this.hostLayer.desks()[0])?.dispatch.tile(at.name)?.id : undefined) }) },
     { set: GLASS_ACTIONS, takes: "none", on: () => this.glass },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => this.drawer.agentRef(), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>, tile?: string) => this.dispatch.act({ action: name, args, ...(tile ? { tile } : {}) }, how.actor) }) },
@@ -1376,6 +1353,7 @@ export class App implements Ctx {
     // What the door reported to its terminal goes with it (OSC 7501 clear).
     this.display.programStatus?.(null);
     this.disarm();
+    this.openEvents.close();
     this.waitingAsks.stop();
     // The extensions it bound (their actions, tile kinds, passage choices) go with the door that read them.
     unbindExtensions(this.board);
@@ -1789,7 +1767,7 @@ export class App implements Ctx {
       return;
     }
     // Nobody sees it (a session with no terminal attached and no live feed): rendered when someone looks (catchUp).
-    if (!force && !this.viewers.size && this.display.unseen?.()) { this.skipped = true; this.lastPaint = Date.now(); return; }
+    if (!force && !this.openEvents.seen && this.display.unseen?.()) { this.skipped = true; this.lastPaint = Date.now(); return; }
     this.skipped = false;
     // A frame after nothing but wheel reports: views may move what they laid out last time (onlyScrolled).
     paintingScroll(!this.changed);

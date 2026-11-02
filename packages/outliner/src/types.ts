@@ -2061,7 +2061,8 @@ export type OutlinerRequestAction =
   | { id: string; action: "tree.query"; query: BlockSearchQuery }
   | { id: string; action: "tree.search"; query: string; limit?: number; semantic?: boolean; deep?: boolean; contextBlockId?: string; machinery?: import("@ep0ch/outline-core/machinery").MachineryMode }
   | { id: string; action: "tree.focus"; query: string }
-  | { id: string; action: "events.subscribe"; client: OutlinerClientRegistration }
+  | { id: string; action: "events.subscribe"; client: OutlinerClientRegistration; kinds?: readonly string[] }
+  | { id: string; action: "door.open"; body: import("@ep0ch/outline-core/door-open").DoorOpen }
   | { id: string; action: "clients.list"; role?: OutlinerClientRole }
   | {
       id: string;
@@ -2874,7 +2875,7 @@ export interface OutlinerNavigationDispatch extends OutlinerNavigationResolution
   command: OutlinerUiCommand;
 }
 
-export type OutlinerEventDomain =
+export type OutlinerEventDomain = "door"
   | "mentions"
   | "content"
   | "resource-catalog"
@@ -2896,11 +2897,10 @@ export type OutlinerEventDomain =
   | "queries";
 
 export interface OutlinerEvent {
+  open?: import("@ep0ch/outline-core/door-open").DoorOpen;
   ask?: import("@ep0ch/outline-core/protocol").AskProgress;
-  id: string;
-  domain: OutlinerEventDomain;
-  action: string;
-  sequence: number;
+  id: string; domain: OutlinerEventDomain;
+  action: string; sequence: number;
   clientId?: string;
   blockId?: string;
   resourceId?: string;

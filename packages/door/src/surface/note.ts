@@ -8307,10 +8307,10 @@ export class NoteSurface {
   async trail(host: SurfaceHost, standing: boolean) {
     const answer = this.trailOf(), { back, forward } = answer;
     if (!standing) return { ...answer, shown: false };
-    if (!back.length && !forward.length) throw new ActionRefused("no trail yet: this reader hasn't followed a link (follow one, then alt+T)");
     // A screen of tiles: a trail tile beside the reader, docked, resized and closed like any (PIE-1425); else the list over it.
     const tile = host.trailTile ? await host.trailTile() : null;
     if (tile) return { ...answer, shown: true, tile };
+    if (!back.length && !forward.length) throw new ActionRefused("no trail yet: this reader hasn't followed a link (follow one, then alt+T)");
     if (!host.overlay) throw new ActionRefused(`this screen can't list the trail over it · ${back.length ? `back steps=${back.length} goes to ${back.at(-1)!.title}` : "forward goes on"}`);
     const rows = trailRows(answer);
     const list = new ListPicker<TrailRow, unknown>({

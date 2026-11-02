@@ -404,7 +404,7 @@ extensions/notify/demo/
   or an update writes none of them again (wherever you moved them, whatever you changed); a demo note added in a later
   version is written by itself. A deleted one stays deleted.
 - **Kept rules switch off.** Removing an extension renames every kept block-scoped `rule-on`, `rule-on-stop` and
-  `rule-on-change` naming it to `rule-was-on`, `rule-was-on-stop` and `rule-was-on-change`, including edited demos and rules you wrote elsewhere. The edit is attributed to `ext:<id>`; its
+  `rule-on-change` or `rule-on-open` naming it to `rule-was-on`, `rule-was-on-stop`, `rule-was-on-change` and `rule-was-on-open`, including edited demos and rules you wrote elsewhere. The edit is attributed to `ext:<id>`; its
   removal receipt and the Extensions page say how many switched off. Reinstalling restores `rule-on` and reports
   how many came back, preserving the rest of each note. Switched-off notes produce no missing-extension warning;
   an active `rule-on` naming an extension that is absent still warns. `ep0ch ext install` also accepts `ext add`'s arguments.
@@ -924,9 +924,9 @@ bottom, `tone?`) and `track` (`style?`, `pattern?`, `tone?`). The door draws the
 (PIE-599): the named style (default `band`, a track `fade`) with the primitive's fields over it, and under the
 figures' narrow width (48 columns) a band is its plain heading. Their text targets are a heading and `---`.
 
-### `on`: change triggers
+### `on`: change and open triggers
 
-`on: { start?, stop?, change?, quiet? }` names actions (from `actions[]`, `on: block`) run on the block when it
+`on: { start?, stop?, change?, open?, quiet? }` names actions (from `actions[]`, `on: block`) run on the block when it
 **starts** matching, **stops** matching, or is saved while it **matches**, once it has been quiet for `quiet`
 (default 2s): a burst of saves while typing is one trigger.
 
@@ -951,6 +951,18 @@ figures' narrow width (48 columns) a band is its plain heading. Their text targe
 - `extensions.list`'s `rules` says how many blocks match each trigger rule, and its last run (`lastRun`: when,
   which block, start, stop or change, its message or error).
 
+A door landing emits `door.open` locally and posts the same envelope to the service without waiting. An
+extension can send `events.subscribe` over its existing connection; that connection receives only `door.open`
+by default. `kinds` selects event action names; receiving the outline's writes requires an existing full grant.
+The stream uses the same service connection and machine forward as other requests.
+
+`on.open` runs immediately for each opened note that matches the rule, with `input.trigger.open` carrying
+`{ type: "door.open", at, actor, target: { tile, note, visit }, source?: { tile, note?, visit? }, method }`.
+`at` is milliseconds since the epoch. `method` is link, search, back, forward, select, open, alt, hover, action,
+agent or script. `from`, `skip` and `cap` still apply; `quiet` and `batch` concern saves, not open events.
+Script actions use the same trigger (`[rule-on-open::script:arrival]`, then `input.trigger.open` in the script).
+Visits themselves stay in the door's per-outline state; only a deliberate save or a rule writes notes.
+
 ### Rule notes: the no-code tier
 
 A note with `[rule-name::name]` is a rule, with the outline (like `[callout-type::]`):
@@ -963,7 +975,7 @@ Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::text] [r
 
 `rule-match` (a query; a tag is one, `[rule-match::#pie-request]`; with `[property-scope::all]` it reads the chips on any line too, as a view's does), `rule-view`, `rule-under`, `rule-text` (a `]` is written `\x5d`) and `rule-kind` match;
 `rule-decorate`, `rule-place`, `rule-label`, `rule-tone`, `rule-fields`, `rule-pattern`, `rule-align` and `rule-style` (a heading style by name) draw.
-`rule-on` (`<extension>/<action>`, run when a block starts matching), `rule-on-stop` and `rule-on-change` run an
+`rule-on` (`<extension>/<action>`, run when a block starts matching), `rule-on-stop`, `rule-on-change` and `rule-on-open` run an
 installed extension's action, with `rule-quiet`, `rule-from`, `rule-batch`, `rule-cap` and `rule-skip` as `on`'s
 `quiet`, `from`, `batch`, `cap` and `skip` above. Rules see a comment, a question or a reply as they see a note (it is a
 block, saved like one): a `#tag` typed in a comment sets off a rule on that tag. A rule note draws, runs, or both:
