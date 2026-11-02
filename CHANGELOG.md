@@ -18,6 +18,7 @@ are its record. The outliner's entries from then are kept below, under
 ### Copying a templated page includes its live figure results (PIE-1380)
 
 - **Take the rows along:** `ep0ch show --markdown`, the reader's `Y` and `act note.copy` include figures from `::use` templates, with their call's props and the same row caps and “showing N of M · the rest” commands. Copy source only still gives the stored text.
+- **Keep the values intact:** multiword template props keep their matching rows, and a title containing `: ` keeps its figure. Copy uses the reader's parsed figure evaluation; the rest command quotes resolved query values separately.
 - **Run:** open **copy-page** in the kitchen sink to copy its templated crate page. No protocol, grammar or schema change.
 
 ### A fresh machine can open its first outline from the home base (PIE-1489)

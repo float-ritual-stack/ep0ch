@@ -4,6 +4,7 @@
 // per group, and every row links its note as ((id|title)). Scratch host; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { lineWords } from "@ep0ch/outline-core/component-block";
 import { first, lex, paragraphs, resultsOf, type Tokens } from "./results-markdown";
 import { figureResultsMarkdown, restCommand, RESULTS_CAP } from "@ep0ch/outline-core/figure-results";
 import { SocketBoard } from "../src/socket";
@@ -107,7 +108,13 @@ describe("what a figure's results say beyond its rows", () => {
 
 describe.skipIf(!outliner)("ep0ch show --markdown against a scratch host", () => {
   const scratch = new Scratch();
-  let env: Record<string, string> = {}, page = "", argued = "", templated = "";
+  let env: Record<string, string> = {}, page = "", argued = "";
+  const templated: Record<string, string> = {};
+  const templateCases: [string, string, number][] = [
+    ["Plantings", 'bay="north bed"', 55],
+    ["Plantings: morning", 'bay="north bed" bay=south', 60],
+  ];
+  let seedlings: string[] = [];
   const crates: Record<string, string> = {};
   beforeAll(async () => {
     const sock = await scratch.start();
@@ -117,12 +124,12 @@ describe.skipIf(!outliner)("ep0ch show --markdown against a scratch host", () =>
     crates.apples = await make("Apples crate [type::crate] [packed::yes] [bay::north]");
     crates.beets = await make("Beets crate [type::crate] [bay::north]");
     crates.chard = await make("Chard crate [type::crate] [packed::yes] [bay::south]");
-    await Promise.all(Array.from({ length: 60 }, (_, i) => make(`Seedling ${String(i + 1).padStart(2, "0")} [type::seedling] [bed::b${i % 4}] [day::2026-03-11]`)));
+    seedlings = await Promise.all(Array.from({ length: 60 }, (_, i) => make(`Seedling ${String(i + 1).padStart(2, "0")} [type::seedling] [bed::b${i % 4}] [day::2026-03-11] [bay::${i < 55 ? "north bed" : "south"}]`)));
     page = await make(PAGE);
     // A figure whose question is its call-site arguments (`::graph-check{…}`), as the reader reads it.
     argued = await make('Bay north\n\n::graph-check{title=North query="type=crate bay=north"}\n---\nsort: title\ndirection: asc\n---\n::');
-    await make('Build log template [type::template] [template-for::build-log]\n[form-field::day text required]\n\n::graph-table\n---\ntitle: Plantings\nquery: type=seedling day={{props.day}}\ncolumns: [title, bed]\nsort: title\ndirection: asc\n---\n::');
-    templated = await make('Planting log\n::use{of=type:build-log day=2026-03-11}');
+    await make('Build log template [type::template] [template-for::build-log]\n[form-field::day text required]\n[form-field::bay text required]\n\n::graph-table\n---\ntitle: {{this.title}}\nquery: type=seedling day={{props.day}} bay={{props.bay}}\ncolumns: [title, bed]\nsort: title\ndirection: asc\n---\n::');
+    for (const [title, bays] of templateCases) templated[title] = await make(`${title}\n::use{of=type:build-log day=2026-03-11 ${bays}}`);
     board.close();
   });
   afterAll(() => scratch.dispose());
@@ -174,18 +181,21 @@ describe.skipIf(!outliner)("ep0ch show --markdown against a scratch host", () =>
     expect(steps.items.map(i => i.text)).toEqual([`((${crates.apples}|Apples crate))`, `((${crates.beets}|Beets crate))`]);
   }, 30_000);
 
-  test("a build-log template copies its figures with the call's day and the command for the remaining rows (PIE-1380)", async () => {
-    const r = await run(["show", templated, "--markdown"], env);
+  test.each(templateCases)("a build-log template copies %s with multiword props and the command for the remaining rows (PIE-1380)", async (title, bays, total) => {
+    const r = await run(["show", templated[title]!, "--markdown"], env);
     expect(r.code).toBe(0);
-    expect(r.out).toContain("::use{of=type:build-log day=2026-03-11}");
-    const plantings = results(lex(r.out), "Plantings");
+    expect(r.out).toContain(`::use{of=type:build-log day=2026-03-11 ${bays}}`);
+    const plantings = results(lex(r.out), title);
     const table = first<Tokens.Table>(plantings, "table");
     expect(table.rows).toHaveLength(RESULTS_CAP);
     expect(table.rows[0]![0]!.text).toMatch(/^\(\([0-9a-f-]{36}\|Seedling 01\)\)$/);
     const cut = paragraphs(plantings).find(p => p.startsWith("_showing"));
-    expect(cut).toContain("showing 50 of 60 · the rest:");
-    expect(cut).toContain("type=seedling day=2026-03-11");
-    expect(cut).not.toContain("{{props.day}}");
+    expect(cut).toContain(`showing 50 of ${total} · the rest:`);
+    expect(cut).not.toContain("{{");
+    const command = cut!.match(/the rest: `([^`]+)`/)![1]!;
+    const rest = await run([...lineWords(command).slice(1), "--ids"], env);
+    expect(rest.code).toBe(0);
+    expect(rest.out.trim().split("\n")).toEqual(seedlings.slice(0, total).map(id => `((${id}))`));
   }, 30_000);
 
   test("--source stays the text alone; --markdown with --source is refused", async () => {

@@ -5,13 +5,12 @@
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { RESULTS_BUDGET, RESULTS_CAP, type ResultsContext } from "@ep0ch/outline-core/figure-results";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
-import type { SiteAnswer } from "@ep0ch/outline-core/site";
 import { titleLine } from "./board";
 import { figureResults, figureSource, graphKind, withFigureBoard, type FigureSource } from "./graphs";
 import { liveSettled } from "./live";
 import { metadataLines } from "./props";
 import type { SocketBoard } from "./socket";
-import { bodySite, MAX_USE_DEPTH, type UseSite } from "./template-use";
+import { bodySite, MAX_USE_DEPTH, useRequest, type UseSite } from "./template-use";
 
 /** The `::graph-*` figures in `text` (outside code fences): each one's kind, its lines (from 0, inclusive), and its source as the reader reads it. */
 export function noteFigures(text: string, note: string): { kind: string; from: number; to: number; source: FigureSource }[] {
@@ -36,12 +35,10 @@ export interface PageResults { text: string; figures: number; cut: number; unans
 async function pageFigures(board: SocketBoard, text: string, note: string, site: UseSite = {}, depth = 0): Promise<ReturnType<typeof noteFigures>> {
   const figures = noteFigures(text, note).map(f => ({ ...f, source: { ...f.source, ...site } }));
   if (depth < MAX_USE_DEPTH) for (const call of useCallsOf(text)) {
-    const answer = await board.request<TemplateUseAnswer>("template.use", { block: note, line: call.line, ...site });
+    const answer = await board.request<TemplateUseAnswer>("template.use", useRequest(note, call.line, site));
     if (!answer.template) continue;
     const body = bodySite(answer);
-    // The copied query must carry its values outside the template's Site, including the command for the rest.
-    const filled = await board.request<SiteAnswer>("site.answer", { blockId: answer.template.id, ...body, interpolate: { text: answer.template.text, fences: "template" } });
-    const expanded = await pageFigures(board, filled.interpolated!.text, answer.template.id, body, depth + 1);
+    const expanded = await pageFigures(board, answer.template.text, answer.template.id, body, depth + 1);
     figures.push(...expanded.map(f => ({ ...f, from: call.line, to: call.line })));
   }
   return figures.sort((a, b) => a.from - b.from);

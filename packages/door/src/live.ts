@@ -61,10 +61,10 @@ export function siteProduced(note: string | undefined, producer: SiteProducer, s
   return read;
 }
 
-export function siteRequest(note: string | undefined, producer: SiteProducer, site?: LiveSite) {
+export function siteRequest(note: string | undefined, producer: SiteProducer | undefined, site?: LiveSite) {
   const own = site?.args && Object.keys(site.args).length ? Object.fromEntries(Object.entries(site.args).map(([k, v]) => [k, [v]])) : undefined;
   const props = site?.props && Object.keys(site.props).length ? { ...site.props, ...own } : own;
-  return { ...(note ? { blockId: note } : {}), produce: producer, ...(site?.draft ? { draft: site.draft } : {}), ...(site?.chain?.length ? { chain: site.chain } : {}), ...(props ? { props } : {}) };
+  return { ...(note ? { blockId: note } : {}), ...(producer ? { produce: producer } : {}), ...(site?.draft ? { draft: site.draft } : {}), ...(site?.chain?.length ? { chain: site.chain } : {}), ...(props ? { props } : {}) };
 }
 
 function produced(b: SocketBoard, note: string | undefined, producer: SiteProducer, site?: LiveSite): Watching<SiteProduced> {
