@@ -113,6 +113,26 @@ export const BIND_TOOL = {
   } as Json,
 } as const
 
+/**
+ * A door running on another machine (PIE-1242): `remote` names it by its ssh name, reached through the machine link
+ * that carries its doors (`ep0ch where` lists them under "doors on other machines"); `ws` picks one of its doors by
+ * outline, else the one the person typed in last.
+ */
+const REMOTE_DOOR = {
+  remote: { type: 'string', description: "Another machine's door, by the machine's ssh name (e.g. laptop): ep0ch where lists the doors on other machines. Left out: this session's door." },
+  ws: { type: 'string', description: "With remote: which of that machine's doors, by its outline (else the one the person typed in last)." },
+} as const
+
+const MACHINE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+
+/** `--remote <machine> [--ws <outline>]` for a door tool's input, or why not. */
+export function remoteDoorArgs(input: Record<string, unknown>): string[] | string {
+  if (input.remote === undefined) return input.ws === undefined ? [] : 'ws picks one of a remote machine\'s doors: give remote too.'
+  if (typeof input.remote !== 'string' || !MACHINE.test(input.remote)) return 'remote is a machine\'s ssh name, e.g. laptop.'
+  if (input.ws !== undefined && (typeof input.ws !== 'string' || !MACHINE.test(input.ws))) return 'ws is an outline name.'
+  return ['--remote', input.remote, ...(typeof input.ws === 'string' ? ['--ws', input.ws] : [])]
+}
+
 export const DOOR_TOOLS: readonly DoorToolDefinition[] = [
   {
     name: 'door_where',
@@ -138,6 +158,7 @@ export const DOOR_TOOLS: readonly DoorToolDefinition[] = [
         section: { type: 'string', description: 'One part of the state, e.g. speed, person, layout, drawer, state, text.' },
         xray: { type: 'boolean', description: 'Include every visible tile controls as hint-card rows (the whole state, as full).' },
         tiles: { type: 'string', enum: ['brief', 'full'], description: 'Each tile in the layout and state: in brief (the default, as layout.get) or whole (its lists too).' },
+        ...REMOTE_DOOR,
       },
       additionalProperties: false,
     },
@@ -161,6 +182,7 @@ export const DOOR_TOOLS: readonly DoorToolDefinition[] = [
         },
         tile: { type: 'string', description: 'The tile to act in, when the action needs one' },
         actor: ACTOR,
+        ...REMOTE_DOOR,
       },
       required: ['action'],
       additionalProperties: false,
@@ -215,7 +237,9 @@ export function doorActArgv(
     if (!nonEmpty(input.tile) || String(input.tile).startsWith('@')) return 'tile is a tile name.'
     words.push(`tile=${input.tile}`)
   }
-  return { argv: ['ep0ch', 'act', action, ...words, '--as', actor], ...(stdin === undefined ? {} : { stdin }) }
+  const remote = remoteDoorArgs(input)
+  if (typeof remote === 'string') return remote
+  return { argv: ['ep0ch', 'act', action, ...words, '--as', actor, ...remote], ...(stdin === undefined ? {} : { stdin }) }
 }
 
 /** What a `door_peek` call asks `ep0ch peek` for: the compact text (`text`), one `section` of the state, or the `full` state as one JSON object. */
@@ -225,12 +249,14 @@ export function peekArgv(input: Json): PeekCall | string {
   if (section && !/^[A-Za-z][A-Za-z0-9_-]*$/.test(section)) return 'section is the name of one part of the state: speed, person, layout, drawer, state, text.'
   // Each tile whole (`--full`), not in brief: what the JSON says, so not with the compact text.
   const whole = input.tiles === 'full' ? ['--full'] : []
+  const remote = remoteDoorArgs(input)
+  if (typeof remote === 'string') return remote
   if (section) {
     if (input.full === true || input.xray === true) return 'section is one part of the state; full and xray are the whole of it: give one or the other.'
-    return { argv: ['ep0ch', 'peek', section, ...(section === 'text' ? [] : whole)], reads: section === 'text' ? 'text' : 'section' }
+    return { argv: ['ep0ch', 'peek', section, ...(section === 'text' ? [] : whole), ...remote], reads: section === 'text' ? 'text' : 'section' }
   }
   const full = input.full === true || input.xray === true || whole.length > 0
-  return { argv: ['ep0ch', 'peek', ...(full ? ['--json'] : []), ...(input.xray === true ? ['--xray'] : []), ...whole], reads: full ? 'full' : 'text' }
+  return { argv: ['ep0ch', 'peek', ...(full ? ['--json'] : []), ...(input.xray === true ? ['--xray'] : []), ...whole, ...remote], reads: full ? 'full' : 'text' }
 }
 
 /**

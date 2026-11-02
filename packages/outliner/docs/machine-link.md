@@ -41,8 +41,8 @@ with HMAC-SHA256 over a domain-separated machine name and challenge. The outline
 when the versions differ, so an update can repair that mismatch. The server also
 proves the link key before the connector accepts an install request; client and
 server proofs use separate HMAC domains. Unknown machines, wrong keys, duplicate live connections and invalid
-frames are refused; the server logs the reason without the proof or key. The only tunnel destination is the connector's own outline-host socket. No frame can name a host,
-port or executable. Control messages carry an install SHA or an HTTP(S) URL to open, never a shell command.
+frames are refused; the server logs the reason without the proof or key. A tunnel reaches the connector's own outline-host socket, or one of its door sessions' control sockets that it
+announced itself (below). No frame can name a host, path, port or executable. Control messages carry an install SHA or an HTTP(S) URL to open, never a shell command.
 
 Binary WebSocket messages carry an operation byte, a four-byte big-endian stream
 id, and optional data. OPEN, DATA, CLOSE and ACK multiplex Unix connections.
@@ -72,6 +72,27 @@ macOS logs go to `~/Library/Logs/ep0ch-link.log`.
 This is a process/transport feature, so its demo is the scratch-host WebSocket
 workflow in `packages/door/test/link.test.ts`, not a showcase tile. Neither test
 nor install validation requires a real laptop or public endpoint.
+
+## Doors over the link
+
+The connector also says which door sessions run on it (PIE-1242): `{ "doors": [...] }` after it authenticates and
+again whenever the list changes (polled every 2 seconds), each with its key (`<outline>`, or `<outline>@<machine>`
+for an outline on another machine), how many terminals are attached and how long since the person typed. The server
+gives each one a socket, `<outlines>/.remote/<machine>.doors/<key>.sock` (0600, its folder 0700), and records the
+list with the connector's addresses in `<machine>.doors.json`; a door that goes, or the link going down, removes
+them. A connection to one is a stream whose OPEN names `door:<key>`; the connector resolves the key to that
+session's control socket, and a key it didn't announce is closed at once. What travels is the door's control
+protocol unchanged: `ep0ch peek|act|…` and the Claude mod's door tools work as on a local door, attributed, and
+the door's own refusals (an agent never takes the person's focus or keys) still decide.
+
+Another machine (float-box, whose agents work in the laptop's door, when the laptop's link lands on float-2)
+reaches them through the server: `ep0ch link via laptop float-2` writes `{ "via": "float-2" }` into
+`.remote/laptop.json`; then `ep0ch session list --machine laptop` and `ep0ch peek --remote laptop` ask float-2
+`ep0ch link doors laptop --json` and forward each socket over the ssh connection that already carries float-2's host
+(`ssh -S <float-2.ctl> -O forward`), to the same `.remote/laptop.doors/` names. An ssh session that came from one of
+the laptop's addresses (`SSH_CONNECTION`) reaches the laptop's door first (`ep0ch where`'s rule `ssh`), so a
+reference clicked in a Claude seen in a laptop door's terminal tile opens in that door. This is transport; its
+journey is `packages/door/test/remote-doors.test.ts`, on three scratch machines, not a showcase tile.
 
 ## Installing over the link
 

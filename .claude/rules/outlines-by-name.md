@@ -39,6 +39,11 @@ it before changing it.
   started by the first client that needs it. Clients name the transport they used. `<outlines>/.remote/<ssh-name>.json`
   (`{ "outlines": "/abs/folder" }`) names that machine's outlines folder when its own `ep0ch status` isn't the host
   to reach. `EP0CH_SOCKET` names any host's socket outright, the low-level escape hatch.
+- A door running on another machine is `--remote <machine>` (never `--machine`, which names where an outline is).
+  Agents' commands (`peek`, `act`, `open`, `snap`, `actions`) and `session list --machine` reach it through the link
+  that carries its doors (PIE-1242, `src/remote-doors.ts` in the door): this machine's link, else the machine
+  `.remote/<machine>.json`'s `via` names, its sockets forwarded over that machine's existing ssh connection. Nothing
+  guesses a `via`: a machine no link carries runs the command there over ssh, as `--remote` always has.
 
 ## Creating one
 

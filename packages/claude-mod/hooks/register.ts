@@ -561,8 +561,8 @@ export function register(on: On, options: PluginOptions): void {
     // in: only in a door tile, where EP0CH_CONTROL names it.
     $.clock.after(0, () => void (async () => {
       // Offered when a door is reachable (PIE-715): EP0CH_CONTROL, or, for a Claude that does not descend from a tile
-      // (a background job, a resumed session), the door of the folder's outline, by `ep0ch where`'s own resolution.
-      const door = (await $.env.get('EP0CH_CONTROL'))?.trim() || (await whereLoad)?.facts?.reach?.control
+      // (a background job, a resumed session), the door of the folder's outline, by `ep0ch where`'s own resolution; or another machine's (PIE-1242).
+      const facts = (await whereLoad)?.facts, door = (await $.env.get('EP0CH_CONTROL'))?.trim() || facts?.reach?.control || facts?.elsewhere?.length
       const tools = [...(show === 'failed' ? [SHOW_TOOL] : []), ...WORK_TOOLS, ...OUTLINE_TOOLS, COMPONENTS_TOOL, BIND_TOOL, ...(door ? DOOR_TOOLS : [])]
       for (const tool of tools) {
         // The core ones in the prompt's tool list, not behind tool search (PIE-721): what a session reads and writes notes with.
@@ -763,8 +763,8 @@ export function register(on: On, options: PluginOptions): void {
 
   for (const tool of DOOR_TOOLS) {
     on('tool.call', { tool: `mcp__ep0ch__${tool.name}` }, async ($, e) => {
-      const reached = await doorReachFor($)
-      if (!reached.control) return { deny: `No door is reachable from here: ${reached.text}` }
+      const reached = typeof (e as Record<string, unknown>).remote === 'string' ? { control: '', text: '' } : await doorReachFor($)  // remote: through the link (PIE-1242)
+      if (reached.control === null) return { deny: `No door is reachable from here: ${reached.text}${tool.name === 'door_peek' || tool.name === 'door_act' ? " (another machine's door: give remote, its ssh name; `ep0ch where` lists them)" : ''}` }
       const control = reached.control
       const checked = checkedInput(tool, e as Record<string, unknown>)
       if (typeof checked === 'string') return { deny: checked }

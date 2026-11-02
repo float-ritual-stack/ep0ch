@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { isMachineName, outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { connectLink, linkStatus, serveLink, linkInstallSummary, type LinkInstallResult } from "@ep0ch/outliner/link";
+import { DOOR_KEY, doorKey, type LinkDoor } from "@ep0ch/outliner/link-doors";
 import { checkLinkServer, linkKey, linkKeyGroup, readLinkConfig, writeLinkConfig } from "@ep0ch/outliner/link-config";
 
 export async function installLinkedSha(sha: string): Promise<LinkInstallResult> {
@@ -20,6 +21,33 @@ export async function installLinkedSha(sha: string): Promise<LinkInstallResult> 
   const sessions = [...(changed ? first.report.steps : []), ...report.steps].filter((s: { id: string }) => s.id === "session");
   const installedCommit = (await run(["git", "-C", resolve(import.meta.dir, "../../.."), "rev-parse", "HEAD"])).out;
   return { sha, code, commit: installedCommit, notDone: report.notDone, notes: report.notes, sessions, error: report.error || (code !== 0 ? err || undefined : undefined) };
+}
+
+/**
+ * The door sessions on this machine, as the link announces them (PIE-1242), and where each one's control socket is:
+ * the machine at the other end gives each a local end, so its agents peek and act here as on a door of their own.
+ */
+/** `root`: the state dir whose sessions they are (the default: this one's). */
+export function linkDoorSessions(root?: string) {
+  let controls = new Map<string, string>();
+  return {
+    async list(): Promise<LinkDoor[]> {
+      const { runningSessions } = await import("./session/place");
+      const doors: LinkDoor[] = [], next = new Map<string, string>();
+      for (const { info } of await runningSessions(root)) {
+        if (!info.control || info.place.socket) continue;
+        const key = doorKey(info.place.outline, info.place.machine);
+        if (!DOOR_KEY.test(key) || next.has(key)) continue;
+        next.set(key, info.control);
+        const attached = info.clients.filter(c => !c.watch);
+        doors.push({ key, outline: info.place.outline, ...(info.place.machine ? { machine: info.place.machine } : {}), idle: attached.length ? Math.min(...attached.map(c => c.idle)) : null, clients: attached.length, screen: info.screen });
+      }
+      // Swapped in at once: a stream that opens while the sessions are read finds the last list, never none.
+      controls = next;
+      return doors.sort((a, b) => a.key.localeCompare(b.key));
+    },
+    socket: (key: string) => controls.get(key) ?? null,
+  };
 }
 
 async function openOnMac(url: string): Promise<void> {
@@ -38,6 +66,26 @@ export async function runLink(args: string[]): Promise<number> {
       if (config?.mode !== "connect" || extra.length !== 1 || !["on", "off"].includes(extra[0]!)) throw new Error("ep0ch link auto-install on|off (on the connecting machine)");
       writeLinkConfig(outlines, { ...config, autoInstall: extra[0] === "on" });
       console.log(`Link auto-install ${extra[0]}.`);
+      return 0;
+    }
+    // The doors a link carries (PIE-1242): `doors <machine>` lists the ones whose link lands here (what another machine
+    // asks before forwarding them, src/remote-doors.ts); `via <machine> <ssh-name>` says which machine a link lands on.
+    if (op === "doors") {
+      const [machine] = extra;
+      if (!machine || extra.length !== 1 || !isMachineName(machine)) throw new Error("ep0ch link doors <machine> [--json]");
+      const { readLinkDoors } = await import("@ep0ch/outliner/link-doors");
+      const { linkStates } = await import("@ep0ch/outliner/link");
+      if (!linkStates(outlines).some(s => s.machine === machine)) throw new Error(`${machine}'s link isn't up on this machine · ep0ch link status`);
+      const record = readLinkDoors(outlines, machine) ?? { machine, addresses: [], doors: [], at: Date.now() };
+      console.log(values.json ? JSON.stringify(record) : record.doors.length ? record.doors.map(d => `${d.key}\t${d.control}`).join("\n") : `no door runs on ${machine}`);
+      return 0;
+    }
+    if (op === "via") {
+      const [machine, via] = extra;
+      if (!machine || !via || extra.length !== 2 || !isMachineName(machine) || (via !== "none" && !isMachineName(via))) throw new Error("ep0ch link via <machine> <ssh-name of the machine its link lands on> (none: forget it)");
+      const { setDoorsVia } = await import("./remote-doors");
+      const file = setDoorsVia(machine, via === "none" ? null : via);
+      console.log(via === "none" ? `${machine}'s doors: no longer through another machine (${file}).` : `${machine}'s doors: through ${via}'s link (${file}). Try: ep0ch session list --machine ${machine}`);
       return 0;
     }
     if (extra.length) throw new Error("link takes one operation");
@@ -66,9 +114,10 @@ export async function runLink(args: string[]): Promise<number> {
     const log = (line: string) => console.error(line);
     const commit = (await run(["git", "-C", resolve(import.meta.dir, "../../.."), "rev-parse", "HEAD"])).out;
     let installed = () => {};
+    const doors = linkDoorSessions();
     const running = config.mode === "serve"
       ? serveLink({ outlines, port: config.port, keys: Object.fromEntries(await Promise.all(config.machines.map(async m => [m, await linkKey(m)]))), log, onResult: async (machine, result, deploy) => { log(linkInstallSummary(machine, result)); await recordLinkInstall(deploy, machine, result); } })
-      : connectLink({ server: config.server, machine: config.machine, key: await linkKey(config.machine), commit, install: installLinkedSha, autoInstall: () => { const c = readLinkConfig(outlines); return c?.mode === "connect" && c.autoInstall !== false; }, onInstalled: () => installed(), open: openOnMac, host: outlineLayout(outlines).socket, statusPath: join(outlines, ".host/link-state.json"), log });
+      : connectLink({ server: config.server, machine: config.machine, key: await linkKey(config.machine), commit, install: installLinkedSha, autoInstall: () => { const c = readLinkConfig(outlines); return c?.mode === "connect" && c.autoInstall !== false; }, onInstalled: () => installed(), open: openOnMac, host: outlineLayout(outlines).socket, doors: doors.list, doorSocket: doors.socket, statusPath: join(outlines, ".host/link-state.json"), log });
     await new Promise<void>(resolve => {
       const stop = () => { void running.stop(); resolve(); };
       installed = stop;
