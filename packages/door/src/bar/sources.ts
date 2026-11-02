@@ -27,7 +27,7 @@ import { formFields, SELECTOR } from "./form";
 import { actionLead, actionPage } from "../surface/action-page";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
-import { openNote, registerBarSource } from "./source";
+import { openNote, QUERY_SCOPE, registerBarSource } from "./source";
 import { extensionList, extensionParts, PART_KINDS, partKind, scriptActions, scriptNamed, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
 import { AGENTS } from "./ask-agent";
@@ -189,7 +189,7 @@ async function addressedRows(to: NonNullable<ReturnType<typeof addressOf>>, host
 
 const NOTES: BarSource = {
   id: "notes", title: "notes", prefix: "/", by: "door", asks: true,
-  about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up, saying how sure it is (\"no strong match\" when the top isn't); a second / (//words) also has Jev read every note's title for ones the words missed (PIE-1200); ⏎ opens one where opens land, alt+⏎ in a new detail; alt+m or a right-click on a hit is its menu: copy its id, reference or web link (note.copy-ref)",
+  about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words, titles first and nothing drawn over them (= first for a query line instead; with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up, saying how sure it is (\"no strong match\" when the top isn't); a second / (//words) also has Jev read every note's title for ones the words missed (PIE-1200); ⏎ opens one where opens land, alt+⏎ in a new detail; alt+m or a right-click on a hit is its menu: copy its id, reference or web link (note.copy-ref)",
   main: { empty: false, typed: true, most: 10 },
   async rows(q, host, _scope, signal) {
     const where = host.where?.();
@@ -204,8 +204,8 @@ const NOTES: BarSource = {
     if (to) return addressedRows(to, host);
     if (!q.trim()) return recentNotes(host);
     // `//words` (a second /): the deep search, by meaning; the words' hits first, Jev's after the pause.
+    // One letter searches too (PIE-1497): `P` lists the notes whose titles start with it, as the matcher ranks them.
     const words = q.replace(/^\//, "").trim();
-    if (words.length < 2) return [];
     return searchRows(await host.ctx.board.search(words, 30, { near: host.near() ?? undefined, signal }), words);
   },
   later(q, rows, host, signal) {
@@ -227,6 +227,26 @@ const NOTES: BarSource = {
     if (data?.query !== undefined && data.rank !== undefined && how.actor.kind === "user") host.ctx.board.searchPicked(data.query, row.key, data.rank, "power-bar");
     return openNote(row.key, host, how, data?.fragment);
   },
+};
+
+/**
+ * `=`: a query line over the notes (PIE-1497). Typed first in the main list or in /notes, its words get the query-words
+ * offer on every keystroke (`grammar: "query"`: Tab accepts, the line becomes the query) and the line is run as a query, the
+ * notes it selects as the notes source's rows; one the service refuses says why on the line. It's the opt-in Evan asked for ("maybe if
+ * i was leading the input with a ?"): plain words in /notes search titles with nothing over them.
+ */
+const QUERY: BarSource = {
+  id: QUERY_SCOPE, title: "query", prefix: "=", from: ["notes"], by: "door", asks: true,
+  about: "the notes a query in the views' grammar selects (type=job AND work-stage=doing); words typed here are offered as a query (Tab accepts), so = is how to ask for query words instead of a title search",
+  main: { empty: false, typed: false },
+  async rows(q, host, _scope, signal) {
+    // Anything typed is sent as the query (`#frost-jobs` is one): what the service refuses is said on the bar's line.
+    const where = q.trim();
+    if (!where) return [];
+    return (await host.ctx.board.queryNotes(where, 30, undefined, signal)).notes.map(noteRow);
+  },
+  preview: (row, host) => NOTES.preview(row, host),
+  pick: (row, host, how) => NOTES.pick(row, host, how),
 };
 
 /** An action's first plain key (not a gesture, not a chord), for its keycap. */
@@ -600,6 +620,6 @@ const EXTENSIONS: BarSource = {
 };
 
 /** The door's own sources, in the order the bar's tabs show them. */
-export const BUILT_IN_SOURCES = [TILES, NOTES, ACTIONS, RECENT, SCREENS, AGENTS, EXTENSIONS] as const;
+export const BUILT_IN_SOURCES = [TILES, NOTES, ACTIONS, RECENT, SCREENS, AGENTS, EXTENSIONS, QUERY] as const;
 for (const s of BUILT_IN_SOURCES) registerBarSource(s);
 

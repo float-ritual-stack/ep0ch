@@ -84,6 +84,8 @@ export interface BarSource {
   prefix: string;
   /** Its prefix stays on the line as typed instead of scoping the bar (`@`, an ask line: its words complete as any line's do). */
   inline?: true;
+  /** The scopes its prefix also enters from, typed first on their empty line (`=` from /notes, PIE-1497); the main list always. */
+  from?: readonly string[];
   /** What it lists, for `bar.open`'s answer and the bar's foot. */
   about: string;
   /** Its rows join the main list (no scope chosen): with nothing typed (`empty`), and as the person types (`typed`). */
@@ -129,6 +131,9 @@ export interface BarSource {
    */
   command?(row: BarRow, host: BarHost): string | null;
 }
+
+/** The `=` scope's id: a query line over the notes it selects (PIE-1497). */
+export const QUERY_SCOPE = "query";
 
 const sources: BarSource[] = [];
 let changed: () => void = () => {};

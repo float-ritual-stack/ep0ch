@@ -15,6 +15,11 @@ are its record. The outliner's entries from then are kept below, under
 - **Keys show at once:** a key or a click from a terminal proves it is alive: whatever frames it hasn't answered are taken and the latest paints right then. Mouse motion doesn't count, so a drag over a slow link still gets the latest frame and never a queue (PIE-1163 stands).
 - **A lost answer costs a few round trips, not 5 s:** a frame is given up on after four of that terminal's own measured round trips (never under 300 ms, never over 5 s), and a late answer is never set against a frame given up on: before, two answers truly lost froze the terminal for another 5 s every two frames, forever (the mini's tab at 81 timeouts).
 - **An answer cut in two by the reads counts:** `ESC [ 0` in one read and `n` in the next was dropped as an unknown sequence and the frame went unanswered; and half an answer no longer takes the keys from the other terminal. `ep0ch peek --json` shows `speed.clients[].ackJoined`, how often it happened, as evidence for the terminal that splits them.
+### Words in the power bar jump to a note again (PIE-1497)
+
+- **Search:** in the main list and `/notes`, words search titles with nothing drawn over the results: ↑↓ ⏎ are the list's. One letter lists the titles that start with it.
+- **Query words on purpose:** `=` typed first (from the main list or `/notes`) is the query scope: its words get the query-words offer (Tab accepts) and a line that parses lists the notes it selects. A line that already reads as a query (`type=job AND`, `by:loki`) gets the offer in `/notes` too. An act line still completes its arguments.
+- **Verdict:** a search whose words start or appear in a title says no "no strong match": the titled notes stay first, Jev's order below them, and the footer says only "jev ranked". `ep0ch find` says "title match: …".
 - **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
 
 ### A `::use` template steps and tabs like the page's own text (PIE-1492, #1165)
