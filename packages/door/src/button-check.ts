@@ -140,12 +140,16 @@ export function describeButtonMarks(marks: readonly ButtonMark[], max = 2): stri
 /**
  * The `::button` a `button.slot` names among a note's `buttons` (read now, from the service), and the slot: by `line` (from 1),
  * else `label`, else the one with a slot. A line that moved since the press asked (a line written above it, PIE-1518) is found
- * by its slot when one button has it. A refusal says what's there.
+ * by its label and slot when one button has both; a button gone is refused, never swapped for another. A refusal says what's there.
  */
 export function slotButton(buttons: readonly ButtonCall[], a: { line?: number; label?: string; key?: string }): { button: ButtonCall; key: string } | { refused: string } {
   const has = (b: ButtonCall, key: string) => b.slots.some(s => s.key === key);
-  const atLine = a.line !== undefined ? buttons.filter(b => b.line === a.line! - 1) : [];
-  const moved = a.key !== undefined && a.line !== undefined && !atLine.some(b => has(b, a.key!)) ? buttons.filter(b => has(b, a.key!)) : [];
+  // With line= and label= (a pick's answer carries both), the button is the one with that label: on its line, else (its line moved)
+  // the one button with that label and slot. Gone, or no longer one, is refused: never another button that has a slot of that name.
+  const same = (b: ButtonCall) => a.label === undefined || b.label === a.label;
+  const atLine = a.line !== undefined ? buttons.filter(b => b.line === a.line! - 1 && same(b)) : [];
+  const moved = a.label !== undefined && a.key !== undefined && a.line !== undefined && !atLine.some(b => has(b, a.key!)) ? buttons.filter(b => b.label === a.label && has(b, a.key!)) : [];
+  if (a.label !== undefined && a.line !== undefined && !atLine.length && moved.length !== 1) return { refused: `the button "${a.label}" ${moved.length ? `is on ${moved.length} lines now` : "isn't in this note any more"}: nothing was written; press it again` };
   const hits = a.line !== undefined ? (moved.length === 1 ? moved : atLine) : a.label !== undefined ? buttons.filter(b => b.label === a.label || b.label.toLowerCase().includes(a.label!.toLowerCase())) : buttons.filter(b => b.slots.length);
   const names = buttons.filter(b => b.slots.length).map(b => `line ${b.line + 1} "${b.label}" (${b.slots.map(s => s.key).join(", ")})`).join("; ");
   if (!hits.length) return { refused: `no ${a.line !== undefined ? `button on line ${a.line}` : a.label !== undefined ? `button called "${a.label}"` : "button with a slot"} in this note; ${names ? `buttons with slots: ${names}` : "none has a slot (a button with act=\"… tile={target}\" target= has one)"}` };

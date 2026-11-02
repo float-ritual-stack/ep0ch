@@ -4830,14 +4830,14 @@ export class NoteSurface {
     const tile = messageContext.getStore()?.tile;
     // The keys still to ask go with the answer (a re-pick asks filled slots too, so they can't be read again from `empty`).
     const later = keys.slice(1), rest = `${later.length ? ` next=${later.join(",")}` : ""}${run ? " run=true" : ""}`;
-    const then = `button.slot note=${block} line=${line} key=${key}${rest}${tile ? ` --tile ${tile}` : ""}`;
+    const then = `button.slot note=${block} line=${line} label=${JSON.stringify(button.label)} key=${key}${rest}${tile ? ` --tile ${tile}` : ""}`;
     const what = keys.length > 1 ? `${key} (${button.slots.findIndex(s => s.key === key) + 1} of ${button.slots.length})` : key;
     if (q?.kind === "tile") {
       host.ctx.flash(`${button.label}: choose a tile for ${key}`);
       return d.act({ action: "tile.pick", args: { then, prompt: `${button.label}: choose a tile for ${what}` }, ...(tile ? { tile } : {}) }, actor);
     }
     return askInBar(host.ctx as never, `${button.label}: ${what}`, [q ?? { name: "value", type: "text", label: key, free: true, required: true }], {}, actor,
-      answers => d.act({ action: "button.slot", args: { note: block, line, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}), ...(run ? { run: true } : {}) }, ...(tile ? { tile } : {}) }, actor));
+      answers => d.act({ action: "button.slot", args: { note: block, line, label: button.label, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}), ...(run ? { run: true } : {}) }, ...(tile ? { tile } : {}) }, actor));
   }
 
   /**
@@ -11012,7 +11012,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: {
       note: { type: "string", optional: true, about: "the note the button is written in (a block id; default the one shown)" },
       line: { type: "number", optional: true, about: "the line of the button, from 1 (the note's text; with note=)" },
-      label: { type: "string", optional: true, about: "or: the button's label (or part of it)" },
+      label: { type: "string", optional: true, about: "or: the button's label (or part of it); with line=, its whole label: a moved line is found by it, a gone button refused" },
       key: { type: "string", optional: true, about: "the slot (the word on the line a {key} fills); default the first empty one" },
       value: { type: "string", optional: true, about: "what it holds: a tile's name, id or drawer.agent; a note's id; any text. Left out, the person is asked" },
       ask: { type: "boolean", optional: true, about: "after this, ask for the next empty slot of the same button (the person's)" },

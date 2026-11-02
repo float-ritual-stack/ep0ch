@@ -115,6 +115,33 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await board.update(note, m.text.split("\n").filter(l => l !== added).join("\n"), m.revision!);
   });
 
+  // PIE-1518 review: the button the picker asked for is gone (an agent took its line out) while another button has a slot of
+  // the same name. The answer is refused with why; the other button is neither written nor run.
+  test("a pick for a button that is gone is refused; another button with the same slot is left alone", async () => {
+    const note = seeded.notes.pickATile.id, probe = '::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}';
+    const other = '::button{label="other one" act="tile.zoom tile={target} reach=column" target=}';
+    let m = (await board.get(note))!;
+    const original = m.text.replace(/^::button\{label="pop it".*$/m, probe);
+    await board.update(note, original, m.revision!);
+    await untilAsync(async () => !!(desk().pane("notes") as any)?.msg?.text?.includes(probe), "the reader on the empty slot");
+    expect((await act("button.press", { note, label: "pop it" })).picking).toBe("tile");
+    // While the picker is open, an agent swaps the button for another one with a target slot.
+    m = (await board.get(note))!;
+    await board.update(note, m.text.replace(probe, other), m.revision!);
+    const links = (await act("tile.info", {}, "links", AGENT)).tile as string;
+    let refused = "";
+    try {
+      const chose = await act("tile.pick", { to: "links" });
+      if (chose?.picking === "which") await act("tile.pick", { value: links });
+    } catch (e) { refused = (e as Error).message; }
+    await Bun.sleep(300);
+    expect((await text()).split("\n").find(l => l.includes('label="other one"'))).toBe(other);
+    expect(lifted()).toBe(false);
+    if (refused) expect(refused).toContain("pop it");
+    m = (await board.get(note))!;
+    await board.update(note, m.text.replace(other, probe), m.revision!);
+  });
+
   // PIE-1518: ⏎ with the reading line (j k) on a button's block presses it, as ] then ⏎ did; the hint says so.
   test("the reading line on a button: ⏎ presses it, no ] first", async () => {
     const { press, ch } = h;
