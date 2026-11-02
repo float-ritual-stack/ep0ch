@@ -121,6 +121,11 @@ author reads them once before opening it.
 
 ### 1. Architecture pass
 
+- **Extension first:** could this be an extension (a rule note, a script, an extension folder) on the parts that
+  exist? If it's in core, the PR names the primitive that was missing (a hook, an event, a placement) and adds that
+  primitive to core with the behaviour as its first user, so the behaviour can move out later. A brief asks it before
+  building; a review asks it before merging. (Evan, Nov 2: "feels like this is a question everything should be
+  getting asked", after the glass shipped in core.)
 - **Reuse:** does the change use the shared part for each need? For the door, cite the row of
   [Before adding a feature](packages/door/docs/UI-GRAMMAR.md#before-adding-a-feature). For the outliner, it builds
   on the existing renderers, components and actions: PreviewRegions (`src/detail-preview-regions.ts`), the
