@@ -47,17 +47,21 @@ describe.skipIf(!outliner)("a click on a hint segment does what its key does (PI
     app.push(new MainMenu());
   }, 30_000);
 
+  // A desk ends with its programs (the daily desk's tail -f): one left running is kept for D (Desk.resume), and the next
+  // file's desk in this process would be it.
+  const end = async (s: any) => {
+    for (const p of s.panes?.values?.() ?? []) p.kill?.();
+    if (s instanceof Desk) await until(() => !s.holdsPrograms(), "its programs ended");
+    s.dispose?.();
+  };
   const leave = async () => {
-    while (stack().length > 1) {
-      const s = stack().pop();
-      for (const p of s.panes?.values?.() ?? []) p.kill?.();
-      s.dispose?.();
-    }
+    while (stack().length > 1) await end(stack().pop());
     app.strips.close();
     (app as any).bar?.close?.(); (app as any).bar = null;
   };
   afterAll(async () => {
     await leave();
+    await end(Desk.resume());
     board?.close();
     await scratch.dispose();
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR"]) delete process.env[k];

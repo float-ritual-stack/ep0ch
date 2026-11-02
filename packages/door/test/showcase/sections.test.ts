@@ -134,6 +134,14 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     await until(() => /i \d+ properties · \[comment\]\s*█?│?[^\n]*\n[^\n]*\n[^\n]*│ +#allotment #beds +█/.test(screen()), "the tag row under the byline", 5000);
   });
 
+  test("the note section's BBS reader answers its own actions in its tile, as its n next click runs them (PIE-1293)", async () => {
+    ch("1");
+    await until(() => marks.note!.every(m => screen().includes(m)), "the note section");
+    // One message in its list: the step is the reader's own answer, never "nothing here answers".
+    const out = await app.act({ action: "message.next", tile: "exhibit", as: "test-agent" }).then(r => JSON.stringify(r), e => String(e.message));
+    expect(out).not.toMatch(/nothing here answers/);
+  });
+
 
   test("the note section keeps home paths and approximations literal, and strikes only double tildes (PIE-899)", async () => {
     (app as any).lastInput = 0;

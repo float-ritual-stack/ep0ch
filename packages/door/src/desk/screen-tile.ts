@@ -27,6 +27,7 @@ import type { Placement } from "../kitty";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { NOBODY } from "../whereabouts";
 import { ActionRefused, actionSet, def } from "../surface/actions";
+import type { Dispatcher } from "../surface/dispatch";
 import { FramedScreen } from "../showcase/frame";
 import { C, fg, paint } from "../style";
 import { ch, type Key } from "../term";
@@ -323,6 +324,9 @@ export class FillingTile implements Pane {
 
 /** The screens a mount can hold: every registered one but the desk itself (it holds mounts) and the logon's home base. */
 const mountable = (): string[] => screenNames().filter(n => n !== "desk" && n !== "home");
+
+/** A tile's mounted screen's dispatcher: its kind's, or an exhibit's (the showcase's BBS reader, an unregistered kind), so act and clicks reach it. */
+export const mountDispatch = (p: Pane, kind: TileKind | undefined): Dispatcher | null => kind?.dispatcher?.(p) ?? (p instanceof ScreenTile ? p.dispatch : null);
 
 /** The mount kinds: `screen` (any screen, a part, a group), and the board and river by their own older kinds. */
 export function mountKinds(): TileKind[] {
