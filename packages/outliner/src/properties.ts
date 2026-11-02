@@ -1,7 +1,9 @@
+export { matchesFilters, normalizePropertyKey } from "@ep0ch/outline-core/query-properties";
 import { codeFenceOpen } from "@ep0ch/outline-core/code-fence";
 import { scanLiteralRegions } from "@ep0ch/outline-core/code-ranges";
-import { HASHTAG_VALUE_PATTERN, PROPERTY_KEY_PATTERN, isHexColour, isWritablePropertyValue, propertyValueHolds } from "@ep0ch/outline-core/property-grammar";
+import { HASHTAG_VALUE_PATTERN, isHexColour, isWritablePropertyValue, propertyValueHolds } from "@ep0ch/outline-core/property-grammar";
 import { PROPERTY_PARSER_VERSION, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { normalizePropertyKey } from "@ep0ch/outline-core/query-properties";
 import type {
   BlockProperty,
   PropertyFilter,
@@ -24,12 +26,6 @@ export function previewPropertyParse(text: unknown): PropertyParsePreview {
   };
 }
 
-
-export function normalizePropertyKey(key: string): string {
-  const normalized = key.trim();
-  if (!PROPERTY_KEY_PATTERN.test(normalized)) throw new Error(`Invalid property key: ${key}`);
-  return normalized.toLowerCase();
-}
 
 export function validateProperty(key: string, value: string): BlockProperty {
   const normalizedKey = normalizePropertyKey(key);
@@ -148,22 +144,6 @@ export function matchingPropertyRecords(
     filters.some(
       (filter) =>
         (property.key === filter.key || filter.key === "tag" && property.key === "tags") &&
-        (filter.value === undefined || valueMatches(property.value, filter.value)),
-    )
-  );
-}
-
-export function matchesFilters(
-  properties: readonly (BlockProperty | PropertyRecord)[],
-  filters: readonly PropertyFilter[],
-  propertyScope: PropertyQueryScope = "block",
-): boolean {
-  // Asked of every note on each query and view read: no arrays made per note.
-  return filters.every((filter) =>
-    properties.some(
-      (property) =>
-        (property.key === filter.key || filter.key === "tag" && property.key === "tags") &&
-        (propertyScope === "all" || ("scope" in property ? property.scope : "block") === propertyScope) &&
         (filter.value === undefined || valueMatches(property.value, filter.value)),
     )
   );

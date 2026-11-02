@@ -146,6 +146,7 @@ export interface ExtensionAgentEntry {
 }
 
 export interface ExtensionEntry {
+  readonly facetSources?: ExtensionManifest["facetSources"];
   readonly script?: { readonly keys: readonly string[]; readonly line?: number; readonly blockId?: string; readonly file?: string; readonly code: string };
   readonly id: string;
   readonly name?: string;
@@ -603,6 +604,7 @@ export class ExtensionRegistry {
             options: handler.options ?? {},
             ...(handler.staleAfter ? { staleAfter: handler.staleAfter } : {}),
           })) : [],
+        facetSources: serving ? extension.manifest.facetSources : undefined,
         actions: serving ? this.actionsOf(extension) : [],
         tiles: serving ? this.tilesOf(extension) : [],
         agents: serving ? (extension.manifest.agents ?? [])

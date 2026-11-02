@@ -396,6 +396,6 @@
     "packages/outliner/src/server.ts": 5074,
     "packages/outliner/src/store.ts": 6485,
     "packages/outliner/src/tree-controller.ts": 3251,
-    "packages/outliner/src/types.ts": 3011
+    "packages/outliner/src/types.ts": 2974
   }
 }

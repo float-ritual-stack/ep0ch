@@ -28,6 +28,7 @@ export const TRAIL_KEYS: readonly ModeKey[] = keyTable("trail", "the day's trail
   row("k", "trail.pick", "pick", { by: -1 }), row("up", "trail.pick", "pick", { by: -1 }),
   row("enter", "trail.open", "where it was"), row("o", "trail.here", "open here"), row("s", "trail.save", "save branch"),
   row("f", "trail.fold", "fold flips"), row("/", "trail.search", "search"), row("t", "trail.view", "view"),
+  row("S", "trail.facets", "facets over the trail"),
   row("a", "trail.agents", "agents"), row("delete", "trail.forget", "forget branch"),
   row("esc", "tile.close", "close"), row("q", "tile.close", "close"),
 ]);
@@ -106,6 +107,12 @@ const visitArg = { visit: { type: "string", optional: true, about: "visit id; de
 const menu = (label: string, key: string) => ({ label, key, group: "Trail" });
 
 export const TRAIL_ACTIONS = actionSet<KindHost>()("trail", {
+  "trail.facets": def({
+    summary: "Open facets over the trail: narrow visits by dwell, day, method or any property",
+    menu: menu("facets over the trail", "S"), touches: "shape", replay: "safe", args: {},
+    examples: [{ act: "trail.facets tile=trail", does: "opens the facets tile over visits" }],
+    run(_, { pane, desk }, actor) { return desk.within!("facets.trail", {}, actor, pane); },
+  }),
   "trail.pick": def({ examples: [{ act: "trail.pick tile=trail n=2", does: "selects the first visit below the day heading" }], summary: "Pick a visit without opening it", touches: "tile", replay: "safe",
     args: { n: { type: "number", optional: true, about: "row from 1" }, by: { type: "number", optional: true, about: "rows to move" } },
     run({ n, by }, { pane, desk }) { const p = paneOf(pane), rows = p.rows(desk); p.pick(rows, n !== undefined ? n - 1 : p.picked(rows) + (by ?? 1)); p.scroll.reveal(); desk.redraw(); return { at: p.picked(rows) + 1 }; } }),

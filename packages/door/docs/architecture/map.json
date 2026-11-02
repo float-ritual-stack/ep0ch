@@ -188,12 +188,12 @@
     {
       "id": "svc.query", "name": "Query language and saved views", "group": "service", "chapter": "outline", "ladder": "shared", "dependsOn": ["svc.store", "svc.grammar", "svc.atoms"],
       "does": "A saved view is a block whose query picks other blocks: the board's lanes, Tree's virtual branches. views.read evaluates it; query.expression and query.matches answer ad-hoc questions.",
-      "built": "block-query.ts parses property filters and hands the relation and text atoms (#tag, links:, under:, title~, text~) to outline-core's query-atoms.ts; the server answers views.read and query.matches from the store. The door's port of this language is deleted: its query tiles ask views.read.",
+      "built": "outline-core's query-expression.ts parses and evaluates property, relation and text atoms; query-facets.ts counts values for both the service and local facet sources. block-query.ts normalizes service requests; views.read and query.matches answer from the store. The facets tile uses the same grammar for trail and extension rows.",
       "refs": [
-        { "r": "outliner", "p": "src/block-query.ts", "l": 332, "m": "export function parsePropertyFilterExpression" },
+        { "r": "outliner", "p": "../outline-core/src/query-expression.ts", "l": 314, "m": "export function parsePropertyFilterExpression" },
         { "r": "outliner", "p": "src/server.ts", "l": 2969, "m": "case \"views.read\"" },
         { "r": "outliner", "p": "src/server.ts", "l": 2988, "m": "case \"query.matches\"" },
-        { "r": "outliner", "p": "src/block-query.ts", "l": 8, "m": "@ep0ch/outline-core/query-atoms" }
+        { "r": "outliner", "p": "../outline-core/src/query-expression.ts", "l": 7, "m": "parseQueryAtom" }
       ]
     },
     {
@@ -896,11 +896,11 @@
     {
       "id": "svc.atoms", "name": "Query atoms", "group": "service", "chapter": "outline", "ladder": "shared", "dependsOn": ["svc.grammar"],
       "does": "The relation and text atoms of the query grammar: #tag, links:, under:, title~ and text~. One place says what an atom looks like and what a malformed one is told; every atom combines with AND, OR, NOT and parentheses like key=value does.",
-      "built": "outline-core's query-atoms.ts is pure (parseQueryAtom, QUERY_ATOM_HELP, tagMatches); the service's block-query.ts calls it and evaluates the result against the reference index, the tree and the text. A change to what an atom matches bumps PROTOCOL.",
+      "built": "outline-core's query-atoms.ts is pure (parseQueryAtom, QUERY_ATOM_HELP, tagMatches); query-expression.ts calls it and the service evaluates the result against the reference index, the tree and the text. A change to what an atom matches bumps PROTOCOL.",
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/query-atoms.ts", "l": 160, "m": "export function parseQueryAtom" },
         { "r": "outliner", "p": "../outline-core/src/query-atoms.ts", "l": 59, "m": "export const QUERY_ATOM_HELP" },
-        { "r": "outliner", "p": "src/block-query.ts", "l": 8, "m": "parseQueryAtom" }
+        { "r": "outliner", "p": "../outline-core/src/query-expression.ts", "l": 7, "m": "parseQueryAtom" }
       ]
     },
     {

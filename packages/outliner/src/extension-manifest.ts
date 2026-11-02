@@ -435,6 +435,9 @@ const ManifestV2 = Type.Object(
     tiles: Type.Optional(Type.Array(Tile, { maxItems: 8 })),
     agents: Type.Optional(Type.Array(Agent, { maxItems: 8 })),
     rules: Type.Optional(Type.Array(RuleSchema, { maxItems: 16 })),
+    facetSources: Type.Optional(Type.Array(Type.Object({
+      id: ID, title: Type.String(), read: ID,
+    }, { additionalProperties: false }))),
     /** Sources of rows (PIE-1340): for the power bar (a `prefix`), completion (`triggers`), or both; `source` answers. */
     sources: Type.Optional(Type.Array(SourceSchema, { maxItems: 8 })),
     /** Component schemas (`@ep0ch/outline-core/component-schema`), checked by its `componentSchemaProblem`. */
@@ -752,6 +755,10 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     const id = (component as { id: string }).id;
     if (componentIds.has(id)) throw new ExtensionLoadError(`extension.json: components/${index}/id ${id} is declared twice`);
     componentIds.add(id);
+  }
+  for (const source of manifest.facetSources ?? []) {
+    const action = manifest.actions?.find(a => a.id === source.read);
+    if (!action || action.on !== "outline" || action.effects !== "read") throw new ExtensionLoadError(`facet source ${source.id} needs a read action on outline: ${source.read}`);
   }
   const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0 || barIds.size > 0;
   if (needsRun && !manifest.run && !script) throw new ExtensionLoadError("extension.json: handlers, actions, agents, sources and rules that decorate with code need run (the program each call starts)");
