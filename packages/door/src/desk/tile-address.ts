@@ -16,7 +16,8 @@
 import { ActionRefused } from "../surface/actions";
 
 /** How a caller reads an address beyond the address: `program`: the tile a program runs in, by what it was told; `from`: the tile the request acts from (for `^`). */
-export interface ResolveOpts { program?: true; from?: string }
+/** `shown`: only the tiles on the desks shown now (the drawer's and the screen's), never one on a screen behind: where an open lands. */
+export interface ResolveOpts { program?: true; from?: string; shown?: true }
 
 export type TileAddress =
   | { kind: "id"; id: string; text: string }

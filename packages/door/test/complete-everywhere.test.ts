@@ -203,7 +203,7 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
     line.take(K("esc"));
   });
 
-  test("the board's composer: a property key and ((, reading the docs then inserting with one click", async () => {
+  test("the board's composer: a property key and ((, reading the docs, then a click previews and a second inserts", async () => {
     const b = boardScreen(hub.id), B: any = BV.view(b);
     app.push(b);
     try {
@@ -224,7 +224,11 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
       click(key, lines[docsY]!.indexOf("Canes along the fence."), docsY);
       expect(completionOf(d)!.picked).toBeFalsy();
       expect(d.text).toEndWith(" ((stake");
+      // A click lights the row and previews it; a second click on the lit row inserts (PIE-1511, RowPresses).
       click(key, lines[y]!.indexOf("Stake the beans"), y);
+      expect(d.text).toEndWith(" ((stake");
+      const again = screen(), y2 = again.findIndex(l => l.includes("Stake the beans") && l.includes("»"));
+      click(key, again[y2]!.indexOf("Stake the beans"), y2);
       await until(() => d.text.endsWith(`((${beans.id}))`), "the clicked candidate");
       key(K("esc")); key(K("esc"));
     } finally { app.pop(); }
@@ -278,7 +282,10 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
       expect(lines.join("\n")).toContain("properties 1/1");
       const y = lines.findIndex(l => /» done/.test(l));
       expect(y).toBeGreaterThan(0);
-      click(key, lines[y]!.indexOf("done"), y);
+      click(key, lines[y]!.indexOf("done"), y);                             // lights and previews it (PIE-1511)
+      expect(f.input.text).toBe("d");
+      const again = screen(), y2 = again.findIndex(l => /» done/.test(l));
+      click(key, again[y2]!.indexOf("done"), y2);                           // the second click on the lit row inserts
       await until(() => f.input.text === "done", "the clicked value");
       key(ctrl("u")); type("[[se");
       await until(() => completionOf(f.input)?.target.kind === "page" && !completionOf(f.input)!.loading && completionOf(f.input)!.items.length > 0, "the pages");
@@ -313,7 +320,10 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
       const lines = screen();
       const y = lines.findIndex(l => /» (queued|done)/.test(l));
       expect(y).toBeGreaterThan(0);
-      click(key, lines[y]!.indexOf("»") + 3, y);
+      click(key, lines[y]!.indexOf("»") + 3, y);                            // lights and previews it (PIE-1511)
+      expect(col.input.text).toBe("stage:");
+      const again = screen(), y2 = again.findIndex(l => /» (queued|done)/.test(l));
+      click(key, again[y2]!.indexOf("»") + 3, y2);                          // the second click on the lit row inserts
       await until(() => /^stage:(queued|done)$/.test(col.input.text), "the clicked value");
       key(K("enter"));                                                       // no popup now: ⏎ applies the filter
       expect(col.mode).toBe("");
