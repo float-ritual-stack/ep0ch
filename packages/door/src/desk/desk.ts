@@ -7356,11 +7356,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const [id, r] = hit, p = this.panes.get(id), at = this.origin(id, r);
     if (p instanceof ScreenTile) return p.inner?.hoverAt(x - at.col, y - at.row) ?? null;
     const reader = p instanceof ReaderPane ? p : null, h = reader?.surface.hoverAt(x - at.col, y - at.row);
-    // A cut-short value in the tile's content or its header title; other frame rows (bottom border, hint row) are chrome and never answer (PIE-1499).
-    // A collection's own words (its controls, a cut cell) still preview as text: being over the collection names it, and is no target.
+    // A cut-short value in the tile's content or its header title; other frame rows (bottom border, hint row) are chrome and never answer (PIE-1499). A collection's own words (its controls, a cut cell) still preview as text: being over it names the collection, and is no target.
     const cut = !h?.target && (this.inBody(id, r, x, y) || y === r.row) ? this.ctx.overflow?.targetAt(x + this.screenOrigin.col, y + this.screenOrigin.row) : null;
-    if (cut) return { desk: this, tile: this.nameOf(id), ...(h?.collection ? { collection: h.collection } : {}), ...cut };
-    return h ? { desk: this, tile: this.nameOf(id), ...(h.target ? { target: { ...reader!.noteAddress, ...h.target } } : {}), collection: h.collection, rect: { ...h.rect, col: h.rect.col + at.col + this.screenOrigin.col, row: h.rect.row + at.row + this.screenOrigin.row } } : null;
+    return cut ? { desk: this, tile: this.nameOf(id), ...(h?.collection ? { collection: h.collection } : {}), ...cut } : h ? { desk: this, tile: this.nameOf(id), ...(h.target ? { target: { ...reader!.noteAddress, ...h.target } } : {}), collection: h.collection, rect: { ...h.rect, col: h.rect.col + at.col + this.screenOrigin.col, row: h.rect.row + at.row + this.screenOrigin.row } } : null;
   }
   async hoverInto(tile: string, m: Msg): Promise<boolean> { return !!this.placeNote(m, { from: this.tile(tile).id, verb: "hover", note: m.id, keys: false }, USER); }
   /** `float.place`: move or size a float, kept on the screen. */
