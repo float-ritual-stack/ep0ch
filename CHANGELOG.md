@@ -10,6 +10,10 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Dragging the drawer's edge makes no post-it, and ◇ says its mode (PIE-1499)
+
+- **Drag:** resting on or dragging the drawer's top edge with the glass on no longer opens a post-it holding the edge row's own text. No hover resolves while a mouse button is down, and chrome (the drawer's bar, hint rows, the status bar, a tile's bottom border) is never a glass target; a note's links, cut-off text in a tile and a tile's cut-off title still are. `glass.clear` (alt+U, alt-click ◇) removes post-its already made.
+- **Mode:** clicking ◇ or pressing alt+u says the new mode on the status line ("glass on · hover a link to peek", "glass sticky · each hover stays as a post-it", "glass off"), and the chip reads the mode.
 ### The door keeps painting on the mini: a lost frame answer never freezes the screen (PIE-1500)
 
 - **Keys show at once:** a key or a click from a terminal proves it is alive: whatever frames it hasn't answered are taken and the latest paints right then. Mouse motion doesn't count, so a drag over a slow link still gets the latest frame and never a queue (PIE-1163 stands).
