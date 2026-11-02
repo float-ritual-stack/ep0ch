@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A misread button says the one-action-per-line form; a lift button drops on the next press (PIE-1298)
+
+- A `::button` whose `act=` a nested quote cuts short runs nothing and says what to write: `::button{label="zoom"}`, the action on its own line as you meant it, then `::`. This also catches a quote that cut off a word the button reads (`tone=red"`), which ran a shortened action before. The kitchen sink's **pick-a-tile** section shows the form beside the misread button.
+- A note's button that lifts a tile (`tile.zoom tile={target} reach=column`, the pop it button) now drops it on the next click or ⏎. The click outside the lift dropped it and the press lifted it again; the status bar's buttons were already fixed this way.
+- **Run:** `ep0ch install --apply`. GRAMMAR moves by one (a button line reads differently); no protocol or schema change.
+
 ### Tile edges have room to breathe (PIE-1282)
 
 - The screen saves `gap` (0–8) and `inset` in cells. Set them with `^W P` on screen, or `act layout.policy gap=1 inset=1`; the layout places every tile inside that spacing. The kitchen sink’s **spacing** section shows 0, 1 and 2 by key, click and act.
