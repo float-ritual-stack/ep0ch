@@ -306,6 +306,14 @@ describe('door tools', () => {
     expect(at.argv).toEqual(['ep0ch', 'act', 'view.scrollTo', 'text=@-', '--as', 'garden-agent/claude-code@garden-host'])
     expect(at.init?.stdin).toBe('@request tidy')
 
+    // Another machine's door (PIE-1242): the same command with --remote, through the link that carries it.
+    await $.tool.call({ tool: 'mcp__ep0ch__door_peek', remote: 'box-a', ws: 'garden' })
+    expect(session.runs.findLast(run => run.argv[1] === 'peek')!.argv).toEqual(['ep0ch', 'peek', '--remote', 'box-a', '--ws', 'garden'])
+    await $.tool.call({ tool: 'mcp__ep0ch__door_act', action: 'block.mark', args: { id: NOTE }, remote: 'box-a' })
+    expect(session.runs.findLast(run => run.argv[1] === 'act')!.argv).toEqual(['ep0ch', 'act', 'block.mark', `id=${NOTE}`, '--as', 'loki/claude-code@garden-host', '--remote', 'box-a'])
+    expect((await $.tool.call({ tool: 'mcp__ep0ch__door_peek', ws: 'garden' })).deny).toContain("give remote too")
+    expect((await $.tool.call({ tool: 'mcp__ep0ch__door_peek', remote: '-oProxyCommand=x' })).deny).toContain("remote is a machine's ssh name")
+
     // door_open is the same open as a click or `show`: the CLI's door-open from this tile, as the agent.
     const opened = await $.tool.call({ tool: 'mcp__ep0ch__door_open', id: `((${NOTE}))` })
     expect(opened).toMatchObject({ result: "Showing Seed swap plan in the door's middle reader." })

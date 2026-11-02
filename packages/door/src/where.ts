@@ -67,6 +67,11 @@ export interface Where {
     stale: string | null;
   };
   keys: WhereKeys;
+  /**
+   * Doors running on other machines that this one reaches through a machine link (PIE-1242), as last heard (nothing is
+   * started to list them): `ep0ch peek --remote <machine>` reaches one, `ep0ch session list --machine <machine>` asks again.
+   */
+  elsewhere: { machine: string; via: string | null; doors: string[] }[];
   /** One line for an agent's context. */
   summary: string;
 }
@@ -92,6 +97,8 @@ export interface WhereDeps {
   cwd?(): string;
   /** The persona this process writes as (outline-core's sessionPersona); left out: none. */
   persona?(): SessionPersona | undefined;
+  /** Doors on other machines reachable through a link, as last heard (src/remote-doors.ts); left out: none. */
+  elsewhere?(): Promise<Where["elsewhere"]>;
 }
 
 /** `peek` on a control socket; null when nothing answers in `timeoutMs`. Reads only. */
@@ -137,6 +144,14 @@ export const realDeps = (): WhereDeps => {
     herdr: bin ? herdrRunner(bin, 3000) : null,
     alive, ttyExists: t => existsSync(`/dev/${t}`), ancestors: procAncestors,
     hostname, cwd: () => process.cwd(),
+    elsewhere: async () => {
+      const { doorMachines, machineDoors } = await import("./remote-doors");
+      const rows = await Promise.all(doorMachines().map(async machine => {
+        const r = await machineDoors(machine, process.env, { forward: false });
+        return "error" in r ? { machine, via: null, doors: [] } : { machine, via: r.via ?? null, doors: r.doors.map(d => d.key) };
+      }));
+      return rows;
+    },
     persona: () => sessionPersona({ env: process.env, folder: process.cwd(), fs: { readFile: p => { try { return readFileSync(p, "utf8"); } catch { return undefined; } }, exists: existsSync } }),
   };
 };
@@ -269,13 +284,20 @@ export async function where(d: WhereDeps): Promise<Where> {
     ? { mine: true, typing: true, tile: null, text: "the person is in the door's shell (the door waits under it until it exits)" }
     : keysOf(peek, desk, door, paneList, env);
   const reach = { rule: (via ? via.rule : inDoor ? "control" : "none") as DoorResolution["rule"], text: via ? via.text : inDoor ? "reached the door on EP0CH_CONTROL" : "no door to reach" };
-  const summary = summaryOf(nest, layers, keys, inDoor, door?.stale ?? null, via);
+  const elsewhere = d.elsewhere ? await d.elsewhere().catch(() => []) : [];
+  const summary = [summaryOf(nest, layers, keys, inDoor, door?.stale ?? null, via), elsewhereText(elsewhere)].filter(Boolean).join(" · ");
   const here = { machine: d.hostname?.() || null, folder: d.cwd?.() || null, persona: d.persona?.() ?? null };
   const innerHerdr = herdrs.at(-1);
   const pane = innerHerdr ? herdrPane(innerHerdr.pane) : null;
   const herdr = innerHerdr ? { pane: innerHerdr.pane, label: typeof pane?.label === "string" && pane.label ? pane.label : null } : null;
   const source = sourceCheckout();
-  return { source, ...(!source ? { sourceNote: NO_SOURCE } : {}), inDoor, reach, recorded, nest, here, herdr, layers, door, keys, summary };
+  return { source, ...(!source ? { sourceNote: NO_SOURCE } : {}), inDoor, reach, recorded, nest, here, herdr, layers, door, keys, elsewhere, summary };
+}
+
+/** The doors on other machines, in one line: what an agent reads to answer "which door?" (PIE-1242). */
+export function elsewhereText(rows: Where["elsewhere"]): string | null {
+  if (!rows.length) return null;
+  return `doors on other machines: ${rows.map(r => `${r.machine}${r.via ? ` (through ${r.via}'s link)` : ""}: ${r.doors.length ? r.doors.join(", ") : "none heard yet"}`).join("; ")} · \`ep0ch peek --remote <machine> [--ws <outline>]\` reaches one, \`ep0ch session list --machine <machine>\` asks again`;
 }
 
 function tileLayer(id: string | null, name: string, t: NonNullable<Where["door"]>["tile"], peek: any, desk: any, moved: boolean): WhereLayer {
@@ -334,7 +356,7 @@ const MARK = (live: boolean | null) => (live === true ? "✓" : live === false ?
 
 export function formatWhere(w: Where): string {
   const out = [w.nest ? `you are in: ${w.nest}` : "you are in: (no layers recorded: EP0CH_NEST is unset and no ssh or Herdr is seen)"];
-  if (w.reach.rule === "folder" || w.reach.rule === "only") out.push(w.reach.text);
+  if (w.reach.rule === "folder" || w.reach.rule === "only" || w.reach.rule === "ssh") out.push(w.reach.text);
   else {
     if (!w.inDoor) out.push("not in a door");
     if (w.reach.rule === "none" && w.reach.text !== "no door to reach") out.push(`no door to reach: ${w.reach.text}`);
@@ -350,6 +372,8 @@ export function formatWhere(w: Where): string {
     const words = { free: "free", edit: "edit only", off: "hands off" } as const;
     out.push(`agents may: ${[ag.default ? `the screen is ${words[ag.default]}` : null, ...ag.tiles.map(t => `${t.tile} is ${words[t.level]}${t.by !== "tile" ? ` (from ${t.by})` : ""}`)].filter(Boolean).join("; ")} · tile.agent policy=free tile=<tile> frees one (the person's command)`);
   }
+  const others = elsewhereText(w.elsewhere ?? []);
+  if (others) out.push(others);
   if (w.here.machine || w.here.folder) out.push(`this runs on ${w.here.machine ?? "this machine"}${w.here.folder ? ` in ${w.here.folder}` : ""}`);
   if (w.here.persona) out.push(`an agent here writes as ${w.here.persona.name} (${w.here.persona.source === "file" ? `agent in ${w.here.persona.file}` : w.here.persona.source})`);
   if (w.source) {

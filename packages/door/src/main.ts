@@ -77,6 +77,28 @@ if (args[0] === "door") {
   if ("error" in d) { console.error(`ep0ch: ${d.error}`); process.exit(2); }
   process.exit(await carryDoor(d.machine, sshDoorArgv(d.machine, d.outline), d.again));
 }
+// An agent's command at the door running on another machine (`ep0ch peek --remote laptop [--ws pie]`, PIE-1242): through
+// the link that carries that machine's doors (src/remote-doors.ts), its control socket answers here, so peek, act and
+// the rest run as they do for a door on this machine, attributed, never with the person's keys. A machine no link
+// carries goes on below, as before: ssh runs the command there.
+if (["peek", "snap", "open", "actions", "act", "subscribe", "trace"].includes(args[0] ?? "") && args.includes("--remote")) {
+  const r = remoteOf(args);
+  if (r && "error" in r) { console.error(`ep0ch: ${r.error}`); process.exit(2); }
+  const { doorMachines, reachMachineDoor } = await import("./remote-doors");
+  if (r && doorMachines().includes(r.machine)) {
+    const value = (flag: string) => { const i = r.rest.indexOf(flag); return i >= 0 ? r.rest[i + 1] : undefined; };
+    const reached = await reachMachineDoor(r.machine, { outline: value("--ws"), machine: value("--machine") });
+    if ("error" in reached) {
+      if (args[0] === "open" && args.includes("--json")) { console.log(JSON.stringify({ opened: false, reason: reached.error })); process.exit(0); }
+      console.error(`ep0ch: ${reached.error}`); process.exit(1);
+    }
+    if (process.env.EP0CH_VERBOSE === "1") console.error(`ep0ch: ${r.machine}'s door on ${reached.door.key}${reached.via ? ` (through ${reached.via}'s link)` : " (through its link)"}`);
+    process.env.EP0CH_CONTROL = reached.control;
+    delete process.env.EP0CH_PLACE;
+    const rest = r.rest.filter((a, i, all) => !["--ws", "--machine"].includes(a) && !["--ws", "--machine"].includes(all[i - 1] ?? ""));
+    process.exit(await controlClient(rest, {}));
+  }
+}
 // --remote <machine>: the door runs there; this terminal only carries it (src/machine.ts).
 // An outline the machine doesn't have is never made there without --create (PIE-545): nameRemoteOutline asks it first,
 // and the home base here offers the choices; the one on this machine opens a door here instead.

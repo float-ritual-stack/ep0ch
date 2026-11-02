@@ -1,16 +1,27 @@
 import { connect, type Socket } from "node:net";
 import { ACK, CLOSE, DATA, OPEN, frame, readFrame } from "./link-frame";
 
+/**
+ * What a stream the other end opens reaches here: the empty target is the outline host, `door:<key>` a door session's
+ * control socket (PIE-1242). Null: nothing here by that name, and the stream is closed at once.
+ */
+export type LinkTarget = (target: string) => string | null;
+
 /** Each direction has one chunk in flight per stream. ACK follows the destination's drain. */
 export class LinkStreams {
   private streams = new Map<number, { socket: Socket }>();
   private next = 1;
   private closed = false;
-  constructor(private send: (bytes: Buffer) => void, private host?: string) {}
-  open(socket: Socket) {
+  private resolve: LinkTarget | undefined;
+  /** `host`: the outline host's socket here (the connector's side), or a resolver for every target it serves. */
+  constructor(private send: (bytes: Buffer) => void, host?: string | LinkTarget) {
+    this.resolve = typeof host === "string" ? (t => (t === "" ? host : null)) : host;
+  }
+  /** A local connection carried to the other end, to its outline host or to `target` there. */
+  open(socket: Socket, target = "") {
     const id = this.next++;
     this.attach(id, socket);
-    this.send(frame(OPEN, id));
+    this.send(frame(OPEN, id, Buffer.from(target)));
   }
   private attach(id: number, socket: Socket) {
     const stream = { socket };
@@ -27,8 +38,10 @@ export class LinkStreams {
   receive(bytes: Buffer) {
     const { op, id, data } = readFrame(bytes);
     if (op === OPEN) {
-      if (!this.host || this.streams.has(id)) throw new Error("unexpected link stream");
-      this.attach(id, connect(this.host));
+      if (!this.resolve || this.streams.has(id)) throw new Error("unexpected link stream");
+      const path = this.resolve(data.toString());
+      if (!path) { this.send(frame(CLOSE, id)); return; }
+      this.attach(id, connect(path));
       return;
     }
     const stream = this.streams.get(id);

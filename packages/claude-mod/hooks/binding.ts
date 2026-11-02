@@ -39,14 +39,15 @@ export function whereFactsOf(stdout: string): WhereFacts | null {
   if (!w || typeof w !== 'object' || typeof w.inDoor !== 'boolean') return null
   const door = w.door && typeof w.door === 'object' ? w.door : null
   const herdr = w.herdr && typeof w.herdr === 'object' && str(w.herdr.pane) ? w.herdr : null
-  const rules = ['control', 'folder', 'only', 'none']
+  const rules = ['control', 'ssh', 'folder', 'only', 'none']
   const reach = w.reach && typeof w.reach === 'object' && rules.includes(w.reach.rule)
-    ? { rule: w.reach.rule as 'control' | 'folder' | 'only' | 'none', text: str(w.reach.text) ?? '', control: door?.answers === true ? str(door.control) : null }
+    ? { rule: w.reach.rule as NonNullable<WhereFacts['reach']>['rule'], text: str(w.reach.text) ?? '', control: door?.answers === true ? str(door.control) : null }
     : null
   return {
     source: w.source ?? null,
     inDoor: w.inDoor,
     ...(reach ? { reach } : {}),
+    ...(Array.isArray(w.elsewhere) && w.elsewhere.length ? { elsewhere: w.elsewhere.map((e: any) => str(e?.machine)).filter(Boolean) } : {}),
     here: { machine: str(w.here?.machine), folder: str(w.here?.folder), persona: personaOf(w.here?.persona) },
     herdr: herdr ? { pane: str(herdr.pane)!, label: str(herdr.label) } : null,
     door: door ? {
