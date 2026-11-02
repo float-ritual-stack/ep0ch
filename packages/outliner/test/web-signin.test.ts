@@ -530,10 +530,10 @@ test("signed in, a Sources download is a file behind the sign-in: named, typed, 
   const table = await homeClient.request<Block>({ action: "create", parentId: survey.id, text: "Tallies\n::graph-table\n---\nquery: kind=tally\n---\n::", mutation: { author: "user" } } as never);
   const page = await (await at(gate, `/pub/p/${table.id}`, { cookie })).text();
   const href = /href="([^"]+_sources\/[^"]+\.json)"/.exec(page)?.[1];
-  expect(href).toBe(`/pub/p/${table.id}/_sources/1/graph-table.json`);
+  expect(href).toBe(`/pub/p/${table.id}/_sources/1/Collection.json`);
   const file = await at(gate, href!, { cookie, headers: { accept: "*/*" } });
   expect(file.status).toBe(200);
-  expect(file.headers.get("content-disposition")).toBe('attachment; filename="graph-table.json"');
+  expect(file.headers.get("content-disposition")).toBe('attachment; filename="Collection.json"');
   expect(JSON.stringify(await file.json())).toContain("Hawk-moth tally");
   expect((await at(gate, href!, { headers: { accept: "application/json" } })).status).toBe(401);
 });

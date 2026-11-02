@@ -471,39 +471,39 @@ test("published Sources exposes query, transform and downloadable visible rows",
   expect(html).toContain("Query");
   expect(html).toContain("Transform");
   expect(html).toContain("Result");
-  expect(html).toContain('download="graph-table.csv"');
-  expect(html).toContain('download="graph-table.json"');
+  expect(html).toContain('download="Collection.csv"');
+  expect(html).toContain('download="Collection.json"');
   // On a phone (PIE-1409): the downloads sit right under the source's name, not inside its Result, each a 44 px tap target.
   const entry = /<details class="source-entry"[^>]*><summary>[\s\S]*?<\/summary>\s*<p class="source-downloads">([\s\S]*?)<\/p>/.exec(html)?.[1] ?? "";
-  expect(entry).toContain('download="graph-table.csv"');
+  expect(entry).toContain('download="Collection.csv"');
   expect(html).toMatch(/<details class="source-entry"[^>]* open><summary>/);
-  expect(entry).toContain('download="graph-table.json"');
+  expect(entry).toContain('download="Collection.json"');
   expect(html).toMatch(/\.source-downloads a[^{]*\{[^}]*min-height:44px/);
   // A real URL, not a data: link a phone saves into a folder nobody sees (PIE-1383): the file, named, behind the note's own gate.
   expect(html).not.toContain('href="data:');
   // The source is named by its key in the note (the line it starts on) and its name, never its place in the list.
-  const route = /href="([^"]+\/_sources\/[^"]+\.json)" download="graph-table.json"/.exec(html)?.[1];
-  expect(route).toBe(`/share/p/${note.id}/_sources/4/graph-table.json`);
+  const route = /href="([^"]+\/_sources\/[^"]+\.json)" download="Collection.json"/.exec(html)?.[1];
+  expect(route).toBe(`/share/p/${note.id}/_sources/4/Collection.json`);
   const file = await publisher.handle(new Request(`http://127.0.0.1${route}`), "public");
   expect(file.status).toBe(200);
   expect(file.headers.get("content-type")).toBe("application/json; charset=utf-8");
-  expect(file.headers.get("content-disposition")).toBe('attachment; filename="graph-table.json"');
-  expect(await file.json()).toEqual([{ id: shown.id, title: "Sow peas [crop::peas] [publish::public]" }]);
-  const csv = await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/4/graph-table.csv`), "public");
+  expect(file.headers.get("content-disposition")).toBe('attachment; filename="Collection.json"');
+  expect(await file.json()).toEqual([{ id: shown.id, title: "Sow peas" }]);
+  const csv = await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/4/Collection.csv`), "public");
   expect(csv.headers.get("content-type")).toBe("text/csv; charset=utf-8");
   expect(await csv.text()).not.toContain("PRIVATE_HARVEST");
   expect(html).toContain(shown.id);
   expect(html).not.toContain(hidden.id);
   expect(html).not.toContain("PRIVATE_HARVEST");
   // Nothing past the panel's sources, and nothing of a note the public can't open.
-  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/9/graph-table.json`), "public")).status).toBe(404);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/9/Collection.json`), "public")).status).toBe(404);
   expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/4/graph-other.json`), "public")).status).toBe(404);
   const closed = store.create("Kept close\n::graph-table\n---\nquery: crop=peas\n---\n::");
-  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${closed.id}/_sources/1/graph-table.json`), "public")).status).toBe(404);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${closed.id}/_sources/1/Collection.json`), "public")).status).toBe(404);
   // Locked, it's gone from the owner's pages too.
   const locked = store.create("Locked [publish::never]\n::graph-table\n---\nquery: crop=peas\n---\n::");
-  expect((await publisher.handle(new Request(`http://127.0.0.1/p/${locked.id}/_sources/1/graph-table.json`))).status).toBe(404);
-  expect((await publisher.handle(new Request(`http://127.0.0.1/p/${closed.id}/_sources/1/graph-table.json`))).status).toBe(200);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/p/${locked.id}/_sources/1/Collection.json`))).status).toBe(404);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/p/${closed.id}/_sources/1/Collection.json`))).status).toBe(200);
 });
 
 
