@@ -94,8 +94,8 @@ export interface DeskApi {
   hasEditPreviewTile?(r: ReaderPane): boolean;
   editPreviewTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Tile `p`'s attachment `attachment` (a facets tile's Matches, PIE-1443) in a tile of its own beside it (`on`), or that tile closed. */
-  attachedTile?(p: Pane, attachment: "matches", on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
-  hasAttachedTile?(p: Pane, attachment: "matches"): boolean;
+  attachedTile?(p: Pane, attachment: "matches" | "settings", on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
+  hasAttachedTile?(p: Pane, attachment: "matches" | "settings"): boolean;
   hasSourcesTile?(r: ReaderPane): boolean;
   sourcesTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Reader `r`'s trail in a tile beside it (PIE-1425), or the one already open with the keys back in it; null when the layout can't place one. */
@@ -197,7 +197,7 @@ export interface DeskApi {
    * screen without one, a links tile opens below the reader with a preview following it. The person's keys go to
    * the list; an agent's leaves them where they are.
    */
-  openLinks?(r: Pane, actor: Actor, standing: boolean): Promise<Record<string, unknown>>;
+  openLinks?(r: Pane, actor: Actor, standing: boolean, ancestor?: Msg): Promise<Record<string, unknown>>;
   /** A new tile of `t.kind` in tile `tile`'s place, which goes (the blank tile's rows, PIE-565). */
   replaceTile?(tile: string | undefined, t: { kind: string; view?: string; cmd?: string; name?: string }, actor: Actor): Promise<Record<string, unknown>>;
   /** The person picks what a new tile of `kind` lacks from its kind's `choices` (a query lane's view); `then` opens it. */
@@ -544,6 +544,7 @@ export class ReaderPane implements Pane, AttachedOwner {
     return { ...host, attachment: "list-preview", enterMode: () => { desk.focusPane?.(this, USER); host.enterMode?.(); } };
   }
   attachedView(a: Attachment, w: number, h: number, _focused: boolean, desk: DeskApi): PaneView | null {
+    if (a === "settings") return this.surface.settingsTile(w, h);
     if (a === "edit-preview") return this.surface.editPreviewTile(w, h, this.host(desk));
     if (a === "list-preview") return this.surface.listPreviewTile(w, h, this.host(desk));
     if (a === "sources") return this.surface.sourcesTile(w, h);
@@ -552,6 +553,7 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   attachedKey(a: Attachment, k: Key, desk: DeskApi): boolean {
     if (a === "matches") return false;
+    if (a === "settings") { this.surface.attachedKeys(a); return this.surface.key(k, { ...this.host(desk), attachment: a }); }
     if (a === "edit-preview") {
       if (!this.surface.editPreviewKey(k, { ...this.host(desk), attachment: "edit-preview" })) void desk.perform?.("tile.focus", {}, USER, this);
       return true;
@@ -571,6 +573,7 @@ export class ReaderPane implements Pane, AttachedOwner {
     return true;
   }
   attachedTitle(a: Attachment, source: string): string {
+    if (a === "settings") return `settings · ${source}`;
     if (a === "edit-preview") return `edit preview · ${source}`;
     if (a === "list-preview") return `list children · ${source}`;
     if (a === "sources") return `sources · ${source}`;
@@ -578,7 +581,7 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   attachedHint(a: Attachment): string { return a === "matches" ? "" : a === "list-preview" ? "list children · click placement chip to move · click text to edit" : this.surface.attachmentHint(a); }
   attachedSide(a: Attachment, side: AttachedSide, desk: DeskApi): void {
-    void this.surface.runKey(a === "edit-preview" ? "edit.preview.place" : a === "list-preview" ? "list.preview.place" : a === "sources" ? "sources.place" : "comment.place", { side }, this.host(desk), true);
+    void this.surface.runKey(a === "settings" ? "settings.place" : a === "edit-preview" ? "edit.preview.place" : a === "list-preview" ? "list.preview.place" : a === "sources" ? "sources.place" : "comment.place", { side }, this.host(desk), true);
   }
   attachedSideWords(): string { return "the note's"; }
 
@@ -616,8 +619,6 @@ export class ReaderPane implements Pane, AttachedOwner {
       // A #tag opened in it: the notes carrying it, in a list beside it (PIE-800).
       ...(desk.openQuery ? { query: (q: string, how?: OpenHow) => desk.openQuery!(this, q, how?.by ?? USER, how?.standing) } : {}),
       ...(desk.openTag ? { tag: (t: string, how?: OpenHow) => desk.openTag!(this, t, how?.by ?? USER, how?.standing) } : {}),
-      // A click on the crumbs shows the note in the outline (reader.reveal, PIE-794): readers of a screen with one.
-      ...(desk.revealInOutline ? { revealInOutline: () => runOwn(READER_ACTIONS, "reader.reveal", {}, { pane: this, desk }) } : {}),
       // alt+D (PIE-1247): the desk's element.detach on this reader, which places the new tile.
       detach: () => runOwn(READER_ACTIONS, "element.detach", {}, { pane: this, desk }),
       // A row picked in a list drawn in the note shows where this reader's selection goes (PIE-794).
@@ -639,6 +640,7 @@ export class ReaderPane implements Pane, AttachedOwner {
       ...(desk.editPreviewTile ? { hasEditPreviewTile: () => !!desk.hasEditPreviewTile?.(this), editPreviewTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.editPreviewTile!(this, on, side) } : {}),
       ...(desk.trailTile ? { trailTile: () => desk.trailTile!(this) } : {}),
       ...(desk.sourcesTile ? { hasSourcesTile: () => !!desk.hasSourcesTile?.(this), sourcesTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.sourcesTile!(this, on, side) } : {}),
+      ...(desk.attachedTile ? { hasSettingsTile: () => !!desk.hasAttachedTile?.(this, "settings"), settingsTile: (on: boolean, side?: AttachedSide) => desk.attachedTile!(this, "settings", on, side) } : {}),
       ...(desk.composerTile ? { composerTile: (on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down") => desk.composerTile!(this, on, keys, side), hasComposerTile: () => !!desk.hasComposerTile?.(this) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
       ...(desk.press ? {
@@ -773,6 +775,7 @@ export class ReaderPane implements Pane, AttachedOwner {
 
   key(k: Key, desk: DeskApi): boolean {
     const start = this.readOnly && !this.holdsKeys ? sessionStart(k) : null;
+    if (this.holdsKeys || this.surface.claims(k)) return this.surface.key(k, this.host(desk));
     if (start) { const why = this.refuses(start); if (why) { desk.ctx.flash(why); return true; } }
     if (this.pinnable && !this.editing && !this.surface.typingFilter && ch(k) === "p") { runOwn(READER_ACTIONS, "reader.pin", {}, { pane: this, desk }); return true; }
     if (this.pinnable && !this.editing && ch(k) === "P") { this.pickSource(desk); return true; }
@@ -1079,13 +1082,24 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
   }),
   "reader.reveal": def({
     summary: "show a reader's note in the outline (tile=<a reader>, default the focused one): the outline's cursor moves to its row, unfolding what's over it, and its dock slides open if it's shut, as the outliner's Tree's r does. Nothing else moves: the reader, its pin and the keys stay. A held reader's own navigation never moves the outline (PIE-794); this finds where it is. The person's: the outline's cursor is theirs",
-    keys: "alt+r in a reader, a click on its crumbs (the path above the title)",
+    keys: "alt+r in a reader; alt+click on a breadcrumb",
     touches: "tile", replay: "safe", person: "the outline's cursor is the person's; an agent reads where a note sits with outline_read or peek",
     menu: { label: "show in the outline", group: "Reader", key: "alt+r", now: ({ pane }) => (!pane.msg ? { refused: "nothing in that reader to find in the outline" } : null) },
     args: {},
     run(_, { pane, desk }) {
       if (!desk.revealInOutline) throw new ActionRefused("this screen has no outline to show it in");
       return desk.revealInOutline(pane);
+    },
+  }),
+  "reader.crumb": def({
+    summary: "breadcrumb: show its links; aim the links tile at this ancestor, keeping the reader and keys where they are",
+    words: "show a breadcrumb's links",
+    keys: "click a breadcrumb; [ ] then enter", touches: "nothing", replay: "safe",
+    args: { id: { type: "string", about: "the ancestor's note id" } },
+    async run({ id }, { pane, desk }, actor) {
+      const m = await pane.host(desk).ctx.board.get(id);
+      if (!m || !desk.openLinks) throw new ActionRefused("that breadcrumb is no longer in this outline");
+      return desk.openLinks(pane, actor, true, m);
     },
   }),
   "reader.follow": def({

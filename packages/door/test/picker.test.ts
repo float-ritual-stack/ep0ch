@@ -42,12 +42,12 @@ describe("a list picker", () => {
   test("its drawn foot follows the input and Esc clears before closing", () => {
     const input = new LineField("garden");
     const { p, draw } = picker(3, { input, escClears: true });
-    expect(p.hint()).toContain("esc clear filter");
+    expect(visible(p.hint())).toContain("esc clear filter");                 // the hint is a strip: its key and label are styled apart
     p.key({ kind: "esc" }, null);
     expect(input.text).toBe("");
     expect(p.ended()).toBe(false);
     expect(draw().join("\n")).toContain("type to filter");
-    expect(p.hint()).toContain("esc close");
+    expect(visible(p.hint())).toContain("esc close");
     p.key({ kind: "esc" }, null);
     expect(p.ended()).toBe(true);
   });

@@ -64,7 +64,7 @@ describe("the ^W key table", () => {
     expect(drawn.spots.find(s => s.key === "d" && s.action)).toMatchObject({ line: 2, action: "changes.diff" });
     // ^W's own d is still there, as the key after ^W; the foot says the tile's keys are typed once the panel is closed.
     expect(drawn.spots.filter(s => s.key === "d" && !s.action)).toHaveLength(1);
-    expect(panelFoot([], true)).toContain("esc close: then this tile's keys are its own");
+    expect(plain(panelFoot([], true))).toContain("esc close: then this tile's keys are its own");
     expect(panelFoot([])).not.toContain("this tile");
   });
 });

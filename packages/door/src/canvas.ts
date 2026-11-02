@@ -1,4 +1,4 @@
-import { clipText, FULL_END } from "./overflow";
+import { clipText, fullText, fullValue, selectFullText, FULL_END } from "./overflow";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { rowLines } from "./text";
 // A cell grid the desk composes into: panes, borders and floating overlays all write here,
@@ -113,6 +113,21 @@ export class Canvas {
   private cells: Cell[][];
   constructor(readonly cols: number, readonly rows: number) {
     this.cells = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ ch: " ", sgr: "" })));
+  }
+
+  /** A vertical strip uses the same cells and hit markers as its horizontal row. */
+  column(col: number, row: number, text: string, rows: number): void {
+    const strip = new Canvas(rows, 1);
+    strip.text(0, 0, text, rows);
+    for (let y = 0; y < rows && row + y < this.rows; y++) {
+      const source = strip.cells[0]![y]!;
+      // A dock edge is one column: neither half of a wide glyph can occupy it alone.
+      const cell = glyphWidth(source.ch) === 1 ? source : { ...source, ch: " " }, full = cell.full ? fullValue(cell.full) : null;
+      if (full?.strip) {
+        const mark = fullText(full.text, "", full.lit, { ...full.strip, vertical: true }, full.tab).slice(0, -FULL_END.length);
+        this.put(this.cells[row + y]!, col, { ...cell, full: full.selected ? selectFullText(mark) : mark });
+      } else this.put(this.cells[row + y]!, col, cell);
+    }
   }
 
   /**

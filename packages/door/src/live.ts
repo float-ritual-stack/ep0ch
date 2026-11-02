@@ -12,9 +12,7 @@ import { propertyListOf } from "./props";
 import { recordProperties } from "@ep0ch/outline-core/block-record";
 import { watchedOn, type Watching } from "./watched";
 import type { QuestionGroup } from "@ep0ch/outline-core/protocol";
-import { figureRow } from "@ep0ch/outline-core/figure-markdown";
-import { headerLine } from "@ep0ch/outline-core/header-line";
-import type { Row } from "@ep0ch/outline-core/figure-props";
+import { figureChildRows, type Row } from "@ep0ch/outline-core/figure-props";
 import { askProps, asksPerItem, figureQuestion, liveAsk, liveProps, liveStatus, type FigureItem } from "@ep0ch/outline-core/figure-live";
 import type { SiteLink, SiteProduced, SiteProducer } from "@ep0ch/outline-core/site";
 export { NONE } from "@ep0ch/outline-core/figure-live";
@@ -120,10 +118,7 @@ export function childRows(note: string, site?: LiveSite): { rows: Row[]; waiting
   if (!board) return null;
   const read = siteProduced(note, { kind: "children" }, site)!;
   const items = ((read.value as Extract<SiteProduced, { kind: "children" }> | undefined)?.blocks ?? []) as unknown as Msg[];
-  // Each child's header line without its chips and their ` - ` (outline-core's reading, as its title is made); a
-  // child with no text isn't a row.
-  const rows = items.flatMap(m => { const prose = headerLine(m.text).prose.trim(); return prose ? [{ ...figureRow(prose), block: m.id }] : []; });
-  return { rows, waiting: read.state === "loading" };
+  return { rows: figureChildRows(items), waiting: read.state === "loading" };
 }
 
 /** A result as outline-core's live figures read it. */

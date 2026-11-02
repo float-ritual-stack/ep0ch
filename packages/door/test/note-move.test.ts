@@ -223,8 +223,8 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     app.push(list);
     await until(() => list.listRows()?.length === 2, "reply rows");
     const foot = list.render(list.ctx!).lines.map(visible).at(-1)!;
-    expect(foot).toContain(modeHint(LIST_MOVE_KEYS.filter(row => row.key !== "Z"), () => undefined));
-    expect(foot).toContain(modeHint(LIST_MOVE_KEYS.filter(row => row.key === "Z"), () => undefined));
+    expect(foot).toContain(visible(modeHint(LIST_MOVE_KEYS.filter(row => row.key !== "Z"), () => undefined)));   // the hint is a strip, read as drawn
+    expect(foot).toContain(visible(modeHint(LIST_MOVE_KEYS.filter(row => row.key === "Z"), () => undefined)));
     letter("J");
     await untilOrder(parent.id, "Beta reply,Alpha reply");
     expect(list.listRows()?.map(r => r.id)).toEqual([beta.id, alpha.id]);

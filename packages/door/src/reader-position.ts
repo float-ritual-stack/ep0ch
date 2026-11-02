@@ -14,7 +14,11 @@ export class PositionRows {
   origin = 0;
   /** A reader header image shrinks by one row for each row scrolled. */
   leading = 0;
-  /** A scroll set before any render gave a source map: rows can't name a source line yet, so it waits to be placed (PIE-929). */
+  /**
+   * A scroll set before any render gave a source map: rows can't name a source line yet, so it waits to be placed
+   * (PIE-929). Also a scroll over rows no source line names (a saved view opened as its own note is only its
+   * collection's rows, PIE-1501): kept as rows, so the wheel and j k still move it.
+   */
   private waiting: number | null = null;
   constructor(public position: ReaderPosition) {}
   /** A new note: no rows are known and nothing waits. */
@@ -40,7 +44,7 @@ export class PositionRows {
     let at = Math.min(Math.max(0, top), this.source.length - 1);
     while (at < this.source.length - 1 && this.source[at]! < 0) at++;
     while (at > 0 && this.source[at]! < 0) at--;
-    if (this.source[at]! < 0) { this.position.view = null; return; }
+    if (this.source[at]! < 0) { this.position.view = null; this.waiting = top > 0 ? top : null; return; }
     const line = this.source[at]!;
     while (at > 0 && this.source[at - 1] === line) at--;
     this.position.view = { line, row: this.origin + Math.max(0, this.leading - top) + at - top };

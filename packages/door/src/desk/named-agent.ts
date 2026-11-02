@@ -76,6 +76,7 @@ export function hcAddress(a: Pick<NamedAgent, "persona" | "machine">, env: Recor
 export function hcRunArgv(a: NamedAgent, env: Record<string, string | undefined> = process.env): string[] {
   const local = localAgent(a.machine, env);
   const program = words(a.program);
+  const launcher = local ? [process.execPath, resolve(import.meta.dir, "../main.ts")] : ["ep0ch"];
   return [
     "hc", "run", "--bg", "--no-parent", "--keep",
     "--name", a.persona,
@@ -86,7 +87,7 @@ export function hcRunArgv(a: NamedAgent, env: Record<string, string | undefined>
     // hc owns a long-lived environment: clear the door binding there, not only in this CLI.
     "--", "env", ...[...AGENT_VARS, ...DOOR_START_VARS, PLACE_VAR, "EP0CH_SOCKET", "EP0CH_STATE", "EP0CH_MACHINE", ...Object.keys(env).filter(outerClaudeVar)].flatMap(k => ["-u", k]),
     `EP0CH_WS=${a.outline}`, ...(a.outlineMachine ? [`EP0CH_MACHINE=${a.outlineMachine}`] : []),
-    `EP0CH_AGENT=${a.persona}`, `OUTLINER_ACTOR=${a.persona}`, ...program,
+    `EP0CH_AGENT=${a.persona}`, `OUTLINER_ACTOR=${a.persona}`, ...launcher, "agent", "exec", "--", ...program,
   ];
 }
 

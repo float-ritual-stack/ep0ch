@@ -1,3 +1,4 @@
+import { programEnv } from "./program-env";
 import type { ExtensionKeyLine } from "./secret-keys";
 import type { InvocationGrant } from "./invocation-grants";
 import type { ExtensionRunStatus } from "./resource-extensions";
@@ -513,11 +514,11 @@ export class ExtensionRegistry {
       command: tile.run[0] === "bun" ? [process.execPath, ...tile.run.slice(1)] : [...tile.run],
       cwd: extension.directory,
       host: hostname(),
-      env: {
+      env: programEnv({
         OUTLINER_EXTENSION: extension.id,
         ...(outline ? { EP0CH_WS: outline } : {}),
         ...(socket ? { EP0CH_SOCKET: socket } : {}),
-      },
+      }),
       actions: (tile.actions ?? []).flatMap((id) => actions.filter((action) => action.id === id)),
       policy: tile.policy ?? {},
       accepts: tile.accepts ?? [],

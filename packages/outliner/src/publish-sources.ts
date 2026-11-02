@@ -1,6 +1,6 @@
 import { timeHtml } from "./publish-time";
 import type { SiteAnswer } from "@ep0ch/outline-core/site";
-import { sourceDownload, type SourceEntry, type SourcesAnswer } from "@ep0ch/outline-core/sources";
+import { sourceDownload, sourceIsWritten, type SourceEntry, type SourcesAnswer } from "@ep0ch/outline-core/sources";
 import type { DrawnComponent, LiveHost } from "./publish-live";
 import { escapeHtml } from "./publish";
 
@@ -58,11 +58,13 @@ export async function pageSources(host: LiveHost, blockId: string, outline: stri
   let at = 0;
   for (const line of text.split("\n")) { offsets.push(at); at += line.length + 1; }
   const entries = sources.sources.map((s, i) => {
+    const head = `<details class="source-entry" id="source-${i}" data-source-offset="${offsets[s.line] ?? 0}"${sources.sources.length === 1 ? " open" : ""}><summary>${e(s.name)} <small>${s.readAt ? timeHtml(s.readAt) : "as written"}</small></summary>`;
+    if (sourceIsWritten(s)) return `${head}<p>${e(s.transform.label)}</p><pre>${e(s.transform.text ?? "")}</pre>${copy("text", s.transform.text ?? "")}</details>`;
     const download = (format: "csv" | "json") => `<a data-source-download href="${e(sourceHref(base, blockId, s, format))}" download="${e(sourceFile(s, format).filename)}">${format.toUpperCase()}</a>`;
     const read = s.readAt ? `${s.live ? "live, " : ""}as of ${s.readAt}` : "as written";
     // The downloads first under the source's name, each a tap target, and a page's one source open (PIE-1409: on a
     // phone they were 15 px tall, behind three disclosures).
-    return `<details class="source-entry" id="source-${i}" data-source-offset="${offsets[s.line] ?? 0}"${sources.sources.length === 1 ? " open" : ""}><summary>${e(s.name)} <small>${s.readAt ? timeHtml(s.readAt) : "as written"}</small></summary>
+    return `${head}
 <p class="source-downloads">Download ${download("csv")} ${download("json")}</p>
 ${s.problem ? `<p>${e(s.problem)}</p>` : ""}
 <details open><summary>Query</summary><dl>${s.query.params.map(p => `<dt>${e(p.key)}</dt><dd>${e(p.value)}</dd>`).join("")}</dl><pre>${e(s.query.text)}</pre>${copy("query", s.query.text)}</details>

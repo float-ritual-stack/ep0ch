@@ -6,6 +6,7 @@
 // Unlike $EDITOR's spawnSync, the shell is awaited: the door's event loop keeps running under it, so its
 // terminal tiles keep being read (a busy agent in a tile doesn't stall on a full pty) and its control socket
 // keeps answering (`peek` says `suspended: "shell"`). Nothing is painted until the shell exits.
+import { programEnv } from "@ep0ch/outliner/program-env";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { appendNest, doorNest, shellLayer } from "./nest";
@@ -36,7 +37,7 @@ export function shellEnv(env: Record<string, string | undefined>, control: strin
   const place = controlPlace(control);
   if (place) out.EP0CH_PLACE = place;
   out.EP0CH_NEST = appendNest(doorNest(env), shellLayer(pid));
-  return out;
+  return programEnv(out);
 }
 
 /** Where the shell starts: the door's folder, else $HOME. */

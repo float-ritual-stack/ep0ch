@@ -1,12 +1,14 @@
 import { afterAll, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { setupCommand } from "../src/setup/apply";
 import { join, resolve } from "node:path";
 import { seeNamed } from "../src/desk/named-agent";
+import { fakeServiceManager } from "./fake-service-manager";
+import { stopUnder } from "./scratch";
 import { ScratchCore } from "./scratch-hc";
 
 const cores: ScratchCore[] = [];
-afterAll(async () => { for (const core of cores) await core.dispose(); });
+afterAll(async () => { for (const core of cores) { await core.dispose(); stopUnder(core.dir); } });
 const scratch = () => { const core = new ScratchCore(); cores.push(core); return core; };
 
 test("the named CLI keeps its configured program and outline when --cwd overrides its row", async () => {
@@ -22,6 +24,7 @@ test("the named CLI keeps its configured program and outline when --cwd override
   const read = await core.hc("read", "fern");
   expect(read.out).toContain("Fern ready: garden / fern / fern");
   expect(read.out).toContain("Door binding: unbound");
+  expect(read.out).toContain(`Source: ${resolve(import.meta.dir, "../../..")}`);
   expect((await core.ep0ch("agent", "start", "fern")).code).toBe(0);
   expect(JSON.parse((await core.hc("get", "fern")).out).address).toBe(t.address);
   await core.hc("send", "fern", "quit");
@@ -41,8 +44,11 @@ test("install brings back declared local agents through the same launch owner", 
   const mod = join(core.dir, "packages/outliner/scripts");
   mkdirSync(mod, { recursive: true });
   writeFileSync(join(mod, "install-claude-mod.ts"), "process.exit(0);\n");
+  // Install starts a host from this checkout's host-main.ts; a fake systemctl runs the unit it writes, never the machine's.
+  symlinkSync(resolve(import.meta.dir, "../../outliner/src"), join(core.dir, "packages/outliner/src"));
+  const env = { ...core.env, PATH: `${fakeServiceManager(core.dir).bin}:${core.env.PATH}` };
   const lines: string[] = [];
-  const code = await setupCommand(["install", "--apply", "--json"], { repoRoot: core.dir, cwd: core.dir, env: core.env, out: s => lines.push(s), err: s => lines.push(s) });
+  const code = await setupCommand(["install", "--apply", "--json"], { repoRoot: core.dir, cwd: core.dir, env, out: s => lines.push(s), err: s => lines.push(s) });
   expect(code, lines.join("\n")).toBe(0);
   expect(lines.join("\n")).toContain("started fern");
   const r = await core.hc("get", "fern");

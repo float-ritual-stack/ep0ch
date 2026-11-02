@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { outliner, Scratch, ScratchHost, scratchDir, until } from "./scratch";
+import { bindingProblem, outlineListing } from "../../claude-mod/hooks/outline-binding";
 
 const DOOR = resolve(import.meta.dir, "..");
 const host = new ScratchHost();
@@ -41,6 +42,7 @@ afterAll(async () => {
 });
 
 describe("--machine: an outline on another machine, through the forward", () => {
+
   test("the door asks the machine where its host is, forwards it once, and reads the outline there; a second door shares it", async () => {
     const { resolveTarget } = await import("../src/discover");
     const target = resolveTarget(["--machine", "box-a", "--ws", "garden"]);
@@ -80,6 +82,34 @@ describe("--machine: an outline on another machine, through the forward", () => 
     expect(forwards()).toBe(2);
     const { usedMachines } = await import("../src/machine");
     expect(usedMachines().map(m => m.name)).toEqual(["box-a"]);
+  }, 30_000);
+
+  test("a down far host is unavailable, then its outlines can be read when it returns (PIE-1325)", async () => {
+    const { forwardTo, everyOutline } = await import("../src/machine");
+    const { readMissing } = await import("../src/outlines");
+    const forward = await forwardTo("box-a");
+    const runList = () => Bun.spawnSync([process.execPath, "src/main.ts", "outline", "list", "--all", "--lines"], { cwd: DOOR, env: { ...process.env } });
+    await host.stop();
+    try {
+      const down = runList();
+      expect(down.exitCode, down.stderr.toString()).toBe(0);
+      const far = down.stdout.toString().split("\n").find(l => l.split("\t")[1] === "box-a")!;
+      expect(far).toContain("outline host on box-a did not answer");
+      expect(far).toContain(forward.socket);
+      expect(far).toContain("box-a.link.sock");
+      expect(far).toContain("ep0ch outline list --machine box-a");
+      const why = far.split("\t")[2]!;
+      expect(bindingProblem(outlineListing(down.stdout.toString()), "garden", "box-a")).toBe(why);
+      expect(await readMissing({ outline: "garden", path: forward.socket, machine: "box-a" })).toBe(why);
+      expect((await everyOutline(join(here, "outlines/.host/host.sock"))).find(o => o.machine === "box-a")?.problem).toBe(why);
+    } finally { await host.start(); }
+    const up = runList();
+    expect(up.exitCode, up.stderr.toString()).toBe(0);
+    expect(bindingProblem(outlineListing(up.stdout.toString()), "garden", "box-a")).toBeNull();
+    expect(bindingProblem(outlineListing(up.stdout.toString()), "absent", "box-a")).toContain('there is no outline "absent" on box-a');
+    expect(up.stdout.toString()).toContain("garden\tbox-a\t");
+    expect(await readMissing({ outline: "garden", path: forward.socket, machine: "box-a" })).toBeNull();
+    expect(await readMissing({ outline: "absent", path: forward.socket, machine: "box-a" })).toContain("box-a has no outline absent");
   }, 30_000);
 
   test("a reader keeps a forwarded outline across a door restart", async () => {

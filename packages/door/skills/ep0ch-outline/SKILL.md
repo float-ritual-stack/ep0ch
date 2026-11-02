@@ -5,6 +5,10 @@ description: Use when an agent works inside a person's outline on their behalf, 
 
 # ep0ch-outline: working in someone's outline
 
+Read `$EP0CH_SOURCE/AGENTS.md` and its docs in `$EP0CH_SOURCE/packages/outliner/docs` first.
+From a shell without that variable, `ep0ch where --source` finds the checkout. Without a local checkout
+(claude.ai, GPT, Grok), read the MCP resources `ep0ch://docs/scripts` and `ep0ch://docs/extensions`.
+
 The outline is theirs. You are a welcome local who writes beside them: everything you do is attributed, checked
 against what you read, and undoable from the record. This skill is a map; the outline holds the live guides,
 and they win over this page.

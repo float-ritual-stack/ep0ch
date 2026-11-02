@@ -29,6 +29,28 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
   let board!: typeof h.board, app!: typeof h.app, seeded!: typeof h.seeded;
   beforeAll(() => { ({ board, app, seeded } = h); });
 
+  test("written figures show their text once in Sources, at narrow and wide sizes (PIE-1226)", async () => {
+    await app.dispatch.press("section", { name: "output-regions" });
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    const listed = await act("sources.open") as { sources: { name: string }[] };
+    const n = listed.sources.findIndex(s => s.name === "graph-timeline") + 1;
+    expect(n).toBeGreaterThan(0);
+    try {
+      await act("sources.enter", { n });
+      const pane = stage.pane("notes") as ReaderPane;
+      const { drawSources } = await import("../../src/surface/sources");
+      const panel = pane.surface.sourcesMode!.panel;
+      for (const width of [44, 140]) {
+        const text = drawSources(panel, width, Date.now()).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
+        expect(text).toContain("Written in the note · 5 items");
+        expect(text.match(/March: sow peas/g)).toHaveLength(1);
+        expect(text).not.toMatch(/Query|Result/);
+      }
+    } finally { await act("sources.close"); }
+  });
+
   test("PIE-1171: Sources says its keys once and Esc closes it from either side", async () => {
     await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
     screen();
@@ -369,7 +391,7 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
       await act("sources.place", { place: "split" });
       const after = screen().split("\n");
       expect(after[row]!.indexOf("A comment across the split")).toBe(col);
-      expect(after.some(l => l.includes("3 generated regions"))).toBe(true);
+      expect(after.some(l => l.includes("4 generated regions"))).toBe(true);
       const sourcesCol = after.find(l => l.includes("[split ▸]"))!.indexOf("[split ▸]");
       await act("comment.write", { body: "" });
       await act("comment.close", { discard: true });
@@ -716,15 +738,15 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     await app.dispatch.act({ action: "comment.place", tile: "notes", args: { place: "floating" } }, USER);
     const commentRow = screen().split("\n").findIndex(l => l.includes("Keep these words visible"));
     expect(commentRow).toBeGreaterThan(0);
-    expect(screen()).toContain("3 generated regions");
+    expect(screen()).toContain("4 generated regions");
     await app.dispatch.act({ action: "sources.close", tile: "notes" }, USER);
     expect(screen().split("\n").findIndex(l => l.includes("Keep these words visible"))).toBe(commentRow);
     await app.dispatch.act({ action: "sources.open", tile: "notes" }, USER);
     screen();
     await app.dispatch.act({ action: "sources.move", tile: "notes", args: { row: 0, col: 0, cols: 36, rows: 16 } }, USER);
-    const sourceRow = screen().split("\n").findIndex(l => l.includes("3 generated regions"));
+    const sourceRow = screen().split("\n").findIndex(l => l.includes("4 generated regions"));
     await app.dispatch.act({ action: "comment.close", tile: "notes", args: { discard: true } }, USER);
-    expect(screen().split("\n").findIndex(l => l.includes("3 generated regions"))).toBe(sourceRow);
+    expect(screen().split("\n").findIndex(l => l.includes("4 generated regions"))).toBe(sourceRow);
     await app.dispatch.act({ action: "sources.place", tile: "notes", args: { place: "split" } }, USER);
     await app.dispatch.act({ action: "sources.close", tile: "notes" }, USER);
   });
@@ -824,7 +846,7 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     expect(JSON.parse(readFileSync(json.path, "utf8"))).toEqual([{ Owner: "Sam", Week: "42", Crop: "Regions in prose" }]);
     h.press({ kind: "tab" });
     h.ch("S");
-    await until(() => screen().includes("Sources · 3 generated regions"), "Sources opened by key");
+    await until(() => screen().includes("Sources · 4 generated regions"), "Sources opened by key");
     h.press({ kind: "enter" });
     h.press({ kind: "enter" });
     await until(() => screen().includes("download CSV"), "Enter opens the source's download controls", 1000);

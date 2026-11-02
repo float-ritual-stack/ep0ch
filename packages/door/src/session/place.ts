@@ -12,6 +12,7 @@
 // a session lives: the client that starts or attaches, the daemon, its terminal host, `session list` and the home base
 // all ask it.
 import { createHash } from "node:crypto";
+import { hostname } from "node:os";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { hostSocketOf, resolveTarget } from "../discover";
@@ -123,6 +124,18 @@ export function sessionFlags(i: Pick<SessionInfo, "place">): string {
 
 /** How a session's outline reads: `pie`, `pie on float-2`. */
 export const placeLabel = (p: { outline: string; machine?: string }) => `${p.outline}${p.machine ? ` on ${p.machine}` : ""}`;
+
+/**
+ * Where a door is, for its status line: `host · outline` on this machine's outline host, `host:workspace root` on
+ * none. An outline reached on another machine says both places (PIE-1498), since two sessions on one outline can run
+ * on two machines: `pie on float-2 · session on float-box`, and `short` for a narrow bar, `pie on float-2` (as
+ * `session list` names it).
+ */
+export function doorLocation(d: { host: string; workspace: string; outline?: string | undefined; machine?: string | undefined }, here = hostname()): { text: string; short: string } {
+  if (d.outline && d.machine) { const short = placeLabel({ outline: d.outline, machine: d.machine }); return { text: `${short} · session on ${here}`, short }; }
+  const text = d.outline ? `${d.host} · ${d.outline}` : `${d.host}:${d.workspace}`;
+  return { text, short: text };
+}
 
 /**
  * The session a `session` command acts on: the outline its arguments or folder name (running or not), else, when

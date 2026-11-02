@@ -3,25 +3,21 @@
 // named) from any position. main.ts asks `checkWords` before anything else runs; each command still parses its own
 // flags (outline, session, find…): only the door's are checked here, since the door is what a typo would open.
 
-/** Every first word main.ts runs as a command. */
-export const COMMANDS = ["help", "doctor", "install", "try", "find", "wait", "show", "mcp", "new", "export", "mirror", "where", "session", "log", "trace", "peek", "snap", "open",
-  "actions", "act", "subscribe", "outline", "status", "init", "clients", "view", "backup", "library", "docs", "revisions", "agent", "ext", "artifact", "share", "reader", "web", "loki", "device", "echo", "resource", "keys", "link", "machinery", "route", "record", "review", "work", "search", "door"] as const;
+import { COMMANDS, DOOR_OPTIONS, commandNamed } from "./cli-commands";
+export { COMMANDS } from "./cli-commands";
 const KNOWN = new Set<string>(COMMANDS);
 
 /** Commands whose words are data (a search, an id, an action's arguments): `help` there is a word, not a request. */
 const FREE_TEXT = new Set(["find", "wait", "show", "new", "open", "act", "export", "mirror", "snap", "try", "view", "revisions"]);
 
 /**
- * The door's flags (main.ts's USAGE): `value` takes one, `none` takes none; `--screen` takes a name and maybe a
+ * The door's flags (cli-commands.ts): `value` takes one, `none` takes none; `--screen` takes a name and maybe a
  * target; `rest`: what follows is another's to read (`--remote`'s door flags go to that machine, `--skill`'s to
  * skillCommand).
  */
-const DOOR_FLAGS: Record<string, "value" | "none" | "rest" | "screen"> = {
-  "--ws": "value", "--machine": "value", "--layout": "value",
-  "--create": "none", "--no-create": "none", "--here": "none",
-  "--screen": "screen", "--json": "none", "--showcase": "none", "--reset": "none", "--no-daemon": "none", "--daemon": "none",
-  "--remote": "rest", "--skill": "rest",
-};
+const DOOR_FLAGS = Object.fromEntries(DOOR_OPTIONS.map(([flag, , kind]) =>
+  [flag.split(" ")[0]!, kind ?? (flag.includes("<") ? "value" : "none")],
+));
 
 /**
  * The landing flags `--screen <name> [<target>]` replaced (one version: no aliases). Each is refused with the exact
@@ -72,15 +68,19 @@ export function checkWords(argsIn: readonly string[]): { help: string } | { erro
   const end = argsIn.indexOf("--");
   const args = end >= 0 ? argsIn.slice(0, end) : argsIn;
   const first = args[0];
+  const helpPath = (command: string, rest: readonly string[]) => {
+    const child = commandNamed(command)?.children?.find(c => c.name === rest[0]);
+    return child ? `${command} ${child.name}` : command;
+  };
   if (first === "help") {
     const of = args[1];
+    if (of === "launch" || (of && DOOR_FLAGS[of])) return { help: "launch" };
     if (of !== undefined && !of.startsWith("-") && !KNOWN.has(of)) return noCommand(of);
-    return { help: of && !of.startsWith("-") ? of : "" };
+    return { help: of && !of.startsWith("-") ? helpPath(of, args.slice(2)) : "" };
   }
   if (first !== undefined && !first.startsWith("-")) {
     if (!KNOWN.has(first)) return first.includes("/") ? null : noCommand(first);
-    // EchoNet says its own help (`ep0ch echo help`, the outliner's usage, each command's flags).
-    if (first !== "echo" && (args.some(a => HELP.has(a)) || (args[1] === "help" && !FREE_TEXT.has(first)))) return { help: first };
+    if (args.some(a => HELP.has(a)) || (args[1] === "help" && !FREE_TEXT.has(first))) return { help: helpPath(first, args.slice(1)) };
     return null;
   }
   if (args.some(a => HELP.has(a))) return { help: "" };
@@ -112,23 +112,6 @@ export function checkWords(argsIn: readonly string[]): { help: string } | { erro
     return { error: `"${a}" isn't a door flag's value, and only a first word is a command · ${LISTS}` };
   }
   return null;
-}
-
-/**
- * `usage`'s entries for `command` (each entry is a line starting `  ep0ch ` and the lines indented under it), or all of
- * it for none or a command it has no entry for.
- */
-export function usageFor(usage: string, command: string): string {
-  if (!command) return usage;
-  const entries: string[][] = [];
-  for (const line of usage.split("\n")) {
-    if (/^ {2}ep0ch /.test(line)) entries.push([line]);
-    else if (entries.length && /^ {3,}\S/.test(line)) entries.at(-1)!.push(line);
-    else if (entries.length) entries.push([]);
-  }
-  const head = new RegExp(`(^ {2}ep0ch |\\| )${command.replace(/[^a-z-]/g, "")}\\b`);
-  const mine = entries.filter(e => e.length && head.test(e[0]!));
-  return mine.length ? mine.map(e => e.join("\n")).join("\n") : usage;
 }
 
 /**

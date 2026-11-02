@@ -35,7 +35,7 @@ import { C, chip, dim, drawEllipsized, fg, headOf, MARKS, pad, paint, RESET, TAG
 import { paintable, rowLines, withRowLimit, wrap } from "../text";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
-import { barSource, barSources, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
+import { barSource, barSources, QUERY_SCOPE, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 import "./sources";
 import { tabKeys, tabStrip, type TabRow } from "../surface/chip-rows";
 import { modeBinding } from "../surface/modes";
@@ -139,9 +139,18 @@ export class PowerBar {
   private fieldW = 10;
   private compact() { return this.scope === "ask" ? compactQuestion() : null; }
 
+  /**
+   * What the line completes outside the ask scope (PIE-1497): the `=` scope is a query line (query words on any words);
+   * the main list and /notes complete an act line's arguments, and offer query words only once the line reads as a
+   * query (plain words search); a quick bar and the other scopes complete act lines alone.
+   */
+  private grammar(): "query" | "act-query" | "act" {
+    return this.scope === QUERY_SCOPE ? "query" : !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act";
+  }
+
   /** Commands, query words and outline triggers share the editor's completer; masked answers never copy. */
   private line(text: string): LineField {
-    const l = new LineField(text, false, { complete: this.scope === "ask" ? questionCompletion() ?? { grammar: "act" } : { grammar: !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act" }, id: "power-bar" });
+    const l = new LineField(text, false, { complete: this.scope === "ask" ? questionCompletion() ?? { grammar: "act" } : { grammar: this.grammar() }, id: "power-bar" });
     l.completed = item => { if (item.querySuggestion) this.acceptedWhere = item.querySuggestion.where; this.refresh(); };
     l.copy = t => { if (!(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(t); };
     return l;
@@ -168,7 +177,7 @@ export class PowerBar {
     if (this.scope === "ask" && maskedQuestion() && s !== "ask") { this.input = this.line(""); clearPrivateForm(); }
     this.scope = s ? barSource(s)?.id ?? null : null;
     if (this.input.complete) {
-      this.input.complete.grammar = this.scope === "ask" ? (questionCompletion() || {}).grammar ?? "act" : !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act";
+      this.input.complete.grammar = this.scope === "ask" ? (questionCompletion() || {}).grammar ?? "act" : this.grammar();
       this.input.complete.where = this.scope === "ask" ? (questionCompletion() || {}).where : undefined;
     }
     this.picker.sel = 0; this.litKey = null;
@@ -200,8 +209,9 @@ export class PowerBar {
       if (k.kind === "tab") void this.host.dispatch.press("bar.edit", { op: "complete" });
       return true;
     }
-    if (k.kind === "char" && !k.ctrl && !this.input.text && !this.scope) {
-      const s = barSources().find(x => x.prefix === k.ch && !x.inline);
+    if (k.kind === "char" && !k.ctrl && !this.input.text) {
+      // A prefix typed first scopes the bar from the main list, and from the scopes a source names (`=` from /notes, PIE-1497).
+      const s = barSources().find(x => x.prefix === k.ch && !x.inline && (!this.scope || x.from?.includes(this.scope!)));
       if (s) { void this.host.dispatch.press("bar.open", { scope: s.id, keep: true }); this.typedPrefix = s.prefix; return true; }
     }
     if (k.kind === "up" && this.scope !== "ask" && !this.query && this.host.runs.length) { void this.host.dispatch.press("bar.command", { op: "recall" }); return true; }
@@ -260,7 +270,7 @@ export class PowerBar {
     if (this.scope !== "ask" && this.host.dispatch.has(before.split(/\s/)[0]!) && /\s/.test(before)) {
       const completed = await completeCommand(before, this.host);
       if (before !== this.query || this.done) return;
-      if (completed !== null) { this.input.splice(0, this.query.length, completed); this.refresh(); this.host.ctx.redraw(); return; }
+      if (completed !== null && completed !== before) { this.input.splice(0, this.query.length, completed); this.refresh(); this.host.ctx.redraw(); return; }
     }
     if (this.scope === "ask" && maskedQuestion()) return;
     const it = this.items[this.picker.sel];
@@ -279,9 +289,28 @@ export class PowerBar {
     // A lone long title advances a word at a time; multiple rows can agree on a longer prefix.
     const fill = fills.length > 1 && extendsTyped(prefix) ? prefix : lit.startsWith(typed)
       ? typed + (lit.slice(typed.length).match(/^\s*\S+\s*/)?.[0] ?? "") : lit;
-    if (fill === typed) return;
+    // Nothing left to complete: the lit action's examples, the first then the next (PIE-1502), the arguments selected.
+    if (fill === typed) { this.exampleFill(it, typed); return; }
     const start = fill.startsWith(typed) ? typed.length : 0;
     this.input.splice(0, typed.length, fill, {}, undefined, { start, end: fill.length });
+    this.refresh();
+  }
+
+  /** The lit row's action's examples (ActionDef.examples), when it has them. */
+  private litExamples(it = this.items[this.picker.sel]) {
+    const action = (it?.row.data as { action?: string } | undefined)?.action;
+    return action ? this.host.dispatch.list().actions.find(a => a.name === action)?.examples ?? [] : [];
+  }
+  /** The line is one of the lit action's examples, with another to turn to: tab turns to it rather than completing the line's last word. */
+  private atExample() { const ex = this.litExamples(); return ex.length > 1 && ex.some(e => e.act === this.query); }
+  /** The lit row's action's examples put in the line in turn: the line to type, when the name alone (or an example) is typed. */
+  private exampleFill(it: BarItem, typed: string) {
+    const examples = this.litExamples(it);
+    if (!examples.length) return;
+    const next = examples[(examples.findIndex(ex => ex.act === typed) + 1) % examples.length]!.act;
+    if (next === typed) return;
+    const name = next.split(/\s/)[0]!.length;
+    this.input.splice(0, typed.length, next, {}, undefined, { start: Math.min(name + 1, next.length), end: next.length });
     this.refresh();
   }
 
@@ -477,7 +506,7 @@ export class PowerBar {
     const [scopes] = tabStrip(this.scopes().map(s => {
       const src = s ? barSource(s) : null;
       return { label: src ? `${src.prefix}${src.title}` : "all", on: s === this.scope, hit: { action: "bar.open", args: { scope: s ?? "all", keep: true } } };
-    }), { width: w, at: 1, overflow: "share", style: SCOPE_LOOK });
+    }), { id: "scopes", width: w, at: 1, overflow: "share", style: SCOPE_LOOK });
     const tabs = scopes!.text;
     this.scopeHits = scopes!.hits;
     const busy = this.asking.size ? `${[...this.asking].map(id => barSource(id)?.title ?? id).join(", ")}…` : "";
@@ -605,7 +634,7 @@ export class PowerBar {
     const keys = listed && ["up", "down", "tab", "enter", "esc", "pgup", "pgdn"].includes(k.kind);
     // → at the line's end asks as tab does (the shell's), so one completion answers both.
     const target = c.target();
-    const asks = (k.kind === "tab" || k.kind === "right" && this.input.cursor === this.query.length) && !!target && target.kind !== "query";
+    const asks = (k.kind === "tab" || k.kind === "right" && this.input.cursor === this.query.length) && !!target && target.kind !== "query" && !(k.kind === "tab" && this.atExample());
     if (!keys && !asks) return false;
     this.input.take(asks && !keys ? { kind: "tab" } : k);
     return true;

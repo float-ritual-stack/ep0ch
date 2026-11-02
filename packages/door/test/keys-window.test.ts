@@ -233,7 +233,6 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     cols = 90; rows = 40;
     try {
       desk().render(desk().ctx);
-      expect(desk().hintFull).toBeTruthy();
       const r = desk().rectOf(desk().panes.get(desk().focus));
       const x = r.col + Math.floor(r.cols / 2), y = r.row + Math.floor(r.rows / 2);
       key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });

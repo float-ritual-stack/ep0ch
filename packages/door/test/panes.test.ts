@@ -156,7 +156,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(B().layoutGet().tiles.filter((t: any) => t.kind === "query").map((t: any) => [t.name, t.view])).toEqual([["Doing", expect.any(String)], ["Queued", queued.id]]);
     await withDetails();
     expect(row()).toEqual(["preview", "detail1", "detail2"]);
-    expect(rect("preview").cols + rect("detail1").cols + rect("detail2").cols).toBe(180);
+    expect(rect("preview").cols + rect("detail1").cols + rect("detail2").cols).toBe(180 - 1); // the outline dock's strip keeps the left column
     key({ kind: "tab" }); key({ kind: "tab" });
     expect(focus()).toBe("detail1");
     const second = details()[1];

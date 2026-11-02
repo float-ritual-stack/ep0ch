@@ -243,6 +243,17 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
       press({ kind: "mouse", action: "down", button: 0, x, y });
       press({ kind: "mouse", action: "up", button: 0, x, y });
     };
+    const choice = (value: string) => {
+      (app as any).paint(true);
+      for (let y = 0; y < app.t.rows; y++) for (let x = 0; x < app.t.cols; x++) {
+        const hit = app.overflow.stripAt(x, y), tab = hit && app.strips.state.rows.get(hit.id)?.tabs[hit.n];
+        if (tab?.hit?.action !== "form.set" || tab.hit.args?.field !== "mood" || tab.hit.args.value !== value) continue;
+        press({ kind: "mouse", action: "down", button: 0, x, y });
+        press({ kind: "mouse", action: "up", button: 0, x, y });
+        return;
+      }
+      throw new Error(`no drawn mood choice ${value}`);
+    };
     press({ kind: "enter" });
     click("│ pages", 15);
     press({ kind: "paste", text: "272" });
@@ -272,9 +283,9 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     press({ kind: "tab" });
     press({ kind: "left" });
     expect(screen()).toContain("(*) gripping");
-    click("( ) slow");
+    choice("slow");
     await until(() => screen().includes("(*) slow"), "clicked slow radio");
-    click("( ) gripping");
+    choice("gripping");
     await until(() => screen().includes("(*) gripping"), "clicked gripping radio");
     click("Log it │");
     const reading = seeded.notes.formReading.id;
@@ -626,7 +637,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => screen().includes("good"), "the card shows the new tone", 5000);
     // Comma entered the card; ⏎ on rule-match asks over this outline's own properties.
     ch("j");
-    await until(() => screen().includes("rule-match · query"), "rule-match selected", 3000).catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    await until(() => screen().includes("rule-match · edit the value"), "rule-match selected", 3000).catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     // The bar is the App's, over the showcase: what it lists is read from it.
     const asked = () => { const b = app.bar; return b && !b.ended() && b.scope === "ask" ? b.items.map(i => `${i.row.group} = ${i.row.label}`) : []; };
     press({ kind: "enter" });
@@ -670,8 +681,8 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     ch(",");
     await until(() => screen().includes("settings · Views + EchoNet areas") && screen().includes("  EchoNet areas"), "both sections", 5000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
-    for (let i = 0; i < both.fields.length && !screen().includes("echo · text"); i++) { ch("j"); await Bun.sleep(20); }
-    expect(screen()).toContain("echo · text");
+    for (let i = 0; i < both.fields.length && !screen().includes("echo · edit the value"); i++) { ch("j"); await Bun.sleep(20); }
+    expect(screen()).toContain("echo · edit the value");
     press({ kind: "enter" });
     await until(() => asked()[0] === "EchoNet areas · echo · echo = plot.chat", "the area's name asked, its own first", 5000)
       .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });

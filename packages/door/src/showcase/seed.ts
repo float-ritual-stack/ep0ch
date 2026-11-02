@@ -92,7 +92,7 @@ import { HEADINGS, LOOKS_LAB, OLD_LOOK, SPACING_LAB, SINGLE_LIST, STYLE_MIDDLE_L
 import { seedAccess } from "./seed/access";
 import { scriptExamples } from "@ep0ch/outliner/script-examples";
 import { VENT_PERSON, VENT_PROJECT, VENT_RECIPE, ventRailText } from "./seed/values";
-import { DAILY_NOTES, DAILY_TEMPLATE, MEETING_ACTIONS, MEETING_PAGES, MEETING_TEMPLATE } from "./seed/templates";
+import { DAILY_NOTES, DAILY_TEMPLATE, DAY_PLAN, DAY_PLAN_JOBS, DAY_PLAN_TEMPLATE, MEETING_ACTIONS, MEETING_PAGES, MEETING_TEMPLATE } from "./seed/templates";
 
 // The seed's notes and fixtures live beside it, by area (seed/*.ts); the tests and the screen import them from here.
 export * from "./seed/names";
@@ -329,6 +329,8 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "Change a word inside it and it is yours: the script's next run waits as a proposal beside it.",
     "A running script's place() follows the line that asked it, even if you insert paragraphs above it before the answer lands. Changing or duplicating that caller leaves a reason in the run note; run it again or name an ^anchor.",
     "Press S for Sources. Its placement chip opens a menu: inline, floating, split, popup or tile. Choose beside/below to orient a split, then drag its divider. Ctrl+o cycles; ctrl+g moves a floating panel. A wide sources tile shows Query, Transform and Result side by side. Open the table, then c downloads its raw rows as CSV and J as JSON; the same controls are clickable. Published pages have the same Query, Transform and Result folds behind Sources.",
+    "This timeline is written here. Open graph-timeline in Sources: Written in the note · 5 items, with its text once.",
+    "::graph-timeline", "- March: sow peas", "- April: plant beans", "- May: thin carrots", "- June: water beds", "- July: pick peas", "::",
   ].join("\n"));
   // Motion (PIE-958): a button runs a script whose layout changes glide; its tiles float, wander and settle, then land where the layout is.
   await make(notes.scripts.id, "Shuffle tiles [script::shuffle-tiles] [results::keep] [effects::write]\n```js\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: true, motion: 'fantasia' });\nawait wait(1400);\nawait act('float.place', { tile: 'source', dx: 10, dy: 3, motion: 'fantasia' });\nawait act('float.place', { tile: 'extra', dx: -8, dy: 2, motion: 'fantasia' });\nawait wait(1400);\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: false, motion: 'fantasia' });\nreturn 'settled';\n```");
@@ -462,7 +464,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.collection = await make(notes.root.id, [
     `${SEED.collection} [type::virtual-branch] [query::collection=garden] [layout::table, gallery, feed, board]`,
     "[summary-properties::title, owner, stage] [sort::title] [direction::asc] [group::area] [gallery.card::large] [cover::cover, img]",
-    "One garden, four layouts. Enter the list, tab through its layouts; click a table header to sort. j k pick, Enter opens; / asks the query to filter. Changes here belong to the viewer.",
+    "One garden, four layouts. Click a layout or table header to change layout or sort. Arrows or j k pick, h l cross columns, Enter opens, Esc lets go, comma tunes; the wheel scrolls it. Sources explains the collection. Changes here belong to the viewer.",
   ].join("\n"));
   for (const text of [
     "Water the beans [collection::garden] [area::beds] [owner::Mira] [stage::ready] [cover::Bean leaves after rain]\n\nWater at dusk, around the roots.",
@@ -471,6 +473,10 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "Check the forecast [collection::garden] [owner::Sol] [stage::ready]\n\nBring the tender plants in before frost.",
   ]) await make(notes.root.id, text);
   notes.collectionTune = await make(notes.root.id, COLLECTION_TUNE);
+  const waiting = await make(notes.root.id, "Waiting in the garden [type::virtual-branch] [query::collection=waiting] [layout::table] [summary-properties::type, ticket]");
+  await make(notes.root.id, "Check seeds [collection::waiting] [type::request] [ticket::GARDEN-7] [to::Mira]\n\n> [!success]\n> **Ready** for {{this.to}}.\n\n## Before planting [heading::tab]\n\nCheck the labels on the packets.");
+  await make(notes.root.id, "Read report [collection::waiting] [type::report] [ticket::GARDEN-8] [to::Sol]\n\n> [!info]\n> The beds are **watered**, {{this.to}}.\n\n## Next visit [heading::tab]\n\nBring the seedlings.");
+  notes.collectionQuiet = await make(notes.root.id, `${SEED.collectionQuiet}\n\n::view{of=((${waiting.id}))} ^waiting\n::`);
   notes.collectionInline = await make(notes.root.id, [
     SEED.collectionInline, "A saved source inline, and an anonymous board:",
     `::view{of=((${notes.collection.id})) layout=gallery} ^garden`, "::", "",
@@ -523,6 +529,10 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   await make(notes.swap.id, "Dee: a question about the time [status::answered]\nIs it ten or eleven? Ten, said Ana.");
   // A small checklist under the whiteboard, for the notebook's anchored embed of one step.
   const tap = await make(notes.whiteboard.id, "Kitchen tap\n- [~] fix the dripping tap ^t-7a9c11\n  - [ ] buy a washer\n- [ ] tighten the hinge");
+  notes.strip = await make(notes.root.id, "Strip workshop\nNarrow the reader, then use its tabs, breadcrumbs and docks.");
+  let stripParent = notes.strip;
+  for (const title of ["Garden", "Projects", "Potting shed", "Construction", "Daily records"]) stripParent = await make(stripParent.id, title);
+  notes.stripLog = await make(stripParent.id, "Build logs\nThe roof frame is ready. Open a breadcrumb's links without leaving these notes.");
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));
   notes.glassTitle = await make(notes.root.id, `${SEED.glassTitle}\nThe full title stays readable on the glass.`);
   notes.glass = await make(notes.root.id, `${SEED.glass}
@@ -696,6 +706,9 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.meetingPotting = await make(notes.root.id, `${potting.title} [project::${potting.project}]\n\n${potting.call}`);
   notes.meetingUnfinished = await make(notes.root.id, `${unfinished.title} [project::${unfinished.project}]\n\n${unfinished.call}`);
   for (const a of MEETING_ACTIONS) await make(notes.root.id, `${a.title} [type::action] [project::${a.project}]`);
+  notes.templateDayPlan = await make(notes.root.id, DAY_PLAN_TEMPLATE);
+  notes.templatePlan = await make(notes.root.id, DAY_PLAN);
+  for (const job of DAY_PLAN_JOBS) await make(notes.templatePlan.id, `${job.title} [type::day-plan-job] [day::2026-10-14] [slot::${job.slot}]`);
   notes.ventProject = await make(notes.root.id, VENT_PROJECT);
   notes.ventPerson = await make(notes.root.id, VENT_PERSON);
   notes.ventRecipe = await make(notes.root.id, VENT_RECIPE);
@@ -940,6 +953,11 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
     if (name === "root") continue;
     const hit = kids.get(title);
     if (hit) notes[name] = (await board.get(hit.id)) ?? hit;
+  }
+  for (let level = notes.strip ? [notes.strip] : []; level.length && !notes.stripLog;) {
+    level = (await Promise.all(level.map(m => board.children(m.id)))).flat();
+    const hit = byTitle(level).get(SEED.stripLog);
+    if (hit) notes.stripLog = (await board.get(hit.id)) ?? hit;
   }
   // The dashboard's embed-only note (PIE-1458) is titled by the embed it is.
   const embedded = notes.dashboard && kids.get(`!((${notes.dashboard.id}))`);

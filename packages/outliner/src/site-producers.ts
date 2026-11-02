@@ -202,6 +202,16 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
 }
 
 /** The collection record compiles here; clients receive rows, groups and cells, never a query to interpret. */
+/** The collection describes its own question and answer for every Sources reader. */
+export function collectionSource(answer: Extract<SiteProduced, { kind: "view" }>, readAt: string): Pick<import("@ep0ch/outline-core/sources").SourceEntry, "name" | "query" | "transform" | "result" | "readAt" | "live" | "problem"> {
+  const table = answer.view.rows.map(row => [row.id, row.label]);
+  return { name: answer.title, readAt, live: true,
+    query: { text: answer.question.where ?? "", params: Object.entries({ ...answer.config, layout: answer.layout }).map(([key, value]) => ({ key, value: Array.isArray(value) ? value.join(", ") : String(value) })), editable: false },
+    transform: { kind: "none", label: `Collection · ${answer.layout}` },
+    result: { rows: table.length, columns: ["id", "title"], table, text: table.map(row => row.join("\t")).join("\n") },
+    ...(answer.error || answer.hint || answer.truncated ? { problem: [answer.error ?? answer.hint, answer.truncated ? "more matches than shown: the rows here are the first page" : undefined].filter(Boolean).join(" · ") } : {}) };
+}
+
 function collection(store: ProducerStore, bound: Bound, tools: SiteTools, written: Props, state: Props = {}): Extract<SiteProduced, { kind: "view" }> {
   let p: Props = { sort: "updated", ...written }, title = "Collection", source: string | undefined;
   const empty = (error: string): Extract<SiteProduced, { kind: "view" }> => ({ kind: "view", config: p, title, layout: "table", layouts: ["table"], question: {}, view: { type: "list", rows: [], empty: error }, truncated: false, error });

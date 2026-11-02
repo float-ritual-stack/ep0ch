@@ -22,7 +22,7 @@ import { briefFor } from "./library/brief";
 import { docResource, docResources } from "./docs";
 import { gatewayInstructions, gatewaySkills, skillPrompt, skillPrompts, skillResource, skillResources, withLoadHint, writeReading } from "./mcp-guide";
 import { inboxThreads, notesWithThreads, threadRows, threadSummary } from "./mcp-threads";
-import { noAnswer, QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
+import { noAnswer, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
 import { DEFAULT_WEB_ORIGIN, webBase } from "@ep0ch/outliner/artifact-grants";
 import { listShares, readerLine, readerView, revokeShares, shareLine, startShare } from "./share-cli";
 import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
@@ -33,32 +33,6 @@ import { CAP_KEY, gatherMatrix, hostSourceFor, matrixLines, setPathCap } from ".
 import { callRegistry, callShown } from "./mcp-calls";
 import { proposalOutcomesOn, sharedToolDefinition, sharedToolRefusal, actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, takesPersona, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, PERSONA_PROPERTY, personaRefusal, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
-export const MCP_USAGE = `  ep0ch mcp usage [--since 24h] [--by tool|actor|outline] [--json]
-  ep0ch mcp usage --census [--ws <name>] [--machine <ssh-name>] [--json]
-                                   measured MCP calls on this machine, or the service’s current block size census
-  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
-                                   local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
-                                   tools list_outlines, outline_read, outline_threads, outline_find, outline_grep, outline_query, outline_links, outline_components; resources/read with envelope,
-                                   and the outline's components and the skills as resources (resources/list), the skills as prompts,
-                                   and what an outline holds as its instructions (PIE-721). At \`propose\` and \`full\` it offers the
-                                   same write tools as the gateway, as \`mcp:[<persona>/]<client>@<machine>\` (the client the MCP initialize names, on this machine);
-                                   outline_new makes a scratch outline of its own on this machine, outline_archive puts it away
-  ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default outline>]
-                                   the same server over streamable HTTP for remote clients (claude.ai), an OAuth resource
-                                   server for this machine's outlines (and EP0CH_MCP_REMOTE's, live or from a mirror);
-                                   needs EP0CH_MCP_RESOURCE, CLERK_PUBLISHABLE_KEY (or EP0CH_MCP_ISSUER) and
-                                   EP0CH_MCP_ALLOWED_SUBJECTS (unset: refuse and log who asked)
-  ep0ch mcp access --matrix [--machine <ssh-name>]... [--json]
-                                   who can reach what: each caller (a named path, a client) against each outline, the
-                                   lower of the outline's grant and the caller's cap, with calls in the last 7 days
-                                   (the door's tile: ctrl+k > access.open)
-  ep0ch mcp access --cap <persona>[@<outline>[@<machine>]]=<level>
-                                   cap a named path (/<persona>/mcp) in EP0CH_MCP_PATH_ACCESS (~/.config/ep0ch/mcp.env)
-  ep0ch mcp access [none|read|propose|full] [--json] [--ws <name>] [--machine <ssh-name>]
-                                   show or set this outline's persisted MCP access grant (stdio and the gateway alike):
-                                   propose and full let the write tools (outline_create, outline_patch,
-                                   outline_comment, outline_set_property, outline_reply, outline_resolve_thread, outline_quote, outline_move, outline_trash) propose or apply (outline_assign_id and outline_restore apply at full only); a gateway's mirror of an outline queues them when its machine is away
-${QUEUE_USAGE}`;
 
 type RpcId = string | number | null;
 interface RpcRequest { jsonrpc?: string; id?: RpcId; method?: string; params?: unknown }
@@ -1107,6 +1081,7 @@ async function listOutlines(outlines: McpOutlines, caller: McpCaller | undefined
   const taking = listed.filter(o => o.writes).map(o => `${o.outline}@${o.machine}`);
   return toolText({
     outlines: listed,
+    skills: skillResources(gatewaySkills()).map(({ name, uri }) => ({ name, uri })),
     ...(caller?.call && !caller.freshCall ? { call: { ...callShown(caller.call), said: "This conversation's call: every write you make records its id, call:<id or handle> finds those writes in outline_query, and your own recent-activity reads leave them out unless includeOwn. Pass call (the id) on your requests to keep it; a name of your own works too and wins." } } : {}),
     tools: {
       writes,

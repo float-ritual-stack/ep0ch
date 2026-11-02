@@ -1,4 +1,6 @@
 import type { RenderElement } from 'claude-code'
+import { bindCall } from './outline-binding'
+export { bindCall } from './outline-binding'
 
 import type { BindingFacts, FolderFacts, WhereFacts } from '../types'
 
@@ -42,6 +44,7 @@ export function whereFactsOf(stdout: string): WhereFacts | null {
     ? { rule: w.reach.rule as 'control' | 'folder' | 'only' | 'none', text: str(w.reach.text) ?? '', control: door?.answers === true ? str(door.control) : null }
     : null
   return {
+    source: w.source ?? null,
     inDoor: w.inDoor,
     ...(reach ? { reach } : {}),
     here: { machine: str(w.here?.machine), folder: str(w.here?.folder), persona: personaOf(w.here?.persona) },
@@ -100,11 +103,6 @@ function sameOutline(f: BindingFacts): boolean {
   if (f.folder.kind !== 'bound' || !door?.outline) return false
   const ws = f.folder.workspace
   return ws.outline === door.outline && (ws.machine ?? null) === doorMachine(f)
-}
-
-/** The call that binds this session to an outline, with a real name: `outline_bind {"name":"garden"}`. */
-export function bindCall(name: string, machine?: string | null): string {
-  return `outline_bind ${JSON.stringify({ name, ...(machine ? { machine } : {}) })}`
 }
 
 /**
@@ -216,6 +214,7 @@ export function cardLines(f: BindingFacts, compact = false): CardLine[] {
   }
   // The note the session orients from (PIE-1353): shown on the compact card too, since it is where to start.
   if (f.orientsFrom) lines.push({ label: 'orients', text: `from ${f.orientsFrom}` })
+  if (f.where?.source) lines.push({ label: 'source', text: `${f.where.source.path} · read AGENTS.md and packages/outliner/docs first` })
   const mismatch = mismatchOf(f)
   if (mismatch) lines.push({ label: 'careful', text: mismatch, tone: 'warn' })
   if (compact) return lines

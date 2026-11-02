@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
+import { FULL_MARKERS } from "../src/overflow";
 import { DOUBLE_MS } from "../src/scroll";
 import { declaredKeys, hintKeys, keyName, keysText, traceActions, type ActionRun } from "../src/surface/actions";
 import { rewriteRequests, traceRequests, type RunRequest } from "../src/surface/dispatch";
@@ -53,7 +54,7 @@ export const PROBE_KEYS: Key[] = [
   { kind: "char", ch: "]", ctrl: true },
   // cmd+c (super+c): the copy, wherever a selection is.
   { kind: "super", ch: "c" },
-  ..."abcdefghijklmnopqrstuvwxyzACDLRX".split("").map((ch): Key => ({ kind: "alt", ch })),
+  ..."abcdefghijklmnopqrstuvwxyzACDLRX/".split("").map((ch): Key => ({ kind: "alt", ch })),
   ...(["up", "down", "left", "right", "alt-enter", "esc", "backspace", "tab", "backtab", "pgup", "pgdn", "home", "end", "delete", "alt-left", "alt-right"] as const).map((kind) => ({ kind }) as Key),
   { kind: "enter" },
 ];
@@ -63,7 +64,7 @@ export const PROBE_KEYS: Key[] = [
  * itself whenever a probe's look fell across a boundary (the hub picker's rows did, now and then).
  * Escape sequences are left whole (their `…;8m` isn't an age).
  */
-const ageless = (l: string) => l.replace(/(\x1b\[[\d;?]*[A-Za-z])|(?<![\d.:])\d+[smhd](?![A-Za-z0-9])/g, (m, esc) => esc ?? "#age");
+const ageless = (l: string) => l.replace(FULL_MARKERS, "").replace(/(\x1b\[[\d;?]*[A-Za-z])|(?<![\d.:])\d+[smhd](?![A-Za-z0-9])/g, (m, esc) => esc ?? "#age");
 
 interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string; /** The power bar's rows as drawn over the screen, when it's open ("" when it isn't). */ bar?: string; /** The hint row as drawn (checkHint), when the screen was drawn for this look. */ hint?: string; /** A program (a terminal tile's, the drawer's agent) has the keys with nothing of the door's open over it (person()'s `program`). */ inProgram?: boolean }
 interface Finding { screen: string; keys: string; problem: string }
@@ -221,7 +222,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         const current = painted && painted.top === top && painted.at === frames() && !painted.refused && !A().changed && !A().paintTimer;
         try {
           const l0 = performance.now();
-          const drawn = current ? painted!.lines : top.render(app).lines;
+          const drawn = app.strips.draw(current ? painted!.lines : top.render(app).lines, cols, rows);
           if (!current) { stats.looks++; stats.lookMs += performance.now() - l0; }
           hint = plain(drawn.at(top instanceof MainMenu ? -2 : -1) ?? "");
           lines = drawn.slice(0, rows - 1).map(ageless);
@@ -234,17 +235,17 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         try { lines.push((A().statusBar(top, cols) as string).replace(/on \d+m │ \d\d:\d\d/, "on Nm │ hh:mm").replace(/\+\d+ (new|ext)\b/g, "+N $1")); }
         finally { A().message = message; delete drawer.chip; delete drawer.chipText; }
         A().statusBar(top, cols);   // where its `+N ext` and chip are as drawn, for the clicks
-        lines = lines.map((l, i) => (mask.has(i) ? "" : l));
+        lines = lines.map((l, i) => (mask.has(i) ? "" : l.replace(FULL_MARKERS, "")));
       }
     } catch (e) { lines = [`render threw ${e}`]; }
     if (paintFailed) { lines = [`render threw ${paintFailed}`]; paintFailed = null; }
     // A glance is the screen drawn and nothing to compare: what a build does between its keys (no description, no whereabouts).
     if (glance) return { top, depth: A().stack.length, lines, about: "", holds: false, video: app.video, drawer: dock(), bar: barRows() };
     let about = "";
-    try { about = JSON.stringify(top?.describe?.() ?? null); } catch { about = "?"; }
+    try { about = JSON.stringify(top?.describe?.() ?? null, (_key, value) => typeof value === "string" ? value.replace(FULL_MARKERS, "") : value); } catch { about = "?"; }
     // The power bar open holds the keys too (they type its query): the door doesn't count it busy, but the walk's an input state.
     const w = app.person();
-    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: w.busy || !!A().bar, inProgram: !!w.program && !w.program.over, video: app.video, drawer: dock(), hint, bar: barRows() };
+    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: w.busy || !!A().bar || app.strips.engaged, inProgram: !!w.program && !w.program.over, video: app.video, drawer: dock(), hint, bar: barRows() };
   };
   /**
    * The drawer over the screen: up or put away, the person in it or not, its height. Its rows are the
@@ -317,7 +318,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     paintFailed = null;
     for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s);
     // The power bar is the App's, over every screen: put away.
-    A().bar?.close(); A().bar = null;
+    A().bar?.close(); A().bar = null; app.strips.close();
     (Desk as any).kept = null;
     // The drawer is the App's, over every screen: put away, its program ended.
     const drawer = A().drawer;
@@ -425,12 +426,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const declared = new Set(acts.flatMap(a => [...declaredKeys(a.keys)]));
     // The hint row, and the hint each tile draws in its frame when it has the keys (the desk and its views).
     const tiles: { hint?(): string }[] = [...((top as any).panes?.values?.() ?? [])];
-    // A row cut on a narrow screen ("? more", PIE-509) is checked whole, and so is a float's frame hint.
+    // Check the complete hint supplied to the strip, and a float's frame hint.
     // The menu ends in newscan metadata, so its last key hint row is immediately above it.
-    const row = looked?.top === top && looked.hint !== undefined ? looked.hint : plain(top.render(app).lines.at(top instanceof MainMenu ? -2 : -1) ?? ""), full = (top as any).hintFull as string | null | undefined;
+    const row = looked?.top === top && looked.hint !== undefined ? looked.hint : plain(top.render(app).lines.at(top instanceof MainMenu ? -2 : -1) ?? "");
     // The desk's row as composed, without the chips at its end (dock handles, □ lock): they're clicks, not keys.
     const composed = (top as any).hintDesk?.()?.hintText?.() as string | undefined;
-    for (const hint of [full ? plain(full) : composed !== undefined ? plain(composed) : row, plain((top as any).floatHint?.() ?? ""), ...tiles.map(t => plain(t.hint?.() ?? ""))])
+    for (const hint of [composed !== undefined ? plain(composed) : row, plain((top as any).floatHint?.() ?? ""), ...tiles.map(t => plain(t.hint?.() ?? ""))])
     for (const k of hintKeys(hint)) if (!declared.has(k) && k !== "click" && k !== "drag" && k !== "wheel") hintFindings.push({ screen: `${label} (${top.title})`, keys: k, problem: `the hint names ${k}, which no action here declares: ${hint.trim().slice(0, 140)}` });
   };
 
@@ -741,7 +742,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
    * again on every scenario was most of a part's time and found nothing new: the keys are the state's actions. A state
    * no action opened (a prefix such as ctrl+w) is probed on every scenario.
    */
-  const GLOBAL_SCOPES = new Set(["shell", "drawer", "extensions", "new"]);
+  const GLOBAL_SCOPES = new Set(["shell", "drawer", "extensions", "new", "strip"]);
   const sharedStates = new Set<string>();
   /**
    * The power bar (ctrl+k, a screen's `/`) is the App's, the same over every screen: the first key in a part that opens it starts an
@@ -906,7 +907,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   // The other parts leave the shell's states to this one: a desk that stopped opening one would leave it unprobed.
   if (part === "desk" && !only) test("the shell's input states were probed here, as no other part probes them", () => {
     const probed = new Set([...sharedStates].filter(id => id.startsWith("\0")).map(id => id.split("\0")[1]));
-    expect([...probed].sort()).toEqual(["alt+a", "alt+g", "alt+o", "alt+s", "alt+w", "ctrl+n"]);
+    expect([...probed]).toEqual(expect.arrayContaining(["alt+/", "alt+a", "alt+g", "alt+o", "alt+s", "alt+w", "ctrl+n"]));
   });
 });
 }

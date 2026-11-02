@@ -79,16 +79,17 @@ describe("Goto search", () => {
     const target = block("lock-change", "Make the Detail lock indicator distinguishable at a glance\nUse a padlock with a key.");
     expect(gotoCandidates([...noise, target], "make the lock easier to see").matches[0]!.block.id).toBe(target.id);
   });
+  // "panes": a word no title holds whole (a title the words start stays first by title, with no verdict: PIE-1497).
   test("uses typed scores to reorder only supplied candidates", async () => {
-    const candidates = gotoCandidates(notes, "terminal");
-    const result = await rankGotoWithJev("terminal", candidates, { apiKey: "fixture", fetch: fakeFetch([0.2, 2.8]) });
+    const candidates = gotoCandidates(notes, "panes");
+    const result = await rankGotoWithJev("panes", candidates, { apiKey: "fixture", fetch: fakeFetch([0.2, 2.8]) });
     expect(result.matches[0]!.block.id).toBe(candidates.matches[1]!.block.id);
     expect(result.semantic).toMatchObject({ status: "ranked", candidateCount: 2, inputTokens: 123, outputTokens: 4 });
     expect(result.matches.map(m => m.score)).toEqual([2.8, 0.2]);
   });
   test("says how sure it is: strong when the top and the Noul agree, not sure over a match it can't claim, else no strong match", async () => {
-    const candidates = gotoCandidates(notes, "terminal");
-    const ask = (scores: number[], exists?: number) => rankGotoWithJev("terminal", candidates, { apiKey: "fixture", fetch: fakeFetch(scores, exists) });
+    const candidates = gotoCandidates(notes, "panes");
+    const ask = (scores: number[], exists?: number) => rankGotoWithJev("panes", candidates, { apiKey: "fixture", fetch: fakeFetch(scores, exists) });
     const strong = await ask([0.2, 2.8], 0.95);
     expect(strong.semantic).toMatchObject({ verdict: "strong", exists: 0.95, top: 2.8 });
     expect(strong.semantic.said).toStartWith("strong match:");
@@ -126,7 +127,7 @@ describe("Goto search", () => {
   test("reloads edited instructions for the next search while an in-flight search retains its prompt", async () => {
     const fixture = promptFixture();
     const firstRevision = fixture.write("Prioritize the remembered interaction.");
-    const candidates = gotoCandidates(notes, "terminal");
+    const candidates = gotoCandidates(notes, "panes");
     const firstResponse = Promise.withResolvers<Response>();
     const requests: Array<{ questions: Record<string, { instructions: string; criteria: string[] }> }> = [];
     const fetch = async (_url: string, init: RequestInit) => {
@@ -135,12 +136,12 @@ describe("Goto search", () => {
       return fakeFetch([0.2, 2.8], 0.9)(_url, init);
     };
     const options = { apiKey: "fixture", promptDirectory: fixture.directory, fetch };
-    const firstSearch = rankGotoWithJev("terminal", candidates, options);
+    const firstSearch = rankGotoWithJev("panes", candidates, options);
     await until(() => requests.length === 1);
 
     const criteria = ["Unrelated", "Mention only", "Substantive match", "Direct match"];
     const secondRevision = fixture.write("Prioritize the note itself, not incidental mentions.", criteria);
-    const second = await rankGotoWithJev("terminal", candidates, options);
+    const second = await rankGotoWithJev("panes", candidates, options);
     firstResponse.resolve(Response.json({ answers: { candidate_0: { type: "score", score: 2.8 }, candidate_1: { type: "score", score: 0.2 } } }));
     const first = await firstSearch;
 

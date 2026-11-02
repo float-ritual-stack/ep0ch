@@ -21,6 +21,7 @@ import type { McpAccessLevel, QuestionFacet } from "@ep0ch/outline-core/protocol
 import type { AnnotationRecord, AnnotationThread, VisibleBlock, VisibleBlockCollection } from "./types";
 import { WorkToolRefusal } from "./work-tools";
 import { answerShape, shapeOfAnswer, type ScriptQueryRecord } from "./line-watches";
+import { programEnv } from "./program-env";
 
 export type HostTool = (input?: Record<string, unknown>) => Promise<unknown>;
 
@@ -407,6 +408,7 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
       const end = ending(signal, opts?.timeoutMs, what);
       if (end.signal?.aborted) throw end.why();
       const child = Bun.spawn([...list], {
+        env: programEnv(process.env),
         ...(opts?.cwd !== undefined ? { cwd: String(opts.cwd) } : {}),
         stdin: opts?.stdin !== undefined ? Buffer.from(String(opts.stdin)) : "ignore", stdout: "pipe", stderr: "pipe",
       });

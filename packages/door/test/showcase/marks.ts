@@ -16,6 +16,7 @@ export const marks: Record<string, string[]> = {
   "detach": ["Shed rebuild plan", "SHED JOBS", "Drop a part of the plan here."],
   "zoom": ["Orchard winter plan", "WINTER JOBS", "Bramley", "Pruning"],
   "trail": ["Garden walk: the gate", "Stop 1 of 5"],
+  strip: ["Build logs", "The roof frame is ready", "Garden plan"],
   "back-anywhere": ["Back anywhere: weekend jobs", "Seed order for the weekend"],
   "sticky-pad": ["Raised beds plan", "BED JOBS", "Turn the compost"],
   "deep-links": ["Greenhouse meeting, October", "We agreed to water the seedlings", "» comment"],
@@ -47,7 +48,7 @@ export const marks: Record<string, string[]> = {
   hints: ["source: select wire", "select wire", "HintCard"],
   // The tree's row for the note it follows: the outline is scrolled to show it (the root, above, is off a 60-row screen
   // once the seed has more top-level notes than the dock has rows).
-  panes: ["outline", "children", "Visitors", "▸ Allotment notebook"],
+  panes: ["outline", "Drop zones", "▸ Allotment notebook"],
   "book-spines": ["Bike shed", "Allotment notebook", "spines"],
   folds: ["outline", "children", "◂", "▾"],
   screens: ["Daily brief", "2026-03-11", "Needs you"],
@@ -92,6 +93,7 @@ export const marks: Record<string, string[]> = {
   "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
   peek: ["Garden peeks", "Check the forecast", "Sort the seeds", "1/2"],
   glass: ["Links on the glass", "tool shed", "The full title stays readable"],
+  "quiet-collection": ["Needs a gardener", "Check seeds", "Read report", "2 notes"],
   "collection-tune": ["Tune the garden collection", "Water the beans"],
   collection: ["Garden collection", "table", "gallery", "feed", "board", "Water the beans"],
   sysop: ["Sysop watches the workshop", "Look now"],

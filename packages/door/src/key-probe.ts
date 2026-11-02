@@ -28,5 +28,10 @@ export function describeKey(k: Key, seq: string): string {
   const say = hyperSent && k.kind !== "hyper"
     ? `${name} (a hyper chord, read as ${name} because the layer is off: EP0CH_HYPER=1 or hyper.set on=true)`
     : k.kind === "hyper" ? `${name} (✦${k.ch}, the hyper layer${hyperOn() ? "" : " is off"})` : name;
-  return `✦ probe · bytes ${showBytes(seq)} · modifiers ${mods ?? "legacy (no key report: the terminal did not send the Kitty keyboard protocol for this key)"} · read as ${say} · esc ends the probe`;
+  // What the door read comes first: that is the answer the person asked for. The bytes follow only when the door saw them;
+  // a key handed on by a tile program (a terminal tile has the keys) arrives without them, and that says nothing about the
+  // terminal's keyboard protocol (Nov 2: "read as hyper+a" sat after "no key report", read as a failure).
+  if (!seq) return `✦ probe · ${say} reached the door · esc ends the probe`;
+  const how = mods ? `modifiers ${mods}` : "a plain key (no Kitty key report for it)";
+  return `✦ probe · ${say} reached the door · bytes ${showBytes(seq)} · ${how} · esc ends the probe`;
 }

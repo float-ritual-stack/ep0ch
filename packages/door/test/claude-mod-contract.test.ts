@@ -4,12 +4,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { startControl } from "../src/control";
 import { Mirror } from "../src/mirror";
 import { Desk } from "../src/desk/desk";
 import { useShowcaseScreen } from "./showcase/harness";
 import { SocketBoard } from "../src/socket";
+import { answerMcp, boundOutlines } from "../src/mcp";
 import { Scratch, scratchDir } from "./scratch";
 
 const MAIN = join(import.meta.dir, "../src/main.ts");
@@ -51,6 +52,44 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
   });
   afterAll(() => scratch.dispose());
 
+  test("reads name the newest writer after MCP, agent CLI and editor saves (PIE-1393)", async () => {
+    const board = Object.assign(new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name), { address: { outline: scratch.name, machine: "garden-box" } });
+    const outlines = boundOutlines(board);
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const reply = await answerMcp(outlines, JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }), { sub: "stdio", clientId: "garden-agent" });
+      const result = (reply!.reply as { result: { isError?: boolean; content: { text: string }[] } }).result;
+      expect(result.isError, result.content[0]!.text).not.toBe(true);
+      return JSON.parse(result.content[0]!.text);
+    };
+    const agent = async (op: string, input: unknown) => {
+      const p = Bun.spawn(["bun", OUTLINER_CLI, "agent", op, "--actor", "pruner", "--stdin"], {
+        env: { ...clean, ...env, OUTLINER_FIGURE_FIT: "off" }, stdin: new Blob([JSON.stringify(input)]), stdout: "pipe", stderr: "pipe",
+      });
+      const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      expect(code, stderr).toBe(0);
+      return JSON.parse(stdout);
+    };
+    try {
+      await board.configureMcpAccess("full");
+      const made = await call("outline_create", { ref: note, text: "Pear tree\nPlanted.", persona: "planter" });
+      const id = made.uri.split("/b/")[1];
+      const first = (await call("outline_read", { ref: id })).record;
+      expect(first.actor).toContain("planter/");
+      await agent("edit", { ref: id, expectedRevision: first.revision, text: "Pear tree\nPruned." });
+      const history = await board.request<{ revisions: { actorId?: string; revision: number }[] }>("block.revisions", { blockId: id, latest: true });
+      expect(history.revisions[0]).toMatchObject({ actorId: "pruner", revision: first.revision + 1 });
+      const newest = (await call("outline_read", { ref: id })).record;
+      expect(newest).toMatchObject({ revision: first.revision + 1, actor: "pruner", author: "agent" });
+      const shown = await run(["ep0ch", "show", "--json", id], { env });
+      expect(shown.exitCode, shown.stderr).toBe(0);
+      expect(JSON.parse(shown.stdout)[0]).toMatchObject({ actor: "pruner", revision: newest.revision });
+      expect(await agent("read", { ref: id })).toMatchObject({ actorId: "pruner", revision: newest.revision });
+      await board.request("update", { blockId: id, text: "Pear tree\nWatered.", expectedRevision: newest.revision, mutation: { author: "user" } });
+      expect((await call("outline_read", { ref: id })).record).toMatchObject({ actor: null, author: "user", revision: newest.revision + 1 });
+      expect((await agent("read", { ref: id })).actorId).toBeUndefined();
+    } finally { board.close(); }
+  }, 30_000);
+
   test("the session guide points agents to making the outline do new things", async () => {
     const { GUIDE_ARGV, guideText } = await mod("outline-guide.ts");
     const guide = await run(GUIDE_ARGV, { env });
@@ -86,11 +125,21 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
   });
 
   test("where --json: the binding card's facts, outside a door", async () => {
-    const { whereFactsOf } = await mod("binding.ts");
+    const { whereFactsOf, cardLines } = await mod("binding.ts");
     const cwd = scratchDir("ep0ch-where-");
     const where = await run(["ep0ch", "where", "--json"], { cwd, env }).finally(() => rmSync(cwd, { recursive: true, force: true }));
     expect(where.exitCode).toBe(0);
-    expect(whereFactsOf(where.stdout)).toMatchObject({ inDoor: false, here: { machine: expect.any(String), folder: expect.any(String) }, door: null });
+    const facts = whereFactsOf(where.stdout);
+    const source = resolve(import.meta.dir, "../../..");
+    expect(facts).toMatchObject({ inDoor: false, here: { machine: expect.any(String), folder: expect.any(String) }, door: null,
+      source: { path: source, agentsMd: join(source, "AGENTS.md"), docs: join(source, "packages/outliner/docs"), skills: join(source, "packages/door/skills"), sha: expect.stringMatching(/^[a-f0-9]{40}$/) } });
+    expect(cardLines({ where: facts, folder: { kind: "unbound" }, cwd, doorTools: false }, true)).toContainEqual(expect.objectContaining({ label: "source", text: expect.stringContaining(source) }));
+    const path = await run(["ep0ch", "where", "--source"], { env });
+    expect(path.exitCode).toBe(0);
+    expect(path.stdout.trim()).toBe(source);
+    const text = await run(["ep0ch", "where"], { env });
+    expect(text.exitCode).toBe(0);
+    for (const value of Object.values(JSON.parse(where.stdout).source)) expect(text.stdout).toContain(value as string);
   });
 
   test("where --json: a stale pane and no EP0CH_CONTROL still reach the folder's door, and the mod's reader says so (PIE-715)", async () => {

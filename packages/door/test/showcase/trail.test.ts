@@ -22,7 +22,11 @@ describe.skipIf(!outliner)("showcase: trail (PIE-208)", () => {
     for (const [i, stop] of ["the pond", "the orchard", "the shed", "the compost heap"].entries()) {
       // The note shown drawn first, so ] steps through its own elements.
       await until(() => h.screen().includes(`Stop ${i + 1} of 5`), "the stop drawn", 8000);
-      h.ch("]"); h.press({ kind: "enter" } as never);
+      await until(() => {
+        h.ch("]"); h.screen();
+        return walk().describeElements().some((e: { current: boolean; kind: string }) => e.current && e.kind === "link");
+      }, "the next stop's link selected");
+      h.press({ kind: "enter" } as never);
       await until(() => walk().msg?.text.startsWith(`Garden walk: ${stop}`), `walked to ${stop}`, 10_000);
     }
     // The reader's last row and the hint row say how to find it.

@@ -13,6 +13,11 @@ import { askInBar, changedQuestionValue } from "../bar/ask";
 import { ActionRefused, def } from "./actions";
 import { PropertyPanel } from "./props-panel";
 import { SettingsCard, settingFields, settingOptions, settingProblem, settingQuestion, settingValue, type SettingField, type SettingSources } from "./settings-card";
+import { modeBinding, modeActionKeys } from "./modes";
+import { ATTACHED_KEYS, SETTINGS_KEYS } from "./attached-keys";
+import { ATTACHED_PLACES, attachedPlaceOf, moveFloat, type AttachedSide } from "./attached";
+import { writeState } from "../state";
+import type { Key } from "../term";
 import { boundComponent, setBinding, type Binding } from "./binding";
 import type { NoteSurface, On, SurfaceHost } from "./note";
 import type { ListHandle } from "./list-view";
@@ -43,7 +48,15 @@ export function openSettings(surface: NoteSurface, subject: SettingsSubject): Se
   surface.panel.full = false;
   const card = new SettingsCard(subject.schemas, subject.list?.key);
   if (surface.panel.card?.id !== card.id || surface.panel.card?.list !== card.list) surface.panel.card = card;
+  surface.attachedKeys("settings");
   return surface.panel.card;
+}
+
+export function settingsKey(surface: NoteSurface, key: Key, host: SurfaceHost): boolean {
+  const binding = modeBinding(SETTINGS_KEYS, key), card = surface.panel!.card!;
+  const field = surface.settingFields(surface.msg!, card.schemas)[card.sel];
+  if (binding) void surface.runKey(binding.action as keyof typeof SETTINGS_DEFS, { ...binding.args, ...(["settings.set", "settings.clear"].includes(binding.action) && field ? { key: field.prop.key } : {}) } as never, host);
+  return true;
 }
 
 function sources(subject: SettingsSubject, host: SurfaceHost): SettingSources {
@@ -132,11 +145,56 @@ const describe = (subject: SettingsSubject) => ({ id: subject.note.id, revision:
     ...(f.prop.default !== undefined ? { default: f.prop.default } : {}), ...(f.prop.values ? { choices: f.prop.values.map(v => v.value) } : f.prop.samples ? { samples: f.prop.samples } : {}) })) });
 
 export const SETTINGS_DEFS = {
+  "settings.pick": def({
+    summary: "pick a field in the attached settings card", keys: modeActionKeys(ATTACHED_KEYS, "settings.pick"), touches: "nothing", replay: "safe", person: "the field selection is the person's",
+    args: { n: { type: "number", optional: true, about: "field from one" }, by: { type: "number", optional: true, about: "step through fields" } },
+    examples: [{ act: "settings.pick n=2", does: "lights the card's second field" }, { act: "settings.pick by=1", does: "steps to the next field" }],
+    run({ n, by }, { surface, host }: On) {
+      const card = surface.panel?.card;
+      if (!card) throw new ActionRefused(", opens settings first");
+      const count = surface.settingFields(surface.msg!, card.schemas).length;
+      card.sel = n === undefined ? (card.sel + (by ?? 0) + count) % count : Math.max(0, Math.min(count - 1, n - 1));
+      card.note = ""; host.redraw(); return { selected: card.sel + 1 };
+    },
+  }),
+  "settings.focus": def({
+    summary: "give the settings card or its reader the keys", keys: "click", touches: "nothing", replay: "safe", person: "the keys belong to the person",
+    args: { on: { type: "boolean", about: "whether settings takes the keys" } },
+    examples: [{ act: "settings.focus on=true", does: "gives the settings card the keys" }],
+    run({ on }, { surface, host }: On) { const mode = surface.modes.get("panel"); if (mode) surface.modes.focus(mode, on); if (on) { surface.attachedKeys("settings"); host.enterMode?.(); } host.redraw(); return { focused: on }; },
+  }),
+  "settings.place": def({
+    summary: "place settings through the reader's attached surface", keys: modeActionKeys(ATTACHED_KEYS, "settings.place"), touches: "tile", replay: "safe", person: "the placement belongs to the person",
+    args: { place: { type: "string", optional: true, about: "inline, floating, split, popup or tile; omitted opens the placement menu" }, side: { type: "string", optional: true, about: "left, right, up or down for its tile" } },
+    examples: [{ act: "settings.place place=floating", does: "floats the settings card over the reader" }, { act: "settings.place place=tile side=right", does: "puts it in a tile to the reader's right" }],
+    async run({ place, side }, { surface, host }: On) {
+      if (!surface.panel?.card) throw new ActionRefused(", opens settings first");
+      if (place === undefined && side === undefined) return surface.openPlacementMenu("settings", host);
+      const want = attachedPlaceOf(place ?? "tile");
+      if (!want) throw new ActionRefused(`place is ${ATTACHED_PLACES.join(", ")}`);
+      if (side !== undefined && !["left", "right", "up", "down"].includes(side)) throw new ActionRefused("side is left, right, up or down");
+      if (want === "tile" && !host.settingsTile) throw new ActionRefused("this reader has no tiles · settings.place place=split shares the reader");
+      await surface.placeAttachment("settings", want, host, side as AttachedSide | undefined);
+      surface.attachedKeys("settings"); host.enterMode?.();
+      writeState("settings-place.json", { place: want }); host.redraw(); return { place: want };
+    },
+  }),
+  "settings.move": def({
+    summary: "move or resize the floating settings card", keys: "drag its header or corner; ctrl+g then arrows or shift+arrows, h j k l or H J K L; 0 its usual place", touches: "tile", replay: "safe", person: "the placement belongs to the person",
+    args: { ...Object.fromEntries(["row", "col", "rows", "cols", "dx", "dy", "drows", "dcols"].map(key => [key, { type: "number" as const, optional: true, about: key }])), reset: { type: "boolean", optional: true, about: "the usual position and size" } },
+    examples: [{ act: "settings.move dx=4 dy=-2", does: "nudges the floating card four columns right and two rows up" }, { act: "settings.move reset=true", does: "puts it back at its usual place and size" }],
+    run(args, { surface, host }: On) { const card = surface.panel?.card; if (!card?.frame || card.place !== "floating") throw new ActionRefused("settings.place place=floating floats the card first"); card.float = args.reset ? null : moveFloat(card.float ?? card.frame, args, card.room); host.redraw(); return card.float; },
+  }),
+  "settings.grip": def({
+    summary: "move or resize settings with the attached surface's grip keys", keys: modeActionKeys(ATTACHED_KEYS, "settings.grip"), touches: "tile", replay: "ask", person: "the placement belongs to the person", args: {},
+    async run(_, { surface, host }: On) { const card = surface.panel?.card; if (!card) throw new ActionRefused(", opens settings first"); if (card.place !== "floating" && card.place !== "tile") await surface.placeAttachment("settings", "floating", host); surface.modes.push(surface.gripMode(card, "settings")); host.redraw(); return { moving: true }; },
+  }),
   settings: def({
     summary: "open the settings card over a note or an inline view, with fields from its component schema. An agent reads the fields without moving the person's keys",
     keys: ", or a view's ≡ settings", touches: "nothing", replay: "safe",
     menu: { label: "settings", group: "Note", key: ",", now: ({ surface }: On) => !surface.msg || surface.msg.partial || !surface.settingsSchemaOf(surface.msg) ? { hide: true } : null },
     args: { list: LIST },
+    examples: [{ act: "settings", does: "opens the settings card over the note or the view under the cursor; an agent reads its fields", safe: true }, { act: "settings list=1", does: "opens the first view's settings" }],
     async run({ list }, on: On) {
       if (on.surface.panel?.field) throw new ActionRefused("a property value is being typed here · enter saves it, esc cancels, then , opens settings");
       const subject = await read(on, list);
@@ -149,6 +207,7 @@ export const SETTINGS_DEFS = {
     summary: "set a settings field in its own source; without value=, ask its schema's question in the power bar",
     keys: "enter or e on a field; click the selected field", touches: "draft", draft: "write", replay: "ask",
     args: { list: LIST, key: KEY, value: { type: "string", optional: true, about: "new value; left out asks the person" } },
+    examples: [{ act: "settings.set key=sort value=due", does: "writes sort: due into the view's own source" }, { act: "settings.set key=layout", does: "asks the person for a layout in the power bar" }],
     async run({ list, key, value }, on: On, actor) {
       const subject = await read(on, list), field = fieldOf(subject, key);
       const set = async (answer: string, checked?: string[]) => {
@@ -175,6 +234,7 @@ export const SETTINGS_DEFS = {
     summary: "toggle a schema choice or a matched row's property in a settings list, writing the block's source immediately",
     keys: "space or enter on a toggle question's row", touches: "draft", draft: "write", replay: "ask",
     args: { list: LIST, key: KEY, value: { type: "string", about: "the choice to show or hide" } },
+    examples: [{ act: "settings.toggle key=columns value=due", does: "shows the due column, or hides it when shown" }],
     async run({ list, key, value }, on: On, actor) {
       const subject = await read(on, list), field = fieldOf(subject, key);
       if (!field.prop.question) throw new ActionRefused(`${key} isn't a toggle or pick-order question · settings.set key=${key} value=… sets it`);
@@ -187,6 +247,7 @@ export const SETTINGS_DEFS = {
     summary: "write one settings binding at the read revision; the note's property or inline view's source is the only store",
     keys: "", touches: "draft", draft: "write", replay: "ask",
     args: { list: LIST, key: KEY, value: { type: "string", about: "the value to write" }, revision: { type: "number", about: "the revision settings read" } },
+    examples: [{ act: "binding.set key=sort value=due revision=12", does: "writes sort: due at revision 12, refused when the note moved on" }],
     async run({ list, key, value, revision }, on: On, actor) {
       const subject = await read(on, list), field = fieldOf(subject, key);
       subject.note = { ...subject.note, revision };
@@ -196,6 +257,7 @@ export const SETTINGS_DEFS = {
   "settings.clear": def({
     summary: "clear a settings field from its source, so the schema's default holds", keys: "x or delete on a field",
     touches: "draft", draft: "write", replay: "ask", args: { list: LIST, key: KEY },
+    examples: [{ act: "settings.clear key=sort", does: "removes sort from the source, so the schema's default holds" }],
     async run({ list, key }, on: On, actor) {
       const subject = await read(on, list), field = fieldOf(subject, key);
       const owner = !subject.binding.component && subject.schemas.find(s => s.source.note?.name === key || s.source.note?.requires?.includes(key));

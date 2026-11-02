@@ -102,6 +102,21 @@ describe("Kitty placement ids", () => {
 import { Painter } from "../src/display";
 import { spineImage } from "../src/spine";
 import { KeyDecoder, Rows } from "../src/term";
+describe("a status answer cut in two by the reads (PIE-1500)", () => {
+  test("ESC [ 0 in one read and n in the next is one answer and no key", () => {
+    const decoder = new KeyDecoder({ cols: 40, rows: 10, cellW: 9, cellH: 18, kitty: false });
+    let answers = 0; const keys: unknown[] = [];
+    decoder.onStatus = () => answers++;
+    decoder.keyHandler = k => keys.push(k);
+    decoder.feed("\x1b[0"); decoder.feed("n");
+    decoder.feed("\x1b_Gi=5;OK\x1b"); decoder.feed("\\\x1b[0n");       // whole, behind a Kitty reply split at its terminator
+    decoder.feed("\x1b[0nj");                                        // and whole, with a key after it
+    expect(answers).toBe(3);
+    expect(decoder.answersJoined).toBe(1);
+    expect(keys).toEqual([{ kind: "char", ch: "j" }]);
+  });
+});
+
 describe("a terminal that lost its images (PIE-795)", () => {
   test("its ENOENT is read, the image forgotten, and the same frame uploaded and placed again with no keypress", async () => {
     const out: string[] = [];

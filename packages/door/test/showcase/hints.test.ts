@@ -209,7 +209,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     expect(new Set(glyphs.map(toCp437Glyphs)).size).toBe(glyphs.length);
     await d.dispatch.press("hint.show", {}, "reader");
     const legend = d.hintGet().cards[0]!.lines.join(" ");
-    for (const meaning of ["○ where a select lands", "» where an open lands", "^ where an alt-open lands", "fold", "menu", "close"]) expect(legend).toContain(meaning);
+    for (const meaning of ["○ where a select lands", "» where an open lands", "^ where an alt-open lands", "÷ where a hover lands", "fold", "menu", "close"]) expect(legend).toContain(meaning);
     await d.dispatch.press("hint.dismiss");
   });
 

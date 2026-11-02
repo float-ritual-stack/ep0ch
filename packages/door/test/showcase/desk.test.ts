@@ -224,9 +224,15 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "enter" });
     await until(() => !S().stages.get(S().sel).top.overlays.top(), "empty title saved");
     expect(info().label).toBe(subject(seeded.notes.shed));
-    const lines = screen().split("\n"), y = lines.findIndex(l => /\d Visitors/.test(l));
-    expect(y).toBeGreaterThan(0);
-    const x = lines[y]!.indexOf("Visitors") + 1;
+    (app as any).paint(true);
+    const activity = d.layoutGet().tiles.find(t => t.name === "activity")!.tile;
+    let point: { x: number; y: number } | undefined;
+    for (let y = 0; y < app.t.rows && !point; y++) for (let x = 0; x < app.t.cols; x++) {
+      const hit = app.overflow.stripAt(x, y), tab = hit && app.strips.state.rows.get(hit.id)?.tabs[hit.n];
+      if (tab?.hit?.action === "tab.select" && tab.hit.tile === activity) { point = { x, y }; break; }
+    }
+    expect(point).toBeDefined();
+    const { x, y } = point!;
     for (let i = 0; i < 2; i++) {
       press({ kind: "mouse", action: "down", button: 0, x, y });
       press({ kind: "mouse", action: "up", button: 0, x, y });

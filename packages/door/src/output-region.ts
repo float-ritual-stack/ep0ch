@@ -9,7 +9,7 @@
 //
 // Used by every generated region (src/projection.ts extensionRegion, src/template-use.ts useRegion, the `[!output]`
 // callouts of src/doc.ts) and drawn by the reader (src/surface/note.ts): the mark, its click and its `[ ]` stop.
-import type { AfterRows } from "./doc";
+import type { AfterRows, Doc } from "./doc";
 import type { LinkTarget } from "./refs";
 import { C, dim, fg, RESET, visible, width } from "./style";
 
@@ -31,7 +31,7 @@ export interface RegionDraw {
   label: string;
   target?: LinkTarget;
   /** The body's rows, drawn `width` wide: its words, table or figure as the note would draw them written by hand. */
-  body: readonly string[];
+  body: readonly string[] | Doc;
   /** What is wrong, already coloured, always shown (a stale reason, a failure, an option nobody knows). */
   notes?: readonly string[];
   /** Behind the mark: what the region is (its name, when it ran, who asked), and its controls (already tagged links). */
@@ -65,7 +65,7 @@ function panel(facts: readonly string[], controls: readonly string[], w: number)
  */
 export function regionTail(d: RegionDraw, book: RegionBook | undefined): string[] {
   const rows = [...(d.notes ?? [])];
-  if (!d.body.length && !rows.length) rows.push(dim("nothing drawn"));
+  if (!("lines" in d.body ? d.body.lines : d.body).length && !rows.length) rows.push(dim("nothing drawn"));
   if (d.target) book?.add({ key: d.key, label: d.label, target: d.target });
   if (book?.isOpen(d.key)) rows.push(...panel(d.facts, d.controls, d.width));
   return rows;
@@ -74,16 +74,25 @@ export function regionTail(d: RegionDraw, book: RegionBook | undefined): string[
 /** The rows a region draws, and where it is (the reader's gutter mark goes on its first row). */
 export function regionRows(d: RegionDraw, book: RegionBook | undefined): AfterRows {
   const tail = regionTail(d, book), notes = d.notes?.length ?? 0;
-  const rows = d.notesFirst && notes ? [...tail.slice(0, notes), ...d.body, ...tail.slice(notes)] : [...d.body, ...tail];
-  return { rows, regions: [{ key: d.key, at: 0, rows: rows.length }] };
+  const doc = "lines" in d.body ? d.body : undefined;
+  const body = "lines" in d.body ? d.body.lines : d.body;
+  const offset = d.notesFirst ? notes : 0;
+  const rows = offset ? [...tail.slice(0, offset), ...body, ...tail.slice(offset)] : [...body, ...tail];
+  return { rows, regions: [{ key: d.key, at: 0, rows: rows.length }], ...(doc ? { heads: doc.heads.map(h => ({ ...h, row: h.row + offset })), folds: doc.folds } : {}) };
 }
 
 /** Row groups in order as one: plain rows and a region's, with each region's `at` moved to where its rows land. */
 export function joinRows(parts: readonly (readonly string[] | AfterRows)[]): string[] | AfterRows {
   const rows: string[] = [], regions: NonNullable<AfterRows["regions"]> = [];
+  const heads: Doc["heads"] = [], folds: NonNullable<Doc["folds"]> = [];
   for (const part of parts) {
-    if ("rows" in part) { for (const r of part.regions ?? []) regions.push({ ...r, at: r.at + rows.length }); rows.push(...part.rows); }
+    if ("rows" in part) {
+      for (const r of part.regions ?? []) regions.push({ ...r, at: r.at + rows.length });
+      for (const h of part.heads ?? []) heads.push({ ...h, row: h.row + rows.length });
+      folds.push(...part.folds ?? []);
+      rows.push(...part.rows);
+    }
     else rows.push(...part);
   }
-  return regions.length ? { rows, regions } : rows;
+  return regions.length || heads.length ? { rows, regions, heads, folds } : rows;
 }

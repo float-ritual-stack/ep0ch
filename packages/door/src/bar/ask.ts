@@ -96,7 +96,7 @@ export function clearPrivateForm() { if (waiting && (!waiting.form || waiting.qu
 const question = () => (waiting?.form ? waiting.questions[waiting.focus] ?? null : waiting?.questions.find(q => waiting!.answers[q.name] === undefined) ?? null);
 
 export const QUESTION_KEYS = keyTable<ModeKey>("settings-question", "A toggle or ordered settings question", [
-  { key: "space", action: "bar.question", args: { op: "toggle" }, label: "show/hide" },
+  { key: "space", action: "bar.question", args: { op: "toggle" }, label: "show/hide", says: "show or hide the selected choice" },
   { key: "J", action: "bar.question", args: { op: "move", by: 1 }, label: "later" },
   { key: "K", action: "bar.question", args: { op: "move", by: -1 }, label: "earlier" },
 ]);

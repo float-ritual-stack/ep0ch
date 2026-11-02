@@ -1,5 +1,5 @@
 // A template drawn live in the reader (PIE-533 S4): the `::use{of=[[meeting-template]] date=… with=…}` line of a note
-// becomes a shaded region (an embed's look) holding the template's body, drawn with `this` the note the line is in. The
+// draws the template's body and reading stops in place, with `this` the note the line is in. The
 // service resolves the call (`template.use`, watched: the template found, its props checked and defaulted, the chain
 // to draw the body in) and reads the body's `{{ }}`, figures, `::fields` and `::if` in that chain (`site.answer`,
 // `produce`); the door asks and draws. A call with something wrong says so in the region, dimmed, with the nearest name
@@ -8,7 +8,7 @@
 import type { SiteLink } from "@ep0ch/outline-core/site";
 import type { TemplateUseAnswer, UseCall } from "@ep0ch/outline-core/template-use";
 import type { Msg } from "./board";
-import type { AfterRows } from "./doc";
+import type { AfterRows, Doc } from "./doc";
 import { embedState } from "./embeds";
 import { regionRows, type RegionBook } from "./output-region";
 import type { LiveSite } from "./live";
@@ -37,7 +37,7 @@ export function useAnswer(src: Source | null | undefined, host: string, line: nu
 export const bodySite = (answer: TemplateUseAnswer): LiveSite => ({ chain: answer.chain, props: answer.props });
 
 /** How a template's body is drawn, `w` wide: the reader's own renderer with the call's Site (src/surface/note.ts). */
-export type UseBody = (template: Msg, site: LiveSite, width: number) => string[];
+export type UseBody = (template: Msg, site: LiveSite, width: number) => Doc | string[];
 
 /** Everything a `::use` region needs from the reader that draws it. */
 export interface UseDrawing {
@@ -93,7 +93,7 @@ export function useRegion(d: UseDrawing): string[] | AfterRows {
     const names = answer.missing.map(m => m.name).join(", ");
     notes.push(fg(C.yellow) + `needs ${names} ` + RESET + buttonText("fill it in", {}, t => d.sink ? LINK_ON + tagged(d.sink, { block: d.host, role: "control", label: `fill in ${names}`, use: { block: d.host, line: d.line } }, t) + LINK_OFF : t));
   }
-  const draw = (body: readonly string[]) => regionRows({ key, label: title, ...(open ? { target: open } : {}), body, notes, notesFirst: true, facts: [head], controls: [], width: d.width }, d.book);
+  const draw = (body: Doc | string[]) => regionRows({ key, label: title, ...(open ? { target: open } : {}), body, notes, notesFirst: true, facts: [head], controls: [], width: d.width }, d.book);
   if (!answer.template) return draw([]);
   // The template's note: kept read by the embed machinery (its text, revision and change events); its body is drawn here.
   const st = embedState(answer.template.id, undefined, d.src, d.top);

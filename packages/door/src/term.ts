@@ -277,6 +277,8 @@ export class KeyDecoder {
    * asks after each frame (src/session/session-term.ts); an answer is never a key, whatever the mode.
    */
   onStatus: (() => void) | null = null;
+  /** Answers that arrived cut in two by the reads (`ESC [ 0` in one, `n` in the next) and were joined: evidence for a link that splits them (PIE-1500). */
+  answersJoined = 0;
   /**
    * The terminal answered the Kitty keyboard protocol's query (src/kbd.ts): the door asks it for the protocol at
    * start and on every resume, and TERM_RESET gives it back. False: legacy keys, as before.
@@ -359,9 +361,14 @@ export class KeyDecoder {
 
   feed(s: string) {
     // The status reports that answer `CSI 5 n` are taken out first, wherever they fall: in the middle of a paste still
-    // arriving, in raw input to a terminal tile, between keys. At the probe one says the terminal answers it at all.
-    if (s.includes(STATUS_OK)) s = s.replaceAll(STATUS_OK, () => { this.status(); return ""; });
+    // arriving, in raw input to a terminal tile, between keys, and cut in two by the reads (the first half waited here as
+    // an escape still arriving; taken out of `s` alone, the joined answer was dropped as an unknown sequence and the frame
+    // went unanswered, PIE-1500). At the probe one says the terminal answers it at all.
+    const held = this.pending;
     this.pending += s;
+    if (this.pending.includes(STATUS_OK)) {
+      this.pending = this.pending.replaceAll(STATUS_OK, (_, at: number) => { if (at < held.length) this.answersJoined++; this.status(); return ""; });
+    }
     while (this.pending.length) {
       const sink = this.rawSink?.();
       if (sink) { if (!this.feedRaw(sink)) return; continue; }
@@ -429,7 +436,7 @@ export class KeyDecoder {
       if (p[0] === "\x1b" && (p[1] === "\x7f" || p[1] === "\x08")) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt-backspace" }); continue; }
       // Alt+letter or digit arrives as ESC and the key together. `[ O P _ ]` start CSI, SS3, DCS, APC and OSC
       // sequences, so an ESC before one of them keeps its old meaning.
-      if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9?]$/.test(p[1]!)) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
+      if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9?/]$/.test(p[1]!)) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
       if (p[0] === "\x1b") { // unknown sequence: drop it
         // A CSI's private marker (< = > ?) is part of it: a mouse report the door couldn't read is dropped whole, not read as esc and keys.
         const k = p.match(/^\x1b\[[<=>?]?[\d;:?]*[ -\/]*[@-~]/);
