@@ -77,6 +77,7 @@ describe.skipIf(!outliner)("the strip exhibit", () => {
     expect(reader.msg!.id).toBe(note); expect(desk.keys().address).toBe(before);
     await until(() => tree.subject() === path[0]!.id, "the following tree highlights the ancestor");
     h.press({ kind: "mouse", action: "wheel-up", button: 0, ...at("breadcrumb", 0) });
+    expect(() => at("breadcrumb", path.length - 2)).not.toThrow();
     h.press({ kind: "enter" });
     await until(() => links.target?.id === path.at(-2)!.id, "the wheel and Enter choose the previous ancestor");
     expect(reader.msg!.id).toBe(note); expect(desk.keys().address).toBe(before);
@@ -107,13 +108,53 @@ describe.skipIf(!outliner)("the strip exhibit", () => {
     click(at(`${desk.name}:docks-down`, 1));
     await until(() => desk.layoutGet().tiles.find(t => t.name === "Seed stock")?.shown === false, "the lit dock closes through the expanded drawer");
     await h.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
+    h.app.flash(""); paint();
+    const status = h.app.strips.state.get("status")!;
+    click(at("status", status.tabs.findIndex(t => visible(t.label) === "docks")));
+    expect(paint()).toContain("Seed cupboard");
+    h.ch("3");
+    await until(() => desk.layoutGet().tiles.find(t => t.name === "Weekend jobs")?.shown === true, "a numbered dock chosen from the status picker");
+    expect(desk.layoutGet().tiles.find(t => t.name === "Garden plan")?.shown).toBe(false);
     h.press({ kind: "char", ch: "k", ctrl: true });
     await until(() => !!h.app.bar, "the power bar");
     h.press({ kind: "mouse", action: "wheel-down", button: 0, ...at("scopes", 0) });
     h.ch("g");
     expect(h.app.bar!.query).toBe("g");
-    h.press({ kind: "esc" });
+    h.press({ kind: "esc" }); h.press({ kind: "esc" });
+    expect(h.app.bar).toBeNull();
+    await desk.dispatch.press("reader.crumb", { id: note }, "Build logs");
+    await until(() => links.parents.kind === "ready", "the note's parents");
+    const parent = links.rows().findIndex(r => r.kind === "child" && r.child.block.id === path[0]!.id);
+    await desk.dispatch.press("list.open", { n: parent + 1 }, "links");
+    await until(() => reader.msg?.id === path[0]!.id, "a Parents row opens its note in the home reader");
   }, 30_000);
+
+  test("a vertical dock keeps its whole title and hovering scrolls a longer one down its own cells", async () => {
+    await h.sc.dispatch.press("section", { name: "strip" }); h.screen();
+    const desk = h.sc.tilesHere()!;
+    await desk.dispatch.press("tile.focus", {}, "Build logs");
+    for (const tile of ["Garden plan", "Seed stock", "Weekend jobs"]) await desk.dispatch.press("tile.dock", { on: true, edge: "left" }, tile);
+    await desk.dispatch.press("tile.slide", { open: true }, "Garden plan");
+    const garden = desk.layoutGet().tiles.find(t => t.name === "Garden plan")!.tile;
+    let point!: { x: number; y: number };
+    const title = () => {
+      (h.app as any).paint(true);
+      const lines = h.painted.map(visible), cells: string[] = [];
+      for (let y = 0; y < h.app.t.rows; y++) for (let x = 0; x < h.app.t.cols; x++) {
+        const hit = h.app.overflow.stripAt(x, y), tab = hit && h.app.strips.state.rows.get(hit.id)?.tabs[hit.n];
+        if (hit?.id.endsWith("/" + desk.name + ":docks-left") && tab?.hit?.tile === garden) { point = { x, y }; cells.push(lines[y]![x]!); }
+      }
+      return cells.join("").trim();
+    };
+    expect(title()).toBe("Garden plan");
+    await desk.dispatch.press("tile.title", { text: "Garden plan for seed trays and window pots" }, "Garden plan");
+    expect(title()).not.toContain("window pots");
+    h.press({ kind: "mouse", action: "drag", button: 3, ...point });
+    await until(() => title().includes("window pots"), "the long vertical title scrolled into view", 6000);
+    await desk.dispatch.press("tile.title", { text: "Garden plan" }, "Garden plan");
+    for (const tile of ["Garden plan", "Seed stock", "Weekend jobs"]) await desk.dispatch.press("tile.dock", { on: true, edge: "down" }, tile);
+    await desk.dispatch.press("tile.focus", {}, "Build logs");
+  }, 15_000);
 
   test("tabs inside one dock stay selectable and agents leave the current one visible", async () => {
     await h.sc.dispatch.press("section", { name: "strip" }); h.screen();

@@ -50,7 +50,7 @@ export function tabStrip(tabs: readonly Tab[], o: StripOptions): TabRow[] {
     const anchor = o.scroll ?? current;
     while (used() + controls() > room && shown.some(t => t.i !== current)) {
       const candidates = shown.filter(t => t.i !== current).sort((a, b) => o.overflow === "middle"
-        ? Number(a.i === 0) - Number(b.i === 0) || Math.abs(a.i - anchor) - Math.abs(b.i - anchor)
+        ? Number(a.i === 0) - Number(b.i === 0) || (o.scroll === undefined ? 1 : -1) * (Math.abs(a.i - anchor) - Math.abs(b.i - anchor))
         : Math.abs(b.i - anchor) - Math.abs(a.i - anchor));
       shown.splice(shown.indexOf(candidates[0]!), 1); more++;
     }

@@ -66,7 +66,7 @@ import { hyperOn } from "../hyper";
 import { containerKeys, leafNames, slotNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
-import { theme, themed } from "../theme";
+import { theme } from "../theme";
 import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term";
 import { DOCK_DROP, dropAt, dropArgs, dropOp, floatLanding, handleDrop, type Drop, type DropTile, type DropPlace, type DropReceive } from "./drop";
 import { drawDrop } from "./drop-drawing";
@@ -4735,7 +4735,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (drawer?.screenLocked()) tabs.push({ label: lockChipText(drawer.layoutSelf()).trim(), hit: { action: "layout.lock", tile: drawer.tileId(drawer.focus) } });
     if (hyperOn()) tabs.push({ label: HYPER_CHIP, hit: { action: "keys.probe" } });
     const row = withStripOwner(tile, cols, () => tabStrip(tabs, { id: "hint", width: cols, style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } }))[0]!;
-    this.keySpots = [...row.hits.map(h => ({ ...h, y: this.hintRow, run: () => { void this.ctx?.press?.(h.action, h.args, h.tile); } })), ...hintSpots(row.text, keyStyles()).map(p => ({ ...p, y: this.hintRow }))];
+    this.keySpots = [...row.hits.map(h => ({ from: h.from, to: h.to, y: this.hintRow, run: () => { void this.ctx.press?.(h.index < 0 ? h.action : "strip.pick", h.index < 0 ? h.args : { strip: "hint", n: h.index + 1 }, tile); } })), ...hintSpots(row.text, keyStyles()).map(p => ({ ...p, y: this.hintRow }))];
     return pad(row.text, cols);
   }
 
@@ -5036,9 +5036,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       else this.ctx.flash("no new note here: this screen isn't given the door's actions · ctrl+n from the door's own screens");
       return;
     }
-    // ? is the keys window, filtered to the focused tile (keys.open), at once: it lists every key the cut hint row
-    // would (PIE-1425: a first ? that only showed the rest of the row read as ? doing nothing). The row's "? more"
-    // chip still shows the whole row (keys.more). Never while the person is typing: a draft, a filter, a terminal, a ^W chord.
+    // ? opens the focused tile's keys window at once; the strip's +N opens its hints (PIE-1425).
     if (ch(k) === "?" && !this.holdsKeys() && !this.prefix && this.ctx.press && this.panes.get(this.focus)?.kind !== "keys") { void this.ctx.press("keys.open", { filter: this.keysFilter() }); return; }
     // A source's model holds the keys while its own overlay is open (the board's composer, pickers), before the screen's.
     const model = !this.overlayOpen() && [...this.models.values()].some(m => m.key?.(k));
@@ -8563,8 +8561,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     run({ prefix }, { d }, actor) { return d.keysPanel(prefix ?? "^W", actor); },
   }),
   "keys.more": def({
-    summary: "show the whole hint row in a box above it, when the screen is too narrow for it and it was cut (it ends \"? more\"); again, or the next key, puts it away. The person's view: an agent's is refused (peek and actions say every key already)",
-    keys: [{ keys: "click", does: "on ? more at the end of a cut hint row" }],
+    summary: "open every hint in the strip's picker; Escape returns to the tile. An agent reads the same choices with strip.more strip=hint",
     touches: "screen", replay: "safe", person: "keys.more is the person's view of their hint row; `actions` lists every key",
     args: {},
     run(_, { d }) { return d.keysMore(); },

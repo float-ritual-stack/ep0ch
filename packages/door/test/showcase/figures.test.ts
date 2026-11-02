@@ -283,7 +283,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
       screen();
       return ((await app.act({ action: "elements", tile: "1", as: "figure-reader" })) as any).elements;
     };
-    ch("]");
+    await untilAsync(async () => { ch("]"); return (await elements()).some((e: any) => e.current && e.kind === "figure"); }, "the first figure tab selected");
     press({ kind: "down" });
     expect((await elements()).find((e: any) => e.current)?.label).toContain("Rebuild the leaning");
     press({ kind: "down" });
@@ -773,7 +773,10 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect(narrow).not.toMatch(/\[\[|\(\(/);
     // By keys: into the stage, [ ] to the table's greenhouse (a reference by its short id), ⏎ opens it; back.
     press({ kind: "enter" });
-    for (let i = 0; i < 60 && !(await els()).find(e => e.current && e.n === greenhouse.n); i++) ch("]");
+    await untilAsync(async () => {
+      ch("]");
+      return (await els()).some(e => e.current && e.kind === "link" && e.label === greenhouse.label);
+    }, "the table's greenhouse link selected");
     press({ kind: "enter" });
     await until(() => screen().includes("once they have two leaves"), "the greenhouse open by ⏎", 5000);
     press({ kind: "backspace" });
@@ -848,11 +851,14 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
       expect(cells.join(" ")).not.toContain("…");
     }
     await expect(app.act({ action: "figure.density", tile: "1", args: { to: "roomy" }, as: "test-agent" })).rejects.toThrow(/compact, cozy, comfortable/);
-    // The person, by keys: into the stage (the left reader), [ ] onto the first element (a tab), → and tab step on.
+    // The person, by keys: into the stage (the left reader), [ ] onto a figure tab, → and tab step on.
     await app.act({ action: "figure.density", tile: "1", args: { to: "compact" }, as: "test-agent" });
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
-    ch("]");
+    await untilAsync(async () => {
+      ch("]"); screen();
+      return ((await app.act({ action: "elements", tile: "1", as: "test-agent" })) as any).elements.some((e: any) => e.current && e.kind === "figure");
+    }, "the figure tab selected");
     press({ kind: "right" });
     expect(((await app.act({ action: "figures", tile: "1", as: "test-agent" })) as any).figures[0].tab).toBe("validate");
     await until(() => half().includes("nothing in validate"), "the empty validate tab, listed in order");

@@ -1480,7 +1480,10 @@ export class App implements Ctx {
       this.redraw();
       if (confirms(armed, k)) { armed.run(k); return; }
     }
-    if ((this.strips.engaged || this.bar || !tilesOf(this.keysScreen())?.overlaid()) && this.strips.input(k, this.overflow, !this.bar && !!this.keysScreen()?.keys?.().typingIn)) return;
+    const pointed = k.kind === "mouse" ? this.overflow.stripAt(k.x, k.y) : undefined;
+    const strip = pointed && this.strips.state.rows.get(pointed.id), owner = strip?.tile ?? strip?.tabs[0]?.hit?.tile;
+    const overlaid = (owner ? this.hostLayer.resolveTile(owner)?.desk : tilesOf(this.keysScreen()))?.overlaid();
+    if ((this.strips.engaged || this.bar || !overlaid) && this.strips.input(k, this.overflow, !this.bar && !!this.keysScreen()?.keys?.().typingIn)) return;
     w = this.keyLayers();
     // The power bar (PIE-656), while it's open, takes every key and click: esc or a click outside puts it away.
     if (w.over === "bar") {
@@ -1602,12 +1605,7 @@ export class App implements Ctx {
     const top = tilesOf(this.stack.at(-1));
     return !!top && top !== this.drawer.made && top.overlaid() && [...this.statusMenus.values()].some(m => !m.ended());
   }
-  /**
-   * Who takes the person's next key (PIE-1438), the part of their whereabouts the raw sink, the router and Esc's hold read
-   * on every key (person() carries it too): the door's own layer over everything, top first (the power bar, above the
-   * key probe since the probe takes keys and not clicks, then a status-bar menu over the drawer), and the program under
-   * it all. Nothing else decides it (test/one-owner.test.ts).
-   */
+  /** The raw sink, router, Esc hold and person() share this layer order (PIE-1438; test/one-owner.test.ts). */
   private keyLayers(): KeyLayers {
     const over = this.strips.engaged ? "menu" as const : this.bar ? "bar" as const : this.probing ? "probe" as const : this.overDrawer() ? "menu" as const : undefined, program = this.programUnder(!!over);
     return { ...(over ? { over } : {}), ...(program ? { program } : {}) };

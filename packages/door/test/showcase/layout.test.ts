@@ -337,8 +337,8 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       expect(app.drawer.entered).toBe(true);
       lines = frame(); alone = own();
       expect(cells(lines, dr.row + 1, f.col, f.cols)).not.toBe(cells(alone, dr.row + 1, f.col, f.cols));
-      // A click on the float (above the drawer's edge) brings it back above.
-      click(f.col + 3, f.row + 1);
+      // A click in the float's body (above the drawer's edge) brings it back above; its breadcrumb keeps the keys where they are.
+      click(f.col + 3, f.row + 2);
       expect(app.drawer.entered).toBe(false);
       lines = frame(); alone = own();
       expect(cells(lines, dr.row + 1, f.col, f.cols)).toBe(cells(alone, dr.row + 1, f.col, f.cols));
@@ -872,11 +872,11 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     expect(hyperOn()).toBe(false);
     expect(sent("\x1b[45;16u")).toEqual([{ kind: "super", ch: "-" }]);
     expect(tile(reader).collapsed).toBeUndefined();
-    (app as any).paint(true); expect(h.painted.map(plain).join("\n")).not.toContain("✦ hyper");
+    (app as any).paint(true); expect(plain(h.painted.at(-3)!)).not.toContain("✦ hyper");
     // On: ✦- folds the focused tile, ✦= opens it; the chip is on the hint row.
     useHyper(true);
     try {
-      (app as any).paint(true); expect(h.painted.map(plain).join("\n")).toContain("✦ hyper");
+      (app as any).paint(true); expect(plain(h.painted.at(-3)!)).toContain("✦ hyper");
       const focused = tiles().find(x => x.focused).name;
       expect(sent("\x1b[45;16u")).toEqual([{ kind: "hyper", ch: "-" }]);
       expect(tile(focused).collapsed).toBe(true);

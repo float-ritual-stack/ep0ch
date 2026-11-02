@@ -7,7 +7,7 @@ import { headOf, pad, RESET, selected, tailFrom, visible, width } from "./style"
 export const FULL_START = "\x1b[777;";
 export const FULL_END = "\x1b[778m";
 export const FULL_MARKERS = /\x1b\[(?:777;[01];\d+|778)m/g;
-export interface StripTarget { id: string; n: number }
+export interface StripTarget { id: string; n: number; vertical?: boolean }
 interface Full { id: number; source: string; reveal?: string; lit?: string; strip?: StripTarget; tab?: import("./surface/chip-rows").Tab }
 const values = new Map<string, Full>();
 const byId = new Map<number, Full>();
@@ -38,7 +38,7 @@ export function fullPlainText(text: string): string {
     });
 }
 export function fullText(text: string, drawn: string, lit?: string, strip?: StripTarget, tab?: import("./surface/chip-rows").Tab): string {
-  const key = (lit === undefined ? text : `\0lit\0${lit}`) + (strip ? `\0${strip.id}:${strip.n}` : tab ? "\0tab" : "");
+  const key = (lit === undefined ? text : `\0lit\0${lit}`) + (strip ? `\0${strip.id}:${strip.n}:${strip.vertical ? "v" : "h"}` : tab ? "\0tab" : "");
   let value = values.get(key);
   if (!value) {
     value = { id: ++nextId, source: text, lit, strip };
@@ -77,13 +77,19 @@ export class Overflow {
 
   /** The cut-short value at a cell, if any, as `draw` keys it: one answer for what the pointer reveals and whether that changed. */
   private cutAt(x: number, y: number): Cut | undefined { return this.cuts.find(c => c.y === y && x >= c.x && x < c.end); }
+  private span(cut: Cut): Cut[] {
+    return cut.strip?.vertical ? this.cuts.filter(c => c.x === cut.x && c.strip?.id === cut.strip!.id && c.strip?.n === cut.strip!.n) : [cut];
+  }
+  private available(cut: Cut): number { return cut.strip?.vertical ? this.span(cut).length : cut.end - cut.x; }
   stripAt(x: number, y: number): StripTarget | undefined { return this.cutAt(x, y)?.strip; }
   hoveredStrip(): StripTarget | undefined { return this.pointer ? this.stripAt(this.pointer.x, this.pointer.y) : undefined; }
   targetAt(x: number, y: number): { text: string; rect: { col: number; row: number; cols: number; rows: number } } | null {
     const cut = this.cutAt(x, y);
-    return cut && cut.lit === undefined ? { text: cut.text, rect: { col: cut.x, row: cut.y, cols: cut.end - cut.x, rows: 1 } } : null;
+    if (!cut || cut.lit !== undefined) return null;
+    const span = this.span(cut);
+    return { text: cut.text, rect: { col: cut.x, row: span[0]!.y, cols: cut.end - cut.x, rows: span.length } };
   }
-  private static keyOf(cut: Cut | undefined): string { return cut ? `${cut.y}:${cut.x}:${cut.lit ?? cut.text}` : ""; }
+  private static keyOf(cut: Cut | undefined): string { return cut ? `${cut.strip?.vertical ? cut.strip.id + cut.strip.n : cut.y}:${cut.x}:${cut.lit ?? cut.text}` : ""; }
 
   /**
    * The pointer moved to a cell. True when what it reveals is not what the last draw showed (a value came under it, or
@@ -137,7 +143,7 @@ export class Overflow {
     const clean = lines.map((line, y) => this.readRow(line, y));
     const p = this.pointer;
     const cut = p ? this.cutAt(p.x, p.y)
-      : this.chosen ? this.cuts.find(c => c.text === this.chosen) : [...this.cuts].reverse().find(c => c.selected && (c.strip ? width(c.text) > c.end - c.x : this.keyboard));
+      : this.chosen ? this.cuts.find(c => c.text === this.chosen) : [...this.cuts].reverse().find(c => c.selected && (c.strip ? width(c.text) > this.available(c) : this.keyboard));
     this.shown = cut;
     const key = Overflow.keyOf(cut);
     if (key !== this.active) { this.active = key; this.since = now; this.step = 0; }
@@ -151,13 +157,16 @@ export class Overflow {
     this.step = Math.max(0, Math.floor((now - this.since - 900) / 100));
     const text = printable(visible(cut.text), " ").replace(/\s+/g, " ").trim();
     // In place: the value scrolls inside the cells it was cut to, on its own row, in the selection's colours (PIE-1140).
-    const x = cut.x, y = cut.y, available = Math.max(1, cut.end - cut.x);
+    const span = this.span(cut), x = cut.x, y = span[0]!.y, available = Math.max(1, this.available(cut));
     const over = Math.max(0, width(text) - available);
     this.scrolling = over > 0;
     // Pause at both ends; even a message wider than the whole terminal can be read.
     const phase = this.step % (over + 20), offset = Math.min(over, phase);
-    const label = selected() + pad(headOf(tailFrom(text, offset), available), available) + RESET;
-    clean[y] = headOf(clean[y] ?? "", x) + OSC8_CLOSE + RESET + label + tailFrom(clean[y] ?? "", x + available);
-    return { lines: clean, overlay: { col: x, row: y, cols: available, rows: 1 } };
+    const label = pad(headOf(tailFrom(text, offset), available), available);
+    for (const [i, part] of span.entries()) {
+      const cells = cut.strip?.vertical ? headOf(tailFrom(label, i), 1) : label;
+      clean[part.y] = headOf(clean[part.y] ?? "", x) + OSC8_CLOSE + RESET + selected() + cells + RESET + tailFrom(clean[part.y] ?? "", part.end);
+    }
+    return { lines: clean, overlay: { col: x, row: y, cols: cut.strip?.vertical ? 1 : available, rows: span.length } };
   }
 }

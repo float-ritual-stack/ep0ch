@@ -1,4 +1,4 @@
-import { clipText, FULL_END } from "./overflow";
+import { clipText, fullText, fullValue, selectFullText, FULL_END } from "./overflow";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { rowLines } from "./text";
 // A cell grid the desk composes into: panes, borders and floating overlays all write here,
@@ -119,7 +119,13 @@ export class Canvas {
   column(col: number, row: number, text: string, rows: number): void {
     const strip = new Canvas(rows, 1);
     strip.text(0, 0, text, rows);
-    for (let y = 0; y < rows && row + y < this.rows; y++) this.put(this.cells[row + y]!, col, strip.cells[0]![y]!);
+    for (let y = 0; y < rows && row + y < this.rows; y++) {
+      const cell = strip.cells[0]![y]!, full = cell.full ? fullValue(cell.full) : null;
+      if (full?.strip) {
+        const mark = fullText(full.text, "", full.lit, { ...full.strip, vertical: true }, full.tab).slice(0, -FULL_END.length);
+        this.put(this.cells[row + y]!, col, { ...cell, full: full.selected ? selectFullText(mark) : mark });
+      } else this.put(this.cells[row + y]!, col, cell);
+    }
   }
 
   /**

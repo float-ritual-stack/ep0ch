@@ -8,10 +8,8 @@ import { COLLECTION_SECTIONS } from "./collections";
 import { tileRegistry } from "../desk/tile-registry";
 import { LibraryPane } from "../library/library";
 import { errorDetails } from "../status-log";
-// The showcase (PIE-439): every shared door part, live, on the seeded showcase outline. One section per
-// row of the reuse map (docs/UI-GRAMMAR.md "Before adding a feature"), in the map's order; each is drawn
-// by the part itself, hosted on a desk of its own spec or the real board, never a copy. A parallel version still
-// in the code is shown beside the shared one and labelled, until consolidation removes it.
+// The showcase draws every shared part on the seeded outline in reuse-map order (docs/UI-GRAMMAR.md).
+// Each section uses the part itself, hosted on a desk's spec or the real board.
 // It only runs on an outline the showcase seed wrote (src/showcase/seed.ts): `scripts/try-it.sh --showcase`
 // starts one. On any other outline it says so and writes nothing.
 import { nothingToClose, shellKeyOf } from "../shell-keys";

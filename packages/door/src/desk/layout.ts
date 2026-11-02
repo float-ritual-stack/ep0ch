@@ -138,7 +138,7 @@ export type Dock<I = number> = { t: "dock"; kid: LNode<I>; edge: Dir; open: bool
 export function dockBody<I>(d: Dock<I>): LNode<I> { return d.view ? splitOf(d.edge === "left" || d.edge === "right" ? "col" : "row", d.view.map(leaf)) : d.kid; }
 /** Choose the tiles that slide out without changing the dock's saved arrangement. */
 export function chooseDock<I>(d: Dock<I>, id: I, open: boolean, beside: boolean, toggle: boolean): void {
-  if (open) d.view = beside && d.open ? [...new Set([...visible(dockBody(d)), id])] : [id];
+  if (open || !d.open) d.view = beside && d.open ? [...new Set([...visible(dockBody(d)), id])] : [id];
   else if (toggle && d.view && d.view.length > 1) { d.view = d.view.filter(x => x !== id); return; }
   d.open = open;
 }

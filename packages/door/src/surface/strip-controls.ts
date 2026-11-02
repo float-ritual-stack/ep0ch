@@ -39,7 +39,7 @@ export class StripControls {
     if (actor.kind === "user") {
       this.state.active = row.id;
       this.picker = new ListPicker({ name: "strip", items: () => row.tabs.map((_, i) => i),
-        row: (i, _n, on, w) => pickRows(`${row.tabs[i]!.on ? "●" : " "} ${i + 1} ${visible(row.tabs[i]!.label)}`, on, w),
+        row: (i, _n, on, w) => { const t = row.tabs[i]!; return pickRows(`${t.on ? "●" : " "} ${i + 1} ${t.key && t.key !== String(i + 1) ? t.key + " " : ""}${visible(t.label)}`, on, w); },
         choose: i => { void this.host.press("strip.pick", { strip: row.id, n: i + 1 }); },
         bindings: STRIP_KEYS, dispatch: binding => { void this.host.press(binding.action, { ...binding.args, strip: row.id }); },
         frame: (area, n) => ({ rect: centred(area, Math.min(64, area.cols), Math.min(n + 2, area.rows)), title: "all choices" }),
