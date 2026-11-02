@@ -462,7 +462,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.collection = await make(notes.root.id, [
     `${SEED.collection} [type::virtual-branch] [query::collection=garden] [layout::table, gallery, feed, board]`,
     "[summary-properties::title, owner, stage] [sort::title] [direction::asc] [group::area] [gallery.card::large] [cover::cover, img]",
-    "One garden, four layouts. Enter the list, tab through its layouts; click a table header to sort. j k pick, Enter opens; / asks the query to filter. Changes here belong to the viewer.",
+    "One garden, four layouts. Click a layout or table header to change layout or sort. Arrows or j k pick, Enter opens, Tab or Esc leaves, comma tunes. Sources explains the collection. Changes here belong to the viewer.",
   ].join("\n"));
   for (const text of [
     "Water the beans [collection::garden] [area::beds] [owner::Mira] [stage::ready] [cover::Bean leaves after rain]\n\nWater at dusk, around the roots.",
@@ -471,6 +471,10 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "Check the forecast [collection::garden] [owner::Sol] [stage::ready]\n\nBring the tender plants in before frost.",
   ]) await make(notes.root.id, text);
   notes.collectionTune = await make(notes.root.id, COLLECTION_TUNE);
+  const waiting = await make(notes.root.id, "Waiting in the garden [type::virtual-branch] [query::collection=waiting] [layout::table] [summary-properties::type, ticket]");
+  await make(notes.root.id, "Check seeds [collection::waiting] [type::request] [ticket::GARDEN-7] [to::Mira]\n\n> [!success]\n> **Ready** for {{this.to}}.\n\n## Before planting [heading::tab]\n\nCheck the labels on the packets.");
+  await make(notes.root.id, "Read report [collection::waiting] [type::report] [ticket::GARDEN-8] [to::Sol]\n\n> [!info]\n> The beds are **watered**, {{this.to}}.\n\n## Next visit [heading::tab]\n\nBring the seedlings.");
+  notes.collectionQuiet = await make(notes.root.id, `${SEED.collectionQuiet}\n\n::view{of=((${waiting.id}))} ^waiting\n::`);
   notes.collectionInline = await make(notes.root.id, [
     SEED.collectionInline, "A saved source inline, and an anonymous board:",
     `::view{of=((${notes.collection.id})) layout=gallery} ^garden`, "::", "",

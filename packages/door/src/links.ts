@@ -659,12 +659,14 @@ export interface LinkBlocksEnv {
   list?(key: string, signature: string): ListView<LinkRow>;
   /** The person is in component `key` (its keys are the list's). */
   entered?(key: string): boolean;
+  /** The collection under the reader's cursor, from the same owner as list actions. */
+  current?(): string | null;
   /** Tag a row, its target `to`, as row `row` of component `key`. */
   row?(key: string, row: string, to: LinkTarget, text: string, group?: string): string;
   /** Tag the frame's control that goes in (or out). */
   control?(key: string, text: string): string;
   /** Block `id` drawn `width` wide, as the reader draws an embed of it. */
-  preview?(id: string, width: number): string[];
+  preview?(id: string, width: number, bodyOnly?: boolean): string[];
   seen?(info: ListHandle<any>): void;
 }
 /**

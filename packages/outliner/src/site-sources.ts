@@ -8,6 +8,7 @@ import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import type { SiteProduced } from "@ep0ch/outline-core/site";
 import { slotArgument, sourceCalls, yamlParams, type SourceEntry, type SourcesAnswer, type SourcesRequest } from "@ep0ch/outline-core/sources";
 import { answerSite } from "./site-answer";
+import { collectionSource } from "./site-producers";
 import { slotProps } from "./script-runs";
 import type { ResourceProjection } from "./resource-projection";
 import { templateUse, type TemplateUseStore } from "./template-use";
@@ -104,6 +105,12 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
         out.push({ ...base, readAt, live: true, query: { params: c.params, text: c.text, editable: true },
           transform: a.template ? { kind: "template", label: a.template.title, block: a.template.id, text: a.template.text } : { kind: "none", label: "no template" },
           result: a.template ? resultOf(read({ blockId: a.template.id, chain: a.chain, props: a.props, interpolate: { text: a.template.text, fences: "template" } }).interpolated?.text ?? a.template.text) : { rows: 0, text: "" }, ...(a.problems[0] ? { problem: a.problems[0].message } : {}) });
+      } else if (c.kind === "view") {
+        const args = c.view?.args && Object.keys(c.view.args).length ? Object.fromEntries(Object.entries(c.view.args).map(([k, v]) => [k, [v]])) : undefined;
+        const answer = read({ blockId: host.id, produce: { kind: "view", props: c.view?.props ?? { of: `((${host.id}))` } }, ...(args ? { props: args } : {}) });
+        const produced = answer.produced as Extract<SiteProduced, { kind: "view" }>;
+        const source = collectionSource(produced, readAt);
+        out.push({ ...base, ...source, ...(c.view?.error ? { problem: [c.view.error, source.problem].filter(Boolean).join(" · ") } : {}) });
       } else if (c.kind === "figure" && c.figure) {
         const block = componentBlocks(lines).find(b => b.start === c.line);
         const src = figureSource(lines.slice(c.line + 1, block?.end ?? c.endLine), host.id, false, block?.attrs);

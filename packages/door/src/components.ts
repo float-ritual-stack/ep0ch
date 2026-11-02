@@ -94,6 +94,8 @@ export interface PrimitiveDraw {
   header?: (key: string, text: string, column: number) => string;
   /** A table's row activation stays distinct from links carried by its individual cells. */
   row?: (index: number, text: string) => string;
+  /** Style the whole table row after its independently clickable cells are drawn. */
+  rowStyle?: (index: number, text: string) => string;
   /** The picked row uses the same uncapped wrapping as an expanded figure row. */
   expanded?: (index: number) => boolean;
   /**
@@ -211,7 +213,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
               return ink + rowLink(k, padded) + RESET;
             });
             return parts.join("  ");
-          });
+          }).map(text => draw.rowStyle?.(k, text) ?? text);
         }),
       ];
     }
