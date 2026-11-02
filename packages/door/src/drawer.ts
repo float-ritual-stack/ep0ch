@@ -1111,7 +1111,7 @@ export class AgentDrawer {
   putRefusal(from: Desk, name: string, actor: Actor, to?: string, where?: Where): string | null {
     const d = this.desk;
     if (!d) return "the drawer isn't ready (no screen is shown yet)";
-    if (from === d) return `${name} is in the drawer already`;
+    if (from === d) return d.tileNow(name, actor).float ? null : `${name} is in the drawer already`;
     const out = from.takeRefusal(name, actor);
     if (out) return out;
     const kind = (from.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
@@ -1125,6 +1125,7 @@ export class AgentDrawer {
     const d = this.desk;
     const no = this.putRefusal(from, name, actor, to, where);
     if (no || !d) throw new ActionRefused(no ?? "the drawer isn't ready (no screen is shown yet)");
+    if (from === d) return this.host.ctx!()!.glass!.tuck(name, actor);
     this.dropHover = null;
     const moved = from.takeOut(name, actor);
     const done = this.bring(d, moved, to, where ?? "tabs", actor, a => from.bringIn(moved, undefined, undefined, a));
@@ -1194,6 +1195,7 @@ export class AgentDrawer {
     const into = screen.bringRefusal({ name, spec: { t: "leaf", kind } }, to, where, actor);
     if (into) throw new ActionRefused(`the ${screen.title} doesn't take ${name} there: ${into}`);
     const wasIn = this.entered;
+    if (this.glassHasKeys(d.tileInfo(name).tile)) { this.glassReturn = null; this.capture = null; }
     const moved = d.takeOut(name, actor);
     const done = this.bring(screen, moved, to, where, actor, a => d.bringIn(moved, undefined, "tabs", a));
     // The person's keys were in it in the drawer: they go with it, back on the screen.
@@ -1400,15 +1402,12 @@ export class AgentDrawer {
   menuInput(k: Key): boolean {
     const ctx = this.host.ctx?.(), screen = this.host.screen?.();
     if (k.kind !== "mouse" || this.capture || !ctx) return false;
-    const hit = (r: Rect) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows;
-    if (!this.glassHasKeys() && !this.d?.floatingTiles().some(f => hit(f.rect))) return false;
-    const owner = this.glassFrame().menus.some(hit) ? this.d : this.covers(screen).paint.menus.some(hit) ? screen : null;
-    if (owner) owner.key(k, ctx);
-    return !!owner;
+    return ctx.glass!.menuInput(k, this.glassFrame().menus, this.covers(screen).paint.menus, screen);
   }
   glassInput(k: Key): boolean {
     const ctx = this.host.ctx?.(), d = this.d;
     if (k.kind !== "mouse" || !d || !ctx) return false;
+    if (ctx.glass!.dragFloat(k, tilesOf(this.host.screen?.()))) { if (k.action === "up") this.capture = null; return true; }
     const f = d.floatingTiles().findLast(f => k.x >= f.rect.col && k.x < f.rect.col + f.rect.cols && k.y >= f.rect.row && k.y < f.rect.row + f.rect.rows);
     if (f || this.glassHasKeys() && this.capture) {
       if (f && k.action === "down") { this.enterGlass(f.tile); this.capture = f.rect; }

@@ -9,6 +9,7 @@ import { App } from "../src/app";
 import { CommentSession } from "../src/comment";
 import { filterTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 import { Desk } from "../src/desk/desk";
+import type { ReaderPane } from "../src/desk/panes";
 import { openScreen } from "../src/desk/screen-specs";
 import { Draft } from "../src/edit";
 import { MainMenu } from "../src/screens";
@@ -165,7 +166,17 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
     await ready(d);
     expect(completionOf(d)!.target).toMatchObject({ kind: "key", query: "heading-p" });
     expect(completionOf(d)!.items.map(i => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
-    s.key(K("esc"), env);
+    for (const [letter, query, insertions] of [
+      ["a", "heading-pa", ["[heading-pattern::", "[heading-padding::"]],
+      ["t", "heading-pat", ["[heading-pattern::"]],
+    ] as const) {
+      s.key(char(letter), env);
+      await until(() => completionOf(d)?.target.query === query && !completionOf(d)!.loading, "the narrowed keys");
+      expect(completionOf(d)!.items.map(i => i.insertion)).toEqual([...insertions]);
+    }
+    s.key(char("z"), env);
+    await until(() => completerOf(d)!.state === null, "no keys match the suffix");
+    expect(d.text).toEndWith("[heading-patz");
     expect(completionOf(d)).toBeNull();
     for (const c of " ((bean") s.key(char(c), env);
     await until(() => completionOf(d)?.target.kind === "block" && !completionOf(d)!.loading && completionOf(d)!.items.length > 0, "the notes");
@@ -173,6 +184,23 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
     s.key(K("enter"), env);
     await until(() => d.text.endsWith(`((${beans.id}))`), "the block inserted");
     s.key(K("esc"), env); s.key(K("esc"), env);
+  });
+
+  test("a page query keeps its trailing letters, including a one-letter word prefix", async () => {
+    for (const name of ["paths", "plans", "apple", "shed"]) await create(null, `Garden ${name} [page::garden-${name}]`);
+    const line = new LineField("");
+    for (const c of "[[garden-") line.take(char(c));
+    for (const [letter, query, addresses] of [
+      ["p", "garden-p", ["garden-paths", "garden-plans"]],
+      ["a", "garden-pa", ["garden-paths", "garden-plans"]],
+      ["t", "garden-pat", ["garden-paths"]],
+      ["z", "garden-patz", []],
+    ] as const) {
+      line.take(char(letter));
+      await until(() => completionOf(line)?.target.query === query && !completionOf(line)!.loading, "the narrowed pages");
+      expect(completionOf(line)!.items.filter(i => i.kind === "page").map(i => i.address)).toEqual([...addresses]);
+    }
+    line.take(K("esc"));
   });
 
   test("the board's composer: a property key and ((, reading the docs then inserting with one click", async () => {
@@ -230,39 +258,36 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
   });
 
   test("the property panel's value: [[ offers pages, and a click inserts the key's values from the outline and the schemas", async () => {
-    const s = new NoteSurface(), h = host();
-    s.show((await board.get(beans.id))!, h);
-    key = key;                                                             // the App's input stays; this surface is keyed directly
-    const press = (k: Key) => s.key(k, h);
-    press(char("i"));
-    const rows = () => s.panel!.at;
-    await until(() => s.panel && rows().length > 0 || (s.render(100, 30, h), rows().length > 0), "the panel");
-    s.render(100, 30, h);
-    // The row for stage::queued.
-    const stage = (s as any).rows(s.msg!).find((r: any) => r.key === "stage");
-    s.panel!.sel = stage.n - 1;
-    press(K("enter"));
-    const f = s.panel!.field!;
-    expect(f.input.complete).toEqual({ valueKey: "stage" });
-    // The outline's values of it first, most used first, then what the schemas know.
-    press(ctrl("u")); for (const c of "d") press(char(c));
-    await ready(f.input);
-    expect(completionOf(f.input)!.items.map(i => i.insertion)).toEqual(["done"]);
-    const drawn = s.render(100, 30, h).lines.map(visible).join("\n");
-    expect(drawn).toContain("values 1/1");
-    const lines = s.render(100, 30, h).lines.map(visible);
-    const y = lines.findIndex(l => /» done/.test(l));
-    expect(y).toBeGreaterThan(0);
-    s.click(lines[y]!.indexOf("done"), y, h);
-    await until(() => f.input.text === "done", "the clicked value");
-    // ⏎ with no popup saves, as it always did; and [[ in a value offers pages.
-    press(ctrl("u")); for (const c of "[[se") press(char(c));
-    await until(() => completionOf(f.input)?.target.kind === "page" && !completionOf(f.input)!.loading && completionOf(f.input)!.items.length > 0, "the pages");
-    expect(completionOf(f.input)!.items.map(i => i.insertion)).toContain("[[seeds]]");
-    press(K("esc"));                                                       // the popup only
-    expect(s.panel!.field).toBe(f);
-    press(K("esc"));                                                       // then the field
-    expect(s.panel!.field).toBeNull();
+    const desk = new Desk();
+    app.push(desk);
+    try {
+      await app.act({ action: "tile.open", args: { kind: "detail", note: beans.id, name: "beans-properties" } });
+      const pane = desk.paneNamed("beans-properties") as ReaderPane;
+      await until(() => pane.msg?.id === beans.id, "the detail");
+      desk.focusOn("beans-properties");
+      const s = pane.surface;
+      key(char("i"));
+      await until(() => { screen(); return !!s.panel?.at.length; }, "the panel");
+      key(K("enter"));
+      const f = s.panel!.field!;
+      expect(f.input.complete).toEqual({ valueKey: "stage" });
+      key(ctrl("u")); type("d");
+      await ready(f.input);
+      expect(completionOf(f.input)!.items.map(i => i.insertion)).toEqual(["done"]);
+      const lines = screen();
+      expect(lines.join("\n")).toContain("properties 1/1");
+      const y = lines.findIndex(l => /» done/.test(l));
+      expect(y).toBeGreaterThan(0);
+      click(key, lines[y]!.indexOf("done"), y);
+      await until(() => f.input.text === "done", "the clicked value");
+      key(ctrl("u")); type("[[se");
+      await until(() => completionOf(f.input)?.target.kind === "page" && !completionOf(f.input)!.loading && completionOf(f.input)!.items.length > 0, "the pages");
+      expect(completionOf(f.input)!.items.map(i => i.insertion)).toContain("[[seeds]]");
+      key(K("esc"));
+      expect(s.panel!.field).toBe(f);
+      key(K("esc"));
+      expect(s.panel!.field).toBeNull();
+    } finally { app.pop(); }
   });
 
   test("the river column's filter: keys and values from the property index, ⏎ and a click choose, esc closes the popup first", async () => {

@@ -79,15 +79,15 @@ describe.skipIf(!outliner)("a tile dragged onto the drawer lands where its drop 
           const d = await door();
           try {
             const { moving, kindName } = await prepare(d, kind, grouped);
-            const [x, y] = at(d, zone), row = d.app.drawer.rect!.row + 1;
+            const [x, y] = at(d, zone);
             const preview = d.drawer().foreignAt(x, y, { name: moving, kind: kindName });
             d.drawer().cancelDrag();
             expect(preview?.refused).toBeUndefined();
             const head = (d.desk.describe().panes as any[]).find(p => p.name === moving).rect;
-            d.key(mouse("down", head.col + 4, head.row)); d.key(mouse("drag", head.col + 9, head.row + 2)); d.key(mouse("drag", x, y + row));
+            d.key(mouse("down", head.col + 4, head.row)); d.key(mouse("drag", head.col + 9, head.row + 2)); d.key(mouse("drag", x, y));
             // Over a zone the drag shows where it lands, in words, before it is let go.
             expect(d.paint().at(-1)).toContain(preview!.label);
-            d.key(mouse("up", x, y + row));
+            d.key(mouse("up", x, y));
             await until(() => landed(d, moving) !== "not in the drawer", "in the drawer");
             expect(landed(d, moving)).toBe(zone);
           } finally { d.app.quit(); }
@@ -117,8 +117,8 @@ describe.skipIf(!outliner)("a tile dragged onto the drawer lands where its drop 
   test("a drag ended by a key leaves no ghost in the drawer", async () => {
     const d = await door();
     try {
-      const [x, y] = at(d, "right"), row = d.app.drawer.rect!.row + 1, head = (d.desk.describe().panes as any[]).find(p => p.name === "reader").rect;
-      d.key(mouse("down", head.col + 4, head.row)); d.key(mouse("drag", head.col + 9, head.row + 2)); d.key(mouse("drag", x, y + row));
+      const [x, y] = at(d, "right"), head = (d.desk.describe().panes as any[]).find(p => p.name === "reader").rect;
+      d.key(mouse("down", head.col + 4, head.row)); d.key(mouse("drag", head.col + 9, head.row + 2)); d.key(mouse("drag", x, y));
       expect((d.drawer() as any).foreign).not.toBeNull();
       d.key({ kind: "char", ch: "f" });                              // f floats the dragged tile: the drag ends there
       d.paint();
@@ -144,9 +144,9 @@ describe.skipIf(!outliner)("a tile dragged onto the drawer lands where its drop 
       d.paint();
       const name = d.app.drawer.agentName();
       expect(d.drawer().tileOutline().map(t => t.name)).toEqual([name]);
-      const own = (d.drawer().layoutGet().tiles as any[])[0].rect, row = d.app.drawer.rect!.row + 1, x = own.col + own.cols - 2, y = own.row + Math.floor(own.rows / 2);
+      const own = (d.drawer().layoutGet().tiles as any[])[0].rect, x = own.col + own.cols - 2, y = own.row + Math.floor(own.rows / 2);
       const head = (d.desk.describe().panes as any[]).find(p => p.name === "reader").rect;
-      d.key(mouse("down", head.col + 4, head.row)); d.key(mouse("drag", head.col + 9, head.row + 2)); d.key(mouse("drag", x, y + row)); d.key(mouse("up", x, y + row));
+      d.key(mouse("down", head.col + 4, head.row)); d.key(mouse("drag", head.col + 9, head.row + 2)); d.key(mouse("drag", x, y)); d.key(mouse("up", x, y));
       await until(() => d.drawer().tileOutline().some(t => t.name === "reader"), "in the drawer");
       const tiles = d.drawer().layoutGet().tiles as any[], reader = tiles.find(t => t.name === "reader"), mine = tiles.find(t => t.name === name);
       expect(reader.rect.col).toBeGreaterThanOrEqual(mine.rect.col + mine.rect.cols);

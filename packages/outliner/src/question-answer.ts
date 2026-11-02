@@ -110,7 +110,7 @@ export function questionFacets(matches: readonly Block[], keys: true | readonly 
       }
     }
   });
-  const words = search.split(/\s+/).filter(Boolean).map(prepareSearchQuery);
+  const words = search.split(/\s+/).filter(Boolean).map(word => prepareSearchQuery(word));
   const hits = new Map<string, boolean>();
   const hit = (value: string): boolean => {
     if (!words.length) return false;

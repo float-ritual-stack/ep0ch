@@ -47,6 +47,26 @@ describe("reading key reports", () => {
     expect(key("\x1b[99;1:3u")).toBeNull();                                      // a release
   });
 
+  test("arrows, Home/End and the ~ keys with event types or a lock key: Ghostty's ↑ ↓ on the Mac mini (Nov 1)", () => {
+    // Under flag 2 Ghostty sends a press as CSI 1;1:1 A and its release as CSI 1;1:3 A; a lock key adds 64 or 128 to the mods.
+    expect(key("\x1b[1;1:1A")).toEqual({ kind: "up" });
+    expect(key("\x1b[1;1:1B")).toEqual({ kind: "down" });
+    expect(key("\x1b[1;1:3B")).toBeNull();                                   // the release
+    expect(key("\x1b[1;1:2C")).toEqual({ kind: "right" });                   // a repeat
+    expect(key("\x1b[1;129D")).toEqual({ kind: "left" });                    // num lock on
+    expect(key("\x1b[1;2:1A")).toEqual({ kind: "up", shift: true });
+    expect(key("\x1b[1;3:1D")).toEqual({ kind: "alt-left" });
+    expect(key("\x1b[1;1:1H")).toEqual({ kind: "home" });
+    expect(key("\x1b[5;1:1~")).toEqual({ kind: "pgup" });
+    expect(key("\x1b[3;1:3~")).toBeNull();
+    // A program that never asked for the protocol gets the legacy arrow, and nothing for the release.
+    expect(translateReports("\x1b[1;1:1A\x1b[1;1:3A\x1b[1;1:1B\x1b[1;1:3B", 0)).toBe("\x1b[A\x1b[B");
+    expect(translateReports("\x1b[1;1:1A", 0, true)).toBe("\x1bOA");
+    // One that asked for it gets the report in its own letter form.
+    expect(translateReports("\x1b[1;1:1A\x1b[1;1:3A", 3)).toBe("\x1b[1;1:1A\x1b[1;1:3A");
+    expect(translateReports("\x1b[1;1:1A\x1b[1;1:3A", 1)).toBe("\x1b[A");
+  });
+
   test("a raw piece: a report or legacy ESC-and-a-letter, whole", () => {
     expect(rawKey("\x1b[97;3u")).toEqual({ kind: "alt", ch: "a" });
     expect(rawKey("\x1ba")).toEqual({ kind: "alt", ch: "a" });

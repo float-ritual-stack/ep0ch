@@ -205,7 +205,7 @@ export type MergedRow<R extends SourceRow = SourceRow> = R & { from: string; tie
  * row the matcher doesn't match at all is left out: one matcher decides what matches what's typed.
  */
 export function mergeSourceAnswers<R extends SourceRow>(answers: readonly SourceAnswer<R>[], query: string, opts: { picks?: Record<string, PickRecord>; now?: Date; limit?: number } = {}): MergedRow<R>[] {
-  const q = prepareSearchQuery(query), now = opts.now ?? new Date(), picks = opts.picks ?? {};
+  const q = prepareSearchQuery(query, "completion"), now = opts.now ?? new Date(), picks = opts.picks ?? {};
   type Entry = { row: MergedRow<R>; pre: number; tier: number; f: number; at: string; p: number; score: number; i: number };
   const lists: Entry[][] = answers.map(a => {
     const entries: Entry[] = [];
@@ -214,7 +214,7 @@ export function mergeSourceAnswers<R extends SourceRow>(answers: readonly Source
       const m = q ? scoreSearchDocument({ id: row.id ?? text, title: row.label, text: row.filter ?? "" }, q) : null;
       if (q && !m && !a.source.ranked) return;
       const tier = !q ? 0 : m ? TIER[m.kind] : UNPLACED;
-      entries.push({ row: { ...row, from: a.source.id, tier, matches: searchMatchSpans(row.label, query) } as MergedRow<R>, pre: row.preselect ? 0 : row.fallback ? 2 : 1, tier, f: frecency(pick, now), at: pick?.at ?? "", p: row.priority ?? a.source.priority ?? 0, score: m?.score ?? 0, i });
+      entries.push({ row: { ...row, from: a.source.id, tier, matches: searchMatchSpans(row.label, query, "completion") } as MergedRow<R>, pre: row.preselect ? 0 : row.fallback ? 2 : 1, tier, f: frecency(pick, now), at: pick?.at ?? "", p: row.priority ?? a.source.priority ?? 0, score: m?.score ?? 0, i });
     });
     if (!a.source.ranked) {
       entries.sort((x, y) => x.pre - y.pre || y.p - x.p || x.tier - y.tier || y.f - x.f || y.at.localeCompare(x.at) || y.score - x.score || x.i - y.i);
@@ -237,7 +237,7 @@ export function mergeSourceAnswers<R extends SourceRow>(answers: readonly Source
     for (const e of entries) e.row.tier = e.tier;
     return entries;
   });
-  // Partial and fuzzy guesses drop out when any source has every term as typed. Service-ranked notes remain its decision.
+  // Fuzzy guesses drop out when any source has every term as typed. Service-ranked notes remain its decision.
   if (q && lists.some(list => list.some(e => e.score >= 20000))) {
     for (const [i, list] of lists.entries()) if (!answers[i]!.source.ranked) lists[i] = list.filter(e => e.pre !== 1 || e.score >= 20000);
   }

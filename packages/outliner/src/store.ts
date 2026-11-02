@@ -4079,7 +4079,7 @@ export class OutlinerStore {
       if (query?.trim()) {
         // No id: an address is found by what it says, never by the uuid of the note it names.
         // A title's letters scattered in order (`text-fuzzy`) are too loose for an address: the address's own are kept.
-        const matches = rankTextSearchMatches(pageAddressDocuments(rows), query.trim())
+        const matches = rankTextSearchMatches(pageAddressDocuments(rows), query.trim(), Infinity, "completion")
           .filter(match => match.kind !== "text-fuzzy");
         if (context) {
           const sorted = sortByContext(matches.map(match => ({ match, block: byId.get(match.document.row.block_id)!, kind: match.kind, inTitle: match.inTitle, edits: match.edits })).filter(entry => entry.block), context,
@@ -5271,7 +5271,7 @@ export class OutlinerStore {
 
   /** Notes, per connection, which blocks a write touched: what `loadGraph` reads again (TEMP, never in the file). */
   private noteGraphWrites(): void {
-    const note = (id: string) => `INSERT OR IGNORE INTO temp.graph_dirty (block_id) VALUES (${id});`;
+    const note = (id: string) => `INSERT OR IGNORE INTO graph_dirty (block_id) VALUES (${id});`; // never temp.graph_dirty: macOS SQLite refuses a qualified name in a trigger
     this.database.exec(`
       CREATE TEMP TABLE IF NOT EXISTS graph_dirty (block_id TEXT PRIMARY KEY) WITHOUT ROWID;
       CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_block_insert AFTER INSERT ON main.blocks BEGIN ${note("NEW.id")} END;

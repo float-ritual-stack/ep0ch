@@ -68,6 +68,8 @@ export interface TileKind {
   readonly stays?: string;
   /** What it takes: notes opened into it (a link's target), and the tile kinds that may join it as tabs (any when left out). */
   readonly accepts?: { notes?: boolean; tiles?: readonly TileKindName[] };
+  /** A content drop in this tile's centre: the source tile runs this action on release. */
+  receive?(p: Pane, from: Pane, desk: DeskApi): import("./drop").DropReceive | null;
   /** What it needs to be built again, beyond its kind, name and link (default: the tile's own `spec()`). */
   save?(p: Pane): Record<string, unknown>;
   /** Why tile.open's fields won't do (a preview's source that isn't tile: or file:), or null. */
