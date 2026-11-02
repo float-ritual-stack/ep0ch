@@ -1,17 +1,18 @@
 import type { DoorOpen } from "@ep0ch/outline-core/door-open";
 import type { Ctx, ViewEvent, Screen, ViewState } from "./app";
-import { Trail } from "./trail";
+import { Trail, type Visit } from "./trail";
 import { traceRequests } from "./surface/dispatch";
 
-/** The local feed keeps its recent envelopes; the service receives the same object on its existing connection. */
+/** Local landings are immediate; select previews reach the service when the Trail counts them as read. */
 export class OpenEvents {
-  readonly trail = new Trail();
+  readonly trail = new Trail(v => this.qualify(v));
+  private pending = new Map<string, { ctx: Ctx; timer: ReturnType<typeof setTimeout> }>();
   private readonly events: DoorOpen[] = [];
   private stop?: () => void;
   readonly hear = (e: ViewEvent) => { if (e.type === "door.open") this.trail.hear(e as unknown as DoorOpen); };
   start() {
     this.stop = traceRequests(r => {
-      if (!r.typed || !r.tile?.id) return;
+      if (r.actor.kind !== "user" || !r.tile?.id) return;
       const what = /scroll/.test(r.action) ? "scrolls" : /select|pick|cursor|ruler/.test(r.action) ? "selections" : r.action === "tile.focus" ? "returns" : null;
       if (what) this.trail.attend(r.tile.id, what);
     });
@@ -19,11 +20,25 @@ export class OpenEvents {
   opened(event: DoorOpen, ctx: Ctx) {
     this.events.push(event); if (this.events.length > 500) this.events.shift();
     queueMicrotask(() => { for (const f of this.viewers) { try { f(event as unknown as ViewEvent); } catch { /* Subscribers own their errors. */ } } });
+    if (event.method !== "select") this.deliver(event, ctx);
+    else {
+      const timer = setTimeout(() => { const v = this.trail.get(event.target.visit); if (v) this.qualify(v); else this.pending.delete(event.target.visit); }, this.trail.settings.linger * 1000);
+      timer.unref?.(); this.pending.set(event.target.visit, { ctx, timer });
+    }
+  }
+  private deliver(event: DoorOpen, ctx: Ctx) {
     void ctx.board.request("door.event", { body: event }).catch(error => ctx.flash(`Open event: ${String(error)}`));
+  }
+  private qualify(v: Visit) {
+    const pending = this.pending.get(v.open.target.visit); if (!pending) return;
+    const read = !this.trail.skim(v);
+    if (!read && v.left === undefined) return;
+    clearTimeout(pending.timer); this.pending.delete(v.open.target.visit);
+    if (read) this.deliver(v.open, pending.ctx);
   }
   last(tile: string) { return this.events.findLast(e => e.target.tile === tile); }
   since(at = 0) { return this.events.filter(e => e.at >= at); }
-  close() { this.stop?.(); this.trail.flush(); }
+  close() { this.stop?.(); for (const p of this.pending.values()) clearTimeout(p.timer); this.pending.clear(); this.trail.flush(); }
   get seen() { return this.viewers.size > 1; }
   unseen() { this.shown = null; }
   private viewers = new Set<(e: ViewEvent) => void>([this.hear]);

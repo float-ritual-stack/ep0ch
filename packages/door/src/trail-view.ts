@@ -20,27 +20,33 @@ export function trailRows(trail: Trail, options: TrailView, now = Date.now()): T
     const parents = new Set(visits.map(v => v.open.source?.visit));
     type Node = { row: TrailRow; children: Node[] };
     const nodes = new Map<string, Node>(visits.map(v => [v.open.target.visit, { row: { title: visitLine(trail, v, now), visit: v, dim: options.agents === "dim" && v.open.actor.kind === "agent" }, children: [] }]));
-    const roots: Node[] = [], folds = new Map<string, Node>();
+    const roots: Node[] = [], byTile = new Map<string, Node[]>(), folds = new Map<string, Node>();
     for (const v of visits) {
       const id = v.open.target.visit, parent = v.open.source?.visit;
       const parentNode = options.view === "forest" && parent && ids.has(parent) ? nodes.get(parent) : undefined;
-      const list = parentNode ? parentNode.children : roots;
+      const tile = v.open.target.tile;
+      if (!byTile.has(tile)) byTile.set(tile, []);
+      const list = parentNode ? parentNode.children : options.view === "tile" ? byTile.get(tile)! : roots;
       const hasChildren = parents.has(id);
       const skim = trail.skim(v, now);
       if (!options.q && !hasChildren && (options.folded && (skim || (trail.dwell(v, now) === "flipped" && v.left !== undefined)))) {
-        const key = `${parent ?? ""}/${v.open.source?.tile ?? v.open.target.tile}/${skim}`;
+        const key = `${options.view === "tile" ? tile : ""}/${parent ?? ""}/${v.open.source?.tile ?? v.open.target.tile}/${skim}`;
         let folded = folds.get(key);
         if (!folded) { folded = { row: { title: "", folded: 0 }, children: [] }; folds.set(key, folded); list.push(folded); }
         folded.row.folded!++;
         folded.row.title = `· ${skim ? "skimmed" : "flipped"} ${folded.row.folded} from ${trail.places[v.open.source?.tile ?? v.open.target.tile]?.name ?? "the list"} (f shows)`;
-      } else list.push(nodes.get(id)!);
+      } else {
+        const node = nodes.get(id)!;
+        if (options.view === "timeline") node.row.title = `${new Date(v.open.at).toLocaleTimeString()} ${v.open.method} · from ${trail.places[v.open.source?.tile ?? ""]?.name ?? "outside"} → ${node.row.title}`;
+        list.push(node);
+      }
     }
     if (options.view === "tile") {
-      for (const tile of new Set(visits.map(v => v.open.target.tile))) {
+      for (const [tile, nodes] of byTile) {
         rows.push({ title: trail.places[tile]?.name ?? tile, heading: true });
-        rows.push(...visits.filter(v => v.open.target.tile === tile).map(v => nodes.get(v.open.target.visit)!.row));
+        rows.push(...nodes.map(n => n.row));
       }
-    } else if (options.view === "timeline") rows.push(...visits.map(v => ({ ...nodes.get(v.open.target.visit)!.row, title: `${new Date(v.open.at).toLocaleTimeString()} ${v.open.method} · from ${trail.places[v.open.source?.tile ?? ""]?.name ?? "outside"} → ${nodes.get(v.open.target.visit)!.row.title}` })));
+    } else if (options.view === "timeline") rows.push(...roots.map(n => n.row));
     else rows.push(...treeRows(roots, n => n.children).map(({ node, lead }) => ({ ...node.row, title: lead + node.row.title })));
   }
   return rows;

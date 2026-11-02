@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "6c5a223a", "outliner": "6c5a223a", "on": "2026-11-02" },
+  "verified": { "door": "be182ec0", "outliner": "be182ec0", "on": "2026-11-02" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -129,7 +129,7 @@
     { "id": "backup", "title": "Backups", "lede": "Every machine runs the same 15-minute job: snapshot what changed to restic, refresh the mirrors of other machines' outlines, check how fresh it is, and say it in one line with the command that fixes it. A machine that can't reach the repository relays through the hub." }
   ],
   "structures": [
-    {"id": "door.trail", "name": "The Trail and door events", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Remembers what opened what across tiles and days, with dwell and the place a closed tile returns to.", "built": "Desk.applyPlacement emits one envelope through OpenEvents locally and door.event to the service. Trail observes that feed in per-outline state; TrailPane uses graph-tree traversal and the existing layout operations. Extension rules and scripts consume the service event by kind.", "refs": [{"r": "door", "p": "src/desk/open-event.ts", "l": 31, "m": "export function landed"}, {"r": "door", "p": "src/open-events.ts", "l": 7, "m": "export class OpenEvents"}, {"r": "door", "p": "src/trail.ts", "l": 23, "m": "export class Trail"}, {"r": "door", "p": "src/desk/trail-tile.ts", "l": 26, "m": "export class TrailPane"}, {"r": "outliner", "p": "src/extension-rules.ts", "l": 733, "m": "doorEvent(event:"}]},
+    {"id": "door.trail", "name": "The Trail and door events", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Remembers what opened what across tiles and days, with dwell and the place a closed tile returns to.", "built": "Desk.applyPlacement emits one envelope through OpenEvents locally and door.event to the service. Trail observes that feed in per-outline state; TrailPane uses graph-tree traversal and the existing layout operations. Extension rules and scripts consume the service event by kind.", "refs": [{"r": "door", "p": "src/desk/open-event.ts", "l": 31, "m": "export function landed"}, {"r": "door", "p": "src/open-events.ts", "l": 7, "m": "export class OpenEvents"}, {"r": "door", "p": "src/trail.ts", "l": 23, "m": "export class Trail"}, {"r": "door", "p": "src/desk/trail-tile.ts", "l": 33, "m": "export class TrailPane"}, {"r": "outliner", "p": "src/extension-rules.ts", "l": 733, "m": "doorEvent(event:"}]},
     {"id": "door.strip", "name": "One strip", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions", "door.overflow"], "does": "Keeps the current segment readable while tabs, breadcrumbs, hints, status chips and dock edges narrow; every hidden choice stays reachable.", "built": "tabStrip owns shrinking and hit ranges. StripState keeps the cursor and scroll; StripControls opens ListPicker and dispatches the segment's existing action. Full-text marks carry hits through Canvas composition; dock edges draw above the drawer.", "refs": [{"r": "door", "p": "src/surface/chip-rows.ts", "l": 34, "m": "export function tabStrip"}, {"r": "door", "p": "src/surface/strip-state.ts", "l": 51, "m": "export class StripState"}, {"r": "door", "p": "src/surface/strip-controls.ts", "l": 27, "m": "export class StripControls"}]},
     {"id": "door.overflow", "name": "Readable clipped text", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": [], "does": "Keeps a cut-short value readable by hover, keyboard selection or Alt+?, without changing focus or a click.", "built": "Shared text helpers retain full values as drawing marks; Canvas carries them independently of style and hyperlinks. Overflow composes one-line reveals and marquees after screens and floats.", "refs": [{"r": "door", "p": "src/overflow.ts", "l": 67, "m": "export class Overflow"}, {"r": "door", "p": "src/style.ts", "l": 293, "m": "function shortened("}]},
     {"id": "door.inspector", "name": "Property inspector surface", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Scrolls and selects inspector content and edits a property in place for tune, Sources and the element panel.", "built": "Inspector extends RowView and uses Selection, DraftSession and Draft; schemas and the service's row properties supply choices. Source YAML writes use draft.patch and withFigureProp.", "refs": [{"r": "door", "p": "src/surface/inspector.ts", "l": 24, "m": "export class Inspector"}]},
@@ -480,11 +480,11 @@
       "does": "The reducer of the door's one-way data flow (PIE-513): a screen's layout is one value (tiles in containers: n-ary splits by weight, tab sets, docks, columns from data, flows; floats above the tree; spines, zoom, links, names, the screen's policy and lock, the revision), and it changes only by apply(state, op, ctx): one layout operation for one actor as one transaction, answering the new state or a refusal with its reason. Every rule is checked inside it: floats have no place in the tree, the nearest policy wins and a lock above locks below, an agent undoes only its own lock and never moves the tile the person types in, the screen is never blank. The flow container is the river's columns: squeezed full, peek, spine around the wide one; opens land in the next column; focus never moves it.",
       "built": "screen-layout.ts is the interface (apply, refusal, init, serialize, describe, place, placement); landing.ts owns where a list opens; layout.ts (the tree arithmetic) and flow.ts (the flow's squeeze and memory) are inside it and import only Rect and the spine's width. What it doesn't own is said to it: the actor, the person's keys and the tile they type in (ctx.person, a shell-owned query from PIE-514), each tile's facts. Its state is frozen under test, so a caller that writes to it throws. Tested through its interface with no App (test/screen-layout.test.ts, test/flow.test.ts), the round-2 review's B7-B11, C3 and C4 among them.",
       "refs": [
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 386, "m": "export function apply" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 64, "m": "export interface LayoutState" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 218, "m": "export type Op<" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 346, "m": "export function init" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 546, "m": "export function placement" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 387, "m": "export function apply" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 65, "m": "export interface LayoutState" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 219, "m": "export type Op<" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 347, "m": "export function init" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 547, "m": "export function placement" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 166, "m": "export type LNode" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 139, "m": "export type Dock" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 131, "m": "export type Columns" },
@@ -502,7 +502,7 @@
       "built": "The ids live on the LNode tree; the screen-layout module gives them and moves the revision on a change of shape, in every operation; layout.resize takes split=<id>.",
       "refs": [
         { "r": "door", "p": "src/desk/layout.ts", "l": 124, "m": "id?: string" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 362, "m": "export function revisionRefusal" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 363, "m": "export function revisionRefusal" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 653, "m": "\"layout.resize\"" }
       ]
     },
@@ -812,7 +812,7 @@
       "built": "App.act runs the request through the App's dispatcher (the host layer's, the shell's and the extensions' sets, then the screen's own dispatcher); App.subscribe delegates to OpenEvents, which diffs each screen's viewState after a paint and delivers local door events.",
       "refs": [
         { "r": "door", "p": "src/app.ts", "l": 1307, "m": "async act(req" },
-        { "r": "door", "p": "src/open-events.ts", "l": 46, "m": "publishView(s:" }
+        { "r": "door", "p": "src/open-events.ts", "l": 61, "m": "publishView(s:" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },

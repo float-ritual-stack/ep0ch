@@ -1,3 +1,6 @@
+import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { blockRefText } from "@ep0ch/outline-core/link-syntax";
+import { readNote } from "./outline-boards";
 import { C, fg, pad, RESET } from "../style";
 import { RowView, wheelRows } from "../scroll";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -13,6 +16,10 @@ import type { DeskApi, Pane, PaneView } from "./panes";
 import { TILE_ACTIONS } from "./tile-actions";
 import type { KindHost, TileKind } from "./tile-kinds";
 
+function visitLink(v: Visit): string {
+  const { note, address } = v.open.target;
+  return address?.machine ? `[${v.title}](${formatEp0chBlockUri({ outline: address.outline, machine: address.machine, blockId: note })})` : blockRefText(note, v.title, address);
+}
 const row = (key: string, action: string, label: string, args?: Record<string, unknown>): ModeKey => ({ key, action, label, ...(args ? { args } : {}) });
 export const TRAIL_KEYS: readonly ModeKey[] = keyTable("trail", "the day's trail (alt+T)", [
   row("j", "trail.pick", "pick", { by: 1 }), row("down", "trail.pick", "pick", { by: 1 }),
@@ -72,12 +79,12 @@ export const TRAIL_ACTIONS = actionSet<KindHost>()("trail", {
   "trail.open": def({ examples: [{ act: "trail.open tile=trail visit=visit-garden", does: "opens the visit returned by trail.recent in its original place" }], summary: "Open a visit where it was, restoring its closed tile in its place", touches: "shape", replay: "ask", args: visitArg, menu: menu("open where it was", "enter"),
     async run({ visit }, { pane, desk }, actor) { if (!desk.reopenTrail) throw new ActionRefused("this screen cannot reopen tiles"); return desk.reopenTrail(paneOf(pane).visit(desk, visit), actor); } }),
   "trail.here": def({ examples: [{ act: "trail.here tile=trail visit=visit-garden", does: "opens that visit beside the Trail" }], summary: "Open a visit beside this Trail tile", touches: "shape", replay: "ask", args: visitArg, menu: menu("open here", "o"),
-    async run({ visit }, { pane, desk }, actor) { const v = paneOf(pane).visit(desk, visit); const m = await desk.ctx.board.get(v.open.target.note); if (!m) throw new ActionRefused("that note is no longer available"); desk.openFromTile(m, { from: pane, fresh: true, link: true, by: actor }); return { opened: m.id }; } }),
+    async run({ visit }, { pane, desk }, actor) { const v = paneOf(pane).visit(desk, visit); const m = await readNote(desk.ctx, v.open.target.note, v.open.target.address); if (!m) throw new ActionRefused("that note is no longer available"); desk.openFromTile(m, { from: pane, fresh: true, link: true, by: actor }); return { opened: m.id }; } }),
   "trail.save": def({ examples: [{ act: "trail.save tile=trail visit=visit-garden", does: "writes that branch as a linked note" }], summary: "Save this visit and the branch it started as a note", touches: "nothing", replay: "ask", args: visitArg, menu: menu("save branch as a note", "s"),
     async run({ visit }, { pane, desk }, actor) { const p = paneOf(pane), v = p.visit(desk, visit), trail = desk.ctx.trail!;
       const branch = trail.branch(v.open.target.visit);
       const tree = treeRows([v], parent => branch.filter(child => child.open.source?.visit === parent.open.target.visit));
-      const text = `Trail · ${v.title}\n\n` + tree.map(({ node: v, lead }) => `${lead}((${v.open.target.note}|${v.title})) · ${trail.dwell(v)} · ${v.open.method} · ${new Date(v.open.at).toLocaleString()}${v.open.actor.kind === "agent" ? ` · ${v.open.actor.id}` : ""}`).join("\n");
+      const text = `Trail · ${v.title}\n\n` + tree.map(({ node: v, lead }) => `${lead}${visitLink(v)} · ${trail.dwell(v)} · ${v.open.method} · ${new Date(v.open.at).toLocaleString()}${v.open.actor.kind === "agent" ? ` · ${v.open.actor.id}` : ""}`).join("\n");
       const note = await desk.ctx.board.createBlock(null, text, actor); desk.ctx.flash(`Saved trail as ((${note.id}|${note.text.split("\n")[0]}))`); return { note: note.id }; } }),
   "trail.forget": def({ examples: [{ act: "trail.forget tile=trail day=2026-10-22", does: "forgets the visits from that day" }], summary: "Forget a branch, a day (YYYY-MM-DD), or all visits", touches: "nothing", replay: "ask", menu: menu("forget branch", "delete"),
     args: { ...visitArg, day: { type: "string", optional: true, about: "YYYY-MM-DD" }, all: { type: "boolean", optional: true, about: "clear all visits" } },

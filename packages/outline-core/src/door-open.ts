@@ -14,7 +14,7 @@ export interface DoorOpen extends DoorEvent {
   type: "door.open";
   at: number;
   actor: { kind: "user" } | { kind: "agent"; id: string };
-  target: { tile: string; note: string; visit: string };
+  target: { tile: string; note: string; address?: { outline: string; machine?: string }; visit: string };
   source?: { tile: string; note?: string; visit?: string };
   method: "link" | "search" | "back" | "forward" | "select" | "open" | "alt" | "hover" | "action" | "agent" | "script";
 }

@@ -3,7 +3,7 @@ import { matchesSearchText } from "@ep0ch/outline-core/search-match";
 import { outlineState, readState, writeState } from "./state";
 import type { At } from "./desk/screen-layout";
 
-export interface TrailPlace { name: string; screen: string; drawer: boolean; at?: At<string>; closed?: number }
+export interface TrailPlace { name: string; screen: string; drawer: boolean; mount?: string; at?: At<string>; closed?: number }
 export interface Visit {
   open: DoorOpen;
   title: string;
@@ -27,7 +27,7 @@ export class Trail {
   private timer?: ReturnType<typeof setTimeout>;
   private readonly dir = outlineState();
   private readonly titles = new Map<string, string>();
-  constructor() {
+  constructor(private readonly visitChanged?: (visit: Visit) => void) {
     const kept = readState<{ visits: Visit[]; places: Record<string, TrailPlace>; settings: TrailSettings }>("trail.json", this.dir);
     this.visits = kept?.visits ?? [];
     this.places = kept?.places ?? {};
@@ -45,6 +45,8 @@ export class Trail {
     if (prior) { this.touch(prior, event.at); prior.left = event.at; }
     const parent = event.source?.visit && this.get(event.source.visit);
     if (parent) { this.touch(parent, event.at); parent.attention.opens++; }
+    if (parent) this.visitChanged?.(parent);
+    if (prior) this.visitChanged?.(prior);
     const returned = event.method === "back" || event.method === "forward";
     this.visits.push({ open: event, title: this.titles.get(event.target.note) ?? event.target.note,
       attention: { active: 0, scrolls: 0, selections: 0, opens: 0, returns: returned ? 1 : 0 } });
@@ -58,11 +60,11 @@ export class Trail {
   }
   attend(tile: string, what: "scrolls" | "selections" | "returns", now = Date.now()) {
     const v = this.current(tile); if (!v) return;
-    this.touch(v, now); v.attention[what]++; this.changed();
+    this.touch(v, now); v.attention[what]++; this.visitChanged?.(v); this.changed();
   }
   close(tile: string, at = Date.now()) {
     const p = this.places[tile]; if (p) p.closed = at;
-    const v = this.current(tile); if (v) { this.touch(v, at); v.left = at; }
+    const v = this.current(tile); if (v) { this.touch(v, at); v.left = at; this.visitChanged?.(v); }
     this.changed();
   }
   seconds(v: Visit, now = Date.now()): number {

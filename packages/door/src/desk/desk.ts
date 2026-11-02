@@ -492,9 +492,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async reopenTrail(visit: Visit, actor: Actor): Promise<unknown> {
     const tid = visit.open.target.tile, place = this.ctx.trail?.places[tid];
     const d = this.relatives().find(d => [...d.panes.keys()].some(id => d.tileId(id) === tid))
-      ?? this.relatives().find(d => (d.spec.name === place?.screen) && !!d.ctx.hostLayer?.isDrawer(d) === !!place?.drawer);
+      ?? this.relatives().find(d => (place?.mount ? d.holder && tileRegistry.knownId(d.holder.tile) === place.mount : !d.holder && d.spec.name === place?.screen && !!d.ctx.hostLayer?.isDrawer(d) === !!place?.drawer));
     if (!d || !place) throw new ActionRefused(`open the ${place?.screen ?? "original"} screen first, or use trail.here`);
-    const m = await readNote(d.ctx, visit.open.target.note);
+    const m = await readNote(d.ctx, visit.open.target.note, visit.open.target.address);
     if (!m) throw new ActionRefused("that note is no longer available");
     let id = [...d.panes.keys()].find(id => d.tileId(id) === tid);
     if (id === undefined) {
@@ -510,7 +510,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   private keepTrailPlace(id: number) {
     const p = this.ctx?.trail?.places[this.tileId(id)];
-    if (p) { p.at = mapPlace(returnPlace(this.layout, id), n => this.tileId(n)); p.name = this.nameOf(id); p.screen = this.spec.name; p.drawer = !!this.ctx.hostLayer?.isDrawer(this); this.ctx.trail?.changed(); }
+    if (p) { p.at = mapPlace(returnPlace(this.layout, id), n => this.tileId(n)); p.name = this.nameOf(id); p.screen = this.spec.name; p.mount = this.holder ? tileRegistry.knownId(this.holder.tile) : undefined; p.drawer = !!this.ctx.hostLayer?.isDrawer(this); this.ctx.trail?.changed(); }
   }
 
   async answerTile(reader: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown> {
@@ -1891,7 +1891,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const [id, p] of keep) if (kept.includes(p)) this.forgetTile(id, p);
     }
     for (const m of this.models.values()) m.dispose?.();
-    for (const p of this.panes.values()) { p.dispose?.(); tileRegistry.release(p); }
+    for (const [id, p] of this.panes) { this.keepTrailPlace(id); this.ctx?.trail?.close(this.tileId(id)); p.dispose?.(); tileRegistry.release(p); }
   }
   private disposed = false;
   /** The desk kept alive with its programs, to come back to (the menu's D). */
@@ -2165,7 +2165,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         : this.placeOpen(m, request, by) ?? (request.history ? { desk: this, id: request.from } : null);
       if (!landed || "event" in landed) return landed;
       const d = landed.desk;
-      const event = openLanded(d.ctx, by, cause, d.tileId(landed.id), m.id, subject(m), { name: d.nameOf(landed.id), screen: d.spec.name ?? d.title, drawer: !!d.ctx.hostLayer?.isDrawer(d), at: mapPlace(returnPlace(d.layout, landed.id), n => d.tileId(n)) });
+      const event = openLanded(d.ctx, by, cause, d.tileId(landed.id), m.id, subject(m), { name: d.nameOf(landed.id), screen: d.spec.name ?? d.title, drawer: !!d.ctx.hostLayer?.isDrawer(d), at: mapPlace(returnPlace(d.layout, landed.id), n => d.tileId(n)), mount: d.holder ? tileRegistry.knownId(d.holder.tile) : undefined }, m.address);
       return { ...landed, event };
     });
   }

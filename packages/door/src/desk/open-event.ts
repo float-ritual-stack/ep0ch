@@ -28,8 +28,8 @@ export function opening(ctx: Ctx, actor: Actor, tile: string | undefined, note?:
     method: ctx.board.inScriptRun ? "script" : verb ?? (preview ? openMethod(ctx, actor, true) : inherited?.method ?? openMethod(ctx, actor)) };
 }
 /** Called only by placement after it has landed, including a select-wire delivery. */
-export function landed(ctx: Ctx, actor: Actor, cause: ReturnType<typeof opening>, tile: string, note: string, title: string, place: TrailPlace): DoorOpen {
-  const event: DoorOpen = { kind: "door.open", type: "door.open", at: Date.now(), actor, target: { tile, note, visit: crypto.randomUUID() }, ...cause };
+export function landed(ctx: Ctx, actor: Actor, cause: ReturnType<typeof opening>, tile: string, note: string, title: string, place: TrailPlace, address?: DoorOpen["target"]["address"]): DoorOpen {
+  const event: DoorOpen = { kind: "door.open", type: "door.open", at: Date.now(), actor, target: { tile, note, ...(address ? { address } : {}), visit: crypto.randomUUID() }, ...cause };
   ctx.trail?.locate(tile, place, note, title);
   ctx.opened?.(event);
   messageContext.run({ ...messageContext.getStore(), tile }, () => probe("open.land"));
