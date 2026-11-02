@@ -1055,8 +1055,7 @@ export class App implements Ctx {
         const actor: Actor = by.author === "agent" ? { kind: "agent", id: by.actorId ?? "agent" } : { kind: "user" };
         const say = e.ended.reason === "done" ? { flash: (message: string) => this.showMessage(message, 4000, false) } : this;
         // What the run answered to be put at the cursor (PIE-1507): a person's press hears its run's answer here.
-        if (e.ended.insert) void insertAnswer(this as never, e.ended.message.replace(/ done$/, ""), e.ended.insert.block, e.ended.insert.text, actor).catch((err: Error) => asActor(this, actor).flash(oneLine(err.message)));
-        else asActor(say, actor).flash(scriptPressMessage(e.ended.message, e.ended.undo));
+        if (e.ended.insert) void insertAnswer(this as never, e.ended.message.replace(/ done$/, ""), e.ended.insert.block, e.ended.insert.text, actor).catch((err: Error) => asActor(this, actor).flash(oneLine(err.message))); else asActor(say, actor).flash(scriptPressMessage(e.ended.message, e.ended.undo));
       }
     } else if (e.undone && !this.scriptUndos.delete(e.undone.run)) for (const s of screens) s.scriptUndone?.(e.undone.run);
     this.redraw();

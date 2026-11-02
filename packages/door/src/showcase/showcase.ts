@@ -50,7 +50,7 @@ import { AgentsPane } from "../desk/agents-panel";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as joinPath } from "node:path";
-import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type TileKind } from "../desk/tile-kinds";
+import { registerTileKind, serviceKind, ServiceTile, tileKind, tileKinds, UnavailableTile, type KindHost, type TileKind } from "../desk/tile-kinds";
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
@@ -61,7 +61,6 @@ import { WaitingYouPane } from "../desk/waiting-you";
 import { AccessMatrixPane } from "../desk/access-matrix";
 import { accessDemoEnv, seedAccessFiles } from "./seed/access";
 import { followChanges, WHAT_CHANGED_INSTALL, WHAT_CHANGED_TILE, type WhatChanged } from "../desk/what-changed";
-import { ServiceTile, UnavailableTile } from "../desk/tile-kinds";
 import type { FleetIO, SessionRow } from "../agent-fleet";
 import type { AgentLevel } from "../surface/agent-level";
 
@@ -640,16 +639,9 @@ export const SECTIONS: Section[] = [
     key: "changes", need: "show what others changed since the person last looked, and take them to it", part: "what changed (PIE-647, src/desk/what-changed.ts): the status bar's +N new is the distinct notes others changed since you looked, from the service's change feed (the person's own edits aren't news); the list is the what-changed extension's tile (PIE-1506, outliner/extensions/what-changed: a render script over tools.outline_changes, drawn as a service tile, its rows the door's one ListView): changes.open (alt+o, a click on +N new) opens it in your drawer with since= and unseen= from the store; who, what and when, ⏎ or a click opens the note where opens land, alt+⏎ in a new detail, / filters; the person's looking marks it seen, kept per outline, an agent's never does", files: "outliner/extensions/what-changed, src/desk/what-changed.ts (the store), src/drawer.ts (changes.open, changes.list), src/app.ts (the status bar's count), src/showcase/seed.ts (LOGS)",
     aside: "garden-agent edited the three log notes and posted a comment linking HOME-042: open the comment from what-changed, follow its outlink, or follow on back to the log · the status bar says +4 new · the list on the left is the what-changed extension's tile: newest first, who changed each and what, a ● on the ones you haven't looked at · ⏎ or a click opens the note in the reader on the right, alt+⏎ or an alt-click in a new detail, / filters the rows · a click on +4 new, or alt+o on any screen, opens the same list in your drawer, and looking clears the count · `act changes.list` reads the rows as an agent, `act changes.open` opens the tab behind yours, and neither clears what you haven't seen · without the extension the tile says how to install it and the count still shows",
     stage(n, show) {
-      // The extension's tile (installed with the showcase's examples), its args the store's at the time of the visit.
-      const kind = tileKind(WHAT_CHANGED_TILE);
-      const list = kind ? kind.make({ kind: WHAT_CHANGED_TILE, state: {} }) : new UnavailableTile(WHAT_CHANGED_TILE, `the what-changed extension isn't installed: ${WHAT_CHANGED_INSTALL}`);
-      const r = new ReaderPane(true), links = new BacklinksPane("reader", true);
-      // The scripted agent: three notes edited by garden-agent, each visit one round further.
-      const withAgent: Shower = after => show(ctx => {
-        const store = (ctx as unknown as { whatChanged?: WhatChanged }).whatChanged;
-        if (store && list instanceof ServiceTile) followChanges(list, store);
-        void gardenRound(ctx.board, n); after(ctx);
-      });
+      // The extension's tile (installed with the showcase's examples), its args following the store once shown; the scripted agent: three notes edited by garden-agent, each visit one round further.
+      const list = tileKind(WHAT_CHANGED_TILE)?.make({ kind: WHAT_CHANGED_TILE, state: {} }) ?? new UnavailableTile(WHAT_CHANGED_TILE, `the what-changed extension isn't installed: ${WHAT_CHANGED_INSTALL}`), r = new ReaderPane(true), links = new BacklinksPane("reader", true);
+      const withAgent: Shower = after => show(ctx => { const store = (ctx as unknown as { whatChanged?: WhatChanged }).whatChanged; if (store && list instanceof ServiceTile) followChanges(list, store); void gardenRound(ctx.board, n); after(ctx); });
       return deskOf({ title: "showcase · what changed", panes: [list, r, links], names: ["changes", "reader", "links"], layout: ([a, b, c]) => pair("row", 0.4, leaf(a!), pair("col", 0.7, leaf(b!), leaf(c!))) }, withAgent, [[r, n.logBeans]]);
     },
   },
