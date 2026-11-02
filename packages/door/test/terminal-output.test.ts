@@ -29,8 +29,8 @@ import { paintable, printable, wrap } from "../src/text";
 import { outliner, Scratch, until } from "./scratch";
 
 const OSC52 = "\x1b]52;c;ZXZpbA==\x07", CLEAR = "\x1b[2J", CSI8 = "\x9b2J";
-/** Anything in the bytes a terminal would act on, beyond the door's own cursor moves, SGR and erase-line. */
-const acts = (bytes: string) => bytes.replace(/\x1b\[\d+;1H|\x1b\[[\d;:]*m|\x1b\[K/g, "").match(/[\x00-\x1f\x7f-\x9f]/);
+/** The overflow renderer closes hyperlinks before replacing cells; an empty close cannot carry a note's control. */
+const acts = (bytes: string) => bytes.replace(/\x1b\[\d+;1H|\x1b\[[\d;:]*m|\x1b\[K|\x1b\]8;;\x1b\\/g, "").match(/[\x00-\x1f\x7f-\x9f]/);
 const cells = (s: string) => Bun.stringWidth(visible(s));
 
 describe("nothing a terminal acts on is drawn", () => {
