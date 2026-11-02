@@ -759,8 +759,8 @@ const effects: DetailEffects = {
   async completionRows(request, signal) {
     return requestCompletionRows(client, request, signal);
   },
-  async completionPicked(key, insert) {
-    return client.request({ action: "completion.picked", key, insert });
+  async completionPicked(key, insert, told = {}) {
+    return client.request({ action: "completion.picked", key, insert, ...told });
   },
   async followPage(address) {
     return client.request<{ created: boolean; status: string; block?: Block }>({ action: "pages.follow", address, author: "user" });

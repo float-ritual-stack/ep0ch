@@ -301,6 +301,11 @@ const sourceFields = {
    * prefix. Each keystroke calls it, so only a quick source should.
    */
   main: Type.Optional(Type.Boolean()),
+  /**
+   * What its line completes as, scoped to it in the bar (PIE-1508): `query` offers query words and the `query` trigger's
+   * sources on what's typed (the door's own `=` is one); `act` (the default) completes act lines and references.
+   */
+  grammar: Type.Optional(Type.Union([Type.Literal("query"), Type.Literal("act")])),
   deadline: Type.Optional(Duration),
 };
 
@@ -316,6 +321,8 @@ const SourceSchema = Type.Object({
   triggers: Type.Optional(Type.Array(Type.Union(EXTENSION_TRIGGERS.map((t) => Type.Literal(t as SourceTrigger))), { minItems: 1, maxItems: 10, uniqueItems: true })),
   /** For `key::`: the property keys whose values it offers (`issue`). */
   keys: Type.Optional(Type.Array(Type.String({ pattern: "^[a-z][a-z0-9_.-]{0,63}$" }), { minItems: 1, maxItems: 8, uniqueItems: true })),
+  /** It hears what became of its rows (PIE-1508): the `picked` operation with accepted, edited or ignored. */
+  picks: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
 export type ExtensionSource = Static<typeof SourceSchema>;
 
@@ -752,6 +759,8 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     const barDeadline = durationMs(source.deadline);
     if (barDeadline !== undefined && barDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: ${where}/deadline is longer than 5m`);
     if (!source.prefix && !source.main && !source.triggers) throw new ExtensionLoadError(`extension.json: ${where} is in no list: give it a prefix (the power bar), triggers (completion), or both`);
+    if (source.picks && !source.triggers) throw new ExtensionLoadError(`extension.json: ${where}/picks hears what became of completion rows: give it triggers, or leave picks out`);
+    if (source.grammar && !source.prefix && !source.main) throw new ExtensionLoadError(`extension.json: ${where}/grammar is how its power bar line completes: give it a prefix (or main), or leave grammar out`);
     if (source.keys && !(source.triggers as readonly string[] | undefined)?.includes("key::")) throw new ExtensionLoadError(`extension.json: ${where}/keys narrows key:: (a property's value): add "key::" to its triggers, or leave keys out`);
   }
   const componentIds = new Set<string>();

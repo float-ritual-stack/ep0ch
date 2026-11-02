@@ -240,7 +240,7 @@ const NOTES: BarSource = {
  * i was leading the input with a ?"): plain words in /notes search titles with nothing over them.
  */
 const QUERY: BarSource = {
-  id: QUERY_SCOPE, title: "query", prefix: "=", from: ["notes"], by: "door", asks: true,
+  id: QUERY_SCOPE, title: "query", prefix: "=", from: ["notes"], by: "door", asks: true, grammar: "query",
   about: "the notes a query in the views' grammar selects (type=job AND work-stage=doing); words typed here are offered as a query (Tab accepts), so = is how to ask for query words instead of a title search",
   main: { empty: false, typed: false },
   async rows(q, host, _scope, signal) {

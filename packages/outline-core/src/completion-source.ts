@@ -11,14 +11,15 @@ import { slotReferences } from "./button-call";
 
 /**
  * The triggers a source can join, as an extension's manifest writes them. No source adds a sigil of its own: these are
- * the ones the detector knows (`key::` is a property's value, narrowed by the source's `keys`).
+ * the ones the detector knows (`key::` is a property's value, narrowed by the source's `keys`; `query` is a query line, a
+ * view's `[query::` or the power bar's `=`, whose row writes the whole line, PIE-1508).
  */
-export const EXTENSION_TRIGGERS = ["[[", "((", "@", "::", "[key", "key::", "yaml-key", "yaml-value", "[file::", "> [!"] as const;
+export const EXTENSION_TRIGGERS = ["[[", "((", "@", "::", "[key", "key::", "yaml-key", "yaml-value", "[file::", "> [!", "query"] as const;
 /**
  * Every trigger the sources answer: the extensions', and those only the service's built-ins answer (a component's
  * attributes and a filter's words, PIE-1366), whose insert needs what the ask carries (the quote, the filter's words).
  */
-export const SOURCE_TRIGGERS = [...EXTENSION_TRIGGERS, "attribute", "attribute-value", "filter-key", "filter-value", "query", "| as", "/", "%", "button-step", "fence-setting"] as const;
+export const SOURCE_TRIGGERS = [...EXTENSION_TRIGGERS, "attribute", "attribute-value", "filter-key", "filter-value", "| as", "/", "%", "button-step", "fence-setting"] as const;
 export type SourceTrigger = (typeof SOURCE_TRIGGERS)[number];
 
 const TRIGGER_OF: Partial<Record<CompletionKind, SourceTrigger>> = {
