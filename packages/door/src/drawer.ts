@@ -1300,7 +1300,8 @@ export class AgentDrawer {
     this.lockAt = lockChip && !this.dropHover ? { from: r.col + width(head) + 1, to: r.col + width(head) + 1 + width(lockChip) } : null;
     const hint = this.folded ? "· + ⏎ or a click opens it · esc leaves" : `· ↕ drag this edge${lock ? "" : " · ⤓ drop a tile here"}`;
     const title = this.dropHover ? `${chipStyle(C.yellow, C.black)} ⤓ release: ${this.dropHover} ${this.dropSays} ${bg(C.black)}` : head + lock + fg(C.dark) + " " + hint;
-    canvas.text(0, 0, fg(edge) + title + " " + "═".repeat(cols) + RESET, cols);
+    // The fill runs to the edge and no further: a row that fits registers no cut-short value (PIE-1499).
+    canvas.text(0, 0, fg(edge) + title + " " + "═".repeat(Math.max(0, cols - width(title) - 1)) + RESET, cols);
     if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + (this.entered ? "drawer · - folds it · esc steps out · esc again puts it away" : "drawer · esc puts it away") + RESET, cols - 2);
     const placements = (this.hostFrame.placements ?? []).filter(pl => pl.row >= r.row + 1 && pl.row + pl.rows < r.row + r.rows);
     return { rect: r, lines: canvas.lines(), placements };
@@ -1340,6 +1341,8 @@ export class AgentDrawer {
     };
   }
 
+  /** A cell of the open drawer the screen's floats or menus are drawn over: the screen's, by `covers`. */
+  coveredAt(x: number, y: number): boolean { return this.covers(this.host.screen?.()).hit.some(c => x >= c.col && x < c.col + c.cols && y >= c.row && y < c.row + c.rows); }
   menuInput(k: Key): boolean {
     const ctx = this.host.ctx?.(), screen = this.host.screen?.();
     if (k.kind !== "mouse" || this.capture || !ctx) return false;

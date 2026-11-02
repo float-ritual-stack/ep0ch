@@ -1446,7 +1446,7 @@ export class App implements Ctx {
   private route(k: Key, w: KeyLayers): void {
     if (k.kind === "alt" && k.ch === "?") { void this.dispatch.press("text.reveal"); return; }
     if (k.kind === "mouse" && isHover(k)) void this.dispatch.press("text.hover", { x: k.x, y: k.y, alt: !!((k.mods ?? 0) & 8) });
-    else if (k.kind === "mouse") this.overflow.clear();
+    else if (k.kind === "mouse") { this.overflow.clear(); this.glass.mouse(k); }
     else this.overflow.keys();
     if (k.kind === "modifier") {
       if (w.over !== "bar" && this.dispatch.has("xray")) void this.dispatch.press("xray", k.event === "tap" ? {} : { on: k.event === "press" });

@@ -7388,11 +7388,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const [id, r] = hit, p = this.panes.get(id), at = this.origin(id, r);
     if (p instanceof ScreenTile) return p.inner?.hoverAt(x - at.col, y - at.row) ?? null;
     const reader = p instanceof ReaderPane ? p : null, h = reader?.surface.hoverAt(x - at.col, y - at.row);
-    const cut = !h ? this.ctx.overflow?.targetAt(x + this.screenOrigin.col, y + this.screenOrigin.row) : null;
+    // A cut-short value in the tile's content or its header title; other frame rows (bottom border, hint row) are chrome and never answer (PIE-1499).
+    const cut = !h && (this.inBody(id, r, x, y) || y === r.row) ? this.ctx.overflow?.targetAt(x + this.screenOrigin.col, y + this.screenOrigin.row) : null;
     return h ? { desk: this, tile: this.nameOf(id), target: { ...reader!.noteAddress, ...h.target }, rect: { ...h.rect, col: h.rect.col + at.col + this.screenOrigin.col, row: h.rect.row + at.row + this.screenOrigin.row } } : cut ? { desk: this, tile: this.nameOf(id), ...cut } : null;
   }
   async hoverInto(tile: string, m: Msg): Promise<boolean> { return !!this.placeNote(m, { from: this.tile(tile).id, verb: "hover", note: m.id, keys: false }, USER); }
-
   /** `float.place`: move or size a float, kept on the screen. */
   placeFloat(sel: string | undefined, a: { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }, actor: Actor): TileDone {
     const t = sel ? this.tile(sel) : null;
