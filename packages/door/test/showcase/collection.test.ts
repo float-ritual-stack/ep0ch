@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { SECTIONS } from "../../src/showcase/showcase";
 import { ITEM_BG, RULER_BG } from "../../src/surface/selection";
+import { PERSON } from "../../src/surface/list-view";
 import { visible } from "../../src/style";
 import { PostIt } from "../../src/desk/post-it";
 import { until } from "../scratch";
@@ -26,10 +27,12 @@ describe("showcase: a collection record (PIE-1281)", () => {
   };
   const agent = (action: string, args: Record<string, unknown> = {}) => stage().dispatch.act({ action, tile: "garden", args }, { kind: "agent", id: "gardener" }) as Promise<any>;
 
-  test.each([120, 44])("round two feed reads the note and collection keys stay inside at %s columns", async cols => {
+  /** The collection whose row the [ ] position is on (no mode, PIE-1501). */
+  const onRow = () => { const link = stage().pane("garden").surface.selectedElement()?.link; return !!link?.listRow?.row && lists().some(l => l.key === link.listRow.key); };
+  test.each([120, 44])("round two feed reads the note and the collection's keys work from its row, with no mode, at %s columns", async cols => {
     const first = await h.board.createBlock(null, `Check the parcel [collection::feed-${cols}] [to::Mira] [stage::waiting]\n\n> [!success]\n> **Ready** for {{this.to}}.\n\n## Before it travels [heading::tab]\n\n- #garden\n\nPack the seeds.`);
     const second = await h.board.createBlock(null, `Read the field report [collection::feed-${cols}] [stage::ready]\n\nThe beds are watered.`);
-    await show(`Needs a gardener [type::virtual-branch] [query::collection=feed-${cols}] [layout::feed, table, board] [body::20] [sort::title asc] [group::stage]`, cols);
+    const note = await show(`Needs a gardener [type::virtual-branch] [query::collection=feed-${cols}] [layout::feed, table, board] [body::20] [sort::title asc] [group::stage]`, cols);
     await until(() => h.screen().includes("Ready") && h.screen().includes("Mira."), "the feed resolves the card's own values", 1500);
     const text = h.screen();
     expect(text).not.toContain("[!success]");
@@ -45,24 +48,28 @@ describe("showcase: a collection record (PIE-1281)", () => {
       await act("list.enter", { on: true });
       const rows = lists()[0].view.pickable();
       await act("list.pick", { n: 1 });
+      expect(onRow()).toBe(true);
+      expect(lists()[0].entered).toBe(false);
       h.ch("j");
       await until(() => lists()[0].view.picked().id === rows[1].id, `${layout} j picks the next note`);
       h.press({ kind: "up" });
       await until(() => lists()[0].view.picked().id === rows[0].id, `${layout} up picks the first note`);
       const hint = stage().pane("garden").surface.contextualHint();
       expect(hint).toContain("pick");
-      expect(hint).toContain("leave");
-      expect(hint).not.toMatch(/\[ \]|\( \)|preview|zoom/);
-      expect(h.screen()).not.toContain("Tab/1-9 focus");
+      expect(hint).toContain(", tune");
+      expect(hint).not.toContain("leave");
+      expect(hint).toContain("[ ]");
+      // p is the reader's own key on a row, as on a figure's: no mode holds it.
       h.ch("p");
-      expect(lists()[0].entered).toBe(true);
-      expect(stage().pane("garden").pinned).toBe(false);
-      h.press({ kind: "tab" });
-      await until(() => !lists()[0].entered, `${layout} Tab leaves`);
+      await until(() => stage().pane("garden").pinned, `${layout} p pins the reader from a row`);
+      h.ch("p");
+      await until(() => !stage().pane("garden").pinned, `${layout} p unpins it`);
+      expect(onRow()).toBe(true);
       expect(lists()[0].detail.layout).toBe(layout);
-      await act("list.enter", { on: true });
+      // Esc lets go of the row, as of any element; j from the block walks back onto its first row.
       h.press({ kind: "esc" });
-      await until(() => !lists()[0].entered, `${layout} Escape leaves`);
+      await until(() => !onRow(), `${layout} Escape lets go of the row`);
+      expect(stage().pane("garden").surface.msg.id).toBe(note.id);
     }
   }, 20_000);
 
@@ -70,7 +77,7 @@ describe("showcase: a collection record (PIE-1281)", () => {
     for (const title of ["Mend the fence", "Oil the gate", "Sweep the shed"]) await h.board.createBlock(null, `${title} [collection::walk-${cols}] [stage::ready]`);
     const note = await show(`Needs a hand [type::virtual-branch] [query::collection=walk-${cols}] [layout::table, feed, board] [sort::title asc]\n\nA line before the list.\n\nAnother line before it.`, cols);
     const surface = () => stage().pane("garden").surface;
-    const entered = () => lists()[0]?.entered === true;
+    const entered = () => lists()[0]?.view.hasPick(PERSON) === true && onRow();
     const picked = () => lists()[0].view.picked().label as string;
     const hint = () => surface().contextualHint() ?? "";
     for (const layout of ["table", "feed", "board"]) {
@@ -82,7 +89,7 @@ describe("showcase: a collection record (PIE-1281)", () => {
       await until(entered, `${layout}: j walks into the collection`);
       expect(picked()).toBe("Mend the fence");
       expect(hint()).toContain("pick");
-      expect(hint()).toContain("leave");
+      expect(hint()).not.toContain("leave");
       h.ch("j"); await until(() => picked() === "Oil the gate", `${layout}: j moves to the second row`);
       h.ch("j"); await until(() => picked() === "Sweep the shed", `${layout}: j moves to the last row`);
       // The collection ends the note: j past its last row stays on that row. k walks back up and out to the line before; j walks back in.
@@ -90,15 +97,18 @@ describe("showcase: a collection record (PIE-1281)", () => {
       expect(entered()).toBe(true); expect(picked()).toBe("Sweep the shed");
       h.ch("k"); h.ch("k"); await until(() => picked() === "Mend the fence", `${layout}: k moves back to the first row`);
       h.ch("k"); await until(() => !entered(), `${layout}: k before the first row leaves the collection`);
-      expect(hint()).not.toContain("leave");
+      expect(hint() ?? "").not.toContain("pick");
       expect(surface().msg.text.slice(surface().position.reading)).toStartWith("Another line before it.");
       h.ch("j"); await until(() => entered() && picked() === "Mend the fence", `${layout}: j walks back in at the first row`);
-      // Esc leaves the collection and stays on the note; Tab on the collection goes back in.
-      h.press({ kind: "esc" }); await until(() => !entered(), `${layout}: esc leaves the collection`);
+      // Esc lets go of the row and stays on the note; j from its block lands on the first row again.
+      h.press({ kind: "esc" }); await until(() => !entered(), `${layout}: esc lets go of the row`);
       expect(surface().msg.id).toBe(note.id);
-      h.press({ kind: "tab" }); await until(entered, `${layout}: tab enters the collection`);
+      h.ch("j"); await until(entered, `${layout}: j lands on the first row again`);
       expect(hint()).toContain("pick");
-      h.press({ kind: "tab" }); await until(() => !entered(), `${layout}: tab leaves it again`);
+      // ] walks the elements: from the first row onto the second; [ back.
+      h.ch("]"); await until(() => picked() === "Oil the gate", `${layout}: ] steps to the second row`);
+      h.ch("["); await until(() => picked() === "Mend the fence", `${layout}: [ steps back`);
+      h.press({ kind: "esc" }); await until(() => !entered(), `${layout}: esc lets go again`);
     }
   }, 30_000);
 
@@ -174,7 +184,8 @@ describe("showcase: a collection record (PIE-1281)", () => {
         await h.app.dispatch.act({ action: "glass.mode", args: { set: "off" } }, { kind: "user" });
       }
       click("Read report");
-      await until(() => lists()[0].entered && lists()[0].view.picked().label === "Read report", "click picks the report");
+      await until(() => onRow() && lists()[0].view.picked().label === "Read report", "click picks the report");
+      expect(lists()[0].entered).toBe(false);
       expect(controls()).toHaveLength(1);
       if (cols === 120) expect(h.sc.render(h.app).lines.find(line => line.includes("Read report"))).toContain(ITEM_BG);
       else expect(h.screen()).toContain("▸ Read report");
@@ -309,9 +320,7 @@ describe("showcase: a collection record (PIE-1281)", () => {
     await ready("table");
     await act("list.layout", { layout: "board" });
     await ready("board");
-    const enter = (await act("elements")).elements.find((e: any) => e.kind === "control" && e.label === "⏎ in");
-    expect(enter).toBeDefined();
-    await act("element.open", { n: enter.n });
+    expect((await act("elements")).elements.find((e: any) => e.kind === "control" && e.label === "⏎ in")).toBeUndefined();
     await act("list.pick", { n: 1 });
     h.press({ kind: "char", ch: "j" });
     await until(() => h.screen().includes("Sort the seeds"), "the next lane's picked card is visible", 4000);

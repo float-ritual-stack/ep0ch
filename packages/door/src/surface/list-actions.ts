@@ -1,5 +1,4 @@
-import { LIST_KEYS, COLLECTION_KEYS } from "./list-keys";
-import { modeActionKeys } from "./modes";
+import { LIST_KEYS, COLLECTION_KEYS, keysOf } from "./list-keys";
 // The lists' actions (PIE-747, ADR 0004 contract 3): one ActionSet for every list the door draws, whichever tile holds
 // it. `list.blocks` reads the lists as drawn, `list.pick`, `list.step`, `list.open`, `list.filter` and `list.enter` move
 // them, each with a key, a click and `act`. A host (the reader, whose lists are its inline `::links` components and its
@@ -93,8 +92,8 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.tune": def({
     summary: "open the collection's existing settings card; agents read its fields without taking the person's keys",
-    keys: ", or the collection's ≡ settings", touches: "nothing", replay: "safe", args: { list: LIST_ARG },
-    examples: [{ act: "list.tune list=1", does: "opens the first list's settings card; an agent reads its fields" }],
+    keys: [{ keys: ",", does: "on a collection's row" }, { keys: "click", does: "the collection's ≡ settings" }], touches: "nothing", replay: "safe", args: { list: LIST_ARG },
+    examples: [{ act: "list.tune", does: "opens the settings card of the collection the person is on; an agent reads its fields" }],
     async run({ list }, { host, standing }, actor) {
       const l = listNamed(host, list);
       if (!host.tune || !l.binding) throw new ActionRefused("this list has no settings record");
@@ -127,7 +126,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.step": def({
     summary: "move the pick `by` rows (1 the next, -1 the one before) among the rows that can be picked, as j and k do; list= which list. The person's moves their selection and the [ ] position; an agent's is its own, in its tint",
-    get keys() { return modeActionKeys([LIST_KEYS, COLLECTION_KEYS], "list.step")! + "; wheel over a links tile"; },
+    get keys() { return [{ keys: keysOf([LIST_KEYS], "list.step"), does: "the next or previous row" }, { keys: keysOf([COLLECTION_KEYS], "list.step", "column"), does: "across a gallery's columns or a board's lanes" }, { keys: keysOf([COLLECTION_KEYS], "list.step", "group"), does: "the next or previous group" }, { keys: "wheel", does: "over a links tile" }]; },
     touches: "nothing", replay: "safe", says: r => (r.moved ? null : `stepped to row ${r.row} of ${r.title}`),
     args: {
       list: LIST_ARG,
@@ -195,9 +194,9 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
     },
   }),
   "list.page": def({
-    summary: "turn a collection's page without changing its note", get keys() { return modeActionKeys([COLLECTION_KEYS], "list.page")! + "; click ◀ ▶"; }, touches: "nothing", replay: "safe",
+    summary: "turn a collection's page without changing its note", get keys() { return [{ keys: keysOf([COLLECTION_KEYS], "list.page"), does: "on a collection's row" }, { keys: "click", does: "the ◀ ▶ page controls" }]; }, touches: "nothing", replay: "safe",
     args: { list: LIST_ARG, by: { type: "number", optional: true, about: "pages to turn, default 1" } },
-    examples: [{ act: "list.page by=1", does: "turns the list the person is in to its next page" }, { act: "list.page list=^beds by=-1", does: "turns the beds list back a page" }],
+    examples: [{ act: "list.page by=1", does: "turns the collection on a page; an agent's turn is its own" }],
     async run({ list, by }, { host, standing }, actor) {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
       const pages = l.view.pageCount(who);
@@ -208,9 +207,9 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.layout": def({
     summary: "choose a collection's layout; without layout=, cycle its tabs. lane= selects a narrow board's lane",
-    keys: "click a layout or lane", touches: "nothing", replay: "safe",
+    keys: [{ keys: "click", does: "a layout tab, or a narrow board's lane" }], touches: "nothing", replay: "safe",
     args: { list: LIST_ARG, layout: { type: "string", optional: true, about: "a layout offered by this collection" }, lane: { type: "number", optional: true, about: "lane number, from zero" } },
-    examples: [{ act: "list.layout layout=board", does: "draws the list as a board" }, { act: "list.layout list=1 lane=2", does: "selects the third lane of the first list's narrow board" }],
+    examples: [{ act: "list.layout layout=board", does: "draws the collection as a board" }, { act: "list.layout", does: "cycles to the collection's next layout" }],
     async run({ list, layout, lane }, { host, standing }, actor) {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
       if (!l.change) throw new ActionRefused(`${l.title} has no layout tabs`);
@@ -223,9 +222,9 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.sort": def({
     summary: "sort a collection by a property; a header cycles ascending, descending, then the saved order. Without by=, reads the answer's available properties",
-    keys: "click a table header", touches: "nothing", replay: "safe",
+    keys: [{ keys: "s", does: "on a collection's row" }, { keys: "click", does: "a table header" }], touches: "nothing", replay: "safe",
     args: { list: LIST_ARG, by: { type: "string", optional: true, about: "property name; list.sort without by lists the facets" }, order: { type: "string", optional: true, about: "asc or desc; left out, cycle" } },
-    examples: [{ act: "list.sort by=due order=asc", does: "sorts the list by its due property, soonest first" }, { act: "list.sort", does: "reads the properties the list can sort by", safe: true }],
+    examples: [{ act: "list.sort by=title order=asc", does: "sorts the collection by title, ascending" }, { act: "list.sort", does: "lists the properties the collection can sort by" }],
     async run({ list, by, order }, { host, standing }, actor) {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
       if (!l.change) throw new ActionRefused(`${l.title} has no sortable question`);
@@ -238,9 +237,9 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.group": def({
     summary: "group a collection by one or two property names, separated by a comma; an empty by clears it. Without by=, reads the answer's facets",
-    keys: "click a group choice", touches: "nothing", replay: "safe",
+    keys: [{ keys: "g", does: "on a collection's row" }, { keys: "click", does: "a group choice" }], touches: "nothing", replay: "safe",
     args: { list: LIST_ARG, by: { type: "string", optional: true, about: "one or two property names; left out, lists the facets" } },
-    examples: [{ act: "list.group by=bed", does: "groups the list's rows by their bed property" }, { act: 'list.group by=""', does: "ungroups it" }],
+    examples: [{ act: "list.group by=stage", does: "groups the collection's rows by stage" }, { act: "list.group by=\"\"", does: "clears the grouping" }],
     async run({ list, by }, { host, standing }, actor) {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
       if (!l.change) throw new ActionRefused(`${l.title} has no grouped question`);
@@ -249,8 +248,8 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
     },
   }),
   "list.enter": def({
-    summary: "go into a list (on=true, the default), or come out of it (on=false): in it, j k Home End move its selection (the preview follows), ⏎ opens, alt+⏎ opens in a new detail, / filters its rows, esc comes out, and any other key leaves it and does what it does in the reader. list= which list. The person's: an agent reads it with list.blocks, picks with list.pick and opens a row with list.open",
-    keys: [{ keys: "⏎", does: "enter the list" }, { keys: "tab", does: "into a collection from its block, or out of it", says: "go into the collection the reading line is on, or come out of it" }, { keys: "click", does: "the frame's ⏎ in" }, { keys: "esc", does: "come out", says: "come out of the list you went into" }, { keys: "click", does: "outside the frame comes out" }],
+    summary: "go into a list of links (on=true, the default), or come out of it (on=false): in it, j k Home End move its selection (the preview follows), ⏎ opens, alt+⏎ opens in a new detail, / filters its rows, esc comes out, and any other key leaves it and does what it does in the reader. On a collection there is no mode (PIE-1501): on=true puts the [ ] position on its picked row (its first), where j k h l step rows and esc lets go, as on a live figure's rows. list= which list. The person's: an agent reads it with list.blocks, picks with list.pick and opens a row with list.open",
+    keys: [{ keys: "⏎", does: "enter the list" }, { keys: "click", does: "the frame's ⏎ in" }, { keys: "esc", does: "come out", says: "come out of the list you went into" }, { keys: "click", does: "outside the frame comes out" }],
     touches: "tile", replay: "safe", person: "going into a list is the person's; an agent reads it with list.blocks, picks with list.pick and opens a row with list.open",
     args: {
       list: LIST_ARG,

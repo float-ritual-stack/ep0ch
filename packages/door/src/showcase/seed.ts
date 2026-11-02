@@ -462,7 +462,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.collection = await make(notes.root.id, [
     `${SEED.collection} [type::virtual-branch] [query::collection=garden] [layout::table, gallery, feed, board]`,
     "[summary-properties::title, owner, stage] [sort::title] [direction::asc] [group::area] [gallery.card::large] [cover::cover, img]",
-    "One garden, four layouts. Click a layout or table header to change layout or sort. Arrows or j k pick, Enter opens, Tab or Esc leaves, comma tunes. Sources explains the collection. Changes here belong to the viewer.",
+    "One garden, four layouts. Click a layout or table header to change layout or sort. Arrows or j k pick, h l cross columns, Enter opens, Esc lets go, comma tunes; the wheel scrolls it. Sources explains the collection. Changes here belong to the viewer.",
   ].join("\n"));
   for (const text of [
     "Water the beans [collection::garden] [area::beds] [owner::Mira] [stage::ready] [cover::Bean leaves after rain]\n\nWater at dusk, around the roots.",

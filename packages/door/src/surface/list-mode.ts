@@ -1,10 +1,13 @@
-// The reader's list mode (PIE-693, PIE-747) and the collection walk (PIE-1491): what j k ⏎ tab esc do in and around a
-// collection. Rows, elements and the reading line stay NoteSurface's; this reads them.
+// The reader's list mode (PIE-693, PIE-747: a ::links list the person goes into, and a filter being typed) and the
+// collection walk (PIE-1491, PIE-1501): a collection has no mode. Its rows are elements like a live figure's rows: the
+// `[ ]` position on one of them routes the list keys (collectionKey), j k step its rows through reading.step and walk
+// on past its edges, and esc lets go of the position as it does anywhere. Rows, elements and the reading line stay
+// NoteSurface's; this reads them.
 import type { NoteSurface, SurfaceHost } from "./note";
 import type { ReaderMode } from "./modes";
-import { modeHint } from "./modes";
+import { modeHint, type ModeKey } from "./modes";
 import { PERSON, type ListHandle } from "./list-view";
-import { LIST_KEYS, collectionHint, listBinding } from "./list-keys";
+import { LIST_KEYS, listBinding } from "./list-keys";
 import { LISTVIEW_ACTIONS } from "./list-actions";
 import type { ListActionName } from "./note";
 import type { Key } from "../term";
@@ -25,7 +28,7 @@ export function listMode(surface: NoteSurface, list: string, title: string): Lis
     },
     rows: () => null,
     leave: async () => { surface.leaveList(); return { left: "nothing" }; },
-    hint: () => surface.listViews.get(list)?.typing ? "type to filter the list · ⏎ keep · esc clear" : surface.listsDrawn.find(l => l.key === list)?.collection ? collectionHint() : `${title} · ${modeHint(LIST_KEYS, name => LISTVIEW_ACTIONS.def(name))}`,
+    hint: () => surface.listViews.get(list)?.typing ? "type to filter the list · ⏎ keep · esc clear" : `${title} · ${modeHint(LIST_KEYS, name => LISTVIEW_ACTIONS.def(name))}`,
     state: () => "in a list",
     describe: () => ({ list, title, selected: surface.listViews.get(list)?.picked(PERSON)?.id ?? null, typing: surface.listViews.get(list)?.typing?.text ?? null }),
   };
@@ -40,24 +43,14 @@ function listKey(surface: NoteSurface, list: string, k: Key, host: SurfaceHost):
     if (k.kind === "enter") view.stopTyping(true);
     else if (k.kind === "esc") view.stopTyping(false);
     else if (!T.take(k)) return true;
+    // A collection's mode is only the filter being typed: kept or cleared, its row keys are the [ ] position's again.
+    if (!view.typing && l.collection) surface.leaveList();
     if (l.change) void l.change({ where: view.filter() }, PERSON).then(() => host.redraw());
     host.redraw();
     return true;
   }
   const binding = listBinding(k, !!l.change, view.pickable().length);
-  // In a collection, j or k past its edge walks on through the note, as it walked in (PIE-1491).
-  if (binding && l.collection && binding.action === "list.step" && (binding.args?.axis ?? "row") === "row" && !view.stepTarget(PERSON, binding.args?.by as number)) {
-    const by = (binding.args?.by as number) > 0 ? 1 : -1;
-    surface.leaveList();
-    // Nothing that way (the collection ends the note): stay in it, on its edge row.
-    void surface.runKey("reading.step", { by, through: true }, host, true).then(() => {
-      if (!surface.listIn && collectionAtReading(surface)?.key === l.key && (by > 0 || !collectionTextStop(surface))) surface.enterList(l, true, by > 0 ? "last" : "first");
-      host.redraw();
-    });
-    return true;
-  }
   if (binding) { void surface.runList(binding.action as ListActionName, { list, ...binding.args } as never, host); return true; }
-  if (l.collection) return true;
   // Any other key: out of the list, and the key does what it does in the reader.
   surface.leaveList();
   host.redraw();
@@ -77,19 +70,39 @@ export function collectionAtReading(surface: NoteSurface): ListHandle<any> | nul
   return null;
 }
 
-/** The [ ] position landed on a collection's row (`]`, a click): the person is in that collection, on that row (PIE-1491). */
-export function enterCollectionRow(surface: NoteSurface) {
-  const e = surface.selectedElement(), row = e?.link?.listRow;
-  if (!row?.row) return;
-  const l = surface.listsDrawn.find(l => l.key === row.key && l.collection);
-  if (!l || surface.listIn === l.key) return;
-  surface.modes.push(listMode(surface, l.key, l.title));
-  l.view.pick(PERSON, row.row, row.group);
+/** The collection whose row the `[ ]` position is on (`j`, `]`, a click), or null (PIE-1501). */
+export function collectionAtCursor(surface: NoteSurface): ListHandle<any> | null {
+  const row = surface.selectedElement()?.link?.listRow ?? surface.rowWanted();
+  if (!row?.row) return null;
+  return surface.listsDrawn.find(l => l.key === row.key && l.collection) ?? null;
+}
+
+/**
+ * The list key `k` binds to while the `[ ]` position is on a collection's row (PIE-1501), as figureKey reads a figure's:
+ * the tables in list-keys.ts, less list.enter (esc lets go of the position, as anywhere; tab is the screen's). Null
+ * for any other key, or off a collection.
+ */
+export function collectionBinding(surface: NoteSurface, k: Key): { list: ListHandle<any>; binding: ModeKey } | null {
+  if (surface.modes.top()) return null;
+  const list = collectionAtCursor(surface);
+  if (!list) return null;
+  const binding = listBinding(k, !!list.change, list.view.pickable().length);
+  return binding && binding.action !== "list.enter" ? { list, binding } : null;
+}
+
+/** `k` run on the collection the `[ ]` position is in: j k step its rows through the reading walk (one owner of a row step, stepReading), the rest through its list.* action. True when it ran. */
+export function collectionKey(surface: NoteSurface, k: Key, host: SurfaceHost): boolean {
+  const found = collectionBinding(surface, k);
+  if (!found) return false;
+  const { list, binding } = found;
+  if (binding.action === "list.step" && (binding.args?.axis ?? "row") === "row") void surface.runKey("reading.step", { by: (binding.args?.by as number) > 0 ? 1 : -1 }, host);
+  else void surface.runList(binding.action as ListActionName, { list: list.key, ...binding.args } as never, host);
+  return true;
 }
 /**
  * A collection in the walk (PIE-1491): j from above stops on the text of its block when there is some (a saved view's
- * last body line), then goes in at its first row; k from below goes in at its last row. `through` (from its edge row)
- * walks out instead: up, onto that text; down, on to the next block.
+ * last body line), then its first row; k from below lands on its last row. From its edge row the walk goes on: up,
+ * onto that text; down, on to the next block.
  */
 export function collectionTextStop(surface: NoteSurface): boolean {
   const line = surface.msg?.text.split("\n")[surface.readingSourceLine()] ?? "";

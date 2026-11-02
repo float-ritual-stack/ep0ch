@@ -91,8 +91,8 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   const footer = `${answer.view.rows.length} notes${read?.state === "loading" ? " · updating…" : ""}${answer.truncated ? " · more matches" : ""}`;
   const warning = answer.error ?? (answer.view.rows.length ? answer.hint : undefined);
   const body = [...(warning ? rowLines(warning, inner).map(line => fg(C.lred) + line + RESET) : []), ...drawing.lines];
-  const control = plain ? "" : blocks?.control?.(key, entered ? "esc out" : "⏎ in");
   const count = blocks?.control?.(key, footer) ?? footer;
+  // No in/out control (PIE-1501): its rows are elements, and the [ ] position on one of them has the keys.
   // Reveal in the frame's spacer so the note under the pointer stays put.
-  return sizing ? sizing.finish(body, count, control, {}, answer.title, tabs[0]) : frame(answer.title, body, width, count, control, tabs[0]);
+  return sizing ? sizing.finish(body, count, "", {}, answer.title, tabs[0]) : frame(answer.title, body, width, count, "", tabs[0]);
 }

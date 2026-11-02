@@ -809,16 +809,28 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 ### Collections select, preview and open (PIE-849)
 
 A saved VIEW record or `::view{…} ^name` uses the same `ListView` over `RowView` in every arrangement.
-The service supplies the rows and groups. A click picks a card and gives the list the keys; `j k` step rows,
-`h l` cross gallery columns or board lanes, and `H L` cross groups. These bindings are declared in
-`surface/list-keys.ts` and dispatch `list.*`, as clicks and `act` do. Card edges use `BORDER_BOXES`; the pick
-has a bright, bold frame and title, with no cell background. Small and large keep their cover sizes.
-Table rows use the shared selection band; every table keeps the note's title even when its configured
-properties omit it. A single-layout view without grouping or sorting shows its rows and count quietly.
+The service supplies the rows and groups. A collection has no mode (PIE-1501): its rows are elements, as a live
+figure's rows are, and the `[ ]` position on one of them is the pick. A click picks a card; `j k` step rows,
+`h l` cross gallery columns or board lanes, `H L` cross groups, PgUp PgDn turn pages, `,` tunes, `s` sorts and `g`
+groups, all while the position is on a row. These bindings are declared in `surface/list-keys.ts` and run through
+`collectionKey` (`surface/list-mode.ts`, the twin of `figureKey`), dispatching `list.*` as clicks and `act` do; `j k`
+go through `reading.step`, so `stepReading` is the one row step for a collection, a figure and a `::links` list alike.
+Card edges use `BORDER_BOXES`; the pick has a bright, bold frame and title, with no cell background. Small and large
+keep their cover sizes. Table rows use the shared selection band; every table keeps the note's title even when its
+configured properties omit it. A single-layout view without grouping or sorting shows its rows and count quietly.
 Hovering it or moving the cursor into it reveals one control row. At narrow widths its layout control cycles
-the layouts and `≡` opens settings. In every layout, arrows or j/k pick, Enter opens, Tab or Esc leaves,
-and comma tunes. The entered collection's hint shows only these keys, from `list-keys.ts` (`↑↓ pick · ⏎ open · tab esc leave · , tune`, whole at 44 columns).
-Getting in is the reading walk itself (`stepReading`, `collectionAtReading`): j onto a collection's block stops on its text when there is some (a saved view's last body line), then goes in at its first row; k from below goes in at its last row; j or k past an edge row leaves and walks on (`reading.step through=true`; at the note's end it stays on the edge row); Tab on the block goes in, Tab or Esc inside comes out; `]` onto a row is in it too (`enterCollectionRow`).
+the layouts and `≡` opens settings. Esc lets go of the position, as anywhere (and retires the peek that followed
+the pick); Tab is the screen's. The row's hint carries the collection's keys (`collectionHint`: `↑↓ pick · h l
+column · , tune`), whole at 44 columns. The one mode a collection has is a filter being typed (`/`): the letters
+are its until ⏎ keeps or esc clears them (`listMode`, kept for `::links` lists).
+The walk (`stepReading`, `collectionAtReading`, `collectionAtCursor`): j onto a collection's block stops on its text
+when there is some (a saved view's last body line), then lands on its first row; k from below lands on its last row;
+j or k past an edge row walks on (at the note's end it stays on the edge row); `]` onto a row is on it too, and a
+page turn's pick lands on its row at the next layout (`pendingRow`). A row picked by keys lands as a click's does
+(`listHost.picked`: the position, and the preview following it).
+The wheel over a collection scrolls as elsewhere: a `::view` or `::graph-table` in a note has the figure viewport
+(`InlineList`, rows first, then the note); a saved view opened as its own note is only its rows, which no source
+line names, so `PositionRows` keeps that scroll as rows (`waiting`) instead of dropping it (PIE-1501).
 Feed bodies use the reader's embed renderer without a duplicate title: callouts, headings, bold and values
 are drawn against each card's own note. The kitchen sink's **quiet-collection** section shows this with a type/ticket view.
 
