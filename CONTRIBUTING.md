@@ -121,7 +121,7 @@ author reads them once before opening it.
 
 ### 1. Architecture pass
 
-- **Extension first:** could this be an extension (a rule note, a script, an extension folder) on the parts that
+- **Extension first** ([ADR 0008](docs/adr/0008-extension-first.md))**:** could this be an extension (a rule note, a script, an extension folder) on the parts that
   exist? If it's in core, the PR names the primitive that was missing (a hook, an event, a placement) and adds that
   primitive to core with the behaviour as its first user, so the behaviour can move out later. A brief asks it before
   building; a review asks it before merging. (Evan, Nov 2: "feels like this is a question everything should be

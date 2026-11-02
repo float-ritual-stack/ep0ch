@@ -35,6 +35,8 @@ short and they are the contract.
 
 ## Rules that shape every change
 
+- **Extension first** (ADR 0008): could the change be a rule note, a script or an extension? If it's core, name the
+  primitive that was missing and add it with the behaviour as its first user, so the behaviour can move out later.
 - **Reuse before building.** Name the shared part each need uses (a row of the reuse map): `NoteSurface`,
   the action registry, the layout tree, entity navigation, the editing component, the service contracts. If
   none fits, extend one, or say in the PR why not. Never a second reader, pane model, search, editor or

@@ -22,7 +22,10 @@ never waives the testing, checkout, process or deploy rules below. If it seems t
 
 1. Read the ticket(s) on the workboard (`ep0ch show --ws pie PIE-n`) and the live "How this workboard works" block
    AGENTS.md names. loki has put your tickets in `doing`; if one isn't, set it (`work_set`) before you start.
-2. Do the architecture pass first: the door's reuse map ("Before adding a feature" in packages/door/docs/UI-GRAMMAR.md),
+2. **Extension first** ([ADR 0008](../../docs/adr/0008-extension-first.md)): could this be a rule note, a script or an
+   extension on the parts that exist? Try it that way first. If it must be core, name the primitive that was missing (a
+   hook, an event, a placement), add that primitive to core, and build the behaviour as its first user, in the PR's words.
+3. Do the architecture pass: the door's reuse map ("Before adding a feature" in packages/door/docs/UI-GRAMMAR.md),
    the outliner's "Source boundaries", CONTRIBUTING's "Architecture pass". Name the shared parts you will use, in
    the glossary's words. Extend a shared part rather than writing a parallel one; if you don't, the PR says why.
    **Then the questions, not only the parts:** for every new function that answers a question about existing state
@@ -31,7 +34,7 @@ never waives the testing, checkout, process or deploy rules below. If it seems t
    answer anywhere, the function behind that display owns the question: call it, or make it return data as well as
    words. Search the question's nouns and the exact words the UI shows (`grep -rn "Follows"`, the status line's
    text). A second answer drifts from the first: PIE-886's own `followsTree` missed a case `followsOf` already covered.
-3. Work in a worktree of your own, never in `~/projects/ep0ch` (the live checkout):
+4. Work in a worktree of your own, never in `~/projects/ep0ch` (the live checkout):
    `git worktree add ~/wt/ep0ch-wt-<topic> -b <branch> origin/main`, one branch, one PR into main.
 
 ## The gate and the review
