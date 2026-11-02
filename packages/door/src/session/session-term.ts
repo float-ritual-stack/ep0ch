@@ -237,7 +237,7 @@ export class SessionTerm implements Display {
   }
   /** The video mode the active client was stepped down from (its terminal stopped answering), or null. */
   steppedDown(): Video | null { return this.active?.steppedFrom ?? null; }
-  /** Said when the session steps a terminal's video down by itself: the App flashes it. */
+  /** Said when the session steps a terminal's video down by itself: the daemon has the App flash it. */
   onNotice(f: (text: string) => void) { this.noticeHandler = f; }
   private noticeHandler: (text: string) => void = () => {};
 
@@ -523,7 +523,7 @@ export class SessionTerm implements Display {
       // After a lost answer the next frame is watched too, whether or not a paint waits on it, and when no frame is
       // on its way the check goes alone (the query, no rows): a terminal that has stopped answering is found, and
       // stepped down, without the door having to paint again and again.
-      if (c.lostInARow && !c.away && !c.behind) {
+      if ((stepped || c.lostInARow) && !c.away && !c.behind) {
         if (!c.inflight.length) { c.inflight.push(performance.now()); c.link.send({ t: "output", text: STATUS_QUERY }); }
         this.watchStale(c);
       }

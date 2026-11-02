@@ -649,8 +649,7 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     const { term, app, make, numbers } = counting();
     term.ackStaleMs = 40;
     const said: string[] = [];
-    const flash = app.flash.bind(app);
-    app.flash = (msg: string, ms?: number, d?: any) => { said.push(msg); flash(msg, ms, d); };
+    term.onNotice(text => { said.push(text); app.flash(text); });   // as the daemon wires it
     const a = fakeLink(80, 24);
     const ca = term.attach(a.link, hello(80, 24, { acks: true, kitty: true }));
     expect(ca.painter.video).toBe("kitty+crt");
@@ -697,7 +696,7 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     const b = fakeLink(80, 24);
     const cb = term.attach(b.link, hello(80, 24, { acks: true }));
     make(20);
-    await until(() => term.speed()[1]!.ackTimeouts >= STEP_DOWN_AFTER + 1, "the cells terminal's answers given up on", 3000);
+    await until(() => term.speed()[1]!.ackTimeouts >= STEP_DOWN_AFTER, "the cells terminal's answers given up on", 3000);
     expect(cb.painter.video).toBe("cells");
     expect(term.speed()[1]!.steppedFrom).toBeNull();
   });

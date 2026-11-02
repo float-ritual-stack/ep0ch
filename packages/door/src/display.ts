@@ -48,8 +48,6 @@ export interface Display {
   handOver(argv: string[], o: HandoverOpts): Promise<number | null>;
   /** The video mode the person's terminal was stepped down from because it stopped answering (a session, PIE-1500); null when it wasn't. */
   steppedDown?(): Video | null;
-  /** Said when the display changed something by itself (a session stepped a terminal's video down): App flashes it, so the person knows and has the key back. */
-  onNotice?(f: (text: string) => void): void;
   /** Nobody sees the frames (a session with no terminal attached): App renders none until someone does. */
   unseen?(): boolean;
   /** Said when the frames are seen again (a terminal attached to a session nobody saw): App draws the frame it skipped. */
