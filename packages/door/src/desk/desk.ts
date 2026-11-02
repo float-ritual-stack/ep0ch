@@ -1,9 +1,10 @@
 import { returnPlace, mapPlace } from "./return-place";
+import { AGAIN_PART, LEAVE_PART, readerHeldParts } from "../hint-parts";
 import type { Visit } from "../trail";
 import { openCause, openMethod, opening, landed as openLanded } from "./open-event";
 import type { DoorOpen } from "@ep0ch/outline-core/door-open";
 import { drawCompletionFloat } from "../surface/completion-float";
-import { modeBinding, modeHint, partsHint, type HintPart, type ModeKey } from "../surface/modes";
+import { hintKey, modeBinding, modeHint, Modes, partsHint, type HintPart, type ModeKey } from "../surface/modes";
 import { tabStrip } from "../surface/chip-rows";
 import { stripHint, stripSegments, stripsRecorded, withStripOwner } from "../surface/strip-state";
 import { ZOOM_WHEEL } from "./wkeys";
@@ -61,7 +62,6 @@ import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
 import { armsEdit, headerShown, isTileHeader, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList, type TileHeader, type TrailStop } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
-import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRows, pickRow } from "../surface/picker";
 import { outlineState, readState, writeState } from "../state";
 import { readdirSync, readFileSync } from "node:fs";
@@ -3254,7 +3254,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** What an exited terminal tile `sel` offers: ⏎ runs it again, ^W x closes it (where it may close), ctrl+] leaves (in the drawer, Esc too). */
   exitedSay(sel: string, label = sel, back?: string): string {
     const id = this.idNamed(sel), drawer = !!this.ctx?.hostLayer?.isDrawer(this);
-    return `${label} exited · ⏎ runs it again${id !== undefined && this.closesByMouse(id) ? " · ^W x closes" : ""} · ${drawer ? "Esc or " : ""}${ESCAPE_CHORD} back to ${back ?? (drawer ? "the screen" : "the door")}`;
+    return `${label} exited · ${keyCaption(hintKey(AGAIN_PART) ?? "enter")} runs it again${id !== undefined && this.closesByMouse(id) ? " · ^W x closes" : ""} · ${drawer ? "Esc or " : ""}${keyCaption(hintKey(LEAVE_PART) ?? ESCAPE_CHORD)} back to ${back ?? (drawer ? "the screen" : "the door")}`;
   }
   canClose(p: Pane): boolean {
     const id = this.idOf(p);
@@ -4096,7 +4096,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // whose controls sit on its header, doesn't repeat them along its frame.
     const said = this.headCtl.has(id) || (typeof this.spec.hint === "object" && this.spec.hint[pane.kind] !== undefined && !float && !held);
     const recovery = pane instanceof ReaderPane ? this.failedEdits.get(pane) : undefined;
-    const hint = recovery && pane instanceof ReaderPane && recovery.of === pane.msg?.id ? `${recovery.why} · tile menu: recover typed text` : no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : [this.spec.hint === undefined && focused ? this.screenKeyHint() : "", pane.hint()].filter(Boolean).join(" · ")) : "");
+    const hint = recovery && pane instanceof ReaderPane && recovery.of === pane.msg?.id ? `${recovery.why} · tile menu: recover typed text` : no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? partsHint(readerHeldParts(pane.surface.scrolls())) : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : [this.spec.hint === undefined && focused ? this.screenKeyHint() : "", pane.hint()].filter(Boolean).join(" · ")) : "");
     // The focused tile's frame is double-lined (╔═╗, in the VGA font too) in whatever colour its state gives it, so which
     // tile the keys go to shows by its shape, apart from the colours of linking, marks, a drag or an edit.
     // Double-lined only while the person's keys are here: not while they're in your drawer, or in another part of a frame
@@ -4107,7 +4107,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const frameInk = (cover === "peek" && !focused && !arrival ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
     const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];
     const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
-    const foot = nests ? "" : fitHint(armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, Math.max(0, r.cols - 4)).text;
+    const foot = nests ? "" : fitHint(armed ? `${fg(C.yellow)}${modeHint([{ key: "enter", action: "tile.open", label: "opens it" }], () => undefined)} · any other key cancels` : hint, Math.max(0, r.cols - 4)).text;
     canvas.box(r, float && !arrival ? fgRgb(floatTheme(lv).border) : frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
     if (badgeWidth) canvas.text(liftX - badgeWidth - 1, r.row, fg(C.yellow) + liftBadge + RESET, badgeWidth);
     if (lifts) {
@@ -4378,7 +4378,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     } else {
       if (actor.kind !== "user") throw new ActionRefused("tile.title needs text=<name or title>; text= clears a written title");
       this.overlay(linePrompt<Desk>({ name: "tile title", title: "Rename this tile", text: p.writtenTitle ?? t.name, prefilled: true, verbatim: true,
-        doing: () => "⏎ renames it · a title with spaces or {{this.title}} is written on it · empty clears a written title",
+        doing: () => "⏎ renames it · a title with spaces or {{this.title}} is written on it · empty clears a written title", // says, not a hint row
         done: (text, d) => { d.run("tile.title", { text }, d.tileId(t.id)); },
       }));
       return { ...this.tileAnswer(t.id), prompt: true };
@@ -4439,7 +4439,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (text === undefined) {
       if (actor.kind !== "user") throw new ActionRefused("note.rename needs text=<the note's new title>");
       this.overlay(linePrompt<Desk>({ name: "note title", title: "Rename this note", text: titleWords(now.text), prefilled: true,
-        doing: t => `⏎ renames the note to “${t}” · its properties and body stay`,
+        doing: t => `⏎ renames the note to “${t}” · its properties and body stay`, // says, not a hint row
         done: (title, d) => { d.run("note.rename", { text: title, note: now.id, revision: now.revision }, d.tileId(t.id)); },
       }));
       return { ...this.tileAnswer(t.id), prompt: true };
@@ -4844,7 +4844,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (rd.surface.sourcesMode || rd.surface.replyLinks || rd.surface.session?.mode === "compose" || rd.surface.draft?.preview) return line(paint(`|14 ${where}`));
       return line(this.entered.in(rd)
         ? paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET
-        : paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)}${rd.surface.scrolls() ? " · |15j k|08 scroll" : ""} · ${partsHint([FOCUS_PART, WINDOW_PART, KEYS_PART])}`));
+        : paint(`|14 ${where}|08 · ${partsHint(readerHeldParts(rd.surface.scrolls(), sessionName(rd)))} · ${partsHint([FOCUS_PART, WINDOW_PART, KEYS_PART])}`));
     }
     if (!this.prefix && !this.all().length) return line("");
     const leaving = this.prefix === "wm" && !!this.personIn()?.editing ? `|14${sessionName(this.personIn()!)}: the next key leaves it (saved, or kept as unsent) · |07esc |08stays · ` : "";

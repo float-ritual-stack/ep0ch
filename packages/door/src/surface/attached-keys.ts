@@ -1,4 +1,4 @@
-import type { ModeKey } from "./modes";
+import { modeHint, type ModeKey } from "./modes";
 import { keyTable } from "./keymap";
 
 // Pointer targets dispatch through their drawn hit records; these rows keep action metadata on the same table.
@@ -11,7 +11,7 @@ export const SOURCES_KEYS: readonly ModeKey[] = keyTable("sources", "the Sources
   say(row("j", "sources.pick", "select", { by: 1 }), "select the next row of the inspector"), say(row("down", "sources.pick", "select", { by: 1 }), "select the next row of the inspector"), say(row("tab", "sources.pick", "select", { by: 1 }), "select the next row of the inspector"),
   say(row("k", "sources.pick", "select", { by: -1 }), "select the previous row of the inspector"), say(row("up", "sources.pick", "select", { by: -1 }), "select the previous row of the inspector"),
   ...["enter", "shift+enter", "ctrl+enter"].map(key => say(row(key, "sources.enter", "open"), "open the selected row of the inspector")), row("alt+enter", "sources.enter", "open beside", { fresh: true }),
-  row("r", "sources.refresh", "read again"), row("pgdn", "sources.scroll", "scroll", { by: 8 }), row("space", "sources.scroll", "scroll", { by: 8 }), row("pgup", "sources.scroll", "scroll", { by: -8 }),
+  row("r", "sources.refresh", "read again"), row("pgdn", "sources.scroll", "scroll", { by: 1, page: true }), row("space", "sources.scroll", "scroll", { by: 1, page: true }), row("pgup", "sources.scroll", "scroll", { by: -1, page: true }),
   say(row("ctrl+o", "sources.place", "placement"), "choose where the Sources inspector sits"), row("ctrl+g", "sources.grip", "move"), row("ctrl+z", "sources.undo", "undo"),
   ...["sources.close", "sources.enter", "sources.refresh", "sources.place"].map(action => row("click", action, "")),
   row("wheel", "sources.scroll", ""),
@@ -66,7 +66,7 @@ export const REVISION_KEYS: readonly ModeKey[] = keyTable("revision", "a note at
   ...["right", "l"].map(key => say(row(key, "revision.newer", "newer"), "show the revision after this one")),
   row("n", "revision.against", "against now"),
   row("j", "revision.scroll", "scroll", { by: 1 }), row("down", "revision.scroll", "scroll", { by: 1 }), row("k", "revision.scroll", "scroll", { by: -1 }), row("up", "revision.scroll", "scroll", { by: -1 }),
-  row("pgdn", "revision.scroll", "scroll", { by: 8 }), row("space", "revision.scroll", "scroll", { by: 8 }), row("pgup", "revision.scroll", "scroll", { by: -8 }),
+  row("pgdn", "revision.scroll", "scroll", { by: 1, page: true }), row("space", "revision.scroll", "scroll", { by: 1, page: true }), row("pgup", "revision.scroll", "scroll", { by: -1, page: true }),
   ...REVISION_CONTROLS.map(action => row("click", action, "")), row("wheel", "revision.scroll", ""),
 ]);
 
@@ -78,7 +78,7 @@ export const EDIT_PREVIEW_KEYS: readonly ModeKey[] = keyTable("edit preview", "a
   row("esc", "draft.preview", "close preview", { on: false }), row("ctrl+p", "draft.preview", "close preview", { on: false }),
   row("up", "draft.scroll", "scroll", { preview: true, by: -1 }), row("k", "draft.scroll", "scroll", { preview: true, by: -1 }),
   row("down", "draft.scroll", "scroll", { preview: true, by: 1 }), row("j", "draft.scroll", "scroll", { preview: true, by: 1 }),
-  row("pgup", "draft.scroll", "scroll", { preview: true, by: -10 }), row("pgdn", "draft.scroll", "scroll", { preview: true, by: 10 }),
+  row("pgup", "draft.scroll", "scroll", { preview: true, by: -1, page: true }), row("pgdn", "draft.scroll", "scroll", { preview: true, by: 1, page: true }),
   row("click", "draft.preview", ""), row("wheel", "draft.scroll", ""),
 ]);
 
@@ -99,3 +99,39 @@ export const SETTINGS_KEYS: readonly ModeKey[] = keyTable("settings", "the setti
 ]);
 
 export const ATTACHED_KEYS = [SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REVISION_KEYS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, SETTINGS_KEYS];
+
+// ── the reader's hint rows (PIE-1293): each names the action its key runs, drawn by modeHint ──
+/** A hint row from rows (key, the action it runs, its word): the reader's reading keys below and every picker's, so one drawing reads them all. */
+export const hintOf = (rows: readonly ModeKey[]): string => modeHint(rows, () => undefined);
+export const rk = (key: string, action: string, label: string, args?: Record<string, unknown>): ModeKey => ({ key, action, label, ...(args ? { args } : {}) });
+/** Reading a note: the keys the hint row names, on the actions they run (NOTE_ACTIONS). */
+export const STEP_KEYS = ["up", "down", "j", "k"].map(key => rk(key, "reading.step", "blocks/rows", { by: key === "up" || key === "k" ? -1 : 1 }));
+export const ELEMENT_STEP_KEYS = ["[", "]"].map(key => rk(key, "element.select", "elements", { by: key === "[" ? -1 : 1 }));
+export const SECTION_KEYS = ["(", ")"].map(key => rk(key, "fold.select", "sections", { by: key === "(" ? -1 : 1 }));
+export const READING_KEYS: readonly ModeKey[] = [
+  rk("f", "fold.toggle", "fold"), rk("M", "margin", "comments mode"), rk("R", "note.reply", "reply"), rk("t", "note.thread", "thread"), rk("i", "props", "properties"),
+  rk("z", "callouts", "callouts"), rk("u", "up", "up"), rk("C", "passage.select", "comment"), rk("m", "threads", "comments"),
+];
+/** A picker's own keys: the move and ⏎ that choose a row, and esc; `action` is what choosing runs. */
+export const chooseKeys = (action: string): ModeKey[] => [rk("j", action, "choose"), rk("k", action, "choose"), rk("enter", action, "choose"), rk("esc", action, "cancel", { cancel: true })];
+/** The placement menu: arrows select, ⏎ chooses, esc closes. */
+export const PLACEMENT_KEYS: readonly ModeKey[] = [rk("up", "placement.step", "select", { by: -1 }), rk("down", "placement.step", "select", { by: 1 }), rk("enter", "placement.choose", "choose"), rk("esc", "placement.close", "close")];
+/** A property field or a children editor held open: ⏎ saves it, esc keeps it. */
+export const FIELD_KEYS: readonly ModeKey[] = [rk("enter", "edit.save", "saves"), rk("esc", "edit.close", "keeps")];
+export const CHILDREN_KEYS: readonly ModeKey[] = [rk("enter", "edit.save", "save"), rk("ctrl+s", "edit.save", "save"), rk("esc", "edit.close", "keeps")];
+/** Writing a reply: save, the ways out, scrolling the message and quoting from it. */
+export const replyHint = (dirty: boolean): string => {
+  const own = hintOf([rk("ctrl+s", "edit.save", "saves"), rk("esc", "edit.close", dirty ? "twice discards" : "discards"), { ...rk("pgup", "scroll", "scroll message"), click: false }, { ...rk("pgdn", "scroll", "scroll message"), click: false }]);
+  return [own, "select then " + hintOf([rk('"', "note.quote", "quotes")])].join(" · ");
+};
+/** A selected figure: its rows, esc out of it and, when it has tabs, the tab keys. */
+export const figureKeys = (tabs: boolean): readonly ModeKey[] => [rk("up", "figure.row", "row"), rk("down", "figure.row", "row"), rk("esc", "element.select", "out", { n: 0 }), ...(tabs ? ["left", "right", "tab", "shift+tab"].map(key => rk(key, "figure.tab", "tab")) : [])];
+/** The reader's focus mark: esc lets go of it. */
+export const LET_GO_KEYS: readonly ModeKey[] = [rk("esc", "element.select", "lets go", { n: 0 })];
+/** Moving an attachment by keys (ctrl+g): the sides, the size, home and done, as the grip handles them. */
+export const GRIP_SIDES = ["left", "right", "up", "down", "h", "j", "k", "l"];
+export const gripKeys = (tiled: boolean): readonly ModeKey[] => tiled
+  ? [...GRIP_SIDES.map(key => rk(key, "comment.move", "that side")), rk("ctrl+w < > + -", "attachment.split", "size"), rk("enter", "comment.grip", "done")]
+  : [...GRIP_SIDES.map(key => rk(key, "comment.move", "move")), ...["shift+left", "shift+right", "shift+up", "shift+down", "H", "J", "K", "L"].map(key => rk(key, "comment.move", "size", { size: true })), rk("0", "comment.move", "its usual place", { reset: true }), rk("enter", "comment.grip", "done")];
+/** Back and the trail, as the hint row names them when there is somewhere to go. */
+export const backKeys = (back: boolean, trail: boolean): string => hintOf([...(back ? [rk("alt+left", "back", "back")] : []), ...(trail ? [rk("alt+T", "trail", "trail")] : [])]);

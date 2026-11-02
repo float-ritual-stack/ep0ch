@@ -1,4 +1,5 @@
 import { FULL_MARKERS } from "../src/overflow";
+import { visible } from "../src/style";
 // PIE-440: one spine part for river columns, board lanes and board readers. On the board, c collapses
 // the preview or a detail to a spine showing its note's title (C comments now), c ⏎ or a click opens it,
 // alt+c opens everything collapsed, and agents do the same through tile.collapse. A
@@ -237,8 +238,8 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect(B().preview.session).toBeNull();
     expect(!!folded(B().preview)).toBe(true);
     key(char("c"));
-    expect(B().preview.hint()).toContain("C comment");
-    expect(B().preview.hint()).not.toContain("c comment");
+    expect(visible(B().preview.hint())).toContain("C comment");
+    expect(visible(B().preview.hint())).not.toContain("c comment");
   });
 
   test("alt+c opens every collapsed lane and reader", async () => {

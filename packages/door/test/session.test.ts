@@ -929,7 +929,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     a.type("2");
     for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.focus !== "reader"; i++) await Bun.sleep(100);
     a.type("e");
-    await until(() => a.screen().includes("ctrl+s"), "the edit open", 10_000);
+    await until(() => a.screen().includes("^S save"), "the edit open", 10_000);
     a.type(" and nets");   // short: the reader beside the new terminal is narrow, and a longer line wraps
     await until(() => a.screen().includes("and nets"), "the typed text in the draft", 10_000);
     const shape = async () => { const l = await control({ cmd: "act", action: "layout.get", as: "test-agent" }); return JSON.stringify({ rev: l.rev, tiles: (l.tiles ?? []).map((t: any) => [t.id, t.kind, t.name]) }); };
@@ -1632,7 +1632,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     a.type("2");
     for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.focus !== "reader"; i++) await Bun.sleep(100);
     a.type("e");
-    await until(() => a.screen().includes("ctrl+s"), "the edit open", 10_000);
+    await until(() => a.screen().includes("^S save"), "the edit open", 10_000);
     a.type("\x05");
     a.type(" and kale");
     await until(() => a.screen().includes("and kale"), "the typed text", 10_000);

@@ -26,7 +26,7 @@ import { BOLD, C, drawEllipsized, fg, LINK_END, linkTag, pad, RESET, tint, UNBOL
 import { themed } from "./theme";
 import { readView, type ViewRead } from "./views";
 import { buttonText } from "./surface/button";
-import { wrap } from "./text";
+import { waitingText, wrap } from "./text";
 
 /** Embeds one document projects (the service's `maxPerDocument`, the same as Detail's). */
 export const MAX_EMBEDS = 16;
@@ -233,7 +233,7 @@ export function embedRegion(id: string, fragment: string | undefined, n: number,
   if (n >= MAX_EMBEDS) return [S(fg(C.lred) + `${shortRef(id, fragment)} · EMBED LIMIT · maximum ${MAX_EMBEDS}` + RESET)];
   const st = embedState(id, fragment, src, host);
   if (st.kind === "node") return nodeRegion(st.node, st.views, w, body, sink, list, blocks, `embed:${host}:${n}:${refOf(id, fragment)}`, bodyOnly);
-  if (st.kind === "loading") return [S(fg(C.dark) + `${shortRef(id, fragment)} · reading…` + RESET)];
+  if (st.kind === "loading") return [S(fg(C.dark) + `${shortRef(id, fragment)} · ${waitingText()}` + RESET)];
   return [S(fg(C.lred) + `${shortRef(id, fragment)} · TARGET FAILED · ${printable(st.error)}` + RESET)];
 }
 

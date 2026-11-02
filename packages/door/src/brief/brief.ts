@@ -12,7 +12,7 @@ import { authorName, USER, type OutlineEvent, type SocketBoard } from "../socket
 import { C, fg, pad, RESET } from "../style";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
-import { bbsDate } from "../text";
+import { bbsDate, waiting, waitingText } from "../text";
 import { newNoteOffer } from "../new-note";
 import { ch, type Key } from "../term";
 import { ReaderPane, type DeskApi, type PaneView } from "../desk/panes";
@@ -156,7 +156,7 @@ export class BriefReader extends ReaderPane {
 
   /** The reader's title; the day and the count are in the brief's header (`briefHeader`). */
   heading(): string {
-    if (!this.briefs) return "daily brief · asking the outline…";
+    if (!this.briefs) return `daily brief · ${waitingText()}`;
     if (!this.briefs.length) return "daily brief · none yet";
     const s = this.shown;
     if (!s) return `daily brief · not a brief: ${this.msg ? subject(this.msg) : "nothing"} · , . back to the briefs`;
@@ -166,7 +166,7 @@ export class BriefReader extends ReaderPane {
   /** What the reader shows while there is no brief to read, or null. */
   emptyLines(): string[] | null {
     if (this.problem) return [fg(C.lred) + this.problem + RESET];
-    if (!this.briefs) return [fg(C.dark) + "asking the outline for briefs…" + RESET];
+    if (!this.briefs) return [waiting("briefs")];
     if (this.briefs.length) return null;
     return [
       fg(C.white) + "No daily brief yet." + RESET, "",

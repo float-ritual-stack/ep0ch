@@ -1,6 +1,8 @@
 import { drawCompletionFloat } from "./surface/completion-float";
+import { BACK_KEY, hotParts, listKeys } from "./hint-parts";
 import { LIST_MOVE_KEYS } from "./surface/attached-keys";
-import { modeBinding, modeHint, modeActionKeys, Modes } from "./surface/modes";
+import { modeBinding, modeHint, modeActionKeys, Modes, type ModeKey } from "./surface/modes";
+import { effective } from "./surface/keymap";
 import { clipText } from "./overflow";
 import { errorDetails } from "./status-log";
 import { matchesSearchText } from "@ep0ch/outline-core/search-match";
@@ -31,7 +33,7 @@ import { ARM_MS, editArmMs, useEditArm } from "./arm";
 import { hyperOn, useHyper } from "./hyper";
 import { HERO_MODES, heroHeaderMode, heroHeaderOn, useHeroHeader, type HeroMode } from "./surface/hero-header";
 import { writeState } from "./state";
-import { RowView, RowPresses, overscroll, overscrollOf, useOverscroll } from "./scroll";
+import { listMove, pageRows, RowView, RowPresses, overscroll, overscrollOf, useOverscroll } from "./scroll";
 import { composerPlace, useComposerPlace } from "./surface/composer";
 import { attachedPlaceOf } from "./surface/attached";
 import { ATTACHED_PLACES } from "./surface/attached";
@@ -46,12 +48,12 @@ import { madeScreen, resolveScreen, screenNames, screenTargetArg, screenTitle } 
 import { screenNoteProblems } from "./desk/screen-notes";
 import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
-import { bbsDate, colourInline, printable, rowLines, rule, wrap } from "./text";
+import { bbsDate, colourInline, printable, rowLines, rule, waitingText, wrap } from "./text";
 import { LISTVIEW_ACTIONS } from "./surface/list-actions";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { copyNoteById, NOTE_REF_ACTIONS, ownOutline, type NoteRefOn } from "./note-ref";
 import { shellRunner } from "./drop";
-import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
+import { ActionRefused, actionSet, def, keyCaption, type ArgsOfSet } from "./surface/actions";
 import { Dispatcher, type TileRef } from "./surface/dispatch";
 import { holdsEdit, SHELL_IDLE_MS } from "./whereabouts";
 import { authorName, type Actor, type OutlineEvent } from "./socket";
@@ -61,15 +63,6 @@ import { prop } from "./props";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-const nav = (k: Key, len: number, i: number, page: number) => {
-  if (isUp(k)) return Math.max(0, i - 1);
-  if (isDown(k)) return Math.min(len - 1, i + 1);
-  if (k.kind === "pgup") return Math.max(0, i - page);
-  if (k.kind === "pgdn") return Math.min(len - 1, i + page);
-  if (k.kind === "home") return 0;
-  if (k.kind === "end") return Math.max(0, len - 1);
-  return i;
-};
 /** q leaves a BBS screen. Esc never does (UI-GRAMMAR, "Esc"): it closes the innermost temporary thing, and with none says so. */
 const isBack = (k: Key) => k.kind === "char" && !k.ctrl && (k.ch === "q" || k.ch === "Q");
 
@@ -148,6 +141,7 @@ function hotLine(p: Pointer, y: number, w: number, parts: (string | [string, Key
   }
   return out;
 }
+
 
 const screenArt = artNamed;
 
@@ -1264,7 +1258,7 @@ abstract class BbsList implements Screen {
     }
     if (k.kind === "esc") return nothingToClose(ctx);
     if (isBack(k)) return back(this, ctx);
-    const to = count ? nav(k, count, this.sel, this.page(ctx)) : this.sel;
+    const to = count ? listMove(k, { at: this.sel, n: count, room: this.page(ctx) }) ?? this.sel : this.sel;
     if (count && k.kind === "enter") this.press("list.open", {});
     else if (to !== this.sel) this.press("list.select", { n: to + 1 });
     else if (!this.ownKey(k, ctx)) ctx.redraw();
@@ -1449,7 +1443,7 @@ export class StatusMessages extends BbsList {
     if (k.kind === "enter" && this.litLink() >= 0) { void this.dispatch.press("status.link", { n: this.litLink() + 1 }); return; }
     if (ch(k) === "/") { void this.dispatch.press("status.filter", { editing: true }); return; }
     if (k.kind === "pgup" || k.kind === "pgdn" || k.kind === "mouse" && (k.action === "wheel-up" || k.action === "wheel-down")) {
-      const by = k.kind === "mouse" ? k.action === "wheel-up" ? -1 : 1 : (k.kind === "pgup" ? -1 : 1) * Math.max(1, ctx.t.rows - 5);
+      const by = k.kind === "mouse" ? k.action === "wheel-up" ? -1 : 1 : (k.kind === "pgup" ? -1 : 1) * pageRows(ctx.t.rows - 4);
       void this.dispatch.press("status.scroll", { by }); return;
     }
     super.key(k, ctx);
@@ -1585,7 +1579,7 @@ export class MessageList extends BbsList {
     this.ptr.frame();
     const lines = [
       center(paint(`|09─=|11[ |15${this.title.toUpperCase()} |11]|09=─`), w),
-      center(paint(`|08${this.items ? `${this.items.length} message(s)` : "scanning…"}${this.caption ? ` · ${this.caption}` : ""}${this.receiving ? ` · |14receiving up to ${this.receiving.limit} ${"▒▓█▓"[Math.floor(Date.now() / 150) % 4]} ${((Date.now() - this.receiving.started) / 1000).toFixed(1)}s` : ""}`), w),
+      center(paint(`|08${this.items ? `${this.items.length} message(s)` : waitingText()}${this.caption ? ` · ${this.caption}` : ""}${this.receiving ? ` · |14receiving up to ${this.receiving.limit} ${"▒▓█▓"[Math.floor(Date.now() / 150) % 4]} ${((Date.now() - this.receiving.started) / 1000).toFixed(1)}s` : ""}`), w),
       "",
       paint(`|09  Msg#  |09From              |09Subject${" ".repeat(Math.max(0, w - 62))}|09Date`),
       rule(w),
@@ -1610,7 +1604,7 @@ export class MessageList extends BbsList {
       lines.push(n === this.sel ? selectedRow(text, w) : fg(C.grey) + pad(text, w) + RESET);
     }
     while (lines.length < h - 1) lines.push("");
-    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · " + modeHint(LIST_MOVE_KEYS.filter(row => row.key !== "Z"), action => LIST_ACTIONS.def(action)) + " · ", [modeHint(LIST_MOVE_KEYS.filter(row => row.key === "Z"), action => LIST_ACTIONS.def(action)), char("Z")], " · ", ["|15Q|08 back", char("q")]]));
+    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ", ...hotParts(listKeys("read", [{ key: "t", action: "list.thread", label: "thread" }])), " · " + modeHint(LIST_MOVE_KEYS.filter(row => row.key !== "Z"), action => LIST_ACTIONS.def(action)) + " · ", [modeHint(LIST_MOVE_KEYS.filter(row => row.key === "Z"), action => LIST_ACTIONS.def(action)), char("Z")], " · ", ...hotParts(BACK_KEY)]));
     return { lines };
   }
   protected override page(ctx: Ctx) { return ctx.t.rows - 10; }
@@ -1987,7 +1981,7 @@ export class Conferences extends BbsList {
       }
     });
     if (!this.confs) lines.push(paint("|08  dialing…"));
-    lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ↑↓ select · ", ["|15ENTER|08 join", ENTER], " · ", ["|15Q|08 back", char("q")]]));
+    lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ", ...hotParts(listKeys("join")), " · ", ...hotParts(BACK_KEY)]));
     return { lines };
   }
   listRows(): ListRow[] | null { return this.confs?.map((c, i) => ({ n: i + 1, title: subject(c), id: c.id, type: prop(c, "type") ?? null })) ?? null; }
@@ -2024,7 +2018,7 @@ export class FileAreas extends BbsList {
       }
     });
     while (lines.length < h - 1) lines.push("");
-    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 browse pack", ENTER], " · ", ["Q back", char("q")]]));
+    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ", ...hotParts(listKeys("browse pack")), " · ", ...hotParts(BACK_KEY)]));
     return { lines };
   }
   protected override page() { return 5; }
@@ -2111,7 +2105,7 @@ export class ArtViewer implements Screen {
     if (c === "i") return run("art.ice", {});
     if (c === "v") return shellKey("video.cycle", {}, this, ctx);
     if (k.kind === "enter" || c === " ") return run("art.reveal", {});
-    const by = isDown(k) ? 2 : isUp(k) ? -2 : k.kind === "pgdn" ? 20 : k.kind === "pgup" ? -20 : 0;
+    const by = isDown(k) ? 2 : isUp(k) ? -2 : k.kind === "pgdn" ? pageRows(ctx.t.rows) : k.kind === "pgup" ? -pageRows(ctx.t.rows) : 0;
     if (by) return run("art.scroll", { by });
   }
   private ctx: Ctx | null = null;

@@ -10,7 +10,7 @@ import { siteProduced, type LiveSite } from "./live";
 import type { LinkTarget } from "./refs";
 import { C, drawEllipsized, fg, RESET } from "./style";
 
-import { rowLines } from "./text";
+import { rowLines, waiting } from "./text";
 
 /** One `::fields` as the reader last drew it: the note it read, that note's revision, and its rows. */
 export interface DrawnFields { from: string; revision: number; key: string; of: string | null; rows: FieldRow[] }
@@ -40,7 +40,7 @@ export function renderFields(spec: FieldsSpec, note: string | undefined, W: numb
   if (!note && !answer) return frame(title, [fg(C.dark) + "a note's fields: this one is drawn outside a note" + RESET], W);
   const read = answer ? { state: "ready", value: answer } as const : siteProduced(note, { kind: "fields", key: spec.key, ...(spec.of ? { of: spec.of } : {}) }, site);
   if (!read) return frame(title, [fg(C.dark) + "no outline connection" + RESET], W);
-  if (read.state === "loading") return frame(title, [fg(C.dark) + "asking the outline…" + RESET], W, "live");
+  if (read.state === "loading") return frame(title, [waiting()], W, "live");
   if (read.state === "error" && !read.value) return frame(title, [fg(C.lred) + read.error + RESET], W, "live");
   const a = read.value as Extract<SiteProduced, { kind: "fields" }>;
   if (a.problem) return frame(title, problemLines(a.problem.message, a.problem.didYouMean), W, "live");

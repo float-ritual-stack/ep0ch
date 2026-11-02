@@ -8,6 +8,7 @@ import { C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ago } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
+import { modeHint, type ModeKey } from "../surface/modes";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { HeldAsk } from "../socket";
 import type { HeldAsks } from "../held-asks";
@@ -32,6 +33,14 @@ const SEND = " [r send]";
 
 type Entry = { kind: "program"; row: WaitingRow } | { kind: "held"; row: HeldAsk } | { kind: "ask"; row: WaitingAsk };
 
+/** What the rows of the waiting list take, in the order its hint row says them (key() below runs them). */
+const WAITING_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "status.pick", args: { by: 1 }, label: "pick" }, { key: "k", action: "status.pick", args: { by: -1 }, label: "pick" },
+  { key: "enter", action: "status.go", label: "opens" }, { key: "alt+enter", action: "ask.open", args: { fresh: true }, label: "beside" },
+  { key: "x", action: "status.seen", label: "clear/seen" }, { key: "A", action: "ask.proposal", args: { op: "apply" }, label: "apply" },
+  { key: "X", action: "ask.proposal", args: { op: "dismiss" }, label: "dismiss" }, { key: "r", action: "ask.proposal", args: { op: "resolve" }, label: "resolve/send" },
+];
+
 export class WaitingYouPane implements Pane {
   readonly kind = WAITING_YOU_KIND_NAME;
   at = 0;
@@ -49,7 +58,7 @@ export class WaitingYouPane implements Pane {
     return [...this.asks().map(row => ({ kind: "ask" as const, row })), ...this.held().map(row => ({ kind: "held" as const, row })), ...this.rows().map(row => ({ kind: "program" as const, row }))];
   }
   title() { const n = this.entries().length; return `waiting on you · ${n || "nothing"}`; }
-  hint() { return "j k pick · click selects · ⏎ opens · alt+⏎ beside · x clear/seen · A apply · X dismiss · r resolve/send"; }
+  hint() { return modeHint(WAITING_KEYS, () => undefined); }
   init(desk: DeskApi) {
     this.dispose();
     this.door = desk.ctx.hostLayer ?? desk.ctx;

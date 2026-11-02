@@ -52,3 +52,30 @@ export function confirms(a: Arm, k: Key): boolean {
 
 /** A key that lets an armed edit go: anything but a mouse button's release (the press before it already did). */
 export const disarms = (k: Key) => !(k.kind === "mouse" && (k.action === "up" || (k.action === "drag" && k.button === 3)));
+
+// ── the same key again (PIE-1293) ──────────────────────────────────────────────────────────────────────
+// One rule for every "press it again to confirm": the first press says what the second does, the same press again
+// within AGAIN_MS does it, and any other key (or the window running out) lets it go, quietly. The edit's esc twice
+// (discard), a comment's ctrl+s twice (send anyway), the look tuner's X X and R R all hold theirs here. A yes/no
+// with rows is confirmPicker (surface/picker.ts): the safe row first.
+
+/** How long a second press confirms the first. */
+export const AGAIN_MS = 5000;
+
+/** One press waiting for its second: `what` it is for (compared with `same`), until the window runs out. */
+export class Again<T = true> {
+  private held: { what: T; at: number } | null = null;
+  constructor(private readonly ms = AGAIN_MS, private readonly same: (a: T, b: T) => boolean = Object.is) {}
+  /** The first press: the next `take` of the same `what` within the window confirms. */
+  arm(what: T, now = Date.now()) { this.held = { what, at: now }; }
+  /** A press: whether it is the second of `what` within the window. Either way the first is let go. */
+  take(what: T, now = Date.now()): boolean {
+    const h = this.held;
+    this.held = null;
+    return !!h && this.same(h.what, what) && now - h.at < this.ms;
+  }
+  /** What waits for its second press now, or null. */
+  armed(now = Date.now()): T | null { return this.held && now - this.held.at < this.ms ? this.held.what : null; }
+  /** Let it go (any other key). */
+  clear() { this.held = null; }
+}

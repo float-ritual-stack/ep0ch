@@ -74,13 +74,23 @@ describe.skipIf(!outliner)("note.trash: d d from a reader, a list and the tree; 
     expect(await deleted(bulb)).toBe(false);
   }, 20_000);
 
-  test("any other key keeps it; the mouse does the same two steps: the tile menu's row, a click on the first row", async () => {
+  test("esc and ⏎ keep it; the mouse does the same two steps: the tile menu's row, a click on the first row", async () => {
     await setup();
     await act("tile.focus", {}, "reader");
     ch("d");
     await until(() => screen().includes('trash "The lamp"?'), "the choice drawn");
     key({ kind: "esc" });
     expect(screen()).not.toContain('trash "The lamp"?');
+    expect(await deleted(lamp)).toBe(false);
+    // ⏎ is the safe row (the one confirm rule, PIE-1293): "keep it" comes first, the trash second and in red.
+    ch("d");
+    await until(() => screen().includes('trash "The lamp"?'), "the choice drawn");
+    const rows = screen().split("\n"), keepAt = rows.findIndex(l => l.includes("keep it")), trashAt = rows.findIndex(l => l.includes("trash it and the 1 note"));
+    expect(keepAt).toBeGreaterThan(-1);
+    expect(keepAt).toBeLessThan(trashAt);
+    key({ kind: "enter" });
+    expect(screen()).not.toContain('trash "The lamp"?');
+    await Bun.sleep(200);
     expect(await deleted(lamp)).toBe(false);
     // The tile menu lists the row; running it asks the same way.
     const menu = await act("tile.menu", {}, "reader", "test-agent");

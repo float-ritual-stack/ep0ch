@@ -5,6 +5,7 @@
 // `produce`); the door asks and draws. A call with something wrong says so in the region, dimmed, with the nearest name
 // and a call that works; a required prop left out is an offer, and ⏎ or a click on it asks for the prop in the picker
 // of its kind (`use.fill`). Nothing here writes a note: drawing never does.
+import { waitingText } from "./text";
 import type { SiteLink } from "@ep0ch/outline-core/site";
 import type { TemplateUseAnswer, UseCall } from "@ep0ch/outline-core/template-use";
 import type { Msg } from "./board";
@@ -76,7 +77,7 @@ export function useRegion(d: UseDrawing): string[] | AfterRows {
   const only = (...notes: string[]) => regionRows({ key, label: `::use ${who}`, body: [], notes, facts: [`::use ${who}`], controls: [], width: d.width }, d.book);
   if ((d.depth ?? 0) >= MAX_USE_DEPTH) return only(dim(`::use ${who} · nested too deep · at most ${MAX_USE_DEPTH} calls inside each other`));
   const read = useAnswer(d.src, d.host, d.line, d.site);
-  if (!read || read.state === "loading") return only(dim(`::use ${who} · reading…`));
+  if (!read || read.state === "loading") return only(dim(`::use ${who} · ${waitingText()}`));
   if (read.state === "error" && !read.value) return only(fg(C.lred) + `::use ${who} · ${printable(read.error)}` + RESET);
   const answer = read.value!;
   const notes: string[] = [];
@@ -97,7 +98,7 @@ export function useRegion(d: UseDrawing): string[] | AfterRows {
   if (!answer.template) return draw([]);
   // The template's note: kept read by the embed machinery (its text, revision and change events); its body is drawn here.
   const st = embedState(answer.template.id, undefined, d.src, d.top);
-  if (st.kind === "loading") { notes.push(dim("reading the template…")); return draw([]); }
+  if (st.kind === "loading") { notes.push(dim(waitingText("the template"))); return draw([]); }
   if (st.kind === "failed") { notes.push(fg(C.lred) + `the template: ${printable(st.error)}` + RESET); return draw([]); }
   const node = st.node;
   if (node.status !== "ready" || !node.block) { notes.push(fg(C.lred) + `the template: ${printable(node.message ?? node.status)}` + RESET); return draw([]); }

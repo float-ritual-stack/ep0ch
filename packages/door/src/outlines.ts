@@ -7,7 +7,7 @@ import { writeDotEp0ch as writeBinding } from "@ep0ch/outliner/outline-binding";
 //
 // A folder that names no outline (no --ws, no EP0CH_WS, no .ep0ch) gets the home base when the door opens there
 // (src/home.ts): never a guess taken silently. Choosing there offers to write `.ep0ch`, so the next `ep0ch` is direct.
-import { createInterface } from "node:readline/promises";
+import { cliConfirm } from "./cli-confirm";
 import { dirname, join, resolve } from "node:path";
 import { isMachineName, mayCreate, missingOutline, tooBroadToName } from "@ep0ch/outline-core/outline-location";
 import { homedir, hostname } from "node:os";
@@ -144,7 +144,7 @@ export async function initHere(name: string | undefined, path: string, cwd = pro
  * exit code. `ask` confirms a delete; without a terminal and without `--yes`, a delete is refused.
  */
 export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log, err = console.error,
-  ask: (question: string) => Promise<boolean> = confirm): Promise<number> {
+  ask: (question: string) => Promise<boolean> = cliConfirm): Promise<number> {
   // Every outline the person can open from here: this machine's host's, then each machine they've opened (as the home
   // base lists them). A machine whose forward isn't up is listed without outlines: nothing is started.
   if (cmdIn.op === "list" && cmdIn.all) {
@@ -378,17 +378,6 @@ export async function attachTarget(target: { path: string; outline?: string; att
   return { created: r.created };
 }
 
-/** A line read from the terminal, asked on stderr (the door's stdout is its screen). */
-async function askLine(question: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  try { return await rl.question(question); } finally { rl.close(); }
-}
-
-/** A yes/no question on the terminal; no terminal means no. */
-async function confirm(question: string): Promise<boolean> {
-  if (!process.stdin.isTTY) return false;
-  return /^y(es)?$/i.test((await askLine(question)).trim());
-}
 
 /** What to run when a folder names no outline and nobody can be asked (no terminal). */
 export function unnamedHelp(target: Extract<Target, { unnamed: string }>): string {

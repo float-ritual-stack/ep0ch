@@ -1,4 +1,5 @@
 import { NAV_VERSION } from "../src/surface/note";
+import { visible } from "../src/style";
 // PIE-453: back and forward in readers. A follow (⏎ or a click on a link, `u`, a link action, or an open
 // into the reader, an agent's too) leaves the reader's place behind: its note, how far down, and its `[ ]`
 // position. Back (alt+←, backspace, the mouse's back button, a click on the `← back` row) restores it, so
@@ -117,13 +118,13 @@ describe("a reader's history, without a service", () => {
     const s = new NoteSurface(), h = host(s);
     s.show(notes[0] as any, h);
     expect(s.render(60, 12, h).lines.map(plain).join("\n")).not.toContain("← back");
-    expect(s.hint()).not.toContain("back");
+    expect(visible(s.hint())).not.toContain("back");
     s.key(char("u"), h);
     await until(() => s.msg?.id === id(3), "the parent");
     let lines = s.render(60, 12, h).lines.map(plain);
     expect(lines).toHaveLength(12);
     expect(lines[11]!.trim()).toBe("← back · Allotment diary");                // no list to open here: no chip
-    expect(s.hint()).toContain("alt← back");
+    expect(visible(s.hint())).toContain("alt+← back");
     expect(s.click(3, 11, h)).toBe(true);
     await until(() => s.msg?.id === id(1), "the click went back");
     lines = s.render(60, 12, h).lines.map(plain);

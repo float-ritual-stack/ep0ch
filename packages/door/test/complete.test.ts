@@ -1027,7 +1027,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     let p = await e.settled();
     expect(p.items.some(i => i.kind === "page")).toBe(true);
     expect(e.screen()).toContain("pages 1/");
-    expect(editHint(e.d, { save: "save" })).toBe(`${popupHint(p)} · ctrl+s save`);
+    expect(visible(editHint(e.d, { save: "save" }))).toBe(`${popupHint(p)} · ^S save`);
     expect(popupHint(p)).toStartWith("↑↓ move · ⏎/tab inserts");
     e.type("HOME");
     await until(() => !e.pop()!.loading && e.pop()!.items.every(i => i.kind === "work-id"), "filtered to Work IDs");

@@ -3,19 +3,20 @@
 // an exact quote with its offset, so a stale or moved passage is refused, never guessed at; every comment
 // and reply carries a requestId, reused on retry, so a send whose answer was lost can't land twice.
 import { savedReferenceWarning, type ReferenceBoard } from "./reference-warnings";
-import { RowView, wheelRows } from "./scroll";
+import { pageRows, RowView, wheelRows } from "./scroll";
 import type { Msg } from "./board";
 import type { Draft } from "./edit";
 import { commentEditTarget, commentTarget, DraftSession, Outgoing, type CommentWhere, type EditedMark } from "./draft-session";
 import { editHint, writtenBy, type EditFrame } from "./surface/editor";
 import { composerPlace } from "./surface/composer";
+import { modeHint, type ModeKey } from "./surface/modes";
 import { nextPlace, type AttachedPlace } from "./surface/attached";
 import type { Completer } from "./surface/completer";
 import { authorName, USER, type Actor, type AnnotationProps, type Comment, type CommentPassage, type SocketBoard } from "./socket";
 import { C, chip, ellipsize, fg, pad, RESET, selectedRow } from "./style";
 import { ch, isUp, isDown, type Key } from "./term";
 import { findPassage, isMiss, missMessage, passageAt } from "@ep0ch/outline-core/passage";
-import { ago, rule, wrap } from "./text";
+import { ago, moreRow, rule, waitingText, wrap } from "./text";
 import type { MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 
 /** A posted comment's or reply's "edited" mark (PIE-763): who edited it when that isn't who wrote it. */
@@ -92,7 +93,8 @@ export class Passage {
     return null;
   }
 
-  key(k: Key): "keep" | "compose" | "close" {
+  /** `room`: the rows the passage is shown in, a page's step (pageRows). */
+  key(k: Key, room = 11): "keep" | "compose" | "close" {
     const c = ch(k);
     this.note = "";
     if (k.kind === "esc") return "close";
@@ -103,8 +105,7 @@ export class Passage {
     const move = (d: number) => { const j = this.nextFilled(d > 0 ? this.lastLine : this.firstLine, d); if (j !== null) this.selectLine(j); };
     if (isDown(k)) move(1);
     else if (isUp(k)) move(-1);
-    else if (k.kind === "pgdn") for (let i = 0; i < 10; i++) move(1);
-    else if (k.kind === "pgup") for (let i = 0; i < 10; i++) move(-1);
+    else if (k.kind === "pgdn" || k.kind === "pgup") for (let i = 0; i < pageRows(room); i++) move(k.kind === "pgdn" ? 1 : -1);
     else if (c === "J") { const j = this.nextFilled(this.lastLine, 1); if (j !== null) this.to = this.span(j).to; }
     else if (c === "K") {
       const j = this.nextFilled(this.lastLine, -1);
@@ -188,6 +189,31 @@ type Target = CommentWhere;
 
 export type CommentMode = "select" | "compose" | "threads";
 
+/**
+ * The keys a comment session takes itself (picking a passage, moving among threads): the hint rows below are drawn from
+ * these. Moving has no action of its own, so a row names the nearest (the one that picks the passage, or opens the thread).
+ */
+const SELECT_KEYS: readonly ModeKey[] = [
+  ...["j", "k"].map(key => ({ key, action: "passage.select", label: "line", click: false as const })),
+  ...["J", "K"].map(key => ({ key, action: "passage.select", label: "extend", click: false as const })),
+  ...["h", "l"].map(key => ({ key, action: "passage.select", label: "start", click: false as const })),
+  ...["H", "L"].map(key => ({ key, action: "passage.select", label: "end", click: false as const })),
+  { key: "enter", action: "comment.write", label: "write", click: false },
+  { key: "esc", action: "comment.escape", label: "back" },
+];
+const THREAD_KEYS: readonly ModeKey[] = [
+  ...["j", "k"].map(key => ({ key, action: "thread.toggle", label: "thread", click: false as const })),
+  ...["pgup", "pgdn"].map(key => ({ key, action: "scroll", label: "scroll", click: false as const })),
+  { key: "r", action: "comment.write", label: "reply", click: false },
+  { key: "e", action: "comment.edit", label: "edit" }, { key: "s", action: "thread.seen", label: "seen" },
+  { key: "p", action: "thread.keep", label: "keep" }, { key: "t", action: "thread.tldr", label: "TL;DR" },
+  { key: "q", action: "quote", label: "quote" },
+];
+const THREAD_MORE_KEYS: readonly ModeKey[] = [
+  { key: "space", action: "thread.pick", label: "pick" }, { key: "C", action: "comment.note", label: "comment on the whole note" },
+  { key: "esc", action: "comment.escape", label: "done" },
+];
+
 export class CommentSession {
   mode: CommentMode;
   passage: Passage | null = null;
@@ -247,9 +273,9 @@ export class CommentSession {
 
   hint(): string {
     if (this.busy) return this.busy;
-    if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
+    if (this.mode === "select") return modeHint(SELECT_KEYS, () => undefined);
     if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place), move: true, follow: true });
-    return `j k thread · PgUp PgDn or wheel scroll · r reply · e edit · s seen · p keep · t TL;DR · q quote${this.picked.size ? ` ${this.picked.size} picked` : ""} · space pick · C comment on the whole note · esc done`;
+    return `${modeHint(THREAD_KEYS, () => undefined)}${this.picked.size ? ` ${this.picked.size} picked` : ""} · ${modeHint(THREAD_MORE_KEYS, () => undefined)}`;
   }
 
   /** The wheel over the thread list scrolls it (a long comment reads whole); j or k follows the selection again. */
@@ -261,7 +287,7 @@ export class CommentSession {
   key(k: Key, env: CommentEnv): "keep" | "close" {
     if (this.busy || k.kind === "mouse") return "keep";
     if (this.mode === "select") {
-      const a = this.passage!.key(k);
+      const a = this.passage!.key(k, this.room);
       if (a === "close") {
         if (this.origin === "select" && !this.composer) return "close";
         this.passage = null; this.mode = this.composer ? "compose" : "threads";
@@ -298,7 +324,7 @@ export class CommentSession {
     const c = ch(k), n = this.threads.length;
     this.error = null;
     if (k.kind === "esc") return "close";
-    if (k.kind === "pgdn" || k.kind === "pgup") { this.view.scroll((k.kind === "pgdn" ? 1 : -1) * Math.max(1, this.room - 1)); return "keep"; }
+    if (k.kind === "pgdn" || k.kind === "pgup") { this.view.scroll(this.view.page(k.kind === "pgdn" ? 1 : -1)); return "keep"; }
     if (isDown(k)) { this.sel = Math.min(Math.max(0, n - 1), this.sel + 1); this.view.reveal(); }
     else if (isUp(k)) { this.sel = Math.max(0, this.sel - 1); this.view.reveal(); }
     else if ((c === "r" || k.kind === "enter") && this.threads[this.sel]) this.replyTo(this.sel);
@@ -399,7 +425,7 @@ export class CommentSession {
 
   /** Select a passage on the note as the service has it now. */
   async pick(env: CommentEnv, carry = false): Promise<void> {
-    this.busy = "reading the note..."; env.redraw();
+    this.busy = waitingText("the note"); env.redraw();
     const fresh = await env.fetch(this.msg.id).catch(() => null);
     this.busy = null;
     if (!fresh || fresh.revision === undefined) { this.error = "can't read the note's current revision"; env.redraw(); return; }
@@ -414,7 +440,7 @@ export class CommentSession {
     const w = this.writing, t = this.target;
     if (!w || !t) return;
     this.env = env;
-    if (w.draft.text.trim()) { this.busy = t.kind === "quote" || t.kind === "note" ? "sending the comment..." : t.kind === "reply" ? "sending the reply..." : "saving the edit..."; this.error = null; env.redraw(); }
+    if (w.draft.text.trim()) { this.busy = t.kind === "quote" || t.kind === "note" ? "sending the comment…" : t.kind === "reply" ? "sending the reply…" : "saving the edit…"; this.error = null; env.redraw(); }
     // A refusal is the adapter's to say (its error line, at once); one said on the draft itself (nothing typed) stays there.
     const r = await w.submit(env.actor ?? USER);
     if (!r.ok) this.busy = null;
@@ -425,7 +451,7 @@ export class CommentSession {
   private async landed(r: { id: string; deduplicated?: boolean }, t: Exclude<Target, { kind: "edit" }>, body: string): Promise<void> {
     const env = this.env!;
     this.writing = null; this.target = null; this.passage = null; this.stale = false; this.note = "";
-    this.mode = "threads"; this.busy = "loading the thread...";
+    this.mode = "threads"; this.busy = waitingText("the thread");
     const comment = t.kind !== "reply", root = comment ? r.id : t.thread.id;
     // From the reader: straight back to reading, its thread shown open where the composer was (the reader draws it as
     // the reload brings it). Said open before the session ends, so it's never drawn closed for a moment.
@@ -449,7 +475,7 @@ export class CommentSession {
   private async edited(r: { id: string; body: string; unchanged?: boolean }, t: Extract<Target, { kind: "edit" }>): Promise<void> {
     const env = this.env!;
     this.writing = null; this.target = null; this.stale = false; this.note = "";
-    this.mode = "threads"; this.busy = "loading the thread...";
+    this.mode = "threads"; this.busy = waitingText("the thread");
     if (this.fromReader) this.finished = true;
     env.flash(r.unchanged ? "nothing changed" : `${t.mark.reply ? "reply" : "comment"} edited`);
     this.threads = await env.reloadComments();
@@ -469,7 +495,7 @@ export class CommentSession {
     this.env = env;
     const w = this.writing;
     if (!w || this.target?.kind !== "edit") return;
-    this.busy = "reading it again..."; env.redraw();
+    this.busy = waitingText("the note again"); env.redraw();
     try { await w.target.reload?.(w); } finally { this.busy = null; }
     const t = this.target;
     if (t?.kind === "edit" && w.open) {
@@ -485,7 +511,7 @@ export class CommentSession {
     this.env = env;
     const t = this.target;
     if (!t || t.kind !== "quote" || !this.stale) { if (this.composer) this.composer.note = "nothing to reload"; return; }
-    this.busy = "reading the note..."; env.redraw();
+    this.busy = waitingText("the note"); env.redraw();
     const fresh = await env.fetch(t.blockId).catch(() => null);
     this.busy = null;
     if (!fresh || fresh.revision === undefined) { this.error = "can't read the note's current revision"; env.redraw(); return; }
@@ -634,7 +660,7 @@ export class CommentSession {
       if (t.start === null && t.quote) lines.push(fg(C.brown) + "    (the quoted words moved; the service couldn't place them)" + RESET);
       // The selected thread shows whole; the others show their start and say how much more there is.
       const whole = i === this.sel;
-      const more = (n: number, indent: string) => { if (n > 0) lines.push(indent + fg(C.dark) + `… ${n} more line${n === 1 ? "" : "s"}${whole ? "" : " · j k to select it and read it whole"}` + RESET); };
+      const more = (n: number, indent: string) => { if (n > 0) lines.push(indent + moreRow(n, { what: n === 1 ? "line" : "lines", ...(whole ? {} : { hint: "j k to select it and read it whole" }) })); };
       const body = wrap(t.body, w - 4);
       for (const l of whole ? body : body.slice(0, 4)) lines.push("    " + fg(t.open ? C.white : C.grey) + l + RESET);
       if (!whole) more(body.length - 4, "    ");

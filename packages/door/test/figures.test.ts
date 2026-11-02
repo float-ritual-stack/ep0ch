@@ -387,7 +387,7 @@ describe("one width rule for every kind (PIE-581)", () => {
     const many = body(draw("quadrant", Array.from({ length: 10 }, (_, i) => `- p${i}: x${i}, y`), 40));
     expect(many.join("\n")).toMatch(/\+\d+ columns · widen to see/);
     const full = body(draw("quadrant", ["- a: x, y", "- b: x, y", "- c: x, y", "- d: x, y", "- e: x, y"], 70));
-    expect(full.join("\n")).toContain("+3 more");
+    expect(full.join("\n")).toContain("… 3 more");
     expect(full.filter(l => /^(c|d|e) \(x, y\)$/.test(l))).toHaveLength(3);
     // kpi is stat at the figure's width: two tiles fit on one row at 60.
     expect(body(draw("kpi", ["- a: 1", "- b: 2"], 60))).toHaveLength(2);

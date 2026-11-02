@@ -2,6 +2,7 @@
 // rest and wires the drawer's links tile to them. Each test is one seam it hit, asserting what should happen; on main
 // they go red, each for its own reason. Scratch outline, made-up notes. A red case is `test.failing` until its slice of
 // the one-desk wave (pie b567bc2a) makes it pass; that slice turns it into a plain `test`.
+import { visible } from "../../src/style";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -660,8 +661,8 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       await app.dispatch.act({ action: "tile.link", tile: shown.tile, args: { to: b, verb: "open" } }, USER);
       await app.dispatch.act({ action: "tile.link", tile: shown.tile, args: { to: a, verb: "alt" } }, USER);
       const owner = s.d.resolveTile(shown.tile)!.desk, list = owner.pane(shown.tile) as BacklinksPane;
-      expect(list.hint()).toContain("open in other");
-      expect(list.hint()).toContain("alt+⏎ briefing");
+      expect(visible(list.hint())).toContain("open in other");
+      expect(visible(list.hint())).toContain("alt+⏎ briefing");
       await app.dispatch.act({ action: "open", args: { from: shown.tile, id: s.briefing.id } }, USER);
       expect(shows(s.d, "other")).toBe(s.briefing.id);
       await app.dispatch.act({ action: "open", args: { from: shown.tile, id: s.testing.id, fresh: true } }, USER);
@@ -761,8 +762,8 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
       app.drawer.render(200, 60, "Probe");
       const list = s.d.resolveTile(links.tile)!.desk.pane(links.tile) as BacklinksPane;
       expect(list.target?.id).toBe(s.briefing.id);
-      expect(list.hint()).toContain("open in other");
-      expect(list.hint()).toContain("alt+⏎ briefing");
+      expect(visible(list.hint())).toContain("open in other");
+      expect(visible(list.hint())).toContain("alt+⏎ briefing");
     } finally { await off(); s.done(); }
   }, 30_000);
 

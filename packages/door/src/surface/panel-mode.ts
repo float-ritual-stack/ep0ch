@@ -60,7 +60,10 @@ export function panelMode(surface: NoteSurface, P: PropertyPanel, key: (k: Key, 
       // Drawn by the reading render: above the note, or filling the reader under its header (full).
       rows: () => null,
       leave: async host => { if (P.field) { P.field = null; host.redraw(); } return { left: "nothing" }; },
-      leaveRefusal: () => { const f = P.field; return f && f.input.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null; },
+      leaveRefusal: () => {
+        const f = P.field;
+        return f && f.input.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null; // says, not a hint row
+      },
       unsaved: () => !!P.field && P.field.input.text !== P.field.row.value,
       hint: () => (P.card ? P.card.hint() : P.hint()),
       state: () => (P.card ? "settings" : P.field ? "editing a property" : "properties"),

@@ -249,13 +249,13 @@ describe("the message list by mouse", () => {
     expect((s.top() as any).index).toBe(2);   // clamped at the last row
   });
 
-  test("the hint's keys are clickable: T thread, Q back", async () => {
+  test("the hint's keys are clickable: t thread, q back (keycaps from the list's key rows)", async () => {
     const s = await list();
-    s.click("T thread");
+    s.click("t thread");
     expect(s.top()).toBeInstanceOf(MessageList);
     expect(s.top().title).toStartWith("thread:");
     s.stack.pop();
-    s.click("Q back");
+    s.click("q back");
     expect(s.stack.length).toBe(0);
   });
 });

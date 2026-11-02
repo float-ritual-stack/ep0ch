@@ -1,6 +1,7 @@
 // The back-anywhere section (PIE-1426): Evan's layout, a detail whose opens and picks go to a preview below, a links tile
 // beside it whose pick shows there too. The preview changed from the links tile, from a link up top and after b steps
 // back through each in order; the links tile's own subject, changed by b, steps back with alt+←. Scratch service, made-up notes.
+import { visible } from "../../src/style";
 import { describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
 import { USER } from "../../src/socket";
@@ -45,7 +46,7 @@ describe.skipIf(!outliner)("showcase: back anywhere (PIE-1426)", () => {
     await mine("list.pick", { n: rowOf(n.backCanes.id) }, "links");
     await shows("preview", n.backCanes.id);
     // The links tile's hint says where back goes (its bottom row, cut short on a narrow tile).
-    expect(L().hint()).toContain("alt+← back to Back anywhere: weekend jobs");
+    expect(visible(L().hint())).toContain("alt+← back to Back anywhere: weekend jobs");
     // alt+← in the preview: each in turn.
     await mine("tile.focus", {}, "preview");
     for (const id of [n.backBeans.id, n.backRain.id, n.backSeeds.id]) { h.press({ kind: "alt-left" } as never); await shows("preview", id); }

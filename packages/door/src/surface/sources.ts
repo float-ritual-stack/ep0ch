@@ -8,7 +8,7 @@ import { Inspector } from "./inspector";
 import { sourceIsWritten, type SourceEntry, type SourcesAnswer } from "@ep0ch/outline-core/sources";
 import { ageSince } from "@ep0ch/outline-core/age";
 import { BOLD, C, dim, fg, pad, RESET, UNBOLD, width } from "../style";
-import { rowLines, wrap } from "../text";
+import { rowLines, waiting, wrap } from "../text";
 
 export type SourcesFold = "query" | "transform" | "result";
 export const FOLDS: readonly SourcesFold[] = ["query", "transform", "result"];
@@ -93,7 +93,7 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
     ]);
   };
   if (p.error) { head("Sources"); put(""); put(` ${fg(C.lred)}${p.error}${RESET}`); return { cols: cols(), lines, hits, items: [], focus: 0 }; }
-  if (!a) { head("Sources"); put(""); put(` ${dim("reading what this note generates…")}`); return { cols: cols(), lines, hits, items: [], focus: 0 }; }
+  if (!a) { head("Sources"); put(""); put(` ${waiting("what this note generates")}`); return { cols: cols(), lines, hits, items: [], focus: 0 }; }
   const s = p.open !== null ? a.sources[p.open] : undefined;
 
   // The page's list: every generated region, its name and when it last read.

@@ -671,6 +671,11 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(tune().describe(d.desk).armed).toMatchObject({ action: "tune.resetlevel" });
       d.key({ kind: "char", ch: "j" });
       await until(() => !tune().describe(d.desk).armed, "kept", 5000);
+      // X again within the window (Again, PIE-1293) does it: the nudge let go, nothing thrown.
+      d.key({ kind: "char", ch: "X" });
+      await until(() => !!tune().describe(d.desk).armed, "asked again", 5000);
+      expect(() => d.key({ kind: "char", ch: "X" })).not.toThrow();
+      await until(() => !tune().describe(d.desk).armed && tuningOf(b2).unsavedCount() === 0, "the level reset by X X", 5000);
       d.key({ kind: "tab" });
     } finally { d.close(); b2.close(); }
   }, 40_000);

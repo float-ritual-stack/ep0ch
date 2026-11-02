@@ -10,7 +10,7 @@ import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { agentStop, readSessions, type FleetIO, type SessionRow } from "./agent-fleet";
 import { ago as agoOf } from "./text";
 import { ActionRefused, actionSet, def } from "./surface/actions";
-import { centred, ListPicker, pickRow, pickRows } from "./surface/picker";
+import { centred, confirmPicker, ListPicker, pickRow, pickRows } from "./surface/picker";
 import { C, fg } from "./style";
 import type { Actor } from "./socket";
 
@@ -295,16 +295,13 @@ function rowChoice(on: SplitOn, r: Row): ListPicker<string, unknown> {
   });
 }
 
-/** The person's yes for a stop: the pid said again in the choice, as `note.trash`'s two-row choice. */
+/** The person's yes for a stop: the pid said again in the choice, the one yes/no (confirmPicker): ⏎ keeps it running. */
 function stopConfirm(on: SplitOn, r: Row): ListPicker<string, unknown> {
-  const items = [`stop pid ${r.proc.pid} (${processWords(r.split, r.proc, Date.now()).split(" · ").slice(2, 6).join(" · ")})`, "keep it"];
-  const p = new ListPicker<string, unknown>({
-    name: "claude stop", items: () => items, clickChooses: true,
-    row: (t, _i, lit, w) => pickRows(` ${t}`, lit, w),
-    choose: (_t, i) => { if (i === 0) void on.press?.("claude.stop", { pid: r.proc.pid, machine: r.split.machine, session: r.split.sessionId, confirm: r.proc.pid }); },
-    frame: a => ({ rect: centred(a, Math.min(a.cols - 2, Math.max(44, items[0]!.length + 4)), 4), title: `stop pid ${r.proc.pid} of ${r.split.name} on ${r.split.machine}?` }),
+  return confirmPicker<unknown>({
+    name: "claude stop", title: `stop pid ${r.proc.pid} of ${r.split.name} on ${r.split.machine}?`, safe: "keep it running",
+    destructive: `stop pid ${r.proc.pid} (${processWords(r.split, r.proc, Date.now()).split(" · ").slice(2, 6).join(" · ")})`,
+    go: () => void on.press?.("claude.stop", { pid: r.proc.pid, machine: r.split.machine, session: r.split.sessionId, confirm: r.proc.pid }), width: 44,
   });
-  return p;
 }
 
 const PID = { pid: { type: "number", about: "the process (claude.splits lists them)" }, machine: { type: "string", optional: true, about: "its machine, when the pid alone names more than one" } } as const;

@@ -5,7 +5,7 @@ import { clipText } from "./overflow";
 //   ::graph-<kind>          Comark block with YAML props between --- lines, drawn here natively
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
 import { BOLD, C, drawEllipsized, fg, pad, RESET, sparkGlyphs, UNBOLD, visible, width as vwidth } from "./style";
-import { rowLines, withRowLimit, wrap } from "./text";
+import { moreRow, rowLines, waiting, withRowLimit, wrap } from "./text";
 import { tabStrip } from "./surface/chip-rows";
 import { childRows, resolveLive, setLiveSource, liveSource, siteRequest, type LiveSite } from "./live";
 import { asksPerItem, liveProps } from "@ep0ch/outline-core/figure-live";
@@ -383,7 +383,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     // A question that came back cut (over 1000 results): the counts are at least these, said once after the bar.
     const plus = "";
     const table = (t: Props) => (t.rows?.length ? KINDS.table!(t, w, link, ui) : [fg(DIM) + `nothing in ${t.value}` + RESET])
-      .concat(t.more ? [fg(DIM) + `${t.more} more · limit: ${p.limit ?? 50} a tab` + RESET] : []);
+      .concat(t.more ? [moreRow(t.more, { hint: `limit: ${p.limit ?? 50} a tab` })] : []);
     if (ui?.all) {
       const bar = tabs.map(t => `${t.value} ${t.count}${plus}`).join(" · ");
       return [...wrap(bar, w).map(l => fg(INK) + l + RESET), ...tabs.flatMap(t => ["", fg(ACCENT) + BOLD + `▸ ${t.value.toUpperCase()} · ${t.count}${plus}` + UNBOLD + RESET, ...table(t)])];
@@ -462,7 +462,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   const live = figures?.answer && (props.query || props.view || kind === "tabs") ? { ...liveProps(kind, props, figures.answer), status: "library demo", waiting: false } : resolveLive(kind, props, src.note, { ...liveSiteOf(src, read.args), ...site });
   if (live) {
     if (live.error && !live.status) return frame(title, errorLines(live.error, W), W, "live");
-    if (live.waiting) return frame(title, [fg(DIM) + "asking the outline…" + RESET], W, "live");
+    if (live.waiting) return frame(title, [waiting()], W, "live");
     props = live.props;
     const draw = KINDS[kind];
     const tabs: { value: string; count: number }[] | undefined = kind === "tabs" ? (props.tabs ?? []).map((t: Props) => ({ value: t.value, count: t.count })) : undefined;

@@ -107,6 +107,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   if (drawn.preview) s.previewRect = { ...drawn.preview, row: drawn.preview.row + Number(sheet) };
   s.listCol = drawn.listCol;
   s.listWidth = drawn.listWidth;
+  s.listRows = drawn.rows.filter(r => r !== null).length;
   rows.push(...drawn.rows); out.push(...drawn.lines);
   if (status) {
     // The status row (sketch A): the count first when it fits with the rest, else the rest alone, cut by cells.
@@ -160,7 +161,7 @@ export function enterKeeps(s: CompletionState): "new line" | "applies" | null {
   return item.enter || item.newPage || item.querySuggestion || unchanged ? (s.line ? "applies" : item.enter ?? "new line") : null;
 }
 
-/** Whether the docs panel has more than it shows (a reference's reader always may): shift+up/down, PgUp/PgDn scroll it. */
+/** Whether the docs panel has more than it shows (a reference's reader always may): shift+up/down scroll it (PgUp/PgDn page the list). */
 export function docsScroll(s: CompletionState): boolean {
   const item = s.items[s.index];
   if (!item) return false;
@@ -176,7 +177,7 @@ function caps(keys: string, n: number): string {
 export const popupHint = (s: CompletionState): string => completionHint(s, s.items[s.index]);
 function completionHint(s: CompletionState, selected: CompletionItem | undefined): string {
   const enter = enterKeeps(s);
-  const insert = enter ? `⏎ ${enter} · tab inserts` : `${caps(COMPLETION_ACCEPT.keys, 2).replace(" ", "/").split("/").reverse().join("/")} inserts`;
+  const insert = enter ? `${keyCaption("enter")} ${enter} · ${keyCaption("tab")} inserts` : `${caps(COMPLETION_ACCEPT.keys, 2).replace(" ", "/").split("/").reverse().join("/")} inserts`;
   if (!selected) return "esc dismisses";
   const docs = docsScroll(s) ? ` · ${caps(COMPLETION_DOCS.keys, 2)} docs` : "";
   const extra = [

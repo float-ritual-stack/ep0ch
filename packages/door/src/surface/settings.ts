@@ -149,7 +149,7 @@ async function write(on: On, subject: SettingsSubject, field: SettingField, valu
     ? (await Promise.all(viewWords(value).filter(v => !beforeValues.includes(v)).map(v => choiceProblem(subject, host, field, v)))).filter((p): p is string => p !== undefined) : []);
   const said = `${value === null ? "cleared" : "saved"} · ${field.prop.key}${value === null ? "" : `: ${printable(value)}`}`;
   const message = [said, ...warnings].join(" · ");
-  if (surface.panel?.card) surface.panel.card.note = message;
+  if (surface.panel?.card) surface.panel.card.say(message, warnings.length ? "problem" : "news");
   host.ctx.flash(message);
   surface.noteAgent(actor, said);
   host.redraw();
@@ -161,6 +161,19 @@ const describe = (subject: SettingsSubject) => ({ id: subject.note.id, revision:
     ...(f.prop.default !== undefined ? { default: f.prop.default } : {}), ...(f.prop.values ? { choices: f.prop.values.map(v => v.value) } : f.prop.samples ? { samples: f.prop.samples } : {}) })) });
 
 export const SETTINGS_DEFS = {
+  // The property panel's row pick (PIE-1293): tab, j and k step its rows, as the panel's hint row names them.
+  "props.pick": def({
+    summary: "step the property panel's lit row", keys: "tab, j, k, ↑ ↓ in the property panel", touches: "nothing", replay: "safe", person: "the panel's lit row is the person's",
+    args: { by: { type: "number", about: "rows to step, negative up" } },
+    examples: [{ act: "props.pick by=1", does: "lights the panel's next property" }],
+    run({ by }, { surface, host }: On) {
+      const P = surface.panel, m = surface.msg;
+      if (!P || !m) throw new ActionRefused("i opens the property panel first");
+      const count = surface.rows(m).length;
+      if (count) { P.sel = (P.sel + by + count) % count; P.note = ""; }
+      host.redraw(); return { selected: P.sel + 1 };
+    },
+  }),
   "settings.pick": def({
     summary: "pick a field in the attached settings card", keys: modeActionKeys(ATTACHED_KEYS, "settings.pick"), touches: "nothing", replay: "safe", person: "the field selection is the person's",
     args: { n: { type: "number", optional: true, about: "field from one" }, by: { type: "number", optional: true, about: "step through fields" } },

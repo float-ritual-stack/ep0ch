@@ -1,4 +1,4 @@
-import { keyName, keyCaption } from "./actions";
+import { executable, keyName, keyCaption } from "./actions";
 import { effective, keyNow } from "./keymap";
 import type { SurfaceView } from "./note";
 import type { Hint } from "./hint-card";
@@ -26,6 +26,8 @@ export interface ModeKey {
   readonly label?: string;
   /** The whole sentence the keys window lists for this row (TableRow.says). */
   readonly says?: string;
+  /** false: its key does what no one action does with fixed arguments (a passage's own walk), so the hint's segment is words, not a click. */
+  readonly click?: false;
 }
 
 export function modeBinding(keys: readonly ModeKey[], key: Key): ModeKey | undefined {
@@ -44,7 +46,8 @@ export function modeHint(keys: readonly ModeKey[], describe: (action: string) =>
   }
   return tabStrip([...groups].map(([label, caps]) => {
     const row = effective(keys).find(r => (r.label ?? describe(r.action)?.summary) === label)!;
-    return { label, key: caps.join("/"), hit: { action: row.action, args: row.args } };
+    // A click runs the row's binding only when it carries what the action needs; else the segment is words, never a refusal.
+    return { label, key: caps.join("/"), ...(row.click !== false && executable(row.action, row.args) ? { hit: { action: row.action, args: row.args } } : {}) };
   }), { width: stripWidth(), style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } })[0]!.text;
 }
 
@@ -206,6 +209,6 @@ export function partsHint(parts: readonly HintPart[]): string {
     const k = hintKey(p);
     if (k === null) return [];
     const cap = k === "tab" ? "Tab" : keyCaption(k);
-    return [{ label: p.label, key: cap + (k === p.key && p.also ? `/${p.also}` : ""), hit: { action: p.action, args: p.args } }];
+    return [{ label: p.label, key: cap + (k === p.key && p.also ? `/${p.also}` : ""), ...(executable(p.action, p.args) ? { hit: { action: p.action, args: p.args } } : {}) }];
   }), { width: stripWidth(), style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } })[0]!.text;
 }

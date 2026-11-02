@@ -16,7 +16,7 @@
 // an outline by; with none named, the only session running (several: it says which to name).
 import { connect, type Socket } from "node:net";
 import { join, resolve } from "node:path";
-import { createInterface } from "node:readline";
+import { cliConfirm } from "../cli-confirm";
 import { listening } from "../jsonl";
 import { resolveTarget } from "../discover";
 import { readMissing } from "../outlines";
@@ -222,7 +222,7 @@ export async function sessionCommand(args: string[]): Promise<number> {
       const names = [...running.map(r => placeLabel(r.info.place)), ...waiting.map(p => `${placeLabel(p)}'s terminal host`)].join(", ");
       if (!force) {
         if (!process.stdin.isTTY) { console.error(`ep0ch: ${n} session${n === 1 ? "" : "s"} run (${names}) · \`${ep0ch()}session end --all --yes\` ends them all`); return 1; }
-        if (!(await confirm(`End ${n} session${n === 1 ? "" : "s"} (${names})? [y/N] `))) { console.error("ep0ch: they go on"); return 1; }
+        if (!(await cliConfirm(`End ${n} session${n === 1 ? "" : "s"} (${names})? [y/N] `))) { console.error("ep0ch: they go on"); return 1; }
       }
       let code = 0;
       for (const r of running) if (!(await endSession(sessionSocket(r.dir), `${placeLabel(r.info.place)}'s session`, true, ""))) code = 1;
@@ -248,7 +248,7 @@ async function endSession(path: string, what: string, force: boolean, anyway: st
     const r = await endOnce(path, force);
     if (r.t === "ask") {
       if (force || !process.stdin.isTTY) { console.error(`ep0ch: ${what}: ${r.message}${anyway ? ` · \`${anyway}\` ends it anyway` : ""}`); return false; }
-      if (!(await confirm(`${what}: ${r.message}. End it anyway? [y/N] `))) { console.error("ep0ch: the session goes on"); return false; }
+      if (!(await cliConfirm(`${what}: ${r.message}. End it anyway? [y/N] `))) { console.error("ep0ch: the session goes on"); return false; }
       force = true;
       continue;
     }
@@ -266,7 +266,7 @@ async function endHost(place: Place, force: boolean): Promise<number> {
   const ask = `no session runs for ${placeLabel(place)}, but its terminal host still runs ${n} program${n === 1 ? "" : "s"} (${host?.unadopted().map(p => (p.meta.cmd ?? p.argv).join(" ")).join(", ")})`;
   if (n && !force) {
     if (!process.stdin.isTTY) { console.error(`ep0ch: ${ask} · \`${ep0ch(process.env, place)}session end ${flags} --yes\` ends ${n === 1 ? "it" : "them"}`); host?.release(); return 1; }
-    if (!(await confirm(`${ask}. End ${n === 1 ? "it" : "them"}? [y/N] `))) { host?.release(); console.error("ep0ch: left running"); return 1; }
+    if (!(await cliConfirm(`${ask}. End ${n === 1 ? "it" : "them"}? [y/N] `))) { host?.release(); console.error("ep0ch: left running"); return 1; }
   }
   host?.endAll();
   forgetSession(place.dir);
@@ -287,12 +287,6 @@ function endOnce(path: string, force: boolean): Promise<{ t: "ask"; message: str
   });
 }
 
-function confirm(q: string): Promise<boolean> {
-  return new Promise(res => {
-    const rl = createInterface({ input: process.stdin, output: process.stderr });
-    rl.question(q, a => { rl.close(); res(/^y(es)?$/i.test(a.trim())); });
-  });
-}
 
 /**
  * Attach this terminal to the session on `path` until it detaches or the session ends; the exit code. The terminal is

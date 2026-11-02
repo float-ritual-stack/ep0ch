@@ -3,6 +3,7 @@
 // fragment, marked; checklist steps in the note and inside embeds are controls, by keys, clicks and `act`,
 // through `checklist.update` with provenance, with Undo; and `[ ]` stops on steps inside embeds. Fictional
 // notes, against a throwaway outliner service only.
+import { visible } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -120,8 +121,8 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
       s.key(char("]"), host); draw();
       if (++guard > 40) throw new Error("[ ] never reached the slice's step");
     }
-    expect(s.hint()).toContain("step [ ] Sow the beans · in !((");
-    expect(s.hint()).toContain("⏎ status · space done/to do · ctrl+z undo");
+    expect(visible(s.hint())).toContain("step [ ] Sow the beans · in !((");
+    expect(visible(s.hint())).toContain("⏎ status · space done/to do · ^Z undo");
     s.key({ kind: "enter" }, host);
     const menu = draw().join("\n");
     expect(menu).toContain("[x] Mark done");

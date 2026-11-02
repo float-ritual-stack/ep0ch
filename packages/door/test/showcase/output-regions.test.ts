@@ -1,6 +1,7 @@
 // PIE-956: the showcase's "Regions in prose" section. A render script's table, a ::= sentence and a written output region read
 // like the page around them, each behind one dim mark in the margin that shows its name, when it ran and its controls
 // while the cursor is on it. One of the showcase's test files; the harness (harness.ts) seeds a scratch outline and opens the screen.
+import { visible } from "../../src/style";
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
@@ -110,12 +111,12 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     try {
       for (const ch of " ((Gree") pane.key({ kind: "char", ch }, stage);
       await until(() => !!completionOf(draft)?.items.length, "reference completion opens");
-      expect(pane.surface.hint()).toContain("esc dismiss");
+      expect(visible(pane.surface.hint())).toContain("esc dismiss");
       expect(pane.surface.hint()).not.toMatch(/close comment|close preview/);
       pane.key({ kind: "esc" }, stage);
       await until(() => !completionOf(draft), "Esc dismisses completion");
       expect(target === "comment" ? pane.surface.session!.composer : pane.draft).toBe(draft);
-      expect(pane.surface.hint()).toContain(target === "comment" ? "puts comment aside" : "close preview");
+      expect(visible(pane.surface.hint())).toContain(target === "comment" ? "puts comment aside" : "close preview");
     } finally {
       if (target === "comment") await act("comment.write", { body: original });
       else draft.replace(original);

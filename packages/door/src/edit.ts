@@ -1,6 +1,7 @@
 import { landingLine } from "@ep0ch/outline-core/block-insert";
 import { SnippetSession, type SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
 import { ReaderPosition, PositionRows } from "./reader-position";
+import { Again } from "./arm";
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
@@ -20,7 +21,7 @@ import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
 import { bg, C, chip, codePointCells, drawEllipsized, fg, RESET, width } from "./style";
 import { wrap } from "./text";
-import { lastTop, scrolled, scrollOff } from "./scroll";
+import { lastTop, pageRows, scrolled, scrollOff } from "./scroll";
 import type { Key } from "./term";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
@@ -107,7 +108,8 @@ export class Draft {
   previewing = false;
   /** The text a "this save changes properties" warning was shown for; saving that same text again goes ahead. */
   propertyWarned: string | null = null;
-  private discardArmed = false;
+  /** Esc once on unsaved text: esc again (Again) lets it go. */
+  private readonly discard = new Again();
   /** When ctrl+z last stopped at a save and asked (0: it isn't asking): a ctrl+z after a pause goes past it (PIE-1414). */
   private undoArmed = 0;
   /** ctrl+x was pressed: a ctrl+e next hands the draft to $EDITOR (bash's edit-and-execute chord); any other key lets it go. */
@@ -303,7 +305,7 @@ export class Draft {
     }
     this.seen = to;
     this.flashes = [];
-    this.discardArmed = false; this.undoArmed = 0;
+    this.discard.clear(); this.undoArmed = 0;
     this.markWriter(by);
   }
 
@@ -444,7 +446,7 @@ export class Draft {
     const cursor = position(selection?.end ?? text.length);
     this.row = cursor.row; this.col = cursor.col;
     this.anchor = selection ? position(selection.start) : null; this.goal = null;
-    this.discardArmed = false; this.undoArmed = 0;
+    this.discard.clear(); this.undoArmed = 0;
     this.note = "";
     if (this.text !== before) this.wrote(by, "the insert");
   }
@@ -490,8 +492,8 @@ export class Draft {
     // where cmd+c can't reach the door (a terminal without the Kitty keyboard protocol, tmux).
     if (isCopyKey(k) || (k.kind === "alt" && k.ch === "c")) return "copy";
     if (k.kind === "super") return "keep";
-    const was = this.discardArmed, armed = this.undoArmed > 0 && Date.now() - this.undoArmed >= UNDO_ASK_PAUSE_MS;
-    this.discardArmed = false; this.undoArmed = 0;
+    const was = this.discard.take(true), armed = this.undoArmed > 0 && Date.now() - this.undoArmed >= UNDO_ASK_PAUSE_MS;
+    this.discard.clear(); this.undoArmed = 0;
     if (chord && this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a") return "attach";
     if (k.kind === "char" && k.ctrl) {
       if (k.ch === "s") return "save";
@@ -528,10 +530,10 @@ export class Draft {
       // An edit opened by mistake (a stray `j` or `q` became text) closes on the first esc: its session drops the strays.
       if (this.stray() !== null) return "discard";
       if (!was) {
-        this.discardArmed = true;
+        this.discard.arm(true);
         this.note = this.restored === this.text
-          ? "esc again lets this kept draft go (a copy stays on disk) · ctrl+s saves"
-          : "unsaved · esc again keeps it here (nothing is lost) · ctrl+s saves";
+          ? "esc again lets this kept draft go (a copy stays on disk) · ctrl+s saves" // says, not a hint row
+          : "unsaved · esc again keeps it here (nothing is lost) · ctrl+s saves"; // says, not a hint row
         return "keep";
       }
       return "discard";
@@ -561,8 +563,8 @@ export class Draft {
       // Up and down move by the rows drawn (a wrapped line is several), keeping the column they started at.
       case "up": this.moveVisual(-1); break;
       case "down": this.moveVisual(1); break;
-      case "pgup": this.moveVisual(-Math.max(1, this.shown.h - 1)); break;
-      case "pgdn": this.moveVisual(Math.max(1, this.shown.h - 1)); break;
+      case "pgup": this.moveVisual(-this.pageRows()); break;
+      case "pgdn": this.moveVisual(this.pageRows()); break;
       case "home": this.col = 0; break;
       case "end": this.col = this.line.length; break;
       // Enter keeps the list going (draft.newline); alt+enter, shift+enter and a pasted line break are plain line breaks.
@@ -955,11 +957,11 @@ export class Draft {
       }
       this.patches.push(unit);
       if (this.patches.length > PATCH_UNDO_KEEP) this.patches.shift();
-      this.discardArmed = false; this.undoArmed = 0;
+      this.discard.clear(); this.undoArmed = 0;
       if (this.text !== before) { this.markWriter(by); this.record(by, `${patchLabel(by)}'s edit`, unit); }
       return;
     }
-    this.discardArmed = false; this.undoArmed = 0;
+    this.discard.clear(); this.undoArmed = 0;
     if (this.text !== before) { this.markWriter(by); this.record(by, "taking back an edit", removed, !!removed); }
   }
 
@@ -1014,7 +1016,7 @@ export class Draft {
     this.col = Math.max(0, Math.min(this.lines[r]!.length, col));
     this.selectAsk();
     if (this.anchor && this.anchor.row === this.row && this.anchor.col === this.col && !extend) this.anchor = null;
-    this.goal = null; this.discardArmed = false; this.undoArmed = 0;
+    this.goal = null; this.discard.clear(); this.undoArmed = 0;
     // A click between ctrl+x and ctrl+e lets the chord go, as any key does: the ctrl+e after it is the line's end.
     this.letChordGo();
   }
@@ -1036,6 +1038,8 @@ export class Draft {
   private goal: number | null = null;
   /** The last render: its width, height and rows, for the wheel, clicks and up/down. */
   private shown: { w: number; h: number; rows: VRow[] } = { w: 0, h: 15, rows: [] };
+  /** Rows PgUp PgDn move the cursor (and scroll): the rows shown, less one (pageRows, PIE-1293). */
+  pageRows(): number { return pageRows(this.shown.h); }
   /** Show the Markdown preview under the text (ctrl+p, or the frame's control). The host draws it. */
   preview = false;
   /**
@@ -1407,15 +1411,16 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
   "draft.scroll": def({
     summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view). preview=true scrolls its preview instead (PIE-846), until the text changes", keys: [{ keys: "wheel", does: "over the text, or over the preview" }],
     touches: "draft", draft: "type", replay: "safe",
-    args: { by: { type: "number", about: "rows, negative up" }, preview: { type: "boolean", optional: true, about: "scroll the preview under the text (ctrl+p shows it)" } },
+    args: { by: { type: "number", about: "rows, negative up" }, preview: { type: "boolean", optional: true, about: "scroll the preview under the text (ctrl+p shows it)" }, page: { type: "boolean", optional: true, about: "by= counts pages (the rows shown, less one: PgUp PgDn), not rows" } },
     examples: [
       { act: "draft.scroll by=10", does: "scrolls the draft's view down ten rows, the cursor staying put" },
       { act: "draft.scroll by=-5 preview=true", does: "scrolls the preview up five rows" },
     ],
-    run({ by, preview }, d, actor) {
-      if (!preview) { d.scrollBy(by); return { following: d.follow }; }
+    run({ by, preview, page }, d, actor) {
+      if (!preview) { d.scrollBy(page ? Math.sign(by) * d.pageRows() : by); return { following: d.follow }; }
       const p = d.frame?.preview;
       if (!d.preview || !p) throw new ActionRefused("the preview isn't shown · ctrl+p (draft.preview) shows it");
+      if (page) by = Math.sign(by) * pageRows(p.rows);
       const top = Math.max(0, Math.min(Math.max(0, p.total - (p.rows - 1)), p.top + by));
       const projected = new PositionRows(new ReaderPosition());
       projected.source = p.source;

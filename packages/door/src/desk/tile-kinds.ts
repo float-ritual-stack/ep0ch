@@ -16,6 +16,8 @@ import { ActionRefused, type ActionSet } from "../surface/actions";
 import { nameKinds, type Dispatcher } from "../surface/dispatch";
 import { filterLine } from "../surface/line";
 import { LISTVIEW_ACTIONS, type ListHost, type ListTile } from "../surface/list-actions";
+import { LIST_KEYS } from "../surface/list-keys";
+import { modeHint, type ModeKey } from "../surface/modes";
 import { ListView, listRowsOf, PERSON, type ListHandle, type ListViewRow } from "../surface/list-view";
 import { C, fg, RESET } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
@@ -437,6 +439,10 @@ const ROW_MARK = "\u{10FFF0}";
 const markRow = (row: number | null) => `${ROW_MARK}${row === null ? "-" : row}${ROW_MARK}`;
 const MARKED = /^\u{10FFF0}(-|\d+)\u{10FFF0}/u;
 
+/** The list keys a drawn tile's hint row names (LIST_KEYS, the list's own table), and the filter box's while one is typed. */
+const SERVICE_KEYS: readonly ModeKey[] = LIST_KEYS.filter(r => ["j", "k", "enter", "alt+enter", "/"].includes(r.key)).map(r => r.key === "alt+enter" ? { ...r, label: "new detail" } : r);
+const SERVICE_FILTER_KEYS: readonly ModeKey[] = [{ key: "enter", action: "list.filter", label: "keep" }, { key: "esc", action: "list.filter", label: "undo" }];
+
 /**
  * A tile whose content the service draws: it asks again when its size changes, when the outline changes (after a pause),
  * or when `refresh` is called. A frame that is a view with a `list` is the door's list (PIE-1506): j k and a click pick a
@@ -459,9 +465,9 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
   title() { return this.frame?.title ?? this.label; }
   hint() {
     if (this.frame?.hint) return this.frame.hint;
-    if (this.list.typing) return "type to filter the rows · ⏎ keep · esc undo";
+    if (this.list.typing) return "type to filter the rows · " + modeHint(SERVICE_FILTER_KEYS, () => undefined);
     const keys = this.keyHint.length ? ` · ${this.keyHint.join(" · ")}` : "";
-    return this.listNode ? `j k pick · ⏎ open · alt+⏎ new detail · / filter${keys}` : `drawn by the service${keys}`;
+    return this.listNode ? modeHint(SERVICE_KEYS, () => undefined) + keys : `drawn by the service${keys}`;
   }
   /** Ask the service again (an event, or the size changed). */
   refresh(desk: DeskApi, cols: number, rows: number) {

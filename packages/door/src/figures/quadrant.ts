@@ -15,7 +15,7 @@
 // `xs:` and `ys:` give the axes' order (first y at the top); values not listed follow in the order seen. Narrow, a
 // cell shows a dot per point and the labels move to a legend beneath.
 import { BOLD, drawEllipsized, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
-import { rowLines, wrap } from "../text";
+import { moreText, rowLines, wrap } from "../text";
 import { ACCENT, DIM, HI, INK, ordered, records, rowLink, tier, type Props, type RowLink } from "./palette";
 
 export interface Point { x: string; y: string; label: string; accent?: boolean; muted?: boolean; block?: string }
@@ -44,7 +44,7 @@ export function drawQuadrant(p: Props, w: number, link?: RowLink): string[] {
       if (narrow) return [c.map(q => { legend.push({ n: legend.length + 1, point: q }); return ink(q) + rowLink(link, q.block, "●") + UNBOLD + RESET; }).join("")];
       const shown = c.length > 3 ? c.slice(0, 2) : c;
       const rows = shown.flatMap(q => rowLines(rowLink(link, q.block, `·${q.label}`), cw - 1, undefined, { hang: 1 }).map(line => ink(q) + line + UNBOLD + RESET));
-      if (c.length > 3) { rows.push(fg(DIM) + rowLines(`+${c.length - 2} more`, cw - 1, 0)[0]! + RESET); for (const q of c.slice(2)) legend.push({ n: legend.length + 1, point: q }); }
+      if (c.length > 3) { rows.push(fg(DIM) + rowLines(moreText(c.length - 2), cw - 1, 0)[0]! + RESET); for (const q of c.slice(2)) legend.push({ n: legend.length + 1, point: q }); }
       return rows;
     });
     const labels = rowLines(y, yw);
