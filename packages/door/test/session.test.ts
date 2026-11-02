@@ -636,6 +636,8 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     expect(term.speed()[1]).toMatchObject({ unacked: 2 });
     term.input(cb, "\x1b[0"); term.input(cb, "n");
     expect(term.activeClient).toBe(ca);                   // half an answer didn't take the keys
+    term.input(cb, "\x1b");                               // a lone ESC is a key: it does
+    expect(term.activeClient).toBe(cb);
     expect(numbers(b).at(-1)).toBe(2);                   // one answered: the frame it was waiting on went
     expect(term.speed()[1]).toMatchObject({ unacked: 2, ackJoined: 1 });
   });
@@ -663,6 +665,9 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     const ran = term.handOver(["sh", "-l"]);
     await Bun.sleep(30);
     expect(a.sent.some(m => m.t === "run")).toBe(false);  // the answers would have gone to the shell
+    term.input(ca, "j");                                  // typing ahead proves the terminal alive, not the answers arrived (PIE-1500)
+    await Bun.sleep(30);
+    expect(a.sent.some(m => m.t === "run")).toBe(false);
     term.input(ca, answer); term.input(ca, answer);
     await until(() => a.sent.some(m => m.t === "run"), "the run, once everything sent was answered", 1000);
     const run = a.sent.find(m => m.t === "run") as Extract<DaemonMsg, { t: "run" }>;

@@ -316,8 +316,9 @@ export class SessionTerm implements Display {
     // A terminal's answers to the status queries (`CSI 0 n`) are counted by the decoder and are not the person: they
     // don't make this the client with the keys, nor reset its idle time (a quiet terminal answers every frame it is sent).
     // An answer cut in two by the reads (PIE-1500) is still only an answer: the decoder joins the halves.
+    // (A lone ESC is a key, not half an answer: a fragment is two bytes or more.)
     const rest = (c.answerTail + text).replaceAll(STATUS_OK, "");
-    c.answerTail = rest && STATUS_OK.startsWith(rest) ? rest : "";
+    c.answerTail = rest.length >= 2 && STATUS_OK.startsWith(rest) ? rest : "";
     if (text.length && (rest === "" || c.answerTail)) { c.decoder.feed(text); return; }
     c.lastInput = Date.now();
     if (c.watch) { c.decoder.feed(text); return; }
@@ -445,9 +446,13 @@ export class SessionTerm implements Display {
     const w = c.settled; c.settled = []; for (const f of w) f();
   }
 
-  /** `c` typed or clicked: its terminal is alive, so what it was sent is taken; a frame it was waiting on goes now. */
+  /**
+   * `c` typed or clicked: its terminal is alive, so what it was sent is taken; a frame it was waiting on goes now. Not
+   * while a program is being given its terminal: a key says the terminal is alive, not that the answers in the pipe have
+   * arrived, and the program must not be typed them (handOver waits for them).
+   */
   private proofOfLife(c: SessionClient): void {
-    if (!c.inflight.length) return;
+    if (c.away || !c.inflight.length) return;
     const skipped = c.waiting;
     this.forgetWindow(c);
     if (skipped) this.paintClient(c);
