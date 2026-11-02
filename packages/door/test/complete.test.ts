@@ -108,6 +108,11 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
     expect(text).toContain("once they flower.");
   });
 
+  test("the frame's top edge is unbroken: no title, so no blank cells where one would sit (PIE-1518)", () => {
+    const lines = draw(state(), 120);
+    expect(lines[0]).toMatch(/^┌─+┐$/);
+  });
+
   test("one row per match: a row's detail and a ranked row's score sit on its own line, dim (PIE-1511)", () => {
     const s = state("see ((gree", { items: [
       { label: "Greenhouse meeting", detail: "Garden club · 0.6/3", kind: "block", insertion: "((m1))" },

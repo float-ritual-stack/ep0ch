@@ -164,7 +164,8 @@ const FIGURES: Kind[] = [
   {
     kind: "activity", title: "Activity", intro: "A contribution grid: a column a week, a row a weekday, shaded by the count that day. Rows are a week each from a date, `- 2026-03-02: 0 1 4 2 0*3`. Live, each result counts toward the day it was created, updated, or the property `count:` names." + LIVE_WORDS,
     props: [TITLE, yaml("weeks", "int", "how many weeks to draw", { min: 1, max: 53, default: "26" }), yaml("to", "text", "the last day, YYYY-MM-DD (today for a live figure)", { samples: ["2026-03-15"] }), yaml("weekStartsOn", "text", "the weekday a column starts on, 0 (Sunday) to 6, or a day's name", { default: "0", samples: ["0", "mon", "sat"] }),
-      yaml("count", "text", "what a live result counts toward", { default: "created", samples: ["created", "updated", "due"] }), ...LIVE],
+      yaml("count", "text", "what a live result counts toward", { default: "created", samples: ["created", "updated", "due"] }),
+      yaml("date", "text", "a live figure's property with each result's day (read before count:)", { samples: ["date", "due"] }), ...LIVE],
     rows: "- 2026-03-02: 0 1 4 2 0*3\n- 2026-03-09: 5 3 0 0 1 2 8",
     example: { title: "notes written", to: "2026-03-15" }, sweep: ["weekStartsOn", "weeks"], grids: [["weekStartsOn", "weeks"]],
   },

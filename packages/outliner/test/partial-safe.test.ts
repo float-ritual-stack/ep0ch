@@ -33,7 +33,7 @@ const NOTE = [
   "> [!note] Bring",
   "> envelopes, a pen, [[Seed Library]]",
   "",
-  "::graph-stat",
+  "::graph-table",
   "---",
   "query: type=seed #tag",
   "---",

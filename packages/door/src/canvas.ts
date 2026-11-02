@@ -260,7 +260,8 @@ export class Canvas {
     if (takesKeys) this.backdrop(values);
     const t = floatTheme(values);
     this.clear(r);
-    this.box(r, fgRgb(t.border), fgRgb(t.border) + title, foot, glyphs);
+    // No title, no gap in the edge (PIE-1518): the colour alone is no title.
+    this.box(r, fgRgb(t.border), title ? fgRgb(t.border) + title : "", foot, glyphs);
     draw();
     this.under(r, bgRgb(t.bg));
   }
