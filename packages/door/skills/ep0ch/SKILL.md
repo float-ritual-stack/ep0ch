@@ -109,6 +109,13 @@ only when the person asked for it.
   tile (a background job, a resumed session) still reaches its folder's door. `ep0ch where` (and `ep0ch doctor`) say which
   rule matched, and that you are not in a tile of it, so your keys are not the person's; the Claude mod then offers
   `door_*`, acting as an agent. With no door running it says so, with the command that starts one.
+- **A door on another machine** (the person's door on the laptop, from float-box): `ep0ch peek --remote <machine>
+  [--ws <outline>]`, and `act`, `open`, `snap` and `actions` the same way, reach it through the machine link that
+  carries its doors (PIE-1242), attributed as you, never the person's keys. Without `--ws`, the door the person typed
+  in last. `ep0ch where` lists "doors on other machines"; `ep0ch session list --machine <machine>` asks again. A
+  session ssh'd in from that machine (a terminal tile of its door) reaches its door first (`where` says rule `ssh`),
+  so a click on a reference lands in the door the person clicked in. When the link lands on another machine than
+  yours, `ep0ch link via <machine> <the machine it lands on>` once, and the refusal says so.
 - Act on the person's door only when they asked you to (show them something, make an edit they
   requested). Otherwise run your own: set `EP0CH_STATE` and `EP0CH_CONTROL` under a temp directory, start
   it with `ep0ch try … --copy` or against a scratch service with `--no-daemon` (else it runs as a session that
@@ -130,7 +137,8 @@ only when the person asked for it.
 
 In a Claude session inside a door tile (`EP0CH_CONTROL` set), the Claude mod (packages/claude-mod) adds
 `door_where`, `door_peek`, `door_act` and `door_open`. They run `ep0ch` on that tile's socket. Prefer them to
-running `ep0ch act` through Bash. Outside a door tile they aren't there: use the commands above.
+running `ep0ch act` through Bash. Outside a door tile they aren't there unless `ep0ch where` reaches a door or lists
+doors on other machines: `door_peek` and `door_act` take `remote` (the machine's ssh name) and `ws` for those.
 
 **One open.** `show`, `door_open`, a click on a reference in Claude, `ep0ch open` and `act open` are the same
 open: in a door tile it lands where that tile's opens go (`from=$EP0CH_TILE`), the door choosing the reader and

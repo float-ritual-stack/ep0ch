@@ -1,6 +1,4 @@
-import { PostIt, POST_IT_ACTIONS } from "./post-it";
 import { SETTINGS_TILE } from "./settings";
-import { SHELF_KIND } from "./shelf";
 import { holdsEdit } from "../whereabouts";
 import { errorDetails } from "../status-log";
 import { readNote } from "./outline-boards";
@@ -38,7 +36,8 @@ import { recordFacts } from "./program-status";
 import { prop } from "../props";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */
-const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "view" | "take" | "describe"> = {
+/** A reader kind's parts, for a kind that is a reader with more (the glass extension's post-it, ext/glass). */
+export const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "view" | "take" | "describe"> = {
   previews: true,
   accepts: { notes: true },
   // Its header's backdrop (PIE-598), when it draws one or the setting turned it off.
@@ -68,7 +67,7 @@ const groupsProblem = (spec: string | undefined): string | null => { try { linkG
 const sourceTile = (spec: string | undefined) => { if (spec === "") return ""; const src = spec && sourceOf(spec); return src && "tile" in src ? src.tile : "reader"; };
 const showing = (p: Pane | undefined): Msg | null => (p ? kindOf(p)?.shows?.(p) ?? null : null);
 
-const readerFromSpec = (s: Parameters<TileKind["make"]>[0], r: ReaderPane): ReaderPane => {
+export const readerFromSpec = (s: Parameters<TileKind["make"]>[0], r: ReaderPane): ReaderPane => {
   if (s.outline) r.noteAddress = { outline: s.outline, ...(s.machine ? { machine: s.machine } : {}) };
   if (s.mode === "pinned") r.pinTo(s.page);
   if (s.note && !s.page) r.want = s.note;
@@ -79,7 +78,7 @@ const readerFromSpec = (s: Parameters<TileKind["make"]>[0], r: ReaderPane): Read
   return r;
 };
 
-const startReader: NonNullable<TileKind["start"]> = async (p, env) => {
+export const startReader: NonNullable<TileKind["start"]> = async (p, env) => {
   const r = p as ReaderPane;
   try { await r.connect(env.desk); } catch (e) { env.desk.ctx.flash((e as Error).message, undefined, errorDetails(e)); return; }
   if (r.pinPage && !r.msg) {
@@ -104,14 +103,6 @@ const startReader: NonNullable<TileKind["start"]> = async (p, env) => {
 /** The entries, made when they're registered (so a module cycle never meets them half-built). */
 const builtins = (): TileKind[] => [
   SETTINGS_TILE,
-  SHELF_KIND,
-  {
-    ...reading, kind: "post-it", about: "a note or cut-off value above every screen, with a hover history to flip",
-    actions: POST_IT_ACTIONS, inherits: [READER_ACTIONS],
-    make: s => { const p = new PostIt(); p.sticky = s.sticky ?? false; p.hover = s.hover ?? false; p.by = s.by ?? null; return readerFromSpec(s, p); },
-    describe: p => ({ postit: (p as PostIt).title(), sticky: (p as PostIt).sticky, history: (p as PostIt).surface.trailOf() }),
-    start: async (p, env) => { const r = p as PostIt; if (!r.msg && r.want?.startsWith("glass:")) r.show({ id: r.want, text: r.want.slice(6), parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, properties: [] }, env.desk); await startReader(p, env); },
-  },
   {
     kind: "tree", previews: true, about: "the outline tree; ⏎ opens a note where its opens land", keys: [{ key: "t", label: "outline" }],
     make: () => new TreePane(), actions: TREE_ACTIONS,

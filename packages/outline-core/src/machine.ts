@@ -81,6 +81,11 @@ export const sshArgv = {
     "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", ...QUIET,
     "-L", `${p.socket}:${remoteSocket}`, "--", p.machine,
   ],
+  /**
+   * One more socket over that connection (PIE-1242): `local` here answers for `remote` there, held by the same ssh as
+   * the host's forward and ended with it. A door on a machine whose link lands on this one's machine is reached so.
+   */
+  forwardMore: (ssh: string, p: ForwardPaths, local: string, remote: string) => [ssh, "-S", p.control, "-O", "forward", "-L", `${local}:${remote}`, "--", p.machine],
   /** Whether that connection is alive (exit 0), and ending it. */
   check: (ssh: string, p: ForwardPaths) => [ssh, "-S", p.control, "-O", "check", "--", p.machine],
   exit: (ssh: string, p: ForwardPaths) => [ssh, "-S", p.control, "-O", "exit", "--", p.machine],

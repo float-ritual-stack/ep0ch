@@ -55,6 +55,8 @@ export interface AvailableExtension {
   readonly version: number;
   readonly description?: string;
   readonly scripts?: ExtensionManifest["scripts"];
+  /** The door module it would run (PIE-1505): an action of that module's (`glass.mode`) names this to install. */
+  readonly door?: string;
 }
 
 export interface ExtensionPagesOptions {
@@ -334,6 +336,7 @@ export class ExtensionPages {
         out.push({
           id: name, name: manifest.name, version: manifest.version,
           ...(manifest.scripts?.length ? { scripts: manifest.scripts } : {}),
+          ...(manifest.door ? { door: manifest.door } : {}),
           ...(manifest.description ? { description: manifest.description } : {}),
         });
       } catch {

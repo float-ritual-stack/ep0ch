@@ -3,7 +3,7 @@ import { SECTIONS } from "../../src/showcase/showcase";
 import { ITEM_BG, RULER_BG } from "../../src/surface/selection";
 import { PERSON } from "../../src/surface/list-view";
 import { visible } from "../../src/style";
-import { PostIt } from "../../src/desk/post-it";
+import { PostIt } from "../../ext/glass/post-it";
 import { until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 

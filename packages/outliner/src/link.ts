@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type Server as SocketServer } from "node:net";
 import { networkInterfaces } from "node:os";
-import { chmodSync, existsSync, readFileSync, readlinkSync, readdirSync, statSync, writeFileSync, renameSync, watch } from "node:fs";
+import { chmodSync, existsSync, readFileSync, readlinkSync, readdirSync, rmSync, statSync, writeFileSync, renameSync, watch } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
 import { forwardPaths, sshArgv, withForwardLock } from "@ep0ch/outline-core/machine";
@@ -9,6 +9,7 @@ import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { hostAnswers, nodeMachineIO } from "./machine-forward";
 import { PROTOCOL, GRAMMAR } from "@ep0ch/outline-core/protocol";
 import { LinkStreams } from "./link-streams";
+import { linkDoorSocket, linkDoorsDir, linkDoorsFile, parseLinkDoors, type LinkDoor, type LinkDoorsRecord } from "./link-doors";
 import { readLinkConfig } from "./link-config";
 import { linkDeployPath, linkDeployAt, linkResultPath, readLinkFile, writeLinkFile, type LinkDeploy, type LinkInstallResult, type LinkUpdate } from "./link-install";
 export { publishLinkInstall, linkInstallResult, linkInstallSummary, linkUpdateLabel, reconcileLinkInstall } from "./link-install";
@@ -40,7 +41,7 @@ function saveState(path: string, state: LinkState) {
 
 const proof = (key: string, machine: string, nonce: string, role: "client" | "server" = "client") => createHmac("sha256", key).update(`ep0ch-link-${role}\n${machine}\n${nonce}`).digest();
 const receiptKey = (result: LinkInstallResult) => createHash("sha256").update(JSON.stringify(result)).digest("hex");
-type Peer = { nonce: string; addresses?: string[]; machine?: string; streams?: LinkStreams; listener?: SocketServer; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
+type Peer = { nonce: string; addresses?: string[]; machine?: string; streams?: LinkStreams; listener?: SocketServer; doors?: Map<string, { path: string; server: SocketServer }>; doorsSaid?: string; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
 export function serveLink(o: { outlines: string; port: number; keys: Record<string, string>; log: (line: string) => void; onResult?: (machine: string, result: LinkInstallResult, deploy: LinkDeploy) => Promise<void> }) {
   let reporting = Promise.resolve();
   let openId = 0;
@@ -60,12 +61,44 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
   const updates = watch(join(o.outlines, ".host"), (_, file) => {
     if (file === "link-deploy.json") for (const ws of peers.values()) sendInstall(ws);
   });
+  // The connector's door sessions (PIE-1242): a control socket's local end each, kept as its list changes.
+  const writeDoors = (p: Peer, doors: LinkDoor[]) => {
+    const record: LinkDoorsRecord = { machine: p.machine!, addresses: p.addresses ?? [], doors: doors.map(d => ({ ...d, control: linkDoorSocket(o.outlines, p.machine!, d.key) })), at: Date.now() };
+    const file = linkDoorsFile(o.outlines, p.machine!);
+    writeFileSync(`${file}.tmp`, JSON.stringify(record), { mode: 0o600 });
+    renameSync(`${file}.tmp`, file);
+  };
+  const syncDoors = async (ws: ServerWebSocket<Peer>, doors: LinkDoor[]) => {
+    const p = ws.data, streams = p.streams;
+    if (!streams || !p.machine) return;
+    io.privateDir(linkDoorsDir(o.outlines, p.machine));
+    const held = p.doors ??= new Map();
+    const wanted = new Set(doors.map(d => d.key));
+    for (const [key, door] of held) if (!wanted.has(key)) { door.server.close(); io.remove(door.path); held.delete(key); }
+    for (const d of doors) {
+      if (held.has(d.key)) continue;
+      const path = linkDoorSocket(o.outlines, p.machine, d.key);
+      io.remove(path);
+      const server = createServer(socket => { if (p.closed) socket.destroy(); else streams.open(socket, `door:${d.key}`); });
+      await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(path, resolve); });
+      if (p.closed) { server.close(); io.remove(path); return; }
+      chmodSync(path, 0o600);
+      held.set(d.key, { path, server });
+    }
+    writeDoors(p, doors);
+  };
+  const dropDoors = (p: Peer) => {
+    for (const door of p.doors?.values() ?? []) { door.server.close(); io.remove(door.path); }
+    p.doors?.clear();
+    if (p.machine) { io.remove(linkDoorsFile(o.outlines, p.machine)); try { rmSync(linkDoorsDir(o.outlines, p.machine), { recursive: true, force: true }); } catch {} }
+  };
   const cleanup = (ws: ServerWebSocket<Peer>, code?: number, reason?: string) => {
     const p = ws.data;
     for (const pending of opens.values()) if (pending.ws === ws) pending.finish({ opened: false, error: "laptop link disconnected; run ep0ch link status" });
     p.closed = true; clearTimeout(p.timer); p.streams?.close(); p.listener?.close();
     if (p.machine && peers.get(p.machine) === ws) {
       peers.delete(p.machine);
+      dropDoors(p);
       const paths = forwardPaths(o.outlines, p.machine);
       try { if (readlinkSync(paths.socket) === join(paths.dir, `${p.machine}.link.sock`)) io.remove(paths.socket); } catch {}
       const statePath = join(paths.dir, `${p.machine}.link.json`);
@@ -130,6 +163,11 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
           } else if (typeof bytes === "string") {
             if (bytes === "ping") { p.last = Date.now(); ws.send("pong"); return; }
             const message = JSON.parse(bytes), result = message.result;
+            if (Array.isArray(message.doors)) {
+              const doors = parseLinkDoors(message.doors), said = JSON.stringify(doors);
+              if (said !== p.doorsSaid) { p.doorsSaid = said; await syncDoors(ws, doors); }
+              return;
+            }
             if (Number.isInteger(message.opened)) {
               const pending = opens.get(message.opened);
               if (pending?.ws === ws) pending.finish(message.error ? { opened: false, error: String(message.error) } : { opened: true, machine: p.machine! });
@@ -185,7 +223,10 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
   } };
 }
 
-export function connectLink(o: { server: string; machine: string; key: string; host: string; statusPath?: string; commit?: string; install?: (sha: string) => Promise<LinkInstallResult>; autoInstall?: () => boolean; onInstalled?: () => void; open?: (url: string) => Promise<void>; log: (line: string) => void }) {
+/** How often the connector looks at its door sessions again. */
+const DOOR_POLL_MS = Number(process.env.EP0CH_LINK_DOOR_POLL_MS) || 2000;
+
+export function connectLink(o: { server: string; machine: string; key: string; host: string; doors?: () => Promise<LinkDoor[]>; doorSocket?: (key: string) => string | null; statusPath?: string; commit?: string; install?: (sha: string) => Promise<LinkInstallResult>; autoInstall?: () => boolean; onInstalled?: () => void; open?: (url: string) => Promise<void>; log: (line: string) => void }) {
   const updatePath = o.statusPath ? join(o.statusPath, "../link-update.json") : undefined;
   let update = updatePath ? readLinkFile<LinkUpdate>(updatePath) : undefined;
   let receipts = update?.receipts ?? [];
@@ -204,7 +245,7 @@ export function connectLink(o: { server: string; machine: string; key: string; h
     sendResult?.(result);
   };
   let stopped = false, streams: LinkStreams | undefined;
-  let retry: ReturnType<typeof setTimeout> | undefined, heartbeat: ReturnType<typeof setInterval> | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined, heartbeat: ReturnType<typeof setInterval> | undefined, doorPoll: ReturnType<typeof setInterval> | undefined;
   let delay = 1000;
   let since = o.statusPath ? savedState(o.statusPath)?.since : undefined;
   const state = (up: boolean, reason?: string) => { if (o.statusPath) saveState(o.statusPath, { machine: o.machine, since, pid: process.pid, up, reason }); };
@@ -248,7 +289,7 @@ export function connectLink(o: { server: string; machine: string; key: string; h
     const timeout = setTimeout(() => endAttempt("connection timed out"), 10_000);
     finish = (reason: string) => {
       if (ended) return;
-      ended = true; configWatch?.close(); sendResult = undefined;
+      ended = true; configWatch?.close(); sendResult = undefined; clearInterval(doorPoll);
       clearTimeout(timeout); clearInterval(heartbeat); streams?.close(); streams = undefined;
       socket.close(); state(false, reason);
       if (!stopped) { o.log(`link down: ${reason}; reconnect in ${delay / 1000}s`); retry = setTimeout(dial, delay); delay = Math.min(delay * 2, 15_000); }
@@ -269,7 +310,22 @@ export function connectLink(o: { server: string; machine: string; key: string; h
           sendResult = result => socket.send(JSON.stringify({ result }));
           for (const receipt of receipts) sendResult(receipt);
           clearTimeout(timeout); delay = 1000;
-          if (message.compatible) streams = new LinkStreams(data => { if (socket.bufferedAmount > 4 * 1024 * 1024) socket.close(); else socket.send(data); }, o.host);
+          if (message.compatible) {
+            streams = new LinkStreams(data => { if (socket.bufferedAmount > 4 * 1024 * 1024) socket.close(); else socket.send(data); }, target =>
+              target === "" ? o.host : target.startsWith("door:") ? o.doorSocket?.(target.slice(5)) ?? null : null);
+            // Which door sessions run here, said now and again when it changes (PIE-1242).
+            if (o.doors) {
+              let said = "";
+              const announce = async () => {
+                const doors = await o.doors!().catch(() => null);
+                if (ended || !doors) return;
+                const text = JSON.stringify(doors);
+                if (text !== said && socket.readyState === WebSocket.OPEN) { said = text; socket.send(JSON.stringify({ doors })); }
+              };
+              void announce();
+              doorPoll = setInterval(() => void announce(), DOOR_POLL_MS);
+            }
+          }
           since = new Date().toISOString(); state(true);
           o.log(`link ${o.machine} up since ${since}`);
           heartbeat = setInterval(() => { if (Date.now() - last > 25_000) endAttempt("heartbeat timed out"); else socket.send("ping"); }, 10_000);

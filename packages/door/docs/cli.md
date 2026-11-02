@@ -206,7 +206,15 @@ releases its database; delete moves it to .deleted/, after asking
 
 ```text
 ep0ch link setup|serve|connect|status   outbound HTTPS link for a machine
+ep0ch link doors <machine> [--json]     the door sessions that machine's link carries here (PIE-1242)
+ep0ch link via <machine> <ssh-name>     that machine's link lands on <ssh-name>: reach its doors through it
 ```
+
+A link carries the connector's door sessions too: each one's control socket answers at
+`<outlines>/.remote/<machine>.doors/<outline>[@<machine>].sock` on the server, and, after `link via`, at the same
+path on a machine that reaches the server over ssh (forwarded on its existing ssh connection). `ep0ch peek|act|open
+--remote <machine> [--ws <outline>]` and `ep0ch session list --machine <machine>` use them; `docs/machine-link.md` in
+the outliner has the wire.
 
 ## status
 

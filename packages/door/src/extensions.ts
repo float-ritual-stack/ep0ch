@@ -20,7 +20,7 @@ import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
 // The service announces a change (an `extensions` event): the list is read again and bound again, so an
 // extension added or removed while the door runs shows up or goes away without a restart.
 import { TXN } from "./surface/txn";
-import { INVITES } from "./surface/invite";
+import { INVITES, type Press } from "./surface/invite";
 import { useResourceProviders, type ResourceProviderEntry } from "./resource-providers";
 import { hostname } from "node:os";
 import type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource, ExtensionSettings } from "@ep0ch/outline-core/protocol";
@@ -40,6 +40,9 @@ import type { DeskApi, Pane } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
 import { barSources, openNote, registerBarSource, unregisterBarSource, type BarSource } from "./bar/source";
 import { askInBar, type BarQuestion } from "./bar/ask";
+import { shippedModules, useDoorModules } from "./door-modules";
+// The door modules the bound extensions name run on the door that hosts them (src/door-modules.ts): the App starts and ends them here.
+export { describeModules, hostDoorModules, releaseDoorModules, runningModules } from "./door-modules";
 
 /** One action an extension declares, as `extensions.list` names it. */
 export interface ExtensionAction {
@@ -102,6 +105,8 @@ export interface ExtensionEntry {
   builtIn?: { directory: string; state: "current" | "stale" | "forked" };
   /** A script an extension ships: that extension's id (lists fold it under it). */
   partOf?: string;
+  /** The door module its manifest names (PIE-1505, `"door": "glass"`): run in the door's process while it's served (src/door-modules.ts). */
+  door?: string;
 }
 export interface ExtensionScheduleEntry {
   entry: string; every?: string; cron?: string; next: string; running?: boolean;
@@ -139,7 +144,7 @@ export interface RuleEntry {
 }
 export type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource };
 /** One of the repo's extensions that isn't installed here (`extensions.list`'s `available`): what installing would add. */
-export interface AvailableExtension { id: string; name: string; version: number; description?: string; scripts?: { name: string; file: string; about: string }[] }
+export interface AvailableExtension { id: string; name: string; version: number; description?: string; scripts?: { name: string; file: string; about: string }[]; door?: string }
 export interface ExtensionList {
   generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; barSources?: ExtensionBarSource[]; primitives?: string[]; targets?: string[]; rules?: RuleEntry[]; ruleProblems?: string[];
   /** The outline's Extensions hub, and each extension's page (README, what it adds, demo notes under it), by id. */
@@ -183,7 +188,7 @@ export interface ExtensionActResult {
 }
 
 /** What an extension action needs from where it runs: the outline, and somewhere to say what happened. */
-export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; dispatch?: { act(req: { action: string; args?: Record<string, unknown>; tile?: string }, actor: Actor): Promise<unknown> }; noteInFront?(): string | null } }
+export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; dispatch?: { act(req: { action: string; args?: Record<string, unknown>; tile?: string }, actor: Actor): Promise<unknown>; requestIn(req: { action: string; args?: Record<string, unknown>; tile?: string }, at: Press | undefined): { action: string; args?: Record<string, unknown>; tile?: string } }; noteInFront?(): string | null } }
 /** `block`, `line`, `with`, and the action's declared arguments by name. */
 export interface ExtArgs { block?: string; line?: number; with?: string; [declared: string]: string | number | undefined }
 
@@ -297,7 +302,8 @@ export function installWords(name: string, available: readonly AvailableExtensio
   const script = available?.find(e => e.scripts?.some(s => s.name === name));
   if (script) return `Script ${name} is not installed; install with ep0ch act extensions.install id=${script.id}`;
   const id = /^ext\.([^.]+)\./.exec(name)?.[1];
-  const ext = id === undefined ? undefined : available?.find(e => e.id === id);
+  // A door module's actions are named by its module (`glass.mode`, PIE-1505).
+  const ext = id === undefined ? available?.find(e => e.door && name.startsWith(`${e.door}.`)) : available?.find(e => e.id === id);
   return ext ? `${name} is ${ext.name}'s, which isn't installed: install it from its "install ${ext.name}" row in the power bar's extensions (ctrl+k then &) or with ep0ch act extensions.install id=${ext.id}` : null;
 }
 explainNotInstalled(name => installWords(name));
@@ -539,7 +545,8 @@ export function connectScriptActions(ctx: ExtOn["ctx"]): void {
     const actor: Actor = call.actor.author === "user" ? { kind: "user" }
       : { kind: "agent", id: call.actor.actorId ?? call.actor.author, ...(run ? { run } : {}), ...(asked ? { for: asked } : {}), ...(call.invitation && INVITES.covers(call.invitation, "screen", run) ? { invitation: call.invitation } : {}) };
     // Always the run's own transaction: a script can't name another and so escape its end rule.
-    return ctx.dispatch.act({ action: call.action, args: { ...args, ...(run ? { txn: run } : {}) }, ...(typeof tile === "string" ? { tile } : {}) }, actor);
+    // Placed by the press that started it (PIE-1517): a step naming no tile acts where its press does, never the person's focus by default.
+    return ctx.dispatch.act(ctx.dispatch.requestIn({ action: call.action, args: { ...args, ...(run ? { txn: run } : {}) }, ...(typeof tile === "string" ? { tile } : {}) }, INVITES.pressOf(call.invitation)), actor);
   };
 }
 
@@ -1022,6 +1029,8 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
     boundKinds.set(kind, print);
     changed = true;
   }
+  // Door modules (PIE-1505): the ones the served extensions name run, the rest stop; a name the door doesn't ship is said.
+  for (const name of useDoorModules(served.flatMap(e => e.door ? [e.door] : []))) problems.push(`${served.find(e => e.door === name)?.id} names door module ${name}, which this door doesn't ship (${shippedModules().join(", ")}); ep0ch install --apply brings the door's code up to date`);
   if (changed) kindsChanged();
   bindBar(next?.barSources ?? [], problems);
   // Said by name (PIE-1399): an extension's own, never a script it ships (`partOf`: its row is the extension's), never an id.

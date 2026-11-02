@@ -17,6 +17,27 @@ are its record. The outliner's entries from then are kept below, under
 - **Offer your own rows:** extensions declare `facetSources` over a read action. The Garden seed facets example and the showcase use the shared query grammar and counter.
 - **Run:** update the door and host together; no database migration.
 
+### Agents reach the laptop's door; the glass is an extension (PIE-1242, PIE-1505)
+
+- A door on a machine with an outbound link (the laptop) is reachable from the machines that reach its server: `ep0ch session list --machine laptop` and `ep0ch peek|act --remote laptop --ws <outline>`, attributed, never taking the person's keys.
+- The glass is a built-in extension on a `door.hover` event and an extension's status chip. It works as before.
+- **Run:** `ep0ch install --apply` on float-2, the laptop, then float-box, and once on float-box: `ep0ch link via laptop float-2`. PROTOCOL 304.
+
+### An open can replace the tile in place (PIE-1516)
+
+- Wire a tile's opens to itself (alt+l, o, then click the same tile) and an open replaces what it shows. ← back returns. This works in list tiles too, and `^W P` offers "in place" for a screen or container.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
+### The component library is a grouped list beside one page (PIE-1515)
+
+- Components are grouped by category with counts and `/` to filter. A page shows the drawn example beside its source and one properties table. At 44 columns the list folds into the header.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
+### Fixes
+
+- An agent's button press acts only on the note it names and never opens anything in the person's reader (PIE-1517).
+- A desk emptied by closing its last tile draws instead of crashing the session (#1211).
+
 ### A live table's settings stick, take layouts as tabs, and can switch to a feed (PIE-1513)
 
 - A live `::graph-table`'s ≡ settings show the keys that table takes, and each change is written into its YAML, can be undone with ctrl+z, and stays after a reload.

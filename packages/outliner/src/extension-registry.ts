@@ -188,6 +188,8 @@ export interface ExtensionEntry {
   readonly builtIn?: { readonly directory: string; readonly state: CopyState };
   /** A script an extension ships (its manifest's `scripts`): the extension's id. Lists fold it under that extension. */
   readonly partOf?: string;
+  /** The door module its manifest names (PIE-1505): the door runs it while this extension is served. */
+  readonly door?: string;
 }
 
 export interface ExtensionsListResult {
@@ -594,7 +596,8 @@ export class ExtensionRegistry {
         ...(slot.partOf ? { partOf: slot.partOf } : {}),
         ...(script ? { script: { keys: script.keys ?? [], blockId: script.blockId, line: script.line, file: script.file, code: script.code } } : {}),
         ...(serving && extension.manifest.scripts?.length ? { scripts: extension.manifest.scripts } : {}),
-        runsCode: !!extension?.script || !!extension?.command || !!extension?.manifest.tiles?.length,
+        ...(serving && extension.manifest.door ? { door: extension.manifest.door } : {}),
+        runsCode: !!extension?.script || !!extension?.command || !!extension?.manifest.tiles?.length || !!extension?.manifest.door,
         handlers: serving ? (extension.manifest.handlers ?? [])
           .filter((handler) => this.bound.get(handler.key)?.extension === extension)
           .map((handler) => ({

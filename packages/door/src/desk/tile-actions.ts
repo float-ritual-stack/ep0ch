@@ -4,7 +4,7 @@ import { HYPER_KEYS } from "../hyper";
 import { W_KEYS, wCaption, ZOOM_WHEEL } from "./wkeys";
 import { FRAME_GLYPHS } from "./frame-controls";
 import { GATHER_HINT } from "../surface/hint-card";
-import { SPINES, ALT_RULES, OPEN_RULES, type AltRule } from "./layout";
+import { SPINES, ALT_RULES, OPEN_RULES, OPEN_RULE_WORDS, type AltRule } from "./layout";
 // Tiles and layouts as actions (PIE-413, PIE-473, PIE-474): every change to the layout is one of these
 // commands. The desk's keys, its mouse drags and clicks, and the control socket (`ep0ch act`) are only
 // callers: a header dropped on a tile's centre runs `layout.move where=tabs`, `^W m l` runs
@@ -114,7 +114,7 @@ const POLICY_ARGS = {
   locked: { type: "boolean", optional: true, about: "its shape is fixed, its contents live" },
   altOpens: { type: "string", optional: true, choices: ALT_RULES, about: "alt-open rule (default beside); alt readers keep what fits and older ones fold" },
   opensInto: { type: "string", optional: true, kind: "tile", choices: [""], about: "the tile its tiles' opens land in (empty clears)" },
-  opens: { type: "string", optional: true, choices: OPEN_RULES, about: "the open rule: reader (the first reader that isn't pinned, the default), next (a new column after the tile's own, in a flow), beside (a reader beside the tile), float (a follower over it), or full (zoom the opened reader)" },
+  opens: { type: "string", optional: true, choices: OPEN_RULES, about: `the open rule: ${OPEN_RULES.map(r => `${r} (${OPEN_RULE_WORDS[r]})`).join(", ")}; reader is the default` },
   agents: { type: "string", optional: true, choices: ["free", "edit", "off"], about: "what an agent may do to the tiles under it (free, edit, off; PIE-639): node=screen is the screen's default, a tile's own wins (tile.agent); free clears" },
   host: { type: "string", optional: true, choices: ["over", "beside", "none"], about: "node=screen: where the host layer (the agent, terminals) may appear over this screen: over, beside or none" },
   clear: { type: "string", optional: true, about: "fields to take away, comma-separated" },
@@ -296,7 +296,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     hintId: "link",
     hint: (a, { d }) => a.ask ? d.linkingHint() : null,
     summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there, verb=hover shows a hover there after its delay. Each verb has one destination; setting it replaces the previous wire. A group cannot send a wire: name its inner tile. No to= removes that verb's wire; remove=true removes it only if it names that target. ask=true picks on screen; ask=false dismisses the controls without changing wires.",
-    keys: [{ keys: "alt+l then v", does: "hover", says: "set the wire for where a hover lands" }, { keys: "alt+l then s", does: "select", says: "set the wire for what a select lands on" }, { keys: "alt+l then o", does: "open", says: "set the wire for where an open lands" }, { keys: "alt+l then a", does: "alt", says: "set the wire for where an alt-open lands" }, { keys: "click h j k l 1-9", does: "the tile itself unlinks", says: "link to the tile you pick; picking the tile itself unlinks" }, { keys: "^W P then enter or space", does: "picks", says: "link to the tile you have lit" }, { keys: "x", does: "clears a wire", says: "clear the wire you are setting" }, { keys: "esc q", does: "cancels", says: "stop choosing a tile to link to" }],
+    keys: [{ keys: "alt+l then v", does: "hover", says: "set the wire for where a hover lands" }, { keys: "alt+l then s", does: "select", says: "set the wire for what a select lands on" }, { keys: "alt+l then o", does: "open", says: "set the wire for where an open lands" }, { keys: "alt+l then a", does: "alt", says: "set the wire for where an alt-open lands" }, { keys: "click h j k l 1-9", does: "links to the tile", says: "link to the tile you pick; for an open, picking the tile itself opens in place (PIE-1516: an open replaces what it shows, ← back returns); for the other verbs it unlinks" }, { keys: "^W P then enter or space", does: "picks", says: "link to the tile you have lit" }, { keys: "x", does: "clears a wire", says: "clear the wire you are setting" }, { keys: "esc q", does: "cancels", says: "stop choosing a tile to link to" }],
     touches: "shape", touchesWith: a => a.ask !== undefined ? "screen" : "shape", replay: "safe", says: (r, a) => r.picking !== undefined ? null : a.to ? `${r.name ?? r.tile}: ${a.verb ?? "open"} → ${a.to}` : `unlinked ${r.name ?? r.tile}'s ${a.verb ?? "open"}`,
     args: {
       ask: { type: "boolean", optional: true, conflicts: ["to", "rule", "role", "remove"], about: "true picks the target on screen; false dismisses link controls without changing wires" },
@@ -308,8 +308,8 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
     examples: [
       { act: "tile.link tile=tree to=reader", does: "makes the reader where the tree's opens (enter, double click) land" },
-      { act: "tile.link tile=tree to=preview verb=select", does: "makes the preview show the tree's selection as it moves" },
       { act: "tile.link tile=tree verb=open", does: "takes the tree's open wires away, so its opens land where they did before" },
+      { act: "tile.link tile=links to=links", does: "opens in place: a row opened in the links tile shows its note there, and ← back returns to the list" },
     ],
     run({ to, verb, role, remove, rule, ask }, { d, reader }, actor) {
       if (ask !== undefined) return d.startLink(reader, (verb ?? "open") as WireVerb, ask);
@@ -506,7 +506,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "layout.policy": def({
-    summary: "a container's policy, saved with the layout: node=<id> (s<n> a split, g<n> a tab set, d<n> a dock, from layout.get) or node=screen; left out, the innermost container holding tile=<tile>, else the screen. Sets draggable (its tiles move out), droppable (it takes tiles), accepts=<kind,kind> (only those kinds; any clears), resizable, min/max/fixed=<cells> along its parent's axis (-1 clears), collapsible, overlay and stays (a dock), locked, opensInto=<tile> (where its tiles' opens land when they have no link), opens=current|next (the open rule; a flow's is next), readable=<cells> (growth by room: past it, earlier readers in a row fold to spines as new ones open), host=over|beside|none (node=screen: where the host layer may appear over it); clear=<field,field> takes fields away. With nothing to set, it reads: each layer's policy over the tile and what applies. On a locked container only locked changes",
+    summary: "a container's policy, saved with the layout: node=<id> (s<n> a split, g<n> a tab set, d<n> a dock, from layout.get) or node=screen; left out, the innermost container holding tile=<tile>, else the screen. Sets draggable (its tiles move out), droppable (it takes tiles), accepts=<kind,kind> (only those kinds; any clears), resizable, min/max/fixed=<cells> along its parent's axis (-1 clears), collapsible, overlay and stays (a dock), locked, opensInto=<tile> (where its tiles' opens land when they have no link), opens=<rule> (the open rule, from tile opens' choices; a flow's is next, self opens in place), readable=<cells> (growth by room: past it, earlier readers in a row fold to spines as new ones open), host=over|beside|none (node=screen: where the host layer may appear over it); clear=<field,field> takes fields away. With nothing to set, it reads: each layer's policy over the tile and what applies. On a locked container only locked changes",
     keys: "^W P (enter, space or a click on a row changes it; its locked row locks the screen)",
     touches: "shape", replay: "safe", confirms: true,
     says: (r, a) => { if (!r || !("node" in r) || !("policy" in r) || "layers" in r) return null; const { set, gone } = policyChange(a); return `set ${r.node}'s policy: ${[...Object.entries(set).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(",") : v}`), ...gone.map(k => `${k} cleared`)].join(" ") || "unchanged"}`; },

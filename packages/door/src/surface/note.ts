@@ -129,7 +129,7 @@ import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
 import { askingFirst, extensionList, passageActions, runExtensionAction, scriptsAt, scriptActions, installWords, threadAgents } from "../extensions";
 import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
-import { INVITES } from "./invite";
+import { INVITES, type Press } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { SettingField } from "./settings-card";
@@ -341,6 +341,7 @@ export interface ReaderHistory {
   trail?(): { back: TrailStop[]; forward: TrailStop[] };
   /** Why an agent can't go back or forward here: it would move the person's screen or focus. */
   agentRefusal: string;
+  beneath?: true;   // its stops lie beneath the reader's own (PIE-1516: the list it opened in place over), listed and walked after them
 }
 
 /**
@@ -4727,7 +4728,7 @@ export class NoteSurface {
    * as `this`); the words are its arguments. The person's press runs at once (their click is the consent; what it does is
    * attributed and undoable: ext.undo, layout.undo). An agent's is attributed and said, as any `act` is.
    */
-  async runPress(p: NonNullable<Link["press"]>, host: SurfaceHost, actor: Actor, repick = false): Promise<unknown> {
+  async runPress(p: NonNullable<Link["press"]>, host: SurfaceHost, actor: Actor, repick = false, press: Press = { tile: messageContext.getStore()?.tile, note: p.block || undefined, actor }): Promise<unknown> {
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to run a press");
     const run = async () => {
@@ -4739,9 +4740,9 @@ export class NoteSurface {
       if (button && note && (button.empty.length || (repick && button.slots.length))) return this.askSlots(note.id, button, repick ? button.slots.map(s => s.key) : button.empty, host, actor, !repick);
       if (button?.sequence && p.act === button.act) {
         // Its first step refused now (no tile it names, PIE-1418): said before anything runs, in the presser's words.
-        const first = sequenceStart(button), no = first ? d.refusedNow(actRequestOf(lineWords(first)), actor) : null;
+        const first = sequenceStart(button), no = first ? d.refusedNow(d.requestIn(actRequestOf(lineWords(first)), press), actor) : null;
         if (no) throw new ActionRefused(`${button.label} can't run here: ${no}`);
-        const invitation = actor.kind === "user" ? INVITES.mint("you") : undefined;
+        const invitation = INVITES.pressed(press);
         const r = await host.ctx.board.request<import("../extensions").ExtensionActResult>("scripts.sequence", {
           blockId: note!.id, line: p.line, clientId: host.ctx.board.clientId, invitation, mutation: mutationFor(actor),
         });
@@ -4757,7 +4758,7 @@ export class NoteSurface {
       if (req.as !== undefined) throw new ActionRefused(`${p.act}: a press runs as ${actor.kind === "user" ? "you" : "its presser"}; leave out as=`);
       const args: Record<string, unknown> = { ...(req.args ?? {}) };
       let action = req.action;
-      if (!d.takes(d.requestIn(req, messageContext.getStore()?.tile))) {
+      if (!d.takes(d.requestIn(req, press))) {
         const { listed, scripts } = await this.scriptsNamed(action, p.block || this.msg?.id, p.line, host);
         if (!scripts.length) {
           throw new ActionRefused(installWords(action, listed.available) ?? d.unknownAction(action));
@@ -4773,11 +4774,11 @@ export class NoteSurface {
       if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block || this.msg?.id;
       // The person's press of a script is invited by the script's action itself (extensions.ts, lineAction). Any press names
       // its button (via), so the run's note records it and the run reads its slots whole (`page=a page=b`).
-      if (scriptActions().some(s => s.action.name === action)) {
+      if (scriptActions().some(s => s.action.name === action) && (args.invitation ??= INVITES.pressed(press))) {
         const home = p.block || this.msg?.id;
         if (home) args.via ??= `${home}:${p.line}`;
       }
-      const result: unknown = await d.act(d.requestIn({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, messageContext.getStore()?.tile), actor);
+      const result: unknown = await d.act(d.requestIn({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, press), actor);
       host.redraw();
       return result;
     };
@@ -8207,7 +8208,7 @@ export class NoteSurface {
     this.use(host);
     // `steps` stops at once (the trail's choice, PIE-208): the ones passed over go on the other stack, as one by one.
     const stack = dir < 0 ? this.backs : this.aheads, to = stack[stack.length - steps];
-    if (!stack.length && host.history) return host.history.go(dir, actor, steps);
+    if (host.history && (!stack.length || !to && dir < 0 && host.history.beneath)) return host.history.go(dir, actor, steps - stack.length);
     if (!to && stack.length) return `only ${stack.length} ${dir < 0 ? "back" : "ahead"}: steps=${stack.length} at most (trail lists them)`;
     if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
     const holding = this.modes.holding();
@@ -8285,11 +8286,11 @@ export class NoteSurface {
 
   /** The history as `peek` shows it: the titles back and forward go to, nearest first. */
   describeHistory() {
-    const trail = this.kept && !this.backs.length && !this.aheads.length ? this.kept.trail?.() : undefined;
+    const trail = this.kept && !this.kept.beneath && !this.backs.length && !this.aheads.length ? this.kept.trail?.() : undefined;
     if (trail) return { back: trail.back, forward: trail.forward, keptBy: "view" };
-    if (this.kept && !this.backs.length && !this.aheads.length) return { back: [this.kept.peek(-1)].filter(Boolean), forward: [this.kept.peek(1)].filter(Boolean), keptBy: "view" };
+    if (this.kept && !this.kept.beneath && !this.backs.length && !this.aheads.length) return { back: [this.kept.peek(-1)].filter(Boolean), forward: [this.kept.peek(1)].filter(Boolean), keptBy: "view" };
     const titles = (ps: Place[]) => ps.map(p => ({ ...(p.msg.address ? { address: p.msg.address } : {}), id: p.msg.id, title: subject(p.msg) })).reverse();
-    return { back: titles(this.backs), forward: titles(this.aheads) };
+    return { back: [...titles(this.backs), ...(this.kept?.beneath && this.kept.trail?.().back || [])], forward: titles(this.aheads) };
   }
 
   /**
@@ -9852,9 +9853,8 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
  */
 async function travelAction(dir: -1 | 1, { surface, host, standing }: On, actor: Actor, steps = 1) {
   const word = dir < 0 ? "back" : "forward";
-  // Where the view keeps the history itself (the river's columns), it moves the person's keys: theirs alone.
-  // This reader's own stops (n and p in the message reader) move only it, an agent's too.
-  if (!standing && host.history && !surface.travelsHere(dir)) throw new ActionRefused(host.history.agentRefusal);
+  // Where the view keeps the history itself (the river's columns), it moves the person's keys: theirs alone. This reader's own stops (n and p in the message reader) move only it, an agent's too.
+  if (!standing && host.history && !host.history.beneath && !surface.travelsHere(dir)) throw new ActionRefused(host.history.agentRefusal);
   // The person's comment unsent here: asked first (PIE-785).
   // (Synchronous when nothing is asked: the follow goes on in the same tick, as it always did.)
   const asked = surface.askLeave(word, {}, actor, host);
@@ -10945,7 +10945,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       alt: { type: "boolean", optional: true, about: "run the button's alt= action, as alt+click does" },
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them), when it is a pressable one" },
       line: { type: "number", optional: true, about: "source line from 1, with note=, to press a specific button when labels repeat" },
-      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters, a Work ID or a [[page]]): a ::button, a link, or a control its render script drew; the button's script acts on that note" },
+      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters, a Work ID or a [[page]]): a ::button, a link, or a control its render script drew; the button's script acts on that note, and a reader's action (comment.note) in a reader showing it, else at the person's own press their focus, else refused: open it first" },
     },
     examples: [
       { act: "button.press label=Water", does: "presses the Water button of this note, as whoever asks" },
@@ -10981,7 +10981,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (!hits.length) throw new ActionRefused(`no button says "${label}" in that note; it has ${found.length ? found.map(f => `"${f.label}"`).join(", ") : "none"}. Example: button.press note=${m.id.slice(0, 8)} label="${found[0]?.label ?? "Review"}"`);
         if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons of that note (${hits.map(f => `"${f.label}"`).join(", ")}); say more of the label`);
         const hit = hits[0]!, act = alt && hit.alt ? hit.alt : hit.act;
-        const r = await surface.runPress({ act, block: m.id, line: hit.line, label: hit.label }, host, actor, !!alt && !hit.alt);
+        const r = await surface.runPress({ act, block: m.id, line: hit.line, label: hit.label }, host, actor, !!alt && !hit.alt, { ...(surface.msg?.id === m.id ? { tile: messageContext.getStore()?.tile } : {}), note: m.id, actor });
         surface.noteAgent(actor, `pressed ${hit.label} (${act})`);
         return { note: m.id, kind: "control", act, ...(r && typeof r === "object" ? r : {}) };
       }
