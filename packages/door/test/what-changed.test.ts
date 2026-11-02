@@ -108,6 +108,37 @@ describe.skipIf(!outliner)("what changed", () => {
     await expect(app.act({ action: "list.open", args: { n: 3 }, tile: tab.name, as: "test-agent" })).rejects.toThrow(/no tiles to open it in/);
   });
 
+  test("a desk saved with the retired built-in kind what-changed opens as the extension's tile: the manifest's replaces, resolved by the tile-kind registry (PIE-1514)", async () => {
+    const { Desk } = await import("../src/desk/desk");
+    const { bindExtensions } = await import("../src/extensions");
+    // A desk.json from before #1192: a leaf of the old built-in kind, as a saved tree keeps it.
+    const old = () => new Desk({ name: "old-desk", title: "old desk", layout: { root: { t: "leaf", kind: "what-changed", state: {} } as any } }) as any;
+    const desk = old();
+    app.push(desk);
+    try {
+      desk.render(desk.ctx);
+      const tile = () => desk.layoutGet().tiles[0];
+      expect(tile()).toMatchObject({ kind: "what-changed.list" });
+      expect(tile().unregistered).toBeUndefined();
+      // Its rows are the extension's, drawn by the service, under the extension's title.
+      const pane = desk.pane(tile().name);
+      const ids = () => (pane.describe().rows ?? []).map((r: any) => r.id) as string[];
+      await until(() => { pane.render(100, 10, true, desk); return ids().includes(notes.Hens!.id); }, "the rows drawn by the service", 15_000);
+      expect(tile().title).toBe("What changed");
+      // And saved again, it saves under the kind that serves it now: the old name is gone from the layout.
+      expect(JSON.stringify(desk.savedState())).not.toContain('"kind":"what-changed"');
+    } finally { app.pop(); }
+    // A restart: the layout loads before the extension list is read; the tile waits, then becomes the extension's.
+    bindExtensions(null);
+    const again = old();
+    try {
+      expect(again.layoutGet().tiles[0]).toMatchObject({ kind: "what-changed", unregistered: "what-changed" });
+      await app.loadExtensions();
+      expect(again.layoutGet().tiles[0]).toMatchObject({ kind: "what-changed.list" });
+      expect(again.layoutGet().tiles[0].unregistered).toBeUndefined();
+    } finally { again.dispose(); }
+  }, 40_000);
+
   test("the extension uninstalled: +N new still counts, changes.open opens the tab, and the tab says its kind is gone (never an install prompt)", async () => {
     const { unregisterTileKind, registerTileKind, tileKind, kindsChanged, UnavailableTile } = await import("../src/desk/tile-kinds");
     const kind = tileKind("what-changed.list")!;

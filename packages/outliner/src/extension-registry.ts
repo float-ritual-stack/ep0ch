@@ -129,6 +129,8 @@ export interface ExtensionTileKind {
   readonly args: NonNullable<ExtensionTile["args"]>;
   /** A tile saves its kind and its args in a screen; nothing else. */
   readonly save: "args";
+  /** Retired kinds this one serves in place of (PIE-1514): the door opens a saved tile of one as this kind. */
+  readonly replaces?: readonly string[];
 }
 
 /** A command-palette source (PIE-656), as clients bind it: outline-core's wire type. */
@@ -530,6 +532,7 @@ export class ExtensionRegistry {
       accepts: tile.accepts ?? [],
       args: tile.args ?? {},
       save: "args" as const,
+      ...(tile.replaces?.length ? { replaces: [...tile.replaces] } : {}),
     }));
   }
 
