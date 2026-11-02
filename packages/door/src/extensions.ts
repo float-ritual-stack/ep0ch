@@ -19,7 +19,7 @@ import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
 // The service announces a change (an `extensions` event): the list is read again and bound again, so an
 // extension added or removed while the door runs shows up or goes away without a restart.
 import { TXN } from "./surface/txn";
-import { INVITES } from "./surface/invite";
+import { INVITES, type Press } from "./surface/invite";
 import { useResourceProviders, type ResourceProviderEntry } from "./resource-providers";
 import { hostname } from "node:os";
 import type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource, ExtensionSettings } from "@ep0ch/outline-core/protocol";
@@ -181,7 +181,7 @@ export interface ExtensionActResult {
 }
 
 /** What an extension action needs from where it runs: the outline, and somewhere to say what happened. */
-export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; dispatch?: { act(req: { action: string; args?: Record<string, unknown>; tile?: string }, actor: Actor): Promise<unknown> }; noteInFront?(): string | null } }
+export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; dispatch?: { act(req: { action: string; args?: Record<string, unknown>; tile?: string }, actor: Actor): Promise<unknown>; requestIn(req: { action: string; args?: Record<string, unknown>; tile?: string }, at: Press | undefined): { action: string; args?: Record<string, unknown>; tile?: string } }; noteInFront?(): string | null } }
 /** `block`, `line`, `with`, and the action's declared arguments by name. */
 export interface ExtArgs { block?: string; line?: number; with?: string; [declared: string]: string | number | undefined }
 
@@ -537,7 +537,8 @@ export function connectScriptActions(ctx: ExtOn["ctx"]): void {
     const actor: Actor = call.actor.author === "user" ? { kind: "user" }
       : { kind: "agent", id: call.actor.actorId ?? call.actor.author, ...(run ? { run } : {}), ...(asked ? { for: asked } : {}), ...(call.invitation && INVITES.covers(call.invitation, "screen", run) ? { invitation: call.invitation } : {}) };
     // Always the run's own transaction: a script can't name another and so escape its end rule.
-    return ctx.dispatch.act({ action: call.action, args: { ...args, ...(run ? { txn: run } : {}) }, ...(typeof tile === "string" ? { tile } : {}) }, actor);
+    // Placed by the press that started it (PIE-1517): a step naming no tile acts where its press does, never the person's focus by default.
+    return ctx.dispatch.act(ctx.dispatch.requestIn({ action: call.action, args: { ...args, ...(run ? { txn: run } : {}) }, ...(typeof tile === "string" ? { tile } : {}) }, INVITES.pressOf(call.invitation)), actor);
   };
 }
 
