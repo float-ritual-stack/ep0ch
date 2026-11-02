@@ -9,7 +9,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../../src/app";
 import { Desk } from "../../src/desk/desk";
-import { WhatChangedPane } from "../../src/desk/what-changed";
+import type { ServiceTile } from "../../src/desk/tile-kinds";
 import { seedRace, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, type Seeded } from "../../src/showcase/seed";
 import { gardenRound, SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { localPtys, usePtyBackend, type PtyBackend } from "../../src/desk/pty-backend";
@@ -649,22 +649,24 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const second = await board.createBlock(null, "Another changed garden note", { kind: "agent", id: "garden-helper" });
     await until(() => app.whatChanged.list().some(r => r.blockId === second.id), "another change arrives");
     const drawer = app.drawer.desk!;
-    const list = app.drawer.tabs().find(t => t.kind === "what-changed")!.name;
+    const list = app.drawer.tabs().find(t => t.kind === "what-changed.list")!.name;
     const user = { kind: "user" } as const;
+    // The extension's tile (PIE-1506) draws once it's on screen: its rows are the lists' (list.pick, list.open).
+    await until(() => { (drawer.pane(list) as ServiceTile).render(80, 20, false, drawer); return ((drawer.pane(list) as ServiceTile).describe().rows ?? []).some(r => r.id === second.id); }, "the list's rows drawn", 15_000);
     await drawer.dispatch.act({ action: "tile.open", tile: list, args: { kind: "detail", name: "drawer-detail", note: seeded.notes.notebook.id } }, user);
     await drawer.dispatch.act({ action: "tile.link", tile: list, args: { to: "drawer-detail", verb: "select" } }, user);
-    await drawer.dispatch.act({ action: "changes.pick", tile: list, args: { id: note.id } }, user);
+    await drawer.dispatch.act({ action: "list.pick", tile: list, args: { id: note.id } }, user);
     await until(() => (drawer.pane("drawer-detail") as ReaderPane).msg?.id === note.id, "selection previews in the drawer detail");
     await drawer.dispatch.act({ action: "tile.link", tile: list, args: { verb: "select" } }, user);
     await drawer.dispatch.act({ action: "tile.link", tile: list, args: { to: "drawer-detail", verb: "open" } }, user);
-    await drawer.dispatch.act({ action: "changes.go", tile: list, args: { id: second.id } }, user);
+    await drawer.dispatch.act({ action: "list.open", tile: list, args: { id: second.id } }, user);
     expect((drawer.pane("drawer-detail") as ReaderPane).msg?.id).toBe(second.id);
     await drawer.dispatch.act({ action: "tile.link", tile: list, args: { to: "drawer-detail", verb: "alt" } }, user);
-    await drawer.dispatch.act({ action: "changes.go", tile: list, args: { id: note.id, fresh: true } }, user);
+    await drawer.dispatch.act({ action: "list.open", tile: list, args: { id: note.id, where: "new" } }, user);
     expect((drawer.pane("drawer-detail") as ReaderPane).msg?.id).toBe(note.id);
     const stage = S().stages.get(S().sel).top as Desk;
     await drawer.dispatch.act({ action: "tile.link", tile: list, args: { to: drawer.pathTo(stage.pane("reader")!), verb: "open" } }, user);
-    await drawer.dispatch.act({ action: "changes.go", tile: list, args: { id: second.id } }, user);
+    await drawer.dispatch.act({ action: "list.open", tile: list, args: { id: second.id } }, user);
     expect((stage.pane("reader") as ReaderPane).msg?.id).toBe(second.id);
     await drawer.dispatch.act({ action: "tile.close", tile: "drawer-detail" }, user);
   });
@@ -892,10 +894,13 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await gardenRound(board, seeded.notes);
     await until(() => app.whatChanged.count() === 4, "three notes and a comment counted", 8000);
     expect(bar()).toContain("+4 new");
-    // The list on the stage: the three, who and what, titles read; an agent's read changes nothing of the person's.
-    // (rows other tests' agents changed stay in the list, seen; the three logs are the unseen ones)
-    const logs = () => stage().pane("changes").rows().filter((r: any) => !r.seen) as { blockId: string; title?: string }[];
-    await until(() => { screen(); return logs().length === 4 && logs().every(r => r.title); }, "the rows with titles");
+    // The list on the stage (the extension's tile, PIE-1506): the three and the comment (not in the activity feed, so read
+    // by itself as one not looked at), who and what; an agent's read changes nothing of the person's. (rows other tests'
+    // agents changed stay in the list; these four are the unseen ones)
+    const NEWS = ["Bean row log", "Compost bay log", "Shed door log", "See HOME-042 for the plan."];
+    const rows = () => { screen(); return ((stage().pane("changes") as ServiceTile).describe().rows ?? []) as { id: string; text: string }[]; };
+    const logs = () => rows().filter(r => NEWS.includes(r.text));
+    await until(() => logs().length >= 4, "the rows drawn by the service", 15_000);
     const listed = await app.act({ action: "changes.list", args: {}, as: "test-agent" }) as any;
     expect(listed.changed.filter((r: any) => !r.seen).map((r: any) => [r.title, r.who, r.kind, r.seen]).sort()).toEqual([["Bean row log", "garden-agent", "edited", false], ["Compost bay log", "garden-agent", "edited", false], ["See HOME-042 for the plan.", "garden-agent", "commented", false], ["Shed door log", "garden-agent", "edited", false]]);
     expect(app.whatChanged.count()).toBe(4);
@@ -904,7 +909,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect(at).not.toBeNull();
     press({ kind: "mouse", action: "down", button: 0, x: at.from! + 1, y: 59 });
     press({ kind: "mouse", action: "up", button: 0, x: at.from! + 1, y: 59 });
-    await until(() => app.drawer.tabs().some(t => t.kind === "what-changed"), "the list in the drawer", 5000);
+    await until(() => app.drawer.tabs().some(t => t.kind === "what-changed.list"), "the list in the drawer", 5000);
     expect(app.drawer.open).toBe(true);
     expect(app.whatChanged.count()).toBe(0);
     expect(bar()).not.toContain("new");
@@ -912,11 +917,12 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "alt", ch: "a" });
     await until(() => !app.drawer.open, "drawer put away");
     // The comment is readable by its label in the list, the reader and the power bar.
-    const comment = stage().pane("changes").rows().find((r: any) => r.title === "See HOME-042 for the plan.");
+    // A row opens its note where opens land (the reader on the right): the comment's row opens it, with its subject.
+    const comment = rows().find(r => r.text === "See HOME-042 for the plan.")!;
     expect(comment).toBeDefined();
-    await stage().dispatch.press("changes.go", { id: comment.blockId }, "changes");
+    await stage().dispatch.press("list.open", { id: comment.id }, "changes");
     const reader = () => stage().pane("reader") as ReaderPane;
-    await until(() => reader().msg?.id === comment.blockId && screen().includes("on Bean row log"), "the comment and its subject");
+    await until(() => reader().msg?.id === comment.id && screen().includes("on Bean row log"), "the comment and its subject");
     expect(screen()).not.toContain(`((${seeded.notes.title.id}`);
     const barRows = await app.act({ action: "bar.open", args: { scope: "recent", query: "HOME-042" }, as: "test-agent" }) as any;
     expect(JSON.stringify(barRows)).toContain("See HOME-042 for the plan.");
@@ -937,41 +943,35 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
   }, 30_000);
 
 
-  test("the ^W panel's own group (PIE-1338): with what changed focused, the panel lists its keys first, in the accent; a click on d shows the change, never ^W d", async () => {
+  test("the ^W panel's own group (PIE-1338): with the links tile focused, the panel lists its keys first, in the accent; a click on v chooses its groups, never ^W v", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "changes" }, as: "test-agent" });
     await until(() => marks.changes!.every(m => screen().includes(m)), "the what-changed section");
     const stage = () => S().stages.get(S().sel).top as Desk;
-    const list = () => stage().pane("changes") as WhatChangedPane;
-    await until(() => { screen(); return list().rows().length > 0; }, "a change listed");
     if (S().focus !== "stage") press({ kind: "enter" });
-    await stage().dispatch.act({ action: "tile.focus", tile: "changes" }, { kind: "user" });
+    await stage().dispatch.act({ action: "tile.focus", tile: "links" }, { kind: "user" });
     // An agent: the tile's group first, its keys from the kind's actions with what each runs; nothing on screen.
     const seen = await app.act({ action: "keys.panel", tile: undefined, as: "test-agent" }) as any;
-    expect(seen.groups[0]).toMatchObject({ title: "this tile: changes", accent: true });
-    expect(seen.groups[0].keys).toContainEqual({ key: "d", cap: "d", label: "the change", action: "changes.diff" });
+    expect(seen.groups[0]).toMatchObject({ title: "this tile: links", accent: true });
+    expect(seen.groups[0].keys).toContainEqual({ key: "v", cap: "v", label: "choose its groups", action: "backlinks.groups" });
     expect(seen.groups[1].title).toBe("focus & move");
-    expect(screen()).not.toContain("this tile: changes");
+    expect(screen()).not.toContain("this tile: links");
     // The person: the panel, the tile's group at the top of its first column.
     await stage().dispatch.act({ action: "keys.panel" }, { kind: "user" });
-    await until(() => screen().includes("this tile: changes"), "the panel with the tile's group");
-    const rows = screen().split("\n"), title = rows.findIndex(l => l.includes("this tile: changes"));
-    expect(rows[title]!.indexOf("this tile: changes")).toBeLessThan(rows[title]!.indexOf("focus & move"));
-    // A click on d the change: the change under the selected row, as d in the tile does; ^W d (the dock) never runs.
-    const y = rows.findIndex(l => /\bd  the change\b/.test(l));
+    await until(() => screen().includes("this tile: links"), "the panel with the tile's group");
+    const rows = screen().split("\n"), title = rows.findIndex(l => l.includes("this tile: links"));
+    expect(rows[title]!.indexOf("this tile: links")).toBeLessThan(rows[title]!.indexOf("focus & move"));
+    // A click on v choose its groups: the groups' picker, as v in the tile does; ^W v never runs.
+    const y = rows.findIndex(l => /\bv  choose its groups\b/.test(l));
     expect(y).toBeGreaterThan(title);
-    const row = list().rows()[list().at]!;
-    expect(list().showing(row)).toBe(false);
     const ran: string[] = [], stop = traceActions(r => ran.push(r.name));
     try {
-      press({ kind: "mouse", action: "down", button: 0, x: rows[y]!.search(/\bd  the change\b/) + 1, y });
-      await until(() => list().showing(row), "the change shown by a click on its row");
+      press({ kind: "mouse", action: "down", button: 0, x: rows[y]!.search(/\bv  choose its groups\b/) + 1, y });
+      await until(() => screen().includes("groups this tile lists"), "the groups' picker by a click on its row");
     } finally { stop(); }
-    expect(ran).toContain("changes.diff");
-    expect(ran).not.toContain("tile.slide");
-    expect(screen()).not.toContain("this tile: changes");
-    await stage().dispatch.press("changes.diff", {}, "changes");
-    await until(() => !list().showing(row), "folded again");
+    expect(ran).toContain("backlinks.groups");
+    expect(screen()).not.toContain("this tile: links");
+    press({ kind: "esc" });
     if (S().focus === "stage") press({ kind: "esc" });
   }, 30_000);
 

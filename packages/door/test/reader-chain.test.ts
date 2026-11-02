@@ -2,7 +2,7 @@
 // current note), reader9's links open into reader10 (held), and opening into reader9 never moves reader10, whichever
 // tile the person's keys were last in. A scratch service; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
@@ -32,11 +32,12 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
     const m = await board.get(notes[name]!.id);
     notes[name] = await board.update(m!.id, text, m!.revision!, AGENT);
   };
-  /** The what-changed list's tab in the drawer, and its row for a note. */
-  const list = () => app.drawer.tabs().find(t => t.kind === "what-changed")!;
+  /** The what-changed list's tab in the drawer (the extension's tile, PIE-1506), and its row for a note. */
+  const list = () => app.drawer.tabs().find(t => t.kind === "what-changed.list")!;
   const listPane = () => (app.drawer as any).d.pane(list().name);
-  const rowFor = (name: string) => listPane().rows().findIndex((r: any) => r.blockId === notes[name]!.id) + 1;
-  const goInList = (name: string, fresh = false) => app.dispatch.press("changes.go", { n: rowFor(name), ...(fresh ? { fresh: true } : {}) }, list().name);
+  const listRows = () => { listPane().render(80, 20, false, (app.drawer as any).d); return (listPane().describe().rows ?? []) as { id: string }[]; };
+  const rowFor = (name: string) => listRows().findIndex(r => r.id === notes[name]!.id) + 1;
+  const goInList = (name: string, fresh = false) => app.dispatch.press("list.open", { n: rowFor(name), where: fresh ? "new" : "home" }, list().name);
 
   beforeAll(async () => {
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT"]) saved[k] = process.env[k];
@@ -44,6 +45,8 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
     const cat = join(scratch.root, "claude");
     writeFileSync(cat, "#!/bin/sh\nexec cat \"$@\"\n"); chmodSync(cat, 0o755);
     process.env.EP0CH_DAILY_AGENT = cat;
+    mkdirSync(join(scratch.workspace, "extensions"), { recursive: true });
+    cpSync(join(outliner!, "extensions", "what-changed"), join(scratch.workspace, "extensions", "what-changed"), { recursive: true });
     board = new SocketBoard(await scratch.start());
     await board.info();
     notes.hens = await board.createBlock(null, "Hens\nfirst text");
@@ -56,6 +59,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
     app = new App(term, board, Date.now(), () => {});
     app.whatChanged.outline = "scratch";
     board.subscribe(e => { heard.push(`${e.action}:${(e as any).change?.actor?.author}:${(e as any).change?.sequence}`); app.event(e); });
+    await app.loadExtensions(true);
     await app.whatChanged.seed(board);
     // The subscription is live once an event of the person's own (news to nobody) comes back.
     // The subscription is made in the background, so the first probe can go out before it is: send again until one is heard.
@@ -103,6 +107,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
     await app.act({ action: "changes.open", args: {}, as: "test-agent" });
     await setup();
     expect(list()).toBeDefined();
+    await until(() => ["hens", "beans", "gate"].every(name => rowFor(name) > 0), "the list's rows drawn by the service", 15_000);
     expect(shows()).toEqual({ r9: id("start"), r10: id("plan") });
     expect(reader("reader10").pinned).toBe(false);
     expect(reader("reader9").pinned).toBe(false);
@@ -192,7 +197,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
 
     test("an agent's ⏎ through act opens there too, and the person's keys stay", async () => {
       await act("tile.focus", {}, "reader10");
-      await app.dispatch.press("changes.go", { n: rowFor("beans") }, list().name);
+      await app.dispatch.press("list.open", { n: rowFor("beans") }, list().name);
       await until(() => showing("reader9") === id("beans"), "reader9 on beans");
       expect(get().focus).toBe("reader10");
     });

@@ -32,7 +32,8 @@ import { agentIn, agentOf, asSession, configsOf, cwdOf, pickSession, sessionComm
 import { existsSync, statSync } from "node:fs";
 import { basename, resolve as resolvePath } from "node:path";
 import { words } from "./text";
-import { WHAT_CHANGED_KIND_NAME, type WhatChangedPane } from "./desk/what-changed";
+import { changesArgs, followChanges, WHAT_CHANGED_INSTALL, WHAT_CHANGED_TILE } from "./desk/what-changed";
+import { ServiceTile, tileKind } from "./desk/tile-kinds";
 import { realTileDeps, tileOf, type TileOfAnswer, type TileProc } from "./tile-of";
 import { isBarKey } from "./shell-keys";
 import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, layerOrder, layersAbove, lockChipText, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
@@ -325,30 +326,38 @@ export class AgentDrawer {
   }
 
   /**
-   * The what-changed list (src/desk/what-changed.ts: the notes others changed since the person last looked) as a tab in
-   * the drawer, as `waiting` opens its own. The person's opening it is looking: what it holds is marked seen (the status
-   * bar's count goes to 0), while the list keeps marking those rows new. An agent's opens it behind the tab shown and
-   * never marks anything seen.
+   * The what-changed list (the what-changed extension's tile, PIE-1506, over the door's store in src/desk/what-changed.ts:
+   * the notes others changed since the person last looked) as a tab in the drawer, as `waiting` opens its own. The
+   * tile's args are the store's: `since` (where the list starts) and `unseen` (the rows that wear ●, kept while the tab
+   * is open). The person's opening it is looking: what it holds is marked seen (the status bar's count goes to 0),
+   * while the list keeps marking those rows new. An agent's opens it behind the tab shown and never marks anything seen.
    */
   async changes(actor: Actor): Promise<{ tile: string; changed: number; seen: boolean }> {
     const d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready");
     const store = this.host.ctx?.()?.whatChanged;
     if (!store) throw new ActionRefused("there is no outline here to have changed");
+    if (!tileKind(WHAT_CHANGED_TILE)) throw new ActionRefused(`the what-changed list is the what-changed extension's tile, and it isn't installed here (the status bar still counts ${store.count()} new): ${WHAT_CHANGED_INSTALL}`);
     const person = this.ctx(actor).standing;
     // Looking marks what is held seen: only once the changes since the kept position are in.
     await store.settled();
     if (person && !this.open) { this.offered = true; this.set(true, actor); }
-    const tile = this.tabs().find(t => t.kind === WHAT_CHANGED_KIND_NAME)?.name ?? (await d.openTile({ kind: WHAT_CHANGED_KIND_NAME }, this.tabBase(), "tabs", actor)).tile;
+    const had = this.tabs().find(t => t.kind === WHAT_CHANGED_TILE)?.name;
+    const tile = had ?? (await d.openTile({ kind: WHAT_CHANGED_TILE, name: "what-changed", state: changesArgs(store) }, this.tabBase(), "tabs", actor)).tile;
+    // The tab's args follow the store while it's there: the marks it keeps gain the new unseen rows, and a note made new
+    // or a comment (which the activity feed the rows come from doesn't list) is read by itself in the tile.
+    const pane = d.pane(tile);
+    if (pane instanceof ServiceTile && !this.changesFollowed.has(pane)) this.changesFollowed.set(pane, followChanges(pane, store));
     const changed = store.count();
     if (person) {
-      (d.pane(tile) as unknown as WhatChangedPane | undefined)?.keepFresh(store.unseenIds());
       if (actor.kind === "user") store.markSeen();
       this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(tile, actor); this.intoShown();
     }
     this.host.redraw();
     return { tile, changed, seen: person && actor.kind === "user" };
   }
+  /** The what-changed tiles following the store (each once; a closed tab's listener goes with the drawer). */
+  private readonly changesFollowed = new WeakMap<object, () => void>();
 
   /** The door this drawer is in (its outline, board and machine), or none. */
   ctxOfDoor() { return this.host.ctx?.(); }
@@ -1730,7 +1739,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     },
   }),
   "changes.open": def({
-    summary: "the what-changed list as a tab in the drawer: the notes others (agents, other clients, extensions when asked for) changed since the person last looked, newest first, with who, when and what, from the service's change feed. The person's pulls the drawer up and goes to it, and looking marks what it holds seen (the status bar's +N new goes to 0, kept per outline); an agent's opens it behind the tab shown and never marks anything seen (changes.list reads the same rows). Rows: changes.pick, changes.go (⏎, alt+⏎ in a new detail), changes.diff, changes.seen",
+    summary: "the what-changed list as a tab in the drawer: the notes others (agents, other clients, extensions when asked for) changed since the person last looked, newest first, with who, when and what, from the service's change feed. The list is the what-changed extension's tile (PIE-1506; refused with the install command when it isn't installed, the count still shows). The person's pulls the drawer up and goes to it, and looking marks what it holds seen (the status bar's +N new goes to 0, kept per outline); an agent's opens it behind the tab shown and never marks anything seen (changes.list reads the same rows). Rows: the lists' own, list.pick, list.open (⏎, alt+⏎ in a new detail), list.filter; changes.seen marks them seen",
     keys: "alt+o (on every screen), a click on the status bar's +N new",
     touches: "shape", replay: "ask",
     says: (out: { name?: string }) => `· opened what changed in the drawer (${out.name ?? "what-changed"})`,

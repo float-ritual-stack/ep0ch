@@ -847,7 +847,9 @@ const propsOf = (state: Record<string, unknown>): Record<string, string[]> => Ob
 function kindEntry(t: ExtensionTileKind, actions: ActionSet<Record<string, ExtArgs>, ExtTileOn>): TileKind {
   const { key } = kindKey(t.name, t.kind);
   const keyHint = t.actions.flatMap(a => (keyOf(a.key) ? [`${keyOf(a.key)} ${a.id}`] : []));
-  const shared = { kind: t.kind, noun: t.name, ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}), ...(t.policy ? { policy: t.policy } : {}), accepts: { notes: false, tiles: t.accepts ?? [] }, actions };
+  // `accepts` names the kinds that may join a tile of it as tabs or drops; an empty one (the manifest's default) leaves it
+  // open, as a built-in's does, so the drawer can open its lists as tabs beside an extension's tile.
+  const shared = { kind: t.kind, noun: t.name, ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}), ...(t.policy ? { policy: t.policy } : {}), accepts: { notes: false, ...(t.accepts?.length ? { tiles: t.accepts } : {}) }, actions };
   if (t.render) {
     const of = t.render;
     return serviceKind({

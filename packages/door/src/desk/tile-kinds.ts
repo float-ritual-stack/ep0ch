@@ -452,10 +452,14 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
     this.render_({ kind: this.kind, state: this.state, cols, rows, desk }).then(f => { this.frame = f; this.error = null; desk.redraw(); }, e => { this.error = e instanceof Error ? e.message : String(e); desk.redraw(); });
   }
   init(desk: DeskApi) { this.desk = desk; }
+  /** Its args changed (the drawer's changes.open on the tab there already): the next frame asks the service again. */
+  invalidate() { this.asked = ""; this.desk?.redraw(); }
   /** The outline changed: ask again once the burst is over (what the drawing read isn't known here; the service draws it cheaply). */
   onEvent(desk: DeskApi) { this.schedule.pause(() => { const [c, r] = this.asked.split("x").map(Number); if (c && r) this.refresh(desk, c, r); }); }
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
-    if (this.asked !== `${w}x${h}`) this.refresh(desk, w, h);
+    // Asked once, and again when the room changed for a frame drawn to fit it (lines); a view is laid out here at any
+    // width, so a tile drawn at two sizes in turn (a peek beside its own frame) never asks twice for it.
+    if (!this.asked || (this.asked !== `${w}x${h}` && this.frame?.view === undefined)) this.refresh(desk, w, h);
     if (this.error) return { lines: ["", `  the service couldn't draw ${this.kind}: ${this.error}`] };
     if (!this.frame) return { lines: ["", `  asking the service for ${this.kind}…`] };
     if (this.frame.view === undefined) { this.listNode = null; this.rowAt = []; return { lines: (this.frame.lines ?? []).slice(0, h) }; }
@@ -500,7 +504,8 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
           if (to.resourceRef) return desk.perform?.("open", { resource: to.resourceRef }, actor, this);
           const m = await desk.ctx.board.get(to.block!);
           if (!m) throw new ActionRefused(`${row.label}: its note ${to.block} is gone`);
-          desk.openFromTile(m, { from: this, link: true, reveal: true, ...(where === "new" ? { fresh: true } : {}), by: actor });
+          // In the drawer the open lands on the screen shown (a promise, refused when nothing there takes it): awaited, so the refusal is the caller's.
+          await (desk.openFromTile(m, { from: this, link: true, reveal: true, ...(where === "new" ? { fresh: true } : {}), by: actor }) as unknown as Promise<void> | void);
           desk.redraw();
           return { opened: m.id, title: row.label };
         }
@@ -635,7 +640,8 @@ export function serviceKind(o: { kind: TileKindName; about: string; noun?: strin
   }
   if (!prog) {
     const render = o.render ?? (async () => ({ lines: ["", `  ${o.kind} has nothing to draw with`] }));
-    return { ...base, previews: true, openArgs: ["state", ...(blockArg ? ["note"] : [])], defaults, make: s => new ServiceTile(o.kind, render, stateFrom(s), s.name ?? o.kind, o.keyHint),
+    // A drawn list in the drawer opens its rows on the screen shown (as the waiting and what-changed lists do), unless a wire says where.
+    return { ...base, previews: true, opensOnScreen: true, openArgs: ["state", ...(blockArg ? ["note"] : [])], defaults, make: s => new ServiceTile(o.kind, render, stateFrom(s), s.name ?? o.kind, o.keyHint),
       describe: (p, full) => ({ ...(p instanceof ServiceTile ? { args: p.state, ...(full ? p.describe() : {}) } : {}) }),
       peek: p => (p instanceof ServiceTile ? { [o.kind]: p.describe() } : {}) };
   }

@@ -6,27 +6,25 @@
 // Seen is the person's. Opening the list as the person marks what it holds seen (and the position is kept per
 // outline in the state dir, so a restart resumes from it); an agent's open, read or action never clears it.
 //
-// A tile kind (`what-changed`), so it's a tile like any other; `changes.open` (alt+o, a click on `+N new`) opens it as
-// a tab in the drawer, as the waiting-on-you list opens (src/desk/waiting-you.ts). Its rows are the kind's actions
-// (WHAT_CHANGED_ACTIONS): j k pick, ⏎ or a click opens the note where opens land, alt+⏎ (or an alt-click) in a new
-// detail, d shows the change itself (the note's earlier text, block.revisions, against what it became).
+// The list itself is the `what-changed` extension's tile (PIE-1506, outliner/extensions/what-changed: a render script
+// over tools.outline_changes, drawn as a service tile): `changes.open` (alt+o, a click on `+N new`, src/drawer.ts)
+// opens it as a tab in the drawer with `since` and `unseen` from this store, as the waiting-on-you list opens. The
+// door keeps what only it knows: the count, the seen position, and the one revision diff (revisionDiff) the reader's
+// revision compare draws.
 import { subject } from "../board";
-import { C, dim, fg, pad, RESET, selectedRow } from "../style";
-import { ch, isDown, isUp, type Key } from "../term";
-import { ago } from "../text";
-import { pressOn, RowView } from "../scroll";
-import { ActionRefused, actionSet, def } from "../surface/actions";
+import { C, fg } from "../style";
+import { ActionRefused } from "../surface/actions";
 import { diffRows } from "../unsent";
 import { readState, writeState } from "../state";
-import { authorName, type Actor, type Change, type OutlineEvent, type SocketBoard } from "../socket";
+import type { Change, OutlineEvent, SocketBoard } from "../socket";
 import type { BlockRevisionEntry, BlockRevisions } from "@ep0ch/outline-core/protocol";
-import type { DeskApi, Pane, PaneView } from "./panes";
-import type { KindHost, TileKind } from "./tile-kinds";
-import type { RowPress } from "../scroll";
 import { OutlineStore } from "../outline-store";
 import { prop } from "../props";
 
-export const WHAT_CHANGED_KIND_NAME = "what-changed";
+/** The list's tile kind: the what-changed extension's (`<extension>.<kind>`). */
+export const WHAT_CHANGED_TILE = "what-changed.list";
+/** How the extension is installed when it isn't (said by changes.open). */
+export const WHAT_CHANGED_INSTALL = "ep0ch act extensions.install id=what-changed";
 const SEEN_FILE = "changes-seen.json";
 /** How many notes the list keeps (the newest). */
 const KEEP = 200;
@@ -154,6 +152,14 @@ export class WhatChanged extends OutlineStore {
 
   /** The ids of the notes not yet seen (taken just before the person's look marks them). */
   unseenIds(): string[] { return this.list().filter(r => !r.seen).map(r => r.blockId); }
+  /**
+   * Where the list starts (the extension's `since`): a little before the oldest change held (a change is recorded in the
+   * feed after its block's edit time, which is what the activity the rows come from carries), else a week ago.
+   */
+  since(): string {
+    const oldest = Math.min(...[...this.rows.values()].map(r => r.at));
+    return new Date(Number.isFinite(oldest) ? oldest - 2000 : Date.now() - 7 * 24 * 3600_000).toISOString();
+  }
 
   /** The rows shown, newest first (machinery and extension writes only when asked for). */
   list(): ChangedRow[] {
@@ -200,20 +206,30 @@ export class WhatChanged extends OutlineStore {
   }
 }
 
+/** What the extension's tile draws from (its args, PIE-1506): where the list starts, and the rows that wear ●. */
+export function changesArgs(store: WhatChanged, keep: string[] = []): { since: string; unseen: string; machinery?: string } {
+  return { since: store.since(), unseen: [...new Set([...keep, ...store.unseenIds()])].join(","), ...(store.showMachinery ? { machinery: "show" } : {}) };
+}
+
+/**
+ * Keep a what-changed tile's args in step with the store while it's open: what arrives unseen reaches it (a note made
+ * new or a comment, which the activity feed the rows come from doesn't list, is read by itself in the tile), and the
+ * marks it keeps gain the new ones. Returns the unsubscribe.
+ */
+export function followChanges(tile: { state: Record<string, unknown>; invalidate(): void }, store: WhatChanged): () => void {
+  const sync = () => {
+    const next = changesArgs(store, String(tile.state.unseen ?? "").split(",").filter(Boolean));
+    if (next.unseen === tile.state.unseen && next.since === tile.state.since && (next.machinery ?? "") === (tile.state.machinery ?? "")) return;
+    Object.assign(tile.state, next);
+    tile.invalidate();
+  };
+  sync();
+  return store.subscribe(sync);
+}
+
 /** A row as `peek` and the actions give it: its place (from 1), the note, who, what and when. */
 export function rowFacts(r: ChangedRow, n: number): Record<string, unknown> {
   return { n, id: r.blockId, title: r.title ?? null, ...(r.workId ? { workId: r.workId } : {}), who: r.who, agent: r.agent, kind: r.kind, created: r.created, at: new Date(r.at).toISOString(), seen: r.seen, ...(r.revision !== undefined ? { revision: r.revision } : {}) };
-}
-
-/** A change as diff rows: the note's text before it and after, from the revisions the service keeps (block.revisions). */
-export async function changeDiff(board: Pick<SocketBoard, "get" | "revisions" | "revisionText">, r: ChangedRow): Promise<string[]> {
-  if (r.kind === "trashed" || r.kind === "moved" || r.kind === "reordered") return [`(${r.kind}: no text changed)`];
-  const list = await board.revisions(r.blockId);
-  const after = r.revision ?? list.revision;
-  const earlier = list.revisions.find(x => x.revision < after);
-  if (r.created && !earlier) return (await textAt(board, list, after)).split("\n").map(l => `+ ${l}`);
-  if (!earlier) return ["(no earlier text is kept for this note)"];
-  return (await revisionDiff(board, r.blockId, earlier.revision, after, list)).rows;
 }
 
 /** A revision's text: the note's own when it's the current one, else the service's kept text (block.revisions). */
@@ -228,7 +244,7 @@ export interface RevisionDiff { from: BlockRevisionEntry; to: BlockRevisionEntry
 
 /**
  * Revision `from` against `to` (PIE-1433), or, left out, against the next revision kept after it; the newest is compared
- * with itself (nothing after it). What-changed's `d` and the reader's revision compare share it: one diff.
+ * with itself (nothing after it). The reader's revision compare draws it: the one diff.
  */
 export async function revisionDiff(board: Pick<SocketBoard, "get" | "revisions" | "revisionText">, blockId: string, from: number, to?: number, list?: BlockRevisions): Promise<RevisionDiff> {
   list ??= await board.revisions(blockId);
@@ -240,215 +256,5 @@ export async function revisionDiff(board: Pick<SocketBoard, "get" | "revisions" 
   return { from: a, to: b, rows: diffRows(await textAt(board, list, a.revision), await textAt(board, list, b.revision)), current: list.revision, list };
 }
 
-/** A diff row's ink: `+` added, `-` taken out, the rest as it was. The what-changed list and the reader's revision compare draw with it. */
+/** A diff row's ink: `+` added, `-` taken out, the rest as it was. The reader's revision compare draws with it. */
 export const diffInk = (row: string) => (row.startsWith("+") ? fg(C.lgreen) : row.startsWith("-") ? fg(C.lred) : fg(C.grey));
-
-const MAX_DIFF = 40;
-
-export class WhatChangedPane implements Pane {
-  readonly kind = WHAT_CHANGED_KIND_NAME;
-  /** The row picked (0 is the first). */
-  at = 0;
-  private view = new RowView();
-  /** The notes whose change is shown, with its rows (or "…" while it's read). */
-  private diffs = new Map<string, string[]>();
-  private keyOf(r: ChangedRow) { return `${r.blockId}@${r.revision ?? r.sequence}`; }
-  private store: WhatChanged | null = null;
-  /** The notes that were unseen when the person opened the list: they keep their mark while it's open, though they're seen now. */
-  private fresh = new Set<string>();
-  private board: SocketBoard | null = null;
-
-  rows(): ChangedRow[] { return this.store?.list() ?? []; }
-  title() { const n = this.store?.count() ?? 0; return n ? `what changed · ${n} new` : "what changed"; }
-  hint() { return "j k pick · click selects · ⏎ opens · alt+⏎ alt-opens · d the change · x seen"; }
-  init(desk: DeskApi) {
-    const door = desk.ctx as unknown as { whatChanged?: WhatChanged; board: SocketBoard };
-    this.store = door.whatChanged ?? null;
-    this.board = door.board;
-    void this.store?.titles(door.board);
-  }
-
-  /** Keep the mark on these notes: they were new when the list was opened. */
-  keepFresh(ids: string[]) { for (const id of ids) this.fresh.add(id); }
-  isNew(r: ChangedRow) { return !r.seen || this.fresh.has(r.blockId); }
-
-  /** A row's diff, read once (the first look asks the service for the revisions). */
-  async diff(r: ChangedRow, desk: DeskApi): Promise<string[]> {
-    const had = this.diffs.get(this.keyOf(r));
-    if (had) return had;
-    this.diffs.set(this.keyOf(r), ["…"]);
-    let lines: string[];
-    try { lines = await changeDiff(this.board!, r); } catch (e) { lines = [`(${e instanceof Error ? e.message : String(e)})`]; }
-    this.diffs.set(this.keyOf(r), lines.slice(0, MAX_DIFF).concat(lines.length > MAX_DIFF ? [`… ${lines.length - MAX_DIFF} more lines`] : []));
-    desk.redraw();
-    return this.diffs.get(this.keyOf(r))!;
-  }
-  /** Show or fold a row's diff. */
-  fold(r: ChangedRow) { if (this.diffs.has(this.keyOf(r))) this.diffs.delete(this.keyOf(r)); }
-  showing(r: ChangedRow) { return this.diffs.has(this.keyOf(r)); }
-
-  private loadingTitles = false;
-
-  render(w: number, h: number, focused: boolean): PaneView {
-    const rows = this.rows();
-    // A note changed since the list was opened: its title is read when it first shows.
-    if (this.store && this.board && !this.loadingTitles && rows.some(r => r.title === undefined || r.retitle)) {
-      this.loadingTitles = true;
-      void this.store.titles(this.board).finally(() => { this.loadingTitles = false; });
-    }
-    if (!rows.length) {
-      return { lines: [fg(C.white) + "Nothing has changed since you looked." + RESET, "", fg(C.grey) + pad("Notes an agent, another client or an extension changes show here, newest first, and the status bar counts the ones you haven't seen.", w) + RESET] };
-    }
-    this.at = Math.min(Math.max(0, this.at), rows.length - 1);
-    // One display line per row, then its diff lines: the view is placed in display lines.
-    const lines: { text: string; row: number }[] = [];
-    rows.forEach((r, n) => {
-      const isNew = this.isNew(r), mark = isNew ? "●" : " ", title = r.title ?? "…", age = ago(r.at).padStart(4);
-      const tag = r.ext ? "ext" : r.machine ? "machine" : r.agent ? "agent" : "";
-      const who = `${authorName(r.who)}${tag && !r.who.startsWith(tag) ? ` (${tag})` : ""}`;
-      if (n === this.at) lines.push({ row: n, text: selectedRow(` ${mark} ${title} · ${who} · ${r.kind}  ${age}`, w, focused) });
-      else lines.push({ row: n, text: pad(` ${isNew ? fg(C.yellow) + mark : dim(mark)} ${fg(C.lcyan)}${title}${fg(C.dark)} · ${r.agent ? fg(C.lmagenta) : fg(C.grey)}${who}${fg(C.dark)} · ${fg(C.grey)}${r.kind}  ${dim(age)}`, w) + RESET });
-      for (const d of this.diffs.get(this.keyOf(r)) ?? []) lines.push({ row: n, text: pad(`    ${diffInk(d)}${d}`, w) + RESET });
-    });
-    const first = lines.findIndex(l => l.row === this.at), last = lines.findLastIndex(l => l.row === this.at);
-    this.view.place(first, lines.length, h, [first, last]);
-    return { lines: lines.slice(this.view.top, this.view.top + h).map(l => l.text) };
-  }
-
-  /** Run one of its actions as the person, a refusal said on screen. */
-  private run(desk: DeskApi, action: string, args: Record<string, unknown> = {}) { void desk.press?.(this, WHAT_CHANGED_ACTIONS, action, args); }
-
-  key(k: Key, desk: DeskApi): boolean {
-    const n = this.rows().length;
-    if (isUp(k)) { if (this.at > 0) this.run(desk, "changes.pick", { n: this.at }); return true; }
-    if (isDown(k)) { if (this.at + 1 < n) this.run(desk, "changes.pick", { n: this.at + 2 }); return true; }
-    if (k.kind === "enter" && n) { this.run(desk, "changes.go", { n: this.at + 1 }); return true; }
-    if (k.kind === "alt-enter" && n) { this.run(desk, "changes.go", { n: this.at + 1, fresh: true }); return true; }
-    if (ch(k) === "d" && n) { this.run(desk, "changes.diff", { n: this.at + 1 }); return true; }
-    if (ch(k) === "x" && n) { this.run(desk, "changes.seen"); return true; }
-    return false;
-  }
-
-  /** The row at screen line `y`: a diff line belongs to its row. */
-  private rowAt(y: number): number {
-    const rows = this.rows();
-    let line = 0;
-    for (let n = 0; n < rows.length; n++) {
-      const size = 1 + (this.diffs.get(this.keyOf(rows[n]!))?.length ?? 0);
-      if (y + this.view.top < line + size) return n;
-      line += size;
-    }
-    return -1;
-  }
-
-  /** A press as the keys escalate: select, a double click opens (⏎), an alt-, ctrl- or middle-click opens in a new detail (alt+⏎). */
-  mouse(k: Extract<Key, { kind: "mouse" }>, _x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
-    if (k.action === "wheel-up" || k.action === "wheel-down") { this.key({ kind: k.action === "wheel-up" ? "up" : "down" }, desk); return true; }
-    if (k.action !== "down") return true;
-    const n = this.rowAt(y);
-    if (n < 0) return true;
-    const gesture = this.view.press(n, pressOn(k, press, n === this.at));
-    if (gesture === "open") this.run(desk, "changes.go", { n: n + 1 });
-    else if (gesture === "fresh") this.run(desk, "changes.go", { n: n + 1, fresh: true });
-    else this.run(desk, "changes.pick", { n: n + 1 });
-    return true;
-  }
-
-  describe() { return this.rows().map((r, i) => ({ ...rowFacts(r, i + 1), diff: this.diffs.get(this.keyOf(r)) ?? null })); }
-}
-
-/** The row at `n` (from 1), or the one for the note `id`; refused with what there is. */
-function rowOf(list: WhatChangedPane, a: { n?: number; id?: string }): { row: ChangedRow; n: number } {
-  const rows = list.rows();
-  if (!rows.length) throw new ActionRefused("nothing has changed since the person looked");
-  const i = a.id !== undefined ? rows.findIndex(r => r.blockId.startsWith(a.id!)) : (a.n ?? list.at + 1) - 1;
-  if (i < 0 || i >= rows.length) throw new ActionRefused(a.id !== undefined ? `no change to ${a.id} is listed` : `pick 1 to ${rows.length}`);
-  return { row: rows[i]!, n: i + 1 };
-}
-
-const which = {
-  n: { type: "number", optional: true, about: "its place in the list, from 1 (peek lists them)" },
-  id: { type: "string", optional: true, about: "the note's id (or its start), instead of n" },
-} as const;
-
-/** Its rows' group in the tile menu and the ^W panel's own group (PIE-1338). */
-const GROUP = "What changed";
-
-/** The list's actions: the keys, a click and `act` call the same code. */
-export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
-  "changes.pick": def({
-    summary: "pick a row of the what-changed list (n from 1, or id=<the note's id>)",
-    keys: [{ keys: "j k ↑ ↓", does: "pick a row" }, { keys: "wheel", does: "pick a row" }, { keys: "click", does: "on a row" }],
-    touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's row (peek lists the rows)",
-    args: which,
-    examples: [
-      { act: "changes.pick n=1", does: "selects the newest change in the list" },
-    ],
-    async run(a, { pane, desk }, actor) {
-      const w = pane as WhatChangedPane, { row, n } = rowOf(w, a);
-      w.at = n - 1;
-      const m = await desk.ctx.board.get(row.blockId);
-      if (m && w.at === n - 1) desk.showFrom?.(w, m, actor);
-      desk.redraw();
-      return { n, id: row.blockId };
-    },
-  }),
-  "changes.go": def({
-    summary: "open the note a row of the what-changed list is about (n from 1, or id=), where opens land; fresh=true uses its alt wire, as alt+⏎ does. An agent's open never takes the person's focus or keys",
-    keys: "⏎, a double click · alt+⏎, an alt-click",
-    menu: { label: "open its note", group: GROUP },
-    touches: "nothing", replay: "safe", says: r => `opened ${r.title ?? r.id}`,
-    args: { ...which, fresh: { type: "boolean", optional: true, about: "use its alt wire, as alt+⏎ does" } },
-    examples: [
-      { act: "changes.go n=1", does: "opens the note the newest change is about, where opens land" },
-      { act: "changes.go id=7d9a1f40 fresh=true", does: "opens that note in a new detail, as alt+enter does" },
-    ],
-    async run({ fresh, ...a }, { pane, desk, standing }, actor: Actor) {
-      const w = pane as WhatChangedPane, { row, n } = rowOf(w, a);
-      const m = await desk.ctx.board.get(row.blockId);
-      if (!m) throw new ActionRefused("that note is gone (trashed notes open from the trash)");
-      if (standing) w.at = n - 1;
-      await desk.openFromTile(m, { from: w, link: true, ...(fresh ? { fresh: true } : {}), by: actor });
-      desk.redraw();
-      return { n, id: row.blockId, title: subject(m) };
-    },
-  }),
-  "changes.diff": def({
-    summary: "show or fold the change itself under a row (n from 1, or id=): the note's earlier text against what it became, from the revisions the service keeps (block.revisions). An agent's reads the lines without changing what the person has open",
-    keys: "d",
-    menu: { label: "the change", group: GROUP },
-    touches: "tile", while: "typing", replay: "safe", way: "an agent reads the diff from the answer; the person's rows stay as they are",
-    args: which,
-    examples: [
-      { act: "changes.diff n=2", does: "shows the note's earlier text against what it became, under row 2" },
-    ],
-    async run(a, { pane, desk, standing }, actor: Actor) {
-      const w = pane as WhatChangedPane, { row, n } = rowOf(w, a);
-      if (!standing) return { n, id: row.blockId, diff: await changeDiff(desk.ctx.board, row) };
-      if (w.showing(row)) { w.fold(row); desk.redraw(); return { n, id: row.blockId, diff: null }; }
-      return { n, id: row.blockId, diff: await w.diff(row, desk) };
-    },
-  }),
-  "changes.seen": def({
-    summary: "mark everything in the what-changed list seen: the status bar's count goes to 0, and the position is kept for this outline. The person's only: an agent reading, opening or acting on notes never clears what they haven't looked at",
-    keys: "x",
-    menu: { label: "all seen", group: GROUP },
-    touches: "screen", replay: "ask", says: () => "marked what changed seen",
-    person: "seen is the person's: an agent reads the rows (changes.list, peek) and never clears them",
-    args: {},
-    run(_, { desk }) {
-      const store = (desk.ctx as unknown as { whatChanged?: WhatChanged }).whatChanged;
-      store?.markSeen();
-      desk.redraw();
-      return { seenTo: store?.seenTo ?? 0 };
-    },
-  }),
-});
-
-/** The list as a tile kind: its rows, its actions, and what `peek` says. */
-export const WHAT_CHANGED_KIND: TileKind = {
-  kind: WHAT_CHANGED_KIND_NAME, previews: true, opensOnScreen: true, about: "the notes others changed since you last looked: who, when, what (from the service's change feed)", noun: "the what-changed list",
-  make: () => new WhatChangedPane(), actions: WHAT_CHANGED_ACTIONS,
-  peek: p => ({ whatChanged: (p as WhatChangedPane).describe() }),
-  describe: (p, full) => { const rows = (p as WhatChangedPane).describe(); return full ? { rows } : { count: rows.length }; },
-};

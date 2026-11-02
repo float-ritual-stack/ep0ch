@@ -1442,9 +1442,15 @@ secret reference.
 
 ## Kind 4: a whole tile
 
-**What it is.** A program that is a tile: like nvim or the daily agent in a terminal tile, but registered as a
-tile kind of its own (`tarot.reading`). The door's open tile-kind registry (PIE-505) makes, binds and
-saves it like any built-in kind; the engine never switches on its name.
+**What it is.** A tile of its own kind (`tarot.reading`, `what-changed.list`), registered in the door's open
+tile-kind registry (PIE-505), which makes, binds and saves it like any built-in kind; the engine never switches on
+its name. A tile is one of three things (PIE-507, PIE-1506), exactly one per `tiles[]` entry:
+
+| Form | `tiles[]` field | What the door makes |
+|---|---|---|
+| a program | `"run": ["bun", "tile.ts"]` | a terminal tile running it (like nvim or the daily agent), its args appended as `--name=value` |
+| drawn rows | `"render": "<a script in scripts[]>"` | a service-drawn tile: the service runs that `// ep0ch-script mode=render` file with the tile's args as `props` and the door draws its view with its own primitives; a `list` in it is the door's one list (j k ⏎ alt+⏎, a click, the wheel, `/` filters, `list.*` for agents), the picked row's note the tile's subject |
+| a view | `"view": "<a query in the views' grammar>"` | the door's query tile (PIE-511) under this kind: the notes the query lists as cards, j k ⏎ r, `query.*`; `view=<a saved view's id>` at open time lists that instead |
 
 **The contract.** A `tiles[]` entry:
 
@@ -1458,6 +1464,22 @@ saves it like any built-in kind; the engine never switches on its name.
   "args": { "block": { "type": "block", "description": "Where k keeps a reading" } }
 }
 ```
+
+A drawn one, and a view, from the same manifest shape:
+
+```json
+{ "kind": "list", "name": "Rota", "render": "rota-list", "actions": ["done"],
+  "args": { "which": { "type": "string", "description": "which notes: a query" } } }
+{ "kind": "due", "name": "Due", "view": "type=chore", "actions": ["done"] }
+```
+
+- `args` are what a tile is opened and saved with: `tile.open kind=rota.list with='{"which":"type=chore"}'` (the
+  same `with=` the actions take), and a `block` arg is the note shown where it's opened (`note=`). A drawn tile gets
+  them as `props` (`props.which[0]`).
+- `actions` (ids from `actions[]`) bind in every tile of the extension's kinds: one on a `block` acts on the picked
+  row's note (a drawn list's, a view's card), or on a program tile's `block` arg; `tile:<kind>` ones on the tile.
+- A drawn tile asks the service again when the outline changes (after a pause) and when it's opened again with new
+  args; the render runs with no note (`this` throws), only `props`, reads and queries.
 
 ### What the door's registry consumes
 
@@ -1484,15 +1506,18 @@ saves it like any built-in kind; the engine never switches on its name.
 }
 ```
 
+A drawn tile carries `render: "<script name>"` instead of `command`, a view `view: "<query>"`; the door asks
+`scripts.render { of, props, deadlineMs }` with no `blockId` for the first.
+
 | Registry entry | From |
 |---|---|
 | name | `kind` (`<extension>.<kind>`, unique) and `name` |
-| how to make it | a pty tile running `command` in `cwd` with `env`, plus the door's own `EP0CH_CONTROL`, and the tile's args appended as `--name=value` |
-| its actions | `actions`: bind each as an `ActionDef` named `name` with its `key`; it runs `extensions.act` (`extension`, `extensionAction: id`, and the tile's `block` arg as `blockId` when `on` is `block`) |
+| how to make it | `command`: a pty tile running it in `cwd` with `env`, plus the door's own `EP0CH_CONTROL`, and the tile's args appended as `--name=value`; `render`: a `ServiceTile` drawing the script's view; `view`: the query kind's tile |
+| its actions | `actions`: bind each as an `ActionDef` named `name` with its `key`; it runs `extensions.act` (`extension`, `extensionAction: id`, and the tile's block (its `block` arg, or the picked row's note) as `blockId` when `on` is `block`) |
 | default policy | `policy` (the layout design's per-container settings) |
 | what it accepts | `accepts` (tile kinds it takes as drops; empty: none) |
 | how it saves | `save: "args"`: a screen stores the kind and its args, nothing else |
-| where it can run | `host`: the command is a path on the service's host. A door on another machine shows the kind as unavailable. |
+| where it can run | `host`: a program's command is a path on the service's host, so a door on another machine shows the kind as unavailable; a drawn tile and a view run anywhere the service answers |
 
 When `extensions.changed` arrives the door reads `tileKinds` again: a removed extension's tiles say
 their kind is gone instead of running something else.
@@ -1515,8 +1540,16 @@ same action with no tile open.
 4. The door lists `pomodoro.timer` as a tile kind. An agent can log a session with no tile:
    `outliner ext act pomodoro log --block <journal id> --arg task=review`.
 
-[tarot](../../extensions/tarot) is the canonical one; its README shows the program's key loop and
+[tarot](../../extensions/tarot) is the canonical program; its README shows the program's key loop and
 socket call.
+
+**Worked example: "a tile that lists what changed since I looked".** [what-changed](../../extensions/what-changed)
+is the canonical drawn tile (PIE-1506): `scripts/what-changed.js` (`// ep0ch-script mode=render`) asks
+`tools.outline_changes({ since: props.since[0] })` and returns `view.list({ rows })`, each row `{ id, label, detail,
+mark, do: { open: id } }`; `extension.json` declares `tiles: [{ kind: "list", name: "What changed", render:
+"what-changed", args: { since, unseen, machinery } }]`. The door's `changes.open` (alt+o) opens `what-changed.list` in
+the drawer with `since` and `unseen` from its own count; `^W o W` opens one on the desk; a `what-changed:: since=…`
+line draws the same list in a note. No door code draws the rows.
 
 ## Extensions as programs
 

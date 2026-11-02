@@ -779,6 +779,8 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.brief = await make(notes.root.id, briefText({ lanes, cards, hub: notes.hub, gardenView: notes.gardenView }), SEED_AGENT);
   // The example rules, last: a trigger starts from what matches when it's installed, so nothing seeded before is stamped.
   const rulesFrom = opts.outliner ?? opts.rulesFrom;
+  // The what-changed list is an extension's tile (PIE-1506): installed with the examples, so the changes section has it.
+  if (opts.ticketsConfig && rulesFrom) installExamples(opts.ticketsConfig, rulesFrom, ["what-changed"]);
   if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, [...RULE_EXAMPLES, ...PROGRAM_EXAMPLES, ...CARD_EXAMPLES, ...FORM_EXAMPLES, ...VIEW_EXAMPLES, ...SOURCE_EXAMPLES]).length) {
     const end = Date.now() + 10_000;
     while (Date.now() < end) {
