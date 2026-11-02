@@ -125,6 +125,8 @@ export interface HostFacts {
   protocol?: number;
   /** The service unit that runs it, when there is one. Install restarts the host through it; it never edits it. */
   unit: HostUnit | null;
+  /** A unit file already at the name install would write (another folder's host, or not a host at all): install never overwrites it. */
+  unitTaken?: string | null;
   /** The commit the checkout was at when the unit's process started (HEAD's reflog); null or absent when unknown. */
   runs?: string | null;
 }

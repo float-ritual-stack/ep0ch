@@ -31,6 +31,8 @@ export const marks: Record<string, string[]> = {
   twins: ["Fix the back gate latch", "Queued"],
   "at-revision": ["Jev's suggestions", "Each finding, newest first", "Roof on"],
   "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],
+  // A day plan whose sections come from one ::use (PIE-1492): the template's headings and the note's own tail.
+  "template-steps": ["Garden day plan", "After the plan", "Close the gate."],
   "search-sure": ["Search evals", "EVERY RUN, NEWEST FIRST", "Cases by source"],
   // Four readers on one note, each writing a comment in another place (PIE-770).
   composer: ["Writing in the margin", "[inline ▸]", "[floating ▸]", "[split ▸]", "[popup ▸]"],

@@ -254,7 +254,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
       // tile.open by an agent, with state the service gets back.
       await act("tile.open", { kind: "reader", name: "spare" }, "middle");
       expect(tile("spare").kind).toBe("reader");
-      await expect(act("tile.open", { kind: "compost.heap" }, "middle")).rejects.toThrow(/kind is tree, reader, .*plot\.beds, not compost\.heap/);
+      await expect(act("tile.open", { kind: "compost.heap" }, "middle")).rejects.toThrow(/kind is .*tree, reader, .*plot\.beds, not compost\.heap/);
     } finally {
       await mine("tile.close", {}, "plot.beds").catch(() => {});
       unregisterTileKind("plot.beds");

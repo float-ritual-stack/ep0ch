@@ -191,14 +191,14 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     rmSync(join(mirrorsFolder, ".restic"), { recursive: true, force: true });
   }, 30_000);
 
-  /** A copy as it was at schema 6 (before revision tasks), at `path`. */
-  const asSchema6 = (name: string, path: string) => {
+  /** A copy one schema behind this build (before create requests, 0008), at `path`. */
+  const asSchemaBehind = (name: string, path: string) => {
     rmSync(path, { force: true });
     const source = new Database(join(home.outlines, `${name}.sqlite`), { readonly: true });
     try { source.run("VACUUM INTO ?", [path]); } finally { source.close(); }
     const db = new Database(path);
     try {
-      db.exec("ALTER TABLE block_revisions DROP COLUMN task_id;");
+      db.exec("DROP TABLE create_requests;");
       db.run(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
     } finally { db.close(); }
   };
@@ -208,7 +208,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     const dir = join(here, "behind");
     mkdirSync(join(dir, FAR), { recursive: true });
     const file = join(dir, FAR, "garden-notes.sqlite");
-    asSchema6("garden-notes", file);
+    asSchemaBehind("garden-notes", file);
     const mirror = new OutlineMirror("garden-notes", FAR, dir, line => logs.push(line), () => clock, async () => null);
     try {
       const read = await mirror.read();
@@ -227,7 +227,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     const dir = join(here, "ancient");
     mkdirSync(join(dir, FAR), { recursive: true });
     const file = join(dir, FAR, "garden-notes.sqlite");
-    asSchema6("garden-notes", file);
+    asSchemaBehind("garden-notes", file);
     await garden.configureMcpAccess("full");
     try {
       const copy = new Database(file); copy.run("PRAGMA user_version = 3"); copy.close();
@@ -251,7 +251,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     mkdirSync(join(dir, FAR), { recursive: true });
     mkdirSync(join(dir, ".restic", FAR), { recursive: true });
     const follower = join(dir, FAR, "garden-notes.sqlite"), restic = join(dir, ".restic", FAR, "garden-notes.sqlite");
-    asSchema6("garden-notes", follower);
+    asSchemaBehind("garden-notes", follower);
     const current = new Database(join(home.outlines, "garden-notes.sqlite"), { readonly: true });
     try { current.run("VACUUM INTO ?", [restic]); } finally { current.close(); }
     const mirror = new OutlineMirror("garden-notes", FAR, dir, line => logs.push(line), () => clock, async () => null);
@@ -263,7 +263,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
       rmSync(follower); rmSync(restic);
       const f = new Database(join(home.outlines, "garden-notes.sqlite"), { readonly: true });
       try { f.run("VACUUM INTO ?", [follower]); } finally { f.close(); }
-      asSchema6("garden-notes", restic);
+      asSchemaBehind("garden-notes", restic);
       clock += 16_000;
       expect((await mirror.read() as { copy: { file: string } }).copy.file).toBe(`${FAR}/garden-notes.sqlite`);
     } finally { await mirror.close(); }

@@ -68,7 +68,9 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     expect(groups).toContain("Note");
     const by = (action: string) => out.rows.find(r => r.action === action);
     expect(by("tile.close")).toMatchObject({ label: "close", key: "ctrl+w x", tile: expect.stringMatching(/^t-/) });
-    expect(by("tile.float")).toMatchObject({ label: "float", key: "ctrl+w f" });
+    // tile.float has two rows since the glass (#1149): "keep on the glass" (to=glass) and the plain float.
+    expect(out.rows.find(r => r.action === "tile.float" && r.label === "float")).toMatchObject({ label: "float", key: "ctrl+w f" });
+    expect(out.rows.find(r => r.action === "tile.float" && r.label === "keep on the glass")).toMatchObject({ key: "ctrl+w U", args: { to: "glass" } });
     expect(by("edit")).toMatchObject({ group: "Note", key: "e" });
     expect(by("note.copy")).toMatchObject({ group: "Note", label: "copy note", key: "Y" });
     // Back has nothing to go back to yet: not in the menu.

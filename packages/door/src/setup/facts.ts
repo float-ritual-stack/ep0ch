@@ -477,19 +477,30 @@ export async function hostAnswers(socket: string, tries = 3, gapMs = 400, live: 
   return false;
 }
 
+/** The unit file install writes for the host on this platform: its name and path under `home`; null where no service manager is known. */
+export function hostUnitPath(platform: Facts["platform"], home: string): { name: string; path: string } | null {
+  if (platform === "other") return null;
+  const mac = platform === "macos";
+  const name = mac ? "io.ep0ch.outliner-host" : "outliner-host.service";
+  return { name, path: join(home, mac ? `Library/LaunchAgents/${name}.plist` : `.config/systemd/user/${name}`) };
+}
+
 /** The outline host over `folder`: its socket, whether it answers, its outlines, its protocol, its unit. */
 export async function hostFacts(folder: string, platform: Facts["platform"], home: string, env?: Env, repoRoot?: string): Promise<HostFacts> {
   const socket = hostSocketOf({ EP0CH_OUTLINES: folder, HOME: home });
   const found = hostUnit(platform, home, folder);
   const [live, state] = await Promise.all([hostAnswers(socket), found ? unitState(found, undefined, env) : Promise.resolve(undefined)]);
   const unit = found && state ? { ...found, state } : found;
+  // No unit for this folder, but a file at the name install would write: install never overwrites it.
+  const at = hostUnitPath(platform, home);
+  const unitTaken = !found && at && existsSync(at.path) ? at.path : null;
   // The commit its process started on, for install to compare with the one it ends on (PIE-1397).
   const runs = repoRoot && state?.active && state.pid ? await startedOn(state.pid, repoRoot) : undefined;
-  if (!live) return { folder, socket, running: false, outlines: [], unit, ...(runs !== undefined ? { runs } : {}) };
+  if (!live) return { folder, socket, running: false, outlines: [], unit, unitTaken, ...(runs !== undefined ? { runs } : {}) };
   const list = await hostRequest<{ outlines: HostedOutline[] }>(socket, "outlines.list", {}, 3000).catch(() => ({ outlines: [] as HostedOutline[] }));
   const target = openOutlineToPing(list.outlines);
   const p = target ? await hostRequest<Ping>(socket, "ping", { outline: target }, 1500).catch(() => null) : null;
-  return { folder, socket, running: true, outlines: list.outlines, ...(p?.protocolVersion !== undefined ? { protocol: p.protocolVersion } : {}), unit, ...(runs !== undefined ? { runs } : {}) };
+  return { folder, socket, running: true, outlines: list.outlines, ...(p?.protocolVersion !== undefined ? { protocol: p.protocolVersion } : {}), unit, unitTaken, ...(runs !== undefined ? { runs } : {}) };
 }
 
 /** The commit the checkout at `repoRoot` was at when process `pid` started (movedSince); null when that can't be told. */

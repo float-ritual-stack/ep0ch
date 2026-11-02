@@ -21,6 +21,10 @@ are its record. The outliner's entries from then are kept below, under
 - `[keys::hyper+b]` on a script note joins the hyper table and appears beside its action in the hint row and power bar. Built-in clashes name the owner: `hyper+l` belongs to focus right.
 - An agent can lift the tile holding your keys (screen, column or full), with attribution on its frame. Moving, closing, floating and taking it remain refused by the typing rule. The drawer’s `ownPane()` delegates to the shared role resolver, including after a handover.
 - **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+### Main's door tests are green again (PIE-1496)
+
+- **Back as before:** a figure's rows wear the container's tint again while one of them has the keys (PIE-969); hovering a collection's control words previews them; `outline_query` on another machine's mirror answers again (the copy serves `changes.since`); `ep0ch install` reads a taken host-unit file as a fact instead of touching the file system from the plan.
+- **Run:** `ep0ch install --apply`. No protocol or schema change.
 
 - **Builders can run the checks again (PIE-1503):** the reader’s history controls live beside its history codec, bringing `note.ts` below its line cap without changing navigation. Run `bun run check`; no protocol, grammar or schema change.
 
