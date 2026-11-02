@@ -13,4 +13,16 @@ Dials (from the ask; defaults in brackets): scope [every outline list_outlines s
 5. Integrations: one query each, same window (calendar: what's next and what just happened; mail/slack: threads with replies the asker hasn't answered; tracker: items that changed state). Never paste message bodies.
 6. Answer as a short tree a phone can read: what moved, who moved it, what's waiting on the asker (only that). Offer nothing; end on what's held.
 
-Power tools (the asker says "deep", or the walk would take more than ~10 reads, or it spans months): outline_snapshot (add `?gz=1`), check the sha256, put the file at `$D/<name>.sqlite`, and run a scratch host in the repo (`HOME=$D EP0CH_OUTLINES=$D bun run src/host-main.ts` in packages/outliner). Then `bun run src/cli.ts --ws <name> list --query … --fields title,properties,timestamps --facets …` composes in scripts with the app's own query logic, and only the summary reaches your context. Raw SQL only for what the CLI can't ask. Never write to the snapshot's host.
+Power tools (the asker says "deep", or the walk would take more than ~10 reads, or it spans months): outline_snapshot (add `?gz=1`), check the uncompressed file's sha256, and put it at `$D/<name>.sqlite`. In packages/outliner, start the scratch host:
+
+```sh
+env -i PATH="$PATH" HOME="$D" XDG_CONFIG_HOME="$D/config" EP0CH_OUTLINES="$D" EP0CH_SOCKET="$D/.host/host.sock" bun run src/host-main.ts
+```
+
+Once it says `ready`, use a second terminal with the same `$D` and working directory. Give the CLI the same isolated environment and explicit socket, so it reads the copy even when the caller has another connection:
+
+```sh
+env -i PATH="$PATH" HOME="$D" XDG_CONFIG_HOME="$D/config" EP0CH_OUTLINES="$D" EP0CH_SOCKET="$D/.host/host.sock" bun run src/cli.ts --ws <name> list --query … --fields title,properties,timestamps --facets …
+```
+
+This composes in scripts with the app's own query logic, and only the summary reaches your context. Raw SQL only for what the CLI can't ask. Never write to the snapshot's host; stop it with Ctrl+C when finished.

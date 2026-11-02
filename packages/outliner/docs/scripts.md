@@ -462,7 +462,7 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:323` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:813` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1839` |
-| `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:218` |
+| `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:221` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4803` |
 | `viaYolo` | `packages/outliner/src/server.ts:4826` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:594` |
