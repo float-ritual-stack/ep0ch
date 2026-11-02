@@ -30,7 +30,7 @@ import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend
 import { dropStatus, foregroundGroup, holdStatus, newStatusKey, recordFacts, statusMark, terminfoWithPst, TileStatus } from "./program-status";
 import { stateDir } from "../state";
 import type { Actor } from "../socket";
-import { sessionCommand, type SessionMark } from "./agent-sessions";
+import { agentIn, claudeStatus, sessionCommand, type SessionMark } from "./agent-sessions";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -140,6 +140,12 @@ export function tileEnv(env: Record<string, string | undefined>, tile: string, c
 }
 
 /** `temp`: a ctrl+e edit on a temp file, never saved in a layout. */
+/** How long after the person typed in a terminal an agent's restart of it waits (`tile.restart`, `agent.restart`). */
+export const RESTART_IDLE_MS = 10_000;
+
+/** Process `pid` still runs (signal 0: nothing is sent). */
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
 /** What inLoginShell's wrapper prints when the agent exits (latin1, as a tile reads its output): the title, then the line. */
 const EXITED = /\x1b\]2;[^\x07]* exited \xc2\xb7 shell\x07\r?\n[^\n]* exited \((\d+)\) \xc2\xb7 this is your shell/;
 
@@ -331,7 +337,9 @@ export class PtyPane implements Pane {
    * wrote meanwhile is replayed into a fresh emulator, and it's asked to draw itself again at the tile's size.
    */
   protected start(cols: number, rows: number) {
-    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.agentExit = null; this.exitTail = "";
+    // A new start's title is its own: the last one's (its wrapper's "claude exited · shell") never outlives it (an adopted
+    // program's comes back from its replay).
+    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.agentExit = null; this.exitTail = ""; this.programTitle = "";
     this.term?.dispose();
     this.kbd.reset();
     const term = new XTerm({ cols, rows, scrollback: 1000, allowProposedApi: true });
@@ -548,6 +556,46 @@ export class PtyPane implements Pane {
    * `claude` gets --continue (`agent.restart`).
    */
   restart(keep = false) { if (this.run.rerun) return this.run.rerun(); this.startAgain(keep); }
+
+  /**
+   * Restart its program while it runs (`tile.restart`, `agent.restart`, PIE-1280): end it gently, then start the same
+   * command in this tile, with the conversation kept for an agent (a bare `claude` gets --continue). An agent starts
+   * inside an interactive login shell (`inLoginShell`), so a changed ~/.bashrc counts. Gently: a Claude between turns
+   * is sent `/exit` (its input line cleared first) and given `graceMs` to leave; one mid-turn or on a dialog (or one that
+   * didn't leave) gets SIGTERM, as closing its terminal would (Claude saves as it goes); anything else gets `stop()`
+   * (SIGTERM, SIGKILL after 8s). Only this tile's own processes. Says how it ended and what it dropped.
+   */
+  async restartRunning(o: { keep?: boolean; graceMs?: number; env?: Record<string, string | undefined> } = {}): Promise<{ ended: "exit" | "signal" | "exited"; dropped?: string; program?: string }> {
+    const ended = await this.endGently(o.graceMs ?? 15_000, o.env);
+    if (this.run.rerun) { this.kill(); this.run.rerun(); return ended; }
+    this.startAgain(o.keep ?? true);
+    return ended;
+  }
+
+  /** The Claude this tile runs (its own process, or the agent inside its login shell) and what it says it's doing, else null. */
+  claude(env?: Record<string, string | undefined>): { pid: number; status: string | null } | null {
+    if (!this.running || this.agentExit !== null) return null;
+    const a = agentIn(this.pid);
+    // Its Claude keeps its status where its own environment says (a tile started with a CLAUDE_CONFIG_DIR of its own).
+    const own = Object.fromEntries(Object.entries({ ...this.run.env, ...this.run.own }).filter(([, v]) => v !== null)) as Record<string, string>;
+    return a?.program === "claude" ? { pid: a.pid, status: claudeStatus(a.pid, { ...(env ?? process.env), ...own }) } : null;
+  }
+
+  private async endGently(graceMs: number, env?: Record<string, string | undefined>): Promise<{ ended: "exit" | "signal" | "exited"; dropped?: string; program?: string }> {
+    if (!this.running) return { ended: "exited" };
+    const c = this.claude(env);
+    if (!c) { await this.stop(); return { ended: "signal" }; }
+    const gone = () => this.agentExit !== null || this.exited !== null || !alive(c.pid);
+    const wait = async (ms: number) => { for (const until = Date.now() + ms; !gone() && Date.now() < until;) await Bun.sleep(50); return gone(); };
+    if (c.status === "idle") {
+      this.input("\x15/exit\r");
+      if (await wait(graceMs)) return { ended: "exit", program: "claude" };
+    }
+    try { process.kill(c.pid, "SIGTERM"); } catch { /* gone */ }
+    const dropped = c.status === "busy" ? "the turn in progress" : c.status === "waiting" ? "the dialog it showed" : c.status === "idle" ? undefined : "whatever it was doing (it keeps no status file)";
+    if (!(await wait(8000))) await this.stop();
+    return { ended: "signal", program: "claude", ...(dropped ? { dropped } : {}) };
+  }
 
   replaceProgram(cmd: string[], env: Record<string, string>, output: (data: Uint8Array) => void) {
     this.run.cmd = cmd; this.run.own = env; this.run.output = output; this.startAgain(false);

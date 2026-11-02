@@ -133,6 +133,28 @@ export function agentIn(pid: number | undefined, proc = "/proc", now = Date.now(
   return agent;
 }
 
+/**
+ * What a Claude Code process says it's doing, from the file it keeps for itself (`<config>/sessions/<pid>.json`, the one
+ * `claude agents --json` reads): `idle` between turns, `busy` mid-turn, `waiting` on a dialog; null when it keeps none
+ * (an older Claude, another machine's). scripts/agent-restart's idle rule reads the same through `claude agents`.
+ */
+export function claudeStatus(pid: number, env: Record<string, string | undefined> = process.env): string | null {
+  try {
+    const s = JSON.parse(readFileSync(join(env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude"), "sessions", `${pid}.json`), "utf8"));
+    return typeof s?.status === "string" ? s.status : null;
+  } catch { return null; }
+}
+
+/** Process `pid` is `root` or runs under it (its parents, read from /proc); false without /proc. */
+export function runsUnder(root: number | undefined, pid: number, proc = "/proc"): boolean {
+  if (!root) return false;
+  for (let p = pid, n = 0; p > 1 && n < 64; n++) {
+    if (p === root) return true;
+    try { p = Number(readFileSync(`${proc}/${p}/stat`, "utf8").split(") ").at(-1)!.split(" ")[1]); } catch { return false; }
+  }
+  return false;
+}
+
 /** The folder process `pid` runs in (/proc's `cwd`), else null (gone, someone else's, no /proc). */
 export function cwdOf(pid: number | null | undefined, proc = "/proc"): string | null {
   if (!pid) return null;

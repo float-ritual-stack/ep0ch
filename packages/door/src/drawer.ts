@@ -5,7 +5,7 @@ import type { Ctx, Screen, Frame } from "./app";
 import { Canvas, type Rect } from "./canvas";
 import { DRAWER_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
 import { controlPath } from "./control";
-import { ESCAPE_CHORD, isEscapeChord, livePrograms, PtyPane } from "./desk/pty";
+import { ESCAPE_CHORD, isEscapeChord, livePrograms, PtyPane, RESTART_IDLE_MS } from "./desk/pty";
 import { rawKey } from "./kbd";
 import { choiceFile, detectAgents, drawerProgram, programName, sessionLabel, shellQuote, type DrawerAgent, type DrawerProgram } from "./desk/drawer-program";
 import { NamedAgentPane } from "./desk/named-agent-pane";
@@ -77,7 +77,6 @@ const WORKING_MS = 1500;
 /** How often what the agent knows is read again (its environment, its start, the mod's newest file). */
 const KNOWS_POLL_MS = 15_000;
 /** An agent's `agent.restart` waits this long after the person last typed into the agent. */
-const RESTART_IDLE_MS = 10_000;
 
 /** What drawer.json keeps: whether it's up (folded to a strip or not), and its height. */
 export interface DrawerSaved { open: boolean; share: number; folded?: boolean }
@@ -964,8 +963,8 @@ export class AgentDrawer {
     const run = async (): Promise<RestartDone> => {
       const was = this.knows?.state ?? null;
       if (p.named) { await p.named.refresh(); return { restarted: true, was }; }
-      await p.stop();
-      p.restart(true);
+      // The one way a running terminal's program is restarted (tile.restart's too): /exit for a Claude between turns.
+      if (p.running) await p.restartRunning({ keep: true }); else p.restart(true);
       this.knowledge.delete(p);
       return { restarted: true, was };
     };
@@ -1947,7 +1946,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     ],
   }),
   "agent.restart": def({
-    summary: "restart the agent tab used last (▲ claude). A program in the tile is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again (a bare claude gets --continue on this restart). A named agent's command is hc attach: this detaches and attaches again, and the hc terminal keeps running. An agent's restart is refused while the person types in it, and is said on screen",
+    summary: "restart the agent tab used last (▲ claude), as tile.restart restarts any terminal: a Claude between turns is sent /exit, one mid-turn SIGTERM, anything else SIGTERM then SIGKILL after 8s, and the same command runs again inside an interactive login shell (a changed ~/.bashrc counts) (a bare claude gets --continue on this restart). A named agent's command is hc attach: this detaches and attaches again, and the hc terminal keeps running. An agent's restart is refused while the person types in it, and is said on screen",
     keys: `a click on ${RESTART_GLYPH} at the end of the ▲ claude chip (shown when it started without the door's variables, or without door tools); alt+R`,
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them",
     says: (out: { name?: string }) => ({ text: `· restarted ${out?.name ?? "the agent tab"}`, ms: 6000 }),

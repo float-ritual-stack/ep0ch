@@ -8,7 +8,9 @@ import { modeActionKeys } from "../surface/modes";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { Desk } from "./desk";
 import type { DeskApi } from "./panes";
-import type { PtyPane } from "./pty";
+import { RESTART_IDLE_MS, type PtyPane } from "./pty";
+import { runsUnder } from "./agent-sessions";
+import type { Actor } from "../socket";
 
 interface On { pane: PtyPane; desk: DeskApi; tile: string }
 
@@ -17,6 +19,28 @@ const host = (desk: DeskApi): Desk => {
   if (!("typeTerminal" in desk)) throw new ActionRefused("this screen has no terminal tiles");
   return desk as Desk;
 };
+
+/**
+ * `tile.restart` (PIE-1280): run the program in terminal tile `name` again. One that exited starts at once. One that
+ * runs is ended gently and started again in the same tile (`PtyPane.restartRunning`: /exit for a Claude between turns),
+ * its conversation kept. An agent's is refused while the person typed in it lately, and while its Claude is mid-turn
+ * or on a dialog unless `now` (then said: what it dropped); `pid`: refused unless that process runs in this tile
+ * (`ep0ch agent restart` names the Claude it found). The person's press is theirs: it never waits.
+ */
+function restartTerminal(d: Desk, name: string, p: PtyPane, actor: Actor, o: { now?: boolean; pid?: number }) {
+  return d.restartAnswer(name, async () => {
+    if (o.pid !== undefined && !(p.running && runsUnder(p.pid, o.pid))) throw new ActionRefused(`pid ${o.pid} doesn't run in ${name} (its program is ${p.pid ?? "not running"}) · host.tileOf pid=${o.pid} finds its tile`);
+    if (!p.running) { p.restart(); return { restarted: true, ended: "exited" }; }
+    if (!d.dispatch.standing(actor)) {
+      const idle = Date.now() - p.personKeyAt;
+      if (idle < RESTART_IDLE_MS) throw new ActionRefused(`the person typed into ${name} ${(idle / 1000).toFixed(1)}s ago; try again once they've left it ${RESTART_IDLE_MS / 1000}s`);
+      const c = p.claude(), what = c?.status === "busy" ? ["mid-turn", "the turn"] : c?.status === "waiting" ? ["on a dialog", "the dialog"] : ["saying nothing of what it does", "whatever it was doing"];
+      if (c && c.status !== "idle" && !o.now) throw new ActionRefused(`${name}'s Claude is ${what[0]} · try again between turns, or now=true ends it anyway (it drops ${what[1]})`);
+    }
+    d.ctx.flash(`restarting ${p.statusName()}${p.claude() ? " · the conversation is kept" : ""}`, 6000);
+    return { restarted: true, ...(await p.restartRunning()) };
+  });
+}
 
 /** The tile menu's group for a terminal's own actions. */
 const TERMINAL = "Terminal";
@@ -56,14 +80,25 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     },
   }),
   "tile.restart": def({
-    words: "run the terminal's program again",
-    summary: "run the program in terminal tile=<tile> again (after it exited). Refused to an agent for the terminal the person is in",
-    keys: "⏎ on an exited terminal",
-    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them · block.mark gets their attention", says: r => `restarted ${r.tile}`,
-    menu: { label: "run it again", group: TERMINAL, key: "enter", now: ({ pane }) => (pane.exited === null ? { hide: true } : null) },
-    args: {},
-    run(_, { pane, desk, tile }, actor) {
-      return host(desk).restartTerminal(tile, pane, actor);
+    words: "restart the terminal's program",
+    summary: "run the program in terminal tile=<tile> again: one that exited starts at once; one that runs is ended gently (a Claude between turns is sent /exit, anything else SIGTERM, SIGKILL after 8s) and the same command starts in the same tile, an agent inside an interactive login shell (a changed ~/.bashrc counts) with its conversation kept (a bare claude gets --continue). An agent's is refused for the terminal the person is in or typed in lately, and while its Claude is mid-turn or on a dialog unless now=true (the answer says what it dropped). ep0ch agent restart <name> finds a Claude's tile and runs this",
+    keys: [{ keys: "enter", does: "on an exited terminal: run it again" }, { keys: "ctrl+w R", does: "restart the focused terminal's program while it runs" }, { via: "the tile menu's restart its program" }],
+    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them · block.mark gets their attention",
+    says: (r: { tile?: string; name?: string; dropped?: string; ended?: string }) => `restarted ${r.name ?? r.tile}${r.ended === "exit" ? " (it was sent /exit)" : ""}${r.dropped ? ` · dropped ${r.dropped}` : ""}`,
+    menu: [
+      { label: "run it again", group: TERMINAL, key: "enter", now: ({ pane }) => (pane.exited === null ? { hide: true } : null) },
+      { label: "restart its program", group: TERMINAL, key: "R", now: ({ pane }) => (pane.running ? null : { hide: true }) },
+    ],
+    args: {
+      now: { type: "boolean", optional: true, about: "an agent's restart of a Claude mid-turn or on a dialog goes anyway, dropping the turn (SIGTERM)" },
+      pid: { type: "number", optional: true, about: "refused unless this process runs in the tile (the Claude ep0ch agent restart found)" },
+    },
+    examples: [
+      { act: "tile.restart tile=kitty", does: "sends the Claude in the kitty tile /exit between turns, then starts claude --continue there from a fresh login shell" },
+      { act: "tile.restart tile=kitty now=true", does: "the same mid-turn: SIGTERM, dropping the turn, and says so" },
+    ],
+    run({ now, pid }, { pane, desk, tile }, actor) {
+      return restartTerminal(host(desk), tile, pane, actor, { ...(now !== undefined ? { now } : {}), ...(pid !== undefined ? { pid } : {}) });
     },
   }),
   "tile.enter": def({

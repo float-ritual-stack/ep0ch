@@ -1389,7 +1389,7 @@ laptop are not verified here: run `keys.probe` and press the chord to see what y
 | `keys.probe` | `on` (default toggles); the person's: an agent's is refused | the power bar's `>` scope, a click on the hint row's `✦ hyper` chip, `act` |
 | `hyper.set` | `on` | `ep0ch act hyper.set on=true`, the power bar's `>` scope; `EP0CH_HYPER=1` wins |
 | `tile.preview` | `tile=<tile>`, `where` (right, down, left, up; default by `splitAxis`) | `^W v` beside, `^W V` below, `O` in a reader; a click on `v` or `V` in the `^W` chord's row |
-| `tile.type`, `tile.restart` | `text` | typing in the tile, `⏎` on an exited one |
+| `tile.type`, `tile.restart` | `text`; `now`, `pid` | typing in the tile, `⏎` on an exited one, `^W R` or the tile menu's "restart its program" on a running one (PIE-1280) |
 | `tab.select` | `by` (1, -1) | a click on a tab, `alt+n alt+p`, `^W [ ]` |
 
 ### The river: focus is not the layout

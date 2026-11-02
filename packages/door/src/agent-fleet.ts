@@ -29,6 +29,8 @@ export interface SessionRow {
   kind: string;
   /** Where an interactive session's process runs, when its parents say (a door terminal tile and its outline, a Herdr pane…). */
   place: string | null;
+  /** An interactive session's door session folder, when a door terminal tile holds it: `ep0ch agent restart` restarts it there (PIE-1280). */
+  door?: string | null;
   running: string | null; installed: string; behind: boolean;
   /** Its process, when it started (ms since the epoch) and when its transcript was last written; absent from an older `--ls`. */
   pid?: number | null; startedAt?: number | null; lastWrite?: number | null;
@@ -88,10 +90,14 @@ export function formatSessions(rows: readonly SessionRow[], machine?: string): s
   const nameW = w(r => r.name || "(unnamed)"), kindW = w(r => r.kind), stateW = w(r => r.status || "?");
   const lines = rows.map(r => `${(r.name || "(unnamed)").padEnd(nameW)}  ${r.id}  ${r.kind.padEnd(kindW)}  ${(r.status || "?").padEnd(stateW)}  ${(r.running ?? "?").padEnd(8)}${r.behind ? `  behind ${r.installed}` : r.running ? "  current" : "  (its process can't be read)"}${r.place ? ` · ${r.place}` : ""}`);
   const m = machine ? ` --machine ${machine}` : "";
-  const behind = rows.filter(r => r.behind && r.kind === "background"), terminals = rows.filter(r => r.behind && r.kind !== "background");
+  // A door terminal tile's Claude is restarted by its door (tile.restart), with the background ones; any other terminal's isn't reachable.
+  const behind = rows.filter(r => r.behind && (r.kind === "background" || r.door)), terminals = rows.filter(r => r.behind && r.kind !== "background" && !r.door);
   if (behind.length || terminals.length) lines.push("");
-  if (behind.length) lines.push(`${behind.length} background behind the installed ${behind[0]!.installed}: ep0ch agent restart --all --if-update${m}`);
-  if (terminals.length) lines.push(`${terminals.length} interactive behind (${terminals.map(r => r.name || r.id).join(", ")}): a terminal owns each, so restart the program there: /exit, then claude --continue`);
+  if (behind.length) {
+    const inTiles = behind.filter(r => r.door).length;
+    lines.push(`${behind.length} ${inTiles ? "" : "background "}behind the installed ${behind[0]!.installed}${inTiles ? ` (${inTiles} in a door terminal tile, restarted there)` : ""}: ep0ch agent restart --all --if-update${m}`);
+  }
+  if (terminals.length) lines.push(`${terminals.length} interactive behind outside a door tile (${terminals.map(r => r.name || r.id).join(", ")}): nothing here can restart those, so restart the program there: /exit, then claude --continue`);
   return lines.join("\n");
 }
 
