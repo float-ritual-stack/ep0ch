@@ -143,7 +143,9 @@ export class ScreenTile implements Pane {
     // Its tiles' links across this tile's edge (a group's tile and one outside it) are by path through the desk holding it.
     (s as Desk).holder = { tile: this, desk: () => (this.desk as unknown as Desk | null) };
     this.frame(s, desk);
-    if (!this.preview) { this.framed!.open(); void this.ownPreview(false); }
+    // The mount is addressable before its first paint; its actions need the entered desk too.
+    this.framed!.open();
+    if (!this.preview) void this.ownPreview(false);
   }
   /** Its place across session daemons (`<home>:<its id>`): the mounted screen's terminals are kept under it. */
   setHome(home: string | null) { this.home = home; const d = this.inner; if (d) d.home = home; }

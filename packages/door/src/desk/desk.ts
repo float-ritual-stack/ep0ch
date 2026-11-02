@@ -481,14 +481,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.put(pane); this.commit(ok); this.startTile(id); this.openedBy(id, at);
     return id;
   }
-
   async trailTile(r: ReaderPane): Promise<unknown> {
     const at = this.idOf(r); if (at === undefined) return null;
-    const have = [...this.panes].find(([, p]) => p instanceof TrailPane);
+    const source = this.nameOf(at), view = this.inFlow(at) ? "history" : "forest";
+    const have = [...this.panes].find(([, p]) => p instanceof TrailPane && p.source === source);
     if (have) { this.keysTo(have[0]); this.redraw(); return this.tileAnswer(have[0]); }
-    return this.openTile({ kind: "trail", name: this.autoName("trail"), source: `tile:${this.nameOf(at)}` }, this.nameOf(at), "right", USER, { unnamed: true });
+    const made = this.sides(at, 18).filter(d => d === "right" || d === "down").reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source, { view }), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
+    if (made === null) return null;
+    // A squeezed column uses the reader's history picker when its adjacent tile would be a spine.
+    if ((this.rectsNow().get(made)?.cols ?? 0) < 18) { this.closeTile(this.nameOf(made), USER); this.redraw(); return null; }
+    this.save(); this.redraw(); return this.tileAnswer(made);
   }
-
   async reopenTrail(visit: Visit, actor: Actor): Promise<unknown> {
     const tid = visit.open.target.tile, place = this.ctx.trail?.places[tid];
     const d = this.relatives().find(d => [...d.panes.keys()].some(id => d.tileId(id) === tid))
@@ -512,7 +515,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.ctx?.trail?.places[this.tileId(id)];
     if (p) { p.at = mapPlace(returnPlace(this.layout, id), n => this.tileId(n)); p.name = this.nameOf(id); p.screen = this.spec.name; p.mount = this.holder ? tileRegistry.knownId(this.holder.tile) : undefined; p.drawer = !!this.ctx.hostLayer?.isDrawer(this); this.ctx.trail?.changed(); }
   }
-
   async answerTile(reader: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === reader)?.[0];
     if (at === undefined) return null;
@@ -1867,11 +1869,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return [...inside.filter(id => mine.includes(id)), ...mine.filter(id => !inside.includes(id))];
   }
 
-  /**
-   * The desk is left (esc, q, the menu). With programs running in its tiles it isn't ended: it stays alive in
-   * the background, its programs running, and D on the menu brings the same desk back. Otherwise it's done.
-   */
+  /** A screen that stays keeps its programs alive; the menu's D brings the same desk back. */
   dispose(): void | "keep" {
+    if (this.disposed) return;
     this.ctx?.agentPointers?.drop(this);
     if (this.linking?.desk === this) this.linking = null;
     this.onScreen = false;
@@ -1881,9 +1881,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Gone for good: kinds that come later never make tiles (nor start programs) here.
     this.disposed = true;
     unwatchTileKinds(this);
-    // Never ended with this screen: a program still running in a tile here, and anything the drawer gave this screen
-    // that still holds work, go into your drawer (said once, for all of them). A tile its host made (the showcase's
-    // exhibits) is the host's, and ends with it.
+    // Return places still name neighbours here; carrying a tile away removes its pane from this desk.
+    for (const id of this.panes.keys()) this.keepTrailPlace(id);
+    // Running programs and work borrowed from the drawer survive; host-owned exhibits end with their host.
     const host = this.ctx?.hostLayer, given = new Set(this.adopts ? [] : this.given.values());
     const keep = host ? this.carried(given) : [];
     if (keep.length) {
@@ -1891,7 +1891,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const [id, p] of keep) if (kept.includes(p)) this.forgetTile(id, p);
     }
     for (const m of this.models.values()) m.dispose?.();
-    for (const [id, p] of this.panes) { this.keepTrailPlace(id); this.ctx?.trail?.close(this.tileId(id)); p.dispose?.(); tileRegistry.release(p); }
+    for (const [id, p] of this.panes) { this.ctx?.trail?.close(this.tileId(id)); p.dispose?.(); tileRegistry.release(p); }
   }
   private disposed = false;
   /** The desk kept alive with its programs, to come back to (the menu's D). */

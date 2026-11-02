@@ -229,19 +229,30 @@ describe.skipIf(!outliner)("showcase: the trail", () => {
     } finally { h.app.pop(); }
   });
 
-  test("regression: leaving a screen closes disposed visits and stops their dwell", async () => {
-    const { act, visit } = screen();
+  test("regression: leaving a screen with an empty mount and a retained tile closes only disposed visits", async () => {
+    const { desk, act, visit } = screen({ t: "split", dir: "row", weights: [1, 1, 1], kids: [
+      { t: "leaf", kind: "reader", name: "reader" },
+      { t: "leaf", kind: "pty", name: "trail-retained-program", cmd: ["sh"] },
+      { t: "leaf", kind: "screen", name: "empty", inner: { root: { t: "split", dir: "row", key: "empty", kids: [], weights: [] } } },
+    ] });
     await act("open", "reader", { id: h.seeded.notes.trailGate.id });
     const v = visit();
     await act("tile.open", "reader", { kind: "reader", name: "carried", note: h.seeded.notes.trailGate.id, where: "right" });
     const carried = visit("carried");
     await act("tile.drawer", "carried");
+    const shell = desk.paneNamed("trail-retained-program") as import("../../src/desk/pty").PtyPane;
+    await until(() => shell.running, "the terminal that stays running in the drawer");
+    await act("tile.open", "reader", { kind: "reader", name: "dropped", note: h.seeded.notes.trailGate.id, where: "down" });
+    await act("tile.close", "dropped");
     h.app.pop();
+    desk.dispose();
+    expect(h.app.drawer.made!.paneNamed("trail-retained-program")).toBe(shell);
     expect(h.app.trail.current(carried.open.target.tile)).toBe(carried);
     expect(h.app.trail.places[carried.open.target.tile]?.closed).toBeUndefined();
     expect(h.app.trail.query("closed").map(v => v.open.target.visit)).toContain(v.open.target.visit);
     expect(v.left).toBeDefined();
     expect(h.app.trail.seconds(v, Date.now() + 60_000)).toBe(h.app.trail.seconds(v));
+    shell.dispose();
   });
 
 });
