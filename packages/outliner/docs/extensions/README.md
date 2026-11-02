@@ -318,6 +318,7 @@ extensions/horoscope/
 | `bar[]` | Gone (PIE-1344): the palette's old name for `sources[]`. A manifest that still says it is refused with the rename; answer the `source` operation. |
 | `components[]` | What the properties your lines or notes take are, as component schemas (at most 8); see [Component schemas](#component-schemas-docs-and-completion). Needs no `run`. |
 | `demo` | A folder of demo notes (usually `"demo"`), written under the extension's page when it's installed, once; see [An extension's page and its demo notes](#an-extensions-page-and-its-demo-notes). |
+| `door` | A door module the door ships, by name (`"glass"`): run in the door's own process while the extension is served; see [A door module](#a-door-module). Needs no `run`. |
 
 A handler question uses the same grammar and answer as `blocks.query`. In its string fields, `{{argument}}` is the line's words, `{{option.name}}` is a declared fetch option, and `{{this.query}}` and other Site paths read the note the line is in. Bare `this` in the question's grammar names that note. The host evaluates the question once for the call, passes the full answer as `input.query` (each block also has its canonical record `title`), and reruns a read handler when that answer changes; a spend or write handler cannot declare a query. The query's membership, sort, groups, facets, completeness and hint are service answers, not code the extension implements. [Collection workbench](../../extensions/workbench) is a complete example using a saved view as its source.
 
@@ -975,6 +976,13 @@ Rule notes use `[rule-event::door.hover] [rule-on-event::script:arrival]` (one k
 runtime. Removing an extension switches `rule-on-event` to `rule-was-on-event`, retaining its kind for reinstall.
 Visits stay in the door's per-outline state; only a deliberate save or a rule writes notes.
 
+A hover's envelope (PIE-1505) is `{ kind: "door.hover", at, actor: { kind: "user" }, target: { tile, note? }, method:
+"pointer", link?: { block?, page?, outline?, machine?, url? }, text? }`: the tile under the pointer, the note a block
+link names, where the link points, and the words when they aren't a link (a cut-off title). The door sends one once the
+pointer has rested on a target (300 ms), never while a button is down and never over chrome. A rule's
+`on: { events: { "door.hover": "<action>" } }` runs that action on `target.note` when it matches, as `on.open` does
+for a landing; the glass extension's page shows where the door's own hover behaviour lives.
+
 ### Rule notes: the no-code tier
 
 A note with `[rule-name::name]` is a rule, with the outline (like `[callout-type::]`):
@@ -1592,6 +1600,42 @@ mark, do: { open: id } }`; `extension.json` declares `tiles: [{ kind: "list", na
 "what-changed", args: { since, unseen, machinery } }]`. The door's `changes.open` (alt+o) opens `what-changed.list` in
 the drawer with `since` and `unseen` from its own count; `^W o W` opens one on the desk; a `what-changed:: since=…`
 line draws the same list in a note. No door code draws the rows.
+
+## A door module
+
+**What it is.** A behaviour that answers the pointer and the keys within a frame can't wait on a socket, so it runs in
+the door's own process: the glass (hover a link, its note shows in a post-it) is the first (PIE-1505,
+[ADR 0008](../../../../docs/adr/0008-extension-first.md)). The extension is an ordinary one: its folder, its page, the
+extensions screen's install and uninstall, `defaultOn`. Its manifest names the module the door ships:
+
+```json
+{ "contract": 2, "id": "glass", "version": 1, "name": "Glass", "defaultOn": true, "door": "glass" }
+```
+
+- The door runs `packages/door/ext/<door>/` while `extensions.list` serves the extension, and disposes it the moment it
+  doesn't: uninstalled, the glass's hover does nothing and ◇ is gone.
+- A module stands on the door's primitives only, each taken away when it stops: the hover event (`app.hover.subscribe`,
+  `door.hover` above), an extension's status chip (`registerStatusChip`), a Tune section (`registerTuneSection`), the
+  float layer (`app.glass.put`), tile kinds (`registerTileKind`) and an action set (`app.dispatch.add`).
+- A name the door doesn't ship is said when the list is bound (`ep0ch install --apply` brings the door's code up to
+  date). Writing a new one is a change to the door; a behaviour that can live a socket away is an extension program on
+  `door.hover` instead.
+
+The two primitives the glass added, as it uses them (`packages/door/ext/glass/glass.ts`, `GLASS_MODULE`): the hover
+event, every distinct move with what is under the pointer (`hit`: the tile, its link target or cut-off text, its
+rectangle; null over chrome) and every press,
+
+```ts
+app.hover.subscribe({ moved: m => g.moved(m), pressed: () => g.pressed() });
+```
+
+and an extension's status chip, the glass's ◇:
+
+```ts
+registerStatusChip({ id: "glass", text: () => g.chip(), tiny: () => g.tiny(), click: "glass.toggle", alt: "glass.clear", keep: true });
+```
+
+Each answers the function that takes it away; the module calls them all when it stops.
 
 ## Extensions as programs
 

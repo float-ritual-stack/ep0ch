@@ -1,6 +1,6 @@
 import { connect } from "node:net";
 import { describe, expect, test } from "bun:test";
-import type { DoorOpen } from "@ep0ch/outline-core/door-open";
+import type { DoorHover, DoorOpen } from "@ep0ch/outline-core/door-open";
 import { visible } from "../../src/style";
 import { KeyDecoder } from "../../src/term";
 import { extensionList } from "../../src/extensions";
@@ -13,7 +13,7 @@ describe.skipIf(!outliner)("showcase: open events", () => {
   test("a landing reaches the local feed, agents and the service with its cause", async () => {
     await h.app.act({ action: "section", args: { name: "events" }, as: "test-agent" });
     const desk = h.S().stages.get(h.S().sel).top;
-    const local: DoorOpen[] = [], remote: DoorOpen[] = [];
+    const local: DoorOpen[] = [], remote: DoorOpen[] = [], hovers: DoorHover[] = [];
     const off = h.app.subscribe(e => { if (e.type === "door.open") local.push(e as unknown as DoorOpen); });
     const observer = connect(h.scratch.sock);
     let buffer = "";
@@ -25,7 +25,8 @@ describe.skipIf(!outliner)("showcase: open events", () => {
           const n = buffer.indexOf("\n"); if (n < 0) break;
           const message = JSON.parse(buffer.slice(0, n)); buffer = buffer.slice(n + 1);
           if (message.result?.subscribed) resolve();
-          if (message.event?.door) remote.push(message.event.door);
+          if (message.event?.door?.kind === "door.open") remote.push(message.event.door);
+          if (message.event?.door?.kind === "door.hover") hovers.push(message.event.door);
         }
       });
       observer.write(JSON.stringify({ id: "subscribe", action: "events.subscribe", client: { clientId: "trail-observer", contextId: "garden", role: "observer" } }) + "\n");
@@ -71,6 +72,8 @@ describe.skipIf(!outliner)("showcase: open events", () => {
       await until(() => local.at(-1)?.method === "hover", "hovering follows its wire with a hover cause");
       expect(local.at(-1)?.source?.visit).toBe(beforeHover.target.visit);
       expect(local.at(-1)?.target.tile).not.toBe(beforeHover.target.tile);
+      // The hover primitive (PIE-1505): the rest on the link went out on the same wire as a door.hover, its link named.
+      await until(() => hovers.some(e => e.method === "pointer" && e.link?.block === local.at(-1)?.target.note), "the service's door.hover");
       await h.app.dispatch.act({ action: "glass.mode", args: { set: "off" } }, USER);
       await desk.dispatch.act({ action: "open", args: { id: first.target.note, from: "walk", fresh: true } }, { kind: "agent", id: "garden-helper" });
       expect(local.at(-1)?.actor).toEqual({ kind: "agent", id: "garden-helper" });

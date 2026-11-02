@@ -504,8 +504,10 @@ test("a default-on built-in (what-changed, PIE-1506) is on wherever the service 
   const { ensureDefaultOn, ensureDefaultOnFor } = await import("../src/extension-install");
   const userDir = join(root, "user-extensions");
   // Fresh: the host's step before an outline is served puts it in the user folder (every outline this host serves).
-  expect(await ensureDefaultOnFor(outlineFolder)).toEqual(["what-changed"]);
+  expect(await ensureDefaultOnFor(outlineFolder)).toEqual(["glass", "what-changed"]);
   await until("what-changed to serve", async () => (await list(true)).extensions.find((entry) => entry.id === "what-changed" && entry.state === "active"));
+  // The glass (PIE-1505) is a door module: listed with the module the door runs while it's served.
+  expect((await list()).extensions.find((entry) => entry.id === "glass")).toMatchObject({ state: "active", door: "glass", runsCode: true });
   expect((await list()).tileKinds.some((kind) => kind.kind === "what-changed.list")).toBe(true);
   expect(existsSync(join(userDir, "what-changed", "extension.json"))).toBe(true);
   // Uninstalled on purpose: gone, and a later start leaves it out (the .off mark).

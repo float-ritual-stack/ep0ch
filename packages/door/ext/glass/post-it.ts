@@ -1,18 +1,20 @@
-import type { Msg } from "../board";
-import type { Ctx } from "../app";
-import type { Actor } from "../socket";
-import type { SurfaceHost } from "../surface/note";
-import { actionSet, def } from "../surface/actions";
-import { modeHint, type ModeKey } from "../surface/modes";
-import { effective, keyTable } from "../surface/keymap";
-import { keyName } from "../surface/actions";
-import type { Key } from "../term";
-import { C, fg } from "../style";
-import { rowLines } from "../text";
-import { ReaderPane, runOwn, type DeskApi } from "./panes";
-import type { KindHost } from "./tile-kinds";
-import { readNote } from "./outline-boards";
-import type { TileDone } from "./tile-actions";
+import type { Msg } from "../../src/board";
+import type { Ctx } from "../../src/app";
+import type { Actor } from "../../src/socket";
+import type { SurfaceHost } from "../../src/surface/note";
+import { actionSet, def } from "../../src/surface/actions";
+import { modeHint, type ModeKey } from "../../src/surface/modes";
+import { effective, keyTable } from "../../src/surface/keymap";
+import { keyName } from "../../src/surface/actions";
+import type { Key } from "../../src/term";
+import { C, fg } from "../../src/style";
+import { rowLines } from "../../src/text";
+import { READER_ACTIONS, ReaderPane, runOwn, type DeskApi } from "../../src/desk/panes";
+import { reading, readerFromSpec, startReader } from "../../src/desk/builtin-tiles";
+import type { KindHost, TileKind } from "../../src/desk/tile-kinds";
+import { readNote } from "../../src/desk/outline-boards";
+import type { TileDone } from "../../src/desk/tile-actions";
+import { glass, running } from "./glass";
 
 export const textNote = (text: string): Msg => ({ id: `glass:${text}`, text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, properties: [] });
 export const readPostIt = async (ctx: Ctx, ref: string): Promise<Msg> => ref.startsWith("glass:") ? textNote(ref.slice(6)) : await readNote(ctx, ref) ?? textNote(ref);
@@ -46,7 +48,7 @@ export class PostIt extends ReaderPane {
   }
   override hint() { return modeHint(POST_IT_KEYS, action => POST_IT_ACTIONS.def(action)); }
   protected override showSurface(m: Msg | null, host: SurfaceHost, by: Actor): boolean {
-    return m ? this.surface.remember(m, host, host.ctx.glass?.settings.stack ?? 30, by) : super.showSurface(m, host, by);
+    return m ? this.surface.remember(m, host, running()?.settings.stack ?? 30, by) : super.showSurface(m, host, by);
   }
   override key(k: Key, desk: DeskApi): boolean {
     if (!this.holdsKeys) {
@@ -92,7 +94,7 @@ export const POST_IT_ACTIONS = actionSet<KindHost>()("post-it", {
     keys: "alt+E, click peel", touches: "nothing", replay: "safe", args: {},
     says: () => "peeled a post-it onto the glass",
     menu: { label: "peel onto the glass", group: "Post-it", key: "alt+E" },
-    run(_, { pane, desk }, actor): TileDone { return desk.ctx.glass!.peel(pane as PostIt, desk, actor); },
+    run(_, { pane, desk }, actor): TileDone { return glass().peel(pane as PostIt, desk, actor); },
   }),
   "postit.drop": def({
     summary: "drop the shown entry from this post-it's stack; the other entries stay",
@@ -110,6 +112,15 @@ export const POST_IT_ACTIONS = actionSet<KindHost>()("post-it", {
     args: { shelf: { type: "string", kind: "tile", about: "the shelf's name or id" } },
     examples: [{ act: "postit.shelve shelf=chores", does: "moves what this post-it shows onto the chores shelf" }],
     says: r => `shelved on ${r.name}`,
-    async run({ shelf }, { pane, desk }, actor) { return desk.ctx.glass!.shelvePostIt(pane as PostIt, desk, shelf, actor); },
+    async run({ shelf }, { pane, desk }, actor) { return glass().shelvePostIt(pane as PostIt, desk, shelf, actor); },
   }),
 });
+
+/** The post-it's tile kind: a reader with a hover history, registered while the glass extension runs. */
+export const POST_IT_KIND: TileKind = {
+  ...reading, kind: "post-it", about: "a note or cut-off value above every screen, with a hover history to flip",
+  actions: POST_IT_ACTIONS, inherits: [READER_ACTIONS],
+  make: s => { const p = new PostIt(); p.sticky = s.sticky ?? false; p.hover = s.hover ?? false; p.by = s.by ?? null; return readerFromSpec(s, p); },
+  describe: p => ({ postit: (p as PostIt).title(), sticky: (p as PostIt).sticky, history: (p as PostIt).surface.trailOf() }),
+  start: async (p, env) => { const r = p as PostIt; if (!r.msg && r.want?.startsWith("glass:")) r.show(textNote(r.want.slice(6)), env.desk); await startReader(p, env); },
+};

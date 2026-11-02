@@ -104,6 +104,7 @@ function frameCtx(f: FramedScreen): Ctx {
     // The drawer is the door's, above every screen: a tile put in from a stage travels like any other (PIE-498).
     get hostLayer() { return o().hostLayer; },
     get glass() { return o().glass; },
+    get hover() { return o().hover; },
     get overflow() { return o().overflow; },
     get video(): Video { return o().video; },
     get graphics() { return o().graphics; },

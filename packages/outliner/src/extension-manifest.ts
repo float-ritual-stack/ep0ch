@@ -449,6 +449,12 @@ const ManifestV2 = Type.Object(
      * host at start when no copy is installed and nobody uninstalled it here (`extensions.uninstall` keeps that choice).
      */
     defaultOn: Type.Optional(Type.Boolean()),
+    /**
+     * A door module the door ships (PIE-1505, packages/door/ext/<name>, src/door-modules.ts): run in the door's own
+     * process while this extension is served, for a behaviour that answers the pointer and keys within a frame (the
+     * glass). The door stops it when the extension is uninstalled or stops serving.
+     */
+    door: Type.Optional(Type.String({ pattern: "^[a-z][a-z0-9-]{0,31}$" })),
   },
   { additionalProperties: false },
 );
@@ -756,7 +762,7 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
   const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0 || barIds.size > 0;
   if (needsRun && !manifest.run && !script) throw new ExtensionLoadError("extension.json: handlers, actions, agents, sources and rules that decorate with code need run (the program each call starts)");
   // A script that declares nothing is a module (`[mode::module]`): imported by name, run by nothing.
-  if (!script && !needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, sources, rules, tiles, components or scripts");
+  if (!script && !needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length && !manifest.door) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, sources, rules, tiles, components, scripts or a door module");
   const scripts = new Set<string>();
   const scriptFiles = new Map<string, string>();
   for (const script of manifest.scripts ?? []) {
