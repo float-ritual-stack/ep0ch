@@ -68,7 +68,7 @@ import { fragmentAnchorMatch, linkOccurrences, referencedBlock, withoutFragmentA
 import { landingLine } from "@ep0ch/outline-core/block-insert";
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
-import { childEnv, codeSpans, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
+import { childEnv, codeSpans, compareFoldPosition, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, embedState, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE, type EmbedBody } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
@@ -1004,6 +1004,7 @@ export class NoteSurface {
   private previewLists = new Map<string, boolean>();
   private previewOpen = new Set<string>();
   readonly listPreview = { place: (attachedPlaceOf(readState<{ place?: string }>("list-preview-place.json")?.place) ?? "split") as AttachedPlace, float: null as FloatRect | null, rect: null as FloatRect | null, top: 0, max: 0 };
+  private drawnFolds: FoldPoint[] = [];
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   /** What the last render drew: `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
@@ -1401,7 +1402,7 @@ export class NoteSurface {
     if (m && m.id === this.msg?.id && host.ctx.outline === this.msg.address?.outline) m.address ??= this.msg.address;
     this.use(host);
     if (m?.id !== this.msg?.id) { if (this.msg) host.retirePeeks?.(by); this.figureSizing.cancel(); this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.modes.drop("revision"); this.foldsOf = m?.id ?? null; this.zoom = null; this.zoomTurn++; }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.modes.drop("revision"); this.foldsOf = m?.id ?? null; this.drawnFolds = []; this.zoom = null; this.zoomTurn++; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
     this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.ancestors = []; this.pathNote = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
@@ -2252,7 +2253,7 @@ export class NoteSurface {
     // thread's passage is highlighted while it's open (the ruler, where both are, wins).
     const reading = this.readingRows();
     const framedList = this.framedList(current);
-    const readingBand: [number, number] | null = reading && readingRuler() && !this.printed && !framedList ? [top + reading[0], top + reading[1]] : null;
+    const readingBand: [number, number] | null = readingRuler() && !this.printed && !framedList ? current?.ruler ?? (reading ? [top + reading[0], top + reading[1]] : null) : null;
     // The element the cursor is on, when it is one row of something (a figure's row, a step): its rows are item-focused.
     const itemRows: [number, number] | null = current?.item && !this.printed && !framedList ? current.item : null;
     const rulers = [markRows].filter((r): r is [number, number] => !!r);
@@ -2665,7 +2666,7 @@ export class NoteSurface {
 
   /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
   private body(m: Msg, env: DocEnv, src: Source | null, drawn: Link[], tokens?: ReturnType<typeof resourceTokensOf>, more?: (text: string, lines: readonly number[]) => Partial<DocEnv>) {
-    let { text, points, lines, literal, anchors } = this.foldsIn(m);
+    let { text, points, lines, literal, anchors } = this.foldsIn(m, false);
     const form = !this.raw ? this.formOf(m) : null;
     if (form) {
       const body = text.split("\n");
@@ -2678,13 +2679,20 @@ export class NoteSurface {
     // A component's `^name` (PIE-747) is the key its view state is kept under: read mode hides an anchor, so it is put back on
     // the component's first line for the renderer, which doesn't draw it.
     if (anchors.some(Boolean)) text = text.split("\n").map((l, i) => (anchors[i] && /^ {0,3}::[a-z]/.test(l) ? `${l} ^${anchors[i]}` : l)).join("\n");
-    this.keepFolds(points);
+    this.keepFolds(this.foldsIn(m).points);
     // The live figures this layout draws, each told here; a tab or the density drawn as a control.
     const figures: FigureInfo[] = [];
     this.figuresDrawn = figures;
     // The inline ::links components this layout draws (PIE-693), each told here.
     const blocks: ListHandle<any>[] = [];
     this.linkBlocksDrawn = blocks;
+    env = { ...env,
+      figures: this.printed ? { ...env.figures, all: true, seen: f => figures.push(f) } : {
+        ...env.figures, drawn: { n: 0, titles: new Map() }, ui: key => { const selected = this.elems.find(e => e.key === this.cur)?.link; return { ...this.figureUI.get(key), size: this.figureSizing.preview(key), ...(selected?.figure?.figure === key ? { selected: { row: selected.figure.row, block: selected.block } } : {}) }; },
+        tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.label ?? c.tab ?? (c.size ? "↔ fit/full" : `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim()) }, x),
+        seen: f => figures.push({ ...f, revision: f.revision ?? m.revision, line: f.note === m.id && f.line !== undefined ? lines[f.line] : f.line }),
+      },
+    };
     const { preview, spanPreview, ...hooks } = this.bodyHooks(m, lines, env, src, drawn);
     const additions = withBeside(more?.(text, lines) ?? {}, this.besideRegions(m, lines, src, preview));
     const after = additions.after, lastFormLine = text.split("\n").length - 1;
@@ -2712,15 +2720,12 @@ export class NoteSurface {
       ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request<ArtifactInfo>("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
       folds: { points, folded: this.effectiveFolds(m), selected: this.foldSel, preview: new Set(points.filter(p => this.previews(p)).map(p => p.key)) },
       link: (block, x, figure, query, at, cell) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}), ...(cell ? { cell: true } : {}) }, x),
-      figures: this.printed ? { ...env.figures, all: true, seen: f => figures.push(f) } : {
-        ...env.figures, ui: key => { const selected = this.elems.find(e => e.key === this.cur)?.link; return { ...this.figureUI.get(key), size: this.figureSizing.preview(key), ...(selected?.figure?.figure === key ? { selected: { row: selected.figure.row, block: selected.block } } : {}) }; },
-        tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.label ?? c.tab ?? (c.size ? "↔ fit/full" : `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim()) }, x),
-        seen: f => figures.push({ ...f, revision: m.revision, line: f.note === m.id && f.line !== undefined ? lines[f.line] : f.line }),
-      },
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
       ...additions,
     });
-    return { doc, points, lines };
+    this.drawnFolds = doc.folds ?? points;
+    this.keepFolds(this.drawnFolds);
+    return { doc, points: this.drawnFolds, lines };
   }
 
   /**
@@ -2765,13 +2770,6 @@ export class NoteSurface {
     };
   }
 
-  /**
-   * The body's transclusions and steps, the same for the reader's own render and a host's digest: each
-   * `!((…))` drawn by src/embeds.ts from the service's projection, its body drawn the way this reader draws
-   * a note (its own embeds nested, its links and step boxes elements like the note's; its literal regions
-   * judged by its own text, PIE-422); each of the note's own steps a control where the service reads one
-   * at this revision (PIE-472).
-   */
   /**
    * Text written about the note (a comment's body, a reply, the composer's preview, an edit's ctrl+p preview: PIE-852)
    * drawn as the reader draws the note (PIE-770): references by their titles, `[[pages]]`, Markdown, and `!((embeds))` transcluded, through renderDoc and
@@ -2889,24 +2887,26 @@ export class NoteSurface {
       }
       return rendered;
     }, tooDeep);
-    // A template's body (PIE-533 S4), drawn where its `::use` is written: the reader's renderer over the template's text, in the
-    // call's Site (`this` the host, `{{props.x}}` the call's), so values, figures, `::fields` and `::if` read the host.
-    const templateBody = (depth: number) => (target: Msg, site: LiveSite, width: number): string[] => nested(() => {
-      const { text, lines, literal } = readableSource(target, src);
+    // A call keeps its own fold keys; figures share this reader's controls and read the call's Site.
+    const templateBody = (depth: number, scope: string) => (target: Msg, site: LiveSite, width: number): Doc | string[] => nested<Doc | string[]>(() => {
+      const { text, lines, literal, anchors } = readableSource(target, src);
+      const points = foldPoints(text, anchors).map(p => ({ ...p, key: `${scope}/${p.key}`, ...(p.list ? { list: { ...p.list, key: `${scope}/${p.list.key}` } } : {}) }));
       const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
-        ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
+        ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal, keepTags: true, folds: { points, folded: this.folded, selected: this.foldSel }, after: undefined, regions: undefined, outputs: undefined,
+        componentLine: line => lines[line]!,
+        figures: env.figures && { ...env.figures, fullWidth: width, seen: f => env.figures!.seen?.({ ...f, ...(f.note === target.id ? { revision: target.revision, line: f.line === undefined ? undefined : lines[f.line] } : {}) }) },
         link: (block, t, figure, query, at, cell) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}), ...(cell ? { cell: true } : {}) }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
-        use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1),
-      }).lines;
+        use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1, undefined, scope),
+      });
     }, tooDeep);
     // The `::use` on body line `i`, drawn: `block` is the note whose text holds the line, `lines` its body lines' note lines.
-    const useHook = (block: string, lines: readonly number[], site: UseSite | undefined, depth: number, book?: RegionBook): DocEnv["use"] => (call, i, width) => {
+    const useHook = (block: string, lines: readonly number[], site: UseSite | undefined, depth: number, book?: RegionBook, scope = ""): DocEnv["use"] => (call, i, width) => {
       const line = lines[i] ?? -1;
       if (line < 0) return [];
-      return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m?.id ?? "", width, src, sink: drawn, depth, body: templateBody(depth), ...(book ? { book } : {}) });
+      return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m?.id ?? "", width, src, sink: drawn, depth, body: templateBody(depth, `${scope}/${block}:${line}`), ...(book ? { book } : {}) });
     };
     // A `::button` on body line `i` (PIE-957): the button part, a press of its action line on this note, in its press's state or
     // disabled with the action's refusal now (PIE-1287).
@@ -4691,10 +4691,10 @@ export class NoteSurface {
     return h && "link" in h && (h.link.block || h.link.page) ? { target: h.link, rect: { col: h.from, row: h.row + (this.drawn?.heroRows ?? 0), cols: h.to - h.from, rows: 1 } } : null;
   }
 
-  /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
+  /** What the last render put at cell `x`, `y`; a region's mark covers a fold at the same gutter cell. */
   private hitAt(x: number, y: number): Hit | undefined {
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "start" in h || ("follow" in h && h.follow)) ?? at[0];
+    return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "start" in h || ("follow" in h && h.follow)) ?? at.find(h => "region" in h) ?? at[0];
   }
 
   // ── keys: each one is an action, the same ones an agent calls ─────────────
@@ -5154,7 +5154,7 @@ export class NoteSurface {
   // ── folds ──────────────────────────────────────────────────────────────────
 
   /** The note's readable source, the note line each of its lines comes from, and its fold points. */
-  foldsIn(m: Msg): { text: string; lines: number[]; points: FoldPoint[]; literal: Set<number>; unterminated: number | null; anchors: (string | undefined)[] } {
+  foldsIn(m: Msg, inserted = true): { text: string; lines: number[]; points: FoldPoint[]; literal: Set<number>; unterminated: number | null; anchors: (string | undefined)[] } {
     const r = this.zoomed(m, readableSource(m, this.src));
     const sig = m.text + "\0" + r.text + "\0" + r.anchors.join("\0");
     if (this.foldCache?.text !== sig) this.foldCache = { text: sig, points: foldPoints(r.text, r.anchors), lines: r.lines };
@@ -5163,7 +5163,7 @@ export class NoteSurface {
       const first = p.list.line;
       if (propertyTokensInLine(all[(r.lines[first] ?? 0) - 1] ?? "").some(t => t.key === "children" && t.value === "preview")) p.list.preview = true;
     }
-    return { text: r.text, lines: r.lines, points: this.foldCache.points, literal: r.literal, unterminated: r.unterminated, anchors: r.anchors };
+    return { text: r.text, lines: r.lines, points: inserted ? [...this.foldCache.points, ...this.drawnFolds.filter(p => !this.foldCache!.points.some(own => own.key === p.key))].sort((a, b) => compareFoldPosition(a.order?.line ?? [a.line], b.order?.line ?? [b.line])) : this.foldCache.points, literal: r.literal, unterminated: r.unterminated, anchors: r.anchors };
   }
 
   /** The note's readable source, only the zoomed part's lines while the reader is zoomed (PIE-780); each keeps its note line. */
@@ -5209,19 +5209,16 @@ export class NoteSurface {
   /** The fold points drawn now: none inside a folded section or item. */
   visibleFolds(m: Msg): FoldPoint[] {
     const out: FoldPoint[] = [], folded = this.effectiveFolds(m);
-    let hideTo = -1;
+    let hideTo: readonly number[] = [-1];
     for (const p of this.foldsIn(m).points) {
-      if (p.line < hideTo) continue;
+      if (compareFoldPosition(p.order?.line ?? [p.line], hideTo) < 0) continue;
       out.push(p);
-      if (folded.has(p.key)) hideTo = p.end;
+      if (folded.has(p.key)) hideTo = p.order?.end ?? [p.end];
     }
     return out;
   }
 
-  /**
-   * Fold (or unfold) `p`. By the person's keys or click it becomes the selected fold point, kept in view;
-   * an agent's fold leaves their selection and scroll where they were.
-   */
+  /** A person's fold selects it; an agent's preserves their selection and scroll. */
   setFold(p: FoldPoint, on: boolean, select = true) {
     if (this.previews(p)) { if (on) this.previewOpen.delete(p.key); else this.previewOpen.add(p.key); }
     if (on) this.folded.add(p.key); else this.folded.delete(p.key);
@@ -5234,16 +5231,13 @@ export class NoteSurface {
     for (const p of this.foldsIn(this.msg).points) if (p.kind === "callout") { if (!open && p.start === "folded") this.folded.add(p.key); else this.folded.delete(p.key); }
   }
 
-  /**
-   * Fold every outermost heading and list item, or unfold everything. How many changed. By the person's
-   * keys (`select`) their selection stays in view, or is let go when a fold hides it; an agent's leaves
-   * their selection and scroll where they were.
-   */
+  /** Fold the outermost points or unfold all; only the person's action can release their selection.
+   * Returns how many changed. */
   foldAll(on: boolean, select = true): number {
     if (!on) { const n = this.folded.size; this.folded.clear(); for (const p of this.msg ? this.foldsIn(this.msg).points : []) if (this.previews(p)) this.previewOpen.add(p.key); if (select) this.reveal = !!this.foldSel; return n; }
     this.previewOpen.clear();
     const all = this.msg ? this.foldsIn(this.msg).points : [];
-    const outer = all.filter(p => !all.some(q => q.line < p.line && p.line < q.end));
+    const outer = all.filter(p => !all.some(q => compareFoldPosition(q.order?.line ?? [q.line], p.order?.line ?? [p.line]) < 0 && compareFoldPosition(p.order?.line ?? [p.line], q.order?.end ?? [q.end]) < 0));
     for (const p of outer) this.folded.add(p.key);
     if (select && this.foldSel && !outer.some(p => p.key === this.foldSel)) this.foldSel = null;
     return outer.length;
@@ -5272,7 +5266,11 @@ export class NoteSurface {
     const visible = this.digesting || !!rows && rows[1] > this.scroll && rows[0] < this.scroll + (this.drawn?.room ?? 0);
     const line = visible ? this.readingSourceLine() : this.position.view?.line ?? this.readingSourceLine();
     const lines = this.foldsIn(this.msg!).lines;
-    const p = (d === 1 ? vis.find(p => (lines[p.line] ?? 0) >= line + (visible ? 1 : 0)) : vis.findLast(p => (lines[p.line] ?? 0) <= line - (visible ? 1 : 0))) ?? (d === 1 ? vis[0] : vis.at(-1));
+    // A template's source line edits its call; the heading's own position places the keys.
+    const selected = visible ? vis.findIndex(p => p.key === this.foldSel) : -1;
+    const current = visible && this.elems.find(e => e.key === this.cur), drawn = this.drawn;
+    const distance = (p: FoldPoint) => { const row = drawn?.doc.heads.find(h => h.key === p.key)?.row; return current && row !== undefined ? row - (current.row - drawn!.top) : (lines[p.line] ?? 0) - line; };
+    const p = selected >= 0 ? vis[(selected + d + vis.length) % vis.length] : (d === 1 ? vis.find(p => distance(p) >= (visible ? 1 : 0)) : vis.findLast(p => distance(p) <= -(visible ? 1 : 0))) ?? (d === 1 ? vis[0] : vis.at(-1));
     if (!p) return false;
     this.letGo();
     this.foldSel = p.key;
@@ -5817,7 +5815,7 @@ export class NoteSurface {
     for (const l of summary) out.push({ key: keyOf("link", l.link), kind: "link", row: summaryRow, from: l.from, to: l.to, ruler: [summaryRow, summaryRow + 1], label: `${l.key} ${text(sum, l.from, l.to)}`, link: l.link, value: l.key });
     for (const h of doc.heads) {
       const p = points.find(p => p.key === h.key);
-      if (p && this.previews(p)) out.push({ key: `fold:${p.key}`, kind: "fold", fold: p.key, row: top + h.row, from: this.gutterStart, to: this.bx + h.cols, ruler: block(h.row), label: p.text });
+      if (p && (p.kind === "heading" || this.previews(p))) out.push({ key: `fold:${p.key}`, kind: "fold", fold: p.key, row: top + h.row, from: this.gutterStart, to: this.bx + h.cols, ruler: [top + h.row, top + h.row + (h.rows ?? 1)], label: p.text });
     }
     const heads = new Set(doc.links.filter(r => drawn[r.n]?.role === "resource").map(r => r.line));
     const byN = new Map<number, typeof doc.links>();
@@ -5851,7 +5849,7 @@ export class NoteSurface {
       const info = this.regionInfo.get(r.key);
       if (!info) continue;
       const kind = (info.target.role ?? "link") as ElementKind;
-      out.push({ key: keyOf(kind, info.target), kind, row: top + r.row, from: this.gutterStart, to: this.gutterStart + 1, ruler: [top + r.row, top + r.row + r.rows], label: info.label, link: info.target, region: r.key });
+      out.push({ key: keyOf(kind, info.target), kind, row: top + r.row, from: this.gutterStart, to: this.gutterStart + 1, ruler: [top + r.row, top + r.row + 1], label: info.label, link: info.target, region: r.key });
     }
     for (const x of doc.media) {
       const image = imageRef?.(x.line) ?? undefined;
@@ -9828,7 +9826,7 @@ const IMAGE_ARGS = {
 
 const FOLD_ARGS = {
   text: { type: "string", optional: true, about: "a heading's, list item's or callout's text (## optional; a unique start is enough)" },
-  line: { type: "number", optional: true, about: "a line of the note (1 is the subject): the heading or item on it, or else the innermost one around it" },
+  line: { type: "number", optional: true, about: "a source line of the note (1 is the subject): its fold point, or the innermost one around it; several from one template call: use n from folds" },
   n: { type: "number", optional: true, about: "which fold point, from 1, as folds lists them" },
 } as const;
 type FoldArgs = ArgsOf<typeof FOLD_ARGS>;
@@ -9852,7 +9850,9 @@ function foldPointIn(surface: NoteSurface, m: Msg, { text, line, n }: FoldArgs):
   if (line !== undefined) {
     const at = lines.indexOf(line - 1);
     if (at < 0) throw new ActionRefused(line === 1 ? "line 1 is the subject; it doesn't fold" : `line ${line} isn't part of the note's readable body (it's past the end, or holds only properties)`);
-    const p = points.find(p => p.line === at) ?? points.filter(p => p.line < at && at < p.end).at(-1);
+    const hits = points.filter(p => p.line === at);
+    if (hits.length > 1) throw new ActionRefused(`line ${line} has ${hits.length} fold points (${listed(hits)}); pass n= from folds to select one`);
+    const p = hits[0] ?? points.filter(p => p.line < at && at < p.end).at(-1);
     if (!p) throw new ActionRefused(`line ${line} isn't a heading or a list item with nested lines, nor inside one; the note's are: ${listed(points)}`);
     return p;
   }

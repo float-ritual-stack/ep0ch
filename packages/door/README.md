@@ -2358,6 +2358,7 @@ unfolded.
 |---|---|
 | `(` / `)` | select the previous / next heading, list item or callout that folds (`▾`, yellow); the hint names it |
 | `f`, `⏎` | fold or unfold the selected one; `f` with none selected folds the section at the top of the view. `⏎` folds only while a selected one is in view |
+| `[ ]` / `( )` on a page using `::use` | `[ ]` steps headings, figure controls and rows; `( )` stops at each fold point, including headings from the same call. Tab/Shift+Tab and arrows switch a selected tabs figure; Enter folds a heading or uses the selected control. `folds` gives each heading its `n`; use that when several share one source `line`. Each call keeps its own list-preview mode. Try kitchen-sink section `template-steps` |
 | `esc`, scrolling, `u` | let go of the selected one, so `⏎` means what it did before (the preview opens a detail); `[ ]` steps on to the next element |
 | `F` | fold every outermost section and list item; with anything folded, unfold everything |
 | `←` `→`, `Tab` `Shift+Tab` | while a live tabs figure's tab or row is the `[ ]` position: its previous / next tab (`figure.tab`); otherwise they do what they did (`Tab` focuses the next tile, `←` `→` step a river's columns or a message reader's messages) |

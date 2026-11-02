@@ -70,11 +70,6 @@ import type { AgentLevel } from "../surface/agent-level";
 
 type Notes = Partial<Record<SeedName, Msg>>;
 
-/**
- * The program status section's fake deploy (OSC 7501): it reports each step to its terminal tile, waits for the person
- * to approve production, and finishes done (y) or failed (anything else); then it's a shell, to run it again.
- */
-/** The stage readers named `detail` (a reader the exhibit puts its own note in), not filled by the stage's opening note. */
 const details = new WeakSet<ReaderPane>();
 /** A reader named `detail` on its stage: it keeps the note the exhibit opens into it. */
 const detailPane = (): ReaderPane => { const r = new ReaderPane(true); details.add(r); return r; };
@@ -874,6 +869,16 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const a = new ReaderPane(true), b = new ReaderPane(true), c = new ReaderPane(true);
       return deskOf({ title: "showcase · templates", panes: [a, b, c], names: ["sowing", "potting", "unfinished"], layout: ([x, y, z]) => pair("col", 0.6, pair("row", 0.5, leaf(x!), leaf(y!)), leaf(z!)) }, show, [[a, n.meetingSowing], [b, n.meetingPotting], [c, n.meetingUnfinished]]);
+    },
+  },
+  {
+    key: "template-steps", need: "read a day plan's template headings and figures as the note's own rows",
+    part: "NoteSurface's element stepping and figure actions over renderDoc's child document; regionRows keeps the template's source mark",
+    files: "src/template-use.ts, src/output-region.ts, src/doc.ts, src/surface/note.ts, src/surface/figure-actions.ts",
+    aside: "The Garden day plan draws Morning, Day jobs and Evening from one ::use. Step through them, switch the job tab, read its long row and open a job. The margin mark opens the template's source; After the plan belongs to the day note itself.",
+    stage(n, show) {
+      const reader = new ReaderPane(true);
+      return deskOf({ title: "showcase · template steps", panes: [reader], names: ["plan"] }, show, [[reader, n.templatePlan]]);
     },
   },
   {
