@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Run lens keeps its live table in the note at your cursor (PIE-1488)
+
+- **Put it here:** choose Run lens in the power bar and fill its slots. The `lens::` line goes at the note cursor and draws there; an open draft keeps it unsaved. One Ctrl+Z takes the insertion back in a reader or a draft, as the run's status says. Without a note, the action says to open one.
+- **See what it needs:** the preview lists the script's declared slots and its form uses the script's name. A missing query or view reports failure, with the inserted line kept for editing.
+- **Run:** try Run lens in the kitchen sink's **lens** section. No protocol, grammar or schema change.
+
 ### The drawer attaches to a named agent and offers recovery when it ends (PIE-1487)
 
 - **Keep one agent:** declare a persona, machine, folder and program in `.ep0ch/agents.toml`, then `ep0ch agent start <persona>`. The drawer attaches by hc name; a second door on the same client watches. The status chip follows hc events.
