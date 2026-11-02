@@ -212,8 +212,8 @@ export interface Placed<I = number> {
   /** Each flow met: where it is, and each column shown. */
   flows?: { node: Flow<I>; rect: Rect; cols: PlacedColumn[] }[];
 }
-/** The border between `node.kids[i]` and `kids[i + 1]`: `at` is the first cell of the second. */
-export interface Divider<I = number> { node: Line<I>; i: number; area: Rect; at: number; sizes: [number, number] }
+/** The border between `node.kids[i]` and `kids[i + 1]`: `before` is the first tile's last cell, `at` the second's first. */
+export interface Divider<I = number> { node: Line<I>; i: number; area: Rect; at: number; before: number; sizes: [number, number] }
 
 /** The fewest cells a kid gets when a view names no minimum: across a row, down a col. */
 export const MIN_COLS = 6, MIN_ROWS = 3;
@@ -351,7 +351,7 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
   const starts = size.map((s, i) => { const at = cursor; cursor += s + (fixed[i] === 0 ? 0 : gap); return at; });
   n.kids.forEach((_, i) => {
     if (i > 0 && fixed[i] === undefined && fixed[i - 1] === undefined)
-      out.dividers.push({ node: n, i: i - 1, area: r, at: starts[i]!, sizes: [size[i - 1]!, size[i]!] });
+      out.dividers.push({ node: n, i: i - 1, area: r, at: starts[i]!, before: starts[i - 1]! + size[i - 1]! - 1, sizes: [size[i - 1]!, size[i]!] });
   });
   n.kids.forEach((k, i) => place(k, row ? { ...r, col: starts[i]!, cols: size[i]! } : { ...r, row: starts[i]!, rows: size[i]! }, opts, out));
   return out;
@@ -545,10 +545,9 @@ export function dragShare<I>(g: Grab<I>, x: number, y: number, o: { mins?: [numb
   const { d, side } = g, n = d.node;
   const [sa, sb] = d.sizes, total = sa + sb;
   if (total <= 0) return null;
-  const start = d.at - sa;
   const p = n.dir === "row" ? x : y;
   const [ma, mb] = o.mins ?? (n.dir === "row" ? [MIN_COLS, MIN_COLS] : [MIN_ROWS, MIN_ROWS]);
-  const a = Math.max(ma, Math.min(total - mb, side === 0 ? p - start + 1 : p - start));
+  const a = Math.max(ma, Math.min(total - mb, sa + p - (side === 0 ? d.before : d.at)));
   const [lo, hi] = o.bounds ?? [0.08, 0.92];
   return Math.max(lo, Math.min(hi, a / total));
 }
@@ -561,8 +560,8 @@ export function dividerAt<I>(dividers: Divider<I>[], x: number, y: number): Grab
   for (const d of dividers) {
     const r = d.area;
     if (x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows) continue;
-    if (d.node.dir === "row" && (x === d.at || x === d.at - 1) && y >= r.row && y < r.row + r.rows) return { d, side: x === d.at ? 1 : 0 };
-    if (d.node.dir === "col" && (y === d.at || y === d.at - 1) && x >= r.col && x < r.col + r.cols) return { d, side: y === d.at ? 1 : 0 };
+    if (d.node.dir === "row" && (x === d.at || x === d.before) && y >= r.row && y < r.row + r.rows) return { d, side: x === d.at ? 1 : 0 };
+    if (d.node.dir === "col" && (y === d.at || y === d.before) && x >= r.col && x < r.col + r.cols) return { d, side: y === d.at ? 1 : 0 };
   }
   return null;
 }

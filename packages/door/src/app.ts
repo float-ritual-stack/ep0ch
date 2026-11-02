@@ -1174,7 +1174,7 @@ export class App implements Ctx {
     if ("error" in r) { this.flash(`couldn't read the outline's extensions: ${r.error}`); return; }
     resourceChanged(null);
     for (const binding of scriptBindings()) {
-      const problem = this.dispatch.bindingProblem(binding);
+      const problem = this.dispatch.bindingProblem(binding, scriptBindings());
       if (problem) r.problems.push(problem);
     }
     const said = [r.added.length ? `${r.added.join(", ")} added` : "", r.removed.length ? `${r.removed.join(", ")} removed` : ""].filter(Boolean);
@@ -1584,7 +1584,7 @@ export class App implements Ctx {
     if (!held && !raw && !(k.kind === "char" && k.pasted)) {
       const binding = scriptBindings().find(b => b.key === keyName(k));
       if (binding) {
-        const problem = this.dispatch.bindingProblem(binding);
+        const problem = this.dispatch.bindingProblem(binding, scriptBindings());
         if (problem) this.flash(problem);
         else { void this.dispatch.pressBinding(binding); return; }
       }

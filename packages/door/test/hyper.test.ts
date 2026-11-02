@@ -118,7 +118,7 @@ describe("hyper chords as a terminal sends them", () => {
 describe("the keymap", () => {
   test("one binding per chord, each an action the door has, with its other keys named", () => {
     expect(new Set(HYPER_KEYS.map(b => b.key)).size).toBe(HYPER_KEYS.length);
-    expect(hyperBinding("+")).toBe(hyperBinding("="));                                    // + is = with shift
+    expect(hyperBinding("+")).toEqual(hyperBinding("="));                                    // + is = with shift
     expect(hyperKeysOf("tile.collapse")).toEqual(["✦-", "✦="]);
     const grammar = readFileSync(join(import.meta.dir, "../docs/UI-GRAMMAR.md"), "utf8");
     for (const b of HYPER_KEYS) expect(grammar).toContain(`✦${b.key}`);
@@ -222,6 +222,53 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     expect(message()).toContain("tile.focus");
     await board.trash(id); await board.trash(clash); await app.loadExtensions(true);
     app.drawer.set(false, { kind: "user" });
+  });
+
+  test("a copied hyper chord names its first owner and only that owner advertises and runs it", async () => {
+    useHyper(true);
+    const first = await create('First seeds [script::first-seeds] [keys::hyper+b]\n```actions\nagent.lift\n```');
+    await app.loadExtensions(true);
+    const second = await create('Copied seeds [script::copied-seeds] [keys::hyper+b]\n```actions\nbar.open\n```');
+    try {
+      await app.loadExtensions(true);
+      expect(message()).toContain("hyper+b");
+      expect(message()).toContain("first-seeds");
+      expect(render().lines.join("\n")).toContain("✦b first-seeds");
+      expect(render().lines.join("\n")).not.toContain("✦b copied-seeds");
+      await app.dispatch.press("bar.open", { query: "copied-seeds", scope: "actions" });
+      await until(() => !!app.bar?.items.some(r => r.row.label === "copied-seeds"), "the copied action in the power bar");
+      expect(app.bar!.items.find(r => r.row.label === "copied-seeds")!.row.detail ?? "").not.toContain("✦b");
+      await app.dispatch.press("bar.close");
+      const decoder = new KeyDecoder(info); decoder.keyHandler = key;
+      decoder.feed("\x1b[98;16u");
+      await until(() => !!app.drawer.made?.lifted, "the first owner's lift");
+      expect(app.bar).toBeNull();
+      await app.dispatch.press("agent.lift", { on: false });
+      expect((await board.get(second))!.text).toContain("[keys::hyper+b]");
+    } finally {
+      await board.trash(first); await board.trash(second); await app.loadExtensions(true);
+      await app.dispatch.press("bar.close");
+      await app.dispatch.press("agent.lift", { on: false });
+    }
+  });
+
+  test("uppercase hyper notes name the built-in owner and free chords run as decoded", async () => {
+    useHyper(true);
+    const clash = await create('Capital clash [script::capital-clash] [keys::hyper+L]\n```actions\nagent.lift\n```');
+    const free = await create('Capital seeds [script::capital-seeds] [keys::hyper+B]\n```actions\nagent.lift\n```');
+    try {
+      await app.loadExtensions(true);
+      expect(message()).toContain("tile.focus");
+      expect(message()).toContain("hyper+L");
+      expect(render().lines.join("\n")).not.toContain("✦L capital-clash");
+      expect(render().lines.join("\n")).toContain("✦b capital-seeds");
+      const decoder = new KeyDecoder(info); decoder.keyHandler = key;
+      decoder.feed("\x1b[98;16u");
+      await until(() => !!app.drawer.made?.lifted, "the uppercase note's decoded chord");
+    } finally {
+      await board.trash(clash); await board.trash(free); await app.loadExtensions(true);
+      await app.dispatch.press("agent.lift", { on: false });
+    }
   });
 
   test("while the person types - + = are text: a draft takes them, and folds nothing", async () => {

@@ -44,12 +44,17 @@ export const HYPER_KEYS: readonly HyperBinding[] = keyTable("hyper", "the hyper 
 /** The chord a base key names: `+` is `=` with shift, which hyper always holds. */
 const BASE: Record<string, string> = { "+": "=", _: "-" };
 type NoteBinding = { key: string; action: string; label?: string };
+const baseKey = (key: string) => BASE[key] ?? key.toLowerCase();
 export function hyperBindings(notes: readonly NoteBinding[] = []): readonly HyperBinding[] {
-  const builtins = effective(HYPER_KEYS, "hyper+");
-  const bound = notes.filter(b => /^hyper\+.$/u.test(b.key)).map(b => ({ ...b, key: BASE[b.key.slice(6)] ?? b.key.slice(6), label: b.label ?? b.action }));
-  return [...builtins, ...bound.filter(b => !builtins.some(k => k.key === b.key))];
+  const owners = new Map<string, HyperBinding>();
+  const candidates = [...effective(HYPER_KEYS, "hyper+"), ...notes.filter(b => /^hyper\+.$/u.test(b.key)).map(b => ({ ...b, key: b.key.slice(6), label: b.label ?? b.action }))];
+  for (const binding of candidates) {
+    const key = baseKey(binding.key);
+    if (!owners.has(key)) owners.set(key, { ...binding, key });
+  }
+  return [...owners.values()];
 }
-export const hyperBinding = (key: string, notes: readonly NoteBinding[] = []): HyperBinding | undefined => { const k = BASE[key] ?? key; return hyperBindings(notes).find(b => b.key === k); };
+export const hyperBinding = (key: string, notes: readonly NoteBinding[] = []): HyperBinding | undefined => { const k = baseKey(key); return hyperBindings(notes).find(b => b.key === k); };
 
 /** `✦k`: how a chord is written in a hint, the power bar and the docs. */
 export const hyperLabel = (key: string) => `✦${key}`;

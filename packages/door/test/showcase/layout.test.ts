@@ -74,6 +74,36 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     await sc.dispatch.press("section.leave");
   });
 
+  test("spaced peeks leave blank gaps while their notes keep the natural wrapping width", async () => {
+    await sc.dispatch.press("section", { name: "spacing" }); screen();
+    const d = sc.tilesHere()!, original = d.layoutSpec();
+    const note = await board.request<{ id: string }>("create", { parentId: null, text: "Garden log\n" + "Seedlings fill the garden beds. ".repeat(80), author: "agent" });
+    const kids = Array.from({ length: 5 }, (_, i) => ({ t: "leaf" as const, kind: "reader", name: `garden${i}`, note: note.id }));
+    (d as any).build({ root: { t: "flow", kids, policy: { readable: 80, "min-width": 40 } }, focus: "garden4" }, false);
+    try {
+      await d.dispatch.act({ action: "tile.widen", tile: "garden4" }, USER);
+      await until(() => kids.every(k => (d.pane(k.name) as any)?.msg?.text.includes("Seedlings")), "populated river notes");
+      for (const gap of [1, 2]) {
+        await d.dispatch.act({ action: "layout.policy", args: { gap, inset: 1 } }, USER);
+        screen();
+        const peek = kids.find(k => d.coverOf(d.pane(k.name)!) === "peek")!;
+        expect(peek).toBeDefined();
+        const r = d.drawnAt(peek.name)!;
+        const drawing = d.render((d as any).ctx).lines;
+        const c = new Canvas(S().stageRect.cols, drawing.length);
+        drawing.forEach((line, y) => c.text(0, y, line));
+        for (let y = r.row; y < r.row + r.rows; y++) {
+          expect(c.grid()[y]!.slice(r.col + r.cols, r.col + r.cols + gap).map(cell => cell.ch).join("")).toBe(" ".repeat(gap));
+        }
+        const reader = d.pane(peek.name) as any;
+        const wrapped = reader.surface.drawn.doc.lines;
+        await d.dispatch.act({ action: "tile.widen", tile: peek.name }, USER); screen();
+        expect(reader.surface.drawn.doc.lines).toEqual(wrapped);
+        await d.dispatch.act({ action: "tile.widen", tile: "garden4" }, USER);
+      }
+    } finally { (d as any).build(original, false); await sc.dispatch.press("section.leave"); }
+  });
+
   test("a held tile drag shows all six drop zones on the layout exhibit (PIE-1209)", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "panes" }, as: "test-agent" });

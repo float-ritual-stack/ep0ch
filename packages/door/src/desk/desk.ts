@@ -3727,9 +3727,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (this.layout.lift?.tile === id) return;
       const at = flying ? flying.at(id, this.clock(), area) : "settled";
       if (at !== "settled") { ghosts.push([id, at]); this.inFlight.add(id); return; }
-      const box = this.boxOf(id, r);
-      placements = uncover(placements, box);
-      this.tileSpots = this.tileSpots.filter(s => !overlaps({ col: s.from, row: s.y, cols: s.to - s.from, rows: 1 }, box));
+      placements = uncover(placements, r);
+      this.tileSpots = this.tileSpots.filter(s => !overlaps({ col: s.from, row: s.y, cols: s.to - s.from, rows: 1 }, r));
       placements.push(...this.drawTile(canvas, id, r, dock, float));
     };
     for (const [id, r] of pinned) lay(id, r);
@@ -4003,25 +4002,26 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** One tile: its frame, its header (its name, or its tab set's tabs), its body, its placements. */
   private drawTile(canvas: Canvas, id: number, r0: Rect, dock = false, float = false): Placement[] {
+    if (this.boxOf(id, r0) === r0) return this.paintTile(canvas, id, r0, dock, float);
+    const clipped = new Canvas(canvas.cols, canvas.rows);
+    const placements = this.paintTile(clipped, id, r0, dock, float);
+    canvas.copy(clipped, r0);
+    return placements;
+  }
+  private paintTile(canvas: Canvas, id: number, r0: Rect, dock: boolean, float: boolean): Placement[] {
     const pane = this.panes.get(id)!;
     const focused = id === this.focus;
-    // A flow's column squeezed to a spine, or a tile folded to one; a peek is drawn whole in its box, its right
-    // side under its neighbour (drawn after it), like a dock (PIE-513).
+    // Peeks wrap at reading width; drawTile composes only their visible rectangle.
     const { cover, fold } = this.contentCover(id);
     if (fold?.dir === "h" ? r0.rows <= 1 : (fold || cover === "spine") && r0.cols <= SPINE) return this.drawSpineTile(canvas, id, r0, focused);
     const r = this.boxOf(id, r0);
-    // Every cell of the box is the tile's: rows its view leaves short show nothing of a tile drawn under it (a dock's
-    // or a float's on the black it slides over).
-    // A tile with a screen of its own in it (a mount, a group) is its header and nothing else: the tiles inside have their
-    // frames, so a second box around them would double every border (PIE-1305).
+    // Nested screens have their own frames; framing them again doubles their borders.
     const nests = !!pane.nestsTiles?.();
     const framed: Rect = nests ? { col: r.col, row: r.row + 1, cols: r.cols, rows: r.rows - 1 } : { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
     const look = this.lookAt(pane, framed.cols), lv = look.values;
-    // Joined (PIE-886): no frame, a tinted pane that reads as part of the tile it follows, as the admin tree's preview does.
-    // `border=joined` asks for it; a preview of a tree has it unless its look says another border.
+    // Joined previews read as part of the tile they follow.
     const joined = !dock && !float && (lv.border === "joined" || (lv.border === "auto" && this.joinedByDefault(id)));
-    // Its surface (PIE-675, the look's `bg`): under its content, inside its frame; a dock or a float slides over on it.
-    // A joined tile's tint runs to its edges, with no frame to stop at (dark, capped as every surface is).
+    // Joined tiles carry their surface to the edge.
     const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : joined ? surfaceBg("raised", lv["bg.strength"]) : "";
     canvas.clear(r, float ? "" : dock ? surface || bg(C.black) : "");
     this.looks.set(pane, look);
