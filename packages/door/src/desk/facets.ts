@@ -91,6 +91,8 @@ export class FacetsPane implements Pane, AttachedOwner {
   sourceId = "notes";
   private sourceLine = -1;
   private sourceTitle() { return facetSources().find(s => s.id === this.sourceId)?.title ?? this.sourceId; }
+  /** What the count line calls the source's rows. */
+  private rowsNoun() { const s = facetSources().find(s => s.id === this.sourceId); return s?.rows ?? (s?.title ?? this.sourceId).toLowerCase(); }
   private sourceRows = new Map<string, SourceRow>();
   private async readSource(desk: DeskApi, where: string, limit = 200, options: FacetNotes = {}): Promise<FacetAnswer> {
     const result = await facetSource(this.sourceId).query({ where, limit, ...options }, desk);
@@ -520,7 +522,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     const push = (text: string, row = -1) => { lines.push(text); this.lineRows.push(row); };
     const cell = (sort: FacetSort, label: string) => (this.sort === sort ? fg(C.white) + `\x1b[1m${label}▾\x1b[22m` : fg(C.dark) + label + " ") + RESET;
     const a = this.answer, q = this.query();
-    push(pad(` ${fg(C.dark)}${a?.matched ?? "…"} of ${this.all?.matched ?? "…"} ${this.sourceTitle()}`, Math.max(0, w - USES - 1 - LAST)) + cell("uses", "uses") + " " + cell("last", "last"));
+    push(pad(` ${fg(C.dark)}${a?.matched ?? "…"} of ${this.all?.matched ?? "…"} ${this.rowsNoun()}`, Math.max(0, w - USES - 1 - LAST)) + cell("uses", "uses") + " " + cell("last", "last"));
     if (this.draft) { this.draft.drawnAt(8, 1, w - 8); push(fg(C.yellow) + ` where: ${this.draft.show(w - 8)}` + RESET); }
     else push(fg(C.dark) + pad(q ? ` where: ${q}` : " where: every note · e types words or a query", w) + RESET);
     const completion = this.draft && lineCompleter(this.draft), ghost = completion?.shown;

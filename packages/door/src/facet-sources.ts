@@ -8,6 +8,8 @@ export interface SourceRow extends FacetRow { note?: Msg }
 export interface FacetSource {
   id: string;
   title: string;
+  /** What a count of its rows reads as ("1 of 682 notes", "3 of 40 visits"); the title in lower case when left out. */
+  rows?: string;
   /** Notes alone expose the note-writing actions (pin and tag). */
   notes?: boolean;
   query(request: FacetRequest, desk: DeskApi): Promise<FacetResult<SourceRow>>;
@@ -41,7 +43,7 @@ export function sourceAnswer(result: FacetResult<SourceRow>): FacetAnswer {
 }
 
 registerFacetSource({
-  id: "notes", title: "Notes", notes: true,
+  id: "notes", title: "Notes", rows: "notes", notes: true,
   async query({ where, limit, ...options }, desk) {
     const answer = await desk.ctx.board.facetList(where, limit, options);
     return { ...answer, rows: answer.notes.map(note => {

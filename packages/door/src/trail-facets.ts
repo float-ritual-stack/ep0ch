@@ -4,7 +4,7 @@ import { visitDay } from "./trail";
 import { ActionRefused } from "./surface/actions";
 
 registerFacetSource({
-  id: "trail", title: "Trail",
+  id: "trail", title: "Trail", rows: "visits",
   subscribe: (desk, changed) => desk.ctx.trail!.subscribe(changed),
   async query(request, desk) {
     const trail = desk.ctx.trail!, now = Date.now();
