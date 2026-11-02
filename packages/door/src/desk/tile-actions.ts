@@ -77,10 +77,12 @@ const loadLayout = {
 } as const;
 
 /** What `layout.policy`'s arguments set and clear (the run applies it; `says` puts it in words). */
-function policyChange({ clear, accepts, opensInto, opens, altOpens, host, agents, min, max, fixed, readable, spines, "min-width": minWidth, node: _node, ...flags }: PolicyArgs): { set: Policy; gone: string[] } {
+function policyChange({ clear, accepts, opensInto, opens, altOpens, host, agents, min, max, fixed, readable, gap, inset, spines, "min-width": minWidth, node: _node, ...flags }: PolicyArgs): { set: Policy; gone: string[] } {
+  if (gap !== undefined && (gap < 0 || gap > 8)) throw new ActionRefused("gap is 0 to 8 cells");
+  if (inset !== undefined && inset < 0) throw new ActionRefused("inset is 0 or more cells");
   const set: Policy = {}, gone = (clear ?? "").split(",").map(x => x.trim()).filter(Boolean);
   for (const [k, v] of Object.entries(flags)) if (typeof v === "boolean") (set as Record<string, unknown>)[k] = v;
-  for (const [k, v] of Object.entries({ min, max, fixed, readable, "min-width": minWidth })) if (v !== undefined) { if (v < 0) gone.push(k); else (set as Record<string, unknown>)[k] = Math.round(v); }
+  for (const [k, v] of Object.entries({ min, max, fixed, readable, gap, inset, "min-width": minWidth })) if (v !== undefined) { if (v < 0) gone.push(k); else (set as Record<string, unknown>)[k] = Math.round(v); }
   if (accepts !== undefined) { const kinds = accepts.split(",").map(x => x.trim()).filter(Boolean); if (!kinds.length || (kinds.length === 1 && kinds[0] === "any")) gone.push("accepts"); else set.accepts = kinds; }
   if (opensInto !== undefined) { if (opensInto) set.opensInto = opensInto; else gone.push("opensInto"); }
   if (spines !== undefined) set.spines = spines as Policy["spines"];
@@ -92,6 +94,8 @@ function policyChange({ clear, accepts, opensInto, opens, altOpens, host, agents
 }
 /** What `layout.policy` sets: the schema `act` checks, and so its arguments' type. */
 const POLICY_ARGS = {
+  gap: { type: "number", optional: true, about: "screen spacing between tiles, 0 to 8 cells (node=screen)" },
+  inset: { type: "number", optional: true, about: "screen spacing inside its outer edge, in cells (node=screen)" },
   spines: { type: "string", optional: true, choices: SPINES, about: "book slides pages to their own side, start gathers left, end right, centre balances both sides, invoker keeps them toward the invoking tile; on a desk row (not a flow) a book spine kept by an open sits beside its reader (PIE-1457)" },
   "min-width": { type: "number", optional: true, about: "minimum open page width (default 40); opening a spine shares evenly and folds the least recently touched open page below this; 0 keeps all open, -1 clears" },
   node: { type: "string", optional: true, about: "the container's id, or screen" },
@@ -243,9 +247,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.zoom": def({
     words: "zoom a tile to fill the screen, or lift it above the drawer",
-    summary: "zoom a tile to fill the screen, or lift it above the drawer with reach=column|full (a spine opens first); on=false drops it. An agent may lift another tile, never replace the person's lift",
+    summary: "zoom a tile to fill the screen, or lift it above the drawer with reach=column|full (a spine opens first); on=false drops it. An agent may zoom or lift the tile the person types in, keeping their keys; it never replaces the person's lift",
     keys: [...W_KEYS.filter(k => k.action === "tile.zoom").map(k => wCaption(k.key)), ...HYPER_KEYS.filter(k => k.action === "tile.zoom").map(k => `✦${k.key}`), ZOOM_WHEEL.key].join(", "),
-    touches: "shape", touchesWith: a => a.reach && a.reach !== "screen" ? "tile" : "shape", replay: "safe", says: (r, a) => `${r.zoomed ? a.reach && a.reach !== "screen" ? `lifted (${a.reach})` : "zoomed" : "dropped"} ${r.name ?? r.tile}`,
+    touches: "shape", replay: "safe", says: (r, a) => `${r.zoomed ? a.reach && a.reach !== "screen" ? `lifted (${a.reach})` : "zoomed" : "dropped"} ${r.name ?? r.tile}`,
     menu: { label: "zoom", group: TILE, key: "ctrl+w z", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.zoomed ? { label: "unzoom" } : { refused: n.refused("zoom") }; } },
     args: { on: { type: "boolean", optional: true, about: "true zooms, false unzooms; default toggles" }, reach: { type: "string", optional: true, choices: ["screen", "column", "full"], about: "screen (default), column (lift this column above the drawer), or full (lift across the terminal)" } },
     examples: [
@@ -506,7 +510,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run(args, { d, reader }, actor) {
       const { set, gone } = policyChange(args);
       if (!Object.keys(set).length && !gone.length && args.node === undefined) return d.policyGet(reader);
-      return d.setPolicy(reader, args.node, set, gone, actor);
+      const spacing = args.gap !== undefined || args.inset !== undefined || gone.some(k => k === "gap" || k === "inset");
+      if (spacing && args.node !== undefined && args.node !== "screen") throw new ActionRefused("gap and inset belong to the screen; use node=screen");
+      return d.setPolicy(reader, args.node ?? (spacing ? "screen" : undefined), set, gone, actor);
     },
   }),
   "tile.slide": def({

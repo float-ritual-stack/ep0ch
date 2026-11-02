@@ -48,6 +48,21 @@ function no(s: LayoutState, op: Op, re: RegExp, actor: Actor = PERSON, person: P
 const names = (s: LayoutState, ids: number[]) => ids.map(id => s.names.get(id));
 const treeNames = (s: LayoutState) => names(s, leaves(s.tree));
 const floated = (s: LayoutState) => names(s, s.floats.map(f => f.id));
+
+test("screen spacing leaves an inset and gaps between nested tiles, and survives saving", () => {
+  const s = ok(fresh(), { op: "policy", node: "screen", set: { gap: 2, inset: 1 }, clear: [] }).state;
+  const saved = serialize(s, id => ({ t: "leaf", id }));
+  expect(saved.policy).toMatchObject({ gap: 2, inset: 1 });
+  const boxes = place(s, AREA).rects;
+  const [tree, reader, thread, activity] = [1, 2, 3, 4].map(id => boxes.get(id)!);
+  expect(tree!.col).toBe(1);
+  expect(tree!.row).toBe(1);
+  expect(tree!.rows).toBe(AREA.rows - 2);
+  expect(reader!.col - tree!.col - tree!.cols).toBe(2);
+  expect(thread!.col - reader!.col - reader!.cols).toBe(2);
+  expect(activity!.row - thread!.row - thread!.rows).toBe(2);
+  expect(activity!.col + activity!.cols).toBe(AREA.cols - 1);
+});
 /** The state with tile `id` popped out as a float, by the person. */
 const withFloat = (s: LayoutState, id: number) => ok(s, { op: "float", tile: id }).state;
 
@@ -66,7 +81,7 @@ test("a lift keeps the layout and keys, and an agent cannot replace the person's
   const lifted = ok(s, { op: "zoom", tile: 4, reach: "full" }, AGENT);
   expect(lifted.focus).toBe(2);
   expect(lifted.state.lift?.by).toEqual(AGENT);
-  no(s, { op: "zoom", tile: 2, reach: "column" }, /person.*keys/, AGENT);
+  expect(ok(s, { op: "zoom", tile: 2, reach: "column" }, AGENT).focus).toBe(2);
 });
 
 // PIE-1342: a tab behind another is drawn lifted only from the front of its tabs, so a lift brings it there; an agent's

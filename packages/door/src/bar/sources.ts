@@ -28,7 +28,7 @@ import { actionLead, actionPage, typeLine } from "../surface/action-page";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, QUERY_SCOPE, registerBarSource } from "./source";
-import { extensionList, extensionParts, PART_KINDS, partKind, scriptActions, scriptNamed, type ExtensionEntry, type ExtensionList } from "../extensions";
+import { extensionList, extensionParts, PART_KINDS, partKind, scriptBindings, scriptActions, scriptNamed, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
 import { AGENTS } from "./ask-agent";
 import { settingsChip, settingsMarkdown, settingsNeedYou, settingsWords, shownValue } from "../extension-settings";
@@ -304,7 +304,7 @@ const ACTIONS: BarSource = {
     if (w) { const desk = tilesOf(keysScreen(host)); return desk ? wKeyRows(desk, w[1]!, host) : []; }
     const menu = (() => { try { return keysDispatch(host)?.menu("focused", USER) ?? []; } catch { return []; } })();
     // While the hyper layer is on (PIE-699) each action that has a chord shows it, as ✦-, beside its other keys.
-    const hy = (action: string) => (hyperOn() ? hyperKeysOf(action) : []);
+    const hy = (action: string) => (hyperOn() ? hyperKeysOf(action, scriptBindings()) : []);
     const rows: BarRow[] = menu.map(m => ({ key: `menu:${m.action}:${JSON.stringify(m.args)}`, label: m.label, fill: m.action, detail: `${m.group} · ${m.action}${hy(m.action).length ? ` · ${hy(m.action).join(" ")}` : ""}`, ...(m.key ? { keycap: m.key } : {}), ...(m.refused ? { refused: m.refused } : {}), data: { action: m.action, args: m.args, tile: m.tile, summary: "" } }));
     const seen = new Set(menu.map(m => m.action));
     for (const a of host.dispatch.list().actions) {
@@ -329,7 +329,7 @@ const ACTIONS: BarSource = {
     // Its page (PIE-1032): the lead, its keys as keycaps, its arguments as a properties table, its examples.
     const page: ActionInfo = info ?? { name: d.action, summary: d.summary ?? "", ...(d.keys ? { keys: d.keys } : {}), args: {}, scope: "", touches: "nothing", replay: "ask" };
     // Its examples read as the bar's line takes them (PIE-1502): what Tab or a click puts in it, with no `ep0ch act`.
-    return { markdown: actionPage(page, { title: row.label, prompt: null, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action) } : {}) }) };
+    return { markdown: actionPage(page, { title: row.label, prompt: null, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action, scriptBindings()) } : {}) }) };
   },
   command(row) {
     if (row.key.startsWith("line:")) return row.fill!;

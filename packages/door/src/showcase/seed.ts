@@ -1,3 +1,4 @@
+import { SPACING_NOTE, HYPER_NOTE } from "./spacing";
 import { COLLECTION_TUNE } from "./seed/collection-tune";
 import { QUERY_WORDS, QUERY_TRELLIS, QUERY_FENCE } from "./seed/query-words";
 import { pickId } from "@ep0ch/outline-core/completion-source";
@@ -599,6 +600,8 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   for (const job of STICKY_JOBS) await make(notes.stickyPlan.id, job);
   notes.stickyPad = await make(notes.root.id, STICKY_PAD);
   notes.oneCompleter = await make(notes.root.id, ONE_COMPLETER);
+  notes.spacing = await make(notes.root.id, SPACING_NOTE);
+  notes.hyperBinding = await make(notes.root.id, HYPER_NOTE);
   notes.queryWords = await make(notes.root.id, QUERY_WORDS);
   notes.queryTrellis = await make(notes.root.id, QUERY_TRELLIS);
   notes.queryFence = await make(notes.root.id, QUERY_FENCE);

@@ -176,15 +176,18 @@ describe("resizing", () => {
 
   test("the border grabbed follows the pointer: the first kid's edge, or the second's", () => {
     const r = { col: 0, row: 0, cols: 100, rows: 20 };
-    for (const side of [0, 1] as const) {
-      const t = pair("row", 0.5, leaf(1), leaf(2));
-      const d = place(t, r).dividers[0]!;
-      const g = dividerAt([d], d.at - 1 + side, 5)!;
+    for (const gap of [0, 1, 2]) for (const dir of ["row", "col"] as const) for (const side of [0, 1] as const) {
+      const t = pair(dir, 0.5, leaf(1), leaf(2));
+      const placed = place(t, r, { gap }), a = placed.rects.get(1)!, b = placed.rects.get(2)!;
+      const edge = dir === "row" ? side === 0 ? a.col + a.cols - 1 : b.col : side === 0 ? a.row + a.rows - 1 : b.row;
+      const g = dividerAt(placed.dividers, dir === "row" ? edge : 5, dir === "col" ? edge : 5);
+      expect(g).not.toBeNull();
+      if (!g) throw new Error("the visible border cannot be dragged");
       expect(g.side).toBe(side);
-      dragTo(g, 70, 5);
-      const after = place(t, r).rects;
-      // Grabbed by the first pane's right edge, that edge is now at 70; by the second's left edge, that one is.
-      expect(side === 0 ? after.get(1)!.cols - 1 : after.get(2)!.col).toBe(70);
+      const target = dir === "row" ? 70 : 12;
+      dragTo(g, dir === "row" ? target : 5, dir === "col" ? target : 5);
+      const after = place(t, r, { gap }).rects, first = after.get(1)!, second = after.get(2)!;
+      expect(dir === "row" ? side === 0 ? first.col + first.cols - 1 : second.col : side === 0 ? first.row + first.rows - 1 : second.row).toBe(target);
     }
   });
 

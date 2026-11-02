@@ -62,7 +62,8 @@ import { centred, linePrompt, ListPicker, pickRows, pickRow } from "../surface/p
 import { outlineState, readState, writeState } from "../state";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { hyperOn } from "../hyper";
+import { hyperBindings, hyperLabel, hyperOn } from "../hyper";
+import { scriptBindings } from "../extensions";
 import { containerKeys, leafNames, slotNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
@@ -72,7 +73,7 @@ import { DOCK_DROP, dropAt, dropArgs, dropOp, floatLanding, handleDrop, type Dro
 import { drawDrop } from "./drop-drawing";
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
-  neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
+  neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
   shape as layoutShapeOf, peekSource, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, WIRE_VERBS, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
@@ -3680,7 +3681,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.slid = [];
     const zoomed = this.zoom !== null && this.panes.has(this.zoom);
     if (zoomed) {
-      this.placed = { rects: new Map([[this.zoom!, area]]), nodes: new Map(), dividers: [] };
+      this.placed = { rects: new Map([[this.zoom!, screenArea(this.layout.policy, area)]]), nodes: new Map(), dividers: [] };
       this.dividers = [];
     } else {
       // The tree, the docks that slide over it (PIE-505: containers, each from its edge), bottom first.
@@ -3726,9 +3727,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (this.layout.lift?.tile === id) return;
       const at = flying ? flying.at(id, this.clock(), area) : "settled";
       if (at !== "settled") { ghosts.push([id, at]); this.inFlight.add(id); return; }
-      const box = this.boxOf(id, r);
-      placements = uncover(placements, box);
-      this.tileSpots = this.tileSpots.filter(s => !overlaps({ col: s.from, row: s.y, cols: s.to - s.from, rows: 1 }, box));
+      placements = uncover(placements, r);
+      this.tileSpots = this.tileSpots.filter(s => !overlaps({ col: s.from, row: s.y, cols: s.to - s.from, rows: 1 }, r));
       placements.push(...this.drawTile(canvas, id, r, dock, float));
     };
     for (const [id, r] of pinned) lay(id, r);
@@ -4002,25 +4002,26 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** One tile: its frame, its header (its name, or its tab set's tabs), its body, its placements. */
   private drawTile(canvas: Canvas, id: number, r0: Rect, dock = false, float = false): Placement[] {
+    if (this.boxOf(id, r0) === r0) return this.paintTile(canvas, id, r0, dock, float);
+    const clipped = new Canvas(canvas.cols, canvas.rows);
+    const placements = this.paintTile(clipped, id, r0, dock, float);
+    canvas.copy(clipped, r0);
+    return placements;
+  }
+  private paintTile(canvas: Canvas, id: number, r0: Rect, dock: boolean, float: boolean): Placement[] {
     const pane = this.panes.get(id)!;
     const focused = id === this.focus;
-    // A flow's column squeezed to a spine, or a tile folded to one; a peek is drawn whole in its box, its right
-    // side under its neighbour (drawn after it), like a dock (PIE-513).
+    // Peeks wrap at reading width; drawTile composes only their visible rectangle.
     const { cover, fold } = this.contentCover(id);
     if (fold?.dir === "h" ? r0.rows <= 1 : (fold || cover === "spine") && r0.cols <= SPINE) return this.drawSpineTile(canvas, id, r0, focused);
     const r = this.boxOf(id, r0);
-    // Every cell of the box is the tile's: rows its view leaves short show nothing of a tile drawn under it (a dock's
-    // or a float's on the black it slides over).
-    // A tile with a screen of its own in it (a mount, a group) is its header and nothing else: the tiles inside have their
-    // frames, so a second box around them would double every border (PIE-1305).
+    // Nested screens have their own frames; framing them again doubles their borders.
     const nests = !!pane.nestsTiles?.();
     const framed: Rect = nests ? { col: r.col, row: r.row + 1, cols: r.cols, rows: r.rows - 1 } : { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
     const look = this.lookAt(pane, framed.cols), lv = look.values;
-    // Joined (PIE-886): no frame, a tinted pane that reads as part of the tile it follows, as the admin tree's preview does.
-    // `border=joined` asks for it; a preview of a tree has it unless its look says another border.
+    // Joined previews read as part of the tile they follow.
     const joined = !dock && !float && (lv.border === "joined" || (lv.border === "auto" && this.joinedByDefault(id)));
-    // Its surface (PIE-675, the look's `bg`): under its content, inside its frame; a dock or a float slides over on it.
-    // A joined tile's tint runs to its edges, with no frame to stop at (dark, capped as every surface is).
+    // Joined tiles carry their surface to the edge.
     const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : joined ? surfaceBg("raised", lv["bg.strength"]) : "";
     canvas.clear(r, float ? "" : dock ? surface || bg(C.black) : "");
     this.looks.set(pane, look);
@@ -4734,7 +4735,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.spec.layouts || locked) tabs.push({ label: locked ? lockChipText(this.layoutSelf()).trim() : "□ lock", keep: true, hit: { action: "layout.lock", tile: this.tileId(this.focus) } });
     const host = this.ctx?.hostLayer, drawer = host?.desks().find(d => host.isDrawer(d) && d !== this);
     if (drawer?.screenLocked()) tabs.push({ label: lockChipText(drawer.layoutSelf()).trim(), keep: true, hit: { action: "layout.lock", tile: drawer.tileId(drawer.focus) } });
-    if (hyperOn()) tabs.push({ label: HYPER_CHIP, keep: true, hit: { action: "keys.probe" } });
+    if (hyperOn()) {
+      const notes = scriptBindings();
+      for (const b of hyperBindings(notes).filter(b => notes.some(n => n.action === b.action))) tabs.push({ label: `${hyperLabel(b.key)} ${b.label}`, hit: { action: b.action } });
+      tabs.push({ label: HYPER_CHIP, keep: true, hit: { action: "keys.probe" } });
+    }
     const row = withStripOwner(tile, cols, () => tabStrip(tabs, { id: "hint", width: cols, overflow: "drop", style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } }))[0]!;
     // A click is strip.pick while an App paint records the strip; a desk drawn on its own presses a chip's action
     // itself, and a keyed part's key as typed (the key spots after), as a screen on a stand-in context does.
@@ -5528,16 +5533,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       label: "locked · the shape is fixed, the contents live", value: own.locked ? "on" : at.locked ? `on (from ${at.by.locked})` : "off",
       run: () => (node ? set({ locked: !own.locked }) : this.run("layout.lock")),
     }, flag("draggable", "its tiles move out"), flag("droppable", "it takes tiles"), flag("closable", "its tiles close"), flag("resizable", "its borders move")];
-    // What an agent may do to the tiles under it (PIE-639); a tile's own (^W g, tile.agent) wins over it.
     const ag = ["free", "edit", "off"] as const, agNow = own.agents ?? "free";
     rows.push({ label: "agents · what an agent may do to its tiles (free, edit only, hands off)", value: own.agents ?? `${at.agents}${at.by.agents ? ` (from ${at.by.agents})` : " (the default)"}`, run: () => set({ agents: ag[(ag.indexOf(agNow) + 1) % ag.length] }) });
     const kinds = [...new Set((node ? leaves(node) : this.all()).map(i => this.panes.get(i)!.kind))];
     rows.push({ label: "accepts · the tile kinds it takes", value: own.accepts ? own.accepts.join(", ") || "nothing" : at.accepts ? `${at.accepts.join(", ")} (from ${at.by.accepts})` : "any", run: () => (own.accepts ? set({ clear: "accepts" }) : set({ accepts: kinds.join(",") })) });
     const notes = this.all().filter(i => kindOf(this.panes.get(i))?.accepts?.notes && !(node && leaves(node).includes(i))).map(i => this.nameOf(i));
-    // The open rule in plain words (PIE-855): what an open from a tile with no link does.
     const rule = (o: string) => (o === "next" ? "next: a new column after it" : o === "beside" ? "beside: a reader beside it" : "reader: the first reader not pinned");
     rows.push({ label: "opens · an open from a tile with no link", value: own.opens ? rule(own.opens) : `${rule(at.opens)}${at.by.opens ? ` (from ${at.by.opens})` : ""}`, run: () => (own.opens === undefined ? set({ opens: at.opens === "next" ? "reader" : "next" }) : set({ clear: "opens" })) });
     if (!node) {
+      for (const k of ["gap", "inset"] as const) rows.push({ label: `${k} · ${TILE_ACTIONS.def("layout.policy")!.args![k]!.about}`, value: String(own[k] ?? 0), run: () => set({ [k]: ((own[k] ?? 0) + 1) % 9 }), adjust: by => set({ [k]: Math.max(0, Math.min(k === "gap" ? 8 : Infinity, (own[k] ?? 0) + by)) }) });
       const order = ["over", "beside", "none"] as const, now = own.host ?? "over";
       rows.push({ label: "host · where the host layer may appear (the agent)", value: own.host ?? "over (the default)", run: () => set({ host: order[(order.indexOf(now) + 1) % order.length] }) });
     }
@@ -5558,8 +5562,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         run: () => (own[k] === undefined ? set({ [k]: measured() }) : set({ clear: k })),
         adjust: (by: number) => set({ [k]: Math.max(1, (own[k] ?? measured()) + by) }),
       }));
-      // The sizes go first, under locked: a lock that shapes the screen is the one to see. Always there, so a row set
-      // by ⏎ stays under the selection for the ⏎ that clears it.
       rows.splice(1, 0, ...sizes);
     }
     if (node && isLine(node) && node.dir === "row") {
@@ -5643,7 +5645,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** What an agent may do to tile `id` (PIE-639), and which layer said so ("tile", "screen" or a container's id). */
   agentOf(id: number): { level: AgentLevel; by: string } { return agentLevel(this.layout, id, this.kindFacts(id)); }
   private policyAt(id: number): Effective { return policyOver(this.layout, id, this.kindFacts(id)); }
-  /** The whole screen is locked (its own policy). */
   screenLocked(): boolean { return !!this.layout.policy.locked; }
   /** Where this screen lets the host layer (the drawer) appear: its policy's `host` (PIE-513), else over it. */
   hostMode(): HostMode { return this.layout.policy.host ?? "over"; }
@@ -8473,7 +8474,6 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
   let wireWidth = 0;
   let node = Number.MAX_SAFE_INTEGER, crumbs: { from: number; to: number; y: number; i: number }[] = [];
   const nodes = () => { const ns = d.policyNodes(tile); node = Math.min(node, ns.length - 1); return ns; };
-  // The tile's own rows first (what it follows, where its opens land: PIE-855), then the container's.
   const rows = () => [...d.wireRows(tile), ...d.policyRows(tile, nodes()[node]!.node)];
   const first = () => d.wireRows(tile).length;
   const p: DeskPicker = new ListPicker<PanelRow, Desk>({

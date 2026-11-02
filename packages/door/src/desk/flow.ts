@@ -33,11 +33,12 @@ export interface PlacedColumn { i: number; cover: Cover; rect: Rect; box: Rect }
  * distance; with too many even as spines, the ones nearest the anchor. Leftover room shows more of the peeks first,
  * then goes to the anchor, so the strip fills its room. River.layout(), as a pure function of the flow.
  */
-export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean, policy: Pick<ReturnType<typeof effective>, "spines" | "min-width" | "readable" | "by"> = effective([{ by: "flow", policy: f.policy }]), folded?: (id: I) => boolean): { i: number; cover: Cover; width: number; natural: number }[] {
+export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean, policy: Pick<ReturnType<typeof effective>, "spines" | "min-width" | "readable" | "by"> = effective([{ by: "flow", policy: f.policy }]), folded?: (id: I) => boolean, gap = 0): { i: number; cover: Cover; width: number; natural: number }[] {
   const n = f.kids.length;
   if (!n) return [];
   if (policy["min-width"] === 0) return f.kids.map((_, i) => {
-    const size = Math.floor(width / n) + (i < width % n ? 1 : 0);
+    const room = Math.max(0, width - gap * (n - 1));
+    const size = Math.floor(room / n) + (i < room % n ? 1 : 0);
     return { i, cover: "full" as const, width: size, natural: size };
   });
   // Growth by room (PIE-794): the flow's `readable` is a full column's width, when it says one.
@@ -49,7 +50,9 @@ export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean
   const busy = (i: number) => !!holds && leaves(f.kids[i]!).some(id => holds(id));
   const shown = [...f.kids.keys()].sort((a, b) => Math.abs(a - anchor) - Math.abs(b - anchor) || b - a)
     // The wide column keeps at least a peek's width to read in (PIE-1392): the far columns give way before it does.
-    .slice(0, Math.max(1, 1 + Math.floor((width - Math.min(FULL, PEEK)) / SPINE))).sort((a, b) => a - b);
+    .slice(0, Math.max(1, 1 + Math.floor((width - Math.min(FULL, PEEK)) / (SPINE + gap)))).sort((a, b) => a - b);
+  const gaps = Math.max(0, shown.length - 1);
+  width -= gap * gaps;
   const cover = new Map<number, Cover>(shown.map(i => [i, "spine"]));
   let spare = width - shown.length * SPINE;
   const recent = (i: number) => Math.max(-1, ...leaves(f.kids[i]!).map(id => (f.recent ?? []).indexOf(id)));
@@ -91,7 +94,7 @@ export function placeFlow<I>(f: Flow<I>, r: Rect, opts: PlaceOpts<I>, out: Place
   if (f.key) out.nodes.set(f.key, r);
   const cols: PlacedColumn[] = [];
   let x = r.col;
-  for (const c of squeeze(f, r.cols, opts.holds, opts.flowPolicy?.(f), opts.folded)) {
+  for (const c of squeeze(f, r.cols, opts.holds, opts.flowPolicy?.(f), opts.folded, opts.gap)) {
     const rect: Rect = { ...r, col: x, cols: c.width }, box: Rect = { ...rect, cols: c.natural };
     const inner = place(f.kids[c.i]!, box, opts, { rects: new Map(), nodes: new Map(), dividers: [] });
     for (const [id, t] of inner.rects) {
@@ -106,7 +109,7 @@ export function placeFlow<I>(f: Flow<I>, r: Rect, opts: PlaceOpts<I>, out: Place
     // A full column's own borders (tiles stacked in it) drag; a covered one's are under its neighbour.
     if (c.cover === "full") out.dividers.push(...inner.dividers);
     cols.push({ i: c.i, cover: c.cover, rect, box });
-    x += c.width;
+    x += c.width + (opts.gap ?? 0);
   }
   (out.flows ??= []).push({ node: f, rect: r, cols });
   return out;
