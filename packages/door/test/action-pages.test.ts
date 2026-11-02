@@ -14,7 +14,7 @@ import { describe, expect, test } from "bun:test";
 import "../src/app";
 import "../src/screens";
 import { actRequestOf, allActionSets, coerceActionArgs, lineWords, type ActionInfo } from "../src/surface/actions";
-import { actionPage, exampleSafe } from "../src/surface/action-page";
+import { actionLead, actionPage, exampleSafe } from "../src/surface/action-page";
 import { draftPreview } from "../src/surface/note";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
@@ -71,6 +71,20 @@ describe("an action's page", () => {
     const ex = move().examples![0]!;
     expect(drawn).toContain(`ep0ch act ${ex.act}`);
     expect(drawn).toContain(`→ ${ex.does.slice(0, 30)}`);
+  });
+
+  test("a page opens with its examples, before its keys and its arguments (PIE-1502)", () => {
+    const page = actionPage(move());
+    expect(page.indexOf("::graph-example")).toBeLessThan(page.indexOf("::graph-keys"));
+    expect(page.indexOf("::graph-keys")).toBeLessThan(page.indexOf("::graph-props"));
+  });
+
+  test("glass.mode's summary is one sentence; its status messages live only where they're said (PIE-1502)", async () => {
+    const { GLASS_MODES } = await import("../src/glass");
+    const mode = builtIns().find(a => a.name === "glass.mode")!;
+    expect(mode.summary).not.toContain(GLASS_MODES.on);
+    expect(actionLead(mode.summary)).toBe(mode.summary);
+    expect(mode.examples!.map(ex => ex.act)).toEqual(["glass.mode set=sticky", "glass.mode set=off"]);
   });
 
   test("a page fits its width, narrow as wide", () => {
