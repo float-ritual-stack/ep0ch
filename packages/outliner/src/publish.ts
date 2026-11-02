@@ -21,7 +21,7 @@ import { ARTIFACT_PATH, drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaH
 import { artifactPagePath, artifactRepoRef, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
-import { isMachinery } from "@ep0ch/outline-core/machinery";
+import { insideHtml, insideParts } from "./publish-inside";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { hostname, networkInterfaces } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
@@ -464,7 +464,7 @@ section#mg-trail{margin:-.75rem 0 1.25rem}section#mg-trail h2{margin-top:0}secti
 main.browse article{overflow-wrap:anywhere}
 section.inside h2{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:2.5rem 0 .4rem}
 ul.kids{list-style:none;margin:0;padding:0;border-top:1px solid var(--rule)}
-details.machinery{margin-top:.75rem}details.machinery>summary{cursor:pointer;font:13px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--dim);padding:.3rem 0}
+details.machinery,details.changes{margin-top:.75rem}:is(details.machinery,details.changes)>summary{cursor:pointer;font:13px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--dim);padding:.3rem 0}
 ul.kids li{border-bottom:1px solid var(--rule)}
 ul.kids li>a{display:block;padding:.75rem .35rem;min-height:2.75rem;text-decoration:none;color:var(--fg)}
 ul.kids li>a:hover,ul.kids li>a:active{background:#18181a}
@@ -1732,9 +1732,8 @@ export class Publisher {
     const host = this.liveHost("tailnet", index, base, share);
     const shownViews = await host.shown(all.filter(isVirtualBranchDefinition).map((block) => block.id));
     const views = all.filter((block) => shownViews.has(block.id));
-    // What tools write for their own bookkeeping ([machine::…]: snapshots, records, logs) is folded below the rest.
-    const children = all.filter((block) => !shownViews.has(block.id) && !isMachinery(block.properties));
-    const machinery = all.filter((block) => !shownViews.has(block.id) && isMachinery(block.properties));
+    // People's notes, the note's changes (proposals, deliveries) and what tools wrote, each folded (publish-inside.ts).
+    const parts = insideParts(all.filter((block) => !shownViews.has(block.id)));
     let lanes = "";
     if (entry) {
       const own = (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [entry.blockId], fields: ["properties"] })).blocks[0];
@@ -1745,26 +1744,17 @@ export class Publisher {
       const read = await Promise.all(views.map((view) => readViewLane(host, view, viewTitles.get(view.id) || "a view")));
       lanes += `<section class="inside"><h2>${views.length > 1 ? "Board" : "View"} <span class="dim">${views.length}</span></h2>\n${boardHtml(read)}</section>\n`;
     }
-    // The notes people wrote get the list's room first; the tool-written ones what's left of it, in their fold.
-    const people = children.slice(0, MAX_LISTED_CHILDREN);
-    const byTools = machinery.slice(0, Math.max(0, MAX_LISTED_CHILDREN - people.length));
-    const listed = [...people, ...byTools];
+    const listed = [...parts.people, ...parts.byTools];
     const named = [...new Set(listed.flatMap(rowReferences))].slice(0, MAX_BLOCK_READ_IDS);
     const [counts, titles, notes] = await Promise.all([
       this.childCounts(listed.slice(0, MAX_COUNTED_CHILDREN).map((block) => block.id)),
-      this.titles(listed.map((block) => block.id)),
+      this.titles([...listed, ...parts.changed].map((block) => block.id)),
       this.linkableNotes(named, share),
     ]);
     const links = new Map(notes.map((note) => [note.id, note]));
     const unlocked = !share && this.signedInOwner();
     const row = (child: Block) => folderRow(child, titles.get(child.id) ?? "", index, base, counts.get(child.id), links, unlocked);
-    const moreOf = (n: number) => n > 0 ? `<p class="dim">and ${n} more (open it in the door to see them all)</p>\n` : "";
-    const tools = machinery.length
-      ? `<details class="machinery"><summary>${machinery.length} written by tools <span class="dim">(snapshots, records, logs)</span></summary>\n${byTools.length ? `<ul class="kids">\n${byTools.map(row).join("\n")}\n</ul>\n` : ""}${moreOf(machinery.length - byTools.length)}</details>\n`
-      : "";
-    const inside = children.length || machinery.length
-      ? `<section class="inside"><h2>Inside <span class="dim">${children.length}${machinery.length ? ` · ${machinery.length} by tools` : ""}</span></h2>\n${people.length ? `<ul class="kids">\n${people.map(row).join("\n")}\n</ul>\n` : ""}${moreOf(children.length - people.length)}${tools}</section>\n`
-      : "";
+    const inside = insideHtml(parts, { row, href: (block) => `${base}${notePath(block, index)}`, title: (block) => noteTitle(titles.get(block.id) ?? "") });
     const bookmarks = system.find((block) => getProperty(block.properties, "system-view")?.toLowerCase() === "bookmarks");
     const top = share ? "" : `<footer>${bookmarks ? `<a href="${escapeHtml(`${base}/p/${bookmarks.id}`)}">bookmarks</a> · ` : ""}<a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
     const sources = entry ? await pageSources(host, entry.blockId, this.outlineName ?? "this outline", (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text, sourceRegions, base) : "";
@@ -3021,8 +3011,7 @@ function fileChip(source: string, index: PublishedIndex, basePath: string): stri
 
 /** A block id as an address (`/p/<id>`), told from a page name before anything is asked. */
 const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** A folder page lists at most this many children, and counts what's inside the first this many. */
-const MAX_LISTED_CHILDREN = 500;
+/** A folder page counts what's inside the first this many children (it lists MAX_LISTED_CHILDREN, publish-inside.ts). */
 /** Recent replies lists at most this many. */
 const MAX_RECENT_REPLIES = 60;
 const MAX_COUNTED_CHILDREN = 200;
