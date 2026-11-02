@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# The nightly whole-suite run on main that CONTRIBUTING.md ("Verification") and AGENTS.md ("One test gate") describe:
+# origin/main's head through scripts/box-test on float-box, every package, each door file alone too. Run by the
+# float-box user timer ep0ch-nightly.timer (04:00, after the 03:00 syncs and the 03:30 backup); by hand it is the same.
+#
+#   scripts/nightly-main            test origin/main's head; green: a row in nightly.tsv; red: one ticket listing the red files
+#
+# Red on main is a ticket, never a rerun (AGENTS.md). The ticket goes to pie's queue, high, as loki, with the log's path
+# and each red file once. Nov 2: the run the docs promised wasn't scheduled anywhere, and 13 merges on Oct 31 left main
+# red for 34 hours before anyone saw it.
+set -uo pipefail
+
+repo=$(cd "$(dirname "$0")/.." && pwd)
+dir=${XDG_STATE_HOME:-$HOME/.local/state}/ep0ch/nightly
+mkdir -p "$dir"
+git -C "$repo" fetch -q origin main || { echo "nightly-main: git fetch failed" >&2; exit 1; }
+sha=$(git -C "$repo" rev-parse origin/main)
+day=$(date +%F)
+log=$dir/$day-${sha:0:9}.log
+start=$(date +%s)
+EP0CH_PROGRAM_STATUS=0 "$repo/scripts/box-test" --on float-box --ref "$sha" --each all >"$log" 2>&1
+code=$?
+secs=$(( $(date +%s) - start ))
+# The files that failed: the file header bun prints before a run of tests, kept when a (fail) line follows it.
+red=$(awk '/\.test\.ts:$/{f=$0; sub(/:$/, "", f)} /^\(fail\)/{if (f != "") print f}' "$log" | sort -u)
+count=$(printf '%s' "$red" | grep -c . || true)
+printf '%s\t%s\t%s\t%ss\t%s\t%s\n' "$(date -u +%FT%TZ)" "${sha:0:12}" "$code" "$secs" "$count" "$log" >> "$dir/nightly.tsv"
+[ "$code" = 0 ] && exit 0
+
+body=$(mktemp)
+{
+  echo "Evan opens pie in the morning and main's red is already a ticket, with every red file named, not something found by hand days later."
+  echo
+  echo "## The run (scripts/nightly-main, $day)"
+  echo "- **main:** \`${sha:0:12}\`, box-test exit $code after $((secs / 60)) min, \`--each all\` on float-box."
+  echo "- **Log:** \`$log\` on float-box."
+  echo
+  echo "## Red files ($count)"
+  if [ "$count" -gt 0 ]; then printf '%s\n' "$red" | sed 's/^/- `/; s/$/`/'; else echo "- none named: the run failed before a test file reported (read the log's last lines)"; fi
+  echo
+  echo "## Done when"
+  echo "- Each file above passes alone on main, fixed at its cause (the merge that changed it, by bisect), red first."
+  echo "- The next night's run is green."
+} >"$body"
+EP0CH_WS=pie EP0CH_MACHINE=float-2 bun "$repo/packages/outliner/src/cli.ts" work create \
+  --title "Main is red on $day: $count files fail in the nightly run" \
+  --project pi-outliner --arc floor --track tests --priority high --stage queued --new \
+  --body-file "$body" --author agent --actor loki >/dev/null || echo "nightly-main: filing the ticket failed; the log is $log" >&2
+rm -f "$body"
+exit "$code"
