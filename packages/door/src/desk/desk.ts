@@ -2096,6 +2096,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const by = plan.besideOf === id ? "it" : this.nameOf(plan.besideOf);
       return { short: `beside ${by}`, says: `a reader beside ${by} (${by === "it" ? "it's" : `${by} is`} pinned)`, change };
     }
+    // The drawer's hand-off: where an open naming no tile lands on the screen shown (its header's `open → reader9`).
+    if (dest.kind === "across" && dest.screen) { const to = this.otherDesk()?.landingName() ?? "the screen shown"; return { short: to, says: `${to}, on the screen shown (the drawer hands it over: alt+l wires it elsewhere)`, change }; }
+    if (dest.kind === "action") return { short: dest.action, says: `${dest.action} (the screen's own open)`, change };
     return { short: "nowhere", says: "nowhere: alt+l wires it to a reader", change };
   }
   /** The open target is picked on screen, as with alt+l. */
@@ -4414,19 +4417,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private plainPath(path: string | undefined): string { return (path ?? "").replace(/^(\.\.\/)*@[^/]+\//, ""); }
   /**
    * What a tile's header says of the chain of links it is in (PIE-700): the tiles whose links end here (`← what-changed`);
-   * for the reader an open from outside lands in by the rule (no link says so), that it is that one (`⏎ opens land here`);
-   * for a drawer list with no link, which reader its picks land in now (`⏎ → reader9`), so the guess is visible.
+   * for the reader an open from outside lands in by the rule (no link says so), that it is that one (`⏎ opens land here`).
+   * A drawer list's own `open → reader9` is its wire words (`opensOf`: placement's hand-off to the screen shown).
    */
   private chainWords(id: number): string {
     const pane = this.panes.get(id)!;
     const { names, across } = this.linkedFrom(pane);
     let out = names.length ? ` ← ${names.join(", ")}` : "";
     if (pane instanceof ReaderPane && !across && (names.length > 0 || (wireTarget(this.layout, id) !== undefined)) && this.openLandingReader(USER)?.id === id) out += " opens land here";
-    const hand = this.placeFrom(id).destination;
-    if (hand.kind === "across" && hand.screen) {
-      const to = this.otherDesk()?.landingName();
-      if (to) out += ` open → ${to}`;
-    }
     return out;
   }
   /** Where an open naming no tile lands on this screen now, by name: the guess a drawer list's header shows. */
@@ -5411,7 +5409,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       });
       return [...targets, ...external].join(", ") || "nowhere";
     }
-    const to = verb === "hover" ? placement(this.layout, { from: id, verb, note: "", inspect: true }, this.layoutCtx(USER)).route : this.placeFrom(id, true).route;
+    const plan = verb === "hover" ? placement(this.layout, { from: id, verb, note: "", inspect: true }, this.layoutCtx(USER)) : this.placeFrom(id, true), to = plan.route;
+    // The drawer's hand-off (alt: a new detail on the screen shown), or the screen's own fresh action by name.
+    if (plan.destination.kind === "across" && plan.destination.screen) return "new on the screen"; else if (plan.destination.kind === "action") return plan.destination.action;
     if (to && "across" in to) {
       const p = this.storedPane(to.across), target = p ? this.plainPath(this.pathTo(p)) : to.across;
       return to.rule === "beside" ? `beside ${target}` : to.rule === "tab" ? `tab of ${target}` : to.rule === "first-unheld" ? "first reader not pinned" : target;
