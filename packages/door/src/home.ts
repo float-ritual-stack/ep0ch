@@ -1,7 +1,7 @@
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "./surface/modes";
 // The home base: what bare `ep0ch` opens where nothing names an outline (no --ws, no EP0CH_WS, no .ep0ch). A screen
 // spec on the desk (PIE-515: `homeSpec`) with one tile of its own kind (`home`, HOME_KIND): this machine's outlines,
-// then the machines the person has opened outlines on (src/machine.ts keeps that list; ssh config names them), each
+// then the machines known through history, links, ssh config and the tailnet (src/machine.ts), each
 // one's outlines once its forward is up, read as `ep0ch doctor` reads them (`machineStatus`). Choosing an outline opens
 // the door on it, and offers to write the folder's `.ep0ch` (its name, and its machine when it is another one) so the
 // next `ep0ch` there opens it directly. An outline whose session runs (one per outline, src/session/place.ts) says so
@@ -37,7 +37,8 @@ import type { KindHost, TileKind } from "./desk/tile-kinds";
 import { densest, drawLogo, LOGOS, logoCells } from "./hub/welcome";
 import { freeOutlineName, isMachineName, isOutlineName, slugifyOutlineName } from "@ep0ch/outline-core/outline-location";
 import { hostLive } from "./discover";
-import { forgetMachine, forwardTo, machineStatus, rememberMachine, sshConfigNames, usedMachines } from "./machine";
+import { forgetMachine, forwardTo, knownMachines, machineStatus, rememberMachine, sshConfigNames } from "./machine";
+import { ensureLocalHost, localHostHelp } from "./setup/host";
 import { writeDotEp0ch } from "./outlines";
 import { runningSessions } from "./session/place";
 import { actorLabel } from "@ep0ch/outline-core/attribution";
@@ -88,7 +89,7 @@ export class HomePane implements Pane {
   readonly kind = "home";
   /** This machine's host (the socket the rule names: the home base's board). */
   here: Place = { outlines: null, problem: "", busy: "asking the outline host…" };
-  /** The machines, in the order shown: the one named first, then those opened before, the most recent first. */
+  /** The machine named first, then history, links and SSH config, with duplicates removed. */
   machines = new Map<string, Place>();
   /** The sessions running on this state dir, by outline (`<machine>/<name>`, no machine: this one's): ⏎ attaches to one. */
   running = new Map<string, SessionInfo>();
@@ -127,33 +128,43 @@ export class HomePane implements Pane {
   private moved = false;
 
   init(desk: DeskApi) {
-    for (const m of [...(this.args.machine ? [this.args.machine] : []), ...usedMachines().map(u => u.name)]) {
-      if (!this.machines.has(m)) this.machines.set(m, { outlines: null, problem: "", busy: "looking at its forward…" });
-    }
     void this.load(desk);
-    // A machine named (--machine, EP0CH_MACHINE) is connected to at once, when the home base may.
-    if (this.args.machine && desk.ctx.home) void desk.press?.(this, HOME_ACTIONS, "home.connect", { machine: this.args.machine }, true);
   }
 
-  /** Every host asked again: this machine's, and each machine's forward as it is (none is started). */
+  /** The local list refreshes on its own so creating here never waits for an unavailable remote machine. */
+  async loadHere(desk: DeskApi) {
+    const socket = desk.ctx.board.path, live = await hostLive(socket, 3000);
+    this.here = live ? { outlines: live.outlines, problem: "", busy: "", ...(live.abouts ? { abouts: live.abouts } : {}) }
+      : { outlines: null, problem: await localHostHelp(socket), busy: "" };
+    const m = this.missing();
+    if (m?.localHas && !this.moved) this.picked = idOf({ t: "offer", act: "open", name: m.outline });
+    desk.redraw();
+  }
+
+  /** Every host asked again; the home base connects machines, while a home tile on an outline only reads. */
   async load(desk: DeskApi) {
-    const socket = desk.ctx.board.path;
     await Promise.all([
-      hostLive(socket, 3000).then(live => {
-        this.here = live ? { outlines: live.outlines, problem: "", busy: "", ...(live.abouts ? { abouts: live.abouts } : {}) }
-          : { outlines: null, problem: `no outline host answers at ${socket} · start it: systemctl --user start outliner-host (launchctl on macOS)`, busy: "" };
-        const m = this.missing();
-        if (m?.localHas && !this.moved) this.picked = idOf({ t: "offer", act: "open", name: m.outline });
-      }),
-      ...[...this.machines.keys()].map(m => this.loadMachine(m)),
+      this.loadHere(desk),
+      this.loadMachines(desk),
       runningSessions().then(rs => { this.running = new Map(rs.map(r => [sessionKey(r.info.place.outline, r.info.place.machine), r.info])); }, () => {}),
     ]);
     desk.redraw();
   }
 
-  /** A machine's outlines through its forward, when it is up, as `ep0ch doctor` reads them (`home.connect` starts it). */
-  async loadMachine(machine: string) {
+  private async loadMachines(desk: DeskApi) {
+    const names = new Set([...(this.args.machine ? [this.args.machine] : []), ...await knownMachines()]);
+    await Promise.all([...names].map(async machine => {
+      await this.loadMachine(machine, !!desk.ctx.home);
+      // SSH config also names logins to doors and unrelated servers. Only a host's answer makes one an offer.
+      if (desk.ctx.home && !this.machines.get(machine)?.outlines) this.machines.delete(machine);
+      desk.redraw();
+    }));
+  }
+
+  /** Discovery and home.connect use the same forward and status reader. */
+  async loadMachine(machine: string, connect = false) {
     try {
+      if (connect) await forwardTo(machine);
       const s = await machineStatus(machine);
       this.machines.set(machine, { outlines: s.outlines, problem: s.outlines ? "" : s.connected ? "connected, but no outline host answers through it" : "not connected · ⏎ connects", busy: "" });
     } catch (e) {
@@ -180,7 +191,7 @@ export class HomePane implements Pane {
     };
     list(this.here);
     rows.push({ t: "new" }, { t: "import" }, { t: "gap" }, { t: "head", text: "other machines" });
-    if (!this.machines.size) rows.push({ t: "note", text: "none opened from here yet · a adds one from ~/.ssh/config" });
+    if (!this.machines.size) rows.push({ t: "note", text: "none found · a adds a machine" });
     for (const [m, p] of this.machines) {
       rows.push({ t: "machine", machine: m });
       if (p.outlines) { list(p, m); rows.push({ t: "new", machine: m }); }
@@ -383,8 +394,9 @@ async function make(pane: HomePane, desk: DeskApi, name: string | undefined, mac
   }
   if (!isOutlineName(name)) throw new ActionRefused(`"${name}" isn't an outline name: lowercase letters, digits and hyphens, up to 32`);
   const socket = await hostOf(desk, machine);
+  if (!machine) await ensureLocalHost(socket);
   await hostRequest(socket, "outlines.create", { name }).catch(e => { throw new ActionRefused((e as Error).message); });
-  await (machine ? pane.loadMachine(machine) : pane.load(desk));
+  await (machine ? pane.loadMachine(machine) : pane.loadHere(desk));
   return { created: name, ...(machine ? { machine } : {}), ...(open(pane, desk, name, machine, write, actor) as object) };
 }
 
@@ -404,8 +416,9 @@ async function importDb(pane: HomePane, desk: DeskApi, path: string | undefined,
     return { asked: "name" };
   }
   if (!isOutlineName(name)) throw new ActionRefused(`"${name}" isn't an outline name: lowercase letters, digits and hyphens, up to 32`);
+  await ensureLocalHost(desk.ctx.board.path);
   const r = await hostRequest<{ imported: { blocks: number } }>(desk.ctx.board.path, "outlines.import", { path: file, name }, 600_000).catch(e => { throw new ActionRefused((e as Error).message); });
-  await pane.load(desk);
+  await pane.loadHere(desk);
   return { imported: file, blocks: r.imported.blocks, ...(open(pane, desk, name, undefined, write, actor) as object) };
 }
 
@@ -542,7 +555,7 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     },
   }),
   "home.reload": def({
-    summary: "ask every host again: this machine's and each machine's forward as it is", keys: modeActionKeys([HOME_KEYS, HOME_CHOICE_KEYS], "home.reload"),
+    summary: "ask every host again, connecting the listed machines", keys: modeActionKeys([HOME_KEYS, HOME_CHOICE_KEYS], "home.reload"),
     touches: "nothing", replay: "safe",
     args: {},
     async run(_, { pane, desk }) { const p = pane as HomePane; await p.load(desk); return p.describe(); },
@@ -559,7 +572,7 @@ function homeArgsOf(x: unknown): HomeArgs {
 
 /** The home base as a tile kind: the list, its actions, its band and what `peek` says. */
 export const HOME_KIND: TileKind = {
-  kind: "home", about: "the home base: this machine's outlines and the machines opened from here", noun: "the home base",
+  kind: "home", about: "the home base: this machine's outlines and answering machines found through history, links, SSH config and the tailnet", noun: "the home base",
   make: s => new HomePane(homeArgsOf(s.state)),
   actions: HOME_ACTIONS,
   band: {

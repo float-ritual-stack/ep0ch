@@ -184,10 +184,18 @@ Bare `ep0ch` where nothing names an outline opens the home base: a screen like a
 - **This machine**: its host's outlines, then `+ new outline…` (the folder's or repository's name offered) and
   `↧ import a database…` (a new outline holding an older database's notes, properties, pages and work ids; the
   file is only read).
-- **Other machines**: the ones opened from here (`machines.json` in the state dir), each with its outlines once its
-  forward is up (⏎ on a machine connects; nothing is started by just looking), and `+ add a machine…`, which lists
-  the `Host` names in `~/.ssh/config` (and the files it includes) not added yet; a name typed that isn't there is
-  offered too. `x` takes a machine off the list.
+- **Other machines**: saved machines, machine-link endpoints, the `Host` names in `~/.ssh/config` (including
+  included files), and MagicDNS peers from `tailscale status --json`. Aliases on one `Host` line share one row.
+  Home connects through the shared forward and lists each host's outlines as it answers, even before an outline
+  there has been opened; candidates without an answering host are left out. `+ add a machine…` accepts another
+  SSH name and says why if it cannot connect. `x` removes a saved machine; a configured machine is discovered again
+  on reload or the next launch.
+- **The first local outline**: `n`, a name and Enter install and start this machine's outline host when needed,
+  then create and open the outline. `ep0ch --ws garden` does the same. macOS uses `io.ep0ch.outliner-host` under
+  launchd; Linux uses `outliner-host.service` under systemd. A failed start says why on the status line. Home's
+  recovery command names this platform's service manager, or `ep0ch install --apply` when no unit is installed.
+  If the installed unit serves another folder, the refusal names it and gives the foreground host command for
+  this folder: run it in another terminal, then create again. The existing unit stays as it is.
 - **Choosing an outline** opens the door on it. Started in a folder that can be named (not `$HOME`, `/` or one
   right under `/`), the home base offers to write its `.ep0ch` (`ws`, and `machine` for one on another machine), so
   the next `ep0ch` there opens it directly, or to open it this time only.
@@ -592,7 +600,8 @@ macOS; it does not write the Keychain. `keys list` and `keys check` read the sha
    through its unit, `launchctl kickstart -k gui/<uid>/<label>` on macOS (`io.ep0ch.outliner-host`) or
    `systemctl --user restart <unit>` on Linux, then waits for a new process to answer and checks it speaks the
    checkout's protocol. The doors and panes on it reconnect by themselves. A host that's set up but not answering
-   is started the same way (`launchctl bootstrap` when launchd hasn't loaded it). A host outside any unit, a unit
+   is started the same way (`launchctl bootstrap` when launchd hasn't loaded it). With no host or unit, install
+   writes and starts one, ready for the first outline. A host outside any unit, a unit
    the unit doesn't run (another process answers its socket), or a unit that needs changing (another checkout's
    `host-main.ts`, settings from before outlines by name) is left to you, with the change. Only a unit whose
    `EP0CH_OUTLINES` (default `~/outlines`) is this outlines folder counts as its unit.
@@ -625,8 +634,9 @@ macOS; it does not write the Keychain. `keys list` and `keys check` read the sha
 
 A checkout that isn't on `main`, has diverged, is behind with local changes, or couldn't be fetched is left
 for you, with what to do. Install never writes a database directly except through a migration script (it copies them first), never creates an outline,
-never edits Herdr's config or registry or Claude's settings, and never writes a systemd or launchd unit (it only
-asks one to restart, start or stop the host): a missing unit, a unit to change, the keys and the Claude mod are reported.
+never edits Herdr's config or registry or Claude's settings, and leaves existing host units intact. It creates a
+missing host unit and asks the service manager to restart, start or stop it; existing units that need changes,
+the keys and the Claude mod are reported.
 It stops at the first failure, with the recovery. `--json` gives agents the same report or plan.
 
 Each `--apply` run appends attributed machinery records under **Records**, created on first use. The usual

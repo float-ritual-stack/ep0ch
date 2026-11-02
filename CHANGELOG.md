@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A fresh machine can open its first outline from the home base (PIE-1489)
+
+- **Create locally:** `n`, a name and Enter start the local host and open the new outline, installing its launchd agent on macOS or systemd user unit on Linux when missing. `ep0ch --ws garden` uses the same startup path; a failed start is shown on the status line.
+- **Find other machines:** home discovers SSH-configured machines, machine links, previously opened machines and tailnet names, then lists the hosts that answer without requiring an earlier visit. One SSH Host line's aliases share a row; candidates that never answer are omitted.
+- **An installed host serving another folder:** creation names that folder on the status line and gives the foreground host command for the requested folder. The existing service unit is kept.
+- **Run:** `ep0ch install --apply`, then open `ep0ch` from an unbound folder. No protocol, grammar or schema change.
 ### Run lens keeps its live table in the note at your cursor (PIE-1488)
 
 - **Put it here:** choose Run lens in the power bar and fill its slots. The `lens::` line goes at the note cursor and draws there; an open draft keeps it unsaved. One Ctrl+Z takes the insertion back in a reader or a draft, as the run's status says. Without a note, the action says to open one.
