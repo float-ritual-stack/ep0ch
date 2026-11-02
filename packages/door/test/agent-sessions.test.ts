@@ -230,7 +230,7 @@ describe("the model, without a door", () => {
     }
   });
 
-  // A restart that keeps the conversation (tile.restart, the Herdr launcher's EP0CH_AGENT_CONTINUE) asks the same
+  // A restart that keeps the conversation (tile.restart) asks the same
   // question as a start: a fresh claude, with no turn in its folder, runs bare instead of dying on --continue.
   test.skipIf(process.platform !== "linux")("restarting a claude continues it only where the folder holds a conversation", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ep0ch-restart-"));

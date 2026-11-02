@@ -45,7 +45,7 @@ export function whereFactsOf(stdout: string): WhereFacts | null {
     inDoor: w.inDoor,
     ...(reach ? { reach } : {}),
     here: { machine: str(w.here?.machine), folder: str(w.here?.folder), persona: personaOf(w.here?.persona) },
-    herdr: herdr ? { pane: str(herdr.pane)!, label: str(herdr.label), agent: herdr.agent === true } : null,
+    herdr: herdr ? { pane: str(herdr.pane)!, label: str(herdr.label) } : null,
     door: door ? {
       answers: door.answers === true,
       outline: str(door.outline),
@@ -167,7 +167,7 @@ function doorWords(f: BindingFacts): string {
   const which = door.outline ? `the ${door.outline} door` : 'a door'
   const seat = door.drawer ? `the drawer of ${which}` : door.tile ? `the "${door.tile}" tile of ${which}` : `a tile of ${which}`
   const parts = [door.answers ? `in ${seat}` : `in ${seat}, but no door answers now`]
-  if (pane) parts.push(herdr!.agent ? `its own ${pane}` : pane)
+  if (pane) parts.push(pane)
   // Claude's environment is older than the door it names (handed over, restarted, or another outline's door): the
   // tools follow the outline's door when one answers, and say so; with none answering they reach no door.
   if (door.stale) parts.push(door.answers ? 'its door changed since Claude started: the door tools follow the one that answers' : 'its door changed since Claude started: the door tools reach none until one answers')

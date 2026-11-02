@@ -131,10 +131,20 @@ export function doctorChecks(f: Facts): Check[] {
   // What the drawer's own tab runs in a door opened here (PIE-498), and why: the person's program and folder, or the rule's.
   if (f.drawer) add("ep0ch", "drawer", "info", `runs ${f.drawer.cmd.join(" ")} (${f.drawer.programWhy}) in ${f.drawer.cwd} (${f.drawer.folderWhy})`);
   // EP0CH_DAILY_CWD is gone (PIE-737): a session's folder is where it's started, and the drawer's own is chosen with its agent.
-  if (f.drawer?.retiredCwd) add("ep0ch", "EP0CH_DAILY_CWD", "behind", `EP0CH_DAILY_CWD=${f.drawer.retiredCwd} is set, and no door reads it any more: the drawer's own agent starts in ${f.drawer.cwd}`,
-    `ep0ch act host.agent name=${f.drawer.cmd.some(c => c.endsWith("door-agent-herdr.ts")) ? "claude herdr=true" : (f.drawer.cmd[0]?.split("/").pop() ?? "claude")} in=${f.drawer.retiredCwd} (then drop EP0CH_DAILY_CWD from your shell's profile); for another folder, \`ep0ch agent\` there starts or attaches its own session`);
-  // Each outline session's drawer agent, where the choice came from, its Herdr pane, and how to change it.
-  for (const d of f.drawers ?? []) add("ep0ch", `drawer ${d.session}`, "info", `runs ${d.cmd.map(c => c.split("/").pop()).join(" ")} (${d.programWhy})${d.pane ? ` · Herdr pane ${d.pane}` : ""}`, `change it: ${CHANGE_AGENT}${d.from === "env" ? " (and unset EP0CH_DAILY_AGENT, which overrides it)" : ""}`);
+  if (f.drawer?.retiredCwd) {
+    const named = f.drawer.cmd[0] === "hc";
+    const fix = named
+      ? "drop EP0CH_DAILY_CWD from your shell's profile. A named agent starts with `ep0ch agent start <persona>` (the row in .ep0ch/agents.toml)"
+      : `ep0ch act host.agent name=${f.drawer.cmd[0]?.split("/").pop() || "claude"} in=${f.drawer.retiredCwd} (then drop EP0CH_DAILY_CWD from your shell's profile); for another folder, \`ep0ch agent\` there starts or attaches its own session`;
+    add("ep0ch", "EP0CH_DAILY_CWD", "behind", `EP0CH_DAILY_CWD=${f.drawer.retiredCwd} is set, and no door reads it any more: the drawer's own agent starts in ${f.drawer.cwd}`, fix);
+  }
+  // Each outline session's drawer agent, where the choice came from, and how to change it.
+  for (const d of f.drawers ?? []) {
+    const change = d.cmd[0] === "hc"
+      ? "a named hc terminal: `ep0ch agent start <persona>` (the row in .ep0ch/agents.toml). The drawer only attaches"
+      : `${CHANGE_AGENT}${d.from === "env" ? " (and unset EP0CH_DAILY_AGENT, which overrides it)" : ""}`;
+    add("ep0ch", `drawer ${d.session}`, "info", `runs ${d.cmd.map(c => c.split("/").pop()).join(" ")} (${d.programWhy})`, `change it: ${change}`);
+  }
   for (const entry of f.outlineFiles ?? []) {
     if (entry.binding) add("outlines", `${entry.folder}/.ep0ch`, "behind", "old binding file; move to .ep0ch/config.toml and keep .ep0ch.bak", `cd ${JSON.stringify(entry.folder)} && ep0ch doctor --fix`);
     if (entry.scripts) add("outlines", `${entry.folder}/scripts/`, "behind", "ignored: scripts load only from .ep0ch/scripts/ and require // ep0ch-script", `After reviewing these files: cd ${JSON.stringify(entry.folder)} && ep0ch doctor --fix --move-scripts`);
@@ -244,14 +254,14 @@ export const AGENT_RESTART_FIX = {
   drawer: "restart it: show its tab in the drawer, then the ⟳ on the drawer chip (▲ claude), alt+R, or `ep0ch act agent.restart` (it keeps the conversation)",
   tile: "restart it: /exit in its tile, then claude --continue",
 };
-/** An agent tab in a door's drawer (its nest's door layer is `door:<pid>/drawer/…`), or the door's Herdr pane: `agent.restart` restarts it. */
-const isDrawerAgent = (env: Record<string, string> | null) => /(^| › )door:[^›]*\/drawer\//.test(env?.EP0CH_NEST ?? "") || /(^| › )herdr:[^›]*$/.test(env?.EP0CH_NEST ?? "") && !!env?.EP0CH_NEST?.includes("door:");
+/** An agent tab in a door's drawer (its nest's door layer is `door:<pid>/drawer/…`): `agent.restart` restarts it. */
+const isDrawerAgent = (env: Record<string, string> | null) => /(^| › )door:[^›]*\/drawer\//.test(env?.EP0CH_NEST ?? "");
 
-/** Door agents (Claude in a door tile or the door's Herdr pane) running on an older mod, or without door tools. */
+/** Door agents (Claude in a door tile) running on an older mod, or without door tools. */
 export function doorAgentChecks(f: Facts): Check[] {
   const agents = f.claude.agents;
   if (!agents) return [];
-  if (!agents.length) return [{ group: "claude", name: "door agents", status: "info", detail: "no Claude running in a door tile or the door's Herdr pane" }];
+  if (!agents.length) return [{ group: "claude", name: "door agents", status: "info", detail: "no Claude running in a door tile" }];
   return agents.map(a => {
     const where = a.env?.EP0CH_NEST?.split(" › ").at(-1) ?? a.env?.EP0CH_TILE ?? "a door";
     const name = `agent ${a.pid}`;

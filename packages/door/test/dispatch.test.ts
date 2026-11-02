@@ -143,16 +143,15 @@ describe("the actor rule, for every action (PIE-514)", () => {
     touches(["layout.move", "tile.open", "tile.close", "tile.float", "tile.dock", "tile.collapse", "tab.select", "tile.zoom", "layout.lock", "layout.policy", "pane.split"], "shape");
     // In a tile: refused in the person's (typing in it, for these).
     for (const n of ["tile.type", "view.scrollTo", "agent.type", "host.size", "agent.restart"]) expect({ n, t: of(n).touches, w: of(n).while }).toEqual({ n, t: "tile", w: "typing" });
-    for (const n of ["tile.restart", "tile.herdr"]) expect({ n, t: of(n).touches, w: of(n).while }).toEqual({ n, t: "tile", w: "typing" });
+    for (const n of ["tile.restart"]) expect({ n, t: of(n).touches, w: of(n).while }).toEqual({ n, t: "tile", w: "typing" });
     // Round 3: what moves the reader the person reads is refused there (back and forward were already).
     touches(["link.follow", "element.open", "up", "props.follow", "threads", "resolve", "back", "forward", "column.select"], "tile");
     // Opening something outside the door, or keeping a choice for the next start: a restarted door asks first.
     for (const n of ["link.follow", "props.follow", "element.open", "tree.pick", "theme.set", "theme.cycle"]) expect({ n, replay: of(n).replay }).toEqual({ n, replay: "ask" });
-    // By its arguments: column.select id= is the person's cursor too; the desk's open moves the reader it names; clearing tile.herdr is anyone's.
+    // By its arguments: column.select id= is the person's cursor too; the desk's open moves the reader it names.
     expect(of("column.select").touchesWith).toBeUndefined();
     const open = allActionSets().find(s => s.scope === "desk")!.def("open")!;
     expect([open.touchesWith!({}, "side"), open.touchesWith!({}, undefined)]).toEqual(["tile", "nothing"]);
-    expect([of("tile.herdr").touchesWith!({ on: false }), of("tile.herdr").touchesWith!({ pane: "door-claude" })]).toEqual(["nothing", "tile"]);
     // Pointing at something, writing what the service attributes: no actor rule.
     touches(["block.mark", "block.unmark", "block.tint", "projection.refresh", "tree.links", "tree.pick", "search", "who.refresh"], "nothing");
     // The person's own: refused to any agent, with its way said.

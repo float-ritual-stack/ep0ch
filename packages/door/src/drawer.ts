@@ -3,20 +3,17 @@ import type { Reveal } from "./reveal";
 // Quiet focus enters a glass tile without opening or rearranging the drawer.
 import type { Ctx, Screen, Frame } from "./app";
 import { Canvas, type Rect } from "./canvas";
-import { agentConfig, herdrBin, herdrRunner, paneAgentPid, WATCH_TITLE, type HerdrRun } from "./desk/herdr-agent";
 import { DRAWER_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
-import { alive } from "./state";
 import { controlPath } from "./control";
 import { ESCAPE_CHORD, isEscapeChord, livePrograms, PtyPane } from "./desk/pty";
 import { rawKey } from "./kbd";
-import { choiceFile, detectAgents, drawerProgram, HERDR_LAUNCHER, programName, sessionLabel, shellQuote, type DrawerAgent, type DrawerProgram } from "./desk/drawer-program";
-import { sessionSlug } from "./desk/herdr-agent";
+import { choiceFile, detectAgents, drawerProgram, programName, sessionLabel, shellQuote, type DrawerAgent, type DrawerProgram } from "./desk/drawer-program";
+import { NamedAgentPane } from "./desk/named-agent-pane";
 import type { ZoomReach } from "./desk/screen-layout";
 import { readPlace } from "./session/place";
 import { outlineState, stateDir } from "./state";
 import { LineField } from "./surface/line";
 import { centred, ListPicker, pickRows, pickRow } from "./surface/picker";
-import { spawn as spawnDetached } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { Desk, savedLayoutNames, type MovedTile } from "./desk/desk";
@@ -74,10 +71,8 @@ export const HEIGHT_STEPS = [0.4, 0.5, 0.6, 0.75] as const;
 /** Why `drawer.agent` names nothing, and what opens one. */
 const NO_AGENT = "no agent tab is open · agent.lift (✦a) opens one running the last agent picked; a right-click on the ▲ chip picks another";
 const CHORD_MS = 1500;
-/** How long after the program's last output the chip still says `working` (no Herdr status to ask). */
+/** How long after the program's last output the chip still says `working` (no program status report). */
 const WORKING_MS = 1500;
-/** How often Herdr is asked for the agent's state while the drawer shows a Herdr pane. */
-const HERDR_POLL_MS = 3000;
 /** How often what the agent knows is read again (its environment, its start, the mod's newest file). */
 const KNOWS_POLL_MS = 15_000;
 /** An agent's `agent.restart` waits this long after the person last typed into the agent. */
@@ -87,9 +82,8 @@ const RESTART_IDLE_MS = 10_000;
 export interface DrawerSaved { open: boolean; share: number; folded?: boolean }
 /**
  * What the chip says: not started, working, idle, waiting on the person, done (a result the person hasn't seen),
- * failed, exited, or `watching`: the Herdr launcher found another door attached to the agent's pane and only watches it
- * (a second ssh session's door), where ⏎ would take the pane from that door. What its program reports (OSC 7501:
- * src/desk/program-status.ts) comes first; without that, Herdr's status, then whether it wrote anything lately.
+ * failed, exited, or watching (a second view of a named hc terminal). Named agents read hc's status;
+ * local programs use their OSC reports, then whether they wrote anything lately.
  */
 export type AgentState = "empty" | "off" | "working" | "idle" | "blocked" | "done" | "failed" | "exited" | "watching";
 
@@ -141,7 +135,6 @@ export class AgentDrawer {
   /** The top edge is being dragged; the program has the mouse until the button comes up. */
   private dragging = false;
   private capture: Rect | null = null;
-  private herdrPolls = new WeakMap<PtyPane, { state: AgentState | null; at: number; lastPoll: number; polling: boolean }>();
   private knowledge = new WeakMap<PtyPane, { knows: AgentKnows | null; pid: number | null; at: number; polling: boolean }>();
   /** What the agent tab used last knows, also returned by agent.knows and restart. */
   get knows(): AgentKnows | null { const p = this.tile; return p ? this.knowledge.get(p)?.knows ?? null : null; }
@@ -150,8 +143,8 @@ export class AgentDrawer {
   restarting: Promise<RestartDone> | null = null;
   private readonly restoresGlass: boolean;
 
-  /** `persist`: read and write drawer.json (a test's drawer may not). `herdr`: how Herdr is asked (a fake in tests). */
-  constructor(private readonly host: DrawerHost, private readonly persist = true, private readonly herdr: HerdrRun | null = defaultHerdr()) {
+  /** `persist`: read and write drawer.json (a test's drawer may not). */
+  constructor(private readonly host: DrawerHost, private readonly persist = true) {
     const s = persist ? readState<Partial<DrawerSaved>>("drawer.json") : null;
     this.restoresGlass = persist && !!readState<{ floats?: unknown[] }>("drawer-tiles.json", outlineState())?.floats?.length;
     const open = !!s && typeof s === "object" && s.open === true;
@@ -165,13 +158,13 @@ export class AgentDrawer {
   private program(picked = false): DrawerProgram {
     // The door's own machine first: an outline on another machine never starts in a same-named local outline's folder.
     const c = this.host.ctx?.(), pl = this.persist ? readPlace(outlineState()) : null;
-    // A pick just made runs what was picked: EP0CH_DAILY_AGENT overrides only what a new tab runs by itself.
-    return drawerProgram({ ...(picked ? { env: { ...process.env, EP0CH_DAILY_AGENT: undefined } } : {}), outline: c?.outline ?? pl?.outline ?? null, machine: c?.machine ?? pl?.machine ?? null, dir: this.persist ? outlineState() : null, state: this.persist ? stateDir() : null });
+    // A pick just made runs what was picked; configured defaults decide only what opens by itself.
+    return drawerProgram({ picked, ...(picked ? { env: { ...process.env, EP0CH_DAILY_AGENT: undefined } } : {}), outline: c?.outline ?? pl?.outline ?? null, machine: c?.machine ?? pl?.machine ?? null, dir: this.persist ? outlineState() : null, state: this.persist ? stateDir() : null });
   }
-  /** This outline's session, as its Herdr pane and doctor name it (`pie-hole@float-2`). */
+  /** This outline's session, as doctor names it (`garden@garden-box`). */
   private session(): string | null { const c = this.host.ctx?.(), pl = this.persist ? readPlace(outlineState()) : null; return sessionLabel({ outline: c?.outline ?? pl?.outline ?? null, machine: c?.machine ?? pl?.machine ?? null }); }
 
-  /** The agents to choose from here (installed, a shell first; each in Herdr too when Herdr is). */
+  /** The agents to choose from here (installed, a shell first). */
   agents(): DrawerAgent[] { return detectAgents({ session: this.session() }); }
 
   /**
@@ -179,12 +172,12 @@ export class AgentDrawer {
    * for every outline) as what a new agent tab starts, and started now in a new tab. Nothing that runs is ended: closing
    * an agent is ^W x on its tab.
    */
-  async choose(name: string, herdr: boolean, dflt: boolean, actor: Actor, folder?: string): Promise<Record<string, unknown>> {
-    const all = this.agents(), hit = all.find(a => a.name === name && !!a.herdr === herdr);
-    if (!hit) throw new ActionRefused(`no agent ${name}${herdr ? " in Herdr" : ""} here; installed: ${all.map(a => `${a.name}${a.herdr ? " (herdr=true)" : ""}`).join(", ")}`);
+  async choose(name: string, dflt: boolean, actor: Actor, folder?: string): Promise<Record<string, unknown>> {
+    const all = this.agents(), hit = all.find(a => a.name === name);
+    if (!hit) throw new ActionRefused(`no agent ${name} here; installed: ${all.map(a => a.name).join(", ")}`);
     if (!this.persist) throw new ActionRefused("this drawer saves nothing (a test's)");
     const file = choiceFile(dflt ? stateDir() : outlineState());
-    const choice = JSON.stringify({ agent: name, ...(herdr ? { herdr: true } : {}), ...(folder ? { folder: resolvePath(untilde(folder)) } : {}) });
+    const choice = JSON.stringify({ agent: name, ...(folder ? { folder: resolvePath(untilde(folder)) } : {}) });
     try {
       mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
       writeFileSync(file, choice, { mode: 0o600 });
@@ -196,18 +189,11 @@ export class AgentDrawer {
     catch (e) { throw new ActionRefused(`couldn't save the choice in ${file}: ${(e as Error).message}`); }
     this.prog = this.program();
     const picked = this.program(true);
-    // A Herdr pick runs in this session's one Herdr pane: when a tab already shows it, that tab is the agent (a second
-    // would be a mirror of the same pane).
-    const shows = picked.herdr ? this.agentTabs().find(t => t.pane.running && t.pane.run.cmd.join(" ") === picked.cmd.join(" ")) : undefined;
-    if (shows) {
-      const went = this.ctx(actor).standing ? this.goTo(shows.pane, actor) : null;
-      return { agent: name, herdr, saved: dflt ? "default" : this.session() ?? "session", runs: picked.cmd, tile: shows.id, name: shows.name, attached: true, ...(went ? { went: went.in } : {}) };
-    }
     const done = this.newAgentTab(actor, picked);
     const env = this.prog.from === "env" ? ` · EP0CH_DAILY_AGENT (${process.env.EP0CH_DAILY_AGENT}) still decides what a new tab runs by itself in this door` : "";
     this.host.flash(`${picked.name} started in a new tab (${done.name})${env} · ^W x closes one`, 8000);
     this.host.redraw();
-    return { agent: name, herdr, saved: dflt ? "default" : this.session() ?? "session", runs: picked.cmd, tile: done.tile, name: done.name };
+    return { agent: name, saved: dflt ? "default" : this.session() ?? "session", runs: picked.cmd, tile: done.tile, name: done.name };
   }
 
   /**
@@ -221,17 +207,31 @@ export class AgentDrawer {
     if (person && !this.open) { this.offered = true; this.set(true, actor); }
     // A drawer never saved opens its first agent tab as it is made: when it runs this program, that one is the new tab.
     const first = made ? this.firstTab : null;
-    const done = first && (d.pane(String(first.name)) as PtyPane | undefined)?.run.cmd.join(" ") === prog.cmd.join(" ") ? first : this.agentTab(d, actor, prog);
+    const firstPane = first ? d.pane(String(first.name)) : undefined;
+    const done = first && firstPane instanceof PtyPane && firstPane.run.cmd.join(" ") === prog.cmd.join(" ") ? first : this.agentTab(d, actor, prog);
     if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
-    else (d.pane(done.tile) as PtyPane).startNow(...this.termSize());
+    else { const pane = d.pane(done.tile) ?? d.pane(String(done.name)); if (pane instanceof PtyPane) pane.startNow(...this.termSize()); }
     this.host.redraw();
     return done;
   }
-  /** An agent tab on desk `d` (the drawer's), not started: it starts when drawn. */
+  /** An agent tab on desk `d` (the drawer's), not started: it starts when drawn. A named agent attaches, or shows a card. */
   private agentTab(d: Desk, actor: Actor, a: DrawerProgram = this.prog): TileDone {
-    const p = new PtyPane({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true, inShell: a.name !== "shell" && !a.herdr });
+    if (a.named) {
+      const p = new NamedAgentPane(a.named);
+      tileRegistry.setRole(p, ROLE_AGENT);
+      return d.bringIn({ pane: p, name: freeName(d, a.name), spec: { t: "leaf", kind: "pty" }, from: "drawer", typing: false }, this.tabBase(d), "tabs", actor);
+    }
+    const p = new PtyPane({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true, inShell: a.name !== "shell" });
     tileRegistry.setRole(p, ROLE_AGENT);
     return d.bringIn({ pane: p, name: freeName(d, a.name), spec: { t: "leaf", kind: "pty" }, from: "drawer", typing: false }, this.tabBase(d), "tabs", actor);
+  }
+
+  private namedSurface(d: Desk): boolean {
+    const a = this.prog.named!;
+    const p = d.addressable([d]).map(c => c.value.pane).find(p => p instanceof NamedAgentPane && p.config.persona === a.persona && p.config.outline === a.outline && p.config.outlineMachine === a.outlineMachine);
+    if (!(p instanceof NamedAgentPane)) return false;
+    Object.assign(p.config, a);
+    return true;
   }
 
   /** The picker over the drawer: the agents installed here; ⏎ starts one in a new agent tab (host.agent), esc leaves it as it is. */
@@ -257,11 +257,11 @@ export class AgentDrawer {
       },
       row: (item, _i, on, w) => {
         const a = item.agent;
-        return pickRows(` ${a.name}${a.herdr ? " · in Herdr (outlives the door)" : ""}${a.name === now.name && a.herdr === now.herdr ? " · last picked" : ""}  ${a.cmd.at(-1) === a.name ? "" : a.cmd.join(" ")}`, on, w);
+        return pickRows(` ${a.name}${a.name === now.name ? " · last picked" : ""}  ${a.cmd.at(-1) === a.name ? "" : a.cmd.join(" ")}`, on, w);
       },
       choose: item => {
         const a = item.agent;
-        void this.run?.("host.agent", { name: a.name, ...(a.herdr ? { herdr: true } : {}), default: everywhere, in: folder.text });
+        void this.run?.("host.agent", { name: a.name, default: everywhere, in: folder.text });
       },
       frame: (area, n) => {
         const rect = centred(area, Math.min(64, area.cols - 2), Math.min(area.rows - 1, n + 9));
@@ -432,7 +432,7 @@ export class AgentDrawer {
       const own = tileRegistry.roleOf(p) === ROLE_AGENT;
       const s = asSession(p, { own, now });
       if (!s) return [];
-      const st = own && p.herdr ? ((x: AgentState) => ({ state: x === "blocked" ? "waiting" as const : x === "failed" ? "failed" as const : x === "working" ? "working" as const : x === "done" ? "done" as const : "idle" as const, word: x === "blocked" ? "needs you" : x }))(this.paneState(p, now)) : stateOf(p, now);
+      const st = own && p.named ? ((x: AgentState) => ({ state: x === "blocked" ? "waiting" as const : x === "failed" ? "failed" as const : x === "working" ? "working" as const : x === "done" ? "done" as const : "idle" as const, word: x === "blocked" ? "needs you" : x }))(this.paneState(p, now)) : stateOf(p, now);
       return [{ ...s, ...st, shown: this.shownOf(p), pid: p.pid ?? null }];
     });
     // What the terminal host keeps with no tile (PIE-1432): every program, an agent or not, so none is dropped unseen.
@@ -458,7 +458,7 @@ export class AgentDrawer {
   /** Where terminal `p` is shown now: your drawer, the screen shown, a screen under it or kept, or nowhere. */
   shownOf(p: Pane): Shown {
     const inDrawer = this.d?.nameOfPane(p);
-    if (inDrawer) return { in: "drawer", tile: this.d!.tileInfo(inDrawer).tile, name: inDrawer, ...((p as PtyPane).herdr ? { herdr: (p as PtyPane).herdr!.pane } : {}) };
+    if (inDrawer) return { in: "drawer", tile: this.d!.tileInfo(inDrawer).tile, name: inDrawer, ...((p as PtyPane).named ? { address: (p as PtyPane).named!.terminal?.address } : {}) };
     const top = this.host.screen?.(), ctx = this.host.ctx?.();
     const screens = [top, ...[...(ctx?.screens?.() ?? [])].reverse(), ...(ctx?.kept?.() ?? [])].filter((x, i, all): x is Screen => !!x && all.indexOf(x) === i);
     for (const sc of screens) {
@@ -487,7 +487,7 @@ export class AgentDrawer {
   /** What a new session can run: the outline's agent configs, then the agents installed here. */
   async programs(): Promise<{ name: string; program: string; args: string[]; persona?: string; folder?: string; config: boolean }[]> {
     const configs = (await this.configs()).map(c => ({ ...c, config: true }));
-    const installed = this.agents().filter(a => a.name !== "shell" && !a.herdr && !configs.some(c => c.name === a.name)).map(a => ({ name: a.name, program: a.cmd[0]!, args: a.cmd.slice(1), config: false }));
+    const installed = this.agents().filter(a => a.name !== "shell" && !configs.some(c => c.name === a.name)).map(a => ({ name: a.name, program: a.cmd[0]!, args: a.cmd.slice(1), config: false }));
     return [...configs, ...installed];
   }
 
@@ -648,17 +648,6 @@ export class AgentDrawer {
     return { tile: answer.tile, name: answer.name, sessions: this.sessions().length };
   }
 
-  /** The session ended: its agent tabs' own Herdr panes close (never another session's: a pane is named for this one). */
-  closeOwnPane(): boolean {
-    const session = this.session();
-    // This session's pane exactly (a test door's carries its scope, 8 hex digits, after it): never one whose name only starts so.
-    const slug = session ? sessionSlug(session) : "";
-    const mine = (label: string) => !!slug && (label === slug || (label.startsWith(`${slug}-`) && /^[0-9a-f]{8}$/.test(label.slice(slug.length + 1))));
-    const labels = [...new Set(this.agentTabs().flatMap(t => (t.pane.herdr?.pane && mine(t.pane.herdr.pane) ? [t.pane.herdr.pane] : [])))];
-    let closed = false;
-    for (const label of labels) { try { spawnDetached(process.execPath, [HERDR_LAUNCHER, "--close", label], { detached: true, stdio: "ignore" }).unref(); closed = true; } catch { /* the next */ } }
-    return closed;
-  }
   /** What a new agent tab runs (claude, shell): the last agent picked. */
   get name(): string { return this.prog.name; }
   /** What it runs and where, and why (`ep0ch doctor`, peek). */
@@ -674,6 +663,8 @@ export class AgentDrawer {
     if (this.d) return this.d;
     const ctx = this.host.ctx?.();
     if (!ctx) return null;
+    // The App learns its outline after construction; choose only when the drawer can use that context.
+    this.prog = this.program();
     const fresh = !this.persist || readState<unknown>("drawer-tiles.json", outlineState()) === null;
     // Its tiles' ids are `k<n>`: a tile in the drawer's id is never a screen tile's (tile= reaches either by id).
     const d = new Desk(hostSpec(this.persist), { where: () => this.whereIn(), idPrefix: "k", area: { col: 0, row: 0, cols: this.cols, rows: this.rows - 1 } });
@@ -682,8 +673,11 @@ export class AgentDrawer {
     d.shownAs(this.shown || !!d.floatingTiles().length);
     // As the spec's own tile would be: the drawer's focus, which is no one's keys until the person goes in.
     if (fresh && !d.tileCount()) this.firstTab = this.agentTab(d, USER);
-    // Not when first drawn (PIE-1342): asked before the drawer is up, the agent tab names its running program, and a lift lifts that one.
-    if (!fresh) for (const c of d.addressable([d])) { const p = c.value.pane; if (p instanceof PtyPane && !p.running && p.keptAs && ptyBackend().holds(p.keptAs)) p.startNow(...this.termSize()); }
+    if (!fresh) {
+      if (this.prog.named && !this.namedSurface(d)) this.firstTab = this.agentTab(d, USER);
+      // Not when first drawn (PIE-1342): asked before the drawer is up, the agent tab names its running program, and a lift lifts that one.
+      for (const c of d.addressable([d])) { const p = c.value.pane; if (p instanceof PtyPane && !p.running && p.keptAs && ptyBackend().holds(p.keptAs)) p.startNow(...this.termSize()); }
+    }
     return d;
   }
   /**
@@ -870,40 +864,20 @@ export class AgentDrawer {
 
   state(now = Date.now()): AgentState { return this.paneState(this.shownPane(), now); }
 
-
   private paneState(p: Pane | null, now: number): AgentState {
     if (this.d && !p) return "empty";
+    if (p instanceof NamedAgentPane) {
+      if (p.card) return (p.look?.kind === "ended" || p.terminal?.state === "finished") ? "exited" : "off";
+      if (p.observing) return "watching";
+      const state = p.terminal?.status?.state;
+      return state === "error" ? "failed" : state ?? "idle";
+    }
     if (!(p instanceof PtyPane) || (!p.running && p.exited === null)) return "off";
     if (p.exited !== null || p.agentExit !== null) return "exited";
-    if (p.programTitle === WATCH_TITLE) return "watching";
     // The program said what it's doing: no guessing.
     const said = p.status.urgent();
     if (said) return said.state === "error" ? "failed" : said.state;
-    if (p.herdr) {
-      this.pollHerdr(now, p);
-      const h = this.herdrPolls.get(p);
-      if (h?.state && now - h.at < HERDR_POLL_MS * 3) return h.state;
-    }
     return now - p.lastOutput < WORKING_MS ? "working" : "idle";
-  }
-
-  /** Herdr knows the agent's state (idle, working, blocked): asked every few seconds, only while it's attached through Herdr. */
-  private pollHerdr(now: number, p: PtyPane) {
-    if (!this.herdr) return;
-    const poll = this.herdrPolls.get(p) ?? { state: null, at: 0, lastPoll: -Infinity, polling: false };
-    this.herdrPolls.set(p, poll);
-    if (poll.polling || now - poll.lastPoll < HERDR_POLL_MS) return;
-    poll.polling = true; poll.lastPoll = now;
-    // The name the launcher said it gave the agent (a test door's is door-<hash>); else the person's own.
-    const name = p.herdr?.name ?? agentConfig().name;
-    this.herdr(["agent", "get", name]).then(r => {
-      let s: string | undefined;
-      try { s = JSON.parse(r.out)?.result?.agent?.agent_status; } catch { s = undefined; }
-      const state: AgentState | null = s === "working" ? "working" : s === "idle" || s === "done" ? "idle" : s === "blocked" ? "blocked" : null;
-      const was = poll.state;
-      poll.state = state; poll.at = Date.now();
-      if (state !== was) this.host.statusChanged();
-    }, () => { poll.state = null; }).finally(() => { poll.polling = false; });
   }
 
   /**
@@ -923,7 +897,7 @@ export class AgentDrawer {
     if (p && s !== "off" && s !== "exited" && s !== "empty") this.pollKnows(now, p);
     // What it reported says it in its own words (needs you, asks you, working 40%); else the state's.
     const said = p?.status.urgent();
-    const what = this.restarting && p === this.tile ? "restarting" : s === "off" ? "" : said && s !== "exited" && s !== "watching" ? statusMark(said).word : s === "blocked" ? "needs you" : s === "exited" ? (p?.exited === null && p?.agentExit !== null ? `exited ${p.agentExit} · shell` : `exited ${p?.exited ?? ""}`.trim()) : s;
+    const what = this.restarting && p === this.tile ? "restarting" : s === "off" ? "" : said && s !== "exited" && s !== "watching" ? statusMark(said).word : s === "blocked" ? "needs you" : s === "exited" ? p?.named ? `exited ${p.named.look?.kind === "ended" ? p.named.look.exit ?? "" : p.named.terminal?.exit_code ?? ""}`.trim() : (p?.exited === null && p?.agentExit !== null ? `exited ${p.agentExit} · shell` : `exited ${p?.exited ?? ""}`.trim()) : s;
     let knows = this.restarting || s === "off" || s === "exited" || s === "empty" || !p ? "" : knowsLabel(this.knowledge.get(p)?.knows ?? null);
     if (!this.offersRestartAt(pane)) knows = knows.replace(RESTART_GLYPH, "").trimEnd();
     const own = !shown;
@@ -940,27 +914,7 @@ export class AgentDrawer {
   get offersRestart(): boolean { return this.offersRestartAt(this.shownPane()); }
   private offersRestartAt(shown: Pane | null): boolean { return !!shown && shown === this.tile && !this.restarting && (this.knows?.state === "stale" || this.knows?.state === "no-door"); }
 
-  /**
-   * The agent's process: in Herdr, the process in the agent's pane (`pane process-info`); else the tile's own
-   * program. Null when it isn't running or Herdr doesn't say.
-   */
-  async agentPid(p: PtyPane | null = this.tile): Promise<number | null> {
-    if (!p?.running) return null;
-    if (!p.herdr) return p.pid ?? null;
-    if (!this.herdr) return null;
-    const pane = await this.herdrPaneId(p.herdr.pane);
-    if (!pane) return null;
-    const info = await this.herdr(["pane", "process-info", "--pane", pane]);
-    // The pane's program is the login-shell wrapper (inLoginShell): the agent is the foreground process that isn't a
-    // shell. Signalling the wrapper would leave the agent running with no pane.
-    try { const pi = JSON.parse(info.out)?.result?.process_info; return paneAgentPid(pi); } catch { return null; }
-  }
-
-  private async herdrPaneId(label: string): Promise<string | null> {
-    if (!this.herdr) return null;
-    const listed = await this.herdr(["pane", "list"]);
-    try { const hit = (JSON.parse(listed.out)?.result?.panes ?? []).find((x: any) => x?.label === label); return hit?.pane_id ? String(hit.pane_id) : null; } catch { return null; }
-  }
+  async agentPid(p: PtyPane | null = this.tile): Promise<number | null> { return p?.named ? null : p?.pid ?? null; }
 
   /** Read again what the agent knows, every KNOWS_POLL_MS while it runs (and at once after a start). */
   private pollKnows(now: number, p: PtyPane) {
@@ -991,12 +945,9 @@ export class AgentDrawer {
   }
 
   /**
-   * Restart the agent so it starts with the door's environment and the installed mod, keeping the conversation:
-   * - in a terminal tile (or the drawer), its program is asked to exit (SIGTERM; SIGKILL after 8s), then the same
-   *   command runs again (a bare `claude` with --continue);
-   * - in Herdr, the agent's process in its pane alone is asked to exit (the pane stays, the person's shell), and the
-   *   tile's launcher runs again: it finds the session's pane left a shell and starts the agent in it, continuing.
-   * Nothing but that one agent process (and this door's own launcher for it) is signalled.
+   * Restart the agent tab. A program in the tile is asked to exit, then the same command runs again
+   * (a bare `claude` with --continue). A named agent's command is `hc attach`: this detaches and attaches
+   * again. The hc terminal keeps running.
    */
   restart(): Promise<RestartDone> {
     if (this.restarting) return this.restarting;
@@ -1004,21 +955,11 @@ export class AgentDrawer {
     if (!p) return Promise.reject(new ActionRefused(NO_AGENT));
     const run = async (): Promise<RestartDone> => {
       const was = this.knows?.state ?? null;
-      const herdr = p.herdr?.pane ?? null;
-      if (herdr && p.running) {
-        // Restarting only the attach would leave the old agent in its pane: without its pid, nothing is done.
-        const pid = await this.agentPid(p);
-        if (!pid) throw new ActionRefused(`couldn't find the agent's process in Herdr pane ${herdr}; restart it there (/exit, then ⏎ in the tile)`);
-        try { process.kill(pid, "SIGTERM"); } catch { /* gone */ }
-        const until = Date.now() + 8000;
-        while (alive(pid) && Date.now() < until) await Bun.sleep(100);
-        if (alive(pid)) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
-        // The pane stays (the shell the agent ran in): the attach is stopped below, and the launcher starts it there again.
-      }
+      if (p.named) { await p.named.refresh(); return { restarted: true, was }; }
       await p.stop();
       p.restart(true);
       this.knowledge.delete(p);
-      return { restarted: true, ...(herdr ? { herdr } : {}), was };
+      return { restarted: true, was };
     };
     this.restarting = run().finally(() => { this.restarting = null; this.changed(); });
     this.changed();
@@ -1310,14 +1251,14 @@ export class AgentDrawer {
       sessions: this.sessions().map(s => sessionFacts(s)),
       knows: known?.knows ? { ...known.knows, pid: known.pid } : null, ...(this.restarting ? { restarting: true } : {}),
       ...(this.openedBy?.kind === "agent" ? { openedBy: this.openedBy.id } : {}),
-      ...(p?.herdr ? { herdr: p.herdr } : {}),
+      ...(p?.named ? { namedAgent: p.named.describe().namedAgent } : {}),
       terminal: p ? p.describe() : null,
     };
   }
 
-  /** Quitting the door would end what runs in the drawer (not in Herdr): said, and asked twice. */
+  /** Quitting the door would end what runs in the drawer (hc agents keep running): said, and asked twice. */
   leaveWarning(): string | null {
-    const inDrawer = this.d ? this.tabs().map(t => this.d!.pane(t.name)).filter((x): x is PtyPane => x instanceof PtyPane && x.running && !x.herdr) : [];
+    const inDrawer = this.d ? this.tabs().map(t => this.d!.pane(t.name)).filter((x): x is PtyPane => x instanceof PtyPane && x.running && !x.named) : [];
     return inDrawer.length ? `${inDrawer.map(x => x.title()).join(", ")} ${inDrawer.length === 1 ? "runs" : "run"} in the drawer · quitting ends ${inDrawer.length === 1 ? "it" : "them"} · again within 3s quits` : null;
   }
 
@@ -1353,7 +1294,7 @@ export class AgentDrawer {
     const lock = lockChip ? ` ${chipStyle(C.yellow, C.black)}${lockChip}${bg(C.black)}` : "";
     const pane = this.shownPane(), p = pane instanceof PtyPane ? pane : null;
     const by = this.openedBy ? ` · ${fg(C.lmagenta)}pulled up by ${agentLabel(this.openedBy)}${fg(C.yellow)}` : "";
-    const where = this.state() === "watching" ? ` · ${fg(C.lcyan)}another door has it${fg(C.yellow)}` : p?.herdr ? ` · in Herdr (${p.herdr.pane})` : "";
+    const where = this.state() === "watching" ? ` · ${fg(C.lcyan)}another door has it${fg(C.yellow)}` : p?.named ? ` · hc ${p.named.config.persona}` : "";
     const edge = this.dropHover || this.entered ? C.yellow : C.brown;
     const head = `══ ${this.chipText()}${this.folded ? "" : where + by}`;
     this.lockAt = lockChip && !this.dropHover ? { from: r.col + width(head) + 1, to: r.col + width(head) + 1 + width(lockChip) } : null;
@@ -1703,12 +1644,7 @@ const drawerUp = (d: AgentDrawer) => d.shown && !d.folded;
 export type DrawerRun = (name: "host.toggle" | "host.size" | "agent.restart" | "host.enter" | "host.leave" | "host.shell" | "host.agent" | "agents.open", args: Record<string, unknown>) => void;
 
 /** What `agent.restart` answers once the agent runs again. */
-export interface RestartDone { restarted: boolean; herdr?: string; was: AgentKnows["state"] | null }
-
-function defaultHerdr(): HerdrRun | null {
-  const bin = herdrBin();
-  return bin ? herdrRunner(bin, 2000) : null;
-}
+export interface RestartDone { restarted: boolean; was: AgentKnows["state"] | null }
 
 export interface DrawerOn extends Again { drawer: AgentDrawer; ctx: Ctx; here: Screen | undefined }
 
@@ -1839,21 +1775,20 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     },
   }),
   "host.agent": def({
-    summary: "a new agent tab in the drawer: name=<agent> picks one installed here (claude, codex, pi, … or shell; herdr=true runs it in Herdr, where it outlives the door) and starts it in a new tab, inside the person's login shell; the pick is saved as what the next new agent tab starts, for this outline's session (default=true: for every outline). Nothing running is ended: ^W x on a tab closes it. No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",
+    summary: "a new agent tab in the drawer: name=<agent> picks one installed here (claude, codex, pi, … or shell) and starts it in a new tab, inside the person's login shell; the pick is saved as what the next new agent tab starts, for this outline's session (default=true: for every outline). Nothing running is ended: ^W x on a tab closes it. No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",
     keys: [{ keys: "alt-click right-click", does: "on the agent chip, opens the picker (a plain click opens and closes the drawer)" }, { via: "the power bar finds agent or claude" }],
     touches: "screen", replay: "ask",
     says: (out: { agent?: string; name?: string }) => (out.agent ? `· started ${out.agent} in a new agent tab (${out.name})` : null),
-    args: { name: { type: "string", optional: true, about: "the agent: claude, codex, pi, … or shell (host.agent with no name lists them on screen)" }, herdr: { type: "boolean", optional: true, about: "run it in this session's own Herdr pane (it outlives the door)" }, default: { type: "boolean", optional: true, about: "the default for every outline's session, not only this one" }, in: { type: "string", optional: true, about: "the folder it starts in (~ is your home); left out: the project's .ep0ch folder, else the outline's own" } },
+    args: { name: { type: "string", optional: true, about: "the agent: claude, codex, pi, … or shell (host.agent with no name lists them on screen)" }, default: { type: "boolean", optional: true, about: "the default for every outline's session, not only this one" }, in: { type: "string", optional: true, about: "the folder it starts in (~ is your home); left out: the project's .ep0ch folder, else the outline's own" } },
     examples: [
       { act: "host.agent name=codex", does: "starts codex in a new agent tab, and saves it as what the next one starts in this outline's session" },
-      { act: "host.agent name=claude herdr=true in=~/sheds", does: "runs claude in Herdr, in ~/sheds, where it outlives the door" },
     ],
-    run({ name, herdr, default: dflt, in: folder }, { drawer }, actor) {
+    run({ name, default: dflt, in: folder }, { drawer }, actor) {
       if (!name) {
-        if (actor.kind === "agent") return { agents: drawer.agents().map(a => ({ name: a.name, cmd: a.cmd, ...(a.herdr ? { herdr: true } : {}) })), now: drawer.runs.name, from: drawer.runs.from };
+        if (actor.kind === "agent") return { agents: drawer.agents().map(a => ({ name: a.name, cmd: a.cmd })), now: drawer.runs.name, from: drawer.runs.from };
         return drawer.pick();
       }
-      return drawer.choose(name, !!herdr, !!dflt, actor, folder);
+      return drawer.choose(name, !!dflt, actor, folder);
     },
   }),
   "agents.open": def({
@@ -2001,7 +1936,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     ],
   }),
   "agent.restart": def({
-    summary: "restart the agent tab used last (▲ claude) so it starts with the door's environment (EP0CH_CONTROL, EP0CH_NEST …) and the installed Claude mod: that agent alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (a bare claude gets --continue on this restart). In Herdr it comes back in the session's own pane. An agent's restart is refused while the person types in it, and is said on screen",
+    summary: "restart the agent tab used last (▲ claude). A program in the tile is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again (a bare claude gets --continue on this restart). A named agent's command is hc attach: this detaches and attaches again, and the hc terminal keeps running. An agent's restart is refused while the person types in it, and is said on screen",
     keys: `a click on ${RESTART_GLYPH} at the end of the ▲ claude chip (shown when it started without the door's variables, or without door tools); alt+R`,
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them",
     says: (out: { name?: string }) => ({ text: `· restarted ${out?.name ?? "the agent tab"}`, ms: 6000 }),
@@ -2013,7 +1948,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       const idle = Date.now() - (p?.personKeyAt ?? 0);
       if (p && idle < RESTART_IDLE_MS && !standsAsPerson(actor, ctx.person?.() ?? NOBODY, "tile")) throw new ActionRefused(`the person typed into the agent ${(idle / 1000).toFixed(1)}s ago; try again once they've left it ${RESTART_IDLE_MS / 1000}s`);
       const name = p ? drawer.agentName() : drawer.name;
-      ctx.flash(`restarting ${name}${p?.herdr ? ` in Herdr (${p.herdr.pane})` : ""} · the conversation is kept`, 6000);
+      ctx.flash(`restarting ${name} · the conversation is kept`, 6000);
       return drawer.restart().then(r => ({ ...r, name }));
     },
   }),
@@ -2044,33 +1979,6 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
 
 /** The host layer's agent as the actor rule sees it: the tile an agent's typing, resizing or restarting would be under. */
 export const HOST_AGENT_TILE: TileRef = { name: HOST_AGENT, kind: "pty", label: "the drawer's agent tab" };
-
-/**
- * `tile.herdr` for the host layer's agent (`tile=drawer.agent`): the same rule as a desk terminal's (PTY_ACTIONS), said by
- * the Herdr launcher as it attaches, on whatever screen is shown.
- */
-export const HOST_TILE_ACTIONS = actionSet<{ drawer: AgentDrawer }>()("host", {
-  "tile.herdr": def({
-    words: "show an agent that lives in a Herdr pane in this terminal tile",
-    summary: "the agent tab used last (tile=drawer.agent) lives in Herdr pane pane=<label> (on=false: it no longer does): quitting the door then ends only the attach",
-    touches: "nothing", replay: "ask",
-    args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-<outline>)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: it no longer shows a Herdr agent" } },
-    examples: [
-      { act: "tile.herdr tile=drawer.agent pane=door-garden", does: "records that the drawer's program lives in the Herdr pane door-garden" },
-      { act: "tile.herdr tile=drawer.agent on=false", does: "records that the drawer's program no longer lives in Herdr" },
-    ],
-    run({ pane, name, on }, { drawer }) {
-      // The agent tab used last (role agent), wherever it is.
-      const p = drawer.tile;
-      if (!p) throw new ActionRefused(NO_AGENT);
-      if (on === false) { p.herdr = null; return { tile: drawer.agentId(), name: drawer.agentName(), herdr: null }; }
-      if (!pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
-      if (!p.running) throw new ActionRefused(`${drawer.agentName()} isn't running`);
-      p.herdr = { pane, ...(name ? { name } : {}) };
-      return { tile: drawer.agentId(), name: drawer.agentName(), herdr: p.herdr };
-    },
-  }),
-});
 
 /** The drawer laid over a screen's lines: its rows replace the screen's (a full-width drawer, nothing reflows). */
 export function overlay(lines: string[], drawer: { rect: Rect; lines: string[] }): string[] {

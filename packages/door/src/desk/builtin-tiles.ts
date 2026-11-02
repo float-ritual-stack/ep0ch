@@ -15,6 +15,7 @@ import { stagesFrom } from "../backlinks";
 import { ACTIVITY_ACTIONS, ActivityPane, ArtPane, READER_ACTIONS, ReaderPane, sessionName, TreePane, WHO_ACTIONS, WhoPane, type Pane } from "./panes";
 import { ART_ACTIONS } from "../art-actions";
 import { PreviewPane, sourceName, sourceOf } from "./preview";
+import { NamedAgentPane } from "./named-agent-pane";
 import { PtyPane } from "./pty";
 import { PTY_ACTIONS } from "./pty-actions";
 import { mountKinds } from "./screen-tile";
@@ -161,11 +162,11 @@ const builtins = (): TileKind[] => [
       { key: "e", label: "editor", spec: () => { const f = dailyDraft(); return { cmd: [...words(editor()), f], file: f, name: "editor" }; } },
       { key: "s", label: "shell" },
     ],
-    make: s => { const p = new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name, ...(s.session?.program ? { session: s.session } : {}) }); if (typeof s.kept === "string" && s.kept) p.keptKey = s.kept; return p; },
+    make: s => { const p = s.namedAgent ? new NamedAgentPane(s.namedAgent) : new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name, ...(s.session?.program ? { session: s.session } : {}) }); if (typeof s.kept === "string" && s.kept) p.keptKey = s.kept; return p; },
     actions: PTY_ACTIONS,
     // ⏎ or e on a terminal the person isn't in, or a click in it while its program runs: they type in it.
-    press: (p, k) => (k.kind === "mouse" ? ((p as PtyPane).running ? { action: "tile.enter" } : null) : k.kind === "enter" || ch(k) === "e" ? { action: "tile.enter" } : null),
-    holdsWork: p => (p as PtyPane).running,
+    press: (p, k) => (p as PtyPane).named?.card ? (p as PtyPane).named!.press(k) : (k.kind === "mouse" ? ((p as PtyPane).running ? { action: "tile.enter" } : null) : k.kind === "enter" || ch(k) === "e" ? { action: "tile.enter" } : null),
+    holdsWork: p => !(p as PtyPane).named && (p as PtyPane).running,
     whenFree: (p, then) => {
       const t = p as PtyPane, was = t.onExit;
       t.onExit = code => { was?.(code); then(); };
@@ -189,7 +190,7 @@ const builtins = (): TileKind[] => [
     describe: (p, full) => {
       const t = p as PtyPane;
       const status = t.status.records.size ? { status: t.status.records.list().map(recordFacts) } : {};
-      return full ? { terminal: t.describe(), ...(t.herdr ? { herdr: t.herdr } : {}) } : { cmd: t.run.cmd, ...(t.socket ? { nvim: t.socket } : {}), ...(t.herdr ? { herdr: t.herdr } : {}), ...status };
+      return full ? { terminal: t.describe(), ...(t.named ? { namedAgent: t.named.describe().namedAgent } : {}) } : { cmd: t.run.cmd, ...(t.socket ? { nvim: t.socket } : {}), ...(t.named ? { namedAgent: t.named.describe().namedAgent } : {}), ...status };
     },
     previewSource: (p, name) => {
       const t = p as PtyPane;

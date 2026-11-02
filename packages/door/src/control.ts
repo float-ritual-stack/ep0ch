@@ -157,7 +157,7 @@ export async function startControl(d: ControlDeps, at = servingSocket()): Promis
   await sweepSockets(dir);
   const own = join(dir, `door-${process.pid}.sock`);
   let path = at;
-  // A link (the Herdr agent's agent-*.sock) is never ours to serve on or remove: it names another door's socket.
+  // A link is never ours to serve on or remove: it names another door's socket.
   const link = (() => { try { return lstatSync(at).isSymbolicLink(); } catch { return false; } })();
   if (link) path = own;
   else if (existsSync(path)) {

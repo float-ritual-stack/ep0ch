@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { ask } from "./jsonl";
 import { alive } from "./state";
-import { herdrBin, herdrRunner, type HerdrRun } from "./desk/herdr-agent";
+import { herdrBin, herdrRunner, type HerdrRun } from "./herdr-read";
 import { appendNest, ELIDED, nestLayers, outerLayers, parseLayer, type Layer } from "./nest";
 import { type AgentPointer } from "./whereabouts";
 import { reachControl } from "./control";
@@ -38,8 +38,8 @@ export interface Where {
    * persona an agent here writes as (ADR 0003: OUTLINER_ACTOR, EP0CH_AGENT, the folder's `.ep0ch` `agent`), with where it came from.
    */
   here: { machine: string | null; folder: string | null; persona: SessionPersona | null };
-  /** The innermost Herdr pane this runs in: its id, its label when Herdr says, and whether it is the door agent's own pane. */
-  herdr: { pane: string; label: string | null; agent: boolean } | null;
+  /** The innermost Herdr pane this runs in: its id and label. */
+  herdr: { pane: string; label: string | null } | null;
   door: null | {
     pid: number | null; control: string | null; answers: boolean; screen: string | null; outline: string | null; workspace: string | null;
     /** The machine the door's outline host runs on (its hostname), and the ssh name the door reached it by (null: this machine's host). */
@@ -54,7 +54,7 @@ export interface Where {
      */
     yolo?: true;
     pointers?: AgentPointer[];
-    /** The door that answers isn't the one in the nest: the Herdr agent's pane, now shown by another door. */
+    /** The door that answers isn't the one in the nest. */
     moved: boolean;
     /**
      * This process's environment is older than its door (PIE-604): the session was handed over or restarted (the
@@ -152,8 +152,6 @@ export async function where(d: WhereDeps): Promise<Where> {
   const doors = parsed.filter((l): l is Extract<Layer, { kind: "door" }> => l.kind === "door");
   const inner = doors.at(-1) ?? null;
   const herdrs = parsed.filter((l): l is Extract<Layer, { kind: "herdr" }> => l.kind === "herdr");
-  // The Herdr agent's pane: the nest ends in the launcher's `herdr:<label>` after the door that made it.
-  const agentPane = parsed.at(-1)?.kind === "herdr" && inner ? (parsed.at(-1) as Extract<Layer, { kind: "herdr" }>).pane : null;
   // A door's drop shell (`screen.shell`): the nest ends in `shell:<door pid>`, with the door waiting under it.
   const inShell = parsed.at(-1)?.kind === "shell";
 
@@ -184,20 +182,19 @@ export async function where(d: WhereDeps): Promise<Where> {
   const ancestors = d.ancestors(d.pid);
   // The door's drawer (PIE-498): a tile the App owns, on every screen, up (`shown`) or put away.
   const dv = peek?.screen?.drawer;
-  const drawerTile = dv?.tile?.tile ? { id: dv.tile.tile, name: dv.tile.name, shown: !!dv.shown, focused: !!dv.entered, herdr: dv.herdr, terminal: dv.terminal, drawer: true } : null;
-  // In the Herdr agent's pane, "my tile" is whichever tile shows that pane now; elsewhere the tile by id, else name.
-  let tile = agentPane ? tilePanes.find(p => p?.herdr?.pane === agentPane) ?? (drawerTile?.herdr?.pane === agentPane ? drawerTile : undefined) : undefined;
+  const drawerTile = dv?.tile?.tile ? { id: dv.tile.tile, name: dv.tile.name, shown: !!dv.shown, focused: !!dv.entered, terminal: dv.terminal, drawer: true } : null;
+  let tile: any;
   // A terminal's program finds its tile by its pid first: a tile moved between screens or out of the drawer (PIE-498) has an
   // id there it wasn't started with, and its old EP0CH_TILE_ID may name another tile now.
-  if (!tile && !agentPane) tile = tilePanes.find(p => typeof p?.terminal?.pid === "number" && (ancestors.includes(p.terminal.pid) || d.pid === p.terminal.pid));
+  if (!tile) tile = tilePanes.find(p => typeof p?.terminal?.pid === "number" && (ancestors.includes(p.terminal.pid) || d.pid === p.terminal.pid));
   // A terminal moved into the drawer (PIE-498) keeps the EP0CH_TILE_ID of the screen it started on: found by its program.
-  if (!tile && !agentPane && Array.isArray(dv?.tiles)) {
+  if (!tile && Array.isArray(dv?.tiles)) {
     const t = dv.tiles.find((x: any) => typeof x?.pid === "number" && (ancestors.includes(x.pid) || d.pid === x.pid));
     if (t) tile = t.tile === drawerTile?.id ? drawerTile : { id: t.tile, name: t.name, shown: !!dv.shown && !!t.shown, focused: !!t.focused, terminal: { pid: t.pid }, drawer: true };
   }
   // Only then by its id (else its name): a moved terminal's stale EP0CH_TILE_ID never wins over its pid.
-  if (!tile && !agentPane && drawerTile && myTileId === drawerTile.id) tile = drawerTile;
-  if (!tile && !agentPane) tile = tilePanes.find(p => myTileId && p?.id === myTileId) ?? (tilePanes.some(p => p?.id) ? undefined : tilePanes.find(p => p?.name === myTileName));
+  if (!tile && drawerTile && myTileId === drawerTile.id) tile = drawerTile;
+  if (!tile) tile = tilePanes.find(p => myTileId && p?.id === myTileId) ?? (tilePanes.some(p => p?.id) ? undefined : tilePanes.find(p => p?.name === myTileName));
   const answeringPid = typeof peek?.screen?.pid === "number" ? peek.screen.pid : null;
   const inDoor = !!(inner || (control && !folderDoor));
   // The nest's door is gone and its outline's door answers from another process: the session was handed over or
@@ -205,7 +202,7 @@ export async function where(d: WhereDeps): Promise<Where> {
   // (The old daemon may linger as a zombie its starter hasn't reaped: another pid answering is what counts.) Only a
   // door reached through the outline's session (EP0CH_PLACE) is that successor: without it, another pid on
   // EP0CH_CONTROL is another door, and says so (moved).
-  const handedOver = !!(inner && !agentPane && reached?.place && answeringPid !== null && answeringPid !== inner.pid);
+  const handedOver = !!(inner && reached?.place && answeringPid !== null && answeringPid !== inner.pid);
   const moved = !!(inner && answeringPid !== null && answeringPid !== inner.pid) && !handedOver;
   const now = `${answeringPid ? `pid ${answeringPid}` : "the door"}${peek?.screen?.outline ? ` on ${peek.screen.outline}` : ""}`;
   const stale = [
@@ -219,7 +216,7 @@ export async function where(d: WhereDeps): Promise<Where> {
     screen: peek?.screen?.screen ?? null, outline: peek?.screen?.outline ?? null, workspace: peek?.screen?.workspace ?? null,
     host: typeof peek?.screen?.host === "string" && peek.screen.host ? peek.screen.host : null,
     machine: typeof peek?.screen?.machine === "string" && peek.screen.machine ? peek.screen.machine : null,
-    tile: myTileId || myTileName || agentPane ? {
+    tile: myTileId || myTileName ? {
       id: tile?.id ?? myTileId, name: tile?.name ?? myTileName, found: !!tile,
       shown: tile ? tile.shown !== false : null, focused: tile ? !!tile.focused : null,
       descends: tpid !== null && ancestors.length ? ancestors.includes(tpid) || d.pid === tpid : null,
@@ -250,7 +247,7 @@ export async function where(d: WhereDeps): Promise<Where> {
         ? (moved ? `running · the door on EP0CH_CONTROL is pid ${answeringPid}, which shows this pane now` : `running · its control socket answers`)
         : control ? "running · its control socket doesn't answer" : "running";
       layers.push({ kind: "door", raw: l.raw, label: `pid ${l.pid} · ${l.place}${isInner && peek?.screen?.outline ? ` · outline ${peek.screen.outline}` : ""}`, live: up || (isInner && handedOver), why });
-      if (isInner && !agentPane) layers.push(tileLayer(l.tileId, l.tile, door!.tile, peek, desk, moved));
+      if (isInner) layers.push(tileLayer(l.tileId, l.tile, door!.tile, peek, desk, moved));
     } else if (l.kind === "shell") {
       const up = d.alive(l.pid);
       const waits = l === parsed.at(-1) && peek?.screen?.suspended === "shell";
@@ -263,24 +260,17 @@ export async function where(d: WhereDeps): Promise<Where> {
     layers.push({ kind: "door", raw: "", label: `${answeringPid ? `pid ${answeringPid}` : "a door"}${peek?.screen?.outline ? ` · outline ${peek.screen.outline}` : ""}`, live: peek ? true : null, why: peek ? "its control socket answers (a door older than EP0CH_NEST)" : "its control socket doesn't answer" });
     layers.push(tileLayer(myTileId, myTileName ?? "?", door!.tile, peek, desk, false));
   }
-  // In the Herdr agent's pane: the tile showing it now, whichever door that is.
-  if (agentPane && door) {
-    const t = door.tile;
-    layers.push({ kind: "tile", raw: "", label: t?.found ? `shown in ${t.drawer ? "the drawer" : "tile"} ${t.id ?? "?"} ${t.name}${moved ? ` of door ${answeringPid}` : ""}` : "shown in no tile",
-      live: peek ? !!t?.found : null, why: !peek ? "no door answers on EP0CH_CONTROL (the agent runs on in Herdr)" : t?.found ? "the tile attached to this pane" : "no tile of the door shows this pane" });
-  }
-
   const keys: WhereKeys = folderDoor && !door?.tile?.found
-    ? { ...keysOf(peek, desk, door, agentPane, paneList, env), mine: false, text: `not in a tile of this door, so these are not the person's keys; ${keysOf(peek, desk, door, agentPane, paneList, env).text.replace(/, not this one$/, "")}` }
+    ? { ...keysOf(peek, desk, door, paneList, env), mine: false, text: `not in a tile of this door, so these are not the person's keys; ${keysOf(peek, desk, door, paneList, env).text.replace(/, not this one$/, "")}` }
     : inShell && peek?.screen?.suspended === "shell"
     ? { mine: true, typing: true, tile: null, text: "the person is in the door's shell (the door waits under it until it exits)" }
-    : keysOf(peek, desk, door, agentPane, paneList, env);
+    : keysOf(peek, desk, door, paneList, env);
   const reach = { rule: (via ? via.rule : inDoor ? "control" : "none") as DoorResolution["rule"], text: via ? via.text : inDoor ? "reached the door on EP0CH_CONTROL" : "no door to reach" };
   const summary = summaryOf(nest, layers, keys, inDoor, door?.stale ?? null, via);
   const here = { machine: d.hostname?.() || null, folder: d.cwd?.() || null, persona: d.persona?.() ?? null };
   const innerHerdr = herdrs.at(-1);
   const pane = innerHerdr ? herdrPane(innerHerdr.pane) : null;
-  const herdr = innerHerdr ? { pane: innerHerdr.pane, label: typeof pane?.label === "string" && pane.label ? pane.label : null, agent: agentPane !== null } : null;
+  const herdr = innerHerdr ? { pane: innerHerdr.pane, label: typeof pane?.label === "string" && pane.label ? pane.label : null } : null;
   return { inDoor, reach, recorded, nest, here, herdr, layers, door, keys, summary };
 }
 
@@ -293,7 +283,7 @@ function tileLayer(id: string | null, name: string, t: NonNullable<Where["door"]
   return { kind: "tile", raw: "", label, live: true, why: `on the desk${t.shown ? "" : " (hidden: a drawer or another tab)"}${t.descends === true ? " · this process runs in it" : t.descends === false ? " · but this process isn't its program's" : ""}` };
 }
 
-function keysOf(peek: any, desk: any, door: Where["door"], agentPane: string | null, panes: any[] | null, env: Record<string, string | undefined>): WhereKeys {
+function keysOf(peek: any, desk: any, door: Where["door"], panes: any[] | null, env: Record<string, string | undefined>): WhereKeys {
   if (door && peek) {
     const screen = peek.screen?.screen ?? "?";
     // The person typing in the drawer (PIE-498): over any screen, the desk's focus doesn't matter then.
@@ -301,7 +291,7 @@ function keysOf(peek: any, desk: any, door: Where["door"], agentPane: string | n
       // Which of the drawer's tabs: the one focused, else the one it shows.
       const dv = peek.screen.drawer, typed = Array.isArray(dv.tiles) ? dv.tiles.find((x: any) => x?.focused) : null;
       const own = !typed;
-      const mine = own ? (!!door.tile?.drawer && door.tile.id === dv.tile?.tile) || (!!agentPane && dv.herdr?.pane === agentPane) : !!door.tile?.drawer && door.tile.id === typed.tile;
+      const mine = own ? (!!door.tile?.drawer && door.tile.id === dv.tile?.tile) : !!door.tile?.drawer && door.tile.id === typed.tile;
       return { mine, typing: true, tile: own ? dv.tile?.tile ?? null : typed.tile, text: mine ? "the person is typing in this tile (the drawer)" : `the person is typing in the drawer over the ${screen}, not this tile` };
     }
     if (!desk) return { mine: false, typing: false, tile: null, text: `the person is on the door's ${screen} screen, not the desk` };
