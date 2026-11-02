@@ -10,10 +10,40 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+- **CP437 frames (PIE-1490):** hover uses the distinct native `÷` glyph beside `○ » ^`, named in the frame hint and showcase; left triangles and curly apostrophes have font lookalikes.
 - Note records, agent reads and `ep0ch show --json` name the writer of the newest revision (PIE-1393).
 - Binding and outline reads distinguish a down host from a missing outline, with the machine, socket paths and retry command (PIE-1325).
 - Sources describes a written figure as “Written in the note · N items” and shows its text once, in the door and on the web (PIE-1226).
 - The first part dropped into an empty new note starts on line 1; later drops keep one blank line between parts (PIE-1381).
+### A list view reads as a list again (PIE-1491, #1166)
+
+- **At rest:** a saved or inline view shows its rows, each with its note's title, and a count; its layout, sort, group and settings controls wait until you're in it.
+- **Feed cards** draw their note as the reader does: callouts, bold, `{{ }}` filled in, heading styles.
+- **Settings** open on the attached surface (inline, float, split, popup, own tile); split beside the view redraws it as you change a field. **Sources** lists the collection.
+- **Run:** `ep0ch install --apply` on every machine. PROTOCOL 300.
+
+### `ep0ch --help` fits one screen (PIE-1495, PIE-1494, #1170)
+
+- **Top level:** commands grouped, one line each; `ep0ch help <command>` lists its subcommands in plain words with their flags and two examples; `--more` keeps the long rules.
+- **Sessions elsewhere:** `ep0ch session list --machine <ssh-name>` lists that machine's sessions over ssh.
+- **Run:** `ep0ch install --apply`. No protocol or schema change.
+
+### A deploy brings your session back where you left it (PIE-1498, #1174)
+
+- **Handover:** a session with no terminal attached keeps its screens through `install --apply` and comes back on them, not the main menu.
+- **Run:** `ep0ch install --apply`.
+
+### Dragging the drawer's edge makes no post-it, and ◇ says its mode (PIE-1499)
+
+- **Drag:** resting on or dragging the drawer's top edge with the glass on no longer opens a post-it holding the edge row's own text. No hover resolves while a mouse button is down, and chrome (the drawer's bar, hint rows, the status bar, a tile's bottom border) is never a glass target; a note's links, cut-off text in a tile and a tile's cut-off title still are. `glass.clear` (alt+U, alt-click ◇) removes post-its already made.
+- **Mode:** clicking ◇ or pressing alt+u says the new mode on the status line ("glass on · hover a link to peek", "glass sticky · each hover stays as a post-it", "glass off"), and the chip reads the mode.
+### The door keeps painting on the mini: a lost frame answer never freezes the screen (PIE-1500)
+
+- **Keys show at once:** a key or a click from a terminal proves it is alive: whatever frames it hasn't answered are taken and the latest paints right then. Mouse motion doesn't count, so a drag over a slow link still gets the latest frame and never a queue (PIE-1163 stands).
+- **A lost answer costs a few round trips, not 5 s:** a frame is given up on after four of that terminal's own measured round trips (never under 300 ms, never over 5 s), and a late answer is never set against a frame given up on: before, two answers truly lost froze the terminal for another 5 s every two frames, forever (the mini's tab at 81 timeouts).
+- **An answer cut in two by the reads counts:** `ESC [ 0` in one read and `n` in the next was dropped as an unknown sequence and the frame went unanswered; and half an answer no longer takes the keys from the other terminal. `ep0ch peek --json` shows `speed.clients[].ackJoined`, how often it happened, as evidence for the terminal that splits them.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### Words in the power bar jump to a note again (PIE-1497)
 
 - **Search:** in the main list and `/notes`, words search titles with nothing drawn over the results: ↑↓ ⏎ are the list's. One letter lists the titles that start with it.

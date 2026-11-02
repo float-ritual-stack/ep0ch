@@ -24,7 +24,7 @@ import { filtered } from "./filter";
 import { hyperKeysOf, hyperOn } from "../hyper";
 import { closest } from "../cli-words";
 import { formFields, SELECTOR } from "./form";
-import { actionLead, actionPage } from "../surface/action-page";
+import { actionLead, actionPage, typeLine } from "../surface/action-page";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, QUERY_SCOPE, registerBarSource } from "./source";
@@ -312,7 +312,7 @@ const ACTIONS: BarSource = {
       seen.add(a.name);
       const k = firstKey(a.keys);
       const script = scriptActions().find(s => s.action.name === a.name);
-      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${script ? scriptSaid(script, true) : a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ its form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, ...(a.words ? { words: a.words } : {}), keys: a.keys, form: takesArgs(a), bare: bare(a) } });
+      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${script ? scriptSaid(script, true) : a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ for a form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, ...(a.words ? { words: a.words } : {}), keys: a.keys, form: takesArgs(a), bare: bare(a) } });
     }
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
     const found = filtered(rows, q, r => [r.label, r.fill ?? "", r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
@@ -328,7 +328,8 @@ const ACTIONS: BarSource = {
     const info = found && script ? { ...found, name: script.extension.name ?? found.name, summary: scriptSaid(script), args: Object.fromEntries(formFields(found).map(f => [f.name, f.spec])) } : found;
     // Its page (PIE-1032): the lead, its keys as keycaps, its arguments as a properties table, its examples.
     const page: ActionInfo = info ?? { name: d.action, summary: d.summary ?? "", ...(d.keys ? { keys: d.keys } : {}), args: {}, scope: "", touches: "nothing", replay: "ask" };
-    return { markdown: actionPage(page, { title: row.label, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action) } : {}) }) };
+    // Its examples read as the bar's line takes them (PIE-1502): what Tab or a click puts in it, with no `ep0ch act`.
+    return { markdown: actionPage(page, { title: row.label, prompt: null, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action) } : {}) }) };
   },
   command(row) {
     if (row.key.startsWith("line:")) return row.fill!;
@@ -437,7 +438,8 @@ function actionLine(q: string, host: BarHost, command = false): BarRow | null {
   } catch (e) { refused = e instanceof Error ? e.message : String(e); }
   const shown = shownLine(scripts.length === 1 ? scripts[0]!.extension.name! : req.action, req.args ?? {}, req.tile);
   return {
-    key: `line:${shown}`, label: `run ${shown}`, fill: shown, detail: [...corrections, ...(missing.length && !refused ? [`needs ${missing.map(k => `${k}=`).join(" ")} · ⏎ its form`] : corrections.length ? [] : [actionLead(info.summary)])].join("; "), exact: true, ...(refused ? { refused } : {}),
+    // One it needs more for reads as the line to type (PIE-1502): each missing argument with its values, and what ⏎ does.
+    key: `line:${shown}`, label: missing.length && !refused ? `type ${typeLine(shown, missing, info.args)}` : `run ${shown}`, fill: shown, detail: [...corrections, ...(missing.length && !refused ? ["⏎ for a form"] : corrections.length ? [] : [actionLead(info.summary)])].join("; "), exact: true, ...(refused ? { refused } : {}),
     data: { action: req.action, args: req.args ?? {}, ...(req.tile !== undefined ? { tile: req.tile } : {}), summary: info.summary, keys: info.keys, ...(missing.length ? { form: true, missing } : {}) },
   };
 }

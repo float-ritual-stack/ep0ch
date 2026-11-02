@@ -1279,6 +1279,12 @@ drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
   command and lets the remaining installation steps run. Every attached
   terminal attaches again by itself, in the same terminal and the same ssh login. On a session already on this code,
   or with `--clients`, only the terminals start again; `ep0ch session restart` hands over whatever code it runs.
+- **A handover with nobody attached** (how `ep0ch install --apply` finds a session at night) keeps the screen too: the
+  checkpoint is written as the screens change, not when a terminal looks, and the "handed over to a new daemon · N
+  screens reopened" notice waits for the first terminal that attaches instead of flashing to nobody (PIE-1498). The
+  status line names the session's place: `float-2 · pie` for an outline on this machine's host, and for one on another
+  machine `pie on float-2 · session on float-box`, so two sessions on one outline (the ssh door's on float-box, the
+  machine's own) are told apart at a glance (`pie on float-2` when the bar is narrow).
 - **A daemon that dies** (a crash, `kill -9`) comes back the same way at the next `ep0ch`: the programs are still in
   the terminal host. Text typed into a draft since it was last put aside was only in the daemon's memory, and is lost
   then; drafts put aside come back. `ep0ch session list` says when a terminal host runs without a daemon.
