@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { BUILTIN_COMPONENT_SCHEMAS, spaceSize } from "@ep0ch/outline-core/component-schema";
 import { App } from "../src/app";
 import { openScreen } from "../src/desk/screen-specs";
-import { LIBRARY_ACTIONS, LibraryPane, PARTS } from "../src/library/library";
+import { LIBRARY_ACTIONS, LibraryPane, PARTS, railGroups } from "../src/library/library";
 import { SocketBoard, USER } from "../src/socket";
 import { visible } from "../src/style";
 import { Draft } from "../src/edit";
@@ -17,7 +17,7 @@ import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
-const COLS = 150, ROWS = 46;
+const COLS = 200, ROWS = 46;
 const MAIN = join(import.meta.dir, "../src/main.ts");
 
 test("a page is laid out from the schema alone: the table, each value with its source, the space a page at a time", () => {
@@ -25,15 +25,16 @@ test("a page is laid out from the schema alone: the table, each value with its s
   const p = new LibraryPane();
   const text = () => p.render(COLS, 200, true, desk).lines.map(visible).join("\n");
   expect(text()).toContain("heading-pattern  on the declaring note  stack, waffle, uptime, dots, rule");
-  expect(text()).toContain("┊ ## Your calls [heading::band]");
+  expect(text()).toContain("│ ## Your calls [heading::band]");
   p.part = "property"; p.axis = 2;
-  expect(p.render(COLS, 200, true, desk).lines.map(visible).filter(l => /^. heading-pattern: /.test(l))).toHaveLength(5);
-  expect(text()).toContain("┊ note · My style [heading-style::mine] [heading-pattern::dots]");
+  expect(p.render(COLS, 200, true, desk).lines.map(visible).filter(l => /╭─ heading-pattern: /.test(l))).toHaveLength(5);
+  expect(text()).toContain("│ note · My style");
+  expect(p.describe().variations.map(v => v.source)).toContain("My style [heading-style::mine] [heading-pattern::dots]\n\n## Your calls [heading::mine]");
   p.part = "space";
   expect(text()).toContain("2430 of 2430 match · 1–8 shown");
   // Every part is a digit, and every built-in component has a page.
   expect(PARTS.map(x => x.key)).toEqual(["1", "2", "3", "4"]);
-  for (const s of BUILTIN_COMPONENT_SCHEMAS) { p.component = s.id; p.part = "overview"; expect(text()).toContain("Minimal example"); }
+  for (const s of BUILTIN_COMPONENT_SCHEMAS) { p.show(s.id); p.part = "overview"; expect(text()).toContain("╭─ source · y copies"); expect(text()).toContain(`${s.id} · ${s.group} · live: `); }
 });
 
 test("all widths: every variation drawn at 40, 80 and 160 one under another; w cycles through them", async () => {
@@ -43,13 +44,83 @@ test("all widths: every variation drawn at 40, 80 and 160 one under another; w c
   expect(text()).not.toContain("40 columns");
   const width = (args: object) => LIBRARY_ACTIONS.def("library.width")!.run(args as never, { pane: p } as never, {} as never);
   expect(width({ all: true })).toEqual({ width: "all" });
-  expect(["40", "80", "160"].every(n => text().includes(`  ${n} columns`))).toBe(true);
+  expect(["40", "80", "160"].every(n => text().includes(`│ ${n} columns`))).toBe(true);
   expect(p.describe().width).toBe("all");
   expect(() => width({ cols: 40, all: true })).toThrow("give cols or all, not both");
   // From all, the next is 40 again; from 160, the next is all.
   expect(width({})).toEqual({ width: 40 });
   width({ cols: 160 });
   expect(width({})).toEqual({ width: "all" });
+  // A width wider than the page is drawn at the widest that fits, and its frame says so.
+  width({ cols: 160 });
+  expect(p.render(120, 400, true, desk).lines.map(visible).join("\n")).toContain("at 89 (160 is wider than the page)");
+});
+
+test("a triple click on a source line beside its drawing copies that line only: no drawing, padding or frame (PIE-1515)", () => {
+  const desk: any = { ctx: { board: {} }, redraw() {}, press: () => Promise.resolve() };
+  const p = new LibraryPane({ component: "graph-annotate" });
+  const lines = p.render(200, 60, true, desk).lines.map(visible);
+  const y = lines.findIndex(l => l.includes("sqlite3") && l.includes("# (1)"));
+  expect(y).toBeGreaterThan(0);
+  const x = lines[y]!.lastIndexOf("sqlite3") + 2;
+  for (let i = 0; i < 3; i++) { p.mouse({ kind: "mouse", action: "down", button: 0, x, y } as never, x, y, desk); p.mouse({ kind: "mouse", action: "up", button: 0, x, y } as never, x, y, desk); }
+  expect(p.selectedText()).toBe(`sqlite3 "$db" ".backup '$stage'"  # (1)`);
+  // A drag down the drawing stays in the drawing's frame.
+  const d = lines.findIndex(l => l.includes("[1] sqlite3")), dx = lines[d]!.indexOf("[1] sqlite3");
+  p.mouse({ kind: "mouse", action: "down", button: 0, x: dx, y: d } as never, dx, d, desk);
+  p.mouse({ kind: "mouse", action: "drag", button: 0, x: dx + 60, y: d + 1 } as never, dx + 60, d + 1, desk);
+  p.mouse({ kind: "mouse", action: "up", button: 0, x: dx + 60, y: d + 1 } as never, dx + 60, d + 1, desk);
+  const dragged = p.selectedText();
+  expect(dragged).toStartWith(`[1] sqlite3 "$db" ".backup '$stage'"`);
+  expect(dragged).toContain(`[2] restic backup "$stage"`);
+  // The figure's own ┊ is the drawing's; the library's frames (│) and the source beside it are not.
+  expect(dragged).not.toContain("│");
+  expect(dragged).not.toContain("::graph-annotate");
+  expect(dragged).not.toContain("# (1)");
+});
+
+test("the rail beside the page, folded into the header when narrow: groups and counts from the schemas, ‹ › step", () => {
+  const pressed: { name: string; args: unknown }[] = [];
+  const desk: any = { ctx: { board: {} }, redraw() {}, press: (_p: unknown, _set: unknown, name: string, args: unknown) => { pressed.push({ name, args }); return Promise.resolve(); } };
+  const p = new LibraryPane({ component: "graph-annotate" });
+  const at = (w: number) => p.render(w, 60, true, desk).lines.map(visible);
+  // Each group the schemas name, once, with how many it holds: nothing in the library lists them.
+  const groups = railGroups(BUILTIN_COMPONENT_SCHEMAS);
+  expect(groups.reduce((n, g) => n + g.count, 0)).toBe(BUILTIN_COMPONENT_SCHEMAS.length);
+  expect(new Set(groups.map(g => g.name))).toEqual(new Set(BUILTIN_COMPONENT_SCHEMAS.map(s => s.group)));
+  for (const w of [120, 200]) {
+    const lines = at(w);
+    expect(LibraryPane.railBeside(w)).toBe(true);
+    expect(lines[0]).toStartWith(`${BUILTIN_COMPONENT_SCHEMAS.length} components · / filter`);
+    expect(lines[0]).toContain("│graph-annotate · figures · live: no");
+    for (const g of groups) expect(lines.some(l => l.startsWith(`▾ ${g.name} (${g.count})`))).toBe(true);
+    // The parts and the widths are one row, the widths close after the parts (never at the far edge).
+    const ctl = lines.find(l => l.includes("one property at a time"))!;
+    expect(ctl).toMatch(/every combination {3}width 40/);
+    expect(lines.some(l => l.includes("╭─ drawn · title: the snapshot"))).toBe(true);
+  }
+  // Drawn and source side by side at 200; at 120 the source goes under the drawing.
+  expect(at(200).some(l => /╭─ drawn · title: the snapshot ─+╮ ╭─ source · y copies/.test(l))).toBe(true);
+  expect(at(120).some(l => /╭─ drawn .*╭─ source/.test(l))).toBe(false);
+  // The properties table: the default next to its values, the meaning beside them on the same row.
+  expect(at(200).find(l => l.includes("width   fit, full"))).toMatch(/width {3}fit, full {2}fit {6}fit keeps the reading measure/);
+  // At 44 the rail is in the header and the page reads alone.
+  const narrow = at(44);
+  expect(LibraryPane.railBeside(44)).toBe(false);
+  expect(narrow[0]).toStartWith("‹ graph-annotate ›  figures · ");
+  expect(narrow.some(l => l.includes("│"))).toBe(true);
+  expect(narrow.every(l => !l.includes("components · / filter"))).toBe(true);
+  expect(narrow.some(l => l.includes("╭─ at 40 (80 is wider than the page) · dra"))).toBe(true);
+  const click = (x: number, y: number) => { p.mouse({ kind: "mouse", action: "down", button: 0, x, y } as never, x, y, desk); p.mouse({ kind: "mouse", action: "up", button: 0, x, y } as never, x, y, desk); };
+  // Typing the rail's filter while it's folded: the header says what's typed and how many it leaves.
+  p.listHost(desk).type(p.listHost(desk).lists()[0]!);
+  for (const c of "quad") p.key({ kind: "char", ch: c }, desk);
+  expect(at(44)[0]).toStartWith(`‹ graph-quadrant ›  / quad▌ · 1 of ${BUILTIN_COMPONENT_SCHEMAS.length}`);
+  p.key({ kind: "esc" }, desk);
+  expect(at(44)[0]).toStartWith("‹ graph-quadrant ›  figures · ");
+  click(narrow[0]!.indexOf("›"), 0);
+  click(0, 0);
+  expect(pressed.slice(-2)).toEqual([{ name: "library.component", args: { by: 1 } }, { name: "library.component", args: { by: -1 } }]);
 });
 
 describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
@@ -89,7 +160,7 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     await act("library.select", { n });
     await until(() => lines().some(l => l.includes("heading: plot · this outline's")), "it drawn, selected", 8000);
     const at = lines().findIndex(l => l.includes("heading: plot"));
-    expect(lines().slice(at + 1, at + 6).join("\n")).toContain("┊ ## Your calls [heading::plot]");
+    expect(lines().slice(at, at + 6).join("\n")).toContain("│ ## Your calls [heading::plot]");
     key(char("l"));
     await until(() => library().property === "rule", "the next property by l");
     key(char("1"));
@@ -122,8 +193,8 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
 
   test("copy: the person's y goes to their clipboard; an agent's copy comes back as its answer and leaves the clipboard", async () => {
     await act("library.axis", { key: "heading-pattern" });
-    key(char("j"));
-    await until(() => library().selected === 2, "j selects the next variation");
+    key(char("J"));
+    await until(() => library().selected === 2, "J selects the next variation");
     const before = copied.length;
     key(char("y"));
     await until(() => copied.length > before, "the person's copy");
@@ -134,20 +205,17 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     expect(copied.length).toBe(before + 1);
     expect(library().selected).toBe(2);
     await expect(act("library.select", { n: 1.5 })).rejects.toThrow("n is a whole number, not 1.5");
-    await act("library.width", { cols: 160 });
-    await until(() => lines().some(l => l.includes("drawn at 160 columns, cut at")), "a width wider than the tile, said");
-    await act("library.width", { cols: 80 });
   });
 
   test("a grid's cells side by side: a click on a cell's drawing selects it, and the selected cell comes into view", async () => {
     await act("library.width", { cols: 40 });
     await act("library.grid", { n: 1 });
     await until(() => lines().some(l => /heading-align: left .* heading-align: center .* heading-align: right/.test(l)), "three cells abreast", 5000);
-    const y = lines().findIndex(l => l.includes("┊ [heading-align::center]")), x = lines()[y]!.indexOf("[heading-align::center]");
+    const y = lines().findIndex(l => l.includes("[heading-align::center]")), x = lines()[y]!.indexOf("[heading-align::center]");
     key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => library().selected === 2, "the middle cell selected by a click on its source");
     await act("library.select", { n: 15 });
-    await until(() => lines().some(l => /▌ heading-align: right/.test(l)), "the last cell scrolled into view", 5000);
+    await until(() => lines().some(l => l.includes("╭─ heading-align: right")) && library().selected === 15, "the last cell scrolled into view", 5000);
     await act("library.width", { cols: 80 });
   });
 
@@ -183,6 +251,44 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the extension's values");
     expect(c.state!.items.map(i => i.insertion)).toEqual(["stormy]"]);
     expect(c.state!.items[0]!.docs).toBe("something is");
+  });
+
+  test("the rail: j k ↑ ↓ and ← → walk it and the page follows, / narrows it, a click picks; an agent's pick is its own", async () => {
+    await act("library.component", { name: "heading-style" });
+    await act("library.part", { part: "overview" });
+    key(char("j"));
+    await until(() => library().component === "callout", "j the next component");
+    key({ kind: "down" }); key({ kind: "up" });
+    await until(() => library().component === "callout", "↓ ↑ the same list");
+    key({ kind: "right" });
+    await until(() => library().group === "site", "→ the next group's first");
+    key({ kind: "left" }); key({ kind: "left" });
+    await until(() => library().component === "heading-style", "← back to layout's first");
+    key(char("/"));
+    for (const c of "annot") key(char(c));
+    await until(() => library().component === "graph-annotate", "the page follows the filter as it's typed");
+    key({ kind: "enter" });
+    await until(() => library().rail.filter === "annot", "⏎ keeps it");
+    expect(lines().join("\n")).toContain("1 of ");
+    await act("list.filter", { words: "" });
+    await until(() => library().rail.filter === undefined, "cleared");
+    // The person's filter by action (the power bar's list.filter) moves the page as typing does, so y copies what's shown.
+    await act("list.filter", { words: "quad" });
+    await until(() => library().component === "graph-quadrant", "the page follows a filter set by action");
+    await act("list.filter", { words: "" });
+    // A click on a name in the rail shows it.
+    const y = lines().findIndex(l => l.includes(" · graph-meter ")), x = lines()[y]!.indexOf("graph-meter");
+    key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => library().component === "graph-meter", "the clicked component");
+    // An agent's pick and filter are its own: the person's page stays, the rail says what the agent picked.
+    const r: any = await act("list.pick", { id: "box" }, "test-agent");
+    expect(r).toMatchObject({ text: "box", moved: false });
+    expect(library().component).toBe("graph-meter");
+    await until(() => lines().some(l => l.includes("test-agent: ◆ box")), "the agent's pick, in its tint");
+    await expect(act("list.open", { id: "box" }, "test-agent")).rejects.toThrow("library.component name=box");
+    const read: any = await act("list.blocks", {}, "test-agent");
+    expect(JSON.stringify(read)).toContain("graph-annotate");
+    await act("list.pick", { id: "graph-meter" }, "test-agent");
   });
 
   test("ep0ch library: the schemas as JSON, the outline's own values in them; --out writes a page each with drawings", async () => {

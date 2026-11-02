@@ -74,7 +74,11 @@ export function drawVariation(v: Variation, width: number, src: ListSource | nul
   return renderDoc(presentLinks(v.use, false, src as never, v.use), env).lines;
 }
 
-/** The schema's property rows, shared by its library page and completion card. */
+/**
+ * The schema's property rows, shared by its library page and completion card. The `where` column only when the
+ * properties are written in more than one place (a figure's are all in its YAML: its page's "Where" line says so).
+ */
 export function drawComponentProps(schema: ComponentSchema, width: number): string[] {
-  return drawProps({ props: schema.props.map(p => ({ name: p.token ?? p.key, where: PROP_PLACE_WORDS[p.where], values: valuesWords(p), ...(p.default !== undefined ? { default: p.default } : {}), meaning: p.meaning })) }, width);
+  const mixed = new Set(schema.props.map(p => p.where)).size > 1;
+  return drawProps({ props: schema.props.map(p => ({ name: p.token ?? p.key, ...(mixed ? { where: PROP_PLACE_WORDS[p.where] } : {}), values: valuesWords(p), ...(p.default !== undefined ? { default: p.default } : {}), meaning: p.meaning })) }, width);
 }

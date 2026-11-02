@@ -506,7 +506,15 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
   test("the library section (PIE-618): an agent picks through every combination and copies a variation's source; the outline's own style is a value", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "library" }, as: "test-agent" })).toMatchObject({ key: "library" });
-    await until(() => screen().includes("Minimal example"), "the library's overview", 8000);
+    await until(() => screen().includes("source · y copies"), "the library's overview", 8000);
+    // The rail (PIE-1515): the one list, groups from the schemas; an agent's step and filter are its own, the page stays.
+    await until(() => screen().includes("▾ figures ("), "the rail's groups", 5000);
+    const shown = () => S().stage(SECTIONS.findIndex(s => s.key === "library")).top.describe().library.component;
+    const before = shown();
+    expect(await app.act({ action: "list.filter", args: { words: "quad" }, as: "test-agent" })).toMatchObject({ filter: "quad", rows: 2 });
+    expect(await app.act({ action: "list.step", args: { by: 1 }, as: "test-agent" })).toMatchObject({ moved: false });
+    expect(shown()).toBe(before);
+    await app.act({ action: "list.filter", args: { words: "" }, as: "test-agent" });
     expect(await app.act({ action: "library.pick", args: { axis: "heading-pattern", value: "dots" }, as: "test-agent" })).toMatchObject({ on: true, matching: 486 });
     expect(await app.act({ action: "library.pick", args: { axis: "heading-tone", value: "green" }, as: "test-agent" })).toMatchObject({ matching: 81 });
     await until(() => screen().includes("81 of 2430 match · 1–8 shown"), "the picked space drawn", 5000);
@@ -526,7 +534,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     for (const id of ["graph-stat", "graph-table", "graph-quadrant", "links", "box", "image", "hero-image", "embed", "code-fence"]) expect(listed()).toContain(id);
     expect(await app.act({ action: "library.component", args: { name: "graph-quadrant" }, as: "test-agent" })).toMatchObject({});
     await app.act({ action: "library.part", args: { part: "overview" }, as: "test-agent" });
-    await until(() => screen().includes("Quadrant (::graph-quadrant)") && screen().includes("Minimal example"), "a figure's overview", 5000);
+    await until(() => screen().includes("graph-quadrant · figures · live: yes") && screen().includes("source · y copies"), "a figure's overview", 5000);
   }, 20_000);
 
 
@@ -581,19 +589,19 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     await app.act({ action: "section", args: { name: "library" }, as: "test-agent" });
     await app.act({ action: "library.component", args: { name: "heading-style" }, as: "test-agent" });
     await app.act({ action: "library.part", args: { part: "overview" }, as: "test-agent" });
-    await until(() => screen().includes("┊ ## Your calls [heading::band]"), "the example source");
+    await until(() => screen().includes("│ ## Your calls [heading::band]"), "the example source");
     const point = (text: string, containing = text) => {
       const rows = screen().split("\n"), y = rows.findIndex(l => l.includes(containing));
       expect(y).toBeGreaterThan(-1);
       return { x: rows[y]!.indexOf(text), y };
     };
     const mouse = (action: "down" | "drag" | "up", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
-    const start = point("## Your calls [heading::band]", "┊ ## Your calls");
+    const start = point("## Your calls [heading::band]", "│ ## Your calls");
     mouse("down", start.x, start.y);
     mouse("drag", start.x + 12, start.y);
     mouse("up", start.x + 12, start.y);
     await until(() => written.includes(osc52("## Your calls")), "the dragged source copied", 2000);
-    const selectedLine = () => sc.render(app).lines.find(l => plain(l).includes("┊ ## Your calls"))!;
+    const selectedLine = () => sc.render(app).lines.find(l => plain(l).includes("│ ## Your calls"))!;
     expect(selectedLine()).toContain(SELECT_BG);
     const highlight = selectedLine();
     const before = written.filter(s => s.includes("\x1b]52;")).length;
@@ -603,12 +611,14 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(selectedLine()).toBe(highlight);
     press({ kind: "super", ch: "c" });
     await until(() => written.filter(s => s === osc52("## Your calls")).length === 2, "cmd+c kept the person's selection");
-    const word = point("Your calls [heading::band]", "┊ ## Your calls");
+    const word = point("Your calls [heading::band]", "│ ## Your calls");
     for (let i = 0; i < 2; i++) { mouse("down", word.x, word.y); mouse("up", word.x, word.y); }
     await until(() => written.includes(osc52("Your")), "double click copied the word");
     mouse("down", word.x, word.y); mouse("up", word.x, word.y);
     await until(() => written.includes(osc52("## Your calls [heading::band]")), "triple click copied the source without its gutter");
-    for (const text of ["Y O U R   C A L L S", "on the declaring note"]) {
+    for (const text of ["Y O U R   C A L L S", "the band's height in rows"]) {
+      // The properties table is under the example: page down to it, as the person would.
+      for (let i = 0; i < 4 && !screen().includes(text); i++) press({ kind: "pgdn" });
       const p = point(text);
       mouse("down", p.x, p.y); mouse("drag", p.x + text.length - 1, p.y); mouse("up", p.x + text.length - 1, p.y);
       await until(() => written.includes(osc52(text)), `copied ${text}`);
