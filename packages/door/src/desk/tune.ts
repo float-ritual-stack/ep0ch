@@ -336,7 +336,8 @@ export class TunePane implements Pane {
     const lines: string[] = [];
     const put = (rows: TabRow[]) => { for (const row of rows) { this.controls.push(...controlsOf(row, lines.length)); lines.push(row.text); } };
     const chips = (items: { label: string; on?: boolean; action: string; args?: Record<string, unknown>; hint?: string }[], lead = "") =>
-      put(tabStrip(items.map(it => ({ label: it.label, on: it.on ?? false, hint: it.hint, hit: { action: it.action, args: it.args } })), { width: w, lead }));
+      // A narrow inspector wraps its choices onto more rows (PIE-1128): every level keeps its name, never a number.
+      put(tabStrip(items.map(it => ({ label: it.label, on: it.on ?? false, hint: it.hint, hit: { action: it.action, args: it.args } })), { width: w, lead, overflow: "wrap" }));
     const words = (text: string, colour: number = C.dark) => lines.push(...wrap(text, w).map(l => fg(colour) + l + RESET));
     put(this.sectionTabs(w));
     if (this.besideShort) words("too short to split; inspector beside it", C.yellow);

@@ -12,9 +12,12 @@ type Frame = { figure: FigureInfo; x: number; y: number; cols: number; rows: num
 export class FigureSizing {
   readonly lists = new Map<string, InlineList>();
   frames: Frame[] = [];
-  drag: { frame: Frame; axis: "height" | "width"; x: number; y: number; now?: Partial<ContentSize>; saving?: boolean } | null = null;
+  drag: { frame: Frame; axis: "height" | "width"; x: number; y: number; scroll?: number; now?: Partial<ContentSize>; saving?: boolean } | null = null;
+  /** The reader's last row on screen, from the last place(). */
+  last = 0;
 
   place(doc: Doc, figures: FigureInfo[], col: number, fullCol: number, top: number, bottom: number, scroll: number, heroRows: number) {
+    this.last = bottom + heroRows - 1;
     this.frames = (doc.parts ?? []).flatMap(p => {
       const figure = figures.find(f => f.key === p.figure);
       if (!figure) return [];
@@ -35,6 +38,20 @@ export class FigureSizing {
     d.now = d.axis === "height" ? { height: Math.max(1, (d.frame.figure.size.height ?? d.frame.rows - 4) + y - d.y) }
       : { width: x > d.x ? "full" : x < d.x ? "fit" : d.frame.figure.size.width };
     resizeHeld();
+  }
+  /**
+   * The reader's scroll that keeps a held bottom edge in sight (PIE-1513): a figure that grows past the reader's last
+   * row scrolls it up by as much, so the edge and its row count stay where the person can see them while the pointer
+   * goes on below the tile. Measured from the scroll the drag started at, both ways: dragged back up, the scroll it
+   * added goes again and the edge comes back under the pointer. `scroll` is the reader's now, kept when nothing is held.
+   */
+  follow(scroll: number): number {
+    const d = this.drag;
+    if (!d || d.axis !== "height" || d.now?.height === undefined) return scroll;
+    const start = d.scroll ?? scroll, grown = d.now.height - (d.frame.figure.size.height ?? d.frame.rows - 4);
+    // The edge's row at the scroll the drag started from.
+    const edge = d.frame.y + d.frame.rows - 1 + grown;
+    return start + Math.max(0, edge - this.last);
   }
   paint(key: string, lines: string[], cols: number): string[] {
     const d = this.drag;

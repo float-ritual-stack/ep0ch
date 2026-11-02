@@ -14,7 +14,7 @@ export const FIGURE_SETTINGS = [
   "---",
   "::",
   "",
-  "Pick layout, then feed: the rows redraw as a feed through the views' renderer, and `layout: \"feed\"` is written into the block above (ctrl+z takes it back). Reopen the note: still a feed. columns offers the properties these notes carry; a key the table doesn't take (write `layot:` by hand) is said under the figure and on the write, with the one it may mean.",
+  "Pick layout, then space on feed: table and feed become tabs over the same rows, as in a view, drawn by the views' renderer, and `layout: \"feed, table\"` is written into the block above (ctrl+z takes it back); click a tab to switch. Drag the table's bottom edge: it follows the pointer and says its rows until you let go. Reopen the note: still a feed. columns offers the properties these notes carry; a key the table doesn't take (write `layot:` by hand) is said under the figure and on the write, with the one it may mean.",
   "",
   "An agent does the same with settings list=^sprint, then settings.set key=layout value=feed; its write is attributed and your cursor stays yours.",
 ].join("\n");

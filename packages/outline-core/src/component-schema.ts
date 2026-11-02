@@ -18,7 +18,7 @@ import { BLOCK_COMPONENT_SCHEMAS } from "./component-schemas-blocks";
 import { USE } from "./component-schemas-use";
 import { BUTTON } from "./component-schemas-button";
 import { enumOf } from "./prop-values";
-import { VIEW_SORT_FIELDS, VIEW_SUMMARY_FIELDS } from "./view-fields";
+import { VIEW_LAYOUT, VIEW_SORT_FIELDS, VIEW_SUMMARY_FIELDS } from "./view-fields";
 
 /** What a property's value is. */
 export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query", "action", "writers", "duration", "property", "script", "node"] as const;
@@ -243,7 +243,7 @@ export const VIEW: ComponentSchema = {
     { key: "of", where: "note", type: "ref", meaning: "the saved view this inline collection reads", samples: ["((7c1e0b2a-0000-4000-8000-000000000001))"] },
     { key: "query", where: "note", type: "query", complete: "query", meaning: "the views' grammar: the blocks it holds for are its rows", samples: ["type=meeting"] },
     { key: "where", where: "note", type: "query", complete: "query", meaning: "narrows the source query, ANDed with it", samples: ["stage=ready"] },
-    { key: "layout", where: "note", type: "list", question: { type: "toggle" }, default: "table", meaning: "one or several layouts, comma-separated; several are tabs over one source", values: enumOf({ table: "rows with sortable column headers", gallery: "cards in a responsive grid", feed: "full-width cards with body lines", board: "a lane per group, tabs when narrow" }) },
+    VIEW_LAYOUT,
     { key: "group", where: "note", type: "list", question: { type: "pick-order", source: "facets" }, meaning: "one or two property names, or date buckets; the service answers nested groups", samples: ["area", "area, owner", "updated:recent"] },
     { key: "card", where: "note", type: "enum", default: "small", meaning: "the size of a card", values: enumOf({ small: "three across at 90 columns", large: "two across at 90 columns" }) },
     { key: "body", where: "note", type: "int", min: 0, max: 100, meaning: "rendered body rows per card; feed defaults to 6, gallery to 0", samples: ["0", "6"] },
@@ -453,6 +453,11 @@ export function axisValues(p: PropSchema): string[] {
 export function checkValue(p: PropSchema, value: string): string | null {
   const v = value.trim();
   if (p.type === "enum" && p.values && !p.values.some(x => x.value === v.toLowerCase() || x.value === v)) return `${p.key} ${JSON.stringify(value)} is one of ${p.values.map(x => x.value).join(", ")}`;
+  // A list of fixed choices (a collection's layout, PIE-1513): each word is one of them, however many are written.
+  if (p.type === "list" && p.values && p.question?.source !== "facets") {
+    const wrong = v.replace(/^\[|\]$/g, "").split(",").map(x => x.trim().replace(/^["']|["']$/g, "")).filter(x => x && !p.values!.some(c => c.value === x.toLowerCase() || c.value === x));
+    if (wrong.length) return `${p.key} ${JSON.stringify(wrong.join(", "))} is one of ${p.values.map(x => x.value).join(", ")}; several are comma-separated`;
+  }
   if (p.type === "int") {
     const n = Number(v);
     if (!/^-?\d+$/.test(v) || (p.min !== undefined && n < p.min) || (p.max !== undefined && n > p.max)) return `${p.key} ${JSON.stringify(value)} is a whole number${p.min !== undefined && p.max !== undefined ? ` from ${p.min} to ${p.max}` : ""}`;
