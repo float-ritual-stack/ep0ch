@@ -30,7 +30,7 @@ import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend
 import { dropStatus, foregroundGroup, holdStatus, newStatusKey, recordFacts, statusMark, terminfoWithPst, TileStatus } from "./program-status";
 import { stateDir } from "../state";
 import type { Actor } from "../socket";
-import { sessionCommand, type SessionMark } from "./agent-sessions";
+import { agentIn, agentOf, claudeSessionOf, resumeCommand, sessionCommand, type SessionMark } from "./agent-sessions";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -140,6 +140,12 @@ export function tileEnv(env: Record<string, string | undefined>, tile: string, c
 }
 
 /** `temp`: a ctrl+e edit on a temp file, never saved in a layout. */
+/** How long after the person typed in a terminal an agent's restart of it waits (`tile.restart`, `agent.restart`). */
+export const RESTART_IDLE_MS = 10_000;
+
+/** Process `pid` still runs (signal 0: nothing is sent). */
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
 /** What inLoginShell's wrapper prints when the agent exits (latin1, as a tile reads its output): the title, then the line. */
 const EXITED = /\x1b\]2;[^\x07]* exited \xc2\xb7 shell\x07\r?\n[^\n]* exited \((\d+)\) \xc2\xb7 this is your shell/;
 
@@ -185,7 +191,7 @@ export class PtyPane implements Pane {
    * Its program starts inside the person's login shell (inLoginShell), so its exit line is read: from what the tile
    * runs, so a program adopted after a session handover (never spawned here) is read the same.
    */
-  private get wrapped(): boolean { return this.run.inShell ?? (isAgentCmd(this.run.cmd) || !!this.run.session); }
+  private get wrapped(): boolean { return this.wrappedNow || (this.run.inShell ?? (isAgentCmd(this.run.cmd) || !!this.run.session)); }
   /** The program's own title (OSC 0/2), if it set one. */
   programTitle = "";
   /**
@@ -230,6 +236,10 @@ export class PtyPane implements Pane {
   personClickAt = 0;
   /** The next start only: a restart that keeps the conversation (`sessionCommand`). */
   private continueNext = false;
+  /** The next start only: the agent a restart brings back (`restartRunning`), its command and folder, inside the login shell. */
+  private nextStart: { cmd: string[]; cwd: string | undefined } | null = null;
+  /** This start ran inside the login shell's wrapper (`nextStart`): its exit line is read. */
+  private wrappedNow = false;
   /** It asked for SGR mouse reports (mode 1006): clicks and drags are sent that way. */
   private sgr = false;
   private modeTail = "";
@@ -331,7 +341,9 @@ export class PtyPane implements Pane {
    * wrote meanwhile is replayed into a fresh emulator, and it's asked to draw itself again at the tile's size.
    */
   protected start(cols: number, rows: number) {
-    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.agentExit = null; this.exitTail = "";
+    // A new start's title is its own: the last one's (its wrapper's "claude exited · shell") never outlives it (an adopted
+    // program's comes back from its replay).
+    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.agentExit = null; this.exitTail = ""; this.programTitle = "";
     this.term?.dispose();
     this.kbd.reset();
     const term = new XTerm({ cols, rows, scrollback: 1000, allowProposedApi: true });
@@ -398,8 +410,8 @@ export class PtyPane implements Pane {
     // A program no layout brings back (a ctrl+e editor, a showcase's exhibit) runs here, and ends with this process.
     const backend = this.keptAs ? ptyBackend() : localPtys;
     this.ownProcess = backend.kind === "local";
-    const keep = this.continueNext;
-    this.continueNext = false;
+    const keep = this.continueNext, next = this.nextStart;
+    this.continueNext = false; this.nextStart = null; this.wrappedNow = !!next;
     // The program a session kept for this tile, when there is one (a run again, `keep`, starts a new one).
     const key = this.keptAs, kept = key && !keep ? backend.adopt(key, this.run.cmd, data) : null;
     // Its program is known by this key from now on, wherever the tile goes.
@@ -451,12 +463,12 @@ export class PtyPane implements Pane {
       // buffer, and an agent edits other lines through it without moving the person's cursor.
       // A restart that keeps the conversation continues it when the program has one in this folder (`sessionCommand`, the
       // one answer a start asks too); a fresh agent runs bare.
-      const cmd = keep ? sessionCommand(this.run.cmd[0] ?? "", this.run.cmd.slice(1), this.run.cwd ?? process.cwd(), env) : [...this.run.cmd];
+      const cmd = next ? next.cmd : keep ? sessionCommand(this.run.cmd[0] ?? "", this.run.cmd.slice(1), this.run.cwd ?? process.cwd(), env) : [...this.run.cmd];
       if (this.isNvim && !cmd.includes("--listen")) { this.socket = nvimSocketPath(this.run.label ?? "nvim"); if (this.socket) cmd.splice(1, 0, "--listen", this.socket); }
       // An agent starts inside the person's login shell: when it exits (or crashes) the tile is that shell, in the same
       // folder with the same environment, and says so. Nothing starts it again by itself (no dead panes).
-      const argv = this.wrapped ? inLoginShell(cmd, process.env.SHELL || "sh", programName(this.run.cmd)) : cmd;
-      this.proc = backend.spawn({ key, argv: backend.kind === "host" && CTTY ? [...CTTY, ...argv] : argv, cwd: this.run.cwd, env, cols, rows, meta: this.meta() }, data);
+      const argv = this.wrapped ? inLoginShell(cmd, process.env.SHELL || "sh", next ? "claude" : programName(this.run.cmd)) : cmd;
+      this.proc = backend.spawn({ key, argv: backend.kind === "host" && CTTY ? [...CTTY, ...argv] : argv, cwd: next?.cwd ?? this.run.cwd, env, cols, rows, meta: this.meta() }, data);
       if (this.run.temp) { this.run.env = undefined; this.run.own = undefined; }
       if (backend.kind === "host" && !CTTY && !saidNoCtty) { saidNoCtty = true; this.desk?.ctx.flash("no setsid or perl here: terminal tiles won't hear resizes, and ctrl+z doesn't stop a job", 8000); }
       if (this.socket) this.attach(this.socket);
@@ -548,6 +560,60 @@ export class PtyPane implements Pane {
    * `claude` gets --continue (`agent.restart`).
    */
   restart(keep = false) { if (this.run.rerun) return this.run.rerun(); this.startAgain(keep); }
+
+  /**
+   * Restart its program while it runs (`tile.restart`, `agent.restart`, PIE-1280): end it gently, then start it again in
+   * this tile. Gently: a Claude between turns is sent `/exit` (its input line cleared first) and given `graceMs` to
+   * leave; one mid-turn or on a dialog (or one that didn't leave) gets SIGTERM, as closing its terminal would (Claude
+   * saves as it goes); anything else gets `stop()` (SIGTERM, SIGKILL after 8s). Only this tile's own processes.
+   * What starts again: for a Claude, that Claude (the tile's own command, or the one typed in its shell), in its folder,
+   * resuming its session by id (`--resume`; a bare `claude` with no id known gets --continue), inside an interactive
+   * login shell (`inLoginShell`) so a changed ~/.bashrc counts, the shell left when it exits; for anything else, the
+   * tile's command. `back: false`: the Claude didn't come back (it exited, or isn't there after `backMs`).
+   */
+  async restartRunning(o: { keep?: boolean; graceMs?: number; backMs?: number; env?: Record<string, string | undefined> } = {}): Promise<{ ended: "exit" | "signal" | "exited"; dropped?: string; program?: string; back?: boolean; resumed?: string }> {
+    const c = this.claude(o.env);
+    const ended = await this.endGently(o.graceMs ?? 15_000, c);
+    if (this.run.rerun) { this.kill(); this.run.rerun(); return ended; }
+    // The Claude it ran: the tile's own command when that is it, else the one found in its shell (its own argv).
+    const own = agentOf(this.run.cmd) === "claude";
+    if (c && (c.sessionId || !own)) this.nextStart = { cmd: c.sessionId ? resumeCommand(own ? this.run.cmd : c.argv, c.sessionId) : sessionCommand(c.argv[0] ?? "claude", c.argv.slice(1), c.cwd ?? this.run.cwd ?? process.cwd()), cwd: c.cwd ?? this.run.cwd };
+    this.startAgain(o.keep ?? true);
+    if (!c) return ended;
+    // It must come back: a new Claude in this tile, not its exit line.
+    for (const until = Date.now() + (o.backMs ?? 20_000); Date.now() < until; await Bun.sleep(100)) {
+      const now = this.claude(o.env);
+      if (now && now.pid !== c.pid) return { ...ended, back: true, ...(c.sessionId ? { resumed: c.sessionId } : {}) };
+      if (this.agentExit !== null || this.exited !== null) break;
+    }
+    return { ...ended, back: false };
+  }
+
+  /** The Claude this tile runs (its own process, or one in its shell): its pid, what it says it's doing, its session, command and folder; else null. */
+  claude(env?: Record<string, string | undefined>): { pid: number; status: string | null; sessionId: string | null; argv: string[]; cwd: string | null } | null {
+    if (!this.running || this.agentExit !== null) return null;
+    const a = agentIn(this.pid);
+    if (a?.program !== "claude") return null;
+    // Its Claude keeps its status where its own environment says (a tile started with a CLAUDE_CONFIG_DIR of its own).
+    const own = Object.fromEntries(Object.entries({ ...this.run.env, ...this.run.own }).filter(([, v]) => v !== null)) as Record<string, string>;
+    const s = claudeSessionOf(a.pid, { ...(env ?? process.env), ...own });
+    return { pid: a.pid, status: s?.status ?? null, sessionId: s?.sessionId ?? null, argv: a.argv, cwd: a.cwd };
+  }
+
+  private async endGently(graceMs: number, c: ReturnType<PtyPane["claude"]>): Promise<{ ended: "exit" | "signal" | "exited"; dropped?: string; program?: string }> {
+    if (!this.running) return { ended: "exited" };
+    if (!c) { await this.stop(); return { ended: "signal" }; }
+    const gone = () => this.agentExit !== null || this.exited !== null || !alive(c.pid);
+    const wait = async (ms: number) => { for (const until = Date.now() + ms; !gone() && Date.now() < until;) await Bun.sleep(50); return gone(); };
+    if (c.status === "idle") {
+      this.input("\x15/exit\r");
+      if (await wait(graceMs)) return { ended: "exit", program: "claude" };
+    }
+    try { process.kill(c.pid, "SIGTERM"); } catch { /* gone */ }
+    const dropped = c.status === "busy" ? "the turn in progress" : c.status === "waiting" ? "the dialog it showed" : c.status === "idle" ? undefined : "whatever it was doing (it keeps no status file)";
+    if (!(await wait(8000))) await this.stop();
+    return { ended: "signal", program: "claude", ...(dropped ? { dropped } : {}) };
+  }
 
   replaceProgram(cmd: string[], env: Record<string, string>, output: (data: Uint8Array) => void) {
     this.run.cmd = cmd; this.run.own = env; this.run.output = output; this.startAgain(false);

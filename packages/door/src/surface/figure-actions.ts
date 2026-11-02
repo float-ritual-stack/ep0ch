@@ -151,9 +151,10 @@ export const figureActions = {
       if (phase === "start") {
         const edge = sizing.edge(x, y);
         if (!edge) throw new ActionRefused("that cell isn't a figure's bottom or right edge");
-        sizing.drag = { ...edge, x, y }; resizeHeld();
+        sizing.drag = { ...edge, x, y, scroll: surface.scroll }; resizeHeld();
       } else if (phase === "move" || phase === "end") {
         sizing.move(x, y);
+        surface.scroll = sizing.follow(surface.scroll);
         const d = sizing.drag;
         if (phase === "end" && d && !d.saving) {
           d.saving = true;

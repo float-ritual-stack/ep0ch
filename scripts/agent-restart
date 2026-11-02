@@ -21,6 +21,8 @@
 #   scripts/agent-restart loki --fresh-daemon --check-env OTEL_TRACES_EXPORTER --bg   after a ~/.bashrc change
 # `ep0ch agent ls` and `ep0ch agent restart [--machine <ssh-name>]` are the person-facing front door to this script (the
 # door's src/agent-cli.ts runs it here or over ssh); this stays the one implementation.
+# An interactive session in a door terminal tile (PIE-1280) gets the same wait, then its door restarts it in place
+# (`tile.restart`: /exit, then the same command from an interactive login shell); one in any other terminal is refused.
 # Log: ~/.local/state/ep0ch/agent-restart.log. First used Oct 25 (pie c8a1d788 has what the trial found).
 set -uo pipefail
 
@@ -40,45 +42,58 @@ installed_version() { basename "$(readlink -f "$(command -v claude)")"; }
 
 command -v claude >/dev/null || { echo "agent-restart: no claude on $(hostname)'s PATH for $(id -un): this machine has no Claude Code session to restart (install it, or run this where the sessions are: ep0ch agent ... --machine <ssh-name>)" >&2; exit 127; }
 
-# A name (`loki-sr (2)`, or the start of one: `loki`), a short id or a whole session id, resolved against the running
-# sessions: prints the whole session id, or says why not (nothing, or several) on stderr and fails.
-resolve_session() {
-  local id
-  id=$(agents | python3 -c "
-import json, sys
-t = sys.argv[1]
-rows = json.load(sys.stdin)
-hits = [r for r in rows if r.get('sessionId','').startswith(t) or r.get('id') == t] or [r for r in rows if r.get('name') == t] or [r for r in rows if (r.get('name') or '').startswith(t)]
-if len(hits) > 1: sys.exit('agent-restart: ' + repr(t) + ' names ' + str(len(hits)) + ' sessions: ' + ', '.join(r.get('id') or r['sessionId'][:8] for r in hits) + '; pass one of those ids (ep0ch agent ls lists them)')
-if hits and not hits[0].get('id'):
-    r = hits[0]
-    sys.exit('agent-restart: ' + repr(r.get('name') or r['sessionId'][:8]) + ' is an interactive session (claude agents says kind ' + str(r.get('kind')) + '), not a background job: its terminal owns it, so there is nothing for the daemon to stop and resume. Restart the program where it runs: /exit, then claude --continue there (in a door terminal tile, close the tile and start it again). ep0ch agent ls says where it runs')
-print(hits[0]['sessionId'] if hits else '')" "$1") || return 2
-  [ -n "$id" ] || { echo "agent-restart: no running session matches \"$1\" (ep0ch agent ls, or claude agents --json, lists them)" >&2; return 2; }
-  echo "$id"
-}
-
 # Where an interactive session's process runs, from its parents: a door terminal tile (the door's terminal host,
-# `ep0ch session pty-host <the session's folder>`, names the outline), a Herdr or tmux pane, an ssh login.
+# `ep0ch session pty-host <the session's folder>`, names the outline; `door_folder` gives that folder, whose door.sock is
+# the door's control socket), a Herdr or tmux pane, an ssh login.
 place_py='
 import os
-def place(pid):
+def parents(pid):
     try: pid = int(pid)
-    except ValueError: return ""
+    except (TypeError, ValueError): return
     for _ in range(12):
         try:
             ppid = int(open(f"/proc/{pid}/stat").read().rsplit(") ", 1)[1].split()[1])
             args = open(f"/proc/{ppid}/cmdline").read().split(chr(0))
-        except (OSError, ValueError, IndexError): return ""
+        except (OSError, ValueError, IndexError): return
+        yield args
+        pid = ppid
+def door_folder(pid):
+    for args in parents(pid):
         if "pty-host" in args and "session" in args:
-            folder = args[args.index("pty-host") + 1] if args.index("pty-host") + 1 < len(args) else ""
-            return "door terminal tile (outline " + os.path.basename(folder.rstrip("/")) + ")"
+            i = args.index("pty-host") + 1
+            return args[i] if i < len(args) else ""
+    return ""
+def place(pid):
+    for args in parents(pid):
+        if "pty-host" in args and "session" in args:
+            i = args.index("pty-host") + 1
+            return "door terminal tile (outline " + os.path.basename((args[i] if i < len(args) else "").rstrip("/")) + ")"
         name = os.path.basename(args[0]) if args and args[0] else ""
         if name == "herdr": return "Herdr pane"
         if name.startswith("tmux"): return "tmux pane"
         if name == "sshd" or name.startswith("sshd:"): return "ssh login"
-        pid = ppid
     return ""'
+
+# A name (`loki-sr (2)`, or the start of one: `loki`), a short id or a whole session id, resolved against the running
+# sessions: prints the whole session id, or says why not (nothing, or several, or an interactive one no door holds) on
+# stderr and fails. An interactive session in a door terminal tile resolves: the door restarts it there (PIE-1280).
+resolve_session() {
+  local id
+  id=$(agents | python3 -c "
+import json, sys
+$place_py
+t = sys.argv[1]
+rows = json.load(sys.stdin)
+hits = [r for r in rows if r.get('sessionId','').startswith(t) or r.get('id') == t] or [r for r in rows if r.get('name') == t] or [r for r in rows if (r.get('name') or '').startswith(t)]
+if len(hits) > 1: sys.exit('agent-restart: ' + repr(t) + ' names ' + str(len(hits)) + ' sessions: ' + ', '.join(r.get('id') or r['sessionId'][:8] for r in hits) + '; pass one of those ids (ep0ch agent ls lists them)')
+if hits and not hits[0].get('id') and not door_folder(hits[0].get('pid')):
+    r = hits[0]
+    where = place(r.get('pid')) or 'terminal this script can\'t name'
+    sys.exit('agent-restart: ' + repr(r.get('name') or r['sessionId'][:8]) + ' is an interactive session in a ' + where + ', not a door terminal tile: nothing here can end and start it there. Restart the program where it runs: /exit, then claude --continue. A Claude in a door terminal tile is restarted by this command (tile.restart)')
+print(hits[0]['sessionId'] if hits else '')" "$1") || return 2
+  [ -n "$id" ] || { echo "agent-restart: no running session matches \"$1\" (ep0ch agent ls, or claude agents --json, lists them)" >&2; return 2; }
+  echo "$id"
+}
 
 # When a session's transcript was last written (ms since the epoch), or None: two processes on one session id both write
 # it, so the door's split chip (PIE-1369) shows which is still talking.
@@ -107,6 +122,7 @@ rows.sort(key=lambda r: not r.get('id'))
 for r in rows:
     row = {'name': str(r.get('name') or ''), 'id': r.get('id') or r.get('sessionId', '')[:8], 'sessionId': r.get('sessionId', ''), 'kind': 'background' if r.get('id') else (r.get('kind') or 'interactive'),
            'status': str(r.get('status') or ''), 'cwd': str(r.get('cwd') or ''), 'place': None if r.get('id') else (place(r.get('pid')) or None),
+           'door': None if r.get('id') else (door_folder(r.get('pid')) or None),
            'pid': r.get('pid') if isinstance(r.get('pid'), int) else None, 'startedAt': r.get('startedAt') if isinstance(r.get('startedAt'), (int, float)) else None,
            'lastWrite': last_write(r.get('sessionId', ''))}
     print(str(r.get('pid') or '') + chr(31) + json.dumps(row))") || exit 1
@@ -125,16 +141,19 @@ for line in sys.stdin:
 print(json.dumps(rows))"
   exit 0
 fi
-# --all is for the daemon's background sessions; an interactive one (a terminal owns it) is left out, and said, with
-# the ones among them that are behind on version.
+# --all is for the daemon's background sessions and the interactive ones in door terminal tiles (the door restarts
+# those, PIE-1280); one in another terminal (a Herdr pane, an ssh shell) is left out, and said, with the ones among them
+# that are behind on version.
 left_out() {
   "$0" --ls | python3 -c "
 import json, sys
-rows = [r for r in json.load(sys.stdin) if r['kind'] != 'background']
+rows = [r for r in json.load(sys.stdin) if r['kind'] != 'background' and not r.get('door')]
 if rows:
     each = ', '.join(r['name'] + ' (' + ('behind: ' + str(r['running']) + ', installed ' + r['installed'] if r['behind'] else 'current' if r['running'] else 'version unreadable') + (', ' + r['place'] if r['place'] else '') + ')' for r in rows)
-    print('agent-restart: left out ' + str(len(rows)) + ' interactive session' + ('s' if len(rows) > 1 else '') + ' (a terminal owns each; restart the program there: /exit, then claude --continue): ' + each)"
+    print('agent-restart: left out ' + str(len(rows)) + ' interactive session' + ('s' if len(rows) > 1 else '') + ' outside a door terminal tile (nothing here can restart those; restart the program there: /exit, then claude --continue): ' + each)"
 }
+# The sessions --all restarts: every background one, then every interactive one in a door terminal tile.
+all_ids() { "$0" --ls | python3 -c "import json,sys; print('\n'.join(r['sessionId'] for r in json.load(sys.stdin) if r['kind'] == 'background' or r.get('door')))"; }
 
 # --bg: detach from the terminal (and from the session it may restart) and say where the log is: fire and forget.
 for a in "$@"; do
@@ -146,7 +165,7 @@ for a in "$@"; do
       args[0]=$sid
     else
       left_out
-      [ -n "$(agents | python3 -c "import json,sys; print('\n'.join(r['sessionId'] for r in json.load(sys.stdin) if r.get('id')))")" ] || { echo "agent-restart: no background sessions (claude agents --json lists none with a job id)"; exit 0; }
+      [ -n "$(all_ids)" ] || { echo "agent-restart: no sessions to restart (claude agents --json lists none in the background or in a door terminal tile)"; exit 0; }
     fi
     AGENT_RESTART_DETACHED=1 setsid nohup "$0" "${args[@]}" >/dev/null 2>&1 </dev/null &
     echo "agent-restart: running in the background (pid $!); it waits for a safe moment. Log: ~/.local/state/ep0ch/agent-restart.log"
@@ -171,10 +190,10 @@ done
 
 # --all: every background session (the ones with a job id), one after another; the daemon is made fresh only once.
 if [ "$target" = --all ]; then
-  ids=$(agents | python3 -c "import json,sys; print('\n'.join(r['sessionId'] for r in json.load(sys.stdin) if r.get('id')))")
+  ids=$(all_ids)
   note=$(left_out)
   if [ -n "$note" ]; then echo "$note"; mkdir -p "$HOME/.local/state/ep0ch"; echo "$(date +'%F %-I:%M:%S %p') $note" >> "$HOME/.local/state/ep0ch/agent-restart.log"; fi
-  [ -z "$ids" ] && { echo "agent-restart: no background sessions (claude agents --json lists none with a job id)"; exit 0; }
+  [ -z "$ids" ] && { echo "agent-restart: no sessions to restart (claude agents --json lists none in the background or in a door terminal tile)"; exit 0; }
   first=1
   for sid in $ids; do
     args=("${rest[@]}")
@@ -190,7 +209,8 @@ job=$HOME/.claude/jobs/${id:0:8}/state.json
 log=$HOME/.local/state/ep0ch/agent-restart.log
 mkdir -p "$(dirname "$log")"
 say() { echo "$(date +'%F %-I:%M:%S %p') [$id] $*" | tee -a "$log"; }
-[ -f "$job" ] || { say "no job state at $job: is $id a background session on this machine? (claude ls)"; exit 1; }
+# No job state: an interactive session (resolve_session let it through only in a door terminal tile), restarted below.
+interactive=0; [ -f "$job" ] || interactive=1
 
 short=${id:0:8}
 listed() { agents | python3 -c "import json,sys; print('\n'.join(r.get('pid') and str(r['pid']) or '' for r in json.load(sys.stdin) if r.get('sessionId','').startswith(sys.argv[1])))" "$short"; }
@@ -226,6 +246,102 @@ unpushed() {
     fi
   done
 }
+
+# An interactive session in a door terminal tile (PIE-1280): the door that holds it ends it gently and starts it again in
+# the same tile (`tile.restart`: /exit between turns, then claude --continue inside an interactive login shell, so a
+# changed ~/.bashrc counts). Its door is the one on that session's folder (door.sock); the tile is the one its process
+# is drawn in (`host.tileOf pid=`). The same wait as a background session's: not mid-turn (or on a dialog), no builders
+# under it (an interactive session keeps no job state, so its builders are the claude or codex processes it started),
+# nothing unpushed, no hold. --now goes anyway: tile.restart now=true, which says what it dropped.
+if [ "$interactive" = 1 ]; then
+  pid=$(listed | head -1)
+  folder=$(python3 -c "$place_py
+import sys; print(door_folder(sys.argv[1]))" "$pid")
+  [ -n "$folder" ] || { say "FAILED: no job state at $job and no door terminal tile holds $short: is it a session on this machine? (ep0ch agent ls)"; exit 1; }
+  sock=$folder/door.sock
+  repo=$(cd "$(dirname "$0")/.." && pwd)
+  door() { env -u EP0CH_PLACE EP0CH_CONTROL="$sock" "${AGENT_RESTART_BUN:-bun}" "$repo/packages/door/src/main.ts" "$@"; }
+  kids() {
+    python3 - "$pid" <<'EOF'
+import os, sys
+root = sys.argv[1]
+kids = {}
+for d in os.listdir("/proc"):
+    if not d.isdigit(): continue
+    try:
+        ppid = open(f"/proc/{d}/stat").read().rsplit(") ", 1)[1].split()[1]
+        argv = open(f"/proc/{d}/cmdline").read().split(chr(0))
+    except (OSError, IndexError): continue
+    kids.setdefault(ppid, []).append((d, argv))
+todo, out = [root], []
+while todo:
+    for d, argv in kids.get(todo.pop(), []):
+        todo.append(d)
+        name = os.path.basename(argv[0]) if argv and argv[0] else ""
+        if name in ("claude", "codex"): out.append(d + " " + " ".join(argv)[:60])
+print("\n".join(out))
+EOF
+  }
+  waits() {
+    local w="" st; st=$(status)
+    [ "$st" = busy ] && w="$w mid-turn;"
+    [ "$st" = waiting ] && w="$w on a dialog;"
+    [ -n "$(kids)" ] && w="$w builders running under it;"
+    [ -n "$(unpushed)" ] && w="$w unpushed worktrees;"
+    [ -e "$HOME/.local/state/ep0ch/agent-restart.hold" ] && w="$w held ($HOME/.local/state/ep0ch/agent-restart.hold);"
+    echo "$w"
+  }
+  say "interactive, in a door terminal tile (session $folder): its door restarts it there (tile.restart)"
+  if [ ! -S "$sock" ]; then
+    [ "$dry" = 1 ] && { say "dry run: no door answers for that session now ($sock): open it (ep0ch --ws $(basename "$folder")), and this restarts it there. Nothing changed."; exit 0; }
+    say "FAILED: no door answers for that session ($sock): open it (ep0ch --ws $(basename "$folder")) and run this again; nothing stopped"; exit 1
+  fi
+  k=$(kids); u=$(unpushed)
+  [ -n "$k" ] && say "builders running under it: $(echo "$k" | tr '\n' ';')"
+  [ -n "$u" ] && say "unpushed worktrees: $(echo "$u" | tr '\n' ';')"
+  tile=$(door act host.tileOf pid="$pid" --as agent-restart 2>/dev/null | python3 -c 'import json,sys; t=json.load(sys.stdin); print(t.get("tile") or "")' 2>/dev/null)
+  [ -n "$tile" ] || { say "FAILED: the door on $sock draws pid $pid in no tile it knows (host.tileOf): nothing stopped"; exit 1; }
+  if [ "$dry" = 1 ]; then
+    w=""; [ "$mode" = when-idle ] && w=$(waits)
+    say "dry run: $([ -n "$w" ] && echo "would wait for:$w then ")would ask the door to restart tile $tile (tile.restart: /exit, then the same command from a login shell). Nothing changed."
+    exit 0
+  fi
+  nowarg=()
+  if [ "$mode" = when-idle ]; then
+    waited=0
+    while w=$(waits); [ -n "$w" ]; do
+      [ $((waited % 600)) -eq 0 ] && say "waiting:$w"
+      [ $waited -ge 14400 ] && { say "gave up after 4 hours; nothing restarted"; exit 1; }
+      sleep 60; waited=$((waited + 60))
+    done
+    say "idle: between turns, no builders under it, nothing unpushed"
+  else
+    w=$(waits); [ -n "$w" ] && say "--now: going anyway:$w"
+    nowarg=(now=true)
+  fi
+  # The door's own refusals (the person typed in it a moment ago, a turn began since) are waited out a few times.
+  for try in 1 2 3; do
+    out=$(door act tile.restart tile="$tile" pid="$pid" "${nowarg[@]}" --as agent-restart 2>&1) && break
+    say "the door refused: $(echo "$out" | tail -1)"
+    [ "$try" = 3 ] && { say "FAILED: nothing restarted"; exit 1; }
+    sleep 60
+  done
+  say "the door restarted tile $tile: $(echo "$out" | python3 -c 'import json,sys
+r = json.load(sys.stdin)
+print("ended by " + ("/exit" if r.get("ended") == "exit" else "a signal" if r.get("ended") == "signal" else "itself") + (", dropped " + r["dropped"] if r.get("dropped") else ""))' 2>/dev/null || echo "$out")"
+  for _ in $(seq 1 15); do
+    new=$(agents | python3 -c "import json,sys; print(next((str(r['pid']) for r in json.load(sys.stdin) if r.get('sessionId','').startswith(sys.argv[1]) and str(r.get('pid')) != sys.argv[2]), ''))" "$short" "$pid")
+    [ -n "$new" ] && break; sleep 2
+  done
+  if [ -z "$new" ]; then say "started again in tile $tile; claude agents doesn't list session $short yet (look at the tile: ep0ch peek)"; exit 0; fi
+  say "resumed as pid $new, in tile $tile"
+  if [ -n "$check" ]; then
+    if tr '\0' '\n' < /proc/"$new"/environ | grep -q "^$check="; then say "env ok: $check is set in the new process"
+    else say "env MISSING: $check is not in pid $new's environment (its login shell didn't set it: ~/.bashrc)"; fi
+  fi
+  say "done"
+  exit 0
+fi
 
 say "preflight ($mode)"
 # A job state or a session list that can't be read is not "nothing running": nothing is stopped on a guess.

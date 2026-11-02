@@ -1717,8 +1717,12 @@ it's the same process and the same conversation.
   the session, and resumes it, so it picks up a Claude Code update (`--all --if-update`) or a changed `~/.bashrc`
   (`--fresh-daemon --check-env VAR`). It prints the log's place and returns, so it is safe to fire from a laptop at the
   machine the sessions run on. A name that matches nothing or several is said at once with `ep0ch agent ls` as the way
-  out. An interactive session is refused (its terminal owns it: `/exit`, then `claude --continue` there) and `--all`
-  says how many it left out and which are behind. Only `--machine` names the machine, never `EP0CH_MACHINE` or a
+  out. An interactive session in a door terminal tile (`kitty-sr` in a gurgle tile) is restarted there, after the same
+  wait: the script finds its door (the terminal host's session folder, `door.sock`) and the tile that draws it
+  (`host.tileOf pid=`), then runs `tile.restart` (PIE-1280: `/exit` between turns, then the same command inside an
+  interactive login shell, so a changed `~/.bashrc` counts; `--now` passes `now=true`, which says what it dropped).
+  One in any other terminal (a Herdr pane, an ssh shell) is refused (`/exit`, then `claude --continue` there) and
+  `--all` says how many it left out and which are behind. Only `--machine` names the machine, never `EP0CH_MACHINE` or a
   `.ep0ch`, so a restart can't follow an outline to another machine by accident. The script is the one implementation;
   `ep0ch agent` is argument handling and the ssh hop (`src/agent-fleet.ts`).
 - **A session running twice (PIE-1369).** A `claude --continue` started while its session runs elsewhere (Remote
@@ -2831,24 +2835,35 @@ design-system page per component. `ep0ch --screen library` opens it (`--screen l
 `screen.open name=library` from anywhere; `I` on the main menu; `ep0ch --showcase --screen library` opens it on the
 showcase outline). On a running session, `ep0ch --screen library` opens it there and says so on the status bar.
 
-A page has four parts. **Overview**: what it is, where it goes, the minimal example and the properties table (key,
-where it's written, values, default, meaning). **One property at a time**: each value drawn live, the exact source
+On the left, a **rail**: every component by name under its group, with the group's count (PIE-1515). It is the door's
+one list (`ListView`), so its keys are the lists' (`j` `k`, `list.step`, `list.pick`, `list.filter`), and the groups are each
+schema's own `group`: nothing in the library names them. An agent's pick or filter there is its own, drawn in its tint;
+the page stays the person's. When the tile is under 71 columns the rail folds into the header (`‹ graph-annotate ›`,
+`,` `.` or a click on `‹` `›` step; a filter being typed shows there) and the page reads alone.
+
+Beside it, the page: what the component is and where it goes, then one control row (the four parts, then the widths).
+A page has four parts. **Overview**: the minimal example drawn beside its source (the source under it when the page
+is too narrow for both), then the properties table (name, where it's written when that differs, values, default,
+meaning; the default beside its values and the meaning on the same row when there's room). **One property at a time**: each value drawn live, the exact source
 under it (`## Your calls [heading::band]`, and for a style's own properties the declaring note:
 `My style [heading-style::mine] [heading-pattern::waffle]`). **Grids**: the pairs the schema marks (pattern × align,
 rows × row), side by side where they fit. **Every combination**: the whole space (heading styles have 2430) behind a
 filter, never dumped: pick values per axis and the matching variations are drawn, eight at a time. Every variation
-is drawn by the readers' own renderer at 40, 80 or 160 columns, or all three one under another, so the narrow fallback shows too; a figure's live form (`query:`) is asked of the outline, which the library has none of, and its page says so; a rule's are drawn
+is drawn by the readers' own renderer at 40, 80 or 160 columns (at the page's own width, said on its frame, when the chosen one is wider), or all three one under another, so the narrow fallback shows too; a figure's live form (`query:`) is asked of the outline, which the library has none of, and its page says so; a rule's are drawn
 as the service draws them.
 
 | Keys | Action |
 |---|---|
-| `,` `.`, or a click on a tab | the previous or next component (`library.component`) |
+| `j` `k` (`↓` `↑`), or a click on a name in the rail | the previous or next component (`list.step`, `list.pick`, as in every list; the page follows) |
+| `←` `→` | the first component of the previous or next group (`list.step axis=group`) |
+| `/`, or a click on the rail's count | type words that narrow the rail; ⏎ keeps them, esc goes back (`list.filter`) |
+| `,` `.`, or a click on `‹` `›` | the previous or next component (`library.component`), the rail folded or not |
 | `1` `2` `3` `4`, or a click | overview, one property at a time, grids, every combination (`library.part`) |
-| `←` `→` (`h` `l`) | the previous or next property (`library.axis`) or grid (`library.grid`); in every combination, the value under the cursor (`library.cursor`) |
+| `h` `l` | the previous or next property (`library.axis`) or grid (`library.grid`); in every combination, the value under the cursor (`library.cursor`) |
 | `[` `]` | every combination: the axis above or below |
 | `space`, `⏎`, or a click on a value | every combination: pick or unpick it (`library.pick`); `x` clears (`library.clear`), `n` `p` page (`library.page`) |
-| `j` `k` (`↓` `↑`), or a click on a variation | select a variation (`library.select`) |
-| `y`, or a click on `copy` | copy its source (`library.copy`: the declaring note and the line that uses it; `part=use` or `part=note` one of them). An agent's copy comes back as its answer, never to your clipboard |
+| `J` `K`, or a click on a variation | select a variation (`library.select`) |
+| `y`, or a click on a `source · y copies` frame | copy its source (`library.copy`: the declaring note and the line that uses it; `part=use` or `part=note` one of them). An agent's copy comes back as its answer, never to your clipboard |
 | drag over source, drawing or properties; double/triple click | select and copy text, a word or a line with the reader’s selection; `cmd+c` copies it again. `library.select text=` returns drawn text to an agent without moving your selection or writing your clipboard |
 | `w`, or a click on a width | draw at 40, 80, 160 or all three at once (`library.width`) |
 | the wheel, `PgUp` `PgDn` | scroll (`library.scroll`) |

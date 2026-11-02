@@ -76,13 +76,26 @@ describe("the drawer's agent: chosen per session, detected, started inside the p
     expect(isAgentCmd(["/opt/bin/codex"])).toBe(true);
     expect(isAgentCmd(["nvim", "a.md"])).toBe(false);
     const argv = inLoginShell(["claude", "--model", "it's"], "/bin/zsh");
-    expect(argv.slice(0, 3)).toEqual(["/bin/zsh", "-l", "-c"]);
-    expect(argv[3]).toStartWith("exec /bin/sh -c ");          // any login shell (fish too) only runs the exec; sh runs the rest
+    expect(argv.slice(0, 4)).toEqual(["/bin/zsh", "-l", "-i", "-c"]);
+    expect(argv.at(-1)).toStartWith("exec /bin/sh -c ");          // any login shell (fish too) only runs the exec; sh runs the rest
     // Run for real: the program's own output, then the line the door reads, then the person's shell (stdin closed: it ends).
     const ran = Bun.spawnSync(inLoginShell(["sh", "-c", "echo 'quote '\\''d'; exit 3"], "/bin/sh", "kettle"), { stdin: "ignore", env: { PATH: process.env.PATH ?? "", HOME: root } });
     const out = ran.stdout.toString();
     expect(out).toContain("quote 'd");
     expect(out).toContain("\x1b]2;kettle exited · shell\x07\nkettle exited (3) · this is your shell, in ");
+  });
+
+  test("the agent gets the environment of an interactive login shell: exports below ~/.bashrc's interactive guard count (PIE-1280)", () => {
+    const home = join(root, "bashrc-home");
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, ".bash_profile"), "[ -f ~/.bashrc ] && . ~/.bashrc\n");
+    writeFileSync(join(home, ".bashrc"), "export ABOVE_GUARD=seed\ncase $- in *i*) ;; *) return;; esac\nexport BELOW_GUARD=sprout\n");
+    const bash = Bun.which("bash");
+    if (!bash) return;
+    expect(inLoginShell(["claude"], bash).slice(0, 4)).toEqual([bash, "-l", "-i", "-c"]);
+    expect(inLoginShell(["claude"], "/usr/bin/fish").slice(0, 3)).toEqual(["/usr/bin/fish", "-l", "-c"]);
+    const ran = Bun.spawnSync(inLoginShell(["sh", "-c", "echo got=$ABOVE_GUARD/$BELOW_GUARD"], bash, "kettle"), { stdin: "ignore", env: { PATH: process.env.PATH ?? "", HOME: home, EP0CH_IN_DOOR: "1" } });
+    expect(ran.stdout.toString()).toContain("got=seed/sprout");
   });
 });
 

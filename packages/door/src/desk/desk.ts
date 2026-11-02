@@ -1455,7 +1455,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return found(hit.desk, hit.id);
     }
     if (address.kind !== "name") {
-      const hit = resolveAddress(address, this.addressable())?.value;
+      const hit = resolveAddress(address, this.addressable())?.value ?? (address.kind === "id" && this.ctx?.hostLayer?.everyDesk ? resolveAddress(address, this.addressable(this.ctx.hostLayer.everyDesk()))?.value : undefined); // an id names a tile on any screen, shown or not (PIE-1280): it acts on its own desk
       return hit ? found(hit.desk, hit.id) : null;
     }
     // `program`: the tile a program runs in (`open from=`), which it names by what it was told (EP0CH_TILE_ID): a program
@@ -6485,11 +6485,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { query: q, hits: hits.map((m, i) => ({ n: i + 1, id: m.id, title: subject(m), ...(prop(m, "work-id") ? { workId: prop(m, "work-id") } : {}) })) };
   }
 
-  restartTerminal(name: string, p: PtyPane, _actor: Actor): TileDone {
-    if (p.running) throw new ActionRefused(`${name} is still running`);
-    p.restart();
-    return this.tileAnswer(this.tile(name).id);
-  }
+  /** `tile.restart` (PIE-1280): the tile's answer with what restarting it said (the rule is `restartTerminal`'s, pty-actions.ts). */
+  async restartAnswer(name: string, run: () => Promise<Record<string, unknown>>): Promise<TileDone & Record<string, unknown>> { const answer = this.tileAnswer(this.tile(name).id); return { ...answer, ...(await run()) }; }
 
   /** `tile.copy-ref` (PIE-1297): the tile's id, or the address of its place (`tileAddressesOf`), to the person's clipboard or back to an agent. */
   copyTileRef(sel: string | undefined, kind: "id" | "ref" | "name", actor: Actor) {

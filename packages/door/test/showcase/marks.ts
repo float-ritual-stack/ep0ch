@@ -102,7 +102,7 @@ export const marks: Record<string, string[]> = {
   "in-place": ["Garden walk: the gate", "open → in place"],
   "quiet-collection": ["Needs a gardener", "Check seeds", "Read report", "2 notes"],
   "collection-tune": ["Tune the garden collection", "Water the beans"],
-  "figure-settings": ["Sprint: the garden week"],
+  "figure-settings": ["Sprint: the garden week", "THIS WEEK'S GARDEN WORK", "≡ settings"],
   collection: ["Garden collection", "table", "gallery", "feed", "board", "Water the beans"],
   sysop: ["Sysop watches the workshop", "Look now"],
   "list-view": ["One list, three ways", "OUTBOX", "Waiting letters", "Shelf actions", "Copy this note"],
