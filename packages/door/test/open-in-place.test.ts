@@ -120,6 +120,46 @@ describe.skipIf(!outliner)("open in place: a tile wired to itself", () => {
     expect(desk.pane("links")).toBeInstanceOf(BacklinksPane);
   }, 30_000);
 
+  test("open in place, then grouped and spilled: the tile travels as its list both ways, and opens and goes back there", async () => {
+    await setup();
+    await act("tile.link", { to: "links" }, "links");
+    await act("list.open", { n: rowOf(porch.id) + 1 }, "links");
+    await until(() => desk.pane("links") instanceof ReaderPane, "the porch in place");
+    // A group refused (the screen locked) leaves the note open in place.
+    await act("layout.lock", { on: true });
+    await expect(act("tile.group", { with: "reader" }, "links")).rejects.toThrow(/lock/);
+    expect(desk.pane("links")).toBeInstanceOf(ReaderPane);
+    await act("layout.lock", { on: false });
+    const g = await act("tile.group", { with: "reader" }, "links");
+    const inner = D().pane(g.tile).inner, list = () => inner.pane("links");
+    expect(list()).toBeInstanceOf(BacklinksPane);
+    await until(() => list().rows().some((r: any) => r.kind === "backlink" && r.source.blockId === porch.id), "the group's links listed");
+    const n = list().rows().findIndex((r: any) => r.kind === "backlink" && r.source.blockId === porch.id) + 1;
+    await inner.dispatch.act({ action: "list.open", args: { n }, tile: "links" }, { kind: "user" });
+    await until(() => list() instanceof ReaderPane, "in place, in the group");
+    await act("tile.group", { on: false }, g.name);
+    expect(desk.pane("links")).toBeInstanceOf(BacklinksPane);
+    expect(D().wireDescription("links", "open")).toBe("in place");
+    await act("list.open", { n: rowOf(porch.id) + 1 }, "links");
+    await until(() => desk.pane("links") instanceof ReaderPane, "in place, spilled");
+    await act("back", {}, "links");
+    await until(() => desk.pane("links") instanceof BacklinksPane, "back: the list");
+  }, 30_000);
+
+  test("a link added while the list is beneath the reader shows when back returns to it, the selection kept", async () => {
+    await setup();
+    await act("tile.link", { to: "links" }, "links");
+    await act("list.pick", { n: rowOf(hall.id) + 1 }, "links");
+    await act("list.open", { n: rowOf(porch.id) + 1 }, "links");
+    await until(() => desk.pane("links") instanceof ReaderPane, "the porch in place");
+    const shed = await board.createBlock(null, `Shed\nThe ((${lamp.id}|lamp)) lives here in winter.`);
+    await Bun.sleep(800);
+    await act("back", {}, "links");
+    await until(() => desk.pane("links") instanceof BacklinksPane && rowOf(shed.id) >= 0, "the new link listed on return", 5000);
+    const r = links().rows()[links().sel];
+    expect(r?.kind === "backlink" ? r.source.blockId : null).toBe(porch.id);
+  }, 30_000);
+
   test("a pinned reader wired to itself replaces in place; the self rule says it for every tile", async () => {
     await setup();
     await act("reader.pin", {}, "reader");

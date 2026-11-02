@@ -9,8 +9,8 @@ import { ReaderPane, sessionName, type Pane } from "./panes";
 import { tileRegistry } from "./tile-registry";
 import { makeTile } from "./tiles";
 
-/** What the desk lends: its tiles, starting one, and saving and drawing after back. */
-export interface InPlaceDesk { panes: Map<number, Pane>; start(id: number): void; changed(): void }
+/** What the desk lends: its tiles, starting one, a list's outline events it missed underneath, and saving and drawing after back. */
+export interface InPlaceDesk { panes: Map<number, Pane>; start(id: number): void; caughtUp(list: Pane): void; changed(): void }
 
 export class ListsBeneath {
   private beneath = new WeakMap<Pane, Pane>();
@@ -48,6 +48,7 @@ export class ListsBeneath {
     this.desk.panes.set(id, list);
     this.beneath.delete(reader);
     reader.dispose?.();
+    this.desk.caughtUp(list);   // what changed while it was underneath (a link added) shows, its selection kept
     this.desk.changed();
     return null;
   }

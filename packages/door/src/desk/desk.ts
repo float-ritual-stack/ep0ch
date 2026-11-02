@@ -721,7 +721,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (r.answer.renamed) this.save();
   }
   private specTiles = new Map<string, number>();
-  private beneath = new ListsBeneath({ panes: this.panes, start: id => this.startTile(id), changed: () => { this.save(); this.redraw(); } });
+  private beneath = new ListsBeneath({ panes: this.panes, start: id => this.startTile(id), caughtUp: p => p.onEvent?.(this), changed: () => { this.save(); this.redraw(); } });
   private specTile(name: string): number | undefined {
     const id = this.specTiles.get(name);
     return id !== undefined && this.panes.has(id) ? id : this.idNamed(name);
@@ -5840,7 +5840,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const gid = this.nextId;
     const r = this.ask({ op: "group", ...(target ? { node: o.node! } : { tile: t.id }), ...(w ? { take: [w.id] } : ids.length > 1 && !target ? { take: ids.filter(i => i !== t.id) } : {}), with: gid, kind: "screen", name: o.name ?? this.autoName("group") }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
-    const given = new Map(ids.map(id => [this.nameOf(id), this.panes.get(id)!] as const));
+    const given = new Map(ids.map(id => [this.nameOf(id), this.beneath.restore(id) ?? this.panes.get(id)!] as const));   // a reader in place goes in as its list (PIE-1516)
     const gathered = ids.map(id => [id, this.panes.get(id)!] as const);
     const focusIn = ids.includes(this.focus) ? this.nameOf(this.focus) : this.nameOf(ids[0]!);
     const g = new ScreenTile("screen", { ...(o.label ? { label: o.label } : {}), inner: { root: sub, focus: focusIn } }, undefined, given);
@@ -5898,7 +5898,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       wires: out.wires.filter(w => ids.has(w.from) && ids.has(w.to)).map(w => ({ ...w, from: m(w.from), to: m(w.to) })),
     }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
-    for (const x of out.tiles) inner.bindFollows(x.id, x.pane);
+    for (const x of out.tiles) { x.pane = inner.beneath.restore(x.id) ?? x.pane; inner.bindFollows(x.id, x.pane); }   // a reader in place comes out as its list (PIE-1516)
     for (const x of out.tiles) inner.forgetTile(x.id, x.pane);
     for (const x of out.tiles) { const id = this.put(x.pane); this.movedIn.add(id); }
     this.commit(r);
