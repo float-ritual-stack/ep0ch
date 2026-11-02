@@ -518,7 +518,7 @@ export interface PlacementRequest<I = number> {
   inspect?: true;
 }
 export type NotePlacement<I = number> = {
-  destination: { kind: "swap"; tile: I } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true } | { kind: "none"; reason: string };
+  destination: { kind: "swap"; tile: I; inPlace?: true } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true } | { kind: "none"; reason: string };
   keep?: { tile: I; at: At<I> };
   merge?: I;
   reuse?: { reveal: boolean };
@@ -556,15 +556,15 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     const available = request.rule === "first-unheld" ? leaves(s.tree).find(id => { const f = ctx.tile(id); return f.notes && !f.pinned && !f.editing && !f.holds && !f.follower; }) : undefined;
     route = available !== undefined ? { to: available } : request.rule === "tab" ? { tab: to } : { beside: to };
   }
-  if (request.history) route = null;
-  if (request.container) route = { into: request.container };
+  route = request.container ? { into: request.container } : request.history ? null : route;
   let inward = false;
-  if (request.default && to === undefined && (!route || ctx.tile(from).notes)) {
+  const self = to === undefined && !!route && "to" in route && route.to === from, inPlace = self && !request.default;   // in place (PIE-1516), never for an open from outside (as a reader's own link, PIE-700)
+  if (request.default && to === undefined && (!route || self || ctx.tile(from).notes)) {
     const readers = leaves(s.tree).filter(id => { const f = ctx.tile(id); return !s.collapsed.has(id) && f.notes && !f.follower && !f.editing && !f.holds && !f.pinned && f.available !== false; });
     const target = readers[0];
-    if (target !== undefined) route = { to: target };
+    route = target !== undefined ? { to: target } : self && !ctx.tile(from).notes ? null : route;   // a list in place isn't taken over from outside
     // With no reader here, a mount places the open itself (PIE-1306), reversing `outward`; prefer the focused mount.
-    else if (ctx.inside && !leaves(s.tree).some(id => ctx.tile(id).notes && !ctx.tile(id).follower)) {
+    if (target === undefined && ctx.inside && !leaves(s.tree).some(id => ctx.tile(id).notes && !ctx.tile(id).follower)) {
       const open = (id: I) => !s.collapsed.has(id) && ctx.tile(id).available !== false ? ctx.inside!(id) : undefined;
       const focused = open(ctx.person.focus);
       const path = focused ?? leaves(s.tree).map(open).find(p => p !== undefined);
@@ -592,7 +592,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     if (request.newNote === "tab" && !tab) result.why = "not a tab here: it floats instead";
     return result;
   }
-  const deliberateTarget = s.wires.some(w => w.from === from && w.verb === verb)
+  const deliberateTarget = inPlace || s.wires.some(w => w.from === from && w.verb === verb)
     || route && "to" in route && (ctx.tile(route.to).deliberate || ctx.tile(route.to).pinned);
   if (to === undefined && !request.at && !deliberateTarget && !(route && "across" in route)) {
     const source = ctx.tile(from);
@@ -676,7 +676,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     }
     const facts = ctx.tile(target);
     // A pinned reader keeps its note (PIE-1207): the open lands in the reader opened beside it, else a new one there.
-    if (facts.pinned && !request.history) {
+    if (facts.pinned && !request.history && !inPlace) {
       const again = besideReader(s, ctx, target);
       const name = String(s.names.get(target));
       // It replaces there (no spine kept): the reader beside a pinned one is where its opens go, one at a time.
@@ -715,11 +715,11 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       result.destination = { kind: "new", at: { kind: "split", target, dir: "right" } };
     }
     else {
-      result.destination = { kind: "swap", tile: target };
+      result.destination = { kind: "swap", tile: target, ...(inPlace ? { inPlace: true as const } : {}) };   // in place: no spine, a pinned reader too; a list becomes a reader
       if (result.giveNewKeys) result.keys = target;
       const chain = chainOf(s.tree, target);
       const space = effective([{ by: "screen", policy: s.policy }, ...chain.map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
-      if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held && !request.default || request.keep) && !s.collapsed.has(target) && facts.showing && facts.showing !== note && !allTiles(s).some(id => id !== target && ctx.tile(id).notes && !ctx.tile(id).follower && !ctx.tile(id).lists && ctx.tile(id).showing === facts.showing) && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
+      if (request.keep !== false && !inPlace && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held && !request.default || request.keep) && !s.collapsed.has(target) && facts.showing && facts.showing !== note && !allTiles(s).some(id => id !== target && ctx.tile(id).notes && !ctx.tile(id).follower && !ctx.tile(id).lists && ctx.tile(id).showing === facts.showing) && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
         const order = leaves(s.tree), before = from === target ? order.indexOf(target) > 0 : order.indexOf(from) < order.indexOf(target);
         const row = parentOf(s.tree, target)?.parent;
         const flowCovers = row?.t === "flow" ? coversOf(s, row, ctx.area, id => !!ctx.tile(id).holds) : undefined;
@@ -2050,8 +2050,8 @@ class Step<I> {
   private linkTo(id: I, to: I, notes: boolean, kind: string, verb: WireVerb = "open") {
     this.present(id);
     this.shape(id, `changing where ${this.name(id)}'s ${verb} lands`);
-    if (to === id) refuse(`${this.name(id)} can't open into itself · leave to= out to unlink`);
-    if (!notes) refuse(`${this.name(to)} is a ${kind} tile: opens land in a tile that takes notes${this.ctx.kinds ? ` (${this.ctx.kinds.notes.join(", ")})` : ""}`);
+    if (to === id && verb !== "open") refuse(`${this.name(id)}'s ${verb} can't land in itself · leave to= out to unlink`);   // an open wired to itself opens in place (PIE-1516)
+    if (!notes && !(to === id && this.facts(id).lists)) refuse(`${this.name(to)} is a ${kind} tile: opens land in a tile that takes notes${to === id ? " or lists them" : ""}${this.ctx.kinds ? ` (${this.ctx.kinds.notes.join(", ")})` : ""}`);
     this.d.wires = this.d.wires.filter(w => !(w.from === id && w.verb === verb));
     this.d.across = this.d.across.filter(w => w.from !== id || w.verb !== verb);
     this.d.wires.push({ from: id, verb, to });

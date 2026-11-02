@@ -11,10 +11,18 @@
 // the same terms (an MCP action the person confirmed carries one too): there is no script-only exception. It is spent
 // when the run ends (`scripts.ended`), or lapses after ten minutes.
 import { randomUUID } from "node:crypto";
+import type { Actor } from "../socket";
 
 export type InviteScope = "tile" | "shape" | "screen";
 
-interface Invite { id: string; scope: readonly InviteScope[]; until: number; run?: string; by: string; cause?: unknown }
+/**
+ * A press (PIE-1517): who pressed, the reader it was made in and the note its button is written in. Every action the press
+ * asks for, at once or as its run's steps, is placed by it (Dispatcher.requestIn), so none lands in a reader the presser
+ * doesn't stand in.
+ */
+export interface Press { tile?: string; note?: string; actor: Actor }
+
+interface Invite { id: string; scope: readonly InviteScope[]; until: number; run?: string; by: string; cause?: unknown; press?: Press }
 
 const LAPSE_MS = 10 * 60_000;
 
@@ -27,12 +35,20 @@ class Invites {
   inputCause: () => unknown = () => undefined;
 
   /** Mint one for the person's press: `by` says whose it is in words (for a status line). */
-  mint(by = "you", scope: readonly InviteScope[] = ["tile", "shape", "screen"], now = Date.now()): string {
+  mint(by = "you", scope: readonly InviteScope[] = ["tile", "shape", "screen"], now = Date.now(), press?: Press): string {
     for (const [id, inv] of this.open) if (inv.until <= now) this.open.delete(id);
     const id = randomUUID();
     const cause = this.inputCause();
-    this.open.set(id, { id, scope, until: now + LAPSE_MS, by, ...(cause !== undefined && cause !== null ? { cause } : {}) });
+    this.open.set(id, { id, scope, until: now + LAPSE_MS, by, ...(cause !== undefined && cause !== null ? { cause } : {}), ...(press ? { press } : {}) });
     return id;
+  }
+
+  /**
+   * The token a press's run carries (PIE-1517): the person's invites the run onto their screen; anyone else's grants nothing
+   * (no scope), and only carries the press, so the run's steps are placed where the press acts.
+   */
+  pressed(press: Press): string {
+    return press.actor.kind === "user" ? this.mint("you", undefined, undefined, press) : this.mint(press.actor.id, [], undefined, press);
   }
 
   /**
@@ -55,6 +71,8 @@ class Invites {
   spend(id: string) { this.open.delete(id); }
   /** The press's cause (`inputCause` when it was minted), for the actions its run asks. */
   causeOf(id: string | undefined): unknown { return id ? this.open.get(id)?.cause : undefined; }
+  /** The press that minted it (`pressed`), for its run's steps. */
+  pressOf(id: string | undefined): Press | undefined { return id ? this.open.get(id)?.press : undefined; }
   /** Whose invitation it is, for the status line ("on your press"), or undefined. */
   byOf(id: string | undefined): string | undefined { return id ? this.open.get(id)?.by : undefined; }
   get size() { return this.open.size; }

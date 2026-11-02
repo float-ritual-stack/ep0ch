@@ -10,6 +10,7 @@ import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
 import { Trail } from "../../src/trail";
 import { TrailPane } from "../../src/desk/trail-tile";
+import { ReaderPane } from "../../src/desk/panes";
 import { outlineState, readState, writeState } from "../../src/state";
 
 describe.skipIf(!outliner)("showcase: the trail", () => {
@@ -101,6 +102,19 @@ describe.skipIf(!outliner)("showcase: the trail", () => {
     return indices;
 
   }
+
+  test("a trail wired to itself opens a visit's note in place, and ← back returns to the trail (PIE-1516)", async () => {
+    const { desk, act, visit } = screen();
+    await act("open", "reader", { id: h.seeded.notes.trailGate.id });
+    await until(() => visit("reader") !== undefined, "the reader's visit");
+    const v = visit("reader");
+    await act("tile.link", "trail", { to: "trail" });
+    const out = await act("trail.open", "trail", { visit: v.open.target.visit });
+    expect(out).toMatchObject({ opened: h.seeded.notes.trailGate.id, inPlace: true });
+    await until(() => (desk.paneNamed("trail") as ReaderPane | undefined)?.msg?.id === h.seeded.notes.trailGate.id, "the visit's note in the trail's tile");
+    await act("back", "trail");
+    await until(() => desk.paneNamed("trail") instanceof TrailPane, "back: the trail");
+  }, 30_000);
 
   test("regression: previews qualify once at the service, while every landing reaches the local feed", async () => {
     const { desk, act, visit } = screen();

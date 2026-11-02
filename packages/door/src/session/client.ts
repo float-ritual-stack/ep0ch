@@ -26,6 +26,7 @@ import { appendNest, nestLayers } from "../nest";
 import { stateDir } from "../state";
 import { runProgram, Term } from "../term";
 import { ago } from "../text";
+import { pad } from "../style";
 import { LOCKED, serve } from "./daemon";
 import { codeVersion } from "./code-version";
 import { HostPtys, ptyHostSocket, servePtyHost } from "./pty-host";
@@ -114,6 +115,13 @@ export function formatSessions(running: readonly Running[], waiting: readonly st
 }
 
 /** `ep0ch session …`. */
+/** `session list --machine <m>` through the link: each door there, who has it, and the command that reaches it. */
+export function formatLinkedDoors(r: { machine: string; via?: string; doors: { key: string; outline: string; machine?: string; idle: number | null; clients: number; screen?: string | null }[] }): string {
+  const head = `Sessions on ${r.machine} (through ${r.via ? `${r.via}'s` : "its"} link)`;
+  if (!r.doors.length) return `${head}\n  none runs`;
+  return [head, ...r.doors.map(d => `  ${pad(d.key, 24)} ${d.clients ? `${d.clients} attached, typed ${ago(Date.now() - (d.idle ?? 0))}` : "detached"}${d.screen ? ` · ${d.screen}` : ""} · ep0ch peek --remote ${r.machine} --ws ${d.outline}${d.machine ? ` --machine ${d.machine}` : ""}`)].join("\n");
+}
+
 export async function sessionCommand(args: string[]): Promise<number> {
   const machineAt = args.indexOf("--machine");
   // Only `list --machine` runs on that machine; for every other session command --machine keeps naming where the
@@ -126,6 +134,15 @@ export async function sessionCommand(args: string[]): Promise<number> {
       return 2;
     }
     const there = args.filter((_, i) => i !== machineAt && i !== machineAt + 1);
+    // Through the link that carries that machine's doors, when one does (PIE-1242): what agents here can reach.
+    const { doorMachines, machineDoors } = await import("../remote-doors");
+    if (doorMachines().includes(machine)) {
+      const record = await machineDoors(machine);
+      if ("error" in record) { console.error(`ep0ch: ${record.error}`); return 1; }
+      if (there.includes("--json")) { console.log(JSON.stringify(record)); return 0; }
+      console.log(formatLinkedDoors(record));
+      return 0;
+    }
     const remote = ["ep0ch", "session", "list", ...(there[0] === "list" ? there.slice(1) : there)].map(shellWord).join(" ");
     try {
       const { ssh } = await import("../mcp-netmail");

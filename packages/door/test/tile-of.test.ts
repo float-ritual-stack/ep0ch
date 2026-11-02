@@ -23,3 +23,14 @@ test("the real process table finds this process as the owner of a port it listen
     expect(tileOf([{ id: "t1", name: "me", pid: process.ppid }], { port }, deps)).toEqual({ tile: "t1", name: "me", by: "port" });
   } finally { server.close(); }
 });
+
+// PIE-1242: the laptop's door is on macOS, where there is no /proc: the port's owners come from lsof there.
+test("on a machine without /proc, a port's owners are lsof's answer", async () => {
+  const { lsofPortOwners, portOwnersFor } = await import("../src/tile-of");
+  const asked: string[][] = [];
+  const owners = lsofPortOwners(50123, argv => { asked.push(argv); return { code: 0, out: "4242\n4243\n" }; });
+  expect(owners).toEqual([4242, 4243]);
+  expect(asked).toEqual([["lsof", "-nP", "-a", "-iTCP:50123", "-sTCP:ESTABLISHED", "-t"]]);
+  expect(lsofPortOwners(50123, () => ({ code: 1, out: "" }))).toEqual([]);
+  expect(portOwnersFor(false)).toBe(lsofPortOwners);
+});
