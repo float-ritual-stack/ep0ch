@@ -1901,20 +1901,12 @@ export class App implements Ctx {
     const chip = this.drawer.active ? this.drawer.chips() : null;
     const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() });
     const items: StatusItem[] = [
-<<<<<<< HEAD
       { id: "brand", text: `${fg(C.white)}ep0ch`, place: "left", click: { action: "status.log" } },
       { id: "power", text: `${fg(C.yellow)}^K`, place: "left", keep: true, ...(!s?.noDrawer ? { click: { action: "bar.open" } } : {}) },
       { id: "macro", text: `${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : "⇧⌥Q"}`, place: "left", ...(!s?.noDrawer ? { click: { action: this.recording.active ? "macro.stop" : "macro.record" } } : {}) },
       { id: "screen", text: s?.title ?? "", place: "left", click: { action: "status.log" } },
-      { id: "machine", text: this.location, place: "left", click: { action: "status.log" } },
-      right("docks", this.screenDesk()?.dockChoices().length ? "docks" : "", "strip.more", { strip: `${this.screenDesk()?.name}:docks` }),
-=======
-      { id: "brand", text: `${fg(C.white)}ep0ch`, place: "left", before: " ", after: " ", click: { action: "status.log" } },
-      { id: "power", text: `${fg(C.yellow)}^K`, place: "left", after: " ", ...(!s?.noDrawer ? { click: { action: "bar.open" } } : {}) },
-      { id: "macro", text: `${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : "⇧⌥Q"}`, place: "left", after: `${fg(C.lcyan)} │ `, ...(!s?.noDrawer ? { click: { action: this.recording.active ? "macro.stop" : "macro.record" } } : {}) },
-      { id: "screen", text: s?.title ?? "", place: "left", after: " │ ", click: { action: "status.log" } },
       { id: "machine", text: this.location, place: "left", click: { action: "status.log" }, ...(this.machine ? { short: doorLocation(this).short } : {}) },
->>>>>>> origin/main
+      right("docks", this.screenDesk()?.dockChoices().length ? "docks" : "", "strip.more", { strip: `${this.screenDesk()?.name}:docks` }),
       right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
       { ...right("glass", this.glass.chip(), "glass.toggle"), tiny: `◇${this.glass.mode === "off" ? "×" : this.glass.mode === "sticky" ? "◆" : ""}${this.glass.floats().length || ""}`, keep: true, alt: { action: "glass.clear" } },
       right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
