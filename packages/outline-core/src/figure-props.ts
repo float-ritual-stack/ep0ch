@@ -14,6 +14,7 @@ import { expandRuns, figureRow, splitOutsideLinks, numbersOf, parseFigureMarkdow
 import { readDate } from "./dates";
 import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
 import { pageLinkRanges } from "./link-syntax";
+import { closest } from "./tool-args";
 import { headerLine } from "./header-line";
 import type { SiteLink } from "./site";
 
@@ -83,6 +84,21 @@ export function propsWithoutRules(kind: string, body: readonly string[]): string
   if (!names.some(name => known.has(name))) return null;
   const shown = names.map(name => `${name}:`);
   return `the ::graph-${kind} has ${shown.slice(0, 3).join(", ")}${shown.length > 3 ? ` and ${shown.length - 3} more` : ""} but no --- lines: they are read as Markdown rows, not properties; put them between --- lines`;
+}
+
+/**
+ * A YAML key a figure of `kind` doesn't take, one sentence each (PIE-1513): a typo of one it does gets the one it may
+ * mean; any other names the keys it takes, never silence (`layout:` on a figure without it drew nothing and said
+ * nothing). The write's warning, the static reader's and the collection reader's all say this one sentence.
+ */
+export function unknownFigureKeys(kind: string, yaml: Record<string, unknown>): string[] {
+  const known = FIGURE_COMPONENT_SCHEMAS.find(s => s.id === `graph-${kind}`)?.props.filter(p => p.where === "yaml").map(p => p.key) ?? [];
+  if (!known.length) return [];
+  // `rows: children` / `rows: body` is every figure's (figureProps above), not one kind's.
+  return Object.keys(yaml).filter(key => key !== "rows" && !known.includes(key)).map(key => {
+    const near = closest(key, known);
+    return `doesn't take ${key}: ${near ? `did you mean ${near}?` : `it takes ${known.join(", ")}`}`;
+  });
 }
 
 /**
@@ -177,7 +193,7 @@ export function figureProps(kind: string, src: FigureSource, childRows?: ChildRo
   // "child notes" only when a field drawn came from them: rows this kind makes nothing of don't count.
   const children = !!kids?.rows.length && rowFields.some(k => k in (FIGURE_MARKDOWN[kind]!({ rows: kids.rows, paragraphs: [], fences: [] }, yaml)));
   // Props written without their `---` lines are drawn as Markdown; the figure says so (PIE-941).
-  const warning = src.ruled || src.yaml.trim() ? null : propsWithoutRules(kind, src.markdown ?? []);
+  const warning = src.ruled || src.yaml.trim() ? unknownFigureKeys(kind, yaml).map(w => `this ::graph-${kind} ${w}`).join(" · ") || null : propsWithoutRules(kind, src.markdown ?? []);
   // Call-site arguments (`::graph-table{project=lego}`) sit under the YAML and over the Markdown; they are `props.*` to a `{{ }}` in it.
   const args = src.attrs ? Object.fromEntries(componentAttrs(src.attrs).pairs.map(p => [p.key, p.value])) : undefined;
   return { props: { ...from, ...args, ...yaml }, children, waiting: !!kids?.waiting, ...(warning ? { warning } : {}), ...(args && Object.keys(args).length ? { args } : {}) };

@@ -133,7 +133,7 @@ import { INVITES } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { SettingField } from "./settings-card";
-import { settingsSubject, settingsKey, SETTINGS_DEFS } from "./settings";
+import { settingsSubject, settingsKey, SETTINGS_DEFS, SETTINGS_UNDO } from "./settings";
 import { askInBar } from "../bar/ask";
 import { argQuestion } from "../bar/form";
 import type { ActionInfo } from "./actions";
@@ -4616,8 +4616,8 @@ export class NoteSurface {
       const at = this.msg?.id ?? "";
       // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
       if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
-      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["sources.undo", this.sourceHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)]] as const)
-        .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "sources.undo" | "task.undo" | "ext.undo" | "note.move.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["sources.undo", this.sourceHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)], ["settings.undo", SETTINGS_UNDO.last("you", at)]] as const)
+        .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "sources.undo" | "task.undo" | "ext.undo" | "note.move.undo" | "settings.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
       // A note trashed after it comes back first (note.untrash). The layout isn't compared (PIE-1435): a tile moved elsewhere
       // didn't happen to this note, so the desk's ctrl+z (layout.undo, or a trash newer than it) gets the key only when the
       // reader has nothing of its own; with no layout change either, the reader's refusal says there's nothing to undo.

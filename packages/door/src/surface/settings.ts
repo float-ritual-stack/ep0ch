@@ -1,4 +1,5 @@
 import { settingsSchemas, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
+import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { viewWords } from "@ep0ch/outline-core/view-spec";
 import { missingPropertyHint } from "@ep0ch/outline-core/property-hint";
@@ -17,12 +18,20 @@ import { modeBinding, modeActionKeys } from "./modes";
 import { ATTACHED_KEYS, SETTINGS_KEYS } from "./attached-keys";
 import { ATTACHED_PLACES, attachedPlaceOf, moveFloat, type AttachedSide } from "./attached";
 import { writeState } from "../state";
+import { partyOf, UndoHistory } from "../steps";
+import { outlineChanged } from "../refs";
 import type { Key } from "../term";
 import { boundComponent, setBinding, type Binding } from "./binding";
 import type { NoteSurface, On, SurfaceHost } from "./note";
 import type { ListHandle } from "./list-view";
 
-export interface SettingsSubject { note: Msg; binding: Binding; schemas: ComponentSchema[]; fields: SettingField[]; list?: ListHandle; collection?: NonNullable<ListHandle["collection"]>["answer"]; props?: Record<string, unknown> }
+export interface SettingsSubject { note: Msg; binding: Binding; schemas: ComponentSchema[]; fields: SettingField[]; list?: ListHandle; collection?: NonNullable<ListHandle["collection"]>["answer"]; props?: Record<string, unknown>;
+  /** An inline figure's fields live in its YAML (PIE-1513: a live ::graph-table's own keys); an inline view's and a note's in `note` properties. */
+  where: "note" | "yaml" }
+/** A settings write for ctrl+z (PIE-1513): the note's text before and after, so one key goes back whole, YAML line and all. */
+export interface SettingsUndo { block: string; before: string; after: string; key: string; by: string; context: string }
+/** The settings writes made in readers (a view's or a live figure's key), newest last, for ctrl+z (`settings.undo`); each party undoes its own. */
+export const SETTINGS_UNDO = new UndoHistory<SettingsUndo>();
 const LIST = { type: "string", optional: true, about: "the view: its list.blocks number or ^name; left out, the card's subject or the view under the cursor" } as const;
 const KEY = { type: "string", about: "the field's key (settings lists them)" } as const;
 const properties = (config: Record<string, unknown>) => Object.entries(config).map(([key, value]) => ({ key, value: Array.isArray(value) ? value.join(", ") : String(value) }));
@@ -35,11 +44,15 @@ export function settingsSubject(surface: NoteSurface, note: Msg, named?: string)
   const list = named !== undefined ? surface.listNamed(named) : listName !== undefined ? lists.find(l => l.key === listName) : lists.find(l => l.key === current) ?? (lists.length === 1 ? lists[0] : undefined);
   const binding = list?.binding ?? { block: note.id };
   const inline = binding.component ? boundComponent(note, binding) : null;
-  if ((listName !== undefined && !list) || (binding.component && !inline)) return { note, binding, schemas: [], fields: [] };
+  if ((listName !== undefined && !list) || (binding.component && !inline)) return { note, binding, schemas: [], fields: [], where: "note" };
   const collection = list?.collection?.answer;
-  const props = collection ? properties(collection.config) : parsePropertyRecords(note.text).filter(p => p.scope === "block");
-  const schemas = inline ? componentsOf(surface.src).filter(s => s.id === "view") : settingsSchemas(componentsOf(surface.src), props);
-  return { note, binding, schemas, fields: settingFields(schemas, props), list, collection, props: inline?.props };
+  // An inline component is configured by its own schema (parts describe themselves): a ::view by the views', a live
+  // ::graph-table by the table's, its fields the YAML keys it reads, never the view's keys for its query (PIE-1513).
+  const own = inline ? componentsOf(surface.src).filter(s => blockNameOf(s) === inline.block.name) : [];
+  const where = inline && inline.block.name !== "view" ? "yaml" : "note";
+  const props = where === "yaml" ? properties(inline!.yaml) : collection ? properties(collection.config) : parsePropertyRecords(note.text).filter(p => p.scope === "block");
+  const schemas = inline ? own : settingsSchemas(componentsOf(surface.src), props);
+  return { note, binding, schemas, fields: settingFields(schemas, props, where), list, collection, props: inline?.props, where };
 }
 
 export function openSettings(surface: NoteSurface, subject: SettingsSubject): SettingsCard {
@@ -85,13 +98,15 @@ async function read(on: On, list?: string): Promise<SettingsSubject> {
   if (!subject.schemas.length) throw new ActionRefused("this note isn't configured by a component (settings says which notes are)");
   if (subject.list?.collection) {
     subject.collection = await subject.list.collection.read(subject.props ?? { of: `((${note.id}))` });
-    subject.fields = settingFields(subject.schemas, properties(subject.collection.config));
+    // A view's values are the collection's answered config (an `of=` merges a saved view's); a figure's stay its own YAML.
+    if (subject.where === "note") subject.fields = settingFields(subject.schemas, properties(subject.collection.config));
   }
   return subject;
 }
 
 function fieldOf(subject: SettingsSubject, key: string): SettingField {
-  const field = subject.fields.find(f => f.prop.key === key.trim().toLowerCase());
+  // A key matches whatever its case; the field keeps the schema's own spelling (`titleColumn`) for the write.
+  const field = subject.fields.find(f => f.prop.key.toLowerCase() === key.trim().toLowerCase());
   if (!field) throw new ActionRefused(`${subject.schemas.map(s => s.title).join(" + ")} has no field ${key}; its fields are ${subject.fields.map(f => f.prop.key).join(", ")}`);
   return field;
 }
@@ -124,6 +139,7 @@ async function write(on: On, subject: SettingsSubject, field: SettingField, valu
     }
     throw error;
   }
+  SETTINGS_UNDO.push({ block: note.id, before: note.text, after: saved.text, key: field.prop.key, by: partyOf(actor), context: surface.msg?.id ?? note.id });
   subject.note = saved;
   const beforeValues = viewWords(field.value);
   field.value = value;
@@ -252,6 +268,29 @@ export const SETTINGS_DEFS = {
       const subject = await read(on, list), field = fieldOf(subject, key);
       subject.note = { ...subject.note, revision };
       return write(on, subject, field, value, actor);
+    },
+  }),
+  "settings.undo": def({
+    summary: "undo the last settings write made in this reader while reading this note (an agent undoes its own, the person theirs): the key's line goes back as it was; refused if the note changed again since",
+    keys: "ctrl+z (when a settings write was the last change made here)",
+    touches: "draft", draft: "write", replay: "ask", args: {},
+    examples: [{ act: "settings.undo", does: "puts layout back as it was before the last settings write" }],
+    async run(_, { surface, host }: On, actor) {
+      const e = surface.msg ? SETTINGS_UNDO.last(partyOf(actor), surface.msg.id) : null;
+      if (!e) { const why = "no settings change to undo in this note"; host.ctx.flash(why); throw new ActionRefused(why); }
+      const board = host.ctx.board, now = await board.get(e.block);
+      if (!now || now.text !== e.after || now.revision === undefined) { SETTINGS_UNDO.drop(e); const why = `couldn't undo: ${e.key} changed again since`; host.ctx.flash(why); throw new ActionRefused(why); }
+      let saved: Msg;
+      try { saved = await board.update(now.id, e.before, now.revision, actor); }
+      catch (err) { outlineChanged([now.id]); const why = `couldn't undo: ${err instanceof Error ? err.message : String(err)}`; host.ctx.flash(why); host.redraw(); throw new ActionRefused(why); }
+      SETTINGS_UNDO.drop(e);
+      outlineChanged([now.id]);
+      if (surface.msg?.id === now.id) surface.refresh({ ...saved, childIds: surface.msg.childIds });
+      const said = `undid the settings change: ${e.key}`;
+      host.ctx.flash(said); surface.noteAgent(actor, said);
+      if (surface.panel?.card) surface.panel.card.note = said;
+      host.redraw();
+      return { block: now.id, key: e.key, revision: saved.revision ?? null, recordedAs: mutationFor(actor) };
     },
   }),
   "settings.clear": def({
