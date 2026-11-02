@@ -406,7 +406,7 @@ export const DRAFT_PROPOSAL_APPLIES = "proposal-applies";
  * own controls by the status.
  */
 function proposalHeader(proposal: DraftProposal, status: DraftProposalStatus, applies: boolean): string {
-  const who = proposal.actor?.actorId ? `@${actorName(proposal.actor.actorId)}` : proposal.actor?.author === "agent" ? "an agent" : "someone";
+  const who = proposer(proposal);
   const changes = proposalChanges(proposal);
   const count = changes > 1 ? ` (${changes} changes)` : "";
   const reason = typeof proposal.reason === "string" ? proposal.reason : "it couldn't be placed";
@@ -416,6 +416,23 @@ function proposalHeader(proposal: DraftProposal, status: DraftProposalStatus, ap
       ? `Dismissed: 1 proposed edit${count} from ${who}, not applied because ${reason}`
       : `1 proposed edit${count} from ${who}: not applied, because ${reason}`;
   return `${said} [type::${DRAFT_PROPOSAL_TYPE}] [proposal-status::${status}]${applies ? "" : ` [${DRAFT_PROPOSAL_APPLIES}::no]`}`;
+}
+
+/** Who sent a proposal, as its header names them: `@tidy`, else "an agent" or "someone". */
+function proposer(proposal: DraftProposal): string {
+  return proposal.actor?.actorId ? `@${actorName(proposal.actor.actorId)}` : proposal.actor?.author === "agent" ? "an agent" : "someone";
+}
+
+/**
+ * A proposal as one line, for a list that folds it into its note (the publisher's "inside", PIE-1333): "1 edit from
+ * @tidy, applied", "1 edit (3 changes) from @tidy, open". Never its patch. Null when the text holds no patch.
+ */
+export function proposalLine(text: string, properties: readonly { key: string; value: string }[]): string | null {
+  const proposal = parseProposal(text);
+  // A payload that parses but isn't a patch (an edit with no spans, a group with no writes) is drawn by its title instead.
+  if (!proposal || !proposal.edits.every(edit => Array.isArray(edit?.patches)) || (proposal.group !== undefined && !Array.isArray(proposal.group?.writes))) return null;
+  const changes = proposalChanges(proposal);
+  return `1 edit${changes > 1 ? ` (${changes} changes)` : ""} from ${proposer(proposal)}, ${proposalStatus(properties)}`;
 }
 
 /**
