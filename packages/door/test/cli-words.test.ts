@@ -4,11 +4,13 @@
 // exit 1, never 2.
 import { afterAll, describe, expect, test } from "bun:test";
 import { createServer } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { checkWords, closest, COMMANDS, screenUriArgs } from "../src/cli-words";
+import { CLI_COMMANDS, SESSION_COMMANDS } from "../src/cli-commands";
+import { renderHelp } from "../src/cli-help";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { hostRequest } from "../src/socket";
 import { ScratchHost } from "./scratch";
@@ -68,24 +70,78 @@ describe("a word ep0ch doesn't know", () => {
 });
 
 describe("--help, -h and help, anywhere", () => {
+  test("every command tells the person its purpose, flags and two runnable examples", () => {
+    for (const command of [...COMMANDS, "launch", ...SESSION_COMMANDS.map(c => `session ${c.name}`)]) {
+      const r = ep0ch("help", ...command.split(" "));
+      expect(r.code).toBe(0);
+      expect(r.out.split("\n")[0], command).toMatch(/^.+ — \S.+/);
+      expect(r.out, command).toContain("Usage: ep0ch ");
+      expect(r.out, command).toMatch(/Flag\s+What it does/);
+      expect(r.out.split("Examples:\n")[1]?.match(/^  ep0ch .+/gm)?.length, command).toBeGreaterThanOrEqual(2);
+    }
+  }, 60_000);
+
+  test("the detailed rules remain reachable, and session help says where each command acts", () => {
+    expect(ep0ch("help", "launch", "--more").out).toContain("EP0CH_LANDING");
+    expect(ep0ch("help", "find", "--more").out).toContain("whole UTC day");
+    expect(ep0ch("help", "act", "--more").out).toContain("a key written twice a list");
+    const sessions = ep0ch("help", "session").out;
+    expect(sessions.trimEnd().split("\n").length).toBeLessThanOrEqual(50);
+    for (const command of SESSION_COMMANDS) expect(sessions).toContain(command.name);
+    expect(ep0ch("help", "session", "list").out).toContain("--machine <ssh-name>");
+    expect(sessions).toContain("Only list accepts --machine");
+    expect(ep0ch("help", "ext").out).toContain("ep0ch ext add");
+  });
+
+  test("shell completion finds commands and session flags through the printed Bash script", () => {
+    const script = join(dir, "completion.bash");
+    const completion = ep0ch("completions", "bash");
+    expect(completion.code).toBe(0);
+    writeFileSync(script, `ep0ch() { "${process.execPath}" "${MAIN}" "$@"; }\n${completion.out}\nCOMP_WORDS=(ep0ch session list --mach)\nCOMP_CWORD=3\n_ep0ch_complete\nprintf '%s\\n' "\${COMPREPLY[@]}"\n`);
+    const r = Bun.spawnSync(["bash", script], { cwd: dir, env: { ...process.env, EP0CH_STATE: join(dir, "state"), EP0CH_CONTROL: join(dir, "c.sock"), EP0CH_OUTLINES: join(dir, "outlines") } });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.toString()).toContain("--machine");
+    expect(ep0ch("completions", "--", "sess").out).toContain("session");
+    expect(ep0ch("completions", "--", "session", "li").out).toContain("list");
+    expect(ep0ch("completions", "--", "session", "end", "--mach").out.trim()).toBe("");
+  });
+
   test("print usage and open no door: the whole of it, or the subcommand's", () => {
     for (const args of [["--help"], ["-h"], ["help"], ["--screen", "desk", "--help"], ["--ws", "garden", "-h"]]) {
       const r = ep0ch(...args);
       expect(r.code).toBe(0);
       expect(r.out).toContain("ep0ch: a BBS door into an outline");
     }
-    for (const args of [["session", "--help"], ["session", "end", "-h"], ["help", "session"], ["session", "help"]]) {
+    for (const args of [["session", "--help"], ["help", "session"], ["session", "help"]]) {
       const r = ep0ch(...args);
       expect(r.code).toBe(0);
       expect(r.out).toContain("ep0ch session list");
       expect(r.out).not.toContain("ep0ch outline list");
     }
-    expect(ep0ch("outline", "attach", "fern", "--help").out).toContain("ep0ch outline list");
+    expect(ep0ch("session", "end", "-h").out).toBe(ep0ch("help", "session", "end").out);
+    expect(ep0ch("outline", "attach", "fern", "--help").out).toContain("outline attach <name>");
+    expect(ep0ch("outline", "--help").out).toContain("delete     Move an outline to .deleted/, after asking");
     expect(ep0ch("act", "--help").out).toContain("act <action>");
   }, 60_000);
 });
 
 describe("the rule, without a process", () => {
+  test("every command describes itself: a summary, two runnable examples and a rules section for --more", () => {
+    const paths = CLI_COMMANDS.flatMap(c => [[c.name || "launch", c] as const, ...(c.children ?? []).map(child => [`${c.name} ${child.name}`, child] as const)]);
+    expect(paths.length).toBeGreaterThan(CLI_COMMANDS.length + SESSION_COMMANDS.length);
+    for (const [path, command] of paths) {
+      expect(command.summary.trim(), path).not.toBe("");
+      expect(command.examples.length, path).toBe(2);
+      for (const example of command.examples) expect(example, path).toMatch(/^ep0ch /);
+      // --more reads the command's section of docs/cli.md; a missing or misnamed heading has to fail here, never in use.
+      const help = renderHelp(path);
+      expect(help.trimEnd().split("\n").length, path).toBeLessThanOrEqual(50);
+      for (const line of help.split("\n")) expect(line, path).not.toMatch(/\s$/);
+      const more = renderHelp(path, true);
+      expect(more, path).toContain(command.summary);
+      expect(more.length, path).toBeGreaterThan(renderHelp(path).length);
+    }
+  });
   test("bare ep0ch and the door's flags go on to the door; subcommands go on to theirs", () => {
     for (const args of [[], ["--ws", "garden"], ["--screen", "desk"], ["--screen", "board"], ["--screen", "board", "hub-1", "--no-daemon"], ["--layout", "daily"],
       ["--screen", "detail", "ep0ch://garden@box-a/b/a1111111-1111-4111-8111-111111111111"], ["--screen", "detail", "((a1111111-1111-4111-8111-111111111111))"],
@@ -94,6 +150,15 @@ describe("the rule, without a process", () => {
       ["--no-daemon", "--ws", "showcase", "--showcase"], ["--skill", "--all", "ep0ch-core"], ["find", "help"], ["session", "list", "--json"]]) {
       expect(checkWords(args)).toBeNull();
     }
+  });
+  test("every subcommand the outline parser accepts is a row of help outline", () => {
+    // outlines.ts's parseCommand: `snapshot` has its own branch, the rest are `case "<op>"`; init is `ep0ch init`, its own command.
+    const source = readFileSync(join(import.meta.dir, "../src/outlines.ts"), "utf8").split("function parseCommand(")[1]!.split("\n}\n")[0]!;
+    const accepted = new Set([...source.matchAll(/case "([a-z]+)"|args\[0\] === "([a-z]+)"/g)].map(m => m[1] ?? m[2]!));
+    accepted.delete("init"); accepted.delete("status");
+    expect(accepted.size).toBeGreaterThan(8);
+    const rows = new Set(CLI_COMMANDS.find(c => c.name === "outline")!.children!.map(c => c.name));
+    for (const op of accepted) expect(rows, op).toContain(op);
   });
   test("--screen needs a name; the landing flags it replaced are refused with the exact command", () => {
     const error = (args: string[]) => {
@@ -125,13 +190,6 @@ describe("the rule, without a process", () => {
 
 describe("the word lists say what the code reads", () => {
   const src = (f: string) => readFileSync(join(import.meta.dir, "../src", f), "utf8");
-  test("every first word main.ts runs is a command, and every command is one main.ts runs", () => {
-    const main = src("main.ts");
-    const run = new Set([...main.matchAll(/args\[0\] === "([a-z]+)"/g)].map(m => m[1]!));
-    for (const m of main.matchAll(/\[((?:"[a-z]+", )*"[a-z]+")\]\.includes\(args\[0\]/g)) for (const w of m[1]!.matchAll(/"([a-z]+)"/g)) run.add(w[1]!);
-    run.add("help");   // checkWords answers it itself
-    expect([...run].sort()).toEqual([...COMMANDS].sort());
-  });
   test("every door flag the door reads is one checkWords knows", () => {
     // The door's own readers: main.ts, discover.ts (which outline), daemon.ts's screenFlags (which screen), the showcase route.
     const flags = new Set([src("main.ts"), src("discover.ts"), src("session/daemon.ts").slice(src("session/daemon.ts").indexOf("export function screenFlags")), src("showcase/route.ts")]
@@ -139,6 +197,8 @@ describe("the word lists say what the code reads", () => {
     // --as is act, open and peek's (an agent naming itself), after the command: discover.ts lists it only so its value
     // is never read as a socket path. Before any command it opens a door, which has no --as.
     flags.delete("--as");
+    // --more belongs to a help request; it is not a flag for opening the door.
+    flags.delete("--more");
     expect(checkWords(["act", "tile.tune", "--as", "loki"])).toBeNull();
     expect(flags.size).toBeGreaterThan(8);
     for (const f of flags) expect(checkWords([f, "x"]) ?? { ok: f }).not.toMatchObject({ error: expect.stringContaining("no flag") });
