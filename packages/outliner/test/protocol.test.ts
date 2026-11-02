@@ -1562,6 +1562,7 @@ test("serves mutations and property queries over the local socket", async () => 
   });
   expect(spacedMatches).toEqual({
     blocks: [expect.objectContaining({ id: spaced.id })],
+    more: false,
     completeness: { kind: "complete" },
   });
   const allocatorBefore = await client.request<WorkIdAllocatorStatus>({

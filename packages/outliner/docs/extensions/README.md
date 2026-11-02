@@ -1913,9 +1913,11 @@ A new block under `parentId` (none: the top level), last among its siblings. Pro
 | Field | Type | |
 |---|---|---|
 | `parentId?` | `string \| null` |  |
+| `position?` | `number` |  |
+| `requestId?` | `string` |  |
 | `text` | `string` |  |
 
-Answers `Block`.
+Answers `Block & { deduplicated?: true \| undefined; }`.
 
 #### `update`
 
@@ -1937,12 +1939,12 @@ A block moved under `parentId` (`null`: the top level), at `position` among its 
 |---|---|---|
 | `blockId` | `string` |  |
 | `parentId?` | `string \| null` |  |
+| `position?` | `number` |  |
 | `expectedRevision` | `number` | The block's revision as you read it (`get`): a block saved since is refused. |
 | `to?` | `string` |  |
 | `before?` | `string` |  |
 | `after?` | `string` |  |
 | `step?` | `"up" \| "down" \| "in" \| "out"` |  |
-| `position?` | `number` |  |
 
 Answers `Block`.
 
@@ -2079,10 +2081,12 @@ Answers `RenderedNote`.
 | `propertyScope?` | `PropertyQueryScope` |  |
 | `sort?` | `string \| BlockQuerySort` | An object, or `"<field>[ asc\|desc]"` (asc unless said). |
 | `limit?` | `number` | Rows returned: 200 when left out, at most 1000. |
+| `offset?` | `number` |  |
 | `group?` | `string` | A property name, or a date bucket (created:month, updated:recent, due:week): the answer's `groups`, over every match. |
 | `facets?` | `true \| string[]` | `true`: value counts for every key the matches carry; or these keys. |
-| `facetValues?` | `number` | Values a facet lists per key: 50 when left out, at most 1000. |
-| `facetKeys?` | `number` | Keys `facets: true` lists: 50 when left out, at most 1000. |
+| `facetValues?` | `number` |  |
+| `facetSearch?` | `string` |  |
+| `facetKeys?` | `number` |  |
 | `machinery?` | `MachineryMode` | `hide` leaves out what tools write for their own bookkeeping (`[machine::…]`, outline-core `machinery.ts`), `only` holds just that, `show` everything (PIE-867). The service's requests answer `hide` when it is left out; asked of the store directly, left out means unfiltered. |
 | `countMachinery?` | `boolean` | `true`: with `machinery: hide`, the answer's `machineryLeftOut` counts every stamped note the same question would have held, by producer, and says so in words (PIE-1427): a recent-activity read reports what it left out. |
 
@@ -2090,6 +2094,8 @@ Answers `RenderedNote`.
 
 | Field | Type | |
 |---|---|---|
+| `more?` | `boolean` |  |
+| `nextOffset?` | `number` |  |
 | `blocks` | `VisibleBlock[]` |  |
 | `completeness` | `BlockCollectionCompleteness` |  |
 | `machineryHidden?` | `number` | How many notes `machinery: hide` left out of the answer (at most 50: then there are more), when it left any (PIE-867). |
