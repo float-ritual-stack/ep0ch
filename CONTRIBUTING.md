@@ -54,6 +54,9 @@ Before a PR claims a change works:
      whole (a scenario is held to `PARITY_BUDGET_MS`, 60 s); run the scenarios you touched with `PARITY_ONLY` (see the
      ep0ch-core skill). Name the files from the package or from the root (`packages/door/test/edit.test.ts`): from the
      root, the root `bunfig.toml` runs every package's own `test/preload.ts` (`scripts/test-preload.ts`).
+   - **The nightly run on main** is `scripts/nightly-main`, started by the float-box user timer `ep0ch-nightly.timer`
+     at 04:00: `box-test --each all` on origin/main's head, a row in `~/.local/state/ep0ch/nightly/nightly.tsv`, and on red
+     one high ticket in pie naming every red file.
    - **Whole suites** (loki's merge batch, the nightly run on main) go through
      `scripts/box-test [--on float-box|boxd] [--each] [door|outliner|outline-core|claude-mod|all]`: float-box when it
      answers, else a boxd fork of the golden box (`--refresh-golden` rebuilds it after a `bun.lock` change). It runs
