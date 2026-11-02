@@ -45,7 +45,15 @@ export const BACKLOG_LIMIT = 4 << 20;
  * with the latest. Two: one on the wire while the next is made, never a queue.
  */
 export const FRAMES_IN_FLIGHT = 2;
-/** A frame unanswered this long is given up on (a terminal that swallowed the answer): the window opens, and it's counted. */
+/**
+ * A frame unanswered is given up on after this many of the client's own round trips (`ackMs`, smoothed): the window
+ * opens and it's counted (PIE-1500: a terminal that loses an answer now and then, Tern on the mini, froze the screen 5 s
+ * each time while keys still landed). Four trips: a frame that carries an image takes longer than the average one.
+ */
+export const ACK_STALE_TRIPS = 4;
+/** Never less than this (a local link's 20 ms trips would give up on a hiccup), and never more than ACK_STALE_MS. */
+export const ACK_STALE_FLOOR_MS = 300;
+/** A frame unanswered this long is given up on whatever the client's pace, and it's the wait while none is measured yet. */
 export const ACK_STALE_MS = 5000;
 /**
  * A program given the terminal waits this long for the frames in flight to be answered: an answer arriving after would be
@@ -77,8 +85,8 @@ export class SessionClient {
   /** What the window did, for `peek`: frames skipped, answers given up on, the smoothed round trip of an answer (ms). */
   skipped = 0; ackTimeouts = 0; ackMs: number | null = null;
   staleTimer: Timer | null = null;
-  /** Frames given up on whose answers may still come: the next that many answers are theirs, not newer frames'. */
-  lost = 0;
+  /** The end of a chunk that was answers only, cut mid-answer (`ESC [ 0` then `n` in the next read): the rest isn't the person either. */
+  answerTail = "";
   /** Called when `inflight` has emptied (a program waiting to be given the terminal). */
   settled: (() => void)[] = [];
   /** It just took the session at another size: its clicks were aimed at the old frame until it's painted again. */
@@ -307,7 +315,10 @@ export class SessionTerm implements Display {
   input(c: SessionClient, text: string): void {
     // A terminal's answers to the status queries (`CSI 0 n`) are counted by the decoder and are not the person: they
     // don't make this the client with the keys, nor reset its idle time (a quiet terminal answers every frame it is sent).
-    if (text.length && text.replaceAll(STATUS_OK, "") === "") { c.decoder.feed(text); return; }
+    // An answer cut in two by the reads (PIE-1500) is still only an answer: the decoder joins the halves.
+    const rest = (c.answerTail + text).replaceAll(STATUS_OK, "");
+    c.answerTail = rest && STATUS_OK.startsWith(rest) ? rest : "";
+    if (text.length && (rest === "" || c.answerTail)) { c.decoder.feed(text); return; }
     c.lastInput = Date.now();
     if (c.watch) { c.decoder.feed(text); return; }
     this.activate(c);
@@ -362,6 +373,9 @@ export class SessionTerm implements Display {
   }
 
   private key(c: SessionClient, k: Key) {
+    // A key or a click proves the terminal is alive and looked at: whatever it hasn't answered, its window opens and the
+    // latest frame goes (PIE-1500). Not a mouse motion: a drag over a slow link is what the window is for (PIE-1163).
+    if (k.kind !== "mouse" || k.action === "down" || k.action === "up") this.proofOfLife(c);
     // A click aimed at a frame drawn for another size: it took the session, and that's all it did.
     if (k.kind === "mouse" && c.fresh) return;
     this.keyHandler(k);
@@ -413,7 +427,10 @@ export class SessionTerm implements Display {
 
   /** `c`'s terminal answered a status query: the oldest frame in flight has been taken. */
   private answered(c: SessionClient): void {
-    if (c.lost) { c.lost--; return; }         // the answer to a frame given up on
+    // An answer is never set against a frame given up on: when two answers were truly lost, the next two real ones would
+    // be taken as theirs, the window full again, and the client frozen for another stale wait, forever (PIE-1500: the
+    // mini's tab at 81 timeouts with 2 unanswered). A late answer takes the oldest in flight instead: at worst one more
+    // frame goes out early.
     const sent = c.inflight.shift();
     if (sent === undefined) return;           // none was asked (an old answer after a handoff, or one given up on)
     const ms = performance.now() - sent;
@@ -428,6 +445,14 @@ export class SessionTerm implements Display {
     const w = c.settled; c.settled = []; for (const f of w) f();
   }
 
+  /** `c` typed or clicked: its terminal is alive, so what it was sent is taken; a frame it was waiting on goes now. */
+  private proofOfLife(c: SessionClient): void {
+    if (!c.inflight.length) return;
+    const skipped = c.waiting;
+    this.forgetWindow(c);
+    if (skipped) this.paintClient(c);
+  }
+
   /** Resolves when `c` has answered everything it was sent, or after `ms`: what is then unanswered is forgotten. */
   private untilAnswered(c: SessionClient, ms: number): Promise<void> {
     return new Promise(res => {
@@ -437,28 +462,35 @@ export class SessionTerm implements Display {
     });
   }
 
-  /** Ack time (ms) after which a frame unanswered is given up on: settable for a test. */
+  /** The most a frame unanswered waits before it's given up on (ms): the ceiling, and the wait while a client's pace is unknown; settable for a test. */
   ackStaleMs = ACK_STALE_MS;
-  /** A client waiting on an answer that never comes is painted again after ACK_STALE_MS, once, and it is counted. */
+  /** How long `c`'s frame may go unanswered: a few of its own round trips, between the floor and the ceiling. */
+  staleFor(c: SessionClient): number {
+    return c.ackMs === null ? this.ackStaleMs : Math.min(this.ackStaleMs, Math.max(ACK_STALE_FLOOR_MS, c.ackMs * ACK_STALE_TRIPS));
+  }
+  /** A client waiting on an answer that never comes is painted again after `staleFor` it, once, and it is counted. */
   private watchStale(c: SessionClient): void {
     if (c.staleTimer || !c.inflight.length) return;
-    const wait = Math.max(1, this.ackStaleMs - (performance.now() - c.inflight[0]!));
+    const wait = Math.max(1, this.staleFor(c) - (performance.now() - c.inflight[0]!));
     c.staleTimer = setTimeout(() => {
       c.staleTimer = null;
       if (!this.clients.includes(c) || !c.inflight.length) return;
-      if (performance.now() - c.inflight[0]! < this.ackStaleMs) return this.watchStale(c);
+      if (performance.now() - c.inflight[0]! < this.staleFor(c)) return this.watchStale(c);
       c.ackTimeouts++;
       const skipped = c.waiting;
-      c.lost += c.inflight.length;
       this.forgetWindow(c);
       if (skipped) this.paintClient(c);
     }, wait);
     c.staleTimer.unref?.();
   }
 
-  /** How each client's window stands, for `peek`'s `speed` (the daemon sees its socket; the terminal's answers say the link): frames unanswered, skipped, the round trip. */
-  speed(): { id: number; acks: boolean; unacked: number; skipped: number; ackMs: number | null; ackTimeouts: number }[] {
-    return this.clients.map(c => ({ id: c.id, acks: c.acks, unacked: c.inflight.length, skipped: c.skipped, ackMs: c.ackMs === null ? null : Math.round(c.ackMs * 10) / 10, ackTimeouts: c.ackTimeouts }));
+  /**
+   * How each client's window stands, for `peek`'s `speed` (the daemon sees its socket; the terminal's answers say the
+   * link): frames unanswered, skipped, the round trip, answers given up on, and `ackJoined`, answers that reached the
+   * session cut in two (evidence for a terminal or link that splits them, PIE-1500).
+   */
+  speed(): { id: number; acks: boolean; unacked: number; skipped: number; ackMs: number | null; ackTimeouts: number; ackJoined: number }[] {
+    return this.clients.map(c => ({ id: c.id, acks: c.acks, unacked: c.inflight.length, skipped: c.skipped, ackMs: c.ackMs === null ? null : Math.round(c.ackMs * 10) / 10, ackTimeouts: c.ackTimeouts, ackJoined: c.decoder.answersJoined }));
   }
 
   private paintClient(c: SessionClient): void {
