@@ -13,7 +13,7 @@ export type PickerPreview = (w: number, h: number) => string[];
  * room, and its docs beside it when 30 columns are free, else under it, each sized to what it holds: the list to its
  * rows, the docs to their lines (at most half the rows under a list that needs them).
  */
-function listWithDocs<T, H>(picker: ListPicker<T, H>, w: number, h: number, preview: PickerPreview | undefined, at: number, fit: { list: number }, anchor?: { col: number; width: number }) {
+function listWithDocs<T, H>(picker: ListPicker<T, H>, w: number, h: number, preview: PickerPreview | undefined, at: number, fit: { list: number; under?: number }, anchor?: { col: number; width: number }) {
   const listWidth = Math.max(1, Math.min(w, fit.list));
   const room = w - listWidth - 3;
   const beside = !!preview && room >= DOCS_BESIDE_COLS;
@@ -35,7 +35,8 @@ function listWithDocs<T, H>(picker: ListPicker<T, H>, w: number, h: number, prev
   const below = !!preview && h >= 6;
   if (below) {
     const docs = preview!(w, h - 2);
-    const docRows = Math.min(docs.length, Math.max(Math.floor((h - 1) / 2), h - 1 - need));
+    // With `fit.under` (the anchored popup), the docs take at most that many rows under the list, which keeps the rest.
+    const docRows = fit.under !== undefined ? Math.min(docs.length, fit.under, Math.max(0, h - 2)) : Math.min(docs.length, Math.max(Math.floor((h - 1) / 2), h - 1 - need));
     const listHeight = Math.min(need, h - 1 - docRows);
     const list = picker.lines(listWidth, listHeight, at);
     if (docRows > 0) {
@@ -54,7 +55,7 @@ function listWithDocs<T, H>(picker: ListPicker<T, H>, w: number, h: number, prev
  * popup's): the list is as wide as its rows and its docs placed by Helix's room rule (listWithDocs); without it, the
  * bar's: a 46% list with its preview beside at 90 columns.
  */
-export function listPreview<T, H>(picker: ListPicker<T, H>, w: number, h: number, preview?: PickerPreview, at = 0, readerWidth = w, anchor?: { col: number; width: number }, fit?: { list: number }) {
+export function listPreview<T, H>(picker: ListPicker<T, H>, w: number, h: number, preview?: PickerPreview, at = 0, readerWidth = w, anchor?: { col: number; width: number }, fit?: { list: number; under?: number }) {
   if (fit) return listWithDocs(picker, w, h, preview, at, fit, anchor);
   const beside = !!preview && readerWidth >= PREVIEW_COLS;
   const below = !!preview && !beside && h >= 6;

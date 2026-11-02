@@ -871,7 +871,7 @@ export class NoteSurface {
   /** The reveal this surface took last (`takeReveal`), so showing the note again doesn't scroll back to it. */
   private revealed: object | null = null;
   focusMark: { by: Actor; spec: FocusSpec; label: string; at: number; fragment?: boolean; line?: boolean; says?: string } | null = null;
-  private revealMark = false;
+  revealMark = false;
   /**
    * Folded headings and list items (their FoldPoint keys): this reader's reading state, never the note's
    * text. Kept while the note refreshes or is edited elsewhere; cleared when the reader shows another note.
@@ -3970,9 +3970,9 @@ export class NoteSurface {
       // In its own tile (PIE-846) the list and the picker are drawn there, and the note here stays as it was.
       editing: () => true, covers: () => cs.mode !== "compose" && cs.place !== "tile",
       key: (k, host) => this.commentKey(cs, k, host),
-      // Beside the box, a click on a link, a comment mark or back and forward goes there, asking first (PIE-785).
+      // Beside the box, a click on a link, a comment mark or back and forward goes there, asking first (PIE-785); one in the completion popup, at the caret beyond the box, is the popup's (PIE-1511).
       click: (x, y, host) => {
-        const r = this.boxRect;
+        const w = writing(), r = w && completerOf(w)?.within(x, y) ? null : this.boxRect;
         if ((cs.place === "floating" || cs.place === "popup") && r && (x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) return undefined;
         if (this.floatAt(x, y + (this.drawn?.heroRows ?? 0), host) === "comment" && this.sourcesMode) void this.runKey("sources.focus", { on: false }, host);
         const d = writing();
@@ -3984,7 +3984,7 @@ export class NoteSurface {
         if (!d) return false;
         // The floating box's top edge moves it, its ◢ corner and edges size it (PIE-785): comment.move, as ctrl+g's keys run it.
         if (this.frameDrag) { if (drag) this.dragFrame(x, y, host); return true; }
-        const r = !drag && cs.place === "floating" ? this.boxRect : null, z = r && frameZone(r, x, y);
+        const r = !drag && cs.place === "floating" && !completerOf(d)?.within(x, y) ? this.boxRect : null, z = r && frameZone(r, x, y);
         if (z) { this.frameDrag = { target: "comment", zone: z, x, y, from: r! }; return true; }
         return this.writePress(d, x, y, drag);
       },

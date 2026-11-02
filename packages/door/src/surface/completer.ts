@@ -25,8 +25,9 @@ import { type Rect } from "../canvas";
 // completion-sources.ts, PIE-1344, PIE-1366); only what the door alone knows (its actions, a fence's settings, a
 // button's steps) is DOOR_SOURCES below; outline-core's mergeSourceAnswers ranks them all with the one matcher, recent
 // and frequent picks first among equals.
-import { completionPicker, docsScroll, enterKeeps, renderCompletion } from "./completion-popup";
-export { enterKeeps, popupHint, renderCompletion } from "./completion-popup";
+import { completionPicker, docsScroll, enterKeeps, renderCompletion, type CompletionLayout } from "./completion-popup";
+import { RowPresses } from "../scroll";
+export { enterKeeps, popupHint, renderCompletion, type CompletionLayout } from "./completion-popup";
 import { COMPLETION_ACTIONS, personRuns } from "./completion-actions";
 export * from "./completion-actions";
 import { ActionRefused, shownLine } from "./actions";
@@ -446,6 +447,9 @@ export interface CompletionState extends CompletionLookup {
   line?: boolean;
 }
 
+/** Where the last frame placed the popup (completion-float): under the caret (A), above it, or the sheet along an edge (B). */
+export type CompletionPlacement = "below" | "above" | "sheet";
+
 /** One draft's completion popup: a lookup at a time, newer typing or a dismissal dropping older answers. */
 export class Completer {
   state: CompletionState | null = null;
@@ -508,6 +512,7 @@ export class Completer {
   dismiss(): void {
     this.search.cancel();
     this.previewGesture.cancel();
+    this.presses.forget();
     if (!this.state) return;
     if (!this.accepting) this.recordIgnored();
     this.state = null;
@@ -587,6 +592,7 @@ export class Completer {
     }
     const picked = explicit || (same && this.state?.picked);
     const turn = this.search.begin(), was = same ? this.state?.items[this.state.index]?.insertion : undefined;
+    this.presses.forget();
     this.state = { target, picked, line: this.d.complete !== undefined, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: "finding references...", loading: true, at: this.here() };
     this.redraw();
     if (explicit || !asksService(this.board, target)) return this.lookup(turn, target, was, explicit);
@@ -644,7 +650,12 @@ export class Completer {
           const hit = rankTextSearchMatches(lines.map((text, line) => ({ id: String(line), title: "", text, line })), this.state!.target.query, 1)[0]?.document;
           if (hit) await surface.revealAt(lines.slice(0, hit.line).reduce((n, l) => n + l.length + 1, 0), host);
         }
-        item.preview = (w, h) => surface.render(w, h, host).lines.slice(0, h).map(l => l.replace(TAGS, "").replace(MARKS, ""));
+        // The popup is measured before it's placed (completion-float): a height other than the last render's reveals the passage again.
+        let shownRows = -1;
+        item.preview = (w, h) => {
+          if (h !== shownRows && surface.focusMark) { shownRows = h; surface.revealMark = true; }
+          return surface.render(w, h, host).lines.slice(0, h).map(l => l.replace(TAGS, "").replace(MARKS, ""));
+        };
       }
       item.docs = ctx.selected ? [...ctx.ancestors.map(title), snippet(ctx.selected.text)].filter(Boolean).join(" » ") : "target unavailable";
       this.redraw();
@@ -690,10 +701,21 @@ export class Completer {
   }
 
   /** Where the last render drew the popup, in the editor's rows: its first row and each row's candidate. */
-  drawn: { row: number; col?: number; cols?: number; anchor?: number; items: (number | null)[] } | null = null;
+  drawn: { row: number; col?: number; cols?: number; anchor?: number; items: (number | null)[]; layout?: CompletionPlacement } | null = null;
+
+  /** Whether the host's cell `x`, `y` is inside the drawn popup (its frame, rows and preview): the popup's own press, before the host's. */
+  within(x: number, y: number): boolean {
+    const at = this.drawn;
+    const rows = at?.items.length ?? 0, left = at?.col ?? 0;
+    return !!this.shown && !!at && y >= at.row && y < at.row + rows && x >= left && x < left + (at.cols ?? Infinity);
+  }
+
+  /** The presses on the rows: a click lights a row and previews it, a second click on it inserts (RowPresses, as the power bar's). */
+  private readonly presses = new RowPresses();
 
   /**
-   * A click inserts. The preview and frame consume clicks without choosing.
+   * A click on a row lights it and shows its preview; a second click on the lit row inserts, however long after
+   * (PIE-1511). The preview and frame consume clicks without choosing.
    */
   click(y: number, x = 0, copy?: (text: string) => void): boolean {
     const s = this.shown, at = this.drawn;
@@ -718,13 +740,14 @@ export class Completer {
     if (x < (at.col ?? 0) + (s.listCol ?? 0) || x >= (at.col ?? 0) + (s.listWidth ?? Infinity)) return true;
     const i = at.items[y - at.row];
     if (i !== null && i !== undefined && s.items[i] && !s.loading) {
-      if (s.index !== i) { s.previewTop = 0; s.previewSelection = undefined; this.previewGesture.cancel(); s.moved = true; }
-      s.index = i; s.picked = true;
       if (s.items[i]!.children && at.items[y - at.row - 1] !== i && x === (at.col ?? 0) + (s.listWidth ?? 0) - 1) {
+        s.index = i; s.picked = true;
         void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, this, USER);
         return true;
       }
-      personRuns("complete.accept", { n: i + 1 }, this);
+      if (this.presses.press(i, { untimed: true }) === "open") { s.index = i; s.picked = true; personRuns("complete.accept", { n: i + 1 }, this); return true; }
+      s.picked = true;
+      if (s.index !== i) this.move(i - s.index); else this.redraw();
     }
     return true;
   }
@@ -737,12 +760,12 @@ export class Completer {
   }
 
   /** Repaint in the host's frame, keeping hit columns relative to its measured text. */
-  inFrame(w: number, col: number, height = this.drawn?.items.length ?? 0, values?: StyleValues): string[] {
+  inFrame(w: number, col: number, height = this.drawn?.items.length ?? 0, values?: StyleValues, layout: CompletionLayout = "anchored"): string[] {
     const at = this.drawn, s = this.shown;
     if (!at || !s) return [];
     at.col = col;
     at.cols = w;
-    return renderCompletion(s, w, height, at.items, (at.anchor ?? 0) - col, values);
+    return renderCompletion(s, w, height, at.items, layout, values);
   }
 
   previewPress(x: number, y: number, drag: boolean): boolean {

@@ -84,7 +84,7 @@ import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
 import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, COPY_PAGE, COPY_PAGE_TEMPLATE, COPY_CRATES, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, figureCellsText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, FIGURE_SIZING, LANDINGS, KEYS_TEXT, dashboardText, figuresText, markdownFiguresText, pageReadingText } from "./seed/figures";
 import { SEARCH_EVAL_SCORES, SEARCH_EVAL_SWEEP } from "./seed/notes";
-import { ASK_AGENT, DEEP_LINKS, ONE_COMPLETER, TRAIL_STOPS, trailStopText, backHubText, backJobText, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, WRITE_REVIEW, WRITE_REVIEW_FIXED, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
+import { ASK_AGENT, COMPLETION_PLACE, SOWING_WEEKS, DEEP_LINKS, ONE_COMPLETER, TRAIL_STOPS, trailStopText, backHubText, backJobText, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, WRITE_REVIEW, WRITE_REVIEW_FIXED, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { LIST_FOLDS } from "./seed/list-folds";
 import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
@@ -596,6 +596,8 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.meeting = await make(notes.root.id, MEETING);
   await board.completionPicked("((", pickId(`((${notes.meeting.id}))`));
   notes.deepLinks = await make(notes.root.id, DEEP_LINKS);
+  notes.completionPlace = await make(notes.root.id, COMPLETION_PLACE);
+  for (const week of SOWING_WEEKS) await make(notes.completionPlace.id, week.text);
   notes.stickyPlan = await make(notes.root.id, STICKY_PLAN);
   for (const job of STICKY_JOBS) await make(notes.stickyPlan.id, job);
   notes.stickyPad = await make(notes.root.id, STICKY_PAD);

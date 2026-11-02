@@ -3,7 +3,7 @@ import { parseFragmentCompletionQuery } from "@ep0ch/outline-core/completion-tri
 import type { CompletionItem, CompletionState } from "./completer";
 import { Canvas } from "../canvas";
 import { ListPicker, pickRow } from "./picker";
-import { listPreview } from "../bar/list-preview";
+import { DOCS_BESIDE_COLS, listPreview } from "../bar/list-preview";
 import { searchMatchSpans } from "@ep0ch/outline-core/search-match";
 import { declaredKeys, keyCaption } from "./actions";
 import { COMPLETION_ACCEPT, COMPLETION_MOVE, COMPLETION_DOCS, COMPLETION_DISMISS } from "./completion-actions";
@@ -12,47 +12,58 @@ import { printable } from "../text";
 import { drawVariation } from "../library/draw";
 import { paintRange, SELECT_BG } from "./selection";
 
+export type CompletionLayout = "anchored" | "sheet";
+/** The preview column beside the list in the anchored popup (sketch A): a real column, a third of the width within 40 to 60. */
+export const previewColumn = (w: number) => Math.max(40, Math.min(60, Math.floor(w / 3)));
+/** When the width has no room for the preview beside the list, it goes under the list, at most this tall. */
+export const PREVIEW_UNDER_ROWS = 6;
+
 /**
- * The popup as lines `w` wide, at most `h` tall: header, candidates (the selected one with its context),
- * footer. `rows`, when given, gets each line's candidate index (null for the header, context and footer).
+ * The popup as lines, one frame, two layouts (PIE-1511; completion-float chooses). `anchored` (A, the default): the
+ * list's rows with the preview a column beside them (under them when `w` has no room beside), then a status row
+ * (the heading and count, how Jev ranked, the list's note, the scope chips); as wide as its content within `w` and as
+ * tall as its rows within `h`; no header and no key hints (those are the status bar's). `sheet` (B): `w` wide, at
+ * most `h` tall, the header row first (heading, count, the typed token, scopes), list left and preview right. `rows`
+ * gets each line's candidate index (null for the frame, header, context and status rows).
  */
-export function renderCompletion(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], anchor = 0, values?: StyleValues): string[] {
-  if (h < 4 || w < 8) return completionLines(s, w, h, rows, anchor);
-  const body = completionLines(s, w - 3, h - 3, rows, Math.max(0, anchor - 1));
-  const canvas = new Canvas(w, body.length + 3);
-  const rect = { col: 0, row: 0, cols: w - 1, rows: body.length + 2 };
-  canvas.float(rect, "", "", () => body.forEach((line, y) => canvas.text(1, y + 1, line, w - 3)), false, values);
+export function renderCompletion(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], layout: CompletionLayout = "anchored", values?: StyleValues): string[] {
+  if (h < 4 || w < 8) return completionLines(s, w, h, rows, layout);
+  const body = completionLines(s, w - 2, h - 2, rows, layout);
+  const inner = Math.max(1, ...body.map(cells));
+  const cols = layout === "sheet" ? w : Math.min(w, inner + 2);
+  const canvas = new Canvas(cols, body.length + 2);
+  const rect = { col: 0, row: 0, cols, rows: body.length + 2 };
+  canvas.float(rect, "", "", () => body.forEach((line, y) => canvas.text(1, y + 1, line, cols - 2)), false, values);
   const picker = completionPicker(s);
-  const listRows = rows.filter(i => i !== null).length;
-  canvas.thumb({ col: s.listCol ?? 0, row: 1, cols: (s.listWidth ?? w - 3) - (s.listCol ?? 0) + 2, rows: listRows + 2 }, { top: picker.view.top, room: listRows, total: picker.totalRows }, fg(C.yellow));
-  rows.unshift(null); rows.push(null, null);
+  const first = rows.findIndex(i => i !== null), last = rows.findLastIndex(i => i !== null);
+  if (first >= 0) canvas.thumb({ col: s.listCol ?? 0, row: first, cols: (s.listWidth ?? inner) - (s.listCol ?? 0) + 2, rows: last - first + 3 }, { top: picker.view.top, room: last - first + 1, total: picker.totalRows }, fg(C.yellow));
+  rows.unshift(null); rows.push(null);
   s.listCol = (s.listCol ?? 0) + 1;
-  s.listWidth = (s.listWidth ?? w - 3) + 1;
+  s.listWidth = (s.listWidth ?? inner) + 1;
   if (s.previewRect) s.previewRect = { ...s.previewRect, col: s.previewRect.col + 1, row: s.previewRect.row + 1 };
   return canvas.lines();
 }
 
-function completionLines(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], anchor = 0): string[] {
+function completionLines(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], layout: CompletionLayout = "anchored"): string[] {
   rows.length = 0;
   s.previewRect = undefined;
   if (h <= 0) return [];
+  const sheet = layout === "sheet";
   // Titles come from notes: text.ts's printable takes out what a terminal acts on, pad cuts by cells, and a glyph
   // the VGA font lacks goes as its lookalike at the sink (App, CP437_NEAREST).
-  const line = (text: string, colour: string, back = "") => back + colour + pad(printable(text, " "), w) + RESET;
+  const line = (text: string, colour: string, width = w, back = "") => back + colour + pad(printable(text, " "), width) + RESET;
   const reference = s.target?.kind === "block" || s.target?.kind === "page";
   const echo = reference ? `  ${printable(s.at.line.slice(s.target.start, s.at.col), " ")}▌` : "";
   const scopes = reference ? [...s.target.query.matchAll(/(?:^|\s)([A-Za-z][A-Za-z0-9_.-]*):[ \t]*("[^"]*"|'[^']*'|[^\s:]*(?=\s|$))/g)]
     .map(m => chip(C.blue) + ` ${m[1]}: ${printable(m[2]!.replace(/^['"]|['"]$/g, ""), " ")} ` + RESET).join(" ") : "";
   if (!s.items.length) {
-    const out = reference && h > 1 ? [fg(C.lcyan) + pad(echo + (scopes ? ` ${scopes}` : ""), w) + RESET] : [];
-    out.push(line(` ${s.message || "no matches"}`, fg(s.loading ? C.grey : C.yellow)));
+    const width = sheet ? w : Math.min(w, Math.max(48, cells(s.message ?? "") + 2));
+    const out = reference && h > 1 ? [fg(C.lcyan) + pad(echo + (scopes ? ` ${scopes}` : ""), width) + RESET] : [];
+    out.push(line(` ${s.message || "no matches"}`, fg(s.loading ? C.grey : C.yellow), width));
     rows.push(...out.map(() => null));
     return out;
   }
-  const header = h >= 3, footer = h >= 2 && (!reference || h >= 6);
   const out: string[] = [];
-  const ranking = !footer && s.jev ? ` · jev ${s.jev}` : "";
-  if (header) rows.push(null), out.push(fg(C.lcyan) + pad(` ${printable(s.heading ?? "completions", " ")} ${s.index + 1}/${s.items.length}${echo}${ranking}${scopes ? ` ${scopes}` : ""}${s.loading ? " · finding..." : ""}`, w) + RESET);
   const picker = completionPicker(s);
   picker.sel = s.index;
   const selected = s.items[s.index]!;
@@ -70,26 +81,56 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
       return span ? paintRange(line, span[0], span[1], SELECT_BG) : line;
     });
   };
-  const labelWidth = Math.min(w, Math.max(48, Math.min(listMaxCols(w), Math.max(...s.items.map(rowWidth)))));
-  const anchorCol = s.target.kind === "agent" || s.target.kind === "component" || s.target.kind === "attribute" || s.target.kind === "attribute-value" ? 0 : anchor;
-  const drawn = listPreview(picker, w, Math.min(24, h - Number(header) - Number(footer)), preview, 0, w, { col: anchorCol, width: labelWidth }, { list: labelWidth });
-  if (drawn.preview) s.previewRect = { ...drawn.preview, row: drawn.preview.row + Number(header) };
+  // Whether Jev ordered the list, said quietly, and how sure it is. Where it and a note about the list don't both fit
+  // (40 columns, PIE-1409), how sure is said in its own words alone.
+  const long = s.jev === "ranked" ? (s.sure?.label ? `jev ranked · ${s.sure.label}` : "jev ranked") : s.jev === "asking" ? "jev…" : "";
+  const jev = s.message && s.sure?.label && cells(` ${long} · ${s.message}`) > w ? s.sure.label : long;
+  const count = `${printable(s.heading ?? "completions", " ")} ${s.index + 1}/${s.items.length}`;
+  const said = [jev, s.message ?? "", scopes, s.loading ? "finding..." : ""].filter(Boolean);
+  // The list is as wide as its rows (48 to 60 columns); the preview a column beside it when 30 are free, else under it.
+  const labelWidth = listColumns(s, w);
+  const beside = previewBeside(s, w);
+  const inner = sheet ? w : beside ? Math.min(w, labelWidth + 3 + previewColumn(w)) : labelWidth;
+  if (sheet) rows.push(null), out.push(fg(C.lcyan) + pad(` ${count}${echo}${said.map(x => ` · ${x}`).join("")}`, w) + RESET);
+  // The sheet's header row, or the anchored popup's rule and status row (when there's room for a row besides), come out of `h`.
+  const status = !sheet && h >= 4;
+  const bodyRows = sheet ? h - 1 : status ? h - 2 : h;
+  const need = picker.lines(labelWidth, bodyRows, 0).length;
+  const height = sheet ? bodyRows : beside ? Math.min(bodyRows, need) : Math.min(bodyRows, need + 1 + PREVIEW_UNDER_ROWS);
+  const drawn = listPreview(picker, inner, height, preview, 0, inner, { col: 0, width: labelWidth }, { list: labelWidth, ...(sheet ? {} : { under: PREVIEW_UNDER_ROWS }) });
+  if (drawn.preview) s.previewRect = { ...drawn.preview, row: drawn.preview.row + Number(sheet) };
   s.listCol = drawn.listCol;
   s.listWidth = drawn.listWidth;
   rows.push(...drawn.rows); out.push(...drawn.lines);
-  // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
-  const long = s.jev === "ranked" ? (s.sure?.label ? `jev ranked · ${s.sure.label} · ` : "jev ranked · ") : s.jev === "asking" ? "jev… · " : "";
-  // Where it and a note about the list don't both fit (40 columns, PIE-1409), how sure is said in its own words alone.
-  const jev = s.message && s.sure?.label && cells(` ${long}${s.message}`) > w ? `${s.sure.label} · ` : long;
-  const hint = completionHint(s, selected);
-  const enter = enterKeeps(s);
-  const keys = enter ? `↑↓ tab ⏎ ${enter} esc` : "↑↓ ⏎/tab esc";
-  // The keys stay said under a note about the list (the first 20, a refusal): the note first, the keys after it.
-  const said = s.message ? `${s.message} · ` : "";
-  const fitted = cells(` ${jev}${said}${hint}`) <= w ? hint : cells(` ${jev}${said}${keys}`) <= w ? keys : "";
-  if (footer) rows.push(null), out.push(line(` ${jev}${said}${fitted}`.replace(/ · $/, ""), fg(s.message ? C.yellow : C.grey)));
+  if (status) {
+    // The status row (sketch A): the count first when it fits with the rest, else the rest alone, cut by cells.
+    const parts = [count, ...said];
+    if (parts.length > 1 && cells(` ${parts.join(" · ")}`) > inner) parts.shift();
+    rows.push(null, null);
+    out.push(fg(C.blue) + "─".repeat(inner) + RESET, line(` ${parts.join(" · ")}`, fg(s.message ? C.yellow : C.grey), inner));
+  }
   rows.length = Math.min(rows.length, h);
   return out.slice(0, h);
+}
+
+/** The list's width in a popup `w` wide: its rows' own width, 48 to 60 columns, never past `w`. */
+export const listColumns = (s: CompletionState, w: number) => Math.min(w, Math.max(48, Math.min(listMaxCols(w), Math.max(...s.items.map(rowWidth)))));
+/** Whether a popup `w` wide puts the preview beside the list (Helix's rule: 30 columns free) rather than under it. */
+export const previewBeside = (s: CompletionState, w: number) => w - listColumns(s, w) - 3 >= DOCS_BESIDE_COLS;
+
+/**
+ * How tall the anchored popup (A) comes out at most, framed, in `w` columns and at most `h` rows, from the list alone:
+ * the preview beside it is as tall as the rows, under it at most PREVIEW_UNDER_ROWS. The float places by this before
+ * drawing once, so a frame never draws the preview twice at two heights (which would reset its scroll).
+ */
+export function anchoredRows(s: CompletionState, w: number, h: number): number {
+  if (!s.items.length) return Math.min(h, 4);
+  const inner = Math.max(1, w - 2), bodyRows = Math.max(1, h - 4);
+  const picker = completionPicker(s);
+  picker.sel = s.index;
+  const need = picker.lines(listColumns(s, inner), bodyRows, 0).length;
+  const body = previewBeside(s, inner) ? need : Math.min(bodyRows, need + 1 + PREVIEW_UNDER_ROWS);
+  return Math.min(h, body + 4);
 }
 
 /** The columns a row wants: marker, label, its detail (up to a cap), its kind and a component's arrow. */

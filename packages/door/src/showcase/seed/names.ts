@@ -157,6 +157,7 @@ export const SEED = {
   frost: "Before the first frost",
   race: "Seed sowing guide",
   deepLinks: "Deep links, by hand",
+  completionPlace: "Sowing calendar, completion practice",
   stickyPlan: "Raised beds plan",
   stickyPad: "Sticky pad",
   oneCompleter: "Seed tray jobs",

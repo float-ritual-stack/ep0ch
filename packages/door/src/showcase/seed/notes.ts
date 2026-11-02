@@ -530,6 +530,24 @@ export const ZOOM_PLAN = [
 ].join("\n");
 export const ZOOM_JOBS = ["Prune the Bramley", "Grease-band the trunks", "Mulch the young trees"];
 
+/** The sowing weeks the completion placement demo completes (PIE-1511): pages with a dim detail and a body to preview. */
+export const SOWING_WEEKS = Array.from({ length: 6 }, (_, i) => ({
+  page: `sow-wk${i + 1}`,
+  text: `Sowing week ${i + 1} [page::sow-wk${i + 1}] [status::${i < 2 ? "done" : "planned"}]\nWhat goes in the cold frame in week ${i + 1}: ${["broad beans", "sweet peas", "leeks", "lettuce", "beetroot", "runner beans"][i]}.\n« [[sow-wk${Math.max(1, i)}]] | [[sow-wk${Math.min(6, i + 2)}]] »`,
+}));
+/**
+ * The completion placement demo (PIE-1511): a long note whose edit opens on its first plan line with `[[sow-` typed.
+ * The same popup drops under the caret (A); lower down, where it won't fit, it opens as a sheet along the bottom (B);
+ * near the bottom it goes above the caret.
+ */
+export const COMPLETION_PLACE = [
+  SEED.completionPlace,
+  "",
+  "The edit is open with `[[sow-` typed on the first plan line: the matches drop under the cursor with the preview beside them, only as tall as the rows. Move down a few lines and ctrl+space there: where it won't fit under the cursor it opens as a short sheet along the bottom, list left and preview right. Near the bottom it goes above the cursor. The keys are in the status bar, not the box. A click lights a row and previews it, a second click inserts it, the wheel moves through the rows.",
+  "",
+  ...Array.from({ length: 40 }, (_, i) => `- Bed ${i + 1}: plan `),
+].join("\n");
+
 export const DEEP_LINKS = [
   SEED.deepLinks,
   "",
