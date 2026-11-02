@@ -632,5 +632,7 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     key({ kind: "char", ch: "w", ctrl: true } as Key); key(char("x"));
     expect(D().describe().panes).toEqual([]);
     expect(saved().root).toMatchObject({ t: "tabs", tabs: [] });
+    // The emptied desk still draws, hint row and all (Nov 2: a desk saved this way crashed the session on every entry).
+    expect(() => desk.render(D().ctx)).not.toThrow();
   });
 });

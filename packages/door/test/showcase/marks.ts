@@ -62,6 +62,7 @@ export const marks: Record<string, string[]> = {
   // EchoNet's message areas on the mini network: the band's rail, both areas, the nodelist's down node and the one that dials in.
   echonet: ["MESSAGE AREAS", "PLOT.CHAT", "SEED.SWAP", "society@box-a", ",DOWN", ",DIAL", "last tosses"],
   terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
+  restart: ["a made-up claude, pid", "kitty"],
   lift: ["Allotment notebook", "Our plot at the Elm Row allotments."],
   addresses: ["Allotment notebook", "first", "second", "third"],
   "named-agent": ["no agent named fern", "ep0ch agent start fern", "a shell here"],
@@ -99,6 +100,7 @@ export const marks: Record<string, string[]> = {
   "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
   peek: ["Garden peeks", "Check the forecast", "Sort the seeds", "1/2"],
   glass: ["Links on the glass", "tool shed", "The full title stays readable"],
+  "in-place": ["Garden walk: the gate", "open → in place"],
   "quiet-collection": ["Needs a gardener", "Check seeds", "Read report", "2 notes"],
   "collection-tune": ["Tune the garden collection", "Water the beans"],
   "figure-settings": ["Sprint: the garden week", "THIS WEEK'S GARDEN WORK", "≡ settings"],
@@ -200,7 +202,7 @@ export const marks: Record<string, string[]> = {
   "style-one-list": ["Style one list of several", "First oats", "Middle beans", "Last sage", "tune · lists"],
   "retired-looks": ["An old header look", "tune · old", "6 retired header-image keys", "[remove]"],
   // The component library on the heading styles' page: its tabs, its parts, the minimal example.
-  library: ["Heading styles", "1 overview", "Minimal example"],
+  library: ["library · heading-style · overview", "one property at a time", "every combination"],
   // The outline beside a reader over two details, the second folded to a spine: the tiles the power bar lists as a tree.
   bar: ["outline", "Kitchen whiteboard", "Bike shed"],
   // A reader and a shell for a hyper chord to reach the door from, and the part's line.

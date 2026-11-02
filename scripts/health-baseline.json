@@ -1,8 +1,8 @@
 {
-  "revision": "3b442a04b005368cefb5512e491a8c17fba3074c",
+  "revision": "407c72b7ad5378810e3ccd52e41a8335178c273b",
   "patterns": {
     "width-length": {
-      "count": 250,
+      "count": 248,
       "sites": [
         "packages/door/src/agent-fleet.ts:9566dd856b2d71fd",
         "packages/door/src/art-view.ts:68df40cd5e12d1a5",
@@ -136,8 +136,6 @@
         "packages/door/src/hub/welcome.ts:ce412ace7ab42dc4",
         "packages/door/src/hub/welcome.ts:b986096d92c12a61",
         "packages/door/src/hub/welcome.ts:4d882a4bb37cd91e",
-        "packages/door/src/library/library.ts:aa5230f874e4391f",
-        "packages/door/src/library/library.ts:405601ebcc59e5c6",
         "packages/door/src/library/library.ts:aac173439a95785f",
         "packages/door/src/list-look.ts:95bc40410a83164f",
         "packages/door/src/macros.ts:f752f36d7b652bb2",

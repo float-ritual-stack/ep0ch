@@ -556,7 +556,6 @@ describe("the rest of the layout's operations", () => {
 
   test("links and opens-into: where a tile's opens land, checked against what takes notes", () => {
     no(fresh(), { op: "link", tile: 1, to: 3 }, /thread is a thread tile: opens land in a tile that takes notes \(reader\)/);
-    no(fresh(), { op: "link", tile: 2, to: 2 }, /reader can't open into itself/);
     const s = ok(fresh(), { op: "link", tile: 1, to: 2 }).state;
     expect(placement(s, { from: 1, fresh: false, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ to: 2 });
     const into = ok(fresh(), { op: "policy", tile: 3, set: { opensInto: "reader" }, clear: [] }).state;
@@ -564,6 +563,33 @@ describe("the rest of the layout's operations", () => {
     no(fresh(), { op: "policy", tile: 3, set: { opensInto: "thread" }, clear: [] }, /thread is a thread tile: opens land in a tile that takes notes/);
     // Closing the tile a link names takes the link away.
     expect(ok(s, { op: "close", tile: 2 }, PERSON, { focus: 1 }).state.wires.length).toBe(0);
+  });
+
+  test("a tile wired to itself opens in place (PIE-1516): a reader, a pinned one and a list replace what they show, no spine", () => {
+    try {
+      // A held reader showing another note: a wire from elsewhere would keep a spine; its own wire replaces in place.
+      extra = { 2: { held: true, showing: "old" }, 1: { lists: true } };
+      const self = ok(fresh(), { op: "link", tile: 2, to: 2 }).state;
+      expect(self.wires).toEqual([{ from: 2, verb: "open", to: 2 }]);
+      const here = placement(self, { from: 2, fresh: false, note: "arrival" }, ctxOf(PERSON));
+      expect(here.destination).toEqual({ kind: "swap", tile: 2, inPlace: true });
+      expect(here.keep).toBeUndefined();
+      // Pinned: the wire is the person's choice, so the open replaces in place instead of landing beside.
+      extra = { 2: { held: true, pinned: true, showing: "old" } };
+      const pinned = placement(self, { from: 2, fresh: false, note: "arrival" }, ctxOf(PERSON));
+      expect(pinned.destination).toEqual({ kind: "swap", tile: 2, inPlace: true });
+      expect(pinned.besideOf).toBeUndefined();
+      // A list (the tree) wired to itself: the open lands in the list's own tile, even with a reader already showing the note.
+      extra = { 1: { lists: true }, 2: { showing: "arrival" } };
+      const list = ok(fresh(), { op: "link", tile: 1, to: 1 }).state;
+      expect(placement(list, { from: 1, fresh: false, note: "arrival" }, ctxOf(PERSON)).destination).toEqual({ kind: "swap", tile: 1, inPlace: true });
+      // The open rule says it for every tile under a container: `self`.
+      const rule = ok(fresh(), { op: "policy", node: "screen", set: { opens: "self" }, clear: [] }).state;
+      expect(placement(rule, { from: 1, fresh: false, note: "arrival" }, ctxOf(PERSON)).destination).toEqual({ kind: "swap", tile: 1, inPlace: true });
+      // A tile that neither shows nor lists notes has nothing to replace; a selection never shows in its own list.
+      no(fresh(), { op: "link", tile: 3, to: 3 }, /thread is a thread tile: opens land in a tile that takes notes/);
+      no(list, { op: "link", tile: 1, to: 1, verb: "select" }, /tree's select can't land in itself/);
+    } finally { extra = {}; }
   });
 
   test("an open with link= (tile.preview) is opened and linked in one step, by link's rules; reveal shows a tile without the keys", () => {
