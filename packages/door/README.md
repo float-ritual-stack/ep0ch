@@ -2832,10 +2832,10 @@ design-system page per component. `ep0ch --screen library` opens it (`--screen l
 showcase outline). On a running session, `ep0ch --screen library` opens it there and says so on the status bar.
 
 On the left, a **rail**: every component by name under its group, with the group's count (PIE-1515). It is the door's
-one list (`ListView`), so its keys are the lists' (`list.step`, `list.pick`, `list.filter`), and the groups are each
+one list (`ListView`), so its keys are the lists' (`j` `k`, `list.step`, `list.pick`, `list.filter`), and the groups are each
 schema's own `group`: nothing in the library names them. An agent's pick or filter there is its own, drawn in its tint;
 the page stays the person's. When the tile is under 71 columns the rail folds into the header (`‹ graph-annotate ›`,
-`,` `.` or a click on `‹` `›` step) and the page reads alone.
+`,` `.` or a click on `‹` `›` step; a filter being typed shows there) and the page reads alone.
 
 Beside it, the page: what the component is and where it goes, then one control row (the four parts, then the widths).
 A page has four parts. **Overview**: the minimal example drawn beside its source (the source under it when the page
@@ -2850,7 +2850,7 @@ as the service draws them.
 
 | Keys | Action |
 |---|---|
-| `↑` `↓`, or a click on a name in the rail | the previous or next component (`list.step`, `list.pick`; the page follows) |
+| `j` `k` (`↓` `↑`), or a click on a name in the rail | the previous or next component (`list.step`, `list.pick`, as in every list; the page follows) |
 | `←` `→` | the first component of the previous or next group (`list.step axis=group`) |
 | `/`, or a click on the rail's count | type words that narrow the rail; ⏎ keeps them, esc goes back (`list.filter`) |
 | `,` `.`, or a click on `‹` `›` | the previous or next component (`library.component`), the rail folded or not |
@@ -2858,7 +2858,7 @@ as the service draws them.
 | `h` `l` | the previous or next property (`library.axis`) or grid (`library.grid`); in every combination, the value under the cursor (`library.cursor`) |
 | `[` `]` | every combination: the axis above or below |
 | `space`, `⏎`, or a click on a value | every combination: pick or unpick it (`library.pick`); `x` clears (`library.clear`), `n` `p` page (`library.page`) |
-| `j` `k`, or a click on a variation | select a variation (`library.select`) |
+| `J` `K`, or a click on a variation | select a variation (`library.select`) |
 | `y`, or a click on a `source · y copies` frame | copy its source (`library.copy`: the declaring note and the line that uses it; `part=use` or `part=note` one of them). An agent's copy comes back as its answer, never to your clipboard |
 | drag over source, drawing or properties; double/triple click | select and copy text, a word or a line with the reader’s selection; `cmd+c` copies it again. `library.select text=` returns drawn text to an agent without moving your selection or writing your clipboard |
 | `w`, or a click on a width | draw at 40, 80, 160 or all three at once (`library.width`) |

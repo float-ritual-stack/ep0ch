@@ -1,7 +1,7 @@
 // The component library (PIE-618, PIE-1515): a design-system page per component, generated from its schema
 // (outline-core's component-schema.ts, the service's `components.schemas`), never written per component. On the left a
 // rail: the components by name under their groups, the door's one list (`ListView`, lent to `LISTVIEW_ACTIONS` as a
-// `ListTile`, so ↑ ↓, / and an agent's own pick work as in every list), its groups and counts read from each schema's
+// `ListTile`, so j k ↑ ↓, / and an agent's own pick work as in every list), its groups and counts read from each schema's
 // own `group`. Beside it the page: what the component is and where it goes, one control row (the parts and the width),
 // then the part: an overview (the minimal example drawn beside its source, the properties table), one property at a
 // time (each value drawn with its source), the two-axis grids the schema marks, and every combination behind a filter
@@ -147,8 +147,8 @@ export class LibraryPane implements Pane {
   hint() {
     const own = this.part === "property" ? "h l property · " : this.part === "grid" ? "h l grid · " : this.part === "space" ? "[ ] axis · h l value · space picks · x clears · n p page · " : "";
     // Folded into the header, the rail's own keys come after , and . (the ones its ‹ › say).
-    const rail = this.pageX ? "↑↓ component · ←→ group · / filter · , . component" : ", . component · ↑↓ component · ←→ group · / filter";
-    return `${rail} · 1-4 part · ${own}j k variation · y/copy whole source · drag copies text · w width`;
+    const rail = this.pageX ? "j k component · ←→ group · / filter · , . component" : ", . component · j k component · ←→ group · / filter";
+    return `${rail} · 1-4 part · ${own}J K variation · y/copy whole source · drag copies text · w width`;
   }
   init(desk: DeskApi) { this.desk = desk; }
   spec(): { component: string; part: Part } { return { component: this.component, part: this.part }; }
@@ -169,7 +169,7 @@ export class LibraryPane implements Pane {
         this.show(row.id);
         return { component: row.id };
       },
-      enter: () => { throw new ActionRefused("the rail has the keys whenever the library does: ↑ ↓ step it, ← → its groups, / filters it"); },
+      enter: () => { throw new ActionRefused("the rail has the keys whenever the library does: j k step it, ← → its groups, / filters it"); },
       type: () => { this.list.startTyping(filterLine); desk.redraw(); },
       redraw: () => desk.redraw(),
     };
@@ -242,7 +242,9 @@ export class LibraryPane implements Pane {
     const origin = s.origin && s.origin !== "built-in" ? ` · ${s.origin}` : "";
     if (!folded) return { text: fg(C.white) + BOLD + s.id + UNBOLD + fg(C.dark) + ` · ${s.group} · ${live}${origin}` + RESET };
     const at = all.findIndex(c => c.id === s.id) + 1;
-    const name = `‹ ${s.id} ›`, rest = `  ${s.group} · ${at} of ${all.length}`;
+    // The rail is folded, so the filter being typed (or kept) is said here, with how many it leaves.
+    const typed = this.list.typing ? this.list.typing.plain() : this.list.filter();
+    const name = `‹ ${s.id} ›`, rest = typed || this.list.typing ? `  / ${typed} · ${this.list.pickable().length} of ${all.length}` : `  ${s.group} · ${at} of ${all.length}`;
     return {
       text: fg(C.lcyan) + "‹ " + fg(C.white) + BOLD + s.id + UNBOLD + fg(C.lcyan) + " ›" + fg(C.dark) + ellipsize(rest, Math.max(0, W - width(name))) + RESET,
       hits: [{ from: 0, to: 2, action: "library.component", args: { by: -1 } }, { from: width(name) - 2, to: width(name), action: "library.component", args: { by: 1 } }],
@@ -378,7 +380,7 @@ export class LibraryPane implements Pane {
     })];
     if (!beside) { this.railAt = []; return { lines: pageLines, scroll: { top, total: this.body.length, room } }; }
     // The rail: its count (or the filter being typed, which the list draws itself), the list, the keys under it.
-    const foot = h >= 12 ? [fg(C.dark) + "↑↓ component" + RESET, fg(C.dark) + "←→ group" + RESET] : [];
+    const foot = h >= 12 ? [fg(C.dark) + "j k component" + RESET, fg(C.dark) + "←→ group" + RESET] : [];
     // The rows under the list: the keys, and a blank row above them.
     const below = foot.length ? foot.length + 1 : 0;
     const filtered = this.list.filter() || this.list.typing;
@@ -529,7 +531,7 @@ const step = (at: number, by: number, n: number) => (n ? (((at + by) % n) + n) %
 export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
   "library.component": def({
     summary: "show a component's page: name=<its id> (heading-style, callout, rule, graph-stat, box, an extension's: library --brief lists them), or by=1/-1 for the next or previous",
-    keys: ", . or a click on ‹ › when the rail is folded into the header (the rail's ↑ ↓ and clicks are list.step and list.pick)", touches: "screen", replay: "safe", says: r => `showed the ${r.title} page`,
+    keys: ", . or a click on ‹ › when the rail is folded into the header (the rail's j k ↑ ↓ and clicks are list.step and list.pick)", touches: "screen", replay: "safe", says: r => `showed the ${r.title} page`,
     args: { name: { type: "string", optional: true, about: "the component's id" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
     examples: [
       { act: "library.component name=callout tile=library", does: "shows the callout component's page" },
@@ -670,7 +672,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
   }),
   "library.select": def({
     summary: "select a variation: n=<from 1> or by=1/-1; text= returns matching drawn words without changing the person's selection or clipboard",
-    keys: [{ keys: "j k", does: "select a variation" }, { keys: "click", does: "on a variation" }, { keys: "drag", does: "select text" }, { keys: "double-click", does: "select text (a triple click too)" }], touches: "screen", touchesWith: args => args.text !== undefined ? "nothing" : "screen", replay: "safe",
+    keys: [{ keys: "J K", does: "select a variation" }, { keys: "click", does: "on a variation" }, { keys: "drag", does: "select text" }, { keys: "double-click", does: "select text (a triple click too)" }], touches: "screen", touchesWith: args => args.text !== undefined ? "nothing" : "screen", replay: "safe",
     args: { text: { type: "string", optional: true, about: "words as drawn; returns them without changing the person's selection or clipboard" }, n: { type: "number", optional: true, about: "the variation, from 1" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
     examples: [
       { act: "library.select n=3 tile=library", does: "selects the third variation drawn and brings it into view" },
@@ -748,12 +750,13 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
   }),
 });
 
-/** The keys of the library tile, each an action: the rail's are the lists' own (↑ ↓, ← → its groups, Home End, /). */
+/** The keys of the library tile, each an action: the rail's are the lists' own (j k ↑ ↓, ← → its groups, Home End, /). */
 function pressed(p: LibraryPane, k: Key): { action: string; args?: Record<string, unknown> } | null {
   const c = k.kind === "char" && !k.ctrl ? ch(k) : null;
   const space = p.part === "space", own = (by: number) => (p.part === "property" ? { action: "library.axis", args: { by } } : p.part === "grid" ? { action: "library.grid", args: { by } } : space ? { action: "library.cursor", args: { by } } : null);
   if (c === "," || c === ".") return { action: "library.component", args: { by: c === "." ? 1 : -1 } };
-  if (k.kind === "down" || k.kind === "up") return { action: "list.step", args: { by: k.kind === "down" ? 1 : -1 } };
+  // The rail is a list like every other: j k ↓ ↑ step it (LIST_KEYS), so a variation is J K.
+  if (k.kind === "down" || k.kind === "up" || c === "j" || c === "k") return { action: "list.step", args: { by: k.kind === "down" || c === "j" ? 1 : -1 } };
   if (k.kind === "left" || k.kind === "right") return { action: "list.step", args: { by: k.kind === "right" ? 1 : -1, axis: "group" } };
   if (k.kind === "home") return { action: "list.pick", args: { n: 1 } };
   if (k.kind === "end") return { action: "list.pick", args: { n: Math.max(1, p.list.pickable().length) } };
@@ -762,8 +765,8 @@ function pressed(p: LibraryPane, k: Key): { action: string; args?: Record<string
   if (part) return { action: "library.part", args: { part: part.part } };
   if (c === "h") return own(-1);
   if (c === "l") return own(1);
-  if (c === "j") return { action: "library.select", args: { by: 1 } };
-  if (c === "k") return { action: "library.select", args: { by: -1 } };
+  if (c === "J") return { action: "library.select", args: { by: 1 } };
+  if (c === "K") return { action: "library.select", args: { by: -1 } };
   if (k.kind === "pgdn" || k.kind === "pgup") return { action: "library.scroll", args: { by: (k.kind === "pgdn" ? 1 : -1) * 10 } };
   if (c === "y") return { action: "library.copy" };
   if (isCopyKey(k)) return { action: "library.copy", args: { part: "selection" } };

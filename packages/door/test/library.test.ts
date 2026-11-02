@@ -89,6 +89,12 @@ test("the rail beside the page, folded into the header when narrow: groups and c
   expect(narrow.every(l => !l.includes("components · / filter"))).toBe(true);
   expect(narrow.some(l => l.includes("╭─ at 40 (80 is wider than the page) · dra"))).toBe(true);
   const click = (x: number, y: number) => { p.mouse({ kind: "mouse", action: "down", button: 0, x, y } as never, x, y, desk); p.mouse({ kind: "mouse", action: "up", button: 0, x, y } as never, x, y, desk); };
+  // Typing the rail's filter while it's folded: the header says what's typed and how many it leaves.
+  p.listHost(desk).type(p.listHost(desk).lists()[0]!);
+  for (const c of "quad") p.key({ kind: "char", ch: c }, desk);
+  expect(at(44)[0]).toStartWith(`‹ graph-quadrant ›  / quad▌ · 1 of ${BUILTIN_COMPONENT_SCHEMAS.length}`);
+  p.key({ kind: "esc" }, desk);
+  expect(at(44)[0]).toStartWith("‹ graph-quadrant ›  figures · ");
   click(narrow[0]!.indexOf("›"), 0);
   click(0, 0);
   expect(pressed.slice(-2)).toEqual([{ name: "library.component", args: { by: 1 } }, { name: "library.component", args: { by: -1 } }]);
@@ -164,8 +170,8 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
 
   test("copy: the person's y goes to their clipboard; an agent's copy comes back as its answer and leaves the clipboard", async () => {
     await act("library.axis", { key: "heading-pattern" });
-    key(char("j"));
-    await until(() => library().selected === 2, "j selects the next variation");
+    key(char("J"));
+    await until(() => library().selected === 2, "J selects the next variation");
     const before = copied.length;
     key(char("y"));
     await until(() => copied.length > before, "the person's copy");
@@ -224,11 +230,13 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     expect(c.state!.items[0]!.docs).toBe("something is");
   });
 
-  test("the rail: ↑ ↓ and ← → walk it and the page follows, / narrows it, a click picks; an agent's pick is its own", async () => {
+  test("the rail: j k ↑ ↓ and ← → walk it and the page follows, / narrows it, a click picks; an agent's pick is its own", async () => {
     await act("library.component", { name: "heading-style" });
     await act("library.part", { part: "overview" });
-    key({ kind: "down" });
-    await until(() => library().component === "callout", "↓ the next component");
+    key(char("j"));
+    await until(() => library().component === "callout", "j the next component");
+    key({ kind: "down" }); key({ kind: "up" });
+    await until(() => library().component === "callout", "↓ ↑ the same list");
     key({ kind: "right" });
     await until(() => library().group === "site", "→ the next group's first");
     key({ kind: "left" }); key({ kind: "left" });
