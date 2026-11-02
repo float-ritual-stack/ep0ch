@@ -677,9 +677,10 @@ describe("showcase: the glass", () => {
       expect(floats().some(f => f.pane.kind === "post-it")).toBe(false);
       await expect(act("glass.mode", { set: "on" })).rejects.toThrow(/extensions\.install id=glass/);
       // The float layer is core: any tile still floats onto the glass.
-      const lifted = await stage().dispatch.act({ action: "tile.float", args: { to: "glass" }, tile: "title" }, { kind: "user" }) as { tile: string };
+      await stage().dispatch.act({ action: "tile.open", args: { kind: "reader", name: "lifted", where: "down" }, tile: "links" }, { kind: "user" });
+      const lifted = await stage().dispatch.act({ action: "tile.float", args: { to: "glass" }, tile: "lifted" }, { kind: "user" }) as { tile: string };
       expect(floats().some(f => f.tile === lifted.tile)).toBe(true);
-      await act("tile.dock", { on: true, edge: "right" }, lifted.tile);
+      await act("tile.close", {}, lifted.tile);
     } finally {
       await h.app.act({ action: "extensions.install", args: { id: "glass" }, as: "glass-tester" });
       await h.app.loadExtensions(true);
