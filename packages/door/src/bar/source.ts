@@ -1,3 +1,4 @@
+import { openCause } from "../desk/open-event";
 // The power bar's sources (PIE-656): what the bar lists, previews and does, one source per scope. The bar itself
 // (src/bar/bar.ts) owns none of it: it asks each source for rows as the person types, draws the one picked on the
 // right through the readers' own renderers, and hands a pick back to its source, which runs it through the shared
@@ -159,6 +160,6 @@ export async function openNote(id: string, host: BarHost, how: PickHow, fragment
   const top = host.screens().at(-1), own = !!top?.dispatch?.has("open");
   // A screen with an open of its own (the desk's) takes fresh=: a new detail beside the tile with the keys; and a line's anchor.
   const args = { id, ...(how.alt && own ? { fresh: true } : {}), ...(fragment && own ? { fragment } : {}) };
-  return host.dispatch.as(how.actor, { action: "open", args });
+  return openCause.run({ method: "search" }, () => host.dispatch.as(how.actor, { action: "open", args }));
 }
 

@@ -100,6 +100,7 @@ export interface DeskApi {
   sourcesTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Reader `r`'s trail in a tile beside it (PIE-1425), or the one already open with the keys back in it; null when the layout can't place one. */
   trailTile?(r: ReaderPane): Promise<unknown>;
+  reopenTrail?(visit: import("../trail").Visit, actor: Actor): Promise<unknown>;
   composerTile?(r: ReaderPane, on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Reader `r`'s comment tile is open. */
   hasComposerTile?(r: ReaderPane): boolean;

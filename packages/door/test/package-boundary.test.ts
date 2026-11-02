@@ -71,15 +71,15 @@ test("only placement applies note opens", () => {
         const legacy = ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "openNewIn";
         const hold = method === "hold" && /\/(?:desk\/panes|river\/column)\.ts$/.test(declaredIn);
         const take = method === "take" && declaredIn.endsWith("/desk/tile-kinds.ts");
-        // Kind effects, startup restoration and selection previews are not new opens.
+        // Kind effects and startup restoration are not new opens. Placement owns previews too.
         const effect = /\/desk\/(?:builtin-tiles|settings)\.ts$/.test(file) && (name === "take" || name === "start" || name === "startReader")
           || file.endsWith("/river/column.ts") && (name === "take" || name === "host")
-          || file.endsWith("/desk/desk.ts") && name === "previewIntoPane"
           || file.endsWith("/showcase/showcase.ts") && name === "stage"
           || file.endsWith("/hub/welcome.ts") && name === "load";
         const allowed = landing ? file.endsWith("/desk/screen-layout.ts") && (name === "placement" || name === "landing")
-          : file.endsWith("/desk/desk.ts") && name === "applyPlacement" || effect;
-        if ((landing || legacy || hold || take) && !allowed)
+          : file.endsWith("/desk/desk.ts") && ["applyPlacement", "placeOpen", "previewLanding"].includes(name ?? "") || effect;
+        const phase = (method === "placeOpen" || method === "previewLanding") && declaredIn.endsWith("/desk/desk.ts");
+        if (phase && !(file.endsWith("/desk/desk.ts") && name === "applyPlacement") || (landing || legacy || hold || take) && !allowed)
           bypasses.push(`${file.slice(root.length + 1)}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${method ?? node.expression.getText(source)}`);
       }
       ts.forEachChild(node, visit);

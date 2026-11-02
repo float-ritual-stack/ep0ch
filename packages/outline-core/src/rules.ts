@@ -281,7 +281,7 @@ export const DEFAULT_RULE_FROM: readonly RuleWriter[] = ["user", "agent"];
  * call; `cap` the most calls a day; `skip` a query whose blocks never set it off.
  */
 export interface RuleOn {
-  start?: ActionRef; stop?: ActionRef; change?: ActionRef;
+  start?: ActionRef; stop?: ActionRef; change?: ActionRef; open?: ActionRef; events?: Record<string, ActionRef>;
   quiet?: string; from?: RuleWriter[]; batch?: string; cap?: number; skip?: string;
 }
 
@@ -412,14 +412,21 @@ export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules:
       decorate = read.spec;
     }
     const on: RuleOn = {};
-    for (const [key, when] of [["rule-on", "start"], ["rule-on-stop", "stop"], ["rule-on-change", "change"]] as const) {
+    for (const [key, when] of [["rule-on", "start"], ["rule-on-stop", "stop"], ["rule-on-change", "change"], ["rule-on-open", "open"]] as const) {
       const value = prop(key);
       if (value === undefined || !value) continue;
       const ref = parseActionRef(value);
       if ("problem" in ref) problems.push(`${where}: ${key} ${ref.problem}`);
       else on[when] = ref;
     }
-    let runs = !!(on.start || on.stop || on.change);
+    const eventAction = prop("rule-on-event"), eventKind = prop("rule-event");
+    if (eventAction) {
+      const ref = parseActionRef(eventAction);
+      if (!eventKind?.startsWith("door.")) problems.push(`${where}: rule-on-event needs rule-event naming a door kind (for example door.hover)`);
+      else if ("problem" in ref) problems.push(`${where}: rule-on-event ${ref.problem}`);
+      else on.events = { [eventKind]: ref };
+    }
+    let runs = !!(on.start || on.stop || on.change || on.open || on.events);
     const guards: string[] = [];
     // A guard written wrong turns the trigger off rather than run it with less guarding than was asked.
     let broken = false;
@@ -469,4 +476,4 @@ export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules:
 
 /** The `rule-*` keys (and `property-scope`, which a rule note reads as a view does) a rule note writes: its own words, never matched as the block's own properties by a card. */
 export const RULE_KEYS = ["rule-name", "rule-match", "rule-view", "rule-under", "rule-text", "rule-kind", "rule-decorate", "rule-place", "rule-label", "rule-tone", "rule-fields", "rule-pattern", "rule-align", "rule-style",
-  "rule-on", "rule-was-on", "rule-on-stop", "rule-was-on-stop", "rule-on-change", "rule-was-on-change", "rule-quiet", "rule-from", "rule-batch", "rule-cap", "rule-skip", "property-scope"] as const;
+  "rule-on", "rule-was-on", "rule-on-stop", "rule-was-on-stop", "rule-on-change", "rule-was-on-change", "rule-on-open", "rule-was-on-open", "rule-on-event", "rule-was-on-event", "rule-event", "rule-quiet", "rule-from", "rule-batch", "rule-cap", "rule-skip", "property-scope"] as const;

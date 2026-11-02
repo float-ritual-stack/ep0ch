@@ -244,7 +244,9 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
       press({ kind: "mouse", action: "up", button: 0, x, y });
     };
     const choice = (value: string) => {
-      (app as any).paint(true);
+      // An unchanged repaint must keep the visible choices clickable.
+      app.flush();
+      app.flush();
       for (let y = 0; y < app.t.rows; y++) for (let x = 0; x < app.t.cols; x++) {
         const hit = app.overflow.stripAt(x, y), tab = hit && app.strips.state.rows.get(hit.id)?.tabs[hit.n];
         if (tab?.hit?.action !== "form.set" || tab.hit.args?.field !== "mood" || tab.hit.args.value !== value) continue;

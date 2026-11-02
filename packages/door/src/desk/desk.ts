@@ -1,3 +1,7 @@
+import { returnPlace, mapPlace } from "./return-place";
+import type { Visit } from "../trail";
+import { openCause, openMethod, opening, landed as openLanded } from "./open-event";
+import type { DoorOpen } from "@ep0ch/outline-core/door-open";
 import { drawCompletionFloat } from "../surface/completion-float";
 import { modeBinding, modeHint, partsHint, type HintPart, type ModeKey } from "../surface/modes";
 import { tabStrip } from "../surface/chip-rows";
@@ -216,8 +220,6 @@ export interface Wire { says: string; short?: string; /** The tile on this desk 
 const SHOWN_LATELY_MS = 2_000;
 /** A selection walk's steps (PIE-1426): one within this of the last, from the same list, joins its stop. */
 const WALK_MS = 1000;
-/** The narrowest a trail tile opens (Desk.trailTile): a stop's title and its arrow still read; narrower, it lists over the screen. */
-const TRAIL_MIN_COLS = 18;
 /** The narrowest the keys window is opened beside a tile: narrower, below it (Desk.sides). */
 const LIST_COLS = 40;
 
@@ -479,33 +481,40 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.put(pane); this.commit(ok); this.startTile(id); this.openedBy(id, at);
     return id;
   }
-
-  /**
-   * Reader `r`'s trail (PIE-208) in a tile of its own beside it (PIE-1425): docked, resized and closed like any tile, the
-   * person's keys in it and back in the reader when it closes. The one already open for `r` gets the keys back; null when
-   * the layout won't place one there (the trail then lists over the screen).
-   */
   async trailTile(r: ReaderPane): Promise<unknown> {
-    const at = [...this.panes].find(([, p]) => p === r)?.[0];
-    if (at === undefined) return null;
-    const source = this.nameOf(at);
-    const have = [...this.panes].find(([, p]) => p instanceof TrailPane && p.source === source)?.[0];
-    let id: number;
-    if (have !== undefined) id = have;
-    else {
-      const made = this.sides(at, TRAIL_MIN_COLS).flatMap(d => (d === "right" || d === "down" ? [d] : [])).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
-      if (made === null) return null;
-      // Too narrow to read (a squeezed river column at 40 columns, PIE-1428): no one-letter-a-row spine taking the keys
-      // unseen; the trail lists over the screen instead.
-      const w = this.rectsNow().get(made)?.cols ?? 0;
-      if (w < TRAIL_MIN_COLS) { this.closeTile(this.nameOf(made), USER); this.redraw(); return null; }
-      id = made;
-    }
-    this.keysTo(id);
-    this.save(); this.redraw();
-    return this.tileAnswer(id);
+    const at = this.idOf(r); if (at === undefined) return null;
+    const source = this.nameOf(at), view = this.inFlow(at) ? "history" : "forest";
+    const have = [...this.panes].find(([, p]) => p instanceof TrailPane && p.source === source);
+    if (have) { this.keysTo(have[0]); this.redraw(); return this.tileAnswer(have[0]); }
+    const made = this.sides(at, 18).filter(d => d === "right" || d === "down").reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source, { view }), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
+    if (made === null) return null;
+    // A squeezed column uses the reader's history picker when its adjacent tile would be a spine.
+    if ((this.rectsNow().get(made)?.cols ?? 0) < 18) { this.closeTile(this.nameOf(made), USER); this.redraw(); return null; }
+    this.save(); this.redraw(); return this.tileAnswer(made);
   }
-
+  async reopenTrail(visit: Visit, actor: Actor): Promise<unknown> {
+    const tid = visit.open.target.tile, place = this.ctx.trail?.places[tid];
+    const d = this.relatives().find(d => [...d.panes.keys()].some(id => d.tileId(id) === tid))
+      ?? this.relatives().find(d => (place?.mount ? d.holder && tileRegistry.knownId(d.holder.tile) === place.mount : !d.holder && d.spec.name === place?.screen && !!d.ctx.hostLayer?.isDrawer(d) === !!place?.drawer));
+    if (!d || !place) throw new ActionRefused(`open the ${place?.screen ?? "original"} screen first, or use trail.here`);
+    const m = await readNote(d.ctx, visit.open.target.note, visit.open.target.address);
+    if (!m) throw new ActionRefused("that note is no longer available");
+    let id = [...d.panes.keys()].find(id => d.tileId(id) === tid);
+    if (id === undefined) {
+      const at = mapPlace(place.at!, target => { const id = d.idNamed(target); if (id === undefined) throw new ActionRefused("the neighbouring tile has closed too · trail.here opens the visit here"); return id; });
+      id = d.nextId;
+      const r = d.ask({ op: "open", tile: id, kind: "reader", name: d.autoName(place.name), at, keys: false }, actor);
+      if (!r.ok) throw new ActionRefused(r.refused);
+      const reader = new ReaderPane(); tileRegistry.restore(reader, { id: tid });
+      d.put(reader); d.commit(r); d.startTile(id);
+    }
+    const landed = d.placeNote(m, { from: id, to: id, note: m.id, keep: false }, actor);
+    return landed ? d.tileAnswer(landed.id) : null;
+  }
+  private keepTrailPlace(id: number) {
+    const p = this.ctx?.trail?.places[this.tileId(id)];
+    if (p) { p.at = mapPlace(returnPlace(this.layout, id), n => this.tileId(n)); p.name = this.nameOf(id); p.screen = this.spec.name; p.mount = this.holder ? tileRegistry.knownId(this.holder.tile) : undefined; p.drawer = !!this.ctx.hostLayer?.isDrawer(this); this.ctx.trail?.changed(); }
+  }
   async answerTile(reader: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === reader)?.[0];
     if (at === undefined) return null;
@@ -1660,6 +1669,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Given tiles are this desk's own (a group's): saved, ended and carried as any tile moved here. */
   private readonly adopts: boolean;
   save() {
+    for (const id of this.panes.keys()) this.keepTrailPlace(id);
     if (this.onSave) return this.onSave();
     if (!this.spec.saves || !this.writes) return;
     writeState(this.spec.saves, this.savedState(), outlineState());
@@ -1859,11 +1869,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return [...inside.filter(id => mine.includes(id)), ...mine.filter(id => !inside.includes(id))];
   }
 
-  /**
-   * The desk is left (esc, q, the menu). With programs running in its tiles it isn't ended: it stays alive in
-   * the background, its programs running, and D on the menu brings the same desk back. Otherwise it's done.
-   */
+  /** A screen that stays keeps its programs alive; the menu's D brings the same desk back. */
   dispose(): void | "keep" {
+    if (this.disposed) return;
     this.ctx?.agentPointers?.drop(this);
     if (this.linking?.desk === this) this.linking = null;
     this.onScreen = false;
@@ -1873,9 +1881,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Gone for good: kinds that come later never make tiles (nor start programs) here.
     this.disposed = true;
     unwatchTileKinds(this);
-    // Never ended with this screen: a program still running in a tile here, and anything the drawer gave this screen
-    // that still holds work, go into your drawer (said once, for all of them). A tile its host made (the showcase's
-    // exhibits) is the host's, and ends with it.
+    // Return places still name neighbours here; carrying a tile away removes its pane from this desk.
+    for (const id of this.panes.keys()) this.keepTrailPlace(id);
+    // Running programs and work borrowed from the drawer survive; host-owned exhibits end with their host.
     const host = this.ctx?.hostLayer, given = new Set(this.adopts ? [] : this.given.values());
     const keep = host ? this.carried(given) : [];
     if (keep.length) {
@@ -1883,7 +1891,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const [id, p] of keep) if (kept.includes(p)) this.forgetTile(id, p);
     }
     for (const m of this.models.values()) m.dispose?.();
-    for (const p of this.panes.values()) { p.dispose?.(); tileRegistry.release(p); }
+    for (const [id, p] of this.panes) { this.ctx?.trail?.close(this.tileId(id)); p.dispose?.(); tileRegistry.release(p); }
   }
   private disposed = false;
   /** The desk kept alive with its programs, to come back to (the menu's D). */
@@ -1920,11 +1928,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "runs" : "run"} in a tile here, and leaving would end ${r.length === 1 ? "it" : "them"} · ^W x ends ${r.length === 1 ? "it" : "them"} first` : null;
   }
 
-  /**
-   * A note opened from a tile (PIE-794, PIE-1207: DeskApi.openFromTile). An open (`link` or `reveal`: a link followed, a
-   * list's ⏎, the tree's ⏎; `fresh`: alt+⏎) lands where `placement()` says (`landFrom`, the one landing path); with no
-   * reader to take it, the person is told how to give it one. A bare selection shows where the tile's select wires go.
-   */
+  /** Opens use placement; a bare selection follows the tile's select wires. */
   openFromTile(m: Msg, opts: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false; keep?: true } & OpenHow) {
     const by = opts.by ?? USER;
     if (opts.to) {
@@ -2130,7 +2134,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     for (const w of this.ext.get(at) ?? []) if (w.verb === "select") {
       const t = this.extTarget(at, "select", w);
-      if (t) t.desk.openIntoPane(t.pane, m, t.desk.nameOfPane(t.pane), by, true);
+      if (t) { const tile = this.tileId(at), prior = this.ctx.lastOpen?.(tile); openCause.run({ method: "select", source: { tile, note: prior?.target.note ?? this.showing(this.panes.get(at))?.id, visit: prior?.target.visit } }, () => t.desk.openIntoPane(t.pane, m, t.desk.nameOfPane(t.pane), by, true)); }
     }
   }
 
@@ -2140,7 +2144,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private landFrom(at: number, m: Msg, opts: OpenHow & { reveal?: boolean }, by: Actor): boolean {
-    return !!this.placeNote(m, { from: at, fresh: !!opts.fresh, note: m.id, where: opts.where }, by);
+    const method = this.ctx.board.inScriptRun ? "script" : opts.fresh ? "alt" : opts.link ? "link" : openMethod(this.ctx, by);
+    return openCause.run({ ...openCause.getStore(), method }, () => !!this.placeNote(m, { from: at, fresh: !!opts.fresh, note: m.id, where: opts.where }, by));
   }
 
   private placedDuringTake?: (landed: { desk: Desk; id: number }) => void;
@@ -2151,7 +2156,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return landed;
   }
 
-  private applyPlacement(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor): { desk: Desk; id: number; why?: string } | null {
+  private applyPlacement(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor, delivery?: "preview" | "shown"): { desk: Desk; id: number; why?: string; event?: DoorOpen } | null {
+    const from = this.panes.get(request.from), tile = from ? this.tileId(request.from) : undefined;
+    const cause = opening(this.ctx, by, tile, from ? this.showing(from)?.id : undefined, delivery === "preview", request.verb, { name: this.nameOf(request.from), screen: this.spec.name, drawer: !!this.ctx.hostLayer?.isDrawer(this) });
+    return openCause.run(cause, () => {
+      const landed = delivery === "shown" ? { desk: this, id: request.to ?? request.from } : delivery === "preview"
+        ? this.previewLanding(this.panes.get(request.to!)!, m, by, request.from) ? { desk: this, id: request.to! } : null
+        : this.placeOpen(m, request, by) ?? (request.history ? { desk: this, id: request.from } : null);
+      if (!landed || "event" in landed) return landed;
+      const d = landed.desk;
+      const event = openLanded(d.ctx, by, cause, d.tileId(landed.id), m.id, subject(m), { name: d.nameOf(landed.id), screen: d.spec.name ?? d.title, drawer: !!d.ctx.hostLayer?.isDrawer(d), at: mapPlace(returnPlace(d.layout, landed.id), n => d.tileId(n)), mount: d.holder ? tileRegistry.knownId(d.holder.tile) : undefined }, m.address);
+      return { ...landed, event };
+    });
+  }
+  private placeOpen(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor): { desk: Desk; id: number; why?: string; event?: DoorOpen } | null {
     probe("open.plan");
     const plan = placement(this.layout, request, this.layoutCtx(by));
     const dest = plan.destination;
@@ -2186,8 +2204,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const merging = plan.merge !== undefined ? this.panes.get(plan.merge) : undefined;
     const had = this.focus;
     this.commit(r);
-    // A new float the person's open put their keys in (a new note's, a detail's) gives them back where they were when it
-    // closes, a terminal's program included (PIE-1445): the tile they had is its opener.
     if (made && this.isFloat(id) && (this.focus === id || peekSource(this.layout, id) !== undefined) && had !== id && this.panes.has(had)) {
       this.openedBy(id, peekSource(this.layout, id) ?? had);
       if (this.ptyIn && this.ptyIn === this.panes.get(had)) this.typingBack.add(id);
@@ -2240,10 +2256,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       rec.active = id;
     }
     if (plan.reveal) this.revealElsewhere(m, landed, request.from);
-    // No room for a spine (PIE-1207): the note it showed is a step back, said with the open.
     this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : plan.noSpine && prior ? `no room for a spine · alt← returns ${subject(prior)}` : undefined);
-    messageContext.run({ ...messageContext.getStore(), tile: this.tileId(landed) }, () => probe("open.land"));
-    // The idle reader a pinned one's open went to takes the next one aimed there too, as a reader opened beside it does.
     if (dest.kind === "swap" && plan.besideOf !== undefined) this.besides.set(plan.besideOf, dest.tile);
     this.save(); this.redraw();
     if (plan.why) this.ctx.flash(plan.why);
@@ -2358,28 +2371,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** A new tile opened into container `key` takes three parts to its first tile's four. */
   private weightIn(key: string): number { const c = node(this.root, key); return ((c && "weights" in c ? c.weights[0] : undefined) ?? 4) * 0.75; }
-  /**
-   * Replace what tile `to` shows with `m` (its link target, a list's home, the reader an open lands in): false when that
-   * tile can't show a note, or holds an edit. `preview`: a selection shown there, not an open (showFrom).
-   */
+  /** Both explicit opens and select-wire previews land through applyPlacement. */
   private openInto(to: number, m: Msg, by: Actor = USER, preview = false, from = this.focus): boolean { return this.openIntoPane(this.panes.get(to), m, this.nameOf(to), by, preview, from); }
-  /**
-   * Show `m` in tile `p` of this desk (a link's target, here or reached across a group's edge) as its kind takes a note:
-   * a reader's note replaced, kept in its history (`take`, PIE-794: its pin stays).
-   */
   private openIntoPane(p: Pane | undefined, m: Msg, name: string, by: Actor = USER, preview = false, from = this.focus, keys = false): boolean {
     if (!p || !kindOf(p)?.accepts?.notes) throw new ActionRefused(`${name} cannot show a note`);
     if (!preview) return !!this.placeNote(m, { from, to: this.idOf(p)!, note: m.id, ...(keys ? {} : { keys: false as const }) }, by);
     return this.previewIntoPane(p, m, by, from);
   }
 
-  /**
-   * A selection previewed: only its follower changes, nothing opens, and Back there comes back to what it showed before
-   * (PIE-1426: whichever tile changed it, a list's pick, a link's open or `b`, the tile's own history has it). A walk
-   * through one list (j k, each step within WALK_MS of the last, nothing else changing the preview between) is one
-   * stop: Back goes to what it showed before the walk, not through every row passed (PIE-1187's intent).
-   */
   private previewIntoPane(p: Pane, m: Msg, by: Actor, from: number): boolean {
+    if (this.showing(p)?.id === m.id) return true;
+    return !!this.applyPlacement(m, { from, to: this.idOf(p)!, note: m.id, keys: false }, by, "preview");
+  }
+  private previewLanding(p: Pane, m: Msg, by: Actor, from: number): boolean {
     if (this.keptFrom(p, by) || (p instanceof ReaderPane && (p.editing || p.holdsKeys))) return false;
     const changed = this.showing(p)?.id !== m.id, now = Date.now(), last = this.walks.get(p);
     const walking = !!last && last.from === from && now - last.at < WALK_MS && last.shown === this.showing(p)?.id;
@@ -2397,13 +2401,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The detail `besideEdit` opened beside each reader holding an edit, by that reader's tile: the next open reuses it. */
   private besides = new Map<number, number>();
-  /**
-   * Note `m`, opened from or into reader `at` while it holds an edit or a comment (PIE-592): in the detail opened beside it
-   * for the last such open, when that's still here and free, else in a new one to its right. The keys stay where they
-   * are (in the edit, or the list it was opened from); `fresh` always opens a new one.
-   */
-
-
   /** DeskApi.summaryKeys: the summary a note shows with, as the columns listing it say (a board lane's view). */
   summaryKeys(m: Msg): readonly string[] | null { for (const md of this.models.values()) { const k = md.summaryKeys?.(m); if (k) return k; } return null; }
 
@@ -5743,12 +5740,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
       return { ...this.tileAnswer(existing), kind: t.kind };
     }
-    // From a float (a new note's, PIE-591) naming no tile: beside the tile under it, where esc in it goes back to.
     const under = at === undefined && this.isFloat(this.focus) ? this.besideFocus() : undefined;
     const empty = !this.all().length;
     const base = empty ? { id: this.focus, name: "home" } : this.tile(under !== undefined ? this.nameOf(under) : at);
     let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...(t.state ? { state: t.state } : {}), ...this.mountFields(t) };
-    // The kind checks its fields (a preview's source) and fills what it starts with (it follows `at`).
     const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.
     if (wrong && k.choices && actor.kind !== "agent") {
@@ -5757,7 +5752,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
     spec = canonSpec({ ...spec, ...(!empty ? { openedFrom: this.tileId(base.id), ...k.defaults?.(spec, { name: base.name, pane: this.panes.get(base.id)! }) } : {}) });
-    // The layout says yes (or why not) before the tile is made: a refused open starts no program.
     const id = this.nextId;
     const source = spec.selectFrom ? this.selectSource(spec.selectFrom) : undefined;
     const r = this.ask({ op: "open", tile: id, kind: t.kind, ...(spec.name ? { name: spec.name } : {}), at: empty ? { kind: "edge", dir: "right" } : placeOf(where, base.id), selectFrom: source?.ids, ...also }, actor);
@@ -5767,8 +5761,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (source) this.wireSource(id, source);
     this.startTile(id);
     this.arrived(id, actor);
+    if (t.note) { const m = await readNote(this.ctx, t.note); if (m) this.applyPlacement(m, { from: base.id, to: id, note: m.id }, actor, "shown"); }
     this.save(); this.redraw();
-    // Too narrow to read beside base (an agent's open, PIE-1444): it floated, or went where asked, and the answer says so.
     const why = typeof r.answer.why === "string" ? r.answer.why : undefined;
     return { ...this.tileAnswer(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where: this.isFloat(id) && !empty ? "float" : typeof r.answer.where === "string" ? r.answer.where : where, ...(why ? { why } : {}), ...(also.link !== undefined ? { from: this.tileId(also.link), fromName: this.nameOf(also.link) } : {}) };
   }
@@ -6008,6 +6002,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!armed) { this.closeArm = { id: t.id, at: Date.now() }; throw new ActionRefused(`${t.name} is running ${pty.title()} · closing ends it · ^W x again within 3s closes`); }
       this.closeArm = null;
     }
+    this.keepTrailPlace(t.id);
     const kind = this.panes.get(t.id)!.kind;
     const n = String(this.numberOf(t.id));
     const into = this.openedInto(t.id), had = this.focus === t.id, back = this.keysBackAfter(t.id, actor);
@@ -7028,7 +7023,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A tile instance the layout no longer has: its program ended, its state let go. */
   private dropTile(id: number, by: Actor = USER) {
     const p = this.panes.get(id);
-    if (p) this.retirePeeks(p, by);
+    if (p) { this.ctx?.trail?.close(this.tileId(id)); this.retirePeeks(p, by); }
     if (p) for (const d of this.relatives()) for (const [from, wires] of d.ext) for (const w of [...wires]) {
       if (w.pane === p || w.path === this.tileId(id)) {
         d.cutExt(from, w);

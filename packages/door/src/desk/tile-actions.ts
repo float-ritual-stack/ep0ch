@@ -205,7 +205,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     examples: [
       { act: "tile.open kind=reader note=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=tree where=right", does: "opens a reader beside the tree on the seed-swap note" },
       { act: "tile.open kind=pty cmd=\"nvim garden.md\" file=garden.md where=down", does: "opens a terminal below running nvim on garden.md" },
-      { act: "tile.open kind=rota.list with='{\"which\":\"type=chore\"}'", does: "opens an extension's drawn tile with its which= arg" },
+      { act: "tile.open kind=what-changed.list with='{\"machinery\":\"show\"}'", does: "opens What changed with bookkeeping and extension writes included" },
     ],
     async run({ kind, to, where, mode, id, with: w, ...t }, { d, reader }, actor) {
       if (id !== undefined && t.note === undefined) t.note = id;

@@ -180,7 +180,7 @@ export interface ExtensionActRequest {
    * A rule's trigger runs it (PIE-786): the rule's name, and with a batch (`rule-batch`) every block the burst gathered
    * (`blockId` the first). Its writes carry the trigger's marks, so no rule is set off by them.
    */
-  readonly trigger?: { readonly rule: string; readonly blocks?: readonly string[] };
+  readonly trigger?: { readonly rule: string; readonly blocks?: readonly string[]; readonly event?: import("@ep0ch/outline-core/door-open").DoorEvent; readonly open?: import("@ep0ch/outline-core/door-open").DoorEvent };
   /**
    * The script runs whose `act("ext.…")` started this one, outermost first (their extension ids): a run's `ext.*` call
    * is refused past MAX_ACT_DEPTH or when it would start one already in the chain, so scripts can't start runs without end.
@@ -743,11 +743,12 @@ export class ExtensionCalls {
    * Runs what a block's lines ask for and keeps the results. `open` and
    * `save` follow each handler's `effects`; `refresh` runs every line (or the
    * one on `line`) now. A pass asked for while one runs on that block runs
-   * after it (a save during a slow call is never lost); a refresh runs at once.
+   * after it (a save during a slow call is never lost); a refresh waits too, so its answer contains the finished output.
    */
   refreshOutput(blockId: string, reason: CallReason, options: PassOptions = {}): Promise<void> {
     const running = this.passes.get(blockId);
-    if (running && reason !== "refresh") {
+    if (running && reason === "refresh") return running.then(() => this.refreshOutput(blockId, reason, options));
+    if (running) {
       const queued = this.queued.get(blockId);
       // One pass waits behind the running one; a save's options win over an open's.
       if (queued) {
@@ -1352,7 +1353,7 @@ export class ExtensionCalls {
       const block = this.store.get(id);
       return block && !block.effectiveDeletedRootId ? [{ blockId: block.id, revision: block.revision, text: block.text.slice(0, 16_000) }] : [];
     });
-    return { rule: trigger.rule, ...(trigger.blocks ? { blocks } : {}) };
+    return { rule: trigger.rule, ...(trigger.blocks ? { blocks } : {}), ...(trigger.open ? { open: trigger.open } : {}), ...(trigger.event ? { event: trigger.event } : {}) };
   }
 
   /** The refusal for an extension that isn't served here; a script or extension the repo offers names its install. */
