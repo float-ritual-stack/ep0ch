@@ -1,5 +1,6 @@
 import type { Desk } from "../../src/desk/desk";
 import { USER } from "../../src/socket";
+import type { ActRequest } from "../../src/surface/actions";
 import { visible } from "../../src/style";
 // PIE-439: the showcase screen, figures: steps, tabs and Markdown kinds. One of the showcase's test files (split from the one file, so a
 // section's test is a file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it.
@@ -43,11 +44,13 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     await sc.dispatch.press("section", { name: "tabs" });
     await sc.dispatch.press("section.try");
     const cols = app.t.cols;
+    let restore: ActRequest | undefined;
     const paint = () => { app.redraw(); app.flush(); };
     try {
       (app as any).term.info.cols = 60;
       await until(() => { paint(); return [...app.strips.state.rows.values()].some(r => r.tabs.some(t => t.hit?.action === "figure.tab")); }, "the graph tabs strip");
       const row = [...app.strips.state.rows.values()].find(r => r.tabs.some(t => t.hit?.action === "figure.tab"))!;
+      restore = { ...row.tabs.find(t => t.on)!.hit!, tile: row.tile };
       let more: { x: number; y: number } | undefined;
       for (let y = 0; y < app.t.rows; y++) for (let x = 0; x < app.t.cols; x++) {
         const hit = app.overflow.stripAt(x, y);
@@ -61,6 +64,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
       expect(figures.figures[0].tab).toBe(row.tabs.at(-1)!.hit!.args!.tab);
     } finally {
       app.strips.close(); (app as any).term.info.cols = cols;
+      if (restore) await app.dispatch.act(restore, USER);
       press({ kind: "esc" });
     }
   });
