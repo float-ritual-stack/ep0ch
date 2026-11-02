@@ -155,8 +155,8 @@ export class Tuning {
   readonly lineBaseline = new Map<string, Record<string, string[]>>();
   readonly tileBaseline = new Map<string, Record<string, string>>();
   /**
-   * A list's target (`list:<note>:<line>`) → the note's revision when the inspector tuned it: its save is checked
-   * against it, so a line moved by an edit since is refused, never written over another line.
+   * A list's target (`list:<note>:<line>`) → the note's revision when the inspector first tuned it since its last save:
+   * its save is checked against it, so a line moved by an edit since is refused, never written over another line.
    */
   readonly listSeen = new Map<TuneTarget, number>();
   readonly last = new Map<string, number>();
@@ -571,6 +571,9 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
     const w = await writeLine(src.board, t, list.note, list.line, want, expected, actor);
     if (w) done.push(w);
     t.markSaved(target, entry.fields);
+    // The revision seen belongs to the nudges just saved: the next nudge takes the note's revision as the reader has it
+    // then, so a save after an undo (ctrl+z in the reader, PIE-1512) is checked against the note as it is now.
+    t.listSeen.delete(target);
     return { target, note: list.note, fields: Object.entries(want).map(([k, v]) => (v === null ? `${k} removed` : `${k}=${v}`)), created: false };
   }
   const prop = (k: FieldKey) => { const f = parseFieldKey(k)!; return styleProperty(f.token, f.variant); };
