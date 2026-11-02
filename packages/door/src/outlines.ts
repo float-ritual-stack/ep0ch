@@ -328,16 +328,17 @@ export async function readMissing(o: { outline: string; path: string; machine?: 
     ...(local ? [["this machine has it:", again(undefined)] as [string, string]] : []),
   ];
   const w = Math.max(0, ...rows.map(r => r[0].length)) + 2;
+  const where = rows.map(([k, v]) => `  ${k.padEnd(w)}${v}`);
   if (!has) {
     // The host didn't answer, so whether it has the outline is unknown (PIE-1325): say that, and where else it is.
     // With no machine named and nowhere else known, null: the socket may be a plain service (EP0CH_SOCKET), and the
     // board's own connect says "no carrier" with the real error when it is dead.
     if (!rows.length && !o.machine) return null;
-    return [outlineHostProblem(o.path, o.machine), ...rows.map(([k, v]) => `  ${k.padEnd(w)}${v}`)].join("\n");
+    return [outlineHostProblem(o.path, o.machine), ...where].join("\n");
   }
   return [
     `${there} has no outline ${o.outline}. Nothing was created (a read never makes one).`,
-    ...rows.map(([k, v]) => `  ${k.padEnd(w)}${v}`),
+    ...where,
     ...(rows.length ? [] : [`  no machine I know of has an outline ${o.outline}; see what exists: ep0ch outline list --all`]),
     `  to make it on purpose: ep0ch outline create ${o.outline}${o.machine ? ` --machine ${o.machine}` : ""}`,
   ].join("\n");
