@@ -49,11 +49,12 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
 - **The experience is the unit.** A brief, a branch, a PR and a close are one sentence of what Evan will open and
   do, end to end ("Evan opens X and can do Y"), with every ticket and every missing part that sentence needs.
   Records, protocol and tests are how, not when it's done. A lone ticket is for a bug in something shipped.
-- **Is it the next `neat`?** When the person asks for a behaviour, first try it as a script or an extension on the parts
+- **Is it the next `neat`?** For every behaviour, the person's ask or a design of ours, first try it as a script or an extension on the parts
   that exist, written plainly (`neat`, the layout script that became a built-in, is the worked example: gurgle's
   "neat: the button that wouldn't bend"). If it works, it's done. If a step fails, the failures are the tickets: fix the
   door or the service, red first, and never bend the script around a bug (a probe bent to pass hides what it found). A
-  script that proves handy, narrow and flexible in daily use becomes a built-in later, not first.
+  script that proves handy, narrow and flexible in daily use becomes a built-in later, not first. Core gains primitives
+  (a hook, an event, a placement), with the behaviour as their first user ([ADR 0008](docs/adr/0008-extension-first.md)).
 - **Two tests before any guard, prompt or filter: what would nvim do, and what would Google Docs do?**
   - **nvim:** it runs your config and plugins as you, with no confirmations and no "are you sure". A guard, an approval
     or a refusal aimed at Evan or his own agents needs a reason nvim would accept.

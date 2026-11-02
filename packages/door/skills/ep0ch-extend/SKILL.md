@@ -46,6 +46,10 @@ sleep, a guess at a tile name): a probe bent to pass hides what it found.
 
 Start local and blunt. Promote on the second real use, as a rewrite if needed. A built-in first is the wrong order.
 
+**When no tier can do it** (an extension can't hear the event or place the thing it needs), the gap is a missing
+**primitive**, not a reason to build the behaviour in core: ticket the primitive (a hook, an event, a placement), and the
+behaviour stays an extension as its first user ([ADR 0008](../../../../docs/adr/0008-extension-first.md); the glass, PIE-1505).
+
 ## From the ask to the shape
 
 | The person asks for | It is | Read |

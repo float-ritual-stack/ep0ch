@@ -1,3 +1,6 @@
+// The glass's hover behaviour (post-its, the stack, peel, drop, shelves) is core today and moves to an extension on two new
+// primitives, a hover event and an extension's status chip (PIE-1505, docs/adr/0008-extension-first.md); the float layer it
+// draws on stays core. Don't grow it here: add to the primitive or the extension.
 import type { App, Screen } from "./app";
 import type { Msg } from "./board";
 import type { Rect } from "./canvas";
