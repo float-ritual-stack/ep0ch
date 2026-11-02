@@ -46,4 +46,14 @@ describe("props written without their --- lines", () => {
     // In a code fence it is only text.
     expect(syntaxWarnings("```\n::graph-table\nquery: x\n::\n```")).toEqual([]);
   });
+
+  test("a key the figure doesn't take is said at write time, in the reader's words (PIE-1518)", () => {
+    const text = "Beds\n\n::graph-table\n---\nquery: type=bed\nlayoutt: feed\n---\n::";
+    const found = syntaxWarnings(text);
+    expect(found).toEqual([{ kind: "figure", line: 2, end: 7, message: "the ::graph-table on line 3 doesn't take layoutt: did you mean layout?" }]);
+    // The same check the reader draws under the figure.
+    expect(figureProps("table", figureSource(lines("---\nquery: type=bed\nlayoutt: feed\n---")))).toMatchObject({ warning: "this ::graph-table doesn't take layoutt: did you mean layout?" });
+    // A figure whose keys it takes says nothing; YAML that doesn't read is the reader's to say.
+    expect(syntaxWarnings("::graph-table\n---\nquery: type=bed\nlayout: feed\n---\n::")).toEqual([]);
+  });
 });

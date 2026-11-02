@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { componentBlocks } from "../src/component-block";
 import { componentReading } from "../src/component-warnings";
+import { syntaxWarnings } from "../src/syntax-warnings";
 import { BUILTIN_COMPONENT_SCHEMAS, VIEW } from "../src/component-schema";
 import { figureProps, figureSource, unknownFigureKeys } from "../src/figure-props";
 import { viewSpec } from "../src/view-spec";
@@ -25,9 +26,9 @@ describe("a live graph-table's layout (PIE-1513)", () => {
     expect(unknownFigureKeys("forecast", { rain: 3 })).toEqual([]);
   });
   test("the write's warning and the static reader's say the same sentence", () => {
-    const r = componentReading("Garden\n::graph-table\n---\nquery: type=bed\ncolour: red\n---\n::", BUILTIN_COMPONENT_SCHEMAS);
-    expect(r.warnings).toHaveLength(1);
-    expect(r.warnings[0]).toStartWith("the ::graph-table on line 2 doesn't take colour: it takes title");
+    const r = syntaxWarnings("Garden\n::graph-table\n---\nquery: type=bed\ncolour: red\n---\n::").map(w => w.message);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toStartWith("the ::graph-table on line 2 doesn't take colour: it takes title");
     const read = figureProps("rank", figureSource(["---", "items: [{ label: a, value: 1 }]", "colour: red", "---"]));
     expect("warning" in read && read.warning).toStartWith("this ::graph-rank doesn't take colour: it takes title");
   });
