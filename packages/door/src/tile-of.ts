@@ -5,7 +5,7 @@
 // a program whose ssh client isn't in the tile (a Claude in a tmux or a background session on the far machine, attached
 // from the tile): that program writes a marker to its terminal (`OSC 7501 ; ?mark=<token>`, PIE-1306), the tile that drew
 // it keeps it, and `mark=` finds that tile. The pty stream carries it over ssh (and through tmux's passthrough, when allowed).
-import { readdirSync, readFileSync, readlinkSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { procAncestors } from "./where";
 
 export interface TileProc {
@@ -73,4 +73,20 @@ export function procPortOwners(port: number): number[] {
   return owners;
 }
 
-export const realTileDeps = (): TileOfDeps => ({ ancestors: pid => procAncestors(pid), portOwners: procPortOwners });
+/**
+ * macOS and the BSDs (no /proc: the laptop's door, PIE-1242): lsof names the processes holding an established TCP
+ * connection on this local port. `run` is injected in tests.
+ */
+export function lsofPortOwners(port: number, run: (argv: string[]) => { code: number; out: string } = argv => {
+  const r = Bun.spawnSync(argv, { stdout: "pipe", stderr: "ignore" });
+  return { code: r.exitCode ?? 1, out: r.stdout.toString() };
+}): number[] {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) return [];
+  const r = run(["lsof", "-nP", "-a", `-iTCP:${port}`, "-sTCP:ESTABLISHED", "-t"]);
+  return r.code === 0 ? r.out.split("\n").map(Number).filter(n => Number.isInteger(n) && n > 0) : [];
+}
+
+/** /proc's when this machine has it, else lsof's. */
+export const portOwnersFor = (proc = existsSync("/proc/net/tcp")) => (proc ? procPortOwners : lsofPortOwners);
+
+export const realTileDeps = (): TileOfDeps => ({ ancestors: pid => procAncestors(pid), portOwners: portOwnersFor() });

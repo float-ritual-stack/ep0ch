@@ -171,6 +171,14 @@ describe("an agent here reaches box-a's doors through hub's link", () => {
     expect(fromTile.reach).toMatchObject({ rule: "ssh" });
     expect(fromTile.reach.text).toContain("reached box-a's door on garden, whose terminal tile t-1 holds this ssh session (through hub's link)");
     expect(fromTile.door.outline).toBe("garden");
+    // peek and act take the same rule as where, with no EP0CH_CONTROL set (the CLI asks resolveDoor too).
+    asked.length = 0;
+    const peek = await ep0ch(["peek", "--json"], { SSH_CONNECTION: `${address} 50123 10.0.0.2 22` });
+    expect(peek.code, peek.err).toBe(0);
+    expect(asked.findLast(a => a.req.cmd === "peek")?.door).toBe("garden");
+    const act = await ep0ch(["act", "layout.get", "--as", "gardener"], { SSH_CONNECTION: `${address} 50123 10.0.0.2 22` });
+    expect(act.code, act.err).toBe(0);
+    expect(asked.findLast(a => a.req.cmd === "act" && a.req.action === "layout.get")?.door).toBe("garden");
     // No tile holds it (a terminal outside any door): the one the person typed in last.
     const r = JSON.parse((await ep0ch(["where", "--json"], { SSH_CONNECTION: `${address} 50999 10.0.0.2 22` })).out);
     expect(r.reach).toMatchObject({ rule: "ssh" });
@@ -200,6 +208,14 @@ describe("a real door session, through the link", () => {
     try {
       await until(() => !!readLinkDoors(outlines, "box-b")?.doors.length, "the session announced", 10_000);
       const control = linkDoorSocket(outlines, "box-b", "meadow");
+      // A stream that arrives while the list is read again still finds its door.
+      let done = false;
+      const again = sessions.list().finally(() => { done = true; });
+      const seen: (string | null)[] = [];
+      while (!done) { seen.push(sessions.socket("meadow")); await Bun.sleep(0); }
+      await again;
+      expect(seen.filter(s => s === null)).toEqual([]);
+      expect(sessions.socket("meadow")).not.toBeNull();
       const peek = await ep0ch(["peek", "--json"], { EP0CH_CONTROL: control });
       expect(peek.code, peek.err).toBe(0);
       expect(JSON.parse(peek.out).outline).toBe("meadow");

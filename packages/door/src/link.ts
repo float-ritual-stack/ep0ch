@@ -29,20 +29,21 @@ export async function installLinkedSha(sha: string): Promise<LinkInstallResult> 
  */
 /** `root`: the state dir whose sessions they are (the default: this one's). */
 export function linkDoorSessions(root?: string) {
-  const controls = new Map<string, string>();
+  let controls = new Map<string, string>();
   return {
     async list(): Promise<LinkDoor[]> {
       const { runningSessions } = await import("./session/place");
-      const doors: LinkDoor[] = [];
-      controls.clear();
+      const doors: LinkDoor[] = [], next = new Map<string, string>();
       for (const { info } of await runningSessions(root)) {
         if (!info.control || info.place.socket) continue;
         const key = doorKey(info.place.outline, info.place.machine);
-        if (!DOOR_KEY.test(key) || controls.has(key)) continue;
-        controls.set(key, info.control);
+        if (!DOOR_KEY.test(key) || next.has(key)) continue;
+        next.set(key, info.control);
         const attached = info.clients.filter(c => !c.watch);
         doors.push({ key, outline: info.place.outline, ...(info.place.machine ? { machine: info.place.machine } : {}), idle: attached.length ? Math.min(...attached.map(c => c.idle)) : null, clients: attached.length, screen: info.screen });
       }
+      // Swapped in at once: a stream that opens while the sessions are read finds the last list, never none.
+      controls = next;
       return doors.sort((a, b) => a.key.localeCompare(b.key));
     },
     socket: (key: string) => controls.get(key) ?? null,

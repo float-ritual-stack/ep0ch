@@ -267,16 +267,17 @@ if (args[0] === "actions") {
   if (wantsDoc(args)) process.exit(await actionsDoc(args.slice(1)));
 }
 if (["peek", "snap", "open", "actions", "act", "subscribe", "trace"].includes(args[0] ?? "")) {
-  // Which door, when EP0CH_CONTROL names none: the one on the outline this folder names, else the only one running.
+  // Which door, when EP0CH_CONTROL names none: resolveDoor's rule, the one `ep0ch where` says (PIE-1242: the door on the
+  // machine this ssh session came from, else the one on the outline this folder names, else the only one running).
   if (!process.env.EP0CH_CONTROL) {
-    const { controlFor } = await import("./session/place");
-    const at = await controlFor(process.env, process.cwd(), args[0] === "peek" ? args : []);
-    if (typeof at === "object") {
-      if (args[0] === "open" && args.includes("--json")) console.log(JSON.stringify({ opened: false, reason: at.error }));
-      else console.error(`ep0ch: ${notACommand ?? at.error}`);
+    const { resolveDoor } = await import("./door-resolve");
+    const reached = await resolveDoor(process.env, process.cwd(), args[0] === "peek" ? args : []);
+    if (!reached.path) {
+      if (args[0] === "open" && args.includes("--json")) console.log(JSON.stringify({ opened: false, reason: reached.text }));
+      else console.error(`ep0ch: ${notACommand ?? reached.text}`);
       process.exit(notACommand ? 2 : args[0] === "open" && args.includes("--json") ? 0 : 1);
     }
-    process.env.EP0CH_CONTROL = at;
+    process.env.EP0CH_CONTROL = reached.path;
   } else {
     // A program in a door's tile: its door as it is now, by its outline's session, never the socket it started with
     // alone (a handover or restart moves the door to a new process; PIE-604). `ep0ch where` says when that happened.
