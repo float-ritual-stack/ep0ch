@@ -189,9 +189,12 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     render();
     await act("open", { id: notes.plan.id }, "side");
     await until(() => tile("side").showing?.id === notes.plan.id, "the plan in side");
-    // Unlink side (alt+l, click itself), then link it to middle (alt+l, click middle).
+    // alt+l, a click on side itself: in place (PIE-1516); again: unlinked. Then link it to middle (alt+l, click middle).
     const sd = rect("side"), md = rect("middle");
     D().focus = [...D().names].find(([, v]: any) => v === "side")[0];
+    key(alt("l")); mouse("down", sd.col + 3, sd.row + 3);
+    expect(tile("side").link).toBe("side");
+    expect(D().wireDescription("side", "open")).toBe("in place");
     key(alt("l")); mouse("down", sd.col + 3, sd.row + 3);
     expect(tile("side").link).toBeUndefined();
     key(alt("l")); render();

@@ -109,8 +109,15 @@ export const TRAIL_ACTIONS = actionSet<KindHost>()("trail", {
   "trail.pick": def({ examples: [{ act: "trail.pick tile=trail n=2", does: "selects the first visit below the day heading" }], summary: "Pick a visit without opening it", touches: "tile", replay: "safe",
     args: { n: { type: "number", optional: true, about: "row from 1" }, by: { type: "number", optional: true, about: "rows to move" } },
     run({ n, by }, { pane, desk }) { const p = paneOf(pane), rows = p.rows(desk); p.pick(rows, n !== undefined ? n - 1 : p.picked(rows) + (by ?? 1)); p.scroll.reveal(); desk.redraw(); return { at: p.picked(rows) + 1 }; } }),
-  "trail.open": def({ examples: [{ act: "trail.open tile=trail visit=visit-garden", does: "opens the visit returned by trail.recent in its original place" }], summary: "Go to a history stop or open a visit where it was, restoring its closed tile", touches: "shape", replay: "ask", args: visitArg, menu: menu("open where it was", "enter"),
-    async run({ visit }, { pane, desk }, actor) { const p = paneOf(pane); if (!visit && p.options.view === "history") return p.go(desk, actor); if (!desk.reopenTrail) throw new ActionRefused("this screen cannot reopen tiles"); return desk.reopenTrail(p.visit(desk, visit), actor); } }),
+  "trail.open": def({ examples: [{ act: "trail.open tile=trail visit=visit-garden", does: "opens the visit returned by trail.recent in its original place" }], summary: "Go to a history stop or open a visit where it was, restoring its closed tile; a trail wired to itself (alt+l o, then a click on it) opens the visit's note in place, ← back returning to the trail", touches: "shape", replay: "ask", args: visitArg, menu: menu("open where it was", "enter"),
+    async run({ visit }, { pane, desk }, actor) {
+      const p = paneOf(pane);
+      if (!visit && p.options.view === "history") return p.go(desk, actor);
+      // Wired to itself (PIE-1516): the visit's note opens in this tile, ← back returns to the trail.
+      if (desk.opensInPlace?.(pane)) { const v = p.visit(desk, visit), m = await readNote(desk.ctx, v.open.target.note, v.open.target.address); if (!m) throw new ActionRefused("that note is no longer available"); desk.openFromTile(m, { from: pane, link: true, by: actor }); return { opened: m.id, inPlace: true }; }
+      if (!desk.reopenTrail) throw new ActionRefused("this screen cannot reopen tiles");
+      return desk.reopenTrail(p.visit(desk, visit), actor);
+    } }),
   "trail.go": def({ summary: "Go back or forward to a stop in the source tile's history", touches: "tile", replay: "ask",
     args: { n: { type: "number", optional: true, about: "row from 1; default the selected history stop" } }, examples: [{ act: "trail.go tile=trail n=2", does: "takes the source reader to the second history stop" }],
     run({ n }, { pane, desk }, actor) { return paneOf(pane).go(desk, actor, n); } }),

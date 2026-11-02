@@ -341,6 +341,7 @@ export interface ReaderHistory {
   trail?(): { back: TrailStop[]; forward: TrailStop[] };
   /** Why an agent can't go back or forward here: it would move the person's screen or focus. */
   agentRefusal: string;
+  beneath?: true;   // its stops lie beneath the reader's own (PIE-1516: the list it opened in place over), listed and walked after them
 }
 
 /**
@@ -8207,7 +8208,7 @@ export class NoteSurface {
     this.use(host);
     // `steps` stops at once (the trail's choice, PIE-208): the ones passed over go on the other stack, as one by one.
     const stack = dir < 0 ? this.backs : this.aheads, to = stack[stack.length - steps];
-    if (!stack.length && host.history) return host.history.go(dir, actor, steps);
+    if (host.history && (!stack.length || !to && dir < 0 && host.history.beneath)) return host.history.go(dir, actor, steps - stack.length);
     if (!to && stack.length) return `only ${stack.length} ${dir < 0 ? "back" : "ahead"}: steps=${stack.length} at most (trail lists them)`;
     if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
     const holding = this.modes.holding();
@@ -8285,11 +8286,11 @@ export class NoteSurface {
 
   /** The history as `peek` shows it: the titles back and forward go to, nearest first. */
   describeHistory() {
-    const trail = this.kept && !this.backs.length && !this.aheads.length ? this.kept.trail?.() : undefined;
+    const trail = this.kept && !this.kept.beneath && !this.backs.length && !this.aheads.length ? this.kept.trail?.() : undefined;
     if (trail) return { back: trail.back, forward: trail.forward, keptBy: "view" };
-    if (this.kept && !this.backs.length && !this.aheads.length) return { back: [this.kept.peek(-1)].filter(Boolean), forward: [this.kept.peek(1)].filter(Boolean), keptBy: "view" };
+    if (this.kept && !this.kept.beneath && !this.backs.length && !this.aheads.length) return { back: [this.kept.peek(-1)].filter(Boolean), forward: [this.kept.peek(1)].filter(Boolean), keptBy: "view" };
     const titles = (ps: Place[]) => ps.map(p => ({ ...(p.msg.address ? { address: p.msg.address } : {}), id: p.msg.id, title: subject(p.msg) })).reverse();
-    return { back: titles(this.backs), forward: titles(this.aheads) };
+    return { back: [...titles(this.backs), ...(this.kept?.beneath && this.kept.trail?.().back || [])], forward: titles(this.aheads) };
   }
 
   /**
@@ -9852,9 +9853,8 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
  */
 async function travelAction(dir: -1 | 1, { surface, host, standing }: On, actor: Actor, steps = 1) {
   const word = dir < 0 ? "back" : "forward";
-  // Where the view keeps the history itself (the river's columns), it moves the person's keys: theirs alone.
-  // This reader's own stops (n and p in the message reader) move only it, an agent's too.
-  if (!standing && host.history && !surface.travelsHere(dir)) throw new ActionRefused(host.history.agentRefusal);
+  // Where the view keeps the history itself (the river's columns), it moves the person's keys: theirs alone. This reader's own stops (n and p in the message reader) move only it, an agent's too.
+  if (!standing && host.history && !host.history.beneath && !surface.travelsHere(dir)) throw new ActionRefused(host.history.agentRefusal);
   // The person's comment unsent here: asked first (PIE-785).
   // (Synchronous when nothing is asked: the follow goes on in the same tick, as it always did.)
   const asked = surface.askLeave(word, {}, actor, host);
