@@ -116,6 +116,36 @@ export interface HeadingStyleDeclaringBlock { id: string; line?: number; propert
 export const HEADING_FIELD_KEYS = ["heading-pattern", "heading-rows", "heading-align", "heading-row", "heading-padding", "heading-margin", "heading-tone", "heading-letters"] as const;
 const FIELD_KEYS: ReadonlySet<string> = new Set(HEADING_FIELD_KEYS);
 
+// ── a styling property isn't content ──────────────────────────────────────────
+//
+// One rule, read by every reader (PIE-1510): a property that styles the line it's on leaves the drawn text. The editor,
+// x-ray, the property panel and the tune inspector read the source and show it; a copy of the source (`Y`) and an export
+// keep it; only the drawing leaves it out, as a heading's `[heading-pattern::dots]` always did. A drawn selection maps
+// back to the source through the same list (the door's source-map).
+
+/** A `style.*` key as the cascade reads one (style-cascade.ts styleFieldsOf): a width's (`style.wide.pad`) and a retired one too. */
+export const isStyleKey = (key: string): boolean => /^style\./i.test(key);
+/** A heading's or rule's own styling: the style it names (`heading`, `rule`) and PIE-599's `heading-*` fields. */
+export const isHeadingStyleKey = (key: string): boolean => key === "heading" || key === "rule" || FIELD_KEYS.has(key);
+/**
+ * The tokens of `line` that style it rather than say something: every `style.*` token, and on a heading line its
+ * `heading` and `heading-*` tokens too (on any other line those are words: `- [heading::x]` means nothing). A rule's
+ * `[rule::fade]` is the renderer's to read (styledLine): a `---` under a paragraph is its setext underline, not a rule.
+ */
+export function stylingTokensInLine(line: string): PropertyTokenMatch[] {
+  const tokens = liveTokensInLine(line);
+  if (!tokens.length) return tokens;
+  const headed = ATX.test(line);
+  return tokens.filter(t => isStyleKey(t.key) || (headed && isHeadingStyleKey(t.key)));
+}
+/** `line` as a reader draws it: without its styling tokens. A list marker left alone keeps its space, so the item stays an item. */
+export function withoutStylingTokens(line: string): string {
+  const tokens = stylingTokensInLine(line);
+  if (!tokens.length) return line;
+  const kept = withoutTokens(line, tokens);
+  return /^\s*(?:[-*+]|\d+[.)])$/.test(kept) ? kept + " " : kept;
+}
+
 const ROOM = /^\s*(\d+)(?:\s+(\d+))?\s*$/;
 const MARGIN = /^\s*(\d+)(?:\s+(\d+))?(?:\s+(\d+))?\s*$/;
 
@@ -303,11 +333,12 @@ export function styledLine(line: string): StyledLine | null {
   if (headingStyleDeclaration(line)) return null;
   const tokens = liveTokensInLine(line);
   const named = tokens.find(t => t.key === key);
-  const own = tokens.filter(t => t === named || FIELD_KEYS.has(t.key));
+  // The one rule (stylingTokensInLine): its own heading fields and any `style.*` token leave the text.
+  const own = tokens.filter(t => t === named || isHeadingStyleKey(t.key) || isStyleKey(t.key));
   const text = withoutTokens(line, own);
   if (r && RULE.exec(text)![2]!.trim()) return null;
   return {
     kind: key, level: h ? h[1]!.length : 0, style: named ? named.value.toLowerCase() : null,
-    fields: own.filter(t => t !== named).map(t => ({ key: t.key, value: t.value })), text,
+    fields: own.filter(t => t !== named && FIELD_KEYS.has(t.key)).map(t => ({ key: t.key, value: t.value })), text,
   };
 }

@@ -80,6 +80,23 @@ describe("the doc renderer's list rows and soft wraps (no service)", () => {
     expect(t2.findIndex(l => l.includes("thyme")) - t2.findIndex(l => l.includes("clover"))).toBe(2);
   });
 
+  test("PIE-1510: a list's own tokens style it and leave the drawn text (the words stay; an item of only tokens keeps its row); a copy of the drawing has the words, the source keeps the tokens", () => {
+    const body = ["## Beds [style.list.gap::1] [heading-tone::amber]", "- clover [style.list.gap::2] [style.list.divider::dots] [who::sam]", "- thyme", "- [style.list.zebra::on]", "- sage", "", "Herbs: [style.list.zebra::on]", "- mint"].join("\n");
+    const d = renderDoc(body, env({ "list.gap": 0 }));
+    const text = d.lines.map(plain).join("\n");
+    expect(text).not.toContain("style.");
+    expect(text).not.toContain("heading-tone");
+    expect(text).toContain("clover");
+    expect(text).toContain("who::sam");
+    expect(text).toContain("Herbs:");
+    const at = (x: string) => d.lines.map(plain).findIndex(l => l.includes(x));
+    expect(at("thyme") - at("clover")).toBe(4);                       // the first item's own: 2 blank rows and a divider
+    expect(at("sage") - at("thyme")).toBe(5);                         // the empty third item keeps its row between them
+    expect(copy(d, 40)).toBe(["Beds", "- clover [who::sam]", "- thyme", "- ", "- sage", "", "Herbs:", "- mint"].join("\n"));
+    // Without a look (an export, a digest) the same words: the rule is the renderer's, not the look's.
+    expect(renderDoc(body, env()).lines.map(plain).join("\n")).not.toContain("style.");
+  });
+
   test("a box's surface, frame and bar (PIE-675): drawn round its text, the text copies as written", () => {
     const BOX = ["::box{bg=amber border=round tone=amber pad=1}", "- Net the brassicas", "- Oil the shed hinge", "::"].join("\n");
     const d = renderDoc(BOX, { ...env({}), width: 40 });

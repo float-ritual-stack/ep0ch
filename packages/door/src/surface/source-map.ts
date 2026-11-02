@@ -11,6 +11,7 @@
 // becomes is outline-core's.
 
 import { fragmentAnchorMatch, labelBar, linkOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { stylingTokensInLine } from "@ep0ch/outline-core/heading-styles";
 
 /** A `{{ }}` the reader drew as its `words` (refs.ts presentLinks), at `start`..`end` of the span: a passage takes it whole. */
 export interface DrawnValue { start: number; end: number; words: string }
@@ -47,11 +48,16 @@ function visibility(span: string, values: readonly DrawnValue[] = []): { shown: 
     const mark = m[1] ?? "`";
     hide(m.index!, m.index! + mark.length); hide(m.index! + m[0].length - mark.length, m.index! + m[0].length);
   }
-  // A fragment anchor at a line's end isn't drawn.
+  // A fragment anchor at a line's end isn't drawn; nor is a styling property (PIE-1510: outline-core's one rule, with
+  // the blank before it, as the reader's withoutStylingTokens joins the text either side by one space).
   let at = 0;
   for (const line of span.split("\n")) {
     const a = fragmentAnchorMatch(line);
     if (a) hide(at + a.index!, at + line.length);
+    for (const t of stylingTokensInLine(line)) {
+      const lead = /[ \t]*$/.exec(line.slice(0, t.start))![0].length;
+      hide(at + t.start - lead, at + t.end);
+    }
     at += line.length + 1;
   }
   return { shown, tokens };

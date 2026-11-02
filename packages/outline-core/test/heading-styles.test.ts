@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { withoutTokens, liveTokensInLine, BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleRegistry, headingStylesFromBlocks, headingStyleWith, styledLine } from "../src/heading-styles";
+import { isStyleKey, stylingTokensInLine, withoutStylingTokens, withoutTokens, liveTokensInLine, BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleRegistry, headingStylesFromBlocks, headingStyleWith, styledLine } from "../src/heading-styles";
 
 test("styledLine: a heading's or a rule's style, and the line without it; anything else is null", () => {
   expect(styledLine("## Your calls [heading::Band]")).toEqual({ kind: "heading", level: 2, style: "band", fields: [], text: "## Your calls" });
@@ -71,4 +71,23 @@ test("heading-margin: columns, rows and columns, or top, columns and bottom; out
   expect(m("9 0 1").style.margin).toEqual({ top: 3, cols: 0, bottom: 1 });
   expect(m("9 0 1").problems).toEqual([expect.stringContaining("at most 3 rows")]);
   expect(m("1 2 3 4").problems).toEqual([expect.stringContaining("top columns bottom")]);
+});
+
+test("PIE-1510: a styling property isn't content: style.* anywhere, heading-* on a heading, leave the drawn text; words and other properties stay", () => {
+  expect(stylingTokensInLine("- clover [style.list.gap::2] [who::sam] [style.list.zebra::on]").map(t => t.key)).toEqual(["style.list.gap", "style.list.zebra"]);
+  expect(withoutStylingTokens("- clover [style.list.gap::2] [who::sam] [style.list.zebra::on]")).toBe("- clover [who::sam]");
+  expect(withoutStylingTokens("Herbs: [style.list.zebra::on]")).toBe("Herbs:");
+  expect(withoutStylingTokens("## Climbers [heading-pattern::dots] [style.list.divider::dots] [heading::band]")).toBe("## Climbers");
+  // On a list item a heading field is words; a rule's token is the renderer's (a --- under a paragraph is no rule).
+  expect(withoutStylingTokens("- odd [heading-rows::2]")).toBe("- odd [heading-rows::2]");
+  expect(withoutStylingTokens("--- [rule::fade]")).toBe("--- [rule::fade]");
+  // An item that is only its tokens stays an item: its marker keeps its space.
+  expect(withoutStylingTokens("- [style.list.zebra::on]")).toBe("- ");
+  expect(withoutStylingTokens("  1. [style.list.gap::1]")).toBe("  1. ");
+  // A retired key and a width's are style keys too; a token in a code span is text.
+  expect(withoutStylingTokens("A [style.wide.pad::2] [style.header.image::x.png] B")).toBe("A B");
+  expect(withoutStylingTokens("type `[style.list.gap::1]` on the first item")).toBe("type `[style.list.gap::1]` on the first item");
+  expect(isStyleKey("style.list.gap")).toBe(true); expect(isStyleKey("styled")).toBe(false);
+  // styledLine's text and fields follow the same rule: style.* leaves a heading's text, and isn't a heading field.
+  expect(styledLine("## Climbers [heading-tone::amber] [style.list.gap::2]")).toEqual({ kind: "heading", level: 2, style: null, fields: [{ key: "heading-tone", value: "amber" }], text: "## Climbers" });
 });
