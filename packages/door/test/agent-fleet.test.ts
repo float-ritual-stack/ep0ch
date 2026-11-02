@@ -44,11 +44,12 @@ describe("agent ls words", () => {
     expect(text).toMatch(/loki\s+d9ed7782\s+background\s+busy\s+2\.1\.310\s+current/);
     expect(text).toContain("1 background behind the installed 2.1.310: ep0ch agent restart --all --if-update --machine far-box");
   });
-  test("an interactive session is listed with where it runs, and not offered to the restart", () => {
-    const text = formatSessions([row({ name: "kitty-sr", id: "5f2a9c10", kind: "interactive", status: "waiting", running: "2.1.308", behind: true, place: "door terminal tile (outline gurgle)" })]);
+  test("an interactive session is listed with where it runs; one in a door tile is offered to the restart, one elsewhere isn't", () => {
+    const text = formatSessions([row({ name: "kitty-sr", id: "5f2a9c10", kind: "interactive", status: "waiting", running: "2.1.308", behind: true, place: "door terminal tile (outline gurgle)", door: "/state/sessions/local/gurgle" }), row({ name: "le-kitty", id: "6a1b2c3d", kind: "interactive", status: "idle", running: "2.1.308", behind: true, place: "Herdr pane" })]);
     expect(text).toMatch(/kitty-sr\s+5f2a9c10\s+interactive\s+waiting\s+2\.1\.308\s+behind 2\.1\.310 · door terminal tile \(outline gurgle\)/);
-    expect(text).toContain("1 interactive behind (kitty-sr): a terminal owns each, so restart the program there: /exit, then claude --continue");
-    expect(text).not.toContain("--all --if-update");
+    // A door tile's Claude is restarted with the rest (PIE-1280); one in a Herdr pane only where it runs.
+    expect(text).toContain("1 behind the installed 2.1.310 (1 in a door terminal tile, restarted there): ep0ch agent restart --all --if-update");
+    expect(text).toContain("1 interactive behind outside a door tile (le-kitty): nothing here can restart those, so restart the program there: /exit, then claude --continue");
   });
   test("none, and a process that can't be read", () => {
     expect(formatSessions([], "far-box")).toContain("no Claude sessions on far-box");
@@ -119,7 +120,11 @@ describe("agent restart: where it runs and what it says", () => {
 
 describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
   let dir = "", home = "";
-  let behindPid = 0, quotePid = 0, ptyHostPid = 0, kittyPid = 0;
+  let behindPid = 0, quotePid = 0, ptyHostPid = 0, kittyPid = 0, paneKittyPid = 0;
+  /** The door of kitty's session (PIE-1280): a socket that answers host.tileOf and tile.restart as the door does, and records each act. */
+  let door: { stop(): void } | null = null;
+  const acts: { action: string; args: Record<string, unknown>; tile?: string; as?: string }[] = [];
+  let sessions: { pid: number; id?: string; name: string; [k: string]: unknown }[] = [];
   const stopLog = () => { try { return readFileSync(join(home, "claude-stop.log"), "utf8"); } catch { return ""; } };
 
   beforeAll(() => {
@@ -138,7 +143,10 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
     writeFileSync(join(dir, "pty-host-fake.sh"), `#!/bin/sh\n${join(dir, "versions/2.0.0")} 600 &\necho $! > ${join(dir, "kitty.pid")}\nwait\n`, { mode: 0o755 });
     ptyHostPid = Bun.spawn(["sh", join(dir, "pty-host-fake.sh"), "session", "pty-host", join(dir, "state/sessions/local/gurgle")], { stdio: ["ignore", "ignore", "ignore"] }).pid;
     for (let i = 0; i < 100 && !kittyPid; i++) { try { kittyPid = Number(readFileSync(join(dir, "kitty.pid"), "utf8")); } catch { Bun.sleepSync(50); } }
-    const sessions = [
+    // One in a terminal no door holds (its parent is no terminal host): only where it runs can restart it.
+    paneKittyPid = Bun.spawn([join(dir, "versions/2.0.0"), "600"], { stdio: ["ignore", "ignore", "ignore"] }).pid;
+    sessions = [
+      { pid: paneKittyPid, cwd: "/x", kind: "interactive", sessionId: "ffff6666-0000-4000-8000-000000000006", name: "le-kitty", status: "idle" },
       { pid: kittyPid, cwd: "/x", kind: "interactive", sessionId: "eeee5555-0000-4000-8000-000000000005", name: "kitty-sr", status: "waiting" },
       { pid: behindPid, id: "aaaa1111", cwd: "/x", kind: "background", sessionId: "aaaa1111-0000-4000-8000-000000000001", name: "gpty-box", status: "waiting" },
       { pid: quotePid, id: "bbbb2222", cwd: "/x", kind: "background", sessionId: "bbbb2222-0000-4000-8000-000000000002", name: "it's (2) \"q\"", status: "busy" },
@@ -156,7 +164,8 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
     writeFileSync(join(dir, "bin/ep0ch"), `#!/bin/sh\nHOME=${home}\nPATH=${join(dir, "bin")}:$PATH\nexport HOME PATH\nexec ${process.execPath} ${MAIN} "$@"\n`, { mode: 0o755 });
   });
   afterAll(() => {
-    for (const pid of [behindPid, quotePid, kittyPid, ptyHostPid]) try { process.kill(pid); } catch { /* gone */ }
+    door?.stop();
+    for (const pid of [behindPid, quotePid, kittyPid, ptyHostPid, paneKittyPid]) try { process.kill(pid); } catch { /* gone */ }
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -180,13 +189,15 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
     expect(r.out).toMatch(/twin a\s+cccc3333\s+background\s+waiting\s+\?/);
     expect(r.out).toMatch(/kitty-sr\s+eeee5555\s+interactive\s+waiting\s+2\.0\.0\s+behind 2\.2\.0 · door terminal tile \(outline gurgle\)/);
     expect(r.out).toContain("ep0ch agent restart --all --if-update");
-    expect(r.out).toContain("1 interactive behind (kitty-sr)");
+    expect(r.out).toContain("1 interactive behind outside a door tile (le-kitty)");
+    expect(r.out).toContain("(1 in a door terminal tile, restarted there)");
   });
 
   test("ls --json is the rows", async () => {
     const rows = JSON.parse((await ep0ch(["agent", "ls", "--json"])).out) as SessionRow[];
-    expect(rows.map(r => `${r.id} ${r.kind}`)).toEqual(["aaaa1111 background", "bbbb2222 background", "cccc3333 background", "dddd4444 background", "eeee5555 interactive"]);
-    expect(rows.find(r => r.id === "eeee5555")?.place).toBe("door terminal tile (outline gurgle)");
+    expect(rows.map(r => `${r.id} ${r.kind}`)).toEqual(["aaaa1111 background", "bbbb2222 background", "cccc3333 background", "dddd4444 background", "ffff6666 interactive", "eeee5555 interactive"]);
+    expect(rows.find(r => r.id === "eeee5555")).toMatchObject({ place: "door terminal tile (outline gurgle)", door: join(dir, "state/sessions/local/gurgle") });
+    expect(rows.find(r => r.id === "ffff6666")).toMatchObject({ place: null, door: null });
     expect(rows.find(r => r.id === "aaaa1111")).toMatchObject({ running: "2.0.0", installed: "2.2.0", behind: true });
   });
 
@@ -233,21 +244,68 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
     } finally { try { process.kill(pid); } catch { /* done already */ } }
   }, 30_000);
 
-  test("an interactive session is refused with why and what to do; --all leaves it out and says so", async () => {
+  test("an interactive session no door holds is refused with where it runs and what to do; --all leaves it out and says so", async () => {
     const stopped = stopLog();
     for (const where of [[], ["--machine", "far-box"]]) {
-      const r = await ep0ch(["agent", "restart", "kitty", ...where]);
+      const r = await ep0ch(["agent", "restart", "le-kitty", ...where]);
       expect(r.code).toBe(2);
-      expect(r.err).toContain("kitty-sr' is an interactive session");
+      expect(r.err).toContain("le-kitty' is an interactive session in a terminal this script can't name, not a door terminal tile");
       expect(r.err).toContain("/exit, then claude --continue");
       const all = await ep0ch(["agent", "restart", "--all", "--dry-run", ...where]);
       expect(all.code).toBe(0);
-      expect(all.out).toContain("left out 1 interactive session");
-      expect(all.out).toContain("kitty-sr (behind: 2.0.0, installed 2.2.0, door terminal tile (outline gurgle))");
-      expect(all.out).not.toMatch(/dry run: .*stop eeee5555/);
+      expect(all.out).toContain("left out 1 interactive session outside a door terminal tile");
+      expect(all.out).toContain("le-kitty (behind: 2.0.0, installed 2.2.0)");
+      expect(all.out).not.toContain("kitty-sr (behind");
     }
     expect(stopLog()).toBe(stopped);
   });
+
+  test("an interactive Claude in a door terminal tile (PIE-1280): its door is asked which tile draws it, waits like a background one, then tile.restart runs there", async () => {
+    // kitty's door: its session folder's door.sock, answering as the door does.
+    const folder = join(dir, "state/sessions/local/gurgle");
+    mkdirSync(folder, { recursive: true });
+    const server = Bun.listen<{ buf: string }>({
+      unix: join(folder, "door.sock"),
+      socket: {
+        open(s) { s.data = { buf: "" }; },
+        data(s, d) {
+          s.data.buf += d.toString();
+          const i = s.data.buf.indexOf("\n");
+          if (i < 0) return;
+          const req = JSON.parse(s.data.buf.slice(0, i));
+          acts.push({ action: req.action, args: req.args, tile: req.tile, as: req.as });
+          const result = req.action === "host.tileOf" ? { tile: "t-5eed0001", name: "kitty", by: "pid" }
+            : req.action === "tile.restart" ? { tile: "t-5eed0001", name: "kitty", restarted: true, ended: "signal", program: "claude", dropped: "the dialog it showed" } : null;
+          // The restarted claude: the same session, a new process.
+          if (req.action === "tile.restart") writeFileSync(join(home, "agents.json"), JSON.stringify(sessions.map(r => (r.name === "kitty-sr" ? { ...r, pid: ptyHostPid } : r))));
+          s.end(JSON.stringify(result ? { ok: true, result } : { ok: false, error: `no action ${req.action}` }) + "\n");
+        },
+      },
+    });
+    door = { stop: () => server.stop(true) };
+    try {
+      // A dry run says the tile and what it waits for (kitty-sr is on a dialog), and restarts nothing.
+      const dry = await ep0ch(["agent", "restart", "kitty", "--dry-run"]);
+      expect(dry.code).toBe(0);
+      expect(dry.out).toContain("interactive, in a door terminal tile");
+      expect(dry.out).toContain("dry run: would wait for: on a dialog; then would ask the door to restart tile t-5eed0001");
+      expect(acts.map(a => a.action)).toEqual(["host.tileOf"]);
+      expect(acts[0]).toMatchObject({ args: { pid: String(kittyPid) }, as: "agent-restart" });
+      // --now goes anyway: tile.restart with now=true and the pid it found, said as the door answered.
+      const now = await ep0ch(["agent", "restart", "kitty", "--now"]);
+      expect(now.code).toBe(0);
+      expect(now.out).toContain("agent-restart: running in the background");
+      const log = () => { try { return readFileSync(join(home, ".local/state/ep0ch/agent-restart.log"), "utf8"); } catch { return ""; } };
+      for (let i = 0; i < 300 && !log().includes(`resumed as pid ${ptyHostPid}`); i++) await Bun.sleep(100);
+      expect(acts.at(-1)).toMatchObject({ action: "tile.restart", tile: "t-5eed0001", args: { pid: String(kittyPid), now: "true" }, as: "agent-restart" });
+      expect(log()).toContain("--now: going anyway: on a dialog;");
+      expect(log()).toContain("the door restarted tile t-5eed0001: ended by a signal, dropped the dialog it showed");
+      expect(log()).toContain(`resumed as pid ${ptyHostPid}, in tile t-5eed0001`);
+    } finally {
+      door.stop(); door = null;
+      writeFileSync(join(home, "agents.json"), JSON.stringify(sessions));
+    }
+  }, 60_000);
 
   test("a name with a newline survives the list, and a list claude can't give is an error, not an empty one", async () => {
     const file = join(home, "agents.json"), kept = readFileSync(file, "utf8");

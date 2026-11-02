@@ -111,7 +111,7 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     // The shell has the keys (the test above left it): an agent's tile.type with no reader goes to it.
     expect(get().focus).toBe("shell");
     expect((await act("tile.type", { text: "echo kind-typed\\n" }) as any).name).toBe("shell");
-    await expect(act("tile.restart", {}, "shell")).rejects.toThrow(/shell is still running/);
+    await expect(act("tile.restart", { pid: 1 }, "shell")).rejects.toThrow(/pid 1 doesn't run in shell/);
     const other = get().tiles.find((t: any) => t.kind === "reader" || t.kind === "tree").name;
     await expect(act("tile.type", { text: "x" }, other)).rejects.toThrow(new RegExp(`${other} is an? \\w+ tile: tile.type is for a terminal tile`));
     await expect(act("tile.type", { text: "x" }, "no-such-tile")).rejects.toThrow(/no tile no-such-tile/);

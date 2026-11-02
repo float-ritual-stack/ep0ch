@@ -119,8 +119,8 @@ export type { Video };
 export interface HostLayer {
   /** `d` is the drawer's own desk (its tiles, the drawer's tabs). */
   isDrawer(d: unknown): boolean;
-  /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. */
-  desks(): Desk[];
+  /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. `everyDesk`: every screen's too, shown or not, and the background's (PIE-1280: a program's tile is found wherever it runs). */
+  desks(): Desk[]; everyDesk?(): Desk[];
   /** What of the drawer lies over row `row` of the screen now (PIE-1455): the drawer open over it, a drawer tile lifted over the whole screen, or nothing. */
   liesOver?(row: number): "drawer" | "lift" | null;
   /**
