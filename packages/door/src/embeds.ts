@@ -26,6 +26,7 @@ import { BOLD, C, drawEllipsized, fg, LINK_END, linkTag, pad, RESET, tint, UNBOL
 import { themed } from "./theme";
 import { readView, type ViewRead } from "./views";
 import { buttonText } from "./surface/button";
+import { wrap } from "./text";
 
 /** Embeds one document projects (the service's `maxPerDocument`, the same as Detail's). */
 export const MAX_EMBEDS = 16;
@@ -305,15 +306,16 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
   if (node.status !== "ready" || !node.block) {
     // Nesting limits are the note working as meant; failures are red.
     const calm = node.status === "cycle" || node.status === "depth-limit" || node.status === "limit" || node.status === "budget" || node.status === "too-large";
-    // A target that doesn't exist yet gets the links' one quiet mark, not words (refs.ts MISSING_MARK).
-    if (node.status === "missing") return [S(fg(C.dark) + `${ref} ${MISSING_MARK}` + RESET)];
+    // Page names need the service's suggestions when a typo misses; block ids keep the links' quiet mark.
+    if (node.status === "missing") return [S(fg(C.dark) + `${ref} ${MISSING_MARK}` + RESET),
+      ...(embeddedPageAddress(node.blockId) !== null && node.message ? wrap(fg(C.lred) + printable(node.message) + RESET, w - 1).map(S) : [])];
     // An anchor the note doesn't have names the note and the nearest anchor it has, as a save's warning does (PIE-852).
     if (node.status === "fragment-missing" && node.fragmentId) {
       const near = node.block ? nearestAnchor(node.fragmentId, anchorsOfText(node.block.text)) : undefined;
       const title = node.title ? ` in “${printable(node.title)}”` : "";
-      const said = S(fg(C.lred) + `${ref} · ${printable(node.message ?? node.status)}${title}` + RESET);
+      const said = wrap(fg(C.lred) + `${ref} · ${printable(node.message ?? node.status)}${title}` + RESET, w - 1).map(S);
       // On a row of its own, so a narrow preview doesn't cut it; a click on it opens that passage.
-      return near ? [said, S(fg(C.lred) + "  did you mean " + LINK_ON + tagged(sink, { block: noteOf(node), fragment: near }, `^${near}`) + LINK_OFF + fg(C.lred) + "?" + RESET)] : [said];
+      return near ? [...said, S(fg(C.lred) + "  did you mean " + LINK_ON + tagged(sink, { block: noteOf(node), fragment: near }, `^${near}`) + LINK_OFF + fg(C.lred) + "?" + RESET)] : said;
     }
     return [S(fg(calm ? C.yellow : C.lred) + `${ref} · ${printable(node.message ?? node.status)}` + RESET)];
   }

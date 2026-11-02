@@ -24,10 +24,13 @@ export const MAX_USE_DEPTH = 6;
 /** What the call is drawn in: the invocations that draw its note (a `::use` above it) and that call's props. */
 export interface UseSite { chain?: SiteLink[]; props?: Record<string, string[]> }
 
+/** The call's Site, shared by the reader and a page copy. */
+export const useRequest = (host: string, line: number, site: UseSite = {}) => ({ block: host, line, ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props && Object.keys(site.props).length ? { props: site.props } : {}) });
+
 /** The call a `::use` line makes, from the service, watched: it changes when the template, the host or a note a prop reads does. */
 export function useAnswer(src: Source | null | undefined, host: string, line: number, site: UseSite = {}): Watching<TemplateUseAnswer> | null {
   if (!src) return null;
-  return watchedOn(src.board).read<TemplateUseAnswer>("template.use", { block: host, line, ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props && Object.keys(site.props).length ? { props: site.props } : {}) }, raw => raw);
+  return watchedOn(src.board).read<TemplateUseAnswer>("template.use", useRequest(host, line, site), raw => raw);
 }
 
 /** The site a template's body is drawn in: where it sits (the chain) and the props the call gave it. */

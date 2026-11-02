@@ -1,13 +1,39 @@
 // The facets selection writer, shared with query-word suggestions.
+import { PROPERTY_KEY_SOURCE } from "./property-grammar";
+import type { SiteValue } from "./site";
+
 export interface Clause { key: string; value?: string; mode: "include" | "exclude"; path?: boolean }
 const SAFE_VALUE = /^[\w./@*-]+$/u;
+const queryValue = (value: string) => SAFE_VALUE.test(value) ? value : `"${value.replace(/[\\"]/g, "\\$&")}"`;
+
+/** The whole, unquoted value operand the query parser binds from its Site. */
+export const VALUE_OPERAND_SOURCE = `(${PROPERTY_KEY_SOURCE})\\s*(?:=|::)\\s*(\\{\\{[^\\n]*?\\}\\})`;
+
+/** Operands to serialize for a query taken outside its Site; quoted literals stay literal. */
+export function queryValueOperands(query: string) {
+  const words = new RegExp(`"(?:[^"\\\\]|\\\\.)*"|(?<![^\\s(])${VALUE_OPERAND_SOURCE}(?=$|[\\s)])`, "g");
+  return [...query.matchAll(words)].flatMap(m => m[1] ? [{ start: m.index!, end: m.index! + m[0].length, key: m[1], expression: m[2]!.slice(2, -2).trim() }] : []);
+}
+
+/** Write the service's resolved operands for a command, preserving its any-value and empty-list meanings. */
+export function withQueryValues(query: string, operands: ReturnType<typeof queryValueOperands>, values: readonly SiteValue[]): string {
+  let out = query;
+  for (let i = operands.length - 1; i >= 0; i--) {
+    const operand = operands[i]!, value = values[i];
+    if (!value?.values || value.hidden) continue;
+    const clauses = value.values.map(v => `${operand.key}=${queryValue(v)}`);
+    const text = clauses.length === 1 ? clauses[0]! : clauses.length ? `(${clauses.join(" OR ")})` : `(${operand.key} AND NOT ${operand.key})`;
+    out = out.slice(0, operand.start) + text + out.slice(operand.end);
+  }
+  return out;
+}
 
 /** One clause as the views' grammar writes it: `#tag` for a tag, `key=value` (quoted when it needs it, `/*` for a path). */
 export function clauseText(c: Clause): string {
   // A path's `/*` goes inside the quotes with it: `"back garden/*"` (the grammar takes nothing after a closing quote).
   if (c.value === undefined) return c.mode === "exclude" ? `NOT ${c.key}` : c.key;
   const value = c.value + (c.path ? "/*" : "");
-  const term = c.key === "tag" ? `#${c.value}` : `${c.key}=${SAFE_VALUE.test(value) ? value : `"${value.replace(/[\\"]/g, "\\$&")}"`}`;
+  const term = c.key === "tag" ? `#${c.value}` : `${c.key}=${queryValue(value)}`;
   return c.mode === "exclude" ? `NOT ${term}` : term;
 }
 /**

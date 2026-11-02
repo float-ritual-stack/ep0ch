@@ -137,13 +137,13 @@ export class OutlineLinks {
       const stores = await Promise.all([from, ...this.names().filter(n => n !== from)].map(async name => ({ name, store: await this.open(name) })));
       const locations = new Map<string, { outline: string; machine?: string }>();
       const result = await readTransclusionsAsync(async id => {
-        // A page embed (`[[page]]`, `[[outline:page]]`, PIE-1247): that outline's page, here.
         const page = embeddedPageAddress(id);
         if (page !== null) {
-          const q = qualifiedReference(page), entry = stores.find(s => s.name === (q.outline ?? from));
-          const block = entry?.store.embedTarget(`[[${q.target}]]`) ?? null;
-          if (block && entry!.name !== from) locations.set(id, { outline: entry!.name });
-          return block;
+          // Page links already reach forwarded hosts; embeds must ask that same route.
+          const read = await this.read(from, { id: request.id, action: "pages.resolve", address: page });
+          const resolved = read ? read.result as import("./types").PageAddressResolution : local.resolvePageAddress(page);
+          if (resolved.outline) locations.set(id, { outline: resolved.outline, machine: resolved.machine });
+          return resolved.block ?? null;
         }
         const q = qualifiedReference(id);
         for (const { name, store } of stores) {
@@ -157,15 +157,43 @@ export class OutlineLinks {
         }
         return null;
       }, request.targets, { hostBlockId: request.hostBlockId, maxDepth: request.maxDepth });
-      const mark = (node: import("./transclusions").TransclusionNode) => {
+      const mark = async (node: import("./transclusions").TransclusionNode) => {
         const address = locations.get(node.blockId);
         if (address && (address.outline !== from || address.machine || qualifiedReference(node.blockId).outline)) {
           Object.assign(node, address);
           if (node.title) node.title = `${address.outline} · ${node.title}`;
         }
-        node.embeds?.forEach(mark);
+        const page = embeddedPageAddress(node.blockId);
+        if (page !== null && (node.status === "missing" || node.status === "fragment-missing")) {
+          const q = qualifiedReference(page), store = stores.find(s => s.name === (q.outline ?? from))?.store;
+          if (store) {
+            const prefix = q.outline ? `${q.outline}:` : "";
+            const literal = node.fragmentId ? [`${q.target}^${node.fragmentId}`, `${q.target} ^${node.fragmentId}`]
+              .map(name => store.resolvePageAddress(name)).find(r => r.status === "resolved") : undefined;
+            if (literal?.block) {
+              node.message += ` · ^${node.fragmentId} reads as an anchor; for the page “${literal.address}”, use !((${prefix}${literal.block.id}))`;
+            } else if (node.status === "missing") {
+              const found = store.lookupBlockRef(`[[${q.target}]]`);
+              if (found.kind === "missing" && found.didYouMean) {
+                const near = pageAddressReferences(found.didYouMean).map(p => {
+                  if (!p.fragmentId) return `[[${prefix}${p.displayAddress}]]`;
+                  const name = found.didYouMean!.slice(p.start + 2, p.end - 2), literal = store.resolvePageAddress(name);
+                  return `!((${prefix}${literal.block!.id})) (page “${name}”; ^${p.fragmentId} reads as an anchor)`;
+                }).join(" or ");
+                node.message += ` · did you mean ${near}?`;
+              }
+            }
+          } else {
+            // The target's host owns its suggestions too; keep its page qualifier in the warning.
+            const reads = await remotes(async remote => remote.outline === q.outline
+              ? remote.client.request<import("./transclusions").TransclusionRead>({ action: "transclusions.read", targets: [{ blockId: node.blockId, fragmentId: node.fragmentId }] }) : null);
+            const message = reads.find(r => r !== null)?.results[0]?.message;
+            if (message) node.message = message;
+          }
+        }
+        await Promise.all((node.embeds ?? []).map(mark));
       };
-      result.results.forEach(mark);
+      await Promise.all(result.results.map(mark));
       return { result };
     }
     if (request.action === "references.resolve") {

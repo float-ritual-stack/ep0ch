@@ -6,10 +6,11 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createOutlinerClient } from "../src/client";
+import { createOutlinerClient, OutlinerClient } from "../src/client";
+import { forwardFor } from "../src/machine-forward";
 import { OutlineHost } from "../src/outline-host";
 import { boundFolderOf, resolveClientPaths, writeDotEp0ch } from "../src/paths";
-import type { OutlinerServiceStatus } from "../src/types";
+import type { Block, OutlinerServiceStatus } from "../src/types";
 
 const root = mkdtempSync(join(tmpdir(), "outliner-machine-"));
 const far = join(root, "far");
@@ -94,3 +95,44 @@ test("a client bound through .ep0ch checks an unanswered link before sending its
     connector.stop(); await server.stop();
   }
 }, 15_000);
+
+test("page embeds reach another machine's page and anchor through the block link's forward (PIE-1350)", async () => {
+  const outlines = join(root, "outlines");
+  const near = new OutlineHost({ outlinesFolder: outlines, log: () => {} });
+  await near.start();
+  try {
+    await near.create("garden");
+    await host.create("attic");
+    await forwardFor("box-a", outlines);
+    const remote = new OutlinerClient(host.socketPath, 3000, "attic");
+    const local = new OutlinerClient(near.socketPath, 3000, "garden");
+    const plan = await remote.request<Block>({ action: "create", text: "Plan [page::Plan]\nThe whole orchard plan.\n## Seed beds ^part\nPlant the runner beans.\n## Later\nPick the apples." });
+    const draft = await remote.request<Block>({ action: "create", text: "Draft plan [page::Plan ^draft]\nA different plan." });
+    const text = `Reading from the attic\n!((attic:${plan.id}))\n![[attic:Plan]]\n![[attic:Plan^part]]\n![[attic:Plna]]\n![[attic:Plan ^draft]]`;
+    const note = await local.request<Block>({ action: "create", text });
+    expect((await local.request<Block>({ action: "get", blockId: note.id })).text).toBe(text);
+    const embeds = await local.request<import("../src/transclusions").TransclusionRead>({
+      action: "transclusions.read", hostBlockId: note.id,
+      targets: [{ blockId: `attic:${plan.id}` }, { blockId: "[[attic:Plan]]" }, { blockId: "[[attic:Plan]]", fragmentId: "part" }, { blockId: "[[attic:Plna]]" }, { blockId: "[[attic:Plan]]", fragmentId: "draft" }],
+    });
+    expect(embeds.results[0]).toMatchObject({ status: "ready", outline: "attic", machine: "box-a" });
+    expect(embeds.results[1]).toMatchObject({ status: "ready", resolvedBlockId: plan.id, outline: "attic", machine: "box-a" });
+    expect(embeds.results[2]).toMatchObject({ status: "ready", fragment: { text: "## Seed beds\nPlant the runner beans." } });
+    expect(embeds.results[3]!.status).toBe("missing");
+    expect(embeds.results[3]!.message).toContain("did you mean");
+    expect(embeds.results[3]!.message).toContain("Plan");
+    expect(embeds.results[4]!.status).toBe("fragment-missing");
+    expect(embeds.results[4]!.message).toContain("^draft reads as an anchor");
+    expect(embeds.results[4]!.message).toContain(`!((attic:${draft.id}))`);
+    const shown = Bun.spawn([process.execPath, join(import.meta.dir, "../../door/src/main.ts"), "show", note.id, "--width", "120"], {
+      env: { ...process.env, EP0CH_OUTLINES: outlines, EP0CH_SOCKET: near.socketPath, EP0CH_WS: "garden" }, stdout: "pipe", stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([new Response(shown.stdout).text(), new Response(shown.stderr).text(), shown.exited]);
+    expect({ code, err }).toEqual({ code: 0, err: "" });
+    expect(out.match(/Plant the runner beans\./g)).toHaveLength(3);
+    expect(out.match(/Pick the apples\./g)).toHaveLength(2);
+    expect(out).toContain("did you mean");
+    expect(out).toContain("^draft reads as an anchor");
+    expect(out).toContain(`!((attic:${draft.id}))`);
+  } finally { await near.close(); }
+}, 30_000);

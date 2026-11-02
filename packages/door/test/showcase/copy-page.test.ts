@@ -16,7 +16,7 @@ describe.skipIf(!outliner)("showcase: copy a page with its figures' results (PIE
   const h = useShowcaseScreen(160);
   const agent = "copy-agent";
 
-  test("note.copy carries each figure's results as Markdown; source=true is the text alone; Y copies it to the clipboard", async () => {
+  test("note.copy carries a template's figure results as Markdown; source=true is the text alone; Y copies it to the clipboard (PIE-1380)", async () => {
     await h.app.act({ action: "section", args: { name: "copy-page" }, as: agent });
     await until(() => marks["copy-page"]!.every(m => h.screen().includes(m)), "the copy-page section", 10_000);
     const sent = h.written.length;
