@@ -174,14 +174,18 @@ export async function defaultOnBuiltIns(builtInsDir = BUILT_INS): Promise<string
 /**
  * A default-on built-in is on wherever the service runs (PIE-1506): at start the host installs each one into `root`
  * (the user folder, or the outline's own) unless a copy is installed in any of `roots` already, or `.off/<id>` under
- * `root` says it was uninstalled here (`removeExtension` writes it; `addExtension` takes it back). Answers the ids installed.
+ * `root` says it was uninstalled here (`removeExtension` writes it; `addExtension` takes it back). Each is tried on its
+ * own: a refused one is said on stderr, naming it, and the rest still go in. Answers the ids installed.
  */
 export async function ensureDefaultOn(root: string, roots: readonly string[], builtInsDir = BUILT_INS): Promise<string[]> {
   const done: string[] = [];
   for (const id of await defaultOnBuiltIns(builtInsDir)) {
     if (existsSync(offMark(root, id)) || roots.some((r) => existsSync(join(r, id, "extension.json")))) continue;
-    await addExtension(join(builtInsDir, id), { from: join(builtInsDir, id), root, builtIns: builtInsDir });
-    done.push(id);
+    // Each on its own (PIE-1519): one refused is named and left out, and the ones after it still go in.
+    try {
+      await addExtension(join(builtInsDir, id), { from: join(builtInsDir, id), root, builtIns: builtInsDir });
+      done.push(id);
+    } catch (error) { console.error(`default-on extension ${id}: ${error instanceof Error ? error.message : String(error)}`); }
   }
   return done;
 }
