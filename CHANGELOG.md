@@ -46,6 +46,16 @@ are its record. The outliner's entries from then are kept below, under
 
 - **What's moving:** read `ep0ch://skills/whats-moving` or its prompt, also linked from `list_outlines`. It projects and folds a 24-hour window, keeps a call id to omit its own writes, and reads only the notes the answer needs.
 - **Run:** reconnect the MCP client to discover the new skill. No protocol, grammar or schema change.
+### Page embeds reach another machine's outline (PIE-1350)
+
+- **Read across machines:** `![[attic:Plan]]` and `![[attic:Plan^part]]` use the host's existing forwards to draw the page or its anchored part. A missing page stays saved and offers nearby pages inline; a name ending in `^word` explains the anchor reading and gives its block reference.
+- **Run:** `ep0ch install --apply` on the machines serving and reading the outlines. No protocol, grammar or schema change.
+
+### Copying a templated page includes its live figure results (PIE-1380)
+
+- **Take the rows along:** `ep0ch show --markdown`, the reader's `Y` and `act note.copy` include figures from `::use` templates, with their call's props and the same row caps and “showing N of M · the rest” commands. Copy source only still gives the stored text.
+- **Keep the values intact:** multiword template props keep their matching rows, and a title containing `: ` keeps its figure. Copy uses the reader's parsed figure evaluation; the rest command quotes resolved query values separately.
+- **Run:** open **copy-page** in the kitchen sink to copy its templated crate page. No protocol, grammar or schema change.
 
 ### Arrow keys work in Ghostty (#1156)
 

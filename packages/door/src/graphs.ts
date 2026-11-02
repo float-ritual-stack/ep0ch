@@ -6,10 +6,13 @@ import { clipText } from "./overflow";
 import { BOLD, C, drawEllipsized, fg, pad, RESET, sparkGlyphs, UNBOLD, visible, width as vwidth } from "./style";
 import { rowLines, withRowLimit, wrap } from "./text";
 import { tabStrip } from "./surface/chip-rows";
-import { childRows, resolveLive, setLiveSource, liveSource, type LiveSite } from "./live";
+import { childRows, resolveLive, setLiveSource, liveSource, siteRequest, type LiveSite } from "./live";
 import { asksPerItem, liveProps } from "@ep0ch/outline-core/figure-live";
 import { figureResultsMarkdown, resultsHead, type FigureResults, type ResultsContext } from "@ep0ch/outline-core/figure-results";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
+import { queryValueOperands, withQueryValues } from "@ep0ch/outline-core/query-clauses";
+import type { SiteAnswer } from "@ep0ch/outline-core/site";
+import { watchedOn } from "./watched";
 import { readContentSize, type ContentSize } from "@ep0ch/outline-core/media-line";
 import { dateWords, readDate } from "@ep0ch/outline-core/dates";
 import { FIGURES } from "./figures/index";
@@ -516,18 +519,23 @@ export function figureResults(kind: string, source: FigureSource, ctx: ResultsCo
   if ("error" in read) return null;
   const props = read.props;
   if (!(props.query || props.view || asksPerItem(kind, props))) return null;
-  const live = resolveLive(kind, props, source.note, liveSiteOf(source, read.args));
+  const site = liveSiteOf(source, read.args);
+  const live = resolveLive(kind, props, source.note, site);
   if (!live) return null;
-  if (live.waiting) {
+  // The command leaves this Site; its operands become quoted values only after the figure has been evaluated.
+  const operands = queryValueOperands(String(props.query ?? ""));
+  const values = operands.length ? watchedOn(liveSource().board!).read<SiteAnswer>("site.answer", { ...siteRequest(source.note, undefined, site), paths: operands.map(o => o.expression) }, raw => raw) : null;
+  if (live.waiting || values?.state === "loading") {
     if (!final) return { waiting: true };
     return { ...figureResultsMarkdown(kind, props, null, ctx, `the outline didn't answer in time${source.note ? `: ep0ch show ${source.note} --markdown asks again` : ""}`)!, unanswered: true };
   }
   // No status: the question wasn't answered (its error says why); else its error is the service's word on the answer.
   const found = live.status ? live.found ?? { n: 0, truncated: false } : null;
-  const md = figureResultsMarkdown(kind, live.props, found, ctx, live.error);
+  const copied = values?.value?.paths ? { ...live.props, query: withQueryValues(String(props.query), operands, values.value.paths) } : live.props;
+  const md = figureResultsMarkdown(kind, copied, found, ctx, live.error ?? values?.error);
   if (md) return md;
   // Its drawing, not its rows: it takes none of the copy's row budget.
-  return { lines: [...resultsHead(kind, live.props, "as drawn", ctx.at), "```", ...figureAscii(kind, source), "```"], shown: 0, total: live.found?.n ?? 0, cut: false };
+  return { lines: [...resultsHead(kind, copied, "as drawn", ctx.at), "```", ...figureAscii(kind, source), "```"], shown: 0, total: live.found?.n ?? 0, cut: false };
 }
 
 /** A table's or tabs figure's density as a control on its footer, where a reader can change it (a click, ⏎ on it, =). */

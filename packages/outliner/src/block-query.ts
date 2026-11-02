@@ -1,4 +1,4 @@
-import type { Clause } from "@ep0ch/outline-core/query-clauses";
+import { VALUE_OPERAND_SOURCE, type Clause } from "@ep0ch/outline-core/query-clauses";
 import { VIEW_SORT_FIELDS } from "@ep0ch/outline-core/view-fields";
 import { PROPERTY_QUERY_SCOPES as QUERY_SCOPES } from "@ep0ch/outline-core/protocol";
 import { MACHINE_KEY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
@@ -458,7 +458,7 @@ function lexQueryExpression(input: string): { tokens: ExpressionToken[]; simple:
 }
 
 /** `key={{path}}`: a property clause whose value is read from the Site (the whole value, unquoted). */
-const VALUE_OPERAND = new RegExp(`^\\(*(${PROPERTY_KEY_SOURCE})(?:=|::)(\\{\\{[^\\n]*?\\}\\})\\)*$`, "s");
+const VALUE_OPERAND = new RegExp(`^\\(*${VALUE_OPERAND_SOURCE}\\)*$`, "s");
 
 const KEY_VALUE = new RegExp(`^(?:${PROPERTY_KEY_SOURCE})(?:=|::)(.+)$`, "s");
 
