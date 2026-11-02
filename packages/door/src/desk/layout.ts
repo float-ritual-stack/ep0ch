@@ -79,7 +79,8 @@ export interface Policy {
    * The open rule (PIE-513; was the layout's `rule`): where an open from one of its tiles lands when no link or
    * opens-into says: the first reader that isn't pinned (`reader`, the default, PIE-1207), a new column right after the
    * tile's own in its flow (`next`, a flow's own rule when it says none), or a reader beside the tile, which stays on its
-   * own note (`beside`, PIE-515: a pinned page, the brief). A saved `current` (the hidden current note, gone) reads as the default.
+   * own note (`beside`, PIE-515: a pinned page, the brief), or the tile itself (`self`, PIE-1516: in place, a list showing the
+   * note where it was, ← back returning to it). A saved `current` (the hidden current note, gone) reads as the default.
    */
   opens?: OpenRule;
   altOpens?: AltRule;
@@ -101,8 +102,10 @@ export type HostMode = "beside" | "over" | "none";
 export type AltRule = "beside" | "tab" | "tile" | "first-unheld";
 export const ALT_RULES: readonly AltRule[] = ["beside", "tab", "tile", "first-unheld"];
 /** Where opens land after a tile's wire and its container's opensInto. */
-export const OPEN_RULES = ["reader", "next", "beside", "float", "full"] as const;
+export const OPEN_RULES = ["reader", "next", "beside", "float", "full", "self"] as const;
 export type OpenRule = typeof OPEN_RULES[number];
+/** Each open rule in a few words: ^W P, tile.open's and layout.policy's docs read them. */
+export const OPEN_RULE_WORDS: Record<OpenRule, string> = { reader: "the first reader not pinned", next: "a new column after it", beside: "a reader beside it", float: "a follower floating over it", full: "the opened reader zoomed", self: "in place: it replaces what the tile shows, ← back returns" };
 export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "altOpens", "host", "readable", "shuts", "agents", "spines", "min-width", "gap", "inset"] as const;
 /** The width a reader opened beside others still gets before earlier ones fold to spines, when no policy says (PIE-794). */
 export const READABLE = 48;

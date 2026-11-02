@@ -5,7 +5,7 @@ import { flowHolding, named, policyAt, type LayoutState, type TileFacts } from "
 /**
  * Where tile `id`'s opens land (PIE-794: every open from a tile asks this, and only this): its own link (when that tile
  * is here), else the opens-into of the nearest container that names a tile here (not itself), else its home (a list's
- * reader), else the open rule: the next column of its flow (`next`), beside it (`beside`), or none (a reader is its own
+ * reader), else the open rule: the next column of its flow (`next`), beside it (`beside`), the tile itself (`self`), or none (a reader is its own
  * home: the note replaces its own; anything else lands in the first reader that isn't pinned).
  */
 export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt" | "hover", facts?: TileFacts, tile?: (id: I) => TileFacts, preferred?: ListOpenWhere): { to: I; full?: true } | { float: true } | { into: string } | { next: true } | { beside: I } | { tab: I } | { across: string; rule: AltRule } | null {
@@ -33,7 +33,8 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" |
   if (into !== undefined && into !== id) return { to: into };
   // A container by its key (the board's readers row): a tile opened into it holds the note.
   if (into === undefined && e.opensInto && node(s.tree, e.opensInto)) return { into: e.opensInto };
-  preferred ??= e.opens === "float" || e.opens === "full" ? e.opens : undefined;
+  // In place (PIE-1516): the tile itself, as its own wire says it.
+  preferred ??= e.opens === "float" || e.opens === "full" ? e.opens : e.opens === "self" ? "current" : undefined;
   if (preferred === "current" || preferred === "full") return { to: id, ...(preferred === "full" ? { full: true } : {}) };
   if (preferred === "beside") return { beside: id };
   if (preferred === "float") return { float: true };
