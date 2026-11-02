@@ -10,6 +10,8 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+- **CP437 frames (PIE-1490):** hover uses the distinct native `÷` glyph beside `○ » ^`, named in the frame hint and showcase; left triangles and curly apostrophes have font lookalikes.
+
 ### Arrow keys work in Ghostty (#1156)
 
 - **Moving:** ↑ and ↓ move through lists and tiles in Ghostty as in kitty: the door reads Ghostty's `CSI 1;1:1A` arrows (with press and release) as keys and hands a tile's program the plain arrow bytes it expects, shift and alt kept.

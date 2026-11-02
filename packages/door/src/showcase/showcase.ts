@@ -32,6 +32,7 @@ import { actionPage } from "../surface/action-page";
 import { DRAFT_ACTIONS } from "../edit";
 import { keepUnsent, unsent } from "../draft-session";
 import { Desk, DESK_ACTIONS } from "../desk/desk";
+import { FRAME_LEGEND } from "../desk/frame-controls";
 import { openScreen } from "../desk/screen-specs";
 import { autoName, serializeTree } from "../desk/screen-layout";
 import { type SavedTree, type TileSpec } from "../desk/tiles";
@@ -70,7 +71,6 @@ import type { FleetIO, SessionRow } from "../agent-fleet";
 import type { AgentLevel } from "../surface/agent-level";
 
 type Notes = Partial<Record<SeedName, Msg>>;
-
 /**
  * The program status section's fake deploy (OSC 7501): it reports each step to its terminal tile, waits for the person
  * to approve production, and finishes done (y) or failed (anything else); then it's a shell, to run it again.
@@ -496,7 +496,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "hints", need: "x-ray and hint cards", part: "HintCard and Canvas.float in the desk float layer, ActionDef hints, menuRow and keycaps", files: "src/surface/hint-card.ts, src/desk/desk.ts",
-    aside: "Hover a clipped title or label to read it whole; Alt+? cycles clipped values, and values wider than the screen scroll. Linking has its instructions beside the tile. Click a destination; the card leaves the keys with you. The frame controls are ○ (select lands), » (open lands), ^ (alt-open lands), \u25c4/\u25bc (fold), \u2261 (menu), x (close), and \u25d8 (float or put back). Hover the menu or press ? on the frame for their meanings. The menu still opens its searchable action list. All floats share a raised panel and accent border; menus dim the screen, hints leave it readable. Hold ctrl for every tile's card, or ctrl+] then ? to toggle. hint.pin keeps a card; esc dismisses it. Fold source with tile.collapse, then hint.never: folding now gives one status line. [never] (Alt+Shift+N) saves that choice across restarts. Open tune and its Hints section to choose card, status or off for every declared hint, or reset all. hints.list reads the settings; hints.set id=tile.collapse to=status changes one.",
+    aside: `Hover a clipped title or label to read it whole; Alt+? cycles clipped values, and values wider than the screen scroll. Linking has its instructions beside the tile. Click a destination; the card leaves the keys with you. The frame controls are ${FRAME_LEGEND}. Hover the menu or press ? on the frame for their meanings. The menu still opens its searchable action list. All floats share a raised panel and accent border; menus dim the screen, hints leave it readable. Hold ctrl for every tile's card, or ctrl+] then ? to toggle. hint.pin keeps a card; esc dismisses it. Fold source with tile.collapse, then hint.never: folding now gives one status line. [never] (Alt+Shift+N) saves that choice across restarts. Open tune and its Hints section to choose card, status or off for every declared hint, or reset all. hints.list reads the settings; hints.set id=tile.collapse to=status changes one.`,
     stage(n, show) {
       const source = new ReaderPane(), reader = new ReaderPane();
       return deskOf({ title: "x-ray and hint cards", panes: [source, reader], names: ["source", "reader"] }, show, [[source, n.notebook], [reader, n.shed]], d => { void d.dispatch.press("tile.title", { text: "Allotment notebook: planting, watering and seed orders through the growing season" }, "source"); void d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source"); });
