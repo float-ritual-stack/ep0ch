@@ -35,7 +35,7 @@ import { C, chip, dim, drawEllipsized, fg, headOf, MARKS, pad, paint, RESET, TAG
 import { paintable, rowLines, withRowLimit, wrap } from "../text";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
-import { barSource, barSources, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
+import { barSource, barSources, QUERY_SCOPE, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 import "./sources";
 import { tabKeys, tabStrip, type TabRow } from "../surface/chip-rows";
 import { modeBinding } from "../surface/modes";
@@ -139,9 +139,18 @@ export class PowerBar {
   private fieldW = 10;
   private compact() { return this.scope === "ask" ? compactQuestion() : null; }
 
+  /**
+   * What the line completes outside the ask scope (PIE-1497): the `=` scope is a query line (query words on any words);
+   * the main list and /notes complete an act line's arguments, and offer query words only once the line reads as a
+   * query (plain words search); a quick bar and the other scopes complete act lines alone.
+   */
+  private grammar(): "query" | "act-query" | "act" {
+    return this.scope === QUERY_SCOPE ? "query" : !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act";
+  }
+
   /** Commands, query words and outline triggers share the editor's completer; masked answers never copy. */
   private line(text: string): LineField {
-    const l = new LineField(text, false, { complete: this.scope === "ask" ? questionCompletion() ?? { grammar: "act" } : { grammar: !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act" }, id: "power-bar" });
+    const l = new LineField(text, false, { complete: this.scope === "ask" ? questionCompletion() ?? { grammar: "act" } : { grammar: this.grammar() }, id: "power-bar" });
     l.completed = item => { if (item.querySuggestion) this.acceptedWhere = item.querySuggestion.where; this.refresh(); };
     l.copy = t => { if (!(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(t); };
     return l;
@@ -168,7 +177,7 @@ export class PowerBar {
     if (this.scope === "ask" && maskedQuestion() && s !== "ask") { this.input = this.line(""); clearPrivateForm(); }
     this.scope = s ? barSource(s)?.id ?? null : null;
     if (this.input.complete) {
-      this.input.complete.grammar = this.scope === "ask" ? (questionCompletion() || {}).grammar ?? "act" : !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act";
+      this.input.complete.grammar = this.scope === "ask" ? (questionCompletion() || {}).grammar ?? "act" : this.grammar();
       this.input.complete.where = this.scope === "ask" ? (questionCompletion() || {}).where : undefined;
     }
     this.picker.sel = 0; this.litKey = null;
@@ -200,8 +209,9 @@ export class PowerBar {
       if (k.kind === "tab") void this.host.dispatch.press("bar.edit", { op: "complete" });
       return true;
     }
-    if (k.kind === "char" && !k.ctrl && !this.input.text && !this.scope) {
-      const s = barSources().find(x => x.prefix === k.ch && !x.inline);
+    if (k.kind === "char" && !k.ctrl && !this.input.text) {
+      // A prefix typed first scopes the bar from the main list, and from the scopes a source names (`=` from /notes, PIE-1497).
+      const s = barSources().find(x => x.prefix === k.ch && !x.inline && (!this.scope || x.from?.includes(this.scope!)));
       if (s) { void this.host.dispatch.press("bar.open", { scope: s.id, keep: true }); this.typedPrefix = s.prefix; return true; }
     }
     if (k.kind === "up" && this.scope !== "ask" && !this.query && this.host.runs.length) { void this.host.dispatch.press("bar.command", { op: "recall" }); return true; }
