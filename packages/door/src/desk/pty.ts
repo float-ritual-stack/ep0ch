@@ -10,6 +10,7 @@
 // them back to the door, as telnet's escape does. The mouse goes to the program when it asked for it
 // (vim's `mouse=a`, claude's), in the encoding it asked for; otherwise the wheel scrolls what went by.
 import { OSC8_CLOSE } from "../hyperlink";
+import { programEnv } from "@ep0ch/outliner/program-env";
 import { inLoginShell, isAgentCmd, programName } from "./drawer-program";
 import { inResize } from "../resize";
 import { MOUSE_ALT, MOUSE_SHIFT, scrolled, wheelRows } from "../scroll";
@@ -135,7 +136,7 @@ export function tileEnv(env: Record<string, string | undefined>, tile: string, c
   const pst = terminfoWithPst(stateDir());
   if (pst) out.TERMINFO_DIRS = `${pst}:${env.TERMINFO_DIRS ?? ""}`;
   Object.assign(out, agentVars(env, { tile, control, tileId, place: session, nest: appendNest(doorNest(env), doorLayer(pid, place, tileId, tile)) }));
-  return out;
+  return programEnv(out);
 }
 
 /** `temp`: a ctrl+e edit on a temp file, never saved in a layout. */

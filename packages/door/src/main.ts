@@ -30,6 +30,12 @@ import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
 colourOnlyToATerminal();
 
 let args = process.argv.slice(2);
+// hc runs this on the agent's machine; its program's arguments belong to that program.
+if (args[0] === "agent" && args[1] === "exec") {
+  const program = args.slice(args[2] === "--" ? 3 : 2);
+  if (!program.length) { console.error("ep0ch agent exec -- <program> [args…]"); process.exit(2); }
+  (await import("@ep0ch/outliner/program-env")).execProgram(program);
+}
 // A script's name with global flags around it (PIE-1230): the flags are taken out here, as they are around a command below.
 {
   const call = scriptCall(args);

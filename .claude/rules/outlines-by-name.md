@@ -60,3 +60,10 @@ names this machine over `EP0CH_MACHINE` and a `.ep0ch`'s machine.
 A session's outline is named (flag, `EP0CH_WS`, the folder it started in), never inferred from where its shell is
 now. The door passes `EP0CH_WS` (and `EP0CH_MACHINE` for another machine) to every program it starts; a session that
 loses its binding gets it back with `/outline <name>` or the mod's `outline_bind`.
+
+## Source on this machine
+
+`ep0ch where` also names the checkout this code runs from: `source.path`, `agentsMd`, `docs`, `skills`, and `sha`
+in `--json`; `--source` prints just its path. Without a checkout it says so and points to the MCP docs resources.
+`programEnv` (`packages/outliner/src/program-env.ts`) supplies `EP0CH_SOURCE` to every launched program;
+a named agent's `ep0ch agent exec` resolves it on the machine where hc starts the program.

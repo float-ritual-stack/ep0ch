@@ -35,7 +35,10 @@ Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-
 [AGENTS.md](../../AGENTS.md) has the workflow for agents, and [CONTRIBUTING.md](../../CONTRIBUTING.md) has
 verification and the review checklist. Agents load the stack's skills (`ep0ch --skill` lists them):
 `ep0ch` to drive a door, `ep0ch-outline` to work in an outline for someone, `ep0ch-core` to change this
-code or the outliner's, `daily-brief` for the morning brief. The [architecture map](docs/architecture/map.json) records every
+code or the outliner's, `daily-brief` for the morning brief, and `whats-moving` for recent activity.
+MCP serves these as `ep0ch://skills/<name>` and prompts; `list_outlines` lists their pointers.
+`ep0ch where` names the running checkout, its AGENTS.md, docs, skills and SHA (`--json` for the record;
+`--source` for just the path). Programs ep0ch starts get that path as `EP0CH_SOURCE`. The [architecture map](docs/architecture/map.json) records every
 structure in the door and the outliner, its ladder position and its open questions. Each citation is a file, a
 marker (a snippet of the cited code) and a line: in packages/door, `bun scripts/architecture-map.ts --sync` moves
 every line to where its marker is now and stamps the commit (it lists the markers the code no longer has, for a

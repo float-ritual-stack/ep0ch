@@ -56,6 +56,18 @@ are its record. The outliner's entries from then are kept below, under
 - **Step:** `[ ]` stops on each heading, figure tab and row a template draws; `( )` goes heading to heading through it both ways.
 - **Tabs:** Tab, shift+Tab and ← → switch a figure's tabs inside a template; only that row lights, not the whole template. A template used twice keeps each call's list-preview mode.
 - **Run:** `ep0ch install --apply`; the kitchen sink's **template-steps** section shows it. GRAMMAR 25, no protocol or schema change.
+- **CP437 frames (PIE-1490):** hover uses the distinct native `÷` glyph beside `○ » ^`, named in the frame hint and showcase; left triangles and curly apostrophes have font lookalikes.
+
+### Agents find the source and its instructions wherever ep0ch starts them (PIE-1241)
+
+- **Orient:** `ep0ch where` names the checkout, AGENTS.md, docs, skills and SHA in text and JSON; `--source` prints the path. Programs receive `EP0CH_SOURCE` from one environment builder, resolved on the named agent's own machine.
+- **Read first:** the Claude session card, MCP instructions and outline and extension skills point to the source, with MCP docs for clients without local files.
+- **Run:** restart an agent to give it the new environment; try `echo $EP0CH_SOURCE` in the kitchen sink's terminal. No protocol, grammar or schema change.
+
+### Every MCP client can use the same recent activity recipe (PIE-1379)
+
+- **What's moving:** read `ep0ch://skills/whats-moving` or its prompt, also linked from `list_outlines`. It projects and folds a 24-hour window, keeps a call id to omit its own writes, and reads only the notes the answer needs.
+- **Run:** reconnect the MCP client to discover the new skill. No protocol, grammar or schema change.
 
 ### Arrow keys work in Ghostty (#1156)
 

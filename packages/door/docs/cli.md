@@ -824,11 +824,13 @@ drawer's agent, else claude. --new starts another beside the one running
 ## where
 
 ```text
-ep0ch where [--json]             where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
+ep0ch where [--json|--source]
 ```
 
+Names the source checkout, AGENTS.md, docs, skills and SHA; `--source` prints only the checkout path.
+Also shows where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
 checked (the door's pid and control socket, the Herdr pane, the tile), and where
-the person's keys are. Read-only; "not in a door" outside one
+the person's keys are. Read-only; "not in a door" outside one.
 
 ## subscribe
 

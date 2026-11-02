@@ -2,6 +2,7 @@
 // learns what an outline holds: instructions built from the components, the core tools listed up front, the skills as
 // prompts and resources, and a write's warnings and components beside `said`. Scratch service only; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { mcpCommand } from "../src/mcp";
 import { UP_FRONT_TOOLS } from "@ep0ch/outline-core/agent-tool-definitions";
@@ -79,6 +80,7 @@ describe.skipIf(!outliner)("the gateway over stdio", () => {
       { jsonrpc: "2.0", id: 7, method: "resources/read", params: { uri: "ep0ch://skills/ep0ch-outline" } },
     ]);
     expect(init!.result.instructions).toBe(gatewayInstructions());
+    expect(init!.result.instructions).toContain(resolve(import.meta.dir, "../../.."));
     expect(init!.result.capabilities.prompts).toEqual({});
 
     const tools = list!.result.tools as { name: string; _meta?: Record<string, unknown> }[];
@@ -93,6 +95,19 @@ describe.skipIf(!outliner)("the gateway over stdio", () => {
     expect(missing!.error?.message).toContain("No prompt \"no-such-skill\"");
     expect(resources!.result.resources).toContainEqual(expect.objectContaining({ uri: "ep0ch://skills/ep0ch-outline", mimeType: "text/markdown" }));
     expect(resource!.result.contents[0].text).toBe(text);
+  });
+
+  test("what's moving is discoverable and readable as a server skill and prompt", async () => {
+    const [outlines, resources, read, prompt] = await ask([
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_outlines", arguments: {} } },
+      { jsonrpc: "2.0", id: 2, method: "resources/list" },
+      { jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: "ep0ch://skills/whats-moving" } },
+      { jsonrpc: "2.0", id: 4, method: "prompts/get", params: { name: "whats-moving" } },
+    ]);
+    expect(JSON.parse(outlines!.result.content[0].text).skills).toContainEqual(expect.objectContaining({ uri: "ep0ch://skills/whats-moving" }));
+    expect(resources!.result.resources).toContainEqual(expect.objectContaining({ uri: "ep0ch://skills/whats-moving" }));
+    expect(read!.result?.contents[0].text).toContain("# What's moving");
+    expect(prompt!.result?.messages[0].content.text).toBe(read!.result.contents[0].text);
   });
 
   test("agents can discover and read the extension references without a checkout", async () => {

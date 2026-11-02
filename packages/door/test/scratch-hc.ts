@@ -16,6 +16,7 @@ export class ScratchCore {
     writeFileSync(join(this.dir, ".ep0ch/config.toml"), 'ws = "garden"\nagent = "fern"\n');
     writeFileSync(join(this.dir, "fern.sh"), `#!/bin/sh
 printf '\x1b]7501;state=idle:app=claude-code\x1b\\'
+echo "Source: $EP0CH_SOURCE"
 echo "Fern ready: $EP0CH_WS / $EP0CH_AGENT / $OUTLINER_ACTOR"
 if [ -n "$EP0CH_CONTROL" ]; then echo "Door binding: $EP0CH_CONTROL"; else echo "Door binding: unbound"; fi
 while IFS= read -r line; do

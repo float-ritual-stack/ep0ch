@@ -56,6 +56,10 @@ Pi/OMP users can invoke `/outliner`; supported coding clients can use the projec
 
 ## Source boundaries
 
+- `src/program-env.ts` owns the running checkout's source paths and revision and `programEnv`, the environment
+  builder for terminal tiles, named agents, extension programs and the MCP worker. Named agents resolve it
+  through `ep0ch agent exec` on their destination machine; `ep0ch where` and agent instructions read the same owner.
+
 - `src/site-producers.ts` owns collection answers and their `collectionSource` description (query, layout, rows and read time). `site-sources.ts` uses it for saved and inline collections; inspectors draw that answer.
 - `src/link.ts`, `link-streams.ts`, `link-frame.ts` and `link-install.ts` own the outbound machine transport. They expose the existing shared forward socket, reuse `machine.ts`'s lock and `extension-secrets.ts`'s key storage, and never interpret outline requests. `link-install.ts` keeps the desired install SHA and receipts; the door calls its existing installer and deploy-record writer. See [Outbound machine links](docs/machine-link.md).
 
