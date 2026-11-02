@@ -244,6 +244,12 @@ describe("showcase: tune the collection's own record (PIE-1483)", () => {
     h.press({ kind: "enter" });
     await until(() => bar().items.some(i => i.row.key === "toggle:field-54" && i.row.label.startsWith("[x]")), "the typed facet is selected");
     expect((await h.board.get(note.id))!.text).toContain("[group::field-54]");
+    await h.app.dispatch.act({ action: "bar.edit", args: { op: "clear" } }, { kind: "user" });
+    await h.app.dispatch.act({ action: "bar.edit", args: { op: "paste", text: "field-5" } }, { kind: "user" });
+    await until(() => bar().items.some(i => i.row.key === "toggle:field-54"), "the discovered facet matches a partial filter");
+    h.press({ kind: "enter" });
+    await until(() => bar().items.some(i => i.row.key === "toggle:field-54" && i.row.label.startsWith("[ ]")), "the partial filter reflects the toggle");
+    expect((await h.board.get(note.id))!.text).not.toContain("[group::field-54]");
     await h.app.dispatch.act({ action: "bar.close" }, { kind: "user" });
     expect((await act("settings.set", { key: "summary-properties", value: "title, field-54" })).warnings).toEqual([]);
   }, 20_000);

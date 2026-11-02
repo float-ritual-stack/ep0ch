@@ -107,16 +107,19 @@ export function settingQuestion(field: SettingField, src: SettingSources): BarQu
     const options = settingOptions(field, src.facets?.() ?? []);
     const ordered = (options: BarSuggestion[]) => p.question!.order ? options.flatMap(option => (field.order?.values ?? []).map(direction => ({ ...option, value: `${option.value} ${direction.value}` }))) : [...options];
     const choices = ordered(options);
-    const suggest = p.question.source === "facets" && src.facet ? async (typed: string) => {
+    const lookedUp = new Set<string>();
+    const suggest = p.question.source === "facets" && src.facet ? (typed: string) => {
       const key = p.question!.order ? typed.trim().replace(/\s+(asc|desc)$/i, "") : typed.trim();
-      if (key && !options.some(o => o.value === key)) {
-        const found = await src.facet!(key);
+      // Known choices answer during the bar's background refresh, including the checkbox just changed.
+      if (!key || options.some(o => o.value === key) || lookedUp.has(key)) return choices;
+      return src.facet!(key).then(found => {
+        lookedUp.add(key);
         if (found) {
           const extra = settingOptions(field, [found]).filter(o => !options.some(known => known.value === o.value));
           options.push(...extra); choices.push(...ordered(extra));
         }
-      }
-      return choices;
+        return choices;
+      });
     } : undefined;
     return { ...base, value: field.value ?? p.default ?? "", type: p.question.type, choices: choices.map(c => c.value),
       ...(suggest ? { suggest } : {}),

@@ -341,7 +341,10 @@ const ASK_SOURCE: BarSource = {
     if (!q || !waiting) return [];
     const head = `${waiting.title} · ${q.label ?? q.name}`;
     const typed = query.trim();
-    if (liveQuestion()) return q.suggest && typed ? Promise.resolve(q.suggest(query)).then(found => questionRows(q, query, head, found)) : questionRows(q, query, head);
+    if (liveQuestion()) {
+      const found = q.suggest && typed ? q.suggest(query) : [];
+      return Array.isArray(found) ? questionRows(q, query, head, found) : Promise.resolve(found).then(rows => questionRows(q, query, head, rows));
+    }
     if (q.suggest) {
       const typedRow = q.free && typed ? [{ key: `answer:${typed}`, label: typed, detail: "as typed", group: head, data: typed }] : [];
       const nowRow = !typed && q.value !== undefined ? [{ key: `answer:${q.value}`, label: q.value, detail: "now", group: head, data: q.value }] : [];
