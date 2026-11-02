@@ -735,6 +735,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private tileAnswer(id: number) { return { tile: this.tileId(id), name: this.nameOf(id) }; }
 
   private tileId(id: number): string { return tileRegistry.idOf(this.panes.get(id)!); }
+  /** The focused tile's id, or nothing on a desk with no tiles (a saved desk can be empty: its hint row still draws). */
+  private focusId(): string | undefined { return this.panes.has(this.focus) ? this.tileId(this.focus) : undefined; }
   private readonly restoredIds = new Map<string, string>();
   private claimIds(door = this.ctx?.hostLayer ?? this.ctx) {
     if (!door) return;
@@ -4727,12 +4729,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private hints(cols: number): string {
     this.hintPanel = null;
-    const desk = this.hintDesk(), tile = desk.tileId(desk.focus);
+    const desk = this.hintDesk(), tile = desk.focusId();
     const text = stripHint() ?? withStripOwner(tile, Infinity, () => desk.hintText());
     const tabs = stripSegments(text), locked = this.screenLocked();
-    if (this.spec.layouts || locked) tabs.push({ label: locked ? lockChipText(this.layoutSelf()).trim() : "□ lock", keep: true, hit: { action: "layout.lock", tile: this.tileId(this.focus) } });
+    if (this.spec.layouts || locked) tabs.push({ label: locked ? lockChipText(this.layoutSelf()).trim() : "□ lock", keep: true, hit: { action: "layout.lock", tile: this.focusId() } });
     const host = this.ctx?.hostLayer, drawer = host?.desks().find(d => host.isDrawer(d) && d !== this);
-    if (drawer?.screenLocked()) tabs.push({ label: lockChipText(drawer.layoutSelf()).trim(), keep: true, hit: { action: "layout.lock", tile: drawer.tileId(drawer.focus) } });
+    if (drawer?.screenLocked()) tabs.push({ label: lockChipText(drawer.layoutSelf()).trim(), keep: true, hit: { action: "layout.lock", tile: drawer.focusId() } });
     if (hyperOn()) {
       const notes = scriptBindings();
       for (const b of hyperBindings(notes).filter(b => notes.some(n => n.action === b.action))) tabs.push({ label: `${hyperLabel(b.key)} ${b.label}`, hit: { action: b.action } });
