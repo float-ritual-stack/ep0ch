@@ -148,7 +148,8 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     press({ kind: "end" }); press({ kind: "enter" });
     for (const c of "((Kitchen") ch(c);
     await until(() => !!completionOf(reader.draft!) && !completionOf(reader.draft!)!.loading, "references");
-    await until(() => screen().includes("((Kitchen▌"), "query echo");
+    // The popup under the typing line says what it lists (PIE-1511): the line itself shows what's typed.
+    await until(() => screen().includes("((Kitchen") && /references \d+\/\d+/.test(screen()), "the popup under the typing line");
     const selected = completionOf(reader.draft!)!.items[completionOf(reader.draft!)!.index]!.insertion;
     await untilAsync(async () => !!(await desk.dispatch.act({ action: "complete.preview", args: { by: 1 } }, { kind: "user" })), "preview action");
     expect(completionOf(reader.draft!)!.items[completionOf(reader.draft!)!.index]!.insertion).toBe(selected);

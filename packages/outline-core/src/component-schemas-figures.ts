@@ -7,6 +7,7 @@
 import type { ComponentSchema, PropSchema } from "./component-schema";
 import { CONTENT_SIZE_PROPS } from "./media-line";
 import { enumOf } from "./prop-values";
+import { VIEW_LAYOUT } from "./view-fields";
 
 const yaml = (key: string, type: PropSchema["type"], meaning: string, extra: Partial<PropSchema> = {}): PropSchema => ({ key, where: "yaml", type, meaning, ...extra });
 
@@ -44,7 +45,9 @@ function figure(k: Kind): ComponentSchema {
   const id = `graph-${k.kind}`;
   return {
     id, group: "figures", title: `${k.title} (::${id})`, intro: k.intro, where: k.where ?? `a \`::${id}\` block: its options in the YAML between \`---\` lines, its rows in Markdown after them`,
-    props: [...k.props, ...CONTENT_SIZE_PROPS.map(p => ({ ...p, meaning: p.meaning + (p.key === "width" ? "; full spans the tile beyond the reading measure. = toggles; drag the side to change it" : "; shift+up/down scrolls inside. Drag the bottom to resize; release writes YAML and ctrl+z undoes") })), ...(!k.props.some(p => p.key === "limit") && (k.props.includes(QUERY) || k.kind === "stat" || k.kind === "kpi") ? [LIMIT] : []), yaml("lines", "int", "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", { min: 0, samples: ["0", "1", "2", "3"] })], source: { use: `::${id}\n---\n{{props.yaml}}\n---\n${k.rows ? `${k.rows}\n` : ""}::` }, example: k.example,
+    props: [...k.props, ...CONTENT_SIZE_PROPS.map(p => ({ ...p, meaning: p.meaning + (p.key === "width" ? "; full spans the tile beyond the reading measure. = toggles; drag the side to change it" : "; shift+up/down scrolls inside. Drag the bottom to resize; release writes YAML and ctrl+z undoes") })), ...(!k.props.some(p => p.key === "limit") && (k.props.includes(QUERY) || k.kind === "stat" || k.kind === "kpi") ? [LIMIT] : []), 
+      // Every live figure's question reads sort and direction (figure-live's liveAsk); a figure that doesn't say its own takes the shared ones.
+      ...(k.props.includes(QUERY) ? [SORT, DIRECTION].filter(d => !k.props.some(p => p.key === d.key)) : []), yaml("lines", "int", "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", { min: 0, samples: ["0", "1", "2", "3"] })], source: { use: `::${id}\n---\n{{props.yaml}}\n---\n${k.rows ? `${k.rows}\n` : ""}::` }, example: k.example,
     sweep: k.sweep, grids: k.grids ?? [], space: k.space ?? k.sweep,
   };
 }
@@ -111,7 +114,7 @@ const FIGURES: Kind[] = [
     kind: "table", title: "Table", intro: "Rows and columns: `headers:`, `rows:` (a list of rows), an optional `footer:`, and `align:` per column. Live, the results are rows and `columns:` name the properties (title, subtitle when present, and updated when left out); a row opens its note. Narrow, only the title column and one more are drawn and the rest are counted." + LIVE_WORDS,
     props: [TITLE, yaml("headers", "list", "the column names", { samples: ["[Agent, Tokens, Time]", "[Name, Count]"] }), yaml("rows", "list", "the rows, each a list of cells", { samples: ["[[Inks, \"115,207\", 16m], [Patterns, \"186,716\", 18m]]", "[[a, 1], [b, 2]]"] }),
       yaml("footer", "list", "a closing row, ruled off", { samples: ["[Total, \"301,923\", 34m]"] }), yaml("align", "list", "left or right for each column", { samples: ["[left, right, right]", "[left, left, right]"] }),
-      yaml("layout", "enum", "how a live table's rows are drawn: a table, or one of the views' other layouts through the same collection renderer", { default: "table", values: enumOf({ table: "rows with sortable column headers", feed: "full-width cards with body lines", gallery: "cards in a responsive grid", board: "a lane per group, tabs when narrow" }) }),
+      { ...VIEW_LAYOUT, where: "yaml" },
       yaml("columns", "list", "a live table's properties, one a column (title, subtitle when present, and updated: the defaults)", { samples: ["[title, status, updated]", "[ticket, title, owner]"], question: { type: "pick-order", source: "facets" } }), yaml("titleColumn", "int", "which column is the title, the one density wraps", { min: 0, max: 8, default: "0" }), yaml("link", "property", "a live table's property naming a note: a row opens that note instead of its own (a record table opens what the record is about)", { samples: ["note", "ticket"] }), yaml("at", "property", "with link:, a live table's property holding a revision of that note: a row opens the note at that revision beside how it is now (a review record's revision)", { samples: ["revision"] }), DENSITY, ...LIVE, LIMIT, SORT, DIRECTION],
     example: { title: "what the research cost", headers: "[Agent, Tokens, Time]", rows: "[[Inks, \"115,207\", 16m], [Patterns, \"186,716\", 18m]]", footer: "[Total, \"301,923\", 34m]", align: "[left, right, right]" }, sweep: ["align", "footer", "density"], grids: [["align", "footer"]],
   },
@@ -168,7 +171,8 @@ const FIGURES: Kind[] = [
   {
     kind: "calendar", title: "Calendar", intro: "One month: marked days with their labels. Rows are `- 12: **launch**` (a bold one is the accent). Live, the results are marked on the day of the property `date:` names, within `year:` and `month:`." + LIVE_WORDS,
     props: [TITLE, yaml("year", "int", "the year", { min: 1970, max: 2200, samples: ["2026"] }), yaml("month", "int", "the month", { min: 1, max: 12 }), yaml("weekStartsOn", "text", "the weekday a week starts on, 0 (Sunday) to 6, or a day's name", { default: "mon", samples: ["sun", "mon", "sat"] }),
-      yaml("date", "text", "a live figure's property with each result's day", { default: "date", samples: ["date", "due"] }), ...LIVE],
+      yaml("date", "text", "a live figure's property with each result's day", { default: "date", samples: ["date", "due"] }),
+      yaml("today", "text", "the day bracketed as today, YYYY-MM-DD, and the month shown when year and month are left out (the clock's day when left out)", { samples: ["2026-03-11"] }), ...LIVE],
     rows: "- 12: **launch**\n- 20: the plot committee",
     example: { title: "Garden days", year: "2026", month: "3" }, sweep: ["month", "weekStartsOn"], grids: [["month", "weekStartsOn"]],
   },

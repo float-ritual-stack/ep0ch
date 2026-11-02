@@ -14,18 +14,24 @@ import { randomUUID } from "node:crypto";
 
 export type InviteScope = "tile" | "shape" | "screen";
 
-interface Invite { id: string; scope: readonly InviteScope[]; until: number; run?: string; by: string }
+interface Invite { id: string; scope: readonly InviteScope[]; until: number; run?: string; by: string; cause?: unknown }
 
 const LAPSE_MS = 10 * 60_000;
 
 class Invites {
   private readonly open = new Map<string, Invite>();
+  /**
+   * What the person's input that pressed did first, kept on the invitation as the run's cause and read by its actions
+   * (`causeOf`): a lift that click dropped (desk/lift-drops.ts registers it), so the run's toggle of it is that click's.
+   */
+  inputCause: () => unknown = () => undefined;
 
   /** Mint one for the person's press: `by` says whose it is in words (for a status line). */
   mint(by = "you", scope: readonly InviteScope[] = ["tile", "shape", "screen"], now = Date.now()): string {
     for (const [id, inv] of this.open) if (inv.until <= now) this.open.delete(id);
     const id = randomUUID();
-    this.open.set(id, { id, scope, until: now + LAPSE_MS, by });
+    const cause = this.inputCause();
+    this.open.set(id, { id, scope, until: now + LAPSE_MS, by, ...(cause !== undefined && cause !== null ? { cause } : {}) });
     return id;
   }
 
@@ -47,6 +53,8 @@ class Invites {
   /** The run ended: its invitation is spent. */
   spendRun(run: string) { for (const [id, inv] of this.open) if (inv.run === run) this.open.delete(id); }
   spend(id: string) { this.open.delete(id); }
+  /** The press's cause (`inputCause` when it was minted), for the actions its run asks. */
+  causeOf(id: string | undefined): unknown { return id ? this.open.get(id)?.cause : undefined; }
   /** Whose invitation it is, for the status line ("on your press"), or undefined. */
   byOf(id: string | undefined): string | undefined { return id ? this.open.get(id)?.by : undefined; }
   get size() { return this.open.size; }

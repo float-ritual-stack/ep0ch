@@ -91,8 +91,21 @@ export function propsWithoutRules(kind: string, body: readonly string[]): string
  * mean; any other names the keys it takes, never silence (`layout:` on a figure without it drew nothing and said
  * nothing). The write's warning, the static reader's and the collection reader's all say this one sentence.
  */
+/**
+ * Every YAML key a figure of `kind` reads: its schema's, and the YAML form of its rows (a checklist's `items`, a
+ * timeline's `events`): the fields its Markdown rows give, which the YAML may give instead (figureProps: the YAML wins).
+ */
+export function figureKeys(kind: string): string[] {
+  // A figure whose schema lives elsewhere (graph-meter's, in component-schema.ts) isn't judged here: nothing it takes is known.
+  const own = FIGURE_COMPONENT_SCHEMAS.find(s => s.id === `graph-${kind}`)?.props.filter(p => p.where === "yaml").map(p => p.key);
+  if (!own) return [];
+  const md = FIGURE_MARKDOWN[kind];
+  const probe = md ? ["2026-03-02: 1", "**a**: 2", "[x] b", "c"].map(row => Object.keys(md({ rows: [figureRow(row)], paragraphs: ["d"], fences: [] }, {}))).flat() : [];
+  return [...new Set([...own, ...probe])];
+}
+
 export function unknownFigureKeys(kind: string, yaml: Record<string, unknown>): string[] {
-  const known = FIGURE_COMPONENT_SCHEMAS.find(s => s.id === `graph-${kind}`)?.props.filter(p => p.where === "yaml").map(p => p.key) ?? [];
+  const known = figureKeys(kind);
   if (!known.length) return [];
   // `rows: children` / `rows: body` is every figure's (figureProps above), not one kind's.
   return Object.keys(yaml).filter(key => key !== "rows" && !known.includes(key)).map(key => {

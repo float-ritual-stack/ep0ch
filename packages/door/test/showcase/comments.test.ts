@@ -643,15 +643,18 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     expect(p.items[2]!.label).toBe("Present: Ana, Bo and Cy, in the greenhouse at ten. · adds ^present-ana-bo");
     const drawn = rows().join("\n");
     expect(drawn).toContain(`in ${SEED.meeting} 1/`);
-    const popupRows = () => { const all = rows(); const start = all.findIndex(l => l.includes(`in ${SEED.meeting} 1/`)); return all.slice(start + 1, start + 13); };
+    // The popup drops under the caret with its status row last (PIE-1511): its rows are the ones above that row, and
+    // its frame's left edge is the │ before the status row's words.
+    const status = (all: string[]) => all.findIndex(l => l.includes(`in ${SEED.meeting} `) && / \d+\/\d+/.test(l));
+    const popupRows = () => { const all = rows(); const end = status(all) - 1, n = pop()?.previewRect?.rows ?? 12; return all.slice(Math.max(0, end - n), end); };
     const previewLine = (line: string) => {
-      const rect = pop()?.previewRect;
-      const col = S().stageRect.col + (rect?.col ?? 0);
+      const rect = pop()?.previewRect, all = rows(), s = all[status(all)] ?? "";
+      const col = s.lastIndexOf("│", s.indexOf(`in ${SEED.meeting}`)) + (rect?.col ?? 0);
       return rect ? line.slice(col, col + rect.cols) : "";
     };
     const preview = () => popupRows().map(previewLine);
     await until(() => preview().some(l => l.includes("We agreed to water")), "the anchor's passage in the floating reader");
-    r = rows(); y = r.findIndex((l, i) => i > r.findIndex(l => l.includes(`in ${SEED.meeting} 1/`)) && previewLine(l).includes("We agreed to water"));
+    r = rows(); y = r.findIndex((l, i) => i < status(r) - 1 && i >= status(r) - 1 - (pop()?.previewRect?.rows ?? 12) && previewLine(l).includes("We agreed to water"));
     x = r[y]!.lastIndexOf("We agreed to water");
     press({ kind: "mouse", action: "wheel-down", button: 0, x, y });
     expect(pop()!.index).toBe(0);

@@ -1,0 +1,55 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`showcase: completion placement (PIE-1511) A under the cursor, B as a sheet lower down, above it near the bottom; at 200 and 44 columns: A at 200 1`] = `
+"┌─  ────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ » sow-wk## · Sowing week ##                           page █│  Sowing week ## · Kitchen sink · Sowing calenda…│
+│   sow-wk## · Sowing week ##                           page █│  status ~~~~~~~ · i # properties                │
+│   sow-wk## · Sowing week ##                           page █│ ◆ line # · the line that links here · esc lets …│
+│   sow-wk# · Sowing week #                             page █│                                                 │
+│   sow-wk# · Sowing week #                             page █│   What goes in the cold frame in week ##:       │
+│   sow-wk# · Sowing week #                             page █│   ~~~~~~.                                       │
+│   sow-wk# · Sowing week #                             page  │   « sow-wk## | sow-wk## »                       │
+│   sow-wk# · Sowing week #                             page  │                                                 │
+│   sow-wk# · Sowing week #                             page  │                                                 │
+│   sow-wk# · Sowing week #                             page  │                                                 │
+│───────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ pages #/##                                                                                                    │
+└───────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
+`;
+
+exports[`showcase: completion placement (PIE-1511) A under the cursor, B as a sheet lower down, above it near the bottom; at 200 and 44 columns: B at 200 1`] = `
+"┌─  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ references #/##  ((Sowing week▌ · showing the first ## matches                                                                                  │
+│ » Sowing week ##  Kitchen sink › Sowing calendar, c… block █│ Kitchen sink › Sowing calendar, completion practice » What goes in the cold frame │
+│   Sowing week ##  Kitchen sink › Sowing calendar, c… block █│ in week ##: ~~~~~~. « sow-wk## | sow-wk## »                                       │
+│   Sowing week ##  Kitchen sink › Sowing calendar, c… block  │                                                                                   │
+│   Sowing week #  Kitchen sink › Sowing calendar, co… block  │                                                                                   │
+│   Sowing week #  Kitchen sink › Sowing calendar, co… block  │                                                                                   │
+│   Sowing week #  Kitchen sink › Sowing calendar, co… block  │                                                                                   │
+│   Sowing week #  Kitchen sink › Sowing calendar, co… block  │                                                                                   │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
+`;
+
+exports[`showcase: completion placement (PIE-1511) A under the cursor, B as a sheet lower down, above it near the bottom; at 200 and 44 columns: A at 44 1`] = `
+"┌─  ──────────────────────────┐
+│ » sow-wk## · Sowing w… page █
+│   sow-wk## · Sowing w… page █
+│   sow-wk## · Sowing w… page █
+│   sow-wk# · Sowing we… page █
+│   sow-wk# · Sowing we… page █
+│   sow-wk# · Sowing we… page █
+│   sow-wk# · Sowing we… page │
+│   sow-wk# · Sowing we… page │
+│   sow-wk# · Sowing we… page │
+│   sow-wk# · Sowing we… page │
+│─────────────────────────────│
+│ Sowing week ## · Kitchen si…│
+│ status ~~~~~~~ · i # proper…│
+│◆ line # · the line that lin…│
+│                             │
+│  What goes in the cold frame│
+│  in week ##: ~~~~~~.        │
+│─────────────────────────────│
+│ pages #/##                  │
+└─────────────────────────────┘"
+`;

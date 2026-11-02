@@ -64,7 +64,7 @@ describe("showcase: a live table's settings stick, and it can switch to a feed (
     await act("open", { id: h.seeded.notes.collectionTune.id });
     await act("open", { id: note().id });
     await until(() => lists().find(l => l.key === "^sprint")?.detail.layout === "feed", "still a feed after reopening", 10_000);
-    await expect(act("settings.set", { key: "layout", value: "cards" })).rejects.toThrow(/layout .*is one of table, feed, gallery, board/);
+    await expect(act("settings.set", { key: "layout", value: "cards" })).rejects.toThrow(/layout "cards" is one of table, gallery, feed, board/);
     await expect(act("settings.set", { key: "card", value: "large" })).rejects.toThrow(/has no field card/);
   }, 40_000);
 
@@ -98,5 +98,28 @@ describe("showcase: a live table's settings stick, and it can switch to a feed (
     const now = (await h.board.get(note().id))!;
     await h.board.update(now.id, now.text.replace("sort: title", "sort: title\nlayot: feed"), now.revision!, { kind: "user" });
     await until(() => h.screen().includes("doesn't take layot: did you mean layout?"), "the reader says the unknown key", 10_000);
+  }, 40_000);
+
+  test("several layouts are tabs over one source, as in a view: toggled on by the card, switched by a click (PIE-1513 finding)", async () => {
+    await show();
+    const before = await text();
+    const settings = await act("settings", { list: "^sprint" });
+    expect(settings.fields.find((f: any) => f.key === "layout").question).toBe("toggle");
+    // The first test leaves it a feed; start from one table. A toggled layout goes first, as in a view's card.
+    await act("settings.set", { key: "layout", value: "table" });
+    await act("settings.toggle", { key: "layout", value: "feed" });
+    await untilAsync(async () => (await text()).includes('layout: "feed, table"'), "feed and table written into the YAML");
+    await until(() => JSON.stringify(lists().find(l => l.key === "^sprint")?.detail.layouts) === '["feed","table"]', "both layouts are tabs", 10_000);
+    await act("settings.toggle", { key: "layout", value: "board" });
+    await untilAsync(async () => (await text()).includes('layout: "board, feed, table"'), "a third layout");
+    await act("props.close");
+    await until(() => /board · feed · table/.test(h.screen()), "the tabs are drawn on the table's control row", 10_000);
+    // A click on the feed tab, as on a view's control row.
+    const lines = h.screen().split("\n"), y = lines.findIndex(l => /board · feed · table/.test(l)), x = lines[y]!.indexOf("board · feed") + "board · ".length + 1;
+    h.press({ kind: "mouse", action: "down", button: 0, x, y }); h.press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => lists().find(l => l.key === "^sprint")?.detail.layout === "feed", "the feed tab is chosen", 10_000);
+    expect(await text()).toContain('layout: "board, feed, table"');
+    const back = (await h.board.get(note().id))!;
+    await h.board.update(back.id, before, back.revision!, { kind: "user" });
   }, 40_000);
 });

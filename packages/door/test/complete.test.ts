@@ -23,7 +23,7 @@ import { BUILTIN_HEADING_STYLES } from "@ep0ch/outline-core/heading-styles";
 import { Draft } from "../src/edit";
 import { Refused, SocketBoard, USER, type Actor } from "../src/socket";
 import { visible } from "../src/style";
-import { Completer, enterKeeps, popupHint, completerFor, completionKey, completionOf, renderCompletion, type CompletionState } from "../src/surface/completer";
+import { Completer, enterKeeps, popupHint, completerFor, completerOf, completionKey, completionOf, renderCompletion, type CompletionState } from "../src/surface/completer";
 import { editHint } from "../src/surface/editor";
 import { declaredKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -68,7 +68,7 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
       { label: "Green beds", detail: "Oct 14", kind: "page", insertion: "[[green-beds]]" },
     ], ...over,
   });
-  const draw = (s: CompletionState, w: number) => renderCompletion(s, w, 14, [], 4).map(visible);
+  const draw = (s: CompletionState, w: number) => renderCompletion(s, w, 18, []).map(visible);
 
   test("at 40 columns how sure Jev is reads whole beside a note about the list (PIE-1409)", () => {
     const s = state("see ((gree", { jev: "ranked", sure: { verdict: "weak", label: "no strong match", said: "" }, message: "showing the first 20 matches" });
@@ -79,17 +79,18 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
   test("at 120 columns the docs wrap beside the list, the first word drawn and none cut; each row has its kind at the right", () => {
     const s = state(), lines = draw(s, 120);
     const row = lines.find(l => l.includes("Greenhouse meeting"))!;
-    expect(row).toMatch(/» Greenhouse meeting +block +│ Watering notes/);
-    expect(lines[lines.indexOf(row) + 1]).toContain("Garden club");
+    expect(row).toMatch(/» Greenhouse meeting +Garden club +block +│ Watering notes/);   // its detail on its own row (PIE-1511)
     expect(lines.find(l => l.includes("^a10"))).toMatch(/anchor +│/);
-    expect(lines.find(l => l.includes("Green beds"))).toMatch(/Green beds +page +│/);
+    expect(lines.find(l => l.includes("Green beds"))).toMatch(/Green beds +Oct 14 +page +│/);
     expect(s.previewRect!.col).toBeGreaterThan(s.listWidth! - 1);
     // Wrapped over the rows it has, at the width it's drawn: the whole description, word by word.
     const docs = lines.map(l => l.slice(s.previewRect!.col, s.previewRect!.col + s.previewRect!.cols).trim()).filter(Boolean);
     expect(docs.join(" ")).toContain(DOCS.slice(0, 60));
     expect(docs.join(" ").replace(/\s+/g, " ")).toContain("once they flower.");
     expect(docs.every(l => l.length <= s.previewRect!.cols)).toBe(true);
-    expect(lines.some(l => l.includes("↑↓ move · ⏎/tab inserts"))).toBe(true);
+    // The key hints live in the status bar (popupHint), never in the box (PIE-1511).
+    expect(lines.some(l => l.includes("↑↓ move"))).toBe(false);
+    expect(popupHint(s)).toContain("↑↓ move · ⏎/tab inserts");
   });
 
   test("at 80 columns the docs go under the list, sized to what they hold", () => {
@@ -107,13 +108,35 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
     expect(text).toContain("once they flower.");
   });
 
+  test("one row per match: a row's detail and a ranked row's score sit on its own line, dim (PIE-1511)", () => {
+    const s = state("see ((gree", { items: [
+      { label: "Greenhouse meeting", detail: "Garden club · 0.6/3", kind: "block", insertion: "((m1))" },
+      { label: "Green beds", detail: "1.2/3", kind: "page", insertion: "[[green-beds]]" },
+    ] });
+    const rows: (number | null)[] = [];
+    const lines = renderCompletion(s, 120, 18, rows).map(visible);
+    expect(lines.find(l => l.includes("Greenhouse meeting"))).toMatch(/» Greenhouse meeting +Garden club · 0\.6\/3 +block/);
+    expect(lines.find(l => l.includes("Green beds"))).toMatch(/Green beds +1\.2\/3 +page/);
+    expect(rows.filter(i => i !== null)).toEqual([0, 1]);                // two matches, two rows
+  });
+
+  test("a note's reader under the list is drawn at the rows it's shown in, so its last lines scroll into view (Codex review)", () => {
+    const asked: number[] = [];
+    const s = state("see ((gree", { items: [{ label: "Greenhouse meeting", kind: "block", insertion: "((m1))", blockId: "m1",
+      preview: (_w: number, h: number) => { asked.push(h); return Array.from({ length: h }, (_, i) => `line ${i}`); } },
+      { label: "Green beds", kind: "page", insertion: "[[green-beds]]" }, { label: "Greenhouse plan", kind: "page", insertion: "[[plan]]" }] });
+    renderCompletion(s, 60, 18);
+    expect(s.previewRect!.col).toBeLessThanOrEqual(1);                   // under the list at 60 columns
+    expect(asked.at(-1)).toBe(s.previewRect!.rows);
+  });
+
   test("docs under the list scroll to their last line (Codex review)", () => {
     const s = state();
     s.items[0]!.docs = Array.from({ length: 20 }, (_, i) => `line ${i + 1} of the watering notes.`).join(" ");
     const c = new Completer(new Draft("made-up", 0, s.at.line), {} as never, () => {});
     c.state = s;
     for (let i = 0; i < 40; i++) { draw(s, 60); c.previewBy(1, USER); }
-    expect(draw(s, 60).join(" ")).toContain("line 20 of the watering notes.");
+    expect(draw(s, 60).join(" ").replace(/[│┌┐└┘─]/g, " ").replace(/\s+/g, " ")).toContain("line 20 of the watering notes.");
   });
 
   test("the wheel over a list still finding its rows does nothing, and throws nothing (code review)", () => {
@@ -335,6 +358,31 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     const link = typing("see [the shed");
     await Bun.sleep(30);
     expect(link.c.state).toBeNull();
+  });
+});
+
+describe("a variation's first click previews it, after its parent's row was clicked (Codex review)", () => {
+  test("presses start afresh between a component and its variations, both ways", async () => {
+    const child = (label: string) => ({ label, kind: "variation", insertion: `::${label}` });
+    const s: CompletionState = { target: { kind: "component", start: 0, end: 2, query: "" }, index: 0, loading: false, truncated: null, message: "",
+      at: { row: 0, col: 2, line: "::" }, items: [{ label: "Meter", kind: "component", insertion: "::graph-meter", children: [child("Disk"), child("Budget")] }, child("Rule")] };
+    const c = new Completer(new Draft("made-up", 0, "::"), {} as never, () => {});
+    c.state = s;
+    let accepted = 0;
+    c.accept = async () => { accepted++; return true; };
+    const press = () => { c.drawn = { row: 0, col: 0, cols: 80, items: [0, 1] }; c.shown!.listCol = 0; c.shown!.listWidth = 60; c.click(0, 5); };
+    press();                                                              // lights Meter
+    expect(c.expand()).toBe(true);
+    press();                                                              // Disk, the same index: lit, not inserted
+    await Bun.sleep(0);
+    expect(accepted).toBe(0);
+    expect(c.back()).toBe(true);
+    press();                                                              // Meter again: lit, not inserted
+    await Bun.sleep(0);
+    expect(accepted).toBe(0);
+    press();                                                              // the second click on it inserts
+    await Bun.sleep(0);
+    expect(accepted).toBe(1);
   });
 });
 
@@ -764,8 +812,9 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.type("@count-pots");
     const p = await e.settled();
     renderCompletion(p, 180, 30);
-    const preview = p.previewLines!.map(visible).join("\n");
-    expect(preview).toContain(file);
+    // The preview is a column (PIE-1511): a long path wraps in it, whole over its rows.
+    const preview = p.previewLines!.map(l => visible(l).trimEnd()).join("\n");
+    expect(preview.replace(/\n/g, "")).toContain(file);
     expect(preview).toContain('return "Seven pots";');
   });
 
@@ -798,7 +847,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.type("[status::ready] [owner::Ada]");
     e.press(K("esc")); e.press(K("enter")); e.type("::fie");
     const p = await e.settled();
-    const card = () => { renderCompletion(e.pop()!, 140, 24); return e.pop()!.previewLines!.map(visible).join("\n"); };
+    const card = () => { renderCompletion(e.pop()!, 140, 24); return e.pop()!.previewLines!.map(l => visible(l).trimEnd()).join("\n").replace(/\n(?=[a-z])/g, " "); };
     expect(card()).toContain("Every place a note writes a key");
     expect(card()).toContain("::fields{key=status}");
     expect(card()).toContain("[copy]");
@@ -829,7 +878,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
       const hits: (number | null)[] = [];
       const lines = renderCompletion(p, 140, 20, hits).map(visible);
       const row = hits.indexOf(p.index);
-      expect(lines[row + 1]).toContain(p.items[p.index]!.detail!);
+      expect(lines[row]).toContain(p.items[p.index]!.detail!);           // the detail on the row itself (PIE-1511)
       expect(lines[row]!.indexOf(label)).toBeLessThan(6);
       expect(lines[row]!.slice(0, p.listWidth).trimEnd()).toEndWith("›");
       expect(lines.slice(p.previewRect!.row).map(line => line.slice(p.previewRect!.col)).join("\n")).toContain(label === "Fields" ? "Seed list" : label === "Button" ? "Fold the bottom" : "the tile it goes beside");
@@ -867,7 +916,9 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.pop()?.heading).toContain("variations and arguments");
     e.press(K("left"));
     e.screen();
-    e.s.click(col, row, e.h);
+    e.s.click(col, row, e.h);                                             // lights the row (PIE-1511)
+    expect(e.pop()).not.toBeNull();
+    e.s.click(col, row, e.h);                                             // the second click inserts
     await until(() => !e.pop(), "click inserts");
     e.type("Photos");
     expect(e.d.lines[3]).toBe("title: Photos");
@@ -940,7 +991,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     }
   });
 
-  test("the mouse: the wheel moves through the candidates, a click inserts, a click elsewhere on the popup does nothing", async () => {
+  test("the mouse: the wheel moves through the candidates, a click lights a row and a second inserts, a click elsewhere on the popup does nothing", async () => {
     const e = await editing(ids.compost!);
     e.press(K("enter")); e.type("see [[");
     const p = await e.settled();
@@ -951,8 +1002,8 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.pop()!.index).toBe(0);
     expect(e.d.row).toBe(2);                                              // the wheel didn't move the cursor
     const lines = e.screen().split("\n");
-    const header = lines.findIndex(l => l.includes("pages 1/"));
-    expect(e.s.click(3, header, e.h)).toBe(true);                         // the header: the popup's, nothing chosen
+    const header = lines.findIndex(l => l.includes("pages 1/"));          // the status row, under the rows (PIE-1511)
+    expect(e.s.click(lines[header]!.indexOf("pages 1/"), header, e.h)).toBe(true); // the status row: the popup's, nothing chosen
     expect(e.pop()).not.toBeNull();
     expect(e.s.click(3, 0, e.h)).toBe(false);                             // above the popup: not the popup's
     e.type("seeds");
@@ -961,8 +1012,11 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const shown = e.screen().split("\n");
     const row = shown.findIndex(l => l.includes("seeds · Seed list"));
     const col = shown[row]!.indexOf("seeds · Seed list");
-    expect(row).toBeGreaterThan(header);
-    expect(e.s.click(col, row, e.h)).toBe(true);
+    expect(row).toBeLessThan(header);
+    expect(e.s.click(col, row, e.h)).toBe(true);                          // the first click lights and previews it
+    expect(e.pop()!.index).toBe(target);
+    expect(e.d.lines.at(-1)).toBe("see [[seeds");
+    expect(e.s.click(col, row, e.h)).toBe(true);                          // the second inserts
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe("see [[seeds]]");
   });
@@ -1434,7 +1488,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
   const top = () => (app as any).stack.at(-1);
   const screen = () => (top().render(app).lines as string[]).map(visible);
   const type = (s: string) => { for (const c of s) key(char(c)); };
-  /** Type `[[se` at the end of the draft, wait for the popup, and click the line naming the page `seeds`. */
+  /** Type `[[se` at the end of the draft, wait for the popup, and click the line naming the page `seeds` twice: the first lights it, the second inserts (PIE-1511). */
   async function clickSeeds(d: () => Draft | null | undefined) {
     await until(() => !!d(), "the draft");
     const draft = d()!;
@@ -1445,6 +1499,10 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     const y = lines.findIndex(l => l.includes("seeds · Seed list"));
     expect(y).toBeGreaterThan(0);
     const x = lines[y]!.indexOf("seeds · Seed list");
+    key({ kind: "mouse", action: "down", button: 0, x, y });
+    key({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => completionOf(draft)?.items[completionOf(draft)!.index]?.address === "seeds", "the clicked row lit");
+    expect(draft.lines.at(-1)).toBe("sow [[se");
     key({ kind: "mouse", action: "down", button: 0, x, y });
     key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => draft.lines.at(-1) === "sow [[seeds]]", "the clicked candidate");
@@ -1487,6 +1545,9 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       const x = lines[y]!.indexOf(label);
       key({ kind: "mouse", action: "down", button: 0, x, y });
       key({ kind: "mouse", action: "up", button: 0, x, y });
+      await until(() => completionOf(draft)?.items[completionOf(draft)!.index]?.address === address, "the clicked row lit");
+      key({ kind: "mouse", action: "down", button: 0, x, y });
+      key({ kind: "mouse", action: "up", button: 0, x, y });
       await until(() => draft.text === `[[${address}]]`, "the visible comment candidate inserts");
       expect(reader.surface.writingDraft).toBe(draft);
       await reader.dispatch.act({ action: "comment.close", args: { discard: true } }, USER);
@@ -1513,6 +1574,9 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       const { item, x, y } = outside!;
       key({ kind: "mouse", action: "down", button: 0, x, y });
       key({ kind: "mouse", action: "up", button: 0, x, y });
+      await until(() => completionOf(draft)?.items[completionOf(draft)!.index] === item, "the click lights the row");
+      key({ kind: "mouse", action: "down", button: 0, x, y });
+      key({ kind: "mouse", action: "up", button: 0, x, y });
       await until(() => !completionOf(draft) || !B.composer, "the click lands");
       expect(B.composer?.session.draft).toBe(draft);
       expect(draft.text).toBe(item.insertion);
@@ -1536,9 +1600,10 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
         key(K("end")); type(" ((Insurance ret");
         await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "matches");
         expect(screen().some(l => l.includes("Typing here ((Insurance ret"))).toBe(true);
-        expect(screen().some(l => l.includes("((Insurance ret▌"))).toBe(true);
         await until(() => screen().some(l => l.includes("Insurance return passage.")), "body match revealed", 3000);
         expect(completionOf(rd.draft!)!.items[0]!.blockId).toBe(journal.id);
+        // The note's own reader in the preview (enrich), which shift+↑ scrolls.
+        await until(() => !!completionOf(rd.draft!)!.items[completionOf(rd.draft!)!.index]?.preview && screen().some(l => l.includes("Insurance return passage.")), "the note's reader in the preview", 3000);
         const picked = completionOf(rd.draft!)!.index, beforeScroll = screen().join("\n");
         key({ kind: "up", shift: true });
         expect(completionOf(rd.draft!)!.index).toBe(picked);
@@ -1546,7 +1611,8 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
         if (height === 60 && line === height - 8) {
           type(' in:"Items" type:');
           await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "scoped query");
-          expect(screen().join("\n")).toContain('((Insurance ret in:"Items" type:▌');
+          // The typing line says what's typed; the popup under it (sketch A) says the scope as a chip, with no echo (PIE-1511).
+          expect(screen().join("\n")).toContain('((Insurance ret in:"Items" type:');
           expect(screen().join("\n")).toContain("in: Items");
         }
       } finally { app.pop(); size.rows = 48; }
@@ -1664,7 +1730,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     } finally { app.pop(); }
   });
 
-  test("the completion popup stays above a floated tile and its visible row inserts on one click", async () => {
+  test("the completion popup stays above a floated tile and its visible row inserts on a second click", async () => {
     const b = boardScreen(hub.id), B: any = BV.view(b);
     const was = (await board.get(beans.id))!;
     app.push(b);
@@ -1687,6 +1753,9 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       // The float dragged over the popup's rows.
       await run("float.place", { col: x - 5, row: y - 2, cols: 30, rows: 6 }, "over");
       expect(screen()[y]).toContain("seeds · Seed list");
+      key({ kind: "mouse", action: "down", button: 0, x, y });
+      key({ kind: "mouse", action: "up", button: 0, x, y });
+      await until(() => completionOf(draft)?.items[completionOf(draft)!.index]?.address === "seeds", "the visible row lit");
       key({ kind: "mouse", action: "down", button: 0, x, y });
       key({ kind: "mouse", action: "up", button: 0, x, y });
       await until(() => draft.lines.at(-1) === "sow [[seeds]]", "the visible completion inserts");

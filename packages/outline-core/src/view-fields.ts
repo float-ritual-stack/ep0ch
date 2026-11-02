@@ -1,5 +1,7 @@
 import { subtitleOf, valuesOf } from "./block-record";
 import type { FigureItem } from "./figure-live";
+import type { PropSchema } from "./component-schema";
+import { enumOf } from "./prop-values";
 
 const date = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const fields: { value: string; meaning: string; read: (item: FigureItem, body: readonly string[]) => string }[] = [
@@ -15,3 +17,9 @@ const fields: { value: string; meaning: string; read: (item: FigureItem, body: r
 export const VIEW_SUMMARY_FIELDS = fields.map(({ value, meaning }) => ({ value, meaning }));
 export const VIEW_SORT_FIELDS = ["created", "updated", "title"].map(key => VIEW_SUMMARY_FIELDS.find(f => f.value === key)!);
 export const viewField = (item: FigureItem, key: string, body: readonly string[] = []): string | undefined => fields.find(f => f.value === key)?.read(item, body);
+
+/**
+ * A collection's `layout`, its one definition (PIE-1513): a ::view's and a live ::graph-table's (in its YAML) both take
+ * it, one or several, and several are tabs over one source, drawn by the views' collection renderer.
+ */
+export const VIEW_LAYOUT: PropSchema = { key: "layout", where: "note", type: "list", question: { type: "toggle" }, default: "table", meaning: "one or several layouts, comma-separated; several are tabs over one source", values: enumOf({ table: "rows with sortable column headers", gallery: "cards in a responsive grid", feed: "full-width cards with body lines", board: "a lane per group, tabs when narrow" }) };
