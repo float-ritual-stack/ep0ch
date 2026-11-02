@@ -193,13 +193,12 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     expect(B().lane).toBe(0);
   });
 
-  test("d d is card.trash: the first d arms it (no confirm), the second trashes; an agent always says confirm", async () => {
+  test("d d is card.trash: the first d asks (no confirm), the second trashes; an agent always says confirm", async () => {
     await expect(act("card.trash", {})).rejects.toThrow("confirm");
     B().lane = 0; B().lanes[0].sel = 0; BV.at(b, "lanes");
     const id = B().lanes[0].items[0].id;
     expect(ran(() => key(char("d")))).toEqual(["card.trash"]);
-    await until(() => B().trashArm?.id === id, "armed");
-    expect(b.holdsKeys()).toBe(false);
+    await until(() => B().trashArm?.id === id, "asked");
     expect(ran(() => key(char("d")))).toEqual(["card.trash"]);
     await until(() => B().trashed?.id === id, "trashed");
     expect(ran(() => key(char("u")))).toEqual(["card.restore"]);

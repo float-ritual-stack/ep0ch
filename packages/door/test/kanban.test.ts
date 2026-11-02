@@ -74,6 +74,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
   /** Who a block was created by, as the service stored it. */
   const createdBy = async (id: string) => { const m = await current(id); return [m.author, m.actorId]; };
   const hints = () => b.render(B().ctx).lines.at(-1)!.replace(/\x1b\[[\d;]*m/g, "");
+  const screen = () => b.render(B().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
 
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
@@ -480,12 +481,13 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await settled();
     await select("Review", cards.tap.id);
     press({ kind: "char", ch: "d" });
-    await until(() => message().startsWith("d again"), "the confirmation");
-    expect(message()).toBe('d again trashes "Fix the dripping tap" and the 3 notes under it · any other key keeps it');
-    press({ kind: "char", ch: "j" });                                     // any other key: kept
-    press({ kind: "char", ch: "k" });
+    await until(() => B().trashArm?.id === cards.tap.id, "the confirmation");
+    expect(screen()).toContain('trash "Fix the dripping tap"?');
+    expect(screen()).toContain("trash it and the 3 notes under it");
+    press({ kind: "enter" });                                             // ⏎ is the safe row: kept
+    expect(B().trashArm).toBeNull();
     press({ kind: "char", ch: "d" });
-    await until(() => B().trashArm !== null && message().startsWith("d again"), "armed again");
+    await until(() => B().trashArm !== null, "asked again");
     press({ kind: "char", ch: "d" });
     await until(() => B().trashed?.id === cards.tap.id, "the trash");
     expect(message()).toBe('trashed "Fix the dripping tap" and 3 notes under it · u restores it');

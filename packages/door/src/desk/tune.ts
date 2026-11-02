@@ -1,3 +1,4 @@
+import { Again } from "../arm";
 import { GLASS_SETTINGS, type GlassSetting } from "../glass";
 import { declaredHints, HINT_SETTINGS } from "../surface/hints";
 import { tabStrip, type TabRow } from "../surface/chip-rows";
@@ -151,8 +152,10 @@ export class TunePane implements Pane {
   scope: "all" | "this" = "all";
   /** A nudge held on a row where something nearer wins: the choices it offers (a, o, c, or a click). */
   offer: { row: string; by: number; shadow: Shadow } | null = null;
-  /** A reset of a level, or a revert, waiting for its confirmation (the same key again, or [confirm]). */
-  armed: Armed | null = null;
+  /** A reset of a level, or a revert, waiting for its confirmation (the same key again within its window, Again; or [confirm]). */
+  private readonly again = new Again<Armed>(undefined, (a, b) => a.action === b.action);
+  get armed(): Armed | null { return this.again.armed(); }
+  set armed(a: Armed | null) { if (a) this.again.arm(a); else this.again.clear(); }
   readonly view = new Inspector();
   private head = 0;
   private controls: { y: number; x: number; cols: number; action: string; args: Record<string, unknown> }[] = [];
@@ -494,8 +497,8 @@ export class TunePane implements Pane {
     if (c === "e" || k.kind === "enter") { this.run(desk, "tune.edit", {}); return true; }
     // A step waiting in place: its own key again confirms; any other lets it go (and esc is only that).
     if (this.armed) {
-      const again = (c === "X" && this.armed.action === "tune.resetlevel") || (c === "R" && this.armed.action === "tune.revert");
-      if (again) return this.run(desk, this.armed.action, { confirm: true }), true;
+      const pressed = c === "X" ? "tune.resetlevel" : c === "R" ? "tune.revert" : null;
+      if (pressed && this.again.take({ action: pressed, words: "" })) return this.run(desk, this.armed.action, { confirm: true }), true;
       this.run(desk, "tune.cancel", {});
       if (k.kind === "esc") return true;
     }

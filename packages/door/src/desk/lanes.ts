@@ -33,7 +33,7 @@ import { Modes } from "../surface/modes";
 import { ListPicker, pickRows, pickRow } from "../surface/picker";
 import { changedSinceRead, Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
 import { pickParent, titleOf, type ParentPick } from "./writes";
-import { trashAtRevision } from "../note-trash";
+import { trashAtRevision, trashConfirm } from "../note-trash";
 import { findBoards, hubViews, laneDefs, laneTileName, QueryPane } from "./query";
 import type { TileSpec } from "./tiles";
 import { ReaderPane, type Pane } from "./panes";
@@ -98,8 +98,8 @@ export class Lanes implements SourceModel {
   get steps(): Steps | null { return this.overlays.get("steps") as Steps | null; }
   set steps(p: Steps | null) { this.overlay("steps", p); }
   private overlay(name: string, p: ListPicker<any, Lanes> | null) { if (p) this.overlays.push(p); else this.overlays.drop(name); }
-  /** The first `d` on a card: a second one within a few seconds trashes it. */
-  trashArm: { id: string; at: number } | null = null;
+  /** The card the person's first `d` asks about (the one yes/no, trashConfirm, is open over the board). */
+  get trashArm(): { id: string } | null { const p = this.overlays.get("trash") as (ListPicker<string, Lanes> & { card?: string }) | null; return p?.card ? { id: p.card } : null; }
   /** The last card trashed from the board, until it is restored or another one is: `u` restores it. */
   trashed: { id: string; title: string; lane: string; children: number; by?: string } | null = null;
   /**
@@ -274,7 +274,6 @@ export class Lanes implements SourceModel {
       if (d.busy) { this.host.ctx.flash("the new card is being created · wait for it"); return true; }
       void this.host.pressAction(BOARD_ACTIONS, "composer.leave").then(r => { const said = r ? leaveSaid(r as LeaveResult) : null; if (said) this.host.ctx.flash(said, 8000); this.host.redraw(); });
     }
-    if (this.trashArm && !(c === "d" && this.onLanes)) this.trashArm = null;   // any other key keeps the card
     if (this.overlays.key(k, this) !== null) { this.host.redraw(); return true; }
     // A card dragged across lanes: the drag and the release are its, wherever they land.
     if (k.kind === "mouse" && this.cardDrag) return this.laneMouse(k);
@@ -1291,17 +1290,20 @@ export class Lanes implements SourceModel {
 
   // ── trash ──
 
-  /** `card.trash` with no confirm (the person's first `d`): the selected card is armed; a second d within five seconds trashes it. */
+  /**
+   * `card.trash` with no confirm (the person's first `d`): the one yes/no over the board (trashConfirm, as a reader's
+   * `d`): `d` again or Delete trashes the card, ⏎ or esc keeps it.
+   */
   async armTrash(): Promise<{ armed: string; title: string; notesUnder: number; say: string }> {
     const card = this.card();
     if (!card) throw new ActionRefused("select a card to trash");
     const blocked = this.moveBlocked(card);
     if (blocked) throw new ActionRefused(`not trashed: ${blocked}`);
-    this.trashArm = { id: card.id, at: Date.now() };
     const fresh = await this.host.ctx.board.get(card.id).catch(() => null);
     const kids = fresh?.childIds.length ?? 0;
-    const say = `d again trashes "${titleOf(card)}"${kids ? ` and the ${kids} note${kids === 1 ? "" : "s"} under it` : ""} · any other key keeps it`;
-    if (this.trashArm?.id === card.id) this.host.ctx.flash(say);
+    const ask = Object.assign(trashConfirm<Lanes>({ title: titleOf(card), notesUnder: kids, trash: () => void this.run("card.trash", { confirm: card.id, card: card.id }) }), { card: card.id });
+    this.overlay("trash", ask);
+    this.host.redraw();
     return { armed: card.id, title: titleOf(card), notesUnder: kids, say: "press d again" };
   }
 
@@ -1379,13 +1381,8 @@ export class Lanes implements SourceModel {
     if (c === "n") { void this.run("card.new", {}); return true; }
     if (c === "N") { this.openChildComposer(); return true; }
     if (c === "s") { void this.openSteps(); return true; }
-    if (c === "d") {
-      // The second d within 5 s trashes the card the first one armed; the first arms it.
-      const card = this.card(), armed = card && this.trashArm?.id === card.id && Date.now() - this.trashArm.at < 5000;
-      if (armed) this.trashArm = null;
-      void this.run("card.trash", armed ? { confirm: card!.id, card: card!.id } : {});
-      return true;
-    }
+    // The first d asks (the one yes/no, trashConfirm): d again or Delete trashes, ⏎ or any other key keeps it.
+    if (c === "d") { void this.run("card.trash", {}); return true; }
     if (c === "u" && this.trashed) { void this.run("card.restore", {}); return true; }
     if (c === "c" && l) { void this.run("lane.collapse", { lane: l.name }); return true; }
     if (l && this.host.folded(l) && (k.kind === "enter" || c === " ")) { void this.run("lane.collapse", { lane: l.name, on: false }); return true; }
@@ -1768,7 +1765,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     },
   }),
   "card.trash": def({
-    summary: "move the selected card (or card=<id>) and the notes under it to Trash; confirm=<its id> is the second d. Without confirm, the person's first d arms it (a second d within 5 s trashes it, any other key keeps it); an agent always passes confirm. The service records no author for this", keys: "d d",
+    summary: "move the selected card (or card=<id>) and the notes under it to Trash; confirm=<its id> is the second d. Without confirm, the person's first d asks over the board (d again or Delete trashes it, ⏎ or esc keeps it); an agent always passes confirm. The service records no author for this", keys: "d d",
     touches: "draft", draft: "write", replay: "ask",
     args: {
       confirm: { type: "string", optional: true, about: "the card's id (or its first 8+ characters): the same card, said twice" },

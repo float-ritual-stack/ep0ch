@@ -1,6 +1,7 @@
 import { landingLine } from "@ep0ch/outline-core/block-insert";
 import { SnippetSession, type SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
 import { ReaderPosition, PositionRows } from "./reader-position";
+import { Again } from "./arm";
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
@@ -107,7 +108,8 @@ export class Draft {
   previewing = false;
   /** The text a "this save changes properties" warning was shown for; saving that same text again goes ahead. */
   propertyWarned: string | null = null;
-  private discardArmed = false;
+  /** Esc once on unsaved text: esc again (Again) lets it go. */
+  private readonly discard = new Again();
   /** When ctrl+z last stopped at a save and asked (0: it isn't asking): a ctrl+z after a pause goes past it (PIE-1414). */
   private undoArmed = 0;
   /** ctrl+x was pressed: a ctrl+e next hands the draft to $EDITOR (bash's edit-and-execute chord); any other key lets it go. */
@@ -303,7 +305,7 @@ export class Draft {
     }
     this.seen = to;
     this.flashes = [];
-    this.discardArmed = false; this.undoArmed = 0;
+    this.discard.clear(); this.undoArmed = 0;
     this.markWriter(by);
   }
 
@@ -444,7 +446,7 @@ export class Draft {
     const cursor = position(selection?.end ?? text.length);
     this.row = cursor.row; this.col = cursor.col;
     this.anchor = selection ? position(selection.start) : null; this.goal = null;
-    this.discardArmed = false; this.undoArmed = 0;
+    this.discard.clear(); this.undoArmed = 0;
     this.note = "";
     if (this.text !== before) this.wrote(by, "the insert");
   }
@@ -490,8 +492,8 @@ export class Draft {
     // where cmd+c can't reach the door (a terminal without the Kitty keyboard protocol, tmux).
     if (isCopyKey(k) || (k.kind === "alt" && k.ch === "c")) return "copy";
     if (k.kind === "super") return "keep";
-    const was = this.discardArmed, armed = this.undoArmed > 0 && Date.now() - this.undoArmed >= UNDO_ASK_PAUSE_MS;
-    this.discardArmed = false; this.undoArmed = 0;
+    const was = this.discard.take(true), armed = this.undoArmed > 0 && Date.now() - this.undoArmed >= UNDO_ASK_PAUSE_MS;
+    this.discard.clear(); this.undoArmed = 0;
     if (chord && this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a") return "attach";
     if (k.kind === "char" && k.ctrl) {
       if (k.ch === "s") return "save";
@@ -528,7 +530,7 @@ export class Draft {
       // An edit opened by mistake (a stray `j` or `q` became text) closes on the first esc: its session drops the strays.
       if (this.stray() !== null) return "discard";
       if (!was) {
-        this.discardArmed = true;
+        this.discard.arm(true);
         this.note = this.restored === this.text
           ? "esc again lets this kept draft go (a copy stays on disk) · ctrl+s saves"
           : "unsaved · esc again keeps it here (nothing is lost) · ctrl+s saves";
@@ -955,11 +957,11 @@ export class Draft {
       }
       this.patches.push(unit);
       if (this.patches.length > PATCH_UNDO_KEEP) this.patches.shift();
-      this.discardArmed = false; this.undoArmed = 0;
+      this.discard.clear(); this.undoArmed = 0;
       if (this.text !== before) { this.markWriter(by); this.record(by, `${patchLabel(by)}'s edit`, unit); }
       return;
     }
-    this.discardArmed = false; this.undoArmed = 0;
+    this.discard.clear(); this.undoArmed = 0;
     if (this.text !== before) { this.markWriter(by); this.record(by, "taking back an edit", removed, !!removed); }
   }
 
@@ -1014,7 +1016,7 @@ export class Draft {
     this.col = Math.max(0, Math.min(this.lines[r]!.length, col));
     this.selectAsk();
     if (this.anchor && this.anchor.row === this.row && this.anchor.col === this.col && !extend) this.anchor = null;
-    this.goal = null; this.discardArmed = false; this.undoArmed = 0;
+    this.goal = null; this.discard.clear(); this.undoArmed = 0;
     // A click between ctrl+x and ctrl+e lets the chord go, as any key does: the ctrl+e after it is the line's end.
     this.letChordGo();
   }

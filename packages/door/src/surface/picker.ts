@@ -279,3 +279,27 @@ export function listFieldPicker(title: string, action: "list.sort" | "list.group
     frame: (a, n) => ({ rect: centred(a, Math.min(50, a.cols - 2), Math.min(n + 2, a.rows)), title: `${action} · ${title}` }),
   });
 }
+
+/**
+ * The one yes/no over the screen (PIE-1293), for anything that can't be taken back at once: the safe choice is the
+ * first row, where the cursor starts, so ⏎ (or a stray Enter) keeps things as they are; the destructive row comes
+ * second, in the warning colour, and says what it does. Its own keys (`keys`: trash's `d` again and Delete, the
+ * board's `d d`) and a click on its row do it at once; esc, any closing click or the safe row let it go.
+ */
+export function confirmPicker<H>(o: {
+  name: string; title: string; destructive: string; safe?: string; keys?: readonly string[]; action?: string; label?: string;
+  go: (host: H) => void; width?: number;
+}): ListPicker<string, H> {
+  const rows = [o.safe ?? "keep it", o.destructive];
+  const p: ListPicker<string, H> = new ListPicker<string, H>({
+    name: o.name, items: () => rows, clickChooses: true,
+    row: (r, i, on, w) => [...pickRows(` ${r}`, on, w, i === 1 ? C.lred : C.grey)],
+    choose: (_r, i, h) => { if (i === 1) o.go(h); },
+    ...(o.keys?.length ? {
+      bindings: o.keys.map(key => ({ key, action: o.action ?? "confirm.yes", label: o.label ?? "yes" })),
+      dispatch: (_: ModeKey, h: H) => { p.close(h, "letter"); o.go(h); },
+    } : {}),
+    frame: a => ({ rect: centred(a, Math.min(a.cols - 2, Math.max(o.width ?? 40, ...rows.map(r => r.length + 4), o.title.length + 6)), 4), title: o.title }),
+  });
+  return p;
+}
