@@ -128,7 +128,7 @@ describe.skipIf(!outliner)("ep0ch show --markdown against a scratch host", () =>
     page = await make(PAGE);
     // A figure whose question is its call-site arguments (`::graph-check{…}`), as the reader reads it.
     argued = await make('Bay north\n\n::graph-check{title=North query="type=crate bay=north"}\n---\nsort: title\ndirection: asc\n---\n::');
-    await make('Build log template [type::template] [template-for::build-log]\n[form-field::day text required]\n[form-field::bay text required]\n\n::graph-table\n---\ntitle: {{this.title}}\nquery: type=seedling day={{props.day}} bay={{props.bay}}\ncolumns: [title, bed]\nsort: title\ndirection: asc\n---\n::');
+    await make('Build log template [type::template] [template-for::build-log]\n[form-field::day text required]\n[form-field::bay text required]\n\n::graph-table\n---\ntitle: {{this.title}}\nquery: type=seedling day = {{props.day}} bay={{props.bay}}\ncolumns: [title, bed]\nsort: title\ndirection: asc\n---\n::');
     for (const [title, bays] of templateCases) templated[title] = await make(`${title}\n::use{of=type:build-log day=2026-03-11 ${bays}}`);
     board.close();
   });

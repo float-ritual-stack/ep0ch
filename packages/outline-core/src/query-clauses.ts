@@ -7,7 +7,7 @@ const SAFE_VALUE = /^[\w./@*-]+$/u;
 const queryValue = (value: string) => SAFE_VALUE.test(value) ? value : `"${value.replace(/[\\"]/g, "\\$&")}"`;
 
 /** The whole, unquoted value operand the query parser binds from its Site. */
-export const VALUE_OPERAND_SOURCE = `(${PROPERTY_KEY_SOURCE})(?:=|::)(\\{\\{[^\\n]*?\\}\\})`;
+export const VALUE_OPERAND_SOURCE = `(${PROPERTY_KEY_SOURCE})\\s*(?:=|::)\\s*(\\{\\{[^\\n]*?\\}\\})`;
 
 /** Operands to serialize for a query taken outside its Site; quoted literals stay literal. */
 export function queryValueOperands(query: string) {
