@@ -2,7 +2,7 @@
 // current note), reader9's links open into reader10 (held), and opening into reader9 never moves reader10, whichever
 // tile the person's keys were last in. A scratch service; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, cpSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
@@ -45,8 +45,6 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
     const cat = join(scratch.root, "claude");
     writeFileSync(cat, "#!/bin/sh\nexec cat \"$@\"\n"); chmodSync(cat, 0o755);
     process.env.EP0CH_DAILY_AGENT = cat;
-    mkdirSync(join(scratch.workspace, "extensions"), { recursive: true });
-    cpSync(join(outliner!, "extensions", "what-changed"), join(scratch.workspace, "extensions", "what-changed"), { recursive: true });
     board = new SocketBoard(await scratch.start());
     await board.info();
     notes.hens = await board.createBlock(null, "Hens\nfirst text");

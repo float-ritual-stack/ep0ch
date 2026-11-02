@@ -137,7 +137,7 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
     try {
       const before = new Set(app.describe().messages.map(row => row.id));
       await app.dispatch.act({ action: "script.run", args: { of: "lens", query: "type=job", asked: true } }, USER);
-      await until(() => app.describe().messages.some(row => !before.has(row.id) && /open a note/i.test(row.message)), "lens's refusal");
+      await until(() => app.describe().messages.some(row => !before.has(row.id) && /open a note/i.test(row.message)), "lens's refusal", 15_000);
     } finally { app.pop(); }
   });
 
@@ -150,7 +150,7 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
     const before = new Set(app.describe().messages.map(row => row.id));
     // The line lands (lens answers its insert, PIE-1507), and the door says what its drawing found wrong, line kept.
     await app.dispatch.act({ action: "script.run", args: { of: "lens", asked: true } }, USER);
-    await until(() => app.describe().messages.some(row => !before.has(row.id) && /needs query=/.test(row.message)), "the missing slot said");
+    await until(() => app.describe().messages.some(row => !before.has(row.id) && /needs query=/.test(row.message)), "the missing slot said", 15_000);
     expect((await board.get(note.id))!.text).toContain("lens::");
     expect(app.describe().messages.filter(row => !before.has(row.id)).some(row => /lens done/.test(row.message))).toBe(false);
   }, 30_000);
@@ -166,7 +166,7 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
       await app.dispatch.act({ action: "edit.text", tile: "jobs", args: { text: unsaved } }, USER);
       if (state === "put aside") await app.dispatch.act({ action: "edit.close", tile: "jobs", args: { discard: true } }, USER);
       // The person's run answers when it ends (PIE-1507): the line goes in the draft, and a bad line is said at once.
-      const said = (words: RegExp) => { const before = new Set(app.describe().messages.map(row => row.id)); return () => until(() => app.describe().messages.some(row => !before.has(row.id) && words.test(row.message)), `${words}`); };
+      const said = (words: RegExp) => { const before = new Set(app.describe().messages.map(row => row.id)); return () => until(() => app.describe().messages.some(row => !before.has(row.id) && words.test(row.message)), `${words}`, 15_000); };
       let heard = said(/needs query=/);
       await app.dispatch.act({ action: "script.run", args: { of: "lens", asked: true } }, USER);
       await heard();

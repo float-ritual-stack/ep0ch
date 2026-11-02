@@ -22,6 +22,7 @@ import { forwardFor } from "./machine-forward";
 import { publishes } from "./echonet-mail";
 import { localMachineName } from "./machine-name";
 import { scrubCredentials } from "./resource-extensions";
+import { ensureDefaultOnFor } from "./extension-install";
 import { OutlinerServer } from "./server";
 import { MCP_ACCESS_METADATA_KEY, OutlinerStore, readOutlineAbout } from "./store";
 import {
@@ -691,6 +692,9 @@ export class OutlineHost {
     } catch (error) {
       throw new Error(`Outline "${name}" could not be opened: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
+    // The default-on built-ins (what-changed, PIE-1506) are on wherever the host runs: put in place before the outline is
+    // served, so its registry's first read serves them and its pages are written with the rest.
+    await ensureDefaultOnFor(workspaceRoot, this.options.readOnly === true);
     let server: OutlinerServer | undefined;
     try {
       const promptDirectory = aiPromptDirectory(this.options.promptDirectory ?? join(stateDirectory, "prompts"));

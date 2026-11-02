@@ -917,6 +917,12 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "alt", ch: "a" });
     await until(() => !app.drawer.open, "drawer put away");
     // The comment is readable by its label in the list, the reader and the power bar.
+    // d on a row (the extension's own action, PIE-1506): the note opens with its last change beside it (the revision compare).
+    const log = rows().find(r => r.text === "Bean row log")!;
+    await stage().dispatch.press("list.pick", { id: log.id }, "changes");
+    await stage().dispatch.press("ext.what-changed.change", {}, "changes");
+    await until(() => (stage().pane("reader") as ReaderPane).msg?.id === log.id && /\+ .*round \d/.test(screen()) && /- .*round \d/.test(screen()), "the change beside the log");
+    press({ kind: "esc" });
     // A row opens its note where opens land (the reader on the right): the comment's row opens it, with its subject.
     const comment = rows().find(r => r.text === "See HOME-042 for the plan.")!;
     expect(comment).toBeDefined();

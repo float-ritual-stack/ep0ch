@@ -23,8 +23,6 @@ import { prop } from "../props";
 
 /** The list's tile kind: the what-changed extension's (`<extension>.<kind>`). */
 export const WHAT_CHANGED_TILE = "what-changed.list";
-/** How the extension is installed when it isn't (said by changes.open). */
-export const WHAT_CHANGED_INSTALL = "ep0ch act extensions.install id=what-changed";
 const SEEN_FILE = "changes-seen.json";
 /** How many notes the list keeps (the newest). */
 const KEEP = 200;

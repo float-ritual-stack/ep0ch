@@ -164,6 +164,8 @@ export interface ExtensionActResult {
   open?: string;
   /** What to put at the person's cursor in the note it was about (PIE-1507): one undo step. */
   insert?: { text: string };
+  /** With `open` (a block): its last change beside it, the reader's revision compare. */
+  compare?: boolean;
   /** The passage it acted on, as the service checked it (moved when the text moved since it was read). */
   passage?: Passage;
   /** Its writes landed as one step (PIE-784): `extensions.undo` with this takes them back whole. */
@@ -600,7 +602,7 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
     // (the person's press hears it from `scripts.ended`, and keeps the undo above for what it did before it stopped).
     if (script && r.state === "failed" && actor.kind !== "user") throw new ActionRefused(message ?? `${name} failed`);
     // What it asks to have opened (PIE-754): a block or a Resource, where this actor's opens land.
-    if (r.open && ctx.dispatch) await ctx.dispatch.act({ action: "open", args: isResourceRef(r.open) ? { resource: r.open } : { id: r.open } }, actor)
+    if (r.open && ctx.dispatch) await ctx.dispatch.act({ action: "open", args: isResourceRef(r.open) ? { resource: r.open } : { id: r.open, ...(r.compare ? { compare: true } : {}) } }, actor)
       .catch((e: Error) => say.flash(`${name}: couldn't open ${oneLine(r.open)}: ${oneLine(e.message)}`, undefined, errorDetails(e)));
     // What it asks to have put at the person's cursor (PIE-1507), in the note it was about; one ctrl+z takes it back.
     // A person's script press answers before its run ends: that insert comes with `scripts.ended` (App.scriptEvent).
@@ -855,7 +857,7 @@ function kindEntry(t: ExtensionTileKind, actions: ActionSet<Record<string, ExtAr
     return serviceKind({
       ...shared,
       about: `${t.description ?? t.name} (extension ${t.extension}; drawn by the service from its ${of} script${Object.keys(t.args ?? {}).length ? `; ${Object.keys(t.args!).map(k => `${k}=`).join(" ")} are its props` : ""})`,
-      args: t.args ?? {}, keyHint,
+      args: t.args ?? {}, keyHint, keyActions: Object.fromEntries(t.actions.flatMap(a => (keyOf(a.key) ? [[keyOf(a.key)!, a.name]] : []))),
       render: async req => {
         const r = await req.desk.ctx.board.request<{ markdown: string; view?: unknown }>("scripts.render", { of, props: propsOf(req.state), deadlineMs: 15_000 }, 20_000);
         return { title: t.name, ...(r.view !== undefined ? { view: r.view } : { lines: r.markdown.split("\n") }) };

@@ -3,7 +3,7 @@
 // horoscope: inline output, fancy-horror: rich component, tarot: a whole tile). Every service here is
 // a scratch service in a temp folder; every note, sign and date is made up.
 import { afterEach, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -479,6 +479,28 @@ test("a tile that is drawn rows or a view (PIE-1506): render names a shipped ren
   writeExtension(extensionsFolder, "rota3", { tiles: [{ kind: "list", name: "Rota", render: "nowhere" }] });
   await until("rota3 to fail", async () => (await list(true)).extensions.find((entry) => entry.id === "rota3" && entry.state === "failed"));
   expect((await list()).extensions.find((entry) => entry.id === "rota3")?.error).toMatch(/tiles\/0\/render names nowhere, which scripts\[\] doesn't declare/);
+});
+
+test("a default-on built-in (what-changed, PIE-1506) is on wherever the service runs: installed at start into the user folder, uninstalling it sticks across starts, and installing it again is wanted", async () => {
+  const { list, client, root, outlineFolder } = await setup();
+  const { ensureDefaultOn, ensureDefaultOnFor } = await import("../src/extension-install");
+  const userDir = join(root, "user-extensions");
+  // Fresh: the host's step before an outline is served puts it in the user folder (every outline this host serves).
+  expect(await ensureDefaultOnFor(outlineFolder)).toEqual(["what-changed"]);
+  await until("what-changed to serve", async () => (await list(true)).extensions.find((entry) => entry.id === "what-changed" && entry.state === "active"));
+  expect((await list()).tileKinds.some((kind) => kind.kind === "what-changed.list")).toBe(true);
+  expect(existsSync(join(userDir, "what-changed", "extension.json"))).toBe(true);
+  // Uninstalled on purpose: gone, and a later start leaves it out (the .off mark).
+  await client.request({ action: "extensions.uninstall", extension: "what-changed", demo: "keep" });
+  await until("what-changed to go", async () => !(await list(true)).extensions.some((entry) => entry.id === "what-changed"));
+  expect(existsSync(join(userDir, ".off", "what-changed"))).toBe(true);
+  expect(await ensureDefaultOn(userDir, [userDir])).toEqual([]);
+  expect(await ensureDefaultOnFor(outlineFolder)).toEqual([]);
+  expect(existsSync(join(userDir, "what-changed", "extension.json"))).toBe(false);
+  // Installed again: wanted, the mark gone, and the next start keeps it.
+  await client.request({ action: "extensions.install", extension: "what-changed" });
+  await until("what-changed back", async () => (await list(true)).extensions.find((entry) => entry.id === "what-changed" && entry.state === "active"));
+  expect(existsSync(join(userDir, ".off", "what-changed"))).toBe(false);
 });
 
 test("tarot (a tile kind): listed for the door's registry; its program keeps a reading through the service's action, attributed", async () => {

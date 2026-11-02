@@ -60,7 +60,7 @@ import { RowView } from "../scroll";
 import { WaitingYouPane } from "../desk/waiting-you";
 import { AccessMatrixPane } from "../desk/access-matrix";
 import { accessDemoEnv, seedAccessFiles } from "./seed/access";
-import { followChanges, WHAT_CHANGED_INSTALL, WHAT_CHANGED_TILE, type WhatChanged } from "../desk/what-changed";
+import { followChanges, WHAT_CHANGED_TILE, type WhatChanged } from "../desk/what-changed";
 import type { FleetIO, SessionRow } from "../agent-fleet";
 import type { AgentLevel } from "../surface/agent-level";
 
@@ -640,7 +640,7 @@ export const SECTIONS: Section[] = [
     aside: "garden-agent edited the three log notes and posted a comment linking HOME-042: open the comment from what-changed, follow its outlink, or follow on back to the log · the status bar says +4 new · the list on the left is the what-changed extension's tile: newest first, who changed each and what, a ● on the ones you haven't looked at · ⏎ or a click opens the note in the reader on the right, alt+⏎ or an alt-click in a new detail, / filters the rows · a click on +4 new, or alt+o on any screen, opens the same list in your drawer, and looking clears the count · `act changes.list` reads the rows as an agent, `act changes.open` opens the tab behind yours, and neither clears what you haven't seen · without the extension the tile says how to install it and the count still shows",
     stage(n, show) {
       // The extension's tile (installed with the showcase's examples), its args following the store once shown; the scripted agent: three notes edited by garden-agent, each visit one round further.
-      const list = tileKind(WHAT_CHANGED_TILE)?.make({ kind: WHAT_CHANGED_TILE, state: {} }) ?? new UnavailableTile(WHAT_CHANGED_TILE, `the what-changed extension isn't installed: ${WHAT_CHANGED_INSTALL}`), r = new ReaderPane(true), links = new BacklinksPane("reader", true);
+      const list = tileKind(WHAT_CHANGED_TILE)?.make({ kind: WHAT_CHANGED_TILE, state: {} }) ?? new UnavailableTile(WHAT_CHANGED_TILE, "the what-changed extension (on by default) was uninstalled here: ep0ch act extensions.install id=what-changed brings it back"), r = new ReaderPane(true), links = new BacklinksPane("reader", true);
       const withAgent: Shower = after => show(ctx => { const store = (ctx as unknown as { whatChanged?: WhatChanged }).whatChanged; if (store && list instanceof ServiceTile) followChanges(list, store); void gardenRound(ctx.board, n); after(ctx); });
       return deskOf({ title: "showcase · what changed", panes: [list, r, links], names: ["changes", "reader", "links"], layout: ([a, b, c]) => pair("row", 0.4, leaf(a!), pair("col", 0.7, leaf(b!), leaf(c!))) }, withAgent, [[r, n.logBeans]]);
     },

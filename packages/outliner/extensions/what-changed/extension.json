@@ -4,6 +4,11 @@
   "version": 1,
   "name": "What changed",
   "description": "The notes others changed since you last looked, newest first: who, what and when; ⏎ opens the note. The door's +N new (alt+o) opens it in your drawer.",
+  "defaultOn": true,
+  "run": [
+    "bun",
+    "what-changed.ts"
+  ],
   "scripts": [
     {
       "name": "what-changed",
@@ -11,17 +16,39 @@
       "about": "what-changed:: since=<ISO time> unseen=<ids, comma-separated> — the notes others changed since then, newest first, ● on the ones not looked at"
     }
   ],
+  "actions": [
+    {
+      "id": "change",
+      "label": "The change",
+      "on": "block",
+      "key": "d",
+      "effects": "read",
+      "description": "Open the picked row's note with its last change beside it (the reader's revision compare)"
+    }
+  ],
   "tiles": [
     {
       "kind": "list",
       "name": "What changed",
-      "description": "the notes others changed since you last looked (who, what, when), newest first; ⏎ opens one where opens land, alt+⏎ in a new detail, / filters",
+      "description": "the notes others changed since you last looked (who, what, when), newest first; ⏎ opens one where opens land, alt+⏎ in a new detail, d the change beside it, / filters",
       "render": "what-changed",
       "args": {
-        "since": { "type": "string", "description": "list changes after this ISO time (default: a week ago)" },
-        "unseen": { "type": "string", "description": "the notes not looked at yet, ids comma-separated: marked ●" },
-        "machinery": { "type": "string", "description": "show: list tools' bookkeeping and extensions' writes too" }
-      }
+        "since": {
+          "type": "string",
+          "description": "list changes after this ISO time (default: a week ago)"
+        },
+        "unseen": {
+          "type": "string",
+          "description": "the notes not looked at yet, ids comma-separated: marked ●"
+        },
+        "machinery": {
+          "type": "string",
+          "description": "show: list tools' bookkeeping and extensions' writes too"
+        }
+      },
+      "actions": [
+        "change"
+      ]
     }
   ]
 }

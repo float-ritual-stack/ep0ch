@@ -3,7 +3,7 @@
 // opening marks it seen (kept per outline) and an agent's never does; a row opens its note where opens land.
 // A scratch service; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, cpSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { MainMenu } from "../src/screens";
@@ -31,9 +31,7 @@ describe.skipIf(!outliner)("what changed", () => {
     const cat = join(scratch.root, "claude");
     writeFileSync(cat, "#!/bin/sh\nexec cat \"$@\"\n"); chmodSync(cat, 0o755);
     process.env.EP0CH_DAILY_AGENT = cat;
-    // The list is the what-changed extension's tile (PIE-1506): installed in the scratch outline, as a person would.
-    mkdirSync(join(scratch.workspace, "extensions"), { recursive: true });
-    cpSync(join(outliner!, "extensions", "what-changed"), join(scratch.workspace, "extensions", "what-changed"), { recursive: true });
+    // The list is the what-changed extension's tile (PIE-1506), a default-on built-in: the scratch host installs it at start.
     board = new SocketBoard(await scratch.start());
     await board.info();
     for (const t of ["Hens", "Beans", "Compost", "Gate"]) notes[t] = await board.createBlock(null, `${t}\nfirst text`);
@@ -110,13 +108,19 @@ describe.skipIf(!outliner)("what changed", () => {
     await expect(app.act({ action: "list.open", args: { n: 3 }, tile: tab.name, as: "test-agent" })).rejects.toThrow(/no tiles to open it in/);
   });
 
-  test("without the extension, +N new still counts and changes.open says how to install it", async () => {
-    const { unregisterTileKind, registerTileKind, tileKind } = await import("../src/desk/tile-kinds");
+  test("the extension uninstalled: +N new still counts, changes.open opens the tab, and the tab says its kind is gone (never an install prompt)", async () => {
+    const { unregisterTileKind, registerTileKind, tileKind, kindsChanged, UnavailableTile } = await import("../src/desk/tile-kinds");
     const kind = tileKind("what-changed.list")!;
-    unregisterTileKind("what-changed.list", "taken out for the test");
+    // As the door does when the service's list loses the kind: the tab there becomes a tile that says why.
+    unregisterTileKind("what-changed.list", "its extension (what-changed) was uninstalled"); kindsChanged();
     try {
-      await expect(app.act({ action: "changes.open", args: {}, as: "test-agent" })).rejects.toThrow(/extensions\.install id=what-changed/);
-    } finally { registerTileKind(kind); }
+      const r = await app.act({ action: "changes.open", args: {}, as: "test-agent" }) as { tile: string };
+      expect(r.tile).toBeDefined();
+      const pane = (app.drawer as any).d.pane("what-changed");
+      expect(pane).toBeInstanceOf(UnavailableTile);
+      expect((pane.render(80) as { lines: string[] }).lines.join(" ")).toContain("uninstalled");
+      expect(app.whatChanged.count()).toBeGreaterThanOrEqual(0);
+    } finally { registerTileKind(kind); kindsChanged(); }
   });
 
   test("the position is kept per outline: a new door starts from where the person last looked", async () => {

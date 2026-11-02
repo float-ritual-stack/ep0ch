@@ -32,8 +32,8 @@ import { agentIn, agentOf, asSession, configsOf, cwdOf, pickSession, sessionComm
 import { existsSync, statSync } from "node:fs";
 import { basename, resolve as resolvePath } from "node:path";
 import { words } from "./text";
-import { changesArgs, followChanges, WHAT_CHANGED_INSTALL, WHAT_CHANGED_TILE } from "./desk/what-changed";
-import { ServiceTile, tileKind } from "./desk/tile-kinds";
+import { changesArgs, followChanges, WHAT_CHANGED_TILE } from "./desk/what-changed";
+import { ServiceTile } from "./desk/tile-kinds";
 import { realTileDeps, tileOf, type TileOfAnswer, type TileProc } from "./tile-of";
 import { isBarKey } from "./shell-keys";
 import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, layerOrder, layersAbove, lockChipText, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
@@ -337,7 +337,6 @@ export class AgentDrawer {
     if (!d) throw new ActionRefused("the drawer isn't ready");
     const store = this.host.ctx?.()?.whatChanged;
     if (!store) throw new ActionRefused("there is no outline here to have changed");
-    if (!tileKind(WHAT_CHANGED_TILE)) throw new ActionRefused(`the what-changed list is the what-changed extension's tile, and it isn't installed here (the status bar still counts ${store.count()} new): ${WHAT_CHANGED_INSTALL}`);
     const person = this.ctx(actor).standing;
     // Looking marks what is held seen: only once the changes since the kept position are in.
     await store.settled();
@@ -1739,7 +1738,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     },
   }),
   "changes.open": def({
-    summary: "the what-changed list as a tab in the drawer: the notes others (agents, other clients, extensions when asked for) changed since the person last looked, newest first, with who, when and what, from the service's change feed. The list is the what-changed extension's tile (PIE-1506; refused with the install command when it isn't installed, the count still shows). The person's pulls the drawer up and goes to it, and looking marks what it holds seen (the status bar's +N new goes to 0, kept per outline); an agent's opens it behind the tab shown and never marks anything seen (changes.list reads the same rows). Rows: the lists' own, list.pick, list.open (⏎, alt+⏎ in a new detail), list.filter; changes.seen marks them seen",
+    summary: "the what-changed list as a tab in the drawer: the notes others (agents, other clients, extensions when asked for) changed since the person last looked, newest first, with who, when and what, from the service's change feed. The list is the what-changed extension's tile (PIE-1506: on wherever the service runs, a default-on built-in; uninstalled, the tab says its kind is gone and the count still shows). The person's pulls the drawer up and goes to it, and looking marks what it holds seen (the status bar's +N new goes to 0, kept per outline); an agent's opens it behind the tab shown and never marks anything seen (changes.list reads the same rows). Rows: the lists' own, list.pick, list.open (⏎, alt+⏎ in a new detail), list.filter, d (ext.what-changed.change: the change beside the note); changes.seen marks them seen",
     keys: "alt+o (on every screen), a click on the status bar's +N new",
     touches: "shape", replay: "ask",
     says: (out: { name?: string }) => `· opened what changed in the drawer (${out.name ?? "what-changed"})`,

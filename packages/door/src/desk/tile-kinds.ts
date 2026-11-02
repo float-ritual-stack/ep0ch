@@ -609,7 +609,7 @@ export type ServiceArgs = Record<string, { type: string; description?: string }>
  * program the service names (`program`, a terminal tile of that kind with the terminal kind's own hooks). `args` are
  * what a tile of it is opened and saved with; a `block` arg is the note read where it's opened.
  */
-export function serviceKind(o: { kind: TileKindName; about: string; noun?: string; render?: ServiceRender; view?: string; program?: ServiceProgram; args?: ServiceArgs; keyHint?: readonly string[]; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[]; actions?: TileKind["actions"] }): TileKind {
+export function serviceKind(o: { kind: TileKindName; about: string; noun?: string; render?: ServiceRender; view?: string; program?: ServiceProgram; args?: ServiceArgs; keyHint?: readonly string[]; /** A drawn tile's keys to its actions (an extension's `d`): pressed in it, the action runs on the picked row. */ keyActions?: Readonly<Record<string, string>>; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[]; actions?: TileKind["actions"] }): TileKind {
   const base = { kind: o.kind, about: o.about, noun: o.noun, keys: o.keys, policy: o.policy, accepts: o.accepts, actions: o.actions };
   const prog = o.program;
   const args = o.args ?? prog?.args ?? {};
@@ -641,7 +641,10 @@ export function serviceKind(o: { kind: TileKindName; about: string; noun?: strin
   if (!prog) {
     const render = o.render ?? (async () => ({ lines: ["", `  ${o.kind} has nothing to draw with`] }));
     // A drawn list in the drawer opens its rows on the screen shown (as the waiting and what-changed lists do), unless a wire says where.
+    const keyActions = o.keyActions ?? {};
     return { ...base, previews: true, opensOnScreen: true, openArgs: ["state", ...(blockArg ? ["note"] : [])], defaults, make: s => new ServiceTile(o.kind, render, stateFrom(s), s.name ?? o.kind, o.keyHint),
+      // The extension's keys in its tile (`d`): its action on the picked row, unless the person is typing a filter.
+      press: (p, k) => { const c = ch(k); return p instanceof ServiceTile && !p.list.typing && c && keyActions[c] ? { action: keyActions[c]! } : null; },
       describe: (p, full) => ({ ...(p instanceof ServiceTile ? { args: p.state, ...(full ? p.describe() : {}) } : {}) }),
       peek: p => (p instanceof ServiceTile ? { [o.kind]: p.describe() } : {}) };
   }

@@ -1101,6 +1101,8 @@ actions yet; `r` is its path today.
 - `act` may also return `open` (PIE-754): a block id, or a [Resource ref](#opening-a-resource) (`file:/path`,
   `web:https://…`, `resource:<id>`). The door opens it where the asker's opens land (a Resource registered first when
   it must be); `outliner ext act` prints `open <ref>`.
+- `act` may return `compare: true` with `open` (a block): the door shows the note with its last change beside it, the
+  reader's revision compare (`open … compare=true`; what-changed's `d` answers `{ open, compare: true }`).
 - `act` may also return `insert: { text }` (PIE-1507): text for the person's cursor in the note the action was about
   (`target.blockId`: the note in front of them, or `block=`). The door puts it there through its one insertion
   (`edit.insert`: a reader saves it, an open draft keeps it unsaved, either one ctrl+z); a line that names a render
@@ -1479,7 +1481,12 @@ A drawn one, and a view, from the same manifest shape:
 - `actions` (ids from `actions[]`) bind in every tile of the extension's kinds: one on a `block` acts on the picked
   row's note (a drawn list's, a view's card), or on a program tile's `block` arg; `tile:<kind>` ones on the tile.
 - A drawn tile asks the service again when the outline changes (after a pause) and when it's opened again with new
-  args; the render runs with no note (`this` throws), only `props`, reads and queries.
+  args; the render runs with no note (`this` throws), only `props`, reads and queries. Its actions' keys press them in
+  the tile (`d`), on the picked row's note.
+- **`defaultOn: true`** (a built-in only): on wherever the service runs. The host installs it into the user folder (or
+  the outline's own) at start when no copy is installed, unless `.off/<id>` there says it was uninstalled
+  (`extensions.uninstall` writes it, `extensions.install` takes it back). what-changed is one: the door's +N new never
+  asks anyone to install it.
 
 ### What the door's registry consumes
 

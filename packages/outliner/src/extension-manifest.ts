@@ -439,6 +439,11 @@ const ManifestV2 = Type.Object(
      * extension's page when it's installed, once (src/extension-pages.ts). Usually `"demo"`.
      */
     demo: Type.Optional(Type.String({ pattern: "^[a-z0-9][a-z0-9._-]{0,63}$" })),
+    /**
+     * A built-in that is on wherever the service runs (PIE-1506: what-changed, once a door built-in): installed by the
+     * host at start when no copy is installed and nobody uninstalled it here (`extensions.uninstall` keeps that choice).
+     */
+    defaultOn: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
