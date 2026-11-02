@@ -145,7 +145,11 @@ function misread(label: string | undefined, act: string, strays: readonly { key:
   const joined = [read, ...strays.map(word)].join(" ").trim();
   const what = `${strays.map(word).join(" ")} ${strays.length === 1 ? "isn't" : "aren't"} read by a button (it runs ${read})`;
   // Words that need quotes of their own go one action per line, where nothing nests.
-  if (/["']/.test(joined)) return `${what}: write it one action per line: ::button{${lead.trim()}} ⏎ ${joined} ⏎ ::`;
+  if (/["']/.test(joined)) {
+    const strayKeys = new Set(strays.map(p => p.key));
+    const opener = words.filter(w => !/^act=/i.test(w) && !strayKeys.has(w.includes("=") ? w.slice(0, w.indexOf("=")) : w)).join(" ");
+    return `${what}: write it one action per line: ::button{${opener}} ⏎ ${joined} ⏎ ::`;
+  }
   return `${what}: write ::button{${lead}${written("act", joined)}}`;
 }
 

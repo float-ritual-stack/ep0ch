@@ -178,7 +178,7 @@ test("a nested quote that cuts off a word the button reads is a misread too, and
   expect(again.problem).toBeUndefined();
   expect(again.empty).toEqual(["target"]);
   // A stray word that needs quotes of its own goes one action per line too; a plain one folds into act=.
-  expect(buttonCallAt(['::button{label="x" act="note.comment" text="a b"}'], 0)!.problem).toContain('::button{label="x"} ⏎ note.comment text="a b" ⏎ ::');
+  expect(buttonCallAt(['::button{label="x" glyph=x act="note.comment" text="a b"}'], 0)!.problem).toContain('::button{label="x" glyph=x} ⏎ note.comment text="a b" ⏎ ::');
 });
 
 test("syntaxWarnings carries a misread button's reason", async () => {

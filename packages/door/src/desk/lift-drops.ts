@@ -4,13 +4,15 @@
 // and a second press never dropped it. The press's toggle is that input's, so it finds the lift dropped already and
 // leaves it down. The status bar's buttons had the same and keep the lift instead (app.ts, dropUntouched).
 //
-// One input, one meaning: the drop is remembered only for the press it starts (a press runs within milliseconds of
-// its input; a later press of the button lifts it again as it should).
+// One input, one meaning: the drop is remembered only for the press it starts. It is a short timer, not a promise to wait
+// on: the status bar dispatches its own press and can wrap it (dropUntouched), but a reader's press is dispatched deep in
+// its tile, so the drop and the toggle meet here. A press's toggle lands about 15ms after its key; what the timer could
+// swallow is a click elsewhere and then a click on the button inside 200ms meaning to lift it back.
 
 import type { Actor } from "../socket";
 
 /** How long a drop stays the current input's: a press's toggle lands within milliseconds of the key or click. */
-const SAME_INPUT_MS = 750;
+const SAME_INPUT_MS = 200;
 
 let dropped: { desk: object; tile: number; reach: string; at: number } | null = null;
 
