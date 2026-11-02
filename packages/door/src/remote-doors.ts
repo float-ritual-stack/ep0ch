@@ -11,7 +11,7 @@
 //      already holds that machine's host forward (`ssh -O forward`), to the same names here.
 // Nothing is guessed: for a machine that names neither, an agent's `--remote` command runs there over ssh as it always
 // has (main.ts), and what lists doors refuses with the command that sets one up.
-import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { forwardPaths, sshArgv } from "@ep0ch/outline-core/machine";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
@@ -87,6 +87,8 @@ async function forwardDoorsVia(machine: string, via: string, env: Env): Promise<
   for (const d of there.doors) {
     const local = linkDoorSocket(outlines, machine, d.key);
     if (!(await listening(local, 500))) {
+      // A file left by a forward that ended: ssh would refuse to listen over it.
+      rmSync(local, { force: true });
       const added = await run(sshArgv.forwardMore(ssh, p, local, d.control), env, 10_000);
       if (added.code !== 0 && !(await listening(local, 1000))) return { error: `${via} couldn't forward ${machine}'s door ${d.key} (${added.err.trim().split("\n").at(-1) || `exit ${added.code}`}) · \`ssh -S ${p.control} -O forward -L ${local}:${d.control} ${via}\`` };
     }

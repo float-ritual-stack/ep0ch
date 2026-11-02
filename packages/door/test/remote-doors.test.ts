@@ -29,7 +29,9 @@ async function fakeDoor(name: string, path: string) {
       for (let i = buf.indexOf("\n"); i >= 0; i = buf.indexOf("\n")) {
         const req = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
         asked.push({ door: name, req });
-        c.write(JSON.stringify({ ok: true, result: { door: name, screen: { outline: name, text: [`the ${name} door`] }, req } }) + "\n");
+        // The garden door's terminal tile holds the ssh client on port 50123 (host.tileOf, as a door answers it).
+        const tile = req.action === "host.tileOf" ? (name === "garden" && req.args?.port === "50123" ? "t-1" : null) : undefined;
+        c.write(JSON.stringify({ ok: true, result: { door: name, screen: { outline: name, text: [`the ${name} door`] }, req, ...(tile !== undefined ? { tile } : {}) } }) + "\n");
       }
     });
     c.on("error", () => {});
@@ -164,10 +166,15 @@ describe("an agent here reaches box-a's doors through hub's link", () => {
     expect(w.summary).toContain("doors on other machines: box-a (through hub's link): garden, orchard@hub");
     const address = Object.values(networkInterfaces()).flat().find(i => i && !i.internal)?.address;
     if (!address) return; // A machine with no network interface but loopback: the connector announced no address to match.
-    const fromBox = await ep0ch(["where", "--json"], { SSH_CONNECTION: `${address} 50123 10.0.0.2 22` });
-    const r = JSON.parse(fromBox.out);
+    // The door whose terminal tile holds this ssh session, though the person typed in the other one last.
+    const fromTile = JSON.parse((await ep0ch(["where", "--json"], { SSH_CONNECTION: `${address} 50123 10.0.0.2 22` })).out);
+    expect(fromTile.reach).toMatchObject({ rule: "ssh" });
+    expect(fromTile.reach.text).toContain("reached box-a's door on garden, whose terminal tile t-1 holds this ssh session (through hub's link)");
+    expect(fromTile.door.outline).toBe("garden");
+    // No tile holds it (a terminal outside any door): the one the person typed in last.
+    const r = JSON.parse((await ep0ch(["where", "--json"], { SSH_CONNECTION: `${address} 50999 10.0.0.2 22` })).out);
     expect(r.reach).toMatchObject({ rule: "ssh" });
-    expect(r.reach.text).toContain("reached box-a's door on orchard@hub, where this ssh session comes from (through hub's link)");
+    expect(r.reach.text).toContain("reached box-a's door on orchard@hub, where this ssh session comes from (through hub's link; no tile there named it, so the one the person typed in last)");
     expect(r.door.outline).toBe("orchard");
     // Somewhere else: not box-a's.
     const other = JSON.parse((await ep0ch(["where", "--json"], { SSH_CONNECTION: "192.0.2.77 50123 10.0.0.2 22" })).out);
