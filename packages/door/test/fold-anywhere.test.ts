@@ -113,19 +113,20 @@ describe.skipIf(!outliner)("fold anywhere: the fold keys reach the tile that has
       expect(row.refused).toBeUndefined();
       return void await on.dispatch.act({ action: row.action, args: row.args, tile: kind }, USER);
     }
-    // The glyph on the tile's frame, as the desk last drew it (cells of its own desk: the drawer's start below its bar).
+    // The glyph on the tile's frame, as the desk last drew it: screen cells, the drawer's desk included (its root is
+    // the row under its bar since the glass, #1149).
     d.paint();
     const b = (on as any).foldButtons.find((x: any) => x.id === (on as any).idNamed(kind));
     if (!b) throw new Error(`no fold glyph on ${kind}'s frame`);
     d.press(prefix);
-    d.click(b.from, b.row + (on === d.desk ? 0 : d.app.drawer.rect!.row + 1));
+    d.click(b.from, b.row);
   }
   /** One way to open it again: the folded tile has the keys (or, folded drawer, the strip). */
   function openWith(d: Door, how: Open, on: Desk, kind: Kind, place: Place) {
     if (how === "click on the spine") {
       if (place === "drawer, lone tab") return d.click(10, d.app.drawer.rect!.row);
       const r = (on.layoutGet().tiles.find((t: any) => t.name === kind) as any).rect;
-      return d.click(r.col + 1, r.row + Math.min(3, r.rows - 1) + (on === d.desk ? 0 : d.app.drawer.rect!.row + 1));
+      return d.click(r.col + 1, r.row + Math.min(3, r.rows - 1));
     }
     d.press([how === "alt+h" ? alt("h") : char(how)]);
   }

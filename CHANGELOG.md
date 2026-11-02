@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Main's door tests are green again (PIE-1496)
+
+- **Back as before:** a figure's rows wear the container's tint again while one of them has the keys (PIE-969); hovering a collection's control words previews them; `outline_query` on another machine's mirror answers again (the copy serves `changes.since`); `ep0ch install` reads a taken host-unit file as a fact instead of touching the file system from the plan.
+- **Run:** `ep0ch install --apply`. No protocol or schema change.
+
 - **Builders can run the checks again (PIE-1503):** the reader’s history controls live beside its history codec, bringing `note.ts` below its line cap without changing navigation. Run `bun run check`; no protocol, grammar or schema change.
 
 ### An action's preview shows the line to type (PIE-1502, #1180)

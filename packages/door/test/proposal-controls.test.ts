@@ -51,12 +51,12 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     return { id, proposal: r.proposalId as string };
   }
 
-  /** A reader on note `id`, drawn once every embed in it is projected. */
+  /** A reader on note `id`, drawn once every embed in it is projected: three note embeds, and the view as a collection with its rows. */
   async function reading(id: string) {
     const s = new NoteSurface(), h = host();
     s.show((await board.get(id))!, h);
     const frame = () => s.render(W, H, h).lines.map(visible);
-    await until(() => { frame(); return s.describeElements().filter(e => e.kind === "embed").length === 4 && s.describeElements().some(e => e.control === "dismiss"); }, "every embed drawn", 10_000);
+    await until(() => { frame(); const e = s.describeElements(); return e.filter(x => x.kind === "embed").length === 3 && e.some(x => x.kind === "row") && e.some(x => x.control === "dismiss"); }, "every embed drawn", 10_000);
     return { s, h, frame };
   }
 
@@ -95,8 +95,11 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     expect(seen).toEqual([
       "embed » Paint the shed",
       "embed » Bed notes ^north",
-      "embed ≡ Jobs · 1 result",
-      "row Sow the beans",
+      // The view embed is a collection (PIE-1281, PIE-1491): its column heads, its row and its count step, not an embed line.
+      "control title",
+      "control updated",
+      "row Sow the beans  Nov 2",
+      "control 1 notes",
       "embed » a proposal by @tidy",
       "control [apply]",
       "control [dismiss]",
@@ -113,7 +116,8 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
   test("a click on each embed's source line selects it and opens it", async () => {
     const { id, proposal } = await proposed();
     const { s, h, frame } = await reading(id);
-    for (const [label, target] of [["» Paint the shed", shed], ["» Bed notes ^north", beds], ["≡ Jobs", view], ["proposed edit from @tidy", proposal]] as const) {
+    // The view embed draws as a collection (PIE-1491): its rows open their notes, not the view, so it isn't in this walk.
+    for (const [label, target] of [["» Paint the shed", shed], ["» Bed notes ^north", beds], ["proposed edit from @tidy", proposal]] as const) {
       const lines = frame(), p = at(lines, label);
       opened.length = 0;
       expect(s.click(p.x + 2, p.y, h)).toBe(true);

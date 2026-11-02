@@ -59,8 +59,10 @@ test("only placement applies note opens", () => {
     const visit = (node: ts.Node) => {
       if (ts.isCallExpression(node)) {
         let owner: ts.Node | undefined = node.parent;
-        while (owner && !ts.isFunctionDeclaration(owner) && !ts.isMethodDeclaration(owner) && !ts.isPropertyAssignment(owner)) owner = owner.parent;
-        const name = owner && "name" in owner ? owner.name?.getText(source) : undefined;
+        // The function the call is written in: a declaration, a method, a property's value, or a module-level `const f = () => …`.
+        const moduleConst = (n: ts.Node) => ts.isVariableDeclaration(n) && ts.isSourceFile(n.parent.parent.parent);
+        while (owner && !ts.isFunctionDeclaration(owner) && !ts.isMethodDeclaration(owner) && !ts.isPropertyAssignment(owner) && !moduleConst(owner)) owner = owner.parent;
+        const name = owner && "name" in owner ? (owner.name as ts.Node | undefined)?.getText(source) : undefined;
         const declaration = checker.getResolvedSignature(node)?.declaration;
         const declaredIn = declaration?.getSourceFile().fileName ?? "";
         const method = declaration && "name" in declaration ? (declaration.name as ts.Node | undefined)?.getText() : undefined;
@@ -70,7 +72,7 @@ test("only placement applies note opens", () => {
         const hold = method === "hold" && /\/(?:desk\/panes|river\/column)\.ts$/.test(declaredIn);
         const take = method === "take" && declaredIn.endsWith("/desk/tile-kinds.ts");
         // Kind effects, startup restoration and selection previews are not new opens.
-        const effect = file.endsWith("/desk/builtin-tiles.ts") && (name === "take" || name === "start")
+        const effect = /\/desk\/(?:builtin-tiles|settings)\.ts$/.test(file) && (name === "take" || name === "start" || name === "startReader")
           || file.endsWith("/river/column.ts") && (name === "take" || name === "host")
           || file.endsWith("/desk/desk.ts") && name === "previewIntoPane"
           || file.endsWith("/showcase/showcase.ts") && name === "stage"

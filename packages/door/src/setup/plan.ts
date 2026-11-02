@@ -333,7 +333,7 @@ export function hostStep(f: Facts, codeUpdates: boolean, stopped = false): Step 
   const quiet = unchangedSaid(moved, "host");
   if (!u) {
     if (!h.running) {
-      const install = hostInstall({ platform: f.platform, home: f.home, bun: f.bun.path, program: hostMainOf(f), outlines: h.folder, path: f.pathDirs.join(":") });
+      const install = hostInstall({ platform: f.platform, home: f.home, bun: f.bun.path, program: hostMainOf(f), outlines: h.folder, path: f.pathDirs.join(":"), taken: h.unitTaken });
       return install
         ? { id: "host", title: "Install and start the outline host", status: "do", why: `ready for the first local outline (${install.unit.name})`, writes: [{ path: install.unit.path, text: install.text }], commands: install.commands }
         : { id: "host", title: "Start the outline host", status: "manual", why: `no available service unit for ${h.folder}; run bun ${sh(hostMainOf(f))}`, commands: [] };

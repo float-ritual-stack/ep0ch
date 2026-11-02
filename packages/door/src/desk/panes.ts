@@ -1096,6 +1096,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     words: "show a breadcrumb's links",
     keys: "click a breadcrumb; [ ] then enter", touches: "nothing", replay: "safe",
     args: { id: { type: "string", about: "the ancestor's note id" } },
+    examples: [{ act: "reader.crumb tile=reader id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "aims the links tile at that ancestor; the reader and the keys stay where they are" }],
     async run({ id }, { pane, desk }, actor) {
       const m = await pane.host(desk).ctx.board.get(id);
       if (!m || !desk.openLinks) throw new ActionRefused("that breadcrumb is no longer in this outline");
