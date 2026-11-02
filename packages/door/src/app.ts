@@ -45,7 +45,7 @@ import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, SCRIPT_RUN_ACTIONS, asScriptRun, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage } from "./extensions";
+import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, SCRIPT_RUN_ACTIONS, asScriptRun, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage, insertAnswer, oneLine } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged, referenceWords } from "./refs";
@@ -1053,9 +1053,9 @@ export class App implements Ctx {
       if (e.ended.targetClientId === this.board.clientId) {
         const by = e.ended.requestedBy;
         const actor: Actor = by.author === "agent" ? { kind: "agent", id: by.actorId ?? "agent" } : { kind: "user" };
-        const said = scriptPressMessage(e.ended.message, e.ended.undo);
         const say = e.ended.reason === "done" ? { flash: (message: string) => this.showMessage(message, 4000, false) } : this;
-        asActor(say, actor).flash(said);
+        // What the run answered to be put at the cursor (PIE-1507): a person's press hears its run's answer here.
+        if (e.ended.insert) void insertAnswer(this as never, e.ended.message.replace(/ done$/, ""), e.ended.insert.block, e.ended.insert.text, actor).catch((err: Error) => asActor(this, actor).flash(oneLine(err.message))); else asActor(say, actor).flash(scriptPressMessage(e.ended.message, e.ended.undo));
       }
     } else if (e.undone && !this.scriptUndos.delete(e.undone.run)) for (const s of screens) s.scriptUndone?.(e.undone.run);
     this.redraw();

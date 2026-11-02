@@ -3,13 +3,22 @@
 // The desk and the layout never switch on a kind's name; they look the kind up here. The built-ins register
 // at startup (src/desk/builtin-tiles.ts); an extension's kind registers the same way, and its `make` builds a
 // tile whose content the service draws (`serviceKind`, below).
+import { activationOf, type ListPrimitive } from "@ep0ch/outline-core/list-row";
 import type { Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
+import { primitiveLines } from "../components";
 import type { Placement } from "../kitty";
-import type { Actor, Change, OutlineEvent } from "../socket";
-import type { ActionSet } from "../surface/actions";
+import { listOpenTarget } from "../refs";
+import { pressOn, wheelRows, type RowPress } from "../scroll";
+import { RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
+import { USER, type Actor, type Change, type OutlineEvent } from "../socket";
+import { ActionRefused, type ActionSet } from "../surface/actions";
 import { nameKinds, type Dispatcher } from "../surface/dispatch";
-import type { Key } from "../term";
+import { filterLine } from "../surface/line";
+import { LISTVIEW_ACTIONS, type ListHost, type ListTile } from "../surface/list-actions";
+import { ListView, listRowsOf, PERSON, type ListHandle, type ListViewRow } from "../surface/list-view";
+import { C, fg, RESET } from "../style";
+import { ch, isDown, isUp, type Key } from "../term";
 import { wrap } from "../text";
 import type { Policy } from "./screen-layout";
 import type { DeskApi, Pane, PaneView } from "./panes";
@@ -397,32 +406,156 @@ export function tileSource(source: string | undefined): { source: TileSource; ar
 // ── a kind the service draws (an extension's whole tile) ──────────────────────
 
 /**
- * What the service answers for a service-drawn tile: its rows (already styled), a title, and a hint. The door
- * draws them as given; the kind's code runs in the service (PIE-507's extensions), never in the door.
+ * What the service answers for a service-drawn tile: its rows (already styled) or a view (a primitive tree, PIE-1506: a
+ * render script's answer, drawn with the door's own primitives, its `list` as the one ListView), a title, and a hint.
+ * The kind's code runs in the service (PIE-507's extensions), never in the door.
  */
-export interface ServiceFrame { lines: string[]; title?: string; hint?: string }
-/** How a service-drawn tile asks for its content: the kind, its saved state, and the room it has. */
-export type ServiceRender = (req: { kind: TileKindName; state: Record<string, unknown>; cols: number; rows: number }) => Promise<ServiceFrame>;
+export interface ServiceFrame { lines?: string[]; view?: unknown; title?: string; hint?: string }
+/** How a service-drawn tile asks for its content: the kind, its saved state (the tile's args), the room it has, and the desk it's on. */
+export type ServiceRender = (req: { kind: TileKindName; state: Record<string, unknown>; cols: number; rows: number; desk: DeskApi }) => Promise<ServiceFrame>;
 
-/** A tile whose content the service draws: it asks again when its size changes or `refresh` is called. */
-export class ServiceTile implements Pane {
+/** Marks a drawn list's lines on their way through the view's drawing, so a click finds its row: stripped before the lines are shown. */
+const ROW_MARK = "\u{10FFF0}";
+const markRow = (row: number | null) => `${ROW_MARK}${row === null ? "-" : row}${ROW_MARK}`;
+const MARKED = /^\u{10FFF0}(-|\d+)\u{10FFF0}/u;
+
+/**
+ * A tile whose content the service draws: it asks again when its size changes, when the outline changes (after a pause),
+ * or when `refresh` is called. A frame that is a view with a `list` is the door's list (PIE-1506): j k and a click pick a
+ * row (the preview follows), ⏎ runs the row's one activation (an open lands where this tile's opens land), / filters,
+ * and the lists' actions (`list.*`) reach it as they reach a links tile. The picked row's note is the tile's subject, so an
+ * extension's block action on the tile acts on it.
+ */
+export class ServiceTile implements Pane, ListTile<DeskApi> {
   private frame: ServiceFrame | null = null;
   private error: string | null = null;
   private asked = "";
-  constructor(readonly kind: TileKindName, private readonly render_: ServiceRender, readonly state: Record<string, unknown> = {}, private readonly label = kind) {}
+  /** The one list its view holds, when it does: the person's pick, each agent's own, the typed filter. */
+  readonly list = new ListView<ListViewRow>("service");
+  private listNode: ListPrimitive | null = null;
+  /** The row each drawn line belongs to (an index into the list's visible rows), or null: for the mouse. */
+  private rowAt: (number | null)[] = [];
+  private readonly schedule = new SearchSchedule(RELOAD_PAUSE_MS);
+  private desk: DeskApi | null = null;
+  constructor(readonly kind: TileKindName, private readonly render_: ServiceRender, readonly state: Record<string, unknown> = {}, private readonly label = kind, private readonly keyHint: readonly string[] = []) {}
   title() { return this.frame?.title ?? this.label; }
-  hint() { return this.frame?.hint ?? "drawn by the service"; }
+  hint() {
+    if (this.frame?.hint) return this.frame.hint;
+    if (this.list.typing) return "type to filter the rows · ⏎ keep · esc undo";
+    const keys = this.keyHint.length ? ` · ${this.keyHint.join(" · ")}` : "";
+    return this.listNode ? `j k pick · ⏎ open · alt+⏎ new detail · / filter${keys}` : `drawn by the service${keys}`;
+  }
   /** Ask the service again (an event, or the size changed). */
   refresh(desk: DeskApi, cols: number, rows: number) {
     this.asked = `${cols}x${rows}`;
-    this.render_({ kind: this.kind, state: this.state, cols, rows }).then(f => { this.frame = f; this.error = null; desk.redraw(); }, e => { this.error = e instanceof Error ? e.message : String(e); desk.redraw(); });
+    this.desk = desk;
+    this.render_({ kind: this.kind, state: this.state, cols, rows, desk }).then(f => { this.frame = f; this.error = null; desk.redraw(); }, e => { this.error = e instanceof Error ? e.message : String(e); desk.redraw(); });
   }
-  render(w: number, h: number, _focused: boolean, desk: DeskApi): PaneView {
-    if (this.asked !== `${w}x${h}`) this.refresh(desk, w, h);
+  init(desk: DeskApi) { this.desk = desk; }
+  /** Its args changed (the drawer's changes.open on the tab there already): the next frame asks the service again. */
+  invalidate() { this.asked = ""; this.desk?.redraw(); }
+  /** The outline changed: ask again once the burst is over (what the drawing read isn't known here; the service draws it cheaply). */
+  onEvent(desk: DeskApi) { this.schedule.pause(() => { const [c, r] = this.asked.split("x").map(Number); if (c && r) this.refresh(desk, c, r); }); }
+  render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
+    // Asked once, and again when the room changed for a frame drawn to fit it (lines); a view is laid out here at any
+    // width, so a tile drawn at two sizes in turn (a peek beside its own frame) never asks twice for it.
+    if (!this.asked || (this.asked !== `${w}x${h}` && this.frame?.view === undefined)) this.refresh(desk, w, h);
     if (this.error) return { lines: ["", `  the service couldn't draw ${this.kind}: ${this.error}`] };
-    return { lines: this.frame?.lines.slice(0, h) ?? ["", `  asking the service for ${this.kind}…`] };
+    if (!this.frame) return { lines: ["", `  asking the service for ${this.kind}…`] };
+    if (this.frame.view === undefined) { this.listNode = null; this.rowAt = []; return { lines: (this.frame.lines ?? []).slice(0, h) }; }
+    this.listNode = null;
+    let drawn: string[];
+    try {
+      drawn = primitiveLines(this.frame.view, w, {
+        list: (node, width) => {
+          // The first list is the tile's: its rows go to the one ListView, which keeps the pick and the filter across redraws.
+          if (this.listNode) { const v = new ListView("other"); v.set(listRowsOf(node)); return v.draw({ primitive: node, cols: width, lines: 2, focused: false, selection: false, empty: node.empty }).lines; }
+          this.listNode = node;
+          this.list.set(listRowsOf(node));
+          const d = this.list.draw({ primitive: node, cols: width, lines: 2, focused, selection: true, room: h, empty: node.empty ?? "nothing here" });
+          return d.lines.map((l, i) => markRow(d.rowAt[i] ?? null) + l);
+        },
+      });
+    } catch (e) { return { lines: ["", `  ${this.kind}: ${e instanceof Error ? e.message : String(e)}`] }; }
+    const marked = drawn.map(l => MARKED.exec(l));
+    this.rowAt = marked.map(m => (m && m[1] !== "-" ? Number(m[1]) : null));
+    const lines = drawn.map((l, i) => (marked[i] ? l.slice(marked[i]![0].length) : l));
+    return { lines: lines.slice(0, h) };
   }
-  key(): boolean { return false; }
+  /** The picked row's note: what the tile is about (an extension's block action on it, `note.trash`, a wire's select). */
+  subject(): string | null { const row = this.list.picked(); const to = row ? listOpenTarget(row) : null; return to?.block ?? null; }
+  /** The list as the lists' actions run over it (`list.*`, PIE-747): one handle, the tile's own. */
+  private handle(desk: DeskApi): ListHandle<ListViewRow> {
+    return { n: 1, key: "service", title: this.title(), view: this.list, entered: !!desk.hasFocus?.(this), describeRow: (row, n) => ({ n, ...(listOpenTarget(row)?.block ? { id: listOpenTarget(row)!.block! } : {}) }) };
+  }
+  listHost(desk: DeskApi): ListHost {
+    const show = async (row: ListViewRow, by: Actor) => { const id = listOpenTarget(row)?.block; const m = id ? await desk.ctx.board.get(id) : null; if (m && desk.showFrom && this.list.picked()?.id === row.id) desk.showFrom(this, m, by); desk.redraw(); };
+    return {
+      lists: () => (this.listNode ? [this.handle(desk)] : []),
+      current: () => "service",
+      none: `${this.title()} draws no list${this.frame ? "" : " yet"}`,
+      picked: (_l, row) => show(row, USER),
+      open: async (_l, row, where, actor, standing) => {
+        const a = activationOf(row);
+        if (!a) throw new ActionRefused(`${row.label} is a header: nothing to open`);
+        if (standing) this.list.setPick(PERSON, row.id, row.group);
+        if (a.kind === "open") {
+          const to = listOpenTarget(row)!;
+          if (to.resourceRef) return desk.perform?.("open", { resource: to.resourceRef }, actor, this);
+          const m = await desk.ctx.board.get(to.block!);
+          if (!m) throw new ActionRefused(`${row.label}: its note ${to.block} is gone`);
+          // In the drawer the open lands on the screen shown (a promise, refused when nothing there takes it): awaited, so the refusal is the caller's.
+          await (desk.openFromTile(m, { from: this, link: true, reveal: true, ...(where === "new" ? { fresh: true } : {}), by: actor }) as unknown as Promise<void> | void);
+          desk.redraw();
+          return { opened: m.id, title: row.label };
+        }
+        if (a.kind === "run") { const v = a.value as { action: string; args?: Record<string, string> }; return desk.perform?.(v.action, v.args ?? {}, actor, this); }
+        if (a.kind === "copy") { if (actor.kind !== "agent") desk.ctx.copy?.(a.value as string); return { copied: a.value }; }
+        throw new ActionRefused(`${row.label} inserts text: that belongs in a note's list, where a draft is; a drawn tile has none`);
+      },
+      enter: () => {},
+      type: () => { if (!this.list.typing) this.list.startTyping(filterLine); desk.redraw(); },
+      redraw: () => desk.redraw(),
+    };
+  }
+  private runList(desk: DeskApi, name: "list.pick" | "list.step" | "list.open" | "list.filter", args: Record<string, unknown>) { void desk.press?.(this, LISTVIEW_ACTIONS, name, args); }
+  private filterKey(k: Key, desk: DeskApi): boolean {
+    const t = this.list.typing!;
+    if (k.kind === "enter") this.list.stopTyping(true);
+    else if (k.kind === "esc") this.list.stopTyping(false);
+    else if (!t.take(k)) return k.kind !== "tab" && k.kind !== "backtab";
+    desk.redraw();
+    return true;
+  }
+  blur() { if (this.list.typing) this.list.stopTyping(true); }
+  key(k: Key, desk: DeskApi): boolean {
+    if (!this.listNode) return false;
+    if (this.list.typing && k.kind !== "mouse") return this.filterKey(k, desk);
+    const n = this.list.pickable().length, c = ch(k);
+    if (isDown(k)) { if (n) this.runList(desk, "list.step", { by: 1 }); return true; }
+    if (isUp(k)) { if (n) this.runList(desk, "list.step", { by: -1 }); return true; }
+    if (k.kind === "home") { if (n) this.runList(desk, "list.pick", { n: 1 }); return true; }
+    if (k.kind === "end") { if (n) this.runList(desk, "list.pick", { n }); return true; }
+    if (k.kind === "enter" || k.kind === "alt-enter") { if (n) this.runList(desk, "list.open", { where: k.kind === "alt-enter" ? "new" : "home" }); return true; }
+    if (c === "/") { this.runList(desk, "list.filter", {}); return true; }
+    return false;
+  }
+  /** A press as the keys escalate: select, a double click opens (⏎), an alt-, ctrl- or middle-click opens in a new detail (alt+⏎); the wheel moves the pick. */
+  mouse(k: Extract<Key, { kind: "mouse" }>, _x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
+    if (!this.listNode) return true;
+    if (k.action === "wheel-up" || k.action === "wheel-down") { this.runList(desk, "list.step", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
+    if (k.action !== "down") return true;
+    const i = this.rowAt[y] ?? -1, row = this.list.visible()[i];
+    if (!row) return true;
+    const picked = this.list.picked()?.id === row.id;
+    const gesture = this.list.press(i, pressOn(k, press, picked));
+    const n = this.list.pickable().indexOf(row) + 1;
+    if (!n) return true;
+    if (gesture === "open" || gesture === "fresh") this.runList(desk, "list.open", { n, where: gesture === "fresh" ? "new" : "home" });
+    else if (gesture === "select" || !picked) this.runList(desk, "list.pick", { n });
+    return true;
+  }
+  describe() { return { ...(this.listNode ? { rows: this.list.describe(PERSON, (row, n) => ({ n, ...(listOpenTarget(row)?.block ? { id: listOpenTarget(row)!.block! } : {}) })) } : {}), ...(this.error ? { error: this.error } : {}) }; }
   spec() { return Object.keys(this.state).length ? { state: this.state } : {}; }
 }
 
@@ -467,43 +600,68 @@ export class UnavailableTile implements Pane {
 
 const stateOf = (s: Partial<TileSpec>) => (s as { state?: Record<string, unknown> }).state ?? {};
 
+/** The args a service kind's tiles take (a program's `--name=value`, a drawn tile's props), as the service declares them. */
+export type ServiceArgs = Record<string, { type: string; description?: string }>;
+
 /**
- * The registry entry for a kind the service provides: rows the service draws (`render`, a ServiceTile) or a
- * program the service names (`program`, a terminal tile of that kind with the terminal kind's own hooks).
+ * The registry entry for a kind the service provides (PIE-507, PIE-1506): rows or a view the service draws (`render`, a
+ * ServiceTile), a query the door's query tile lists (`view`, the query kind's own hooks, the tile of this kind), or a
+ * program the service names (`program`, a terminal tile of that kind with the terminal kind's own hooks). `args` are
+ * what a tile of it is opened and saved with; a `block` arg is the note read where it's opened.
  */
-export function serviceKind(o: { kind: TileKindName; about: string; noun?: string; render?: ServiceRender; program?: ServiceProgram; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[]; actions?: TileKind["actions"] }): TileKind {
+export function serviceKind(o: { kind: TileKindName; about: string; noun?: string; render?: ServiceRender; view?: string; program?: ServiceProgram; args?: ServiceArgs; keyHint?: readonly string[]; /** A drawn tile's keys to its actions (an extension's `d`): pressed in it, the action runs on the picked row. */ keyActions?: Readonly<Record<string, string>>; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[]; actions?: TileKind["actions"] }): TileKind {
   const base = { kind: o.kind, about: o.about, noun: o.noun, keys: o.keys, policy: o.policy, accepts: o.accepts, actions: o.actions };
   const prog = o.program;
+  const args = o.args ?? prog?.args ?? {};
+  const blockArg = Object.entries(args).find(([, a]) => a.type === "block")?.[0];
+  // A block arg is the note read where it's opened (^W o from a reader or a detail), unless tile.open named
+  // one (note=). Only a kind that reads a note gives one, never a cursor (the tree's row, a lane's card,
+  // which at the start is the outline's first root), so a program never writes where the person didn't
+  // open it. A note the person reads counts even at the top level: an outline may have several roots.
+  // Otherwise it's left unset, and the tile says so.
+  const defaults: TileKind["defaults"] = (s, at) => {
+    if (!blockArg || s.note || stateOf(s)[blockArg]) return {};
+    const k = registry.get(at.pane.kind);
+    if (!k?.accepts?.notes || k.follower) return {};
+    const m = k.shows?.(at.pane);
+    return m ? { state: { ...stateOf(s), [blockArg]: m.id } } : {};
+  };
+  /** The tile's args from its spec: its saved state (tile.open's with=), and `note=` for its block arg. */
+  const stateFrom = (s: Partial<TileSpec>) => ({ ...stateOf(s), ...(blockArg && s.note && !stateOf(s)[blockArg] ? { [blockArg]: s.note } : {}) });
+  if (o.view !== undefined) {
+    // A view tile is the query kind's tile: the same cards, keys, mouse, previews and saving; the kind is this one.
+    const q = registry.get("query");
+    if (!q) throw new Error(`${o.kind} draws a view through the query kind, which isn't registered yet`);
+    return {
+      ...q, ...base, check: undefined, choices: undefined, openArgs: ["view", "source", "mode"], previews: true,
+      make: s => { const p = q.make({ ...s, kind: "query", ...(s.view ? {} : { query: o.view }) }) as Pane & { kind: TileKindName }; p.kind = o.kind; return p; },
+      ...(q.actions ? { inherits: [q.actions] } : {}),
+    };
+  }
   if (!prog) {
     const render = o.render ?? (async () => ({ lines: ["", `  ${o.kind} has nothing to draw with`] }));
-    return { ...base, make: s => new ServiceTile(o.kind, render, stateOf(s), s.name ?? o.kind) };
+    // A drawn list in the drawer opens its rows on the screen shown (as the waiting and what-changed lists do), unless a wire says where.
+    const keyActions = o.keyActions ?? {};
+    return { ...base, previews: true, opensOnScreen: true, openArgs: ["state", ...(blockArg ? ["note"] : [])], defaults, make: s => new ServiceTile(o.kind, render, stateFrom(s), s.name ?? o.kind, o.keyHint),
+      // The extension's keys in its tile (`d`): its action on the picked row, unless the person is typing a filter.
+      press: (p, k) => { const c = ch(k); return p instanceof ServiceTile && !p.list.typing && c && keyActions[c] ? { action: keyActions[c]! } : null; },
+      describe: (p, full) => ({ ...(p instanceof ServiceTile ? { args: p.state, ...(full ? p.describe() : {}) } : {}) }),
+      peek: p => (p instanceof ServiceTile ? { [o.kind]: p.describe() } : {}) };
   }
   // A terminal tile's hooks are the built-in terminal kind's: how it starts, what it shows, that it holds work.
   const pty = registry.get("pty");
-  const blockArg = Object.entries(prog.args).find(([, a]) => a.type === "block")?.[0];
   return {
     ...base,
-    openArgs: blockArg ? ["note"] : [],
+    openArgs: ["state", ...(blockArg ? ["note"] : [])],
     make: s => {
-      const state = { ...stateOf(s), ...(blockArg && s.note && !stateOf(s)[blockArg] ? { [blockArg]: s.note } : {}) };
+      const state = stateFrom(s);
       if (prog.unavailable) return new UnavailableTile(o.kind, prog.unavailable, state);
       // Only the args it declares reach the program, each as --name=value.
       const argv = Object.keys(prog.args).flatMap(k => (typeof state[k] === "string" && state[k] ? [`--${k}=${state[k]}`] : []));
       return new ProgramTile(o.kind, { cmd: [...prog.command, ...argv], cwd: prog.cwd, env: prog.env, label: s.name ?? prog.label }, state, prog.keys, prog.label);
     },
     save: p => (p instanceof ProgramTile || p instanceof UnavailableTile ? (Object.keys(p.state).length ? { state: p.state } : {}) : {}),
-    // A block arg is the note read where it's opened (^W o from a reader or a detail), unless tile.open named
-    // one (note=). Only a kind that reads a note gives one, never a cursor (the tree's row, a lane's card,
-    // which at the start is the outline's first root), so a program never writes where the person didn't
-    // open it. A note the person reads counts even at the top level: an outline may have several roots.
-    // Otherwise it's left unset, and the tile says so.
-    defaults: (s, at) => {
-      if (!blockArg || s.note || stateOf(s)[blockArg]) return {};
-      const k = registry.get(at.pane.kind);
-      if (!k?.accepts?.notes || k.follower) return {};
-      const m = k.shows?.(at.pane);
-      return m ? { state: { ...stateOf(s), [blockArg]: m.id } } : {};
-    },
+    defaults,
     holdsWork: p => p instanceof PtyPane && p.running,
     // The terminal's own actions, keys and wait for its program, as a built-in terminal tile has them.
     ...(pty?.actions ? { inherits: [pty.actions] } : {}),

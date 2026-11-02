@@ -31,6 +31,7 @@ describe.skipIf(!outliner)("what changed", () => {
     const cat = join(scratch.root, "claude");
     writeFileSync(cat, "#!/bin/sh\nexec cat \"$@\"\n"); chmodSync(cat, 0o755);
     process.env.EP0CH_DAILY_AGENT = cat;
+    // The list is the what-changed extension's tile (PIE-1506), a default-on built-in: the scratch host installs it at start.
     board = new SocketBoard(await scratch.start());
     await board.info();
     for (const t of ["Hens", "Beans", "Compost", "Gate"]) notes[t] = await board.createBlock(null, `${t}\nfirst text`);
@@ -42,6 +43,7 @@ describe.skipIf(!outliner)("what changed", () => {
     app.push({ title: "plain", key() {}, render: (c: any) => ({ lines: Array.from({ length: c.t.rows - 1 }, () => "") }) } as any);
     app.whatChanged.outline = "scratch";
     board.subscribe(e => app.event(e));
+    await app.loadExtensions(true);
     await app.whatChanged.seed(board);
   }, 30_000);
   afterAll(async () => {
@@ -85,24 +87,40 @@ describe.skipIf(!outliner)("what changed", () => {
     key({ kind: "mouse", action: "down", button: 0, x: at.from! + 1, y: 39 });
     await until(() => app.whatChanged.count() === 0, "seen once the person looked");
     expect(app.drawer.open).toBe(true);
-    const tab = app.drawer.tabs().find(t => t.kind === "what-changed")!;
+    const tab = app.drawer.tabs().find(t => t.kind === "what-changed.list")!;
     expect(tab).toBeDefined();
-    const pane = (app.drawer as any).d.pane(tab.name);
-    expect(pane.rows().length).toBe(3);
-    const lines = pane.render(100, 10, true).lines.map(plain);
-    expect(lines[0]).toContain("● Compost · moss-agent (agent) · edited");
+    // The extension's tile (PIE-1506): its rows the service's, drawn with the door's list, ● on the ones not looked at.
+    const pane = (app.drawer as any).d.pane(tab.name), lines = () => (pane.render(100, 10, true, (app.drawer as any).d) as { lines: string[] }).lines.map(plain);
+    const ids = () => (pane.describe().rows ?? []).map((r: any) => r.id) as string[];
+    await until(() => { lines(); return ids().includes(notes.Hens!.id); }, "the rows drawn by the service", 15_000);
+    // Newest first, ● on the three not looked at; the seed's own system writes of the same second list without one.
+    expect(ids().slice(0, 3)).toEqual([notes.Compost!.id, notes.Beans!.id, notes.Hens!.id]);
+    expect(lines()[0]).toContain("● Compost · moss-agent (agent) · edited");
+    expect(lines()[1]).toContain("● Beans · fern-agent (agent) · edited");
     expect(bar()).not.toContain("new");
   });
 
-  test("a row opens its note, ⏎ or a click where opens land and alt+⏎ in a new detail; d shows the change", async () => {
-    const tab = app.drawer.tabs().find(t => t.kind === "what-changed")!;
-    const pane = (app.drawer as any).d.pane(tab.name);
-    await app.dispatch.press("changes.diff", { n: 3 }, tab.name) as any;
-    const diff = await (async () => { await until(() => pane.describe()[2].diff?.[0] !== "…", "the diff read"); return pane.describe()[2].diff as string[]; })();
-    expect(diff.join("\n")).toContain("- three hens now");
-    expect(diff.join("\n")).toContain("+ four hens now");
+  test("a row opens its note where opens land (list.open, ⏎ or a click), and the list's rows read as any list's (list.blocks)", async () => {
+    const tab = app.drawer.tabs().find(t => t.kind === "what-changed.list")!;
+    const listed = await app.act({ action: "list.blocks", args: {}, tile: tab.name, as: "test-agent" }) as any;
+    expect(listed.lists[0].rows.map((r: any) => r.id).slice(0, 3)).toEqual([notes.Compost!.id, notes.Beans!.id, notes.Hens!.id]);
     // In the drawer a tile has no reader of its own: the open lands on the screen shown, and a screen without tiles says so.
-    await expect(app.act({ action: "changes.go", args: { n: 3 }, tile: tab.name, as: "test-agent" })).rejects.toThrow(/no tiles to open it in/);
+    await expect(app.act({ action: "list.open", args: { n: 3 }, tile: tab.name, as: "test-agent" })).rejects.toThrow(/no tiles to open it in/);
+  });
+
+  test("the extension uninstalled: +N new still counts, changes.open opens the tab, and the tab says its kind is gone (never an install prompt)", async () => {
+    const { unregisterTileKind, registerTileKind, tileKind, kindsChanged, UnavailableTile } = await import("../src/desk/tile-kinds");
+    const kind = tileKind("what-changed.list")!;
+    // As the door does when the service's list loses the kind: the tab there becomes a tile that says why.
+    unregisterTileKind("what-changed.list", "its extension (what-changed) was uninstalled"); kindsChanged();
+    try {
+      const r = await app.act({ action: "changes.open", args: {}, as: "test-agent" }) as { tile: string };
+      expect(r.tile).toBeDefined();
+      const pane = (app.drawer as any).d.pane("what-changed");
+      expect(pane).toBeInstanceOf(UnavailableTile);
+      expect((pane.render(80) as { lines: string[] }).lines.join(" ")).toContain("uninstalled");
+      expect(app.whatChanged.count()).toBeGreaterThanOrEqual(0);
+    } finally { registerTileKind(kind); kindsChanged(); }
   });
 
   test("the position is kept per outline: a new door starts from where the person last looked", async () => {

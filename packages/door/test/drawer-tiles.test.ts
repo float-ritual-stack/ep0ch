@@ -1420,30 +1420,30 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     process.env.EP0CH_KEY_PANEL_MS = "0";
     const d = await door();
     try {
-      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "what-changed", name: "what-changed" }, tile: "reader" }, USER);
-      await d.desk.dispatch.act({ action: "tile.drawer", tile: "what-changed" }, USER);
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "backlinks", name: "links", source: "tile:reader" }, tile: "reader" }, USER);
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "links" }, USER);
       if (!d.app.drawer.entered) { d.key({ kind: "alt", ch: "a" }); d.paint(); }
-      await d.app.drawer.desk!.dispatch.act({ action: "tile.focus", tile: "what-changed" }, USER);
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.focus", tile: "links" }, USER);
       d.paint();
       d.key(ctrl("w"));
       const lines = d.paint();
-      const title = lines.findIndex(l => l.includes("this tile: what-changed"));
+      const title = lines.findIndex(l => l.includes("this tile: links"));
       expect(title).toBeGreaterThan(-1);
       // Before the ^W groups, and its keys are the kind's own (the actions' keys and words).
       // The first column's top, before the ^W groups.
-      expect(lines[title]!.indexOf("this tile: what-changed")).toBeLessThan(lines[title]!.indexOf("focus & move"));
-      const y = lines.findIndex(l => /\bx +all seen\b/.test(l) && l.includes("│ x"));
+      expect(lines[title]!.indexOf("this tile: links")).toBeLessThan(lines[title]!.indexOf("focus & move"));
+      const y = lines.findIndex(l => /\bv +choose its groups\b/.test(l) && l.includes("│ v"));
       expect(y).toBeGreaterThan(-1);
-      // A click on x all seen marks the list seen; it isn't ^W x, which would close the tile.
+      // A click on v choose its groups opens the tile's own picker; it isn't ^W v, which would open a preview.
       const runs: ActionRun[] = [];
       const stop = traceActions(r => runs.push(r));
       try {
-        d.key(mouse("down", lines[y]!.search(/\bx +all seen\b/) + 1, y));
-        await until(() => runs.some(r => r.name === "changes.seen"), "x seen ran from its row");
+        d.key(mouse("down", lines[y]!.search(/\bv +choose its groups\b/) + 1, y));
+        await until(() => runs.some(r => r.name === "backlinks.groups"), "v choose its groups ran from its row");
       } finally { stop(); }
-      expect(d.inDrawer("what-changed")).toBe(true);
-      expect(runs.some(r => r.name === "tile.close")).toBe(false);
-      expect(d.paint().some(l => l.includes("this tile: what-changed"))).toBe(false);
+      expect(d.inDrawer("links")).toBe(true);
+      expect(runs.some(r => r.name === "tile.preview" || r.name === "tile.close")).toBe(false);
+      expect(d.paint().some(l => l.includes("this tile: links"))).toBe(false);
     } finally { d.app.quit(); if (was === undefined) delete process.env.EP0CH_KEY_PANEL_MS; else process.env.EP0CH_KEY_PANEL_MS = was; }
   });
 
