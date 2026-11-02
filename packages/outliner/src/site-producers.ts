@@ -1,4 +1,4 @@
-import { sortText } from "./block-query";
+import { normalizeSort, sortText } from "./block-query";
 // What a producer in a note asks of its Site (PIE-533 S3), answered once for every client: a `::graph-*` figure's
 // question (its query or view, groups, `done:`/`now:` subsets, a stat's per-item counts), a figure block's child
 // bullets, `::fields` (one row per occurrence of a key) and `::if` (does `this` match). The door's watched reads and the
@@ -155,7 +155,7 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined,
   }
   const { where, limit, sort, direction, machinery } = question;
   try {
-    const found = store.queryBlocks({ where, ...(thisId ? { this: thisId } : {}), limit, sort: `${sort} ${direction}`, ...(question.group ? { group: question.group } : {}), machinery: machinery ?? DEFAULT_MACHINERY } as BlockSearchQuery, tools.binder);
+    const found = store.queryBlocks({ where, ...(thisId ? { this: thisId } : {}), limit, sort: normalizeSort(sort, direction), ...(question.group ? { group: question.group } : {}), machinery: machinery ?? DEFAULT_MACHINERY } as BlockSearchQuery, tools.binder);
     return { blocks: found.blocks, truncated: found.completeness.kind === "truncated", total: found.completeness.kind === "truncated" ? found.completeness.matched : found.blocks.length, ...(found.groups ? { groups: found.groups } : {}), ...(found.hint ? { hint: found.hint } : {}) };
   } catch (error) {
     return { blocks: [], truncated: false, error: sortProblem(own(error), sort, direction) };

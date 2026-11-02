@@ -11,6 +11,7 @@ import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { IndexBlock } from "./socket";
 import type { NotesBoard } from "./notes-cli";
 import { prop as noteProp } from "./props";
+import { changesSummary, derivedKindOf, type ChangeCounts } from "@ep0ch/outline-core/derived";
 
 // ── sort ─────────────────────────────────────────────────────────────────────
 
@@ -70,23 +71,13 @@ export function projectRecord(r: BlockRecord, fields: readonly string[], ctx: Ro
 }
 
 // ── folding ──────────────────────────────────────────────────────────────────
+// The classifier and the summary are outline-core's (derived.ts): the publisher folds a page's "inside" list with them too.
 
-export type DerivedKind = "proposal" | "comment" | "delivery";
-const KIND_OF_TYPE: Record<string, DerivedKind> = { "draft-proposal": "proposal", annotation: "comment", "annotation-reply": "comment", delivery: "delivery" };
-/** What a block's `type` makes it, when it only exists because of another block: a proposal, a comment or a delivery. */
-export const derivedKindOf = (type: string | undefined): DerivedKind | undefined => (type && Object.hasOwn(KIND_OF_TYPE, type) ? KIND_OF_TYPE[type] : undefined);
 export const typeOf = (r: Pick<BlockRecord, "properties">) => r.properties.find(p => p.key === "type")?.values[0];
 
-export interface Changes { count: number; proposals: number; comments: number; deliveries: number; summary: string; ids: string[] }
+export interface Changes extends ChangeCounts { summary: string; ids: string[] }
 export interface FoldedRow { id: string; changes?: Changes }
 const IDS_SHOWN = 12;
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-
-/** "3 changes (1 proposal, 2 comments)". */
-export function changesSummary(c: Pick<Changes, "count" | "proposals" | "comments" | "deliveries">): string {
-  const parts = [c.proposals && plural(c.proposals, "proposal"), c.comments && plural(c.comments, "comment"), c.deliveries && plural(c.deliveries, "delivery", "deliveries")].filter(Boolean);
-  return `${plural(c.count, "change")} (${parts.join(", ")})`;
-}
 
 /**
  * The ids in the service's order with each derived block folded into the note it hangs from (its nearest ancestor that

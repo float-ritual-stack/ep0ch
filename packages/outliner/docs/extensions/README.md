@@ -1297,6 +1297,60 @@ actions yet; `r` is its path today.
   "mutation": { "author": "agent", "actorId": "loki" } }
 ```
 
+## Facet sources: narrow rows outside the outline
+
+The facets tile accepts `source=notes` (the default), `source=trail`, or an installed extension's
+`ext.<extension>.<source>` id. `S`, the source chip and `facets.source` switch it. Include/exclude picks,
+path values, the query line, counts and the calendar use the same tile. Notes still use `blocks.query`;
+local rows use outline-core's shared query parser/evaluator and `questionFacets` counter.
+
+Declare a source backed by an ordinary read action on the outline:
+
+```json
+{
+  "contract": 2,
+  "id": "seed-box",
+  "version": 1,
+  "name": "Seed box",
+  "run": ["bun", "seeds.ts"],
+  "actions": [{ "id": "rows", "label": "Read seeds", "on": "outline", "effects": "read" }],
+  "facetSources": [{ "id": "seeds", "title": "Seeds", "read": "rows" }]
+}
+```
+
+`seeds.ts` returns all its rows as JSON in the existing action's `answer`:
+
+```ts
+await Bun.stdin.json();
+const at = new Date().toISOString();
+const rows = [
+  { id: "dwarf", title: "Dwarf beans", properties: { family: ["beans/dwarf"], colour: ["green"] }, createdAt: at, updatedAt: at },
+  { id: "runner", title: "Runner beans", properties: { family: ["beans/runner"], colour: ["red", "green"] }, createdAt: at, updatedAt: at },
+];
+console.log(JSON.stringify({ ok: true, value: { answer: JSON.stringify(rows) } }));
+```
+
+Open `tile.open kind=facets source=ext.seed-box.seeds`. Pick **family → beans**, then **colour → red**:
+only Runner beans remains. `facets.query text="family=beans/* NOT colour=red"` leaves Dwarf beans.
+The shipped **Garden seed facets** extension (`facet-garden`) is a runnable example, also installed in the
+showcase's **facets** section.
+
+Rows have a source-local `id`, `title`, ISO `createdAt` and `updatedAt`, and `properties` mapping any key to
+an array of values. Optional `open: { action: "open", args: { id: "<note-id>" } }` runs that door action on
+Enter; without it the row explains that it has no open action. A visit's id is its visit id, never its note id.
+The row dates drive the calendar and recent groups. Property and text atoms, boolean expressions, dates,
+numbers and path values have the views' meanings; outline relations need the service's notes source.
+The existing action-answer size limit applies; the example is for a local collection, not a streamed dataset.
+
+The door's `FacetSource.query({ where, limit, … }, desk)` answers `{ facets, rows, matched, truncated,
+groups?, hint? }`. `registerFacetSource` binds it; `unregisterFacetSource` removes it. The trail is the first
+local source, the extension adapter the second. Extension declarations appear in their page's **What it adds**;
+uninstalling unbinds them immediately.
+
+`facets.save` keeps notes searches as ordinary saved views. Other sources save a `[type::facet-view]` note
+with `[facet-source::<id>]`, `[query::…]` and an **Open facets** button that restores both. These saved searches
+remain after uninstall and report the missing source. Pin and tag edit notes, so they belong to the notes source.
+
 ## Bar sources: a command palette's rows
 
 A **bar source** (PIE-656) gives a client's command palette (the door's power bar, `ctrl+k`) rows of the extension's

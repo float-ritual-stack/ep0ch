@@ -141,6 +141,20 @@ describe("a figure over this", () => {
     expect(figure(store, lego.id, { query: "type=ticket", direction: "sideways" }).error).toMatch(/^direction: sideways/);
   });
 
+  test("a sort that says its own direction is taken as written; direction: is only its default (PIE-1518)", () => {
+    const store = scratch();
+    const { lego } = projects(store);
+    const ordered = (props: Record<string, unknown>) => {
+      const answer = figure(store, lego.id, { query: "type=ticket", ...props });
+      expect(answer.error).toBeUndefined();
+      return (answer.blocks as { text: string }[]).map(b => b.text.split(" [")[0]);
+    };
+    expect(ordered({ sort: "title asc" })).toEqual(["Build the tower", "Sort the bricks", "Water the beans"]);
+    expect(ordered({ sort: "title desc", direction: "asc" })).toEqual(["Water the beans", "Sort the bricks", "Build the tower"]);
+    expect(ordered({ sort: "title", direction: "asc" })).toEqual(["Build the tower", "Sort the bricks", "Water the beans"]);
+    expect(ordered({ sort: "project asc, title desc" })).toEqual(["Water the beans", "Sort the bricks", "Build the tower"]);
+  });
+
   test("a clock read in a question (now.time) makes the answer a minute-clock one", () => {
     const store = scratch();
     const { lego } = projects(store);
