@@ -16,7 +16,7 @@ import { TUNE_ROWS } from "../../src/desk/tune";
 import { REMOTE_CLIENT, type Seeded } from "../../src/showcase/seed";
 import { heroText } from "../../src/showcase/seed/media";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
-import { SocketBoard } from "../../src/socket";
+import { SocketBoard, USER } from "../../src/socket";
 import { C, fg, tailFrom } from "../../src/style";
 import { SessionTerm, serveAs } from "../../src/session/session-term";
 import { PROTOCOL } from "../../src/session/protocol";
@@ -66,6 +66,24 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     const saved = (await board.get(seeded.notes.singleList.id))!.text;
     expect(saved.split("\n")[9]).toContain("[style.list.gap::2] [style.list.divider::dots] [style.list.zebra::on]");
     expect(saved.split("\n")[2]).toBe("## Supplies");
+  }, 30_000);
+
+  test("PIE-1512: after ctrl+z takes the button's save back, the next tune and save in the same door lands", async () => {
+    const id = seeded.notes.singleList.id, text = async () => (await board.get(id))!.text;
+    const original = await text();
+    try {
+      // The previous test pressed the button: its save is on the middle list. ctrl+z takes the press back whole.
+      await untilAsync(async () => (await text()).includes("[style.list.zebra::on]"), "the button's save");
+      await app.dispatch.act({ action: "ext.undo", tile: "lists" }, USER);
+      await untilAsync(async () => !(await text()).split("\n")[9]!.includes("[style.list."), "the press undone");
+      // Tune zebra again on the same list, as [+] does, and save: written against the note as it is now.
+      await app.dispatch.act({ action: "tune.set", args: { row: "list.zebra", value: "on", level: "list" }, tile: "tune" }, USER);
+      expect(await app.dispatch.act({ action: "tune.save", args: { level: "list" }, tile: "tune" }, USER)).toMatchObject({ saved: true });
+      expect((await text()).split("\n")[9]).toContain("[style.list.zebra::on]");
+    } finally {
+      const now = (await board.get(id))!;
+      if (now.text !== original) await board.update(id, original, now.revision!).catch(() => {});
+    }
   }, 30_000);
 
   test("retired look keys (PIE-1365): one line for the note, [remove] and [move to a hero line] through act, each one tune step u takes back", async () => {
