@@ -231,6 +231,9 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     await until(() => !!B().linksTile.data?.sources.length, "the backlinks");
     // Grouped as Detail groups them (PIE-442): a note isn't an open item, so its group opens first.
     click(where(frame(), "+ Note 1", rect("backlinks")));
+    // The dock strip keeps the bottom row; the newly opened source is now just below the fold.
+    const group = where(frame(), "− Note 1", rect("backlinks"));
+    key({ kind: "mouse", action: "wheel-down", button: 0, ...group });
     // A click selects it (the preview shows it); a double click opens it, as ⏎.
     click(where(frame(), "Sunday list", rect("backlinks")));
     await whole(B().linksPreview, n.sunday.id);
@@ -253,6 +256,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     key(char("b"));
     await until(() => !!B().linksTile.data?.sources.length, "the backlinks");
     await Bun.sleep(700);                                                     // a re-read the last changes queued has landed (it would replace the rows below)
+    await b.dispatch.act({ action: "backlinks.groups", args: { show: "backlinks" }, tile: "backlinks" }, USER);
     const L = B().linksTile, one = L.data.sources[0];
     // More sources than fit, one line each (PIE-442), under the status line; without facets, so one flat list.
     L.data = { ...L.data, sources: Array.from({ length: 40 }, (_, i) => ({ ...one, blockId: one.blockId, facets: undefined, title: `Source ${String(i).padStart(2, "0")}`, updatedAt: `2026-01-01T00:00:${String(59 - i).padStart(2, "0")}.000Z` })) };
@@ -265,11 +269,10 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     await Bun.sleep(50);
     expect(L.sel).toBe(0);
     expect(B().details.length).toBe(0);
-    click({ x: r.col + 3, y: r.row + head + fit });                            // the last source drawn: a double click opens it
-    click({ x: r.col + 3, y: r.row + head + fit });
-    // The rows drawn are the list's with the look's spacing between them (a divider between groups, PIE-673): the last is an item.
-    const last = ((L as any).rowAt as (number | null)[]).slice(0, fit).filter(i => i !== null).at(-1);
-    expect(L.sel).toBe(last);
+    // Reserving the dock strip's row can leave a spacing row last: click the last source actually drawn.
+    const last = frame().slice(r.row + 1, r.row + r.rows - 1).flatMap(line => plain(line).match(/Source \d+/g) ?? []).at(-1)!;
+    click(where(frame(), last, r));
+    click(where(frame(), last, r));
     await until(() => B().details[0]?.msg?.id === one.blockId, "the source in a detail");
     // A short list leaves spare rows under it: a click there does nothing.
     L.data = { ...L.data, sources: L.data.sources.slice(0, 2) };

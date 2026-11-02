@@ -3676,7 +3676,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.bandHits = top ? [{ col: 0, row: 0, cols, rows: top }] : [];
     const full: Rect = host?.area ?? { col: 0, row: top, cols, rows: rows - (this.holder ? 1 : 2) - top };
     const area = host ? full : besideDockStrips(this.root, full);      // the dock strips' edges (drawDocks) stay out of the tiles' room
-    this.area = area; this.rootArea = host?.root ?? full;
+    this.area = area; this.rootArea = host?.root ?? area;
     this.slid = [];
     const zoomed = this.zoom !== null && this.panes.has(this.zoom);
     if (zoomed) {
