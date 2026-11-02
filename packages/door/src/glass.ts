@@ -131,13 +131,14 @@ export class Glass {
   private async resolve(point: Point, generation: number) {
     const over = this.floats().findLast(f => inside(point, f.rect)), hit = this.hit(point);
     const cut = this.app.overflow.targetAt(point.x, point.y), text = hit?.text ?? cut?.text;
+    const source = hit?.target || hit?.text ? hit : cut;
     const key = hit?.target ? JSON.stringify(hit.target) : text;
     if (!key) return;
     this.cancelClose();
-    if (key === this.target) { this.source = (hit ?? cut)!.rect; return; }
+    if (key === this.target) { this.source = source!.rect; return; }
     const m = hit?.target ? await readTarget(this.app, hit.target) : text ? textNote(text) : null;
     if (!m || generation !== this.generation) return;
-    this.target = key; this.source = (hit ?? cut)!.rect;
+    this.target = key; this.source = source!.rect;
     if (hit && await hit.desk.hoverInto(hit.tile, m)) return;
     this.show(m, USER, true, point.alt || this.mode === "sticky", over?.pane instanceof PostIt ? over.pane : undefined);
   }

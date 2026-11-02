@@ -4160,7 +4160,6 @@ export class NoteSurface {
     return key !== undefined && this.listViews.get(key)?.selectionStyle === "frame";
   }
 
-  /** The named list, else the entered or selected one, else the note's only list. */
   listNamed(named?: string): ListHandle<any> { return listNamed(this.listHost(), named); }
 
   /** The element drawn for row `row` of list `key`, and its number among the elements (from 1), or null. */
@@ -4219,7 +4218,6 @@ export class NoteSurface {
     this.listViews.get(was)?.stopTyping(false);
   }
 
-  /** The list the person went into: j k Home End move, ⏎ opens, / filters, esc comes out; any other key leaves it and goes on. */
   private listMode(list: string, title: string): ListMode {
     return {
       name: "list", of: { list }, list, word: "list",
@@ -4266,12 +4264,14 @@ export class NoteSurface {
     return host.pressSet ? host.pressSet(LISTVIEW_ACTIONS, name, args as Record<string, unknown>, quiet, host) : this.alone(host).pressIn(LISTVIEW_ACTIONS, name, args as Record<string, unknown>, undefined, quiet);
   }
 
-  /** This reader's lists as the actions run over them (the registration builds it with the host the key or click was given). */
   listHost(host?: SurfaceHost): ListHost {
     const here = () => { if (!host) throw new ActionRefused("this list action needs the reader's host"); return host; };
     return {
       lists: () => this.listsDrawn.map(list => ({ ...list, entered: this.listIn === list.key })),
-      current: () => this.listIn ?? this.selectedElement()?.link?.listRow?.key ?? null,
+      current: () => {
+        const link = this.selectedElement()?.link;
+        return this.listIn ?? link?.listRow?.key ?? (link?.inlineList && this.inlineLists.get(link.inlineList.key)?.rows.find(r => r.target.listRow)?.target.listRow?.key) ?? null;
+      },
       none: "this note draws no list (a ::links component, or an extension's list view)",
       picked: (l, row) => { this.selectListRow(l, row.id, row.group); if (l.change) this.enterList(l, true); const target = listOpenTarget(row); return this.previewRow(here(), target ? { ...target, listRow: { key: l.key, row: row.id, group: row.group } } : undefined); },
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),

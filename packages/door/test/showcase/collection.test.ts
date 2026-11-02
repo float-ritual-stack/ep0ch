@@ -70,13 +70,15 @@ describe("showcase: a collection record (PIE-1281)", () => {
       if (cols === 120) {
         await h.app.dispatch.act({ action: "glass.mode", args: { set: "on" } }, { kind: "user" });
         await h.app.dispatch.act({ action: "glass.tune", args: { name: "open", value: 0 } }, { kind: "user" });
-        const preview = () => { const p = h.app.glass.floats().find(f => f.pane instanceof PostIt && f.pane.hover)?.pane; return p instanceof PostIt ? p.msg?.id : undefined; };
+        const preview = () => { const p = h.app.glass.floats().find(f => f.pane instanceof PostIt && f.pane.hover)?.pane; return p instanceof PostIt ? p.msg : undefined; };
         const seeds = lists()[0].view.pickable().find((row: any) => row.label === "Check seeds").id;
         const report = lists()[0].view.pickable().find((row: any) => row.label === "Read report").id;
         await h.app.dispatch.act({ action: "text.hover", args: cell("Check seeds") }, { kind: "user" });
-        await until(() => preview() === seeds, "the first row's hover preview");
+        await until(() => preview()?.id === seeds, "the first row's hover preview");
+        await h.app.dispatch.act({ action: "text.hover", args: cell("sort") }, { kind: "user" });
+        await until(() => preview()?.text === "sort", "the control's text preview");
         await h.app.dispatch.act({ action: "text.hover", args: cell("Read report") }, { kind: "user" });
-        await until(() => preview() === report, "hover follows the second row", 1500);
+        await until(() => preview()?.id === report, "hover follows the second row after a control", 1500);
         await h.app.dispatch.act({ action: "glass.mode", args: { set: "off" } }, { kind: "user" });
       }
       click("Read report");
@@ -274,13 +276,18 @@ describe("showcase: a collection record (PIE-1281)", () => {
     expect(stage().dispatch.where().focus).toBe(focus);
   }, 20_000);
 
-  test("a narrow table keeps an owner's link on its own field", async () => {
+  test.each([{ kind: "graph-table", cols: 44 }, { kind: "view", cols: 120 }, { kind: "view", cols: 44 }])("a $kind keeps an owner's link and collection controls at $cols columns", async ({ kind, cols }) => {
     const owner = await h.board.createBlock(null, "Garden keeper\n\nThe person tending this plot.");
-    await h.board.createBlock(null, `Tend the plot [collection::linked-garden] [owner::((${owner.id}))] [stage::ready]`);
-    await show('Linked garden\n::graph-table{query="collection=linked-garden" columns="title, owner, stage"}\n::', 44);
-    const keeper = (await act("elements")).elements.find((e: any) => e.label.includes("owner:"));
+    const query = `collection=linked-garden-${kind}-${cols}`;
+    await h.board.createBlock(null, `Tend the plot [collection::linked-garden-${kind}-${cols}] [owner::((${owner.id}))] [stage::ready]`);
+    const saved = kind === "view" ? await h.board.createBlock(null, `Linked owners [type::virtual-branch] [query::${query}] [layout::table] [summary-properties::title, owner, stage]`) : null;
+    await show(`Linked garden\n${saved ? `::view{of=((${saved.id}))}` : `::graph-table{query="${query}" columns="title, owner, stage"}`}\n::`, cols);
+    if (kind === "view") expect(h.screen()).not.toMatch(/table.* · .*≡/);
+    const keeper = (await act("elements")).elements.find((e: any) => e.label.includes(cols === 44 ? "owner:" : "Garden keeper"));
     expect(keeper).toBeDefined();
-    await act("element.open", { n: keeper.n });
+    await act("element.select", { n: keeper.n });
+    expect(h.screen()).toMatch(/table.* · .*≡/);
+    h.press({ kind: "enter" });
     await until(() => stage().pane("garden").surface.msg?.id === owner.id, "the owner field opens its own note", 4000);
   }, 20_000);
 
