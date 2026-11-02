@@ -3,6 +3,7 @@
 // text are styled, on every row they wrap onto, by CommonMark's rules (checked against marked, which
 // Detail parses with); and the BBS reader, which drew raw text, now draws its body with the same renderer and addresses a message to
 // its `to::`. Fictional notes; the service ones run against a throwaway outliner only.
+import { visible } from "../src/style";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { Msg } from "../src/board";
@@ -229,7 +230,7 @@ describe("Markdown links", () => {
     draw();
     s.key(char("]"), h); draw();
     expect(s.describe().elements!.current).toMatchObject({ n: 1, kind: "link", label: "the society", target: "https://example.org/allotments" });
-    expect(s.hint()).toContain("⏎ open");
+    expect(visible(s.hint())).toContain("⏎ open");
     s.key({ kind: "enter" }, h);
     expect(runs).toEqual([externalOpenCommand("https://example.org/allotments")]);
     expect(flashes.at(-1)).toBe("opened https://example.org/allotments in the browser");

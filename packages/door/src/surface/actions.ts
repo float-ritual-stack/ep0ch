@@ -377,6 +377,16 @@ const everySet = new Set<WeakRef<ActionSet<any, any>>>();
  * a click never runs an action short of what its key gives it.
  */
 export function executable(action: string, args: Readonly<Record<string, unknown>> = {}): boolean {
+  // Asked for every hint segment on every paint: answered once per action and argument names while the sets stay the same.
+  if (everySet.size !== runnableSets) { runnable.clear(); runnableSets = everySet.size; }
+  const key = `${action}\0${Object.keys(args).filter(k => args[k] !== undefined).sort().join(",")}`;
+  let known = runnable.get(key);
+  if (known === undefined) runnable.set(key, known = runnableNow(action, args));
+  return known;
+}
+const runnable = new Map<string, boolean>();
+let runnableSets = -1;
+function runnableNow(action: string, args: Readonly<Record<string, unknown>>): boolean {
   return allActionSets().some(set => {
     const spec = set.argsOf(action);
     return !!spec && Object.entries(spec).every(([name, a]) => (a as ArgSpec).optional || (a as ArgSpec).context || args[name] !== undefined);

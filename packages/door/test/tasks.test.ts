@@ -121,7 +121,7 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
       s.key(char("]"), host); draw();
       if (++guard > 40) throw new Error("[ ] never reached the slice's step");
     }
-    expect(s.hint()).toContain("step [ ] Sow the beans · in !((");
+    expect(visible(s.hint())).toContain("step [ ] Sow the beans · in !((");
     expect(visible(s.hint())).toContain("⏎ status · space done/to do · ^Z undo");
     s.key({ kind: "enter" }, host);
     const menu = draw().join("\n");

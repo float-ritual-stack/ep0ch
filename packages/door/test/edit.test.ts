@@ -1,5 +1,6 @@
 // EPD-001: editing from a reader. The draft model and key decoding run anywhere; the save and
 // conflict tests start a throwaway outliner service (never a real outline) and skip without one.
+import { visible } from "../src/style";
 import { Scratch, outliner as scratchOutliner } from "./scratch";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
@@ -220,7 +221,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     if (preview) {
       pane.key(ctrl("p"), d);
       expect(pane.draft!.preview).toBe(true);
-      expect(pane.surface.hint()).toContain("close preview");
+      expect(visible(pane.surface.hint())).toContain("close preview");
     }
     expect(() => pane.surface.startReply(pane.host(d))).toThrow("esc twice puts it aside");
     expect(() => pane.surface.startReply(pane.host(d))).toThrow("^S save");

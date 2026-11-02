@@ -110,7 +110,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     // On the proposal's source line the hint leads with its keys.
     s.key(char("["), h); s.key(char("["), h); s.key(char("["), h); s.key(char("["), h); frame();
     expect(current(s)).toMatchObject({ kind: "embed", target: proposal });
-    expect(s.hint()).toContain("A apply anyway · X dismiss · r resolve");
+    expect(visible(s.hint())).toContain("A apply anyway · X dismiss · r resolve");
   }, 30_000);
 
   test("a click on each embed's source line selects it and opens it", async () => {
@@ -200,7 +200,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     s.show((await board.get(proposal))!, h);
     const lines = s.render(W, H, h).lines.map(visible);
     expect(lines.slice(0, 6).join("\n")).toContain("proposal · [apply] [dismiss] [resolve]");
-    expect(s.hint()).toContain("A apply anyway · X dismiss · r resolve");
+    expect(visible(s.hint())).toContain("A apply anyway · X dismiss · r resolve");
     const p = at(lines, "[apply]");
     expect(s.click(p.x + 1, p.y, h)).toBe(true);
     await until(() => !!flashes.at(-1)?.startsWith("applied the proposal"), "the apply");
@@ -215,7 +215,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     expect(s.key(char("A"), h)).toBe(false);
     await Bun.sleep(100);
     expect(flashes.filter(f => /draft proposal|isn't a proposal/.test(f))).toEqual([]);
-    expect(s.hint()).not.toContain("apply anyway");
+    expect(visible(s.hint())).not.toContain("apply anyway");
   }, 30_000);
 
   test("a proposal whose passage was already gone offers only [dismiss]: A says why, a click on [dismiss] dismisses it", async () => {
@@ -226,8 +226,8 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     expect(lines.join("\n")).not.toContain("[apply]");
     expect(s.describeElements().filter(e => e.control).map(e => e.control)).toEqual(["dismiss", "resolve"]);
     while (current(s)?.target !== proposal) { s.key(char("]"), h); frame(); }
-    expect(s.hint()).toContain("X dismiss · r resolve");
-    expect(s.hint()).not.toContain("A apply");
+    expect(visible(s.hint())).toContain("X dismiss · r resolve");
+    expect(visible(s.hint())).not.toContain("A apply");
     expect(s.key(char("A"), h)).toBe(true);
     await until(() => flashes.some(f => f.includes("can't be applied")), "A's refusal");
     await expect(NOTE_ACTIONS.run("proposal.apply", { id: proposal }, { surface: s, host: h, standing: false }, TIDY)).rejects.toThrow("can't be applied");

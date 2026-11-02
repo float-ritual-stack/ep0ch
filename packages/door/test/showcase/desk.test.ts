@@ -558,7 +558,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
     await drawer.dispatch.act({ action: "tile.collapse", tile: "kettle", args: { on: true } }, user);
     expect([app.drawer.open, app.drawer.folded, folded()]).toEqual([true, true, []]);
-    expect(app.drawer.render(160, 48, "").lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")).toContain("a click opens it");
+    expect(app.drawer.render(160, 48, "").lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")).toContain("opens it, or a click");
     await drawer.dispatch.act({ action: "tile.collapse", tile: "kettle", args: { on: false } }, user);
     expect([app.drawer.open, app.drawer.folded]).toEqual([true, false]);
     await drawer.dispatch.act({ action: "tile.drawer", tile: "kettle", args: { on: false } }, user);

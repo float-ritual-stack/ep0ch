@@ -28,15 +28,15 @@ describe("a list picker", () => {
   test.each([false, true])("its hint explains the pointer that chooses (clickChooses=%s)", clickChooses => {
     const { p, draw, said } = picker(3, { clickChooses });
     draw();
-    expect(p.hint()).toContain(clickChooses ? "click picks" : "click selects");
-    if (!clickChooses) expect(p.hint()).toContain("double-click opens");
+    expect(visible(p.hint())).toContain(clickChooses ? "click picks" : "click selects");
+    if (!clickChooses) expect(visible(p.hint())).toContain("double-click opens");
     p.key(click(5, 4), null);
     expect(said.length).toBe(clickChooses ? 1 : 0);
   });
 
   test("a filtering input says so even when Esc closes it immediately", () => {
     const { p } = picker(3, { input: new LineField(), filters: true });
-    expect(p.hint()).toContain("type to filter");
+    expect(visible(p.hint())).toContain("type to filter");
   });
 
   test("its drawn foot follows the input and Esc clears before closing", () => {

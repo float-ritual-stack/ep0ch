@@ -4,6 +4,7 @@
 // ⏎ or a click uses, through the same comment code as the thread list. The passage is highlighted while
 // it's expanded. Which threads are expanded is the person's: an agent's actions work on the thread and
 // leave that alone. Fictional notes, against a throwaway outliner service only.
+import { visible } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -216,7 +217,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     await fresh();
     expect(drawn("Use the hazel poles.")).toBe(false);
     stepTo("\"Canes along the fence\"");
-    expect(P().surface.hint()).toContain("⏎ open its card");
+    expect(visible(P().surface.hint())).toContain("⏎ open its card");
     key({ kind: "enter" });
     await shows("Use the hazel poles.");
     expect(P().surface.session).toBeNull();                              // no thread list, no session: still reading
@@ -231,7 +232,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     expect(replyControls).toContain("Quote the reply");
     frame();
     for (const label of ["[Select]", "[Reply]", "[Edit]", "[Seen]"]) expect(drawn(label)).toBe(true);
-    expect(P().surface.hint()).toContain("⏎ fold its card back to its [+]");
+    expect(visible(P().surface.hint())).toContain("⏎ fold its card back to its [+]");
     key({ kind: "enter" });
     await until(() => !drawn("Use the hazel poles."), "the card folded");
     expect(current()!.kind).toBe("comment");
@@ -258,7 +259,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     await shows("[Reply]");
     stepTo("Reply");
     expect(current()).toMatchObject({ kind: "control" });
-    expect(P().surface.hint()).toContain("⏎ reply");
+    expect(visible(P().surface.hint())).toContain("⏎ reply");
     key({ kind: "enter" });
     await until(() => P().surface.session?.mode === "compose", "the reply being written");
     expect(b.isIn(P())).toBe(true);                              // the person's keys go to it

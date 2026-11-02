@@ -659,7 +659,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     press({ kind: "mouse", action: "wheel-down", button: 0, x, y });
     expect(pop()!.index).toBe(0);
     expect(preview().join("\n")).not.toContain("We agreed to water");
-    press({ kind: "pgup" });
+    for (let i = 0; i < 8; i++) press({ kind: "up", shift: true });   // shift+↑ scrolls the docs; PgUp pages the list (PIE-1293)
     await until(() => preview().some(l => l.includes("We agreed to water")), "keys scroll the same preview");
     press({ kind: "enter" });
     await until(() => d()!.text.endsWith(`((${meeting}^a10))`), "refined to ^a10", 8000);
