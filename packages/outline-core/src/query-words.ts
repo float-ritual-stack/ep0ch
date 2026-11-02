@@ -1,3 +1,4 @@
+import { isQueryAtomWord } from "./query-atoms";
 import { selectionQuery, type Clause } from "./query-clauses";
 
 export interface QueryWordClause {
@@ -50,3 +51,16 @@ export function queryWordsWhere(base: string, clauses: readonly QueryWordClause[
 export const queryWhy = (suggestion: QueryWords): string => suggestion.clauses.map(c =>
   `${c.from.join(" ")} → ${c.clause}${c.widens ? " · widens to the whole outline" : ""}${c.alternatives.length ? ` · or ${c.alternatives.join(" / ")}` : ""}`,
 ).join("\n");
+
+/**
+ * Whether a line is written as a query rather than words to search by (PIE-1497): a relation (`key=value`, `~`, `<`,
+ * `>`), a whole-word AND, OR or NOT, or an atom with its head (`by:loki`, `under:`). Plain words aren't: the power bar
+ * searches titles with them, and offers query words only on a line that reads like this or in its `=` scope.
+ */
+export function readsAsQuery(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (/[=~<>]/.test(t)) return true;
+  if (/(?:^|\s)(?:AND|OR|NOT)(?:\s|$)/.test(t)) return true;
+  return t.split(/\s+/).some(word => !word.startsWith("#") && isQueryAtomWord(word));
+}

@@ -1,6 +1,8 @@
+import { panelMode } from "./panel-mode";
 import { HISTORY, NAV_VERSION, savedPlace, placeOf, readNav, type Place, type Zoom, type FigureChoice, type SavedNav } from "./navigation";
 export { HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
-import { LIST_KEYS, COLLECTION_KEYS, listBinding } from "./list-keys";
+import { collectionHint, listBinding } from "./list-keys";
+import { listMode, collectionAtReading, collectionAtCursor, collectionBinding, collectionKey, collectionTextStop, type ListMode } from "./list-mode";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
@@ -67,7 +69,7 @@ import { fragmentAnchorMatch, linkOccurrences, referencedBlock, withoutFragmentA
 import { landingLine } from "@ep0ch/outline-core/block-insert";
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
-import { childEnv, codeSpans, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
+import { childEnv, codeSpans, compareFoldPosition, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, embedState, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE, type EmbedBody } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
@@ -130,7 +132,7 @@ import { INVITES } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { SettingField } from "./settings-card";
-import { settingsSubject, SETTINGS_DEFS } from "./settings";
+import { settingsSubject, settingsKey, SETTINGS_DEFS } from "./settings";
 import { askInBar } from "../bar/ask";
 import { argQuestion } from "../bar/form";
 import type { ActionInfo } from "./actions";
@@ -245,12 +247,14 @@ export interface SurfaceHost {
    */
   answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>;
   /** Pointer coordinates belong to this attached tile rather than the note beneath its floats. */
-  attachment?: "comment" | "sources" | "list-preview" | "edit-preview";
+  attachment?: "comment" | "sources" | "list-preview" | "edit-preview" | "settings";
   hasWiredPreview?(): boolean;
   hasListPreviewTile?(): boolean;
   listPreviewTile?(on: boolean, side?: AttachedSide): Promise<unknown>;
   hasEditPreviewTile?(): boolean;
   editPreviewTile?(on: boolean, side?: AttachedSide): Promise<unknown>;
+  hasSettingsTile?(): boolean;
+  settingsTile?(on: boolean, side?: AttachedSide): Promise<unknown>;
   hasSourcesTile?(): boolean;
   sourcesTile?(on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Its trail (PIE-208) in a tile of its own beside it (PIE-1425), where the screen has tiles; null when the layout can't place one. */
@@ -780,7 +784,7 @@ type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: Commen
 type GripMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { describe(): { moving: true; float: FloatRect | null } };
 /** comment.move's arguments: steps, a place, a size (the reader's cells), or back to the usual place. */
 type ComposerMove = FloatMove;
-type SplitFrame = { target: "comment" | "sources" | "list-preview" | "edit-preview"; beside: boolean; w: number; h: number; edge: number };
+type SplitFrame = { target: "comment" | "sources" | "list-preview" | "edit-preview" | "settings"; beside: boolean; w: number; h: number; edge: number };
 /** The person asked to go somewhere while a comment is unsent (PIE-785): what they asked for waits on their choice. */
 interface LeaveAsk { what: string; name: keyof NoteActionArgs & string | "list.open"; args: Record<string, unknown>; elem?: string }
 /** The answers to leaving an unsent comment, with their keys: the draft kept and on, back to writing, or let go. */
@@ -791,8 +795,7 @@ const LEAVE_SAYS: Record<LeaveChoice, string> = {
   keep: "keep writing",
   discard: "discard (a copy stays on disk)",
 };
-type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
-type ListMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { list: string; describe(): { list: string; title: string | null; selected: string | null; typing: string | null } };
+type PanelMode = ReturnType<typeof panelMode>;
 type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; reveal: boolean; place: AttachedPlace; float: FloatRect | null; frame: FloatRect | null; room: { w: number; h: number; col?: number; row?: number }; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; view: Inspector; footer: number; describe(): unknown };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
 
@@ -912,7 +915,7 @@ export class NoteSurface {
   /** The link `[ ]` or a click selected, as an index into `links` (the river steps these; it draws its own body). */
   private link = -1;
   /** The elements the last reading render drew, in reading order; empty until one (and in the river). */
-  private elems: Element[] = [];
+  elems: Element[] = [];
   /** The current element (its key): where `[ ]` is, what ⏎ acts on, what the ruler tints (PIE-441). */
   private cur: string | null = null;
   /**
@@ -920,6 +923,10 @@ export class NoteSurface {
    * current at the next layout, unless the selection moved meanwhile.
    */
   private linkUnlaid: number | null = null;
+  /** A collection row picked before its element is drawn (a page turn, a row off the viewport): the [ ] position lands on it at the next layout (PIE-1501). */
+  private pendingRow: { key: string; row: string; group?: string } | null = null;
+  /** The collection row the [ ] position is about to land on (pendingRow), for what asks between the pick and the layout. */
+  rowWanted(): { key: string; row: string; group?: string } | null { return this.pendingRow; }
   /** Bring the current element into view on the next render (after `[ ]`, `( )` or a fold). */
   private reveal = false;
   /**
@@ -1005,10 +1012,11 @@ export class NoteSurface {
   private previewLists = new Map<string, boolean>();
   private previewOpen = new Set<string>();
   readonly listPreview = { place: (attachedPlaceOf(readState<{ place?: string }>("list-preview-place.json")?.place) ?? "split") as AttachedPlace, float: null as FloatRect | null, rect: null as FloatRect | null, top: 0, max: 0 };
+  private drawnFolds: FoldPoint[] = [];
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   /** What the last render drew: `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
-  private drawn: { w: number; h: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number; titleRows: [number, number] } | null = null;
+  drawn: { w: number; h: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number; titleRows: [number, number] } | null = null;
   /** The last render brought the current element in (reveal), so it's brought in again once the header's rows are known. */
   private lastReveal = false;
   /** The last draw was a host's digest (`digest`): its elements are current, whole, with no scroll of the surface's own. */
@@ -1030,11 +1038,11 @@ export class NoteSurface {
   /** Where the last paint put a floating or popup composer (PIE-785), in the note's cells under its header image, and the room it had. */
   private boxRect: FloatRect | null = null;
   readonly editPreview = { place: attachedPlaceOf(readState<{ place: string }>("edit-preview-place.json")?.place) ?? "inline", float: null as FloatRect | null, rect: null as FloatRect | null, frame: null as FloatRect | null, room: { w: 0, h: 0 } as { w: number; h: number; col?: number; row?: number } };
-  private readonly attachmentTiles = { comment: new AttachedTile(), sources: new AttachedTile(), "list-preview": new AttachedTile(), "edit-preview": new AttachedTile() };
+  private readonly attachmentTiles = { settings: new AttachedTile(), comment: new AttachedTile(), sources: new AttachedTile(), "list-preview": new AttachedTile(), "edit-preview": new AttachedTile() };
   private innerFrame?: FloatRect;
   private boxRoom: { w: number; h: number; col?: number; row?: number } | null = null;
   /** A press on a floating composer's top edge or ◢ corner: the drag moves or sizes it (comment.move) from where it was. */
-  private frameDrag: { target: "comment" | "sources" | "edit-preview"; zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
+  private frameDrag: { target: "comment" | "sources" | "edit-preview" | "settings"; zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
   /** Where the person asked to go while their comment is unsent (PIE-785): it waits on their answer in the power bar. */
   private leaving: LeaveAsk | null = null;
   /** The cursor and selection of a draft the keys came back to by a press (PIE-812), put back after that press and its release. */
@@ -1048,7 +1056,7 @@ export class NoteSurface {
    * What takes the reader's keys besides reading (src/surface/modes.ts): a step's status choice, the property
    * panel, the edit, the comment session, in their precedence. The fields below are views of it.
    */
-  private splits: Record<"comment" | "sources" | "list-preview" | "edit-preview", AttachedSplit> = { comment: {}, sources: {}, "list-preview": {}, "edit-preview": readState<{ split?: AttachedSplit }>("edit-preview-place.json")?.split ?? { direction: "down", share: .5 } };
+  private splits: Record<"comment" | "sources" | "list-preview" | "edit-preview" | "settings", AttachedSplit> = { settings: {}, comment: {}, sources: {}, "list-preview": {}, "edit-preview": readState<{ split?: AttachedSplit }>("edit-preview-place.json")?.split ?? { direction: "down", share: .5 } };
   private splitDrawn: SplitFrame[] = [];
   private splitDrag: SplitFrame | null = null;
   /**
@@ -1109,7 +1117,7 @@ export class NoteSurface {
   private formHit(x: number, y: number) {
     return this.hits.find(h => "link" in h && h.link.form && h.row === y - (this.drawn?.heroRows ?? 0) && x >= h.from && x < h.to);
   }
-  private readonly modes = new ModeStack<SurfaceHost>();
+  readonly modes = new ModeStack<SurfaceHost>();
   /**
    * An open edit of `msg`: a draft session with the block adapter (src/draft-session.ts). While it exists
    * every key goes to it and the surface stays on its note.
@@ -1168,7 +1176,7 @@ export class NoteSurface {
   private agentDraft: Draft | null = null;
   /** The property panel, while open (`i`). It holds the reader's keys; editing a value also holds the note. */
   get panel(): PropertyPanel | null { return (this.modes.get("panel") as PanelMode | null)?.panel ?? null; }
-  set panel(p: PropertyPanel | null) { if (p) this.modes.push(this.panelMode(p)); else this.modes.drop("panel"); }
+  set panel(p: PropertyPanel | null) { if (p) this.modes.push(panelMode(this, p, (k, host) => this.panelKey(k, host), (x, y) => { const hit = this.hitAt(x, y); return hit && "prop" in hit ? hit : null; }, host => host.attachment ? 0 : this.drawn?.heroRows ?? 0, row => describeRow(row, this.src, this.msg!.text))); else this.modes.drop("panel"); }
   /** The summary keys the host gave for the note shown (a lane's), refreshed on every render. */
   private viewKeys: readonly string[] | null = null;
   /** Where this reader's property, link and embed reads go (its host's connection), from the last host seen. */
@@ -1313,7 +1321,7 @@ export class NoteSurface {
     if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label)} · ⏎ runs ${printable(e.link.press.act.replaceAll("\n", " -> "))}`;
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
     // A table row's label keeps its columns' gaps: one space each here, since two spaces part a hint row's keys (hintKeys).
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()} · ${this.zoomHint()}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${collectionAtCursor(this) ? ` · ${collectionHint()}` : this.figureHint()} · ${this.zoomHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
@@ -1401,7 +1409,7 @@ export class NoteSurface {
     if (m && m.id === this.msg?.id && host.ctx.outline === this.msg.address?.outline) m.address ??= this.msg.address;
     this.use(host);
     if (m?.id !== this.msg?.id) { if (this.msg) host.retirePeeks?.(by); this.figureSizing.cancel(); this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.modes.drop("revision"); this.foldsOf = m?.id ?? null; this.zoom = null; this.zoomTurn++; }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.modes.drop("revision"); this.foldsOf = m?.id ?? null; this.drawnFolds = []; this.zoom = null; this.zoomTurn++; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
     this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
@@ -1465,10 +1473,12 @@ export class NoteSurface {
     this.listPreview.rect = null;
     this.besideRect = null;
     this.splitDrawn = [];
+    if (this.panel?.card && this.msg && !this.settingsSchemaOf(this.msg)) this.closePanel();
     this.attachmentTiles["edit-preview"].sync(this.draft?.preview ? this.editPreview : null, this.attachmentTileHost("edit-preview", host));
     this.attachmentTiles.comment.sync(this.session, this.attachmentTileHost("comment", host));
     this.attachmentTiles["list-preview"].sync(this.previewPoint() && !host?.hasWiredPreview?.() ? this.listPreview : null, this.attachmentTileHost("list-preview", host));
     this.attachmentTiles.sources.sync(this.sourcesMode, this.attachmentTileHost("sources", host));
+    this.attachmentTiles.settings.sync(this.panel?.card ?? null, this.attachmentTileHost("settings", host));
     if (this.replyLinks) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
       const mode = this.replyLinks!;
       mode.rect = { x: col, y: row, w: cols, h: rows };
@@ -1505,7 +1515,7 @@ export class NoteSurface {
       return { lines: d.lines };
     }, undefined, (cols, rows) => this.renderReading(cols, rows, host, this.session?.place === "tile" ? null : this.composing(host)));
     const sm = this.sourcesMode;
-    if (sm?.place === "inline") return this.renderComment(w, h, host);
+    if (sm?.place === "inline") return this.renderSettingsOn(w, h, host);
     if (sm && sm.place !== "tile") {
       const writing = this.session?.place === "tile" ? null : this.composing(host);
       const floating = sm.place === "floating" || sm.place === "popup";
@@ -1513,10 +1523,10 @@ export class NoteSurface {
         const over = writing && (writing.cs.place === "floating" || writing.cs.place === "popup") ? writing : null;
         const v = this.renderBeside(w, h, host,
           (cols, rows, row, col) => this.renderSources(cols, rows, row, col), "sources",
-          (cols, rows) => over ? this.renderReading(cols, rows, host, null) : this.renderComment(cols, rows, host));
+          (cols, rows) => over ? this.renderReading(cols, rows, host, null) : this.renderSettingsOn(cols, rows, host));
         return over ? this.overComposer(v, w, h, over, over.cs.place === "floating" ? "floating" : "popup", host?.focused !== false) : v;
       }
-      const v = this.renderComment(w, h, host);
+      const v = this.renderSettingsOn(w, h, host);
       const rect = attachedRect(sm.place, w, h, { frame: this.innerFrame, min: { cols: 24, rows: 10 }, moved: sm.float }, (cols, rows, fill) => {
         const drawn = drawSources(sm.panel, cols - 2, Date.now());
         return { cols: fill ? cols : drawn.cols + 2, rows };
@@ -1531,8 +1541,32 @@ export class NoteSurface {
         ? this.overComposer({ ...v, lines, frame: this.innerFrame }, w, h, writing, writing.cs.place, host?.focused !== false) : { ...v, lines, frame: this.innerFrame, placements: [] };
     }
     const p = this.previewPoint();
-    if (p && !this.draft && !this.session) return this.renderListPreview(w, h, host);
-    return this.renderComment(w, h, host);
+    if (p && !this.draft && !this.session && !(this.panel?.card && this.panel.card.place !== "inline" && this.panel.card.place !== "tile")) return this.renderListPreview(w, h, host);
+    return this.renderSettingsOn(w, h, host);
+  }
+
+  private renderSettings(cols: number, rows: number, row: number, col: number): SurfaceView {
+    const card = this.panel!.card!, m = this.msg!;
+    return { lines: card.draw(this.settingFields(m, card.schemas), cols, rows, row, col, m.revision) };
+  }
+
+  private renderSettingsOn(w: number, h: number, host?: SurfaceHost): SurfaceView {
+    const card = this.panel?.card;
+    if (!card || card.place === "inline" || card.place === "tile") return this.renderComment(w, h, host);
+    if (card.place === "split") return this.renderBeside(w, h, host, (cols, rows, row, col) => this.renderSettings(cols, rows, row, col), "settings", (cols, rows) => this.renderComment(cols, rows, host));
+    const view = this.renderComment(w, h, host);
+    const rect = attachedRect(card.place, w, h, { frame: this.innerFrame, moved: card.float });
+    card.frame = rect;
+    card.room = this.innerFrame ? { w: this.innerFrame.cols, h: this.innerFrame.rows, col: this.innerFrame.col, row: this.innerFrame.row } : { w, h };
+    const side = this.renderSettings(rect.cols - 2, rect.rows - 2, rect.row + 1, rect.col + 1);
+    return { ...view, frame: this.innerFrame, placements: [], lines: drawAttachedFloat(view.lines, w, h, rect, "settings", this.modes.active(this.modes.get("panel")!), this.lastLook?.values,
+      (canvas, dx, dy) => side.lines.forEach((line, i) => canvas.text(rect.col + 1 + dx, rect.row + 1 + i + dy, line, rect.cols - 2)), card.place === "floating", this.innerFrame, view.frame) };
+  }
+
+  settingsTile(w: number, h: number): SurfaceView | null {
+    if (this.panel?.card?.place !== "tile") return null;
+    const r = attachedRect("tile", w, h), view = this.renderSettings(r.cols, r.rows, r.row, r.col);
+    return this.withPlacementMenu({ ...view, lines: Array.from({ length: h }, (_, i) => view.lines[i] ?? "") }, w, h, "settings");
   }
 
   listPreviewView(w: number, h: number, host?: SurfaceHost, row = 0, col = 0): SurfaceView | null {
@@ -1697,7 +1731,7 @@ export class NoteSurface {
     }, this.session?.composer === c.d ? "comment" : undefined);
   }
 
-  private renderBeside(w: number, h: number, host: SurfaceHost | undefined, draw: (cols: number, rows: number, row: number, col: number) => SurfaceView, target?: "comment" | "sources" | "list-preview" | "edit-preview", read?: (cols: number, rows: number) => SurfaceView): SurfaceView {
+  private renderBeside(w: number, h: number, host: SurfaceHost | undefined, draw: (cols: number, rows: number, row: number, col: number) => SurfaceView, target?: "comment" | "sources" | "list-preview" | "edit-preview" | "settings", read?: (cols: number, rows: number) => SurfaceView): SurfaceView {
     const rect = attachedRect("split", w, h, { split: target ? this.splits[target] : {}, ...(target === "list-preview" ? { rows: 12 } : {}) });
     const beside = rect.col > 0;
     if (beside) {
@@ -2048,12 +2082,9 @@ export class NoteSurface {
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
       ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · ${this.focusMark.says ?? "the line that links here"}${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · esc lets go` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
-    if (this.panel?.card && !this.settingsSchemaOf(m)) this.closePanel();
     if (this.panel?.card) {
-      const card = this.panel.card, fields = this.settingFields(m, card.schemas);
-      const at = head.length;
-      head.push(...card.render(fields, w, Math.min(fields.length + (card.schemas.length > 1 ? card.schemas.length : 0) + 2, Math.max(4, Math.floor((h - head.length) * 0.6))), m.revision));
-      for (const r of card.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false });
+      const card = this.panel.card;
+      if (card.place === "inline") head.push(...this.renderSettings(w, Math.max(4, Math.floor((h - head.length) * .6)), head.length, 0).lines);
     } else if (this.panel) {
       const rows = this.rows(m);
       const tokens = tokensOf(m.text, src);
@@ -2115,6 +2146,8 @@ export class NoteSurface {
     }
     this.elems.sort((a, b) => a.row - b.row || a.from - b.from);
     if (unsentHead.elems.length) this.elems = [...this.elems, ...unsentHead.elems].sort((a, b) => a.row - b.row || a.from - b.from);
+    // A collection row picked before this layout drew it (a page turn): the [ ] position lands on it now (PIE-1501).
+    if (this.pendingRow) { const at = this.linkRowElement(this.pendingRow.key, this.pendingRow.row, this.pendingRow.group); if (at) { this.setElem(at.e); this.pendingRow = null; this.reveal = true; } }
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show). A header
     // image above it (PIE-532) gives a row back for each row scrolled, so the scroll that has the last body row
     // `extra` rows above the bottom is S ≥ body + extra − (roomFull − (full − S)) while the image shows, and
@@ -2250,7 +2283,7 @@ export class NoteSurface {
     // thread's passage is highlighted while it's open (the ruler, where both are, wins).
     const reading = this.readingRows();
     const framedList = this.framedList(current);
-    const readingBand: [number, number] | null = reading && readingRuler() && !this.printed && !framedList ? [top + reading[0], top + reading[1]] : null;
+    const readingBand: [number, number] | null = readingRuler() && !this.printed && !framedList ? current?.ruler ?? (reading ? [top + reading[0], top + reading[1]] : null) : null;
     // The element the cursor is on, when it is one row of something (a figure's row, a step): its rows are item-focused.
     const itemRows: [number, number] | null = current?.item && !this.printed && !framedList ? current.item : null;
     const rulers = [markRows].filter((r): r is [number, number] => !!r);
@@ -2663,7 +2696,7 @@ export class NoteSurface {
 
   /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
   private body(m: Msg, env: DocEnv, src: Source | null, drawn: Link[], tokens?: ReturnType<typeof resourceTokensOf>, more?: (text: string, lines: readonly number[]) => Partial<DocEnv>) {
-    let { text, points, lines, literal, anchors } = this.foldsIn(m);
+    let { text, points, lines, literal, anchors } = this.foldsIn(m, false);
     const form = !this.raw ? this.formOf(m) : null;
     if (form) {
       const body = text.split("\n");
@@ -2676,13 +2709,20 @@ export class NoteSurface {
     // A component's `^name` (PIE-747) is the key its view state is kept under: read mode hides an anchor, so it is put back on
     // the component's first line for the renderer, which doesn't draw it.
     if (anchors.some(Boolean)) text = text.split("\n").map((l, i) => (anchors[i] && /^ {0,3}::[a-z]/.test(l) ? `${l} ^${anchors[i]}` : l)).join("\n");
-    this.keepFolds(points);
+    this.keepFolds(this.foldsIn(m).points);
     // The live figures this layout draws, each told here; a tab or the density drawn as a control.
     const figures: FigureInfo[] = [];
     this.figuresDrawn = figures;
     // The inline ::links components this layout draws (PIE-693), each told here.
     const blocks: ListHandle<any>[] = [];
     this.linkBlocksDrawn = blocks;
+    env = { ...env,
+      figures: this.printed ? { ...env.figures, all: true, seen: f => figures.push(f) } : {
+        ...env.figures, drawn: { n: 0, titles: new Map() }, ui: key => { const selected = this.elems.find(e => e.key === this.cur)?.link; return { ...this.figureUI.get(key), size: this.figureSizing.preview(key), ...(selected?.figure?.figure === key ? { selected: { row: selected.figure.row, block: selected.block } } : {}) }; },
+        tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.label ?? c.tab ?? (c.size ? "↔ fit/full" : `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim()) }, x),
+        seen: f => figures.push({ ...f, revision: f.revision ?? m.revision, line: f.note === m.id && f.line !== undefined ? lines[f.line] : f.line }),
+      },
+    };
     const { preview, spanPreview, ...hooks } = this.bodyHooks(m, lines, env, src, drawn);
     const additions = withBeside(more?.(text, lines) ?? {}, this.besideRegions(m, lines, src, preview));
     const after = additions.after, lastFormLine = text.split("\n").length - 1;
@@ -2692,10 +2732,10 @@ export class NoteSurface {
         role: "control", label: field, form: { field }, press: { act: `${act} tile=${m.id}`, block: m.id, line: 0 },
       }, value))] : []),
     ]);
-    // What the inline lists (a ::links component, an extension's list view) are lent: their lists, the person in one, how a row and the control are tagged.
     this.listEnv = this.printed ? undefined : {
       list: (key, signature) => this.listFor(key, false, signature),
       entered: key => this.listIn === key,
+      current: () => this.listHost().current(),
       row: (key, row, to, x, group) => tagged(drawn, { ...to, listRow: { key, row, group } }, x),
       control: (key, x) => tagged(drawn, { role: "control", label: key, listRow: { key } }, x),
       ...(preview ? { preview } : {}),
@@ -2710,15 +2750,12 @@ export class NoteSurface {
       ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request<ArtifactInfo>("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
       folds: { points, folded: this.effectiveFolds(m), selected: this.foldSel, preview: new Set(points.filter(p => this.previews(p)).map(p => p.key)) },
       link: (block, x, figure, query, at, cell) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}), ...(cell ? { cell: true } : {}) }, x),
-      figures: this.printed ? { ...env.figures, all: true, seen: f => figures.push(f) } : {
-        ...env.figures, ui: key => { const selected = this.elems.find(e => e.key === this.cur)?.link; return { ...this.figureUI.get(key), size: this.figureSizing.preview(key), ...(selected?.figure?.figure === key ? { selected: { row: selected.figure.row, block: selected.block } } : {}) }; },
-        tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.label ?? c.tab ?? (c.size ? "↔ fit/full" : `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim()) }, x),
-        seen: f => figures.push({ ...f, revision: m.revision, line: f.note === m.id && f.line !== undefined ? lines[f.line] : f.line }),
-      },
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
       ...additions,
     });
-    return { doc, points, lines };
+    this.drawnFolds = doc.folds ?? points;
+    this.keepFolds(this.drawnFolds);
+    return { doc, points: this.drawnFolds, lines };
   }
 
   /**
@@ -2763,13 +2800,6 @@ export class NoteSurface {
     };
   }
 
-  /**
-   * The body's transclusions and steps, the same for the reader's own render and a host's digest: each
-   * `!((…))` drawn by src/embeds.ts from the service's projection, its body drawn the way this reader draws
-   * a note (its own embeds nested, its links and step boxes elements like the note's; its literal regions
-   * judged by its own text, PIE-422); each of the note's own steps a control where the service reads one
-   * at this revision (PIE-472).
-   */
   /**
    * Text written about the note (a comment's body, a reply, the composer's preview, an edit's ctrl+p preview: PIE-852)
    * drawn as the reader draws the note (PIE-770): references by their titles, `[[pages]]`, Markdown, and `!((embeds))` transcluded, through renderDoc and
@@ -2833,7 +2863,7 @@ export class NoteSurface {
     return stripMarks(stripTags(presentLinks(named, false, this.src, named)));
   }
 
-  private bodyHooks(m: Msg | null, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep" | "use"> & { preview?: (id: string, width: number) => string[]; spanPreview: (startLine: number, endLine: number, width: number) => string[] } {
+  private bodyHooks(m: Msg | null, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep" | "use"> & { preview?: (id: string, width: number, bodyOnly?: boolean) => string[]; spanPreview: (startLine: number, endLine: number, width: number) => string[] } {
     // How many embedded bodies and template bodies are being drawn inside one another: an embed starts a fresh `::use`
     // depth and a template body a fresh embed one, so a note that embeds a template that embeds it back is stopped here.
     let nest = 0;
@@ -2887,24 +2917,26 @@ export class NoteSurface {
       }
       return rendered;
     }, tooDeep);
-    // A template's body (PIE-533 S4), drawn where its `::use` is written: the reader's renderer over the template's text, in the
-    // call's Site (`this` the host, `{{props.x}}` the call's), so values, figures, `::fields` and `::if` read the host.
-    const templateBody = (depth: number) => (target: Msg, site: LiveSite, width: number): string[] => nested(() => {
-      const { text, lines, literal } = readableSource(target, src);
+    // A call keeps its own fold keys; figures share this reader's controls and read the call's Site.
+    const templateBody = (depth: number, scope: string) => (target: Msg, site: LiveSite, width: number): Doc | string[] => nested<Doc | string[]>(() => {
+      const { text, lines, literal, anchors } = readableSource(target, src);
+      const points = foldPoints(text, anchors).map(p => ({ ...p, key: `${scope}/${p.key}`, ...(p.list ? { list: { ...p.list, key: `${scope}/${p.list.key}` } } : {}) }));
       const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
-        ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
+        ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal, keepTags: true, folds: { points, folded: this.folded, selected: this.foldSel }, after: undefined, regions: undefined, outputs: undefined,
+        componentLine: line => lines[line]!,
+        figures: env.figures && { ...env.figures, fullWidth: width, seen: f => env.figures!.seen?.({ ...f, ...(f.note === target.id ? { revision: target.revision, line: f.line === undefined ? undefined : lines[f.line] } : {}) }) },
         link: (block, t, figure, query, at, cell) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}), ...(cell ? { cell: true } : {}) }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
-        use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1),
-      }).lines;
+        use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1, undefined, scope),
+      });
     }, tooDeep);
     // The `::use` on body line `i`, drawn: `block` is the note whose text holds the line, `lines` its body lines' note lines.
-    const useHook = (block: string, lines: readonly number[], site: UseSite | undefined, depth: number, book?: RegionBook): DocEnv["use"] => (call, i, width) => {
+    const useHook = (block: string, lines: readonly number[], site: UseSite | undefined, depth: number, book?: RegionBook, scope = ""): DocEnv["use"] => (call, i, width) => {
       const line = lines[i] ?? -1;
       if (line < 0) return [];
-      return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m?.id ?? "", width, src, sink: drawn, depth, body: templateBody(depth), ...(book ? { book } : {}) });
+      return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m?.id ?? "", width, src, sink: drawn, depth, body: templateBody(depth, `${scope}/${block}:${line}`), ...(book ? { book } : {}) });
     };
     // A `::button` on body line `i` (PIE-957): the button part, a press of its action line on this note, in its press's state or
     // disabled with the action's refusal now (PIE-1287).
@@ -2937,7 +2969,7 @@ export class NoteSurface {
       ...(outline ? { embed: embedHook } : {}),
       ...(m && outline ? { use: useHook(m.id, noteLines, undefined, 0, env.regions), button: buttonHook(m.id, noteLines) } : {}),
       // An inline ::links component's preview of its selected row (PIE-693): that note drawn as an embed of it is.
-      ...(outline ? { preview: (id: string, width: number) => embedRegion(id, undefined, 0, width, src, inner, drawn, m?.id ?? "") } : {}),
+      ...(outline ? { preview: (id: string, width: number, bodyOnly = false) => embedRegion(id, undefined, 0, width, src, inner, drawn, m?.id ?? "", undefined, undefined, undefined, bodyOnly) } : {}),
       task,
     };
   }
@@ -3170,17 +3202,7 @@ export class NoteSurface {
       return true;
     }
     if (!m || m.partial) { if (k.kind === "esc" || ch(k) === "i") void this.runKey("props.close", {}, host); host.redraw(); return true; }
-    if (P.card) {
-      const fields = this.settingFields(m, P.card.schemas);
-      const intent = P.card.key(k, fields.length), f = fields[P.card.sel];
-      // The card's commands are the settings.* actions; moving its selection is its own.
-      if (intent === "close") void this.runKey("props.close", {}, host);
-      else if (intent === "tokens") void this.runKey("props", {}, host);
-      else if (f && intent === "pick") void this.runKey("settings.set", { key: f.prop.key }, host);
-      else if (f && intent === "clear") void this.runKey("settings.clear", { key: f.prop.key }, host);
-      host.redraw();
-      return true;
-    }
+    if (P.card) return settingsKey(this, k, host);
     const rows = this.rows(m);
     const intent = P.key(k, rows.length);
     const r = rows[P.sel];
@@ -4071,71 +4093,6 @@ export class NoteSurface {
     return mode;
   }
 
-  /** The property panel (`i`, `I`): its rows take the keys; a value being typed holds the note too. */
-  private panelMode(P: PropertyPanel): PanelMode {
-    return {
-      name: "panel", of: P, panel: P, holdsKeys: true, noun: "the property value",
-      word: "property panel",
-      changed: (revision, partial) => {
-        // A list row's revision says nothing about the value's token: only a whole read marks it.
-        const f = P.field;
-        if (partial || !f || f.saving || revision === f.revision) return;
-        f.changedElsewhere = true;
-        f.note = "the note changed elsewhere since this value was read · saving would be refused · esc, then enter edits the current value";
-      },
-      editing: () => !!P.field, covers: () => P.full,
-      key: (k, host) => this.panelKey(k, host),
-      click: (x, y, host) => {
-        // A value being typed keeps the reader's clicks, but for a candidate of its completion popup (PIE-626); a click on a row selects it (on its value, follows it).
-        if (P.field) return completerOf(P.field.input)?.click(y, x) ?? false;
-        const h = this.hitAt(x, y);
-        if (!h || !("prop" in h)) return undefined;
-        if (P.card) {
-          // A click selects a field; a click on the selected one opens its picker (as enter does).
-          const m = this.msg, f = m ? this.settingFields(m, P.card.schemas)[h.prop - 1] : undefined;
-          if (!f) return false;
-          if (P.card.sel === h.prop - 1) void this.runKey("settings.set", { key: f.prop.key }, host);
-          else { P.card.sel = h.prop - 1; P.card.note = ""; }
-          host.redraw();
-          return true;
-        }
-        const m = this.msg, r = m ? this.rows(m)[h.prop - 1] : undefined;
-        if (!r) return false;
-        if (this.selection) void this.runKey("select.clear", {}, host);
-        P.sel = h.prop - 1; P.note = "";
-        if (h.follow) void this.runKey("props.follow", { n: r.n }, host, true);
-        host.redraw();
-        return true;
-      },
-      wheel: dir => {
-        const m = this.msg;
-        if (!P.full || !m || m.partial || P.field) return false;
-        const n = this.rows(m).length;
-        if (n) P.sel = scrolled(P.sel, dir, n - 1);
-        return true;
-      },
-      // Drawn by the reading render: above the note, or filling the reader under its header (full).
-      rows: () => null,
-      leave: async host => { if (P.field) { P.field = null; host.redraw(); } return { left: "nothing" }; },
-      leaveRefusal: () => { const f = P.field; return f && f.input.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null; },
-      unsaved: () => !!P.field && P.field.input.text !== P.field.row.value,
-      hint: () => (P.card ? P.card.hint() : P.hint()),
-      state: () => (P.card ? "settings" : P.field ? "editing a property" : "properties"),
-      describe: () => {
-        const m = this.msg;
-        if (m && P.card) {
-          return { open: "settings", schemas: P.card.schemas.map(s => s.id), selected: P.card.sel + 1, note: P.card.note || null, editing: null,
-            fields: this.settingFields(m, P.card.schemas).map(f => ({ n: f.n, section: P.card!.schemas[f.section]!.id, key: f.prop.key, type: f.prop.type, value: f.value, ...(f.prop.default !== undefined ? { default: f.prop.default } : {}) })), rows: [] };
-        }
-        return m ? {
-          open: P.full ? "full" : "inline", selected: P.sel + 1, note: P.note || null,
-          editing: P.field ? { n: P.field.row.n, key: P.field.row.key, text: P.field.input.text, revision: P.field.revision, changedElsewhere: P.field.changedElsewhere, note: P.field.note || null } : null,
-          rows: this.rows(m).map(r => describeRow(r, this.src, m.text)),
-        } : null;
-      },
-    };
-  }
-
   // ── the inline lists (PIE-693, PIE-747): a ::links component, an extension's list view; their rows, picks, the person in one ──
 
   private viewList(node: ListPrimitive, width: number, run: (act: string) => LinkTarget, lb: LinkBlocksEnv | undefined, drawn: Link[], markdown: (text: string) => string[]): string[] {
@@ -4160,10 +4117,6 @@ export class NoteSurface {
     return key !== undefined && this.listViews.get(key)?.selectionStyle === "frame";
   }
 
-  /**
-   * The list of this reader the actions name, `named` as `list.*` takes it (its number, `^name` or title); left out, the
-   * one the person is in, else the one the [ ] position is in, else the note's only one.
-   */
   listNamed(named?: string): ListHandle<any> { return listNamed(this.listHost(), named); }
 
   /** The element drawn for row `row` of list `key`, and its number among the elements (from 1), or null. */
@@ -4178,11 +4131,7 @@ export class NoteSurface {
     return null;
   }
 
-  /**
-   * The current element is an inline list row: the host shows its note where this reader's selection goes (a
-   * preview following the reader, its preview link: PIE-794), as a links tile's selection does. Read only.
-   */
-  private selectedElement(): Element | undefined {
+  selectedElement(): Element | undefined {
     const drawn = this.elems.find(e => e.key === this.cur);
     if (drawn) return drawn;
     // Several key reports may arrive before a repaint exposes the newly selected row.
@@ -4207,65 +4156,29 @@ export class NoteSurface {
   selectListRow(l: ListHandle<any>, row: string, group?: string) {
     l.view.pick(PERSON, row, group);
     const at = this.linkRowElement(l.key, row, group);
-    if (at) this.setElem(at.e);
+    if (at) { this.setElem(at.e); this.pendingRow = null; }
+    else this.pendingRow = { key: l.key, row, group };
     this.reveal = true;
   }
 
-  /** The person goes into list `l` (its rows take j k ⏎ / esc), or comes out of it. */
-  enterList(l: ListHandle<any>, on: boolean) {
+  /**
+   * The person goes into list `l` (a ::links list: its rows take j k ⏎ / esc), or comes out of it; `at` picks its first or
+   * last row (a walk by j or k, PIE-1491). A collection has no mode (PIE-1501): going in is the [ ] position on its row.
+   */
+  enterList(l: ListHandle<any>, on: boolean, at?: "first" | "last") {
     if (!on) { this.leaveList(l.key); this.letGo(); return; }
-    this.modes.push(this.listMode(l.key, l.title));
-    const first = l.view.picked(PERSON) ?? l.view.visible().find(selectable);
+    if (this.listIn !== l.key && !l.collection) this.modes.push(listMode(this, l.key, l.title));
+    const rows = l.view.pickable();
+    const first = at ? (at === "first" ? rows[0] : rows.at(-1)) : l.view.picked(PERSON) ?? l.view.visible().find(selectable);
     if (first) this.selectListRow(l, first.id, first.group);
   }
+
   /** Out of the list the person is in (any, or only `key`): its typed filter goes with it. */
-  private leaveList(key?: string) {
+  leaveList(key?: string) {
     const was = this.listIn;
     if (!was || (key && key !== was)) return;
     this.modes.drop("list");
     this.listViews.get(was)?.stopTyping(false);
-  }
-
-  /** The list the person went into: j k Home End move, ⏎ opens, / filters, esc comes out; any other key leaves it and goes on. */
-  private listMode(list: string, title: string): ListMode {
-    return {
-      name: "list", of: { list }, list, word: "list",
-      // Not a session: it holds no note. Its keys come first while it's open; the screen's (Tab, ^W, digits) stay the screen's.
-      holdsKeys: false, editing: () => false, covers: () => false,
-      key: (k, host) => this.listKey(list, k, host),
-      click: (x, y) => {
-        const h = this.hitAt(x, y);
-        // A click in its own rows or its control is reading's (a row selects, the control comes out); anywhere else leaves it.
-        if (!(h && "link" in h && h.link.listRow?.key === list)) this.leaveList();
-        return undefined;
-      },
-      rows: () => null,
-      leave: async () => { this.leaveList(); return { left: "nothing" }; },
-      hint: () => this.listViews.get(list)?.typing ? "type to filter the list · ⏎ keep · esc clear" : `${title} · ${modeHint([...LIST_KEYS, ...(this.listsDrawn.find(l => l.key === list)?.change ? COLLECTION_KEYS : [])], name => LISTVIEW_ACTIONS.def(name))}`,
-      state: () => "in a list",
-      describe: () => ({ list, title, selected: this.listViews.get(list)?.picked(PERSON)?.id ?? null, typing: this.listViews.get(list)?.typing?.text ?? null }),
-    };
-  }
-
-  private listKey(list: string, k: Key, host: SurfaceHost): boolean {
-    const l = this.listsDrawn.find(x => x.key === list);
-    if (!l) { this.leaveList(); return this.key(k, host); }
-    const view = l.view, T = view.typing;
-    if (T) {
-      // Typing a filter: letters go into it and the list follows; ⏎ keeps it, esc goes back to what it was.
-      if (k.kind === "enter") view.stopTyping(true);
-      else if (k.kind === "esc") view.stopTyping(false);
-      else if (!T.take(k)) return true;
-      if (l.change) void l.change({ where: view.filter() }, PERSON).then(() => host.redraw());
-      host.redraw();
-      return true;
-    }
-    const binding = listBinding(k, !!l.change, view.pickable().length);
-    if (binding) { void this.runList(binding.action as ListActionName, { list, ...binding.args } as never, host); return true; }
-    // Any other key: out of the list, and the key does what it does in the reader.
-    this.leaveList();
-    host.redraw();
-    return this.key(k, host);
   }
 
   /** A list action (list.pick, list.open, …), through the host's dispatcher, else the reader's own. */
@@ -4273,17 +4186,20 @@ export class NoteSurface {
     return host.pressSet ? host.pressSet(LISTVIEW_ACTIONS, name, args as Record<string, unknown>, quiet, host) : this.alone(host).pressIn(LISTVIEW_ACTIONS, name, args as Record<string, unknown>, undefined, quiet);
   }
 
-  /** This reader's lists as the actions run over them (the registration builds it with the host the key or click was given). */
   listHost(host?: SurfaceHost): ListHost {
     const here = () => { if (!host) throw new ActionRefused("this list action needs the reader's host"); return host; };
     return {
       lists: () => this.listsDrawn.map(list => ({ ...list, entered: this.listIn === list.key })),
-      current: () => this.listIn ?? this.inView()?.link?.listRow?.key ?? null,
+      current: () => {
+        const link = this.selectedElement()?.link;
+        return this.listIn ?? link?.listRow?.key ?? (link?.inlineList && this.inlineLists.get(link.inlineList.key)?.rows.find(r => r.target.listRow)?.target.listRow?.key) ?? null;
+      },
       none: "this note draws no list (a ::links component, or an extension's list view)",
-      picked: (l, row) => { this.selectListRow(l, row.id, row.group); if (l.change) this.enterList(l, true); const target = listOpenTarget(row); return this.previewRow(here(), target ? { ...target, listRow: { key: l.key, row: row.id, group: row.group } } : undefined); },
+      picked: (l, row) => { this.selectListRow(l, row.id, row.group); const target = listOpenTarget(row); return this.previewRow(here(), target ? { ...target, listRow: { key: l.key, row: row.id, group: row.group } } : undefined); },
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
       enter: (l, on) => { if (on || this.listIn === l.key) { this.enterList(l, on); if (!on) here().retirePeeks?.(USER); } },
-      type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(filterLine); },
+      // Typing a filter is the one mode a collection has: the letters are its until ⏎ keeps or esc clears them (list-mode.ts).
+      type: l => { if (this.listIn !== l.key) { this.enterList(l, true); if (l.collection) this.modes.push(listMode(this, l.key, l.title)); } l.view.startTyping(filterLine); },
       tune: (l, actor, standing) => this.run("settings", { list: l.key }, here(), actor, standing),
       choose: (l, action, keys) => here().overlay?.(listFieldPicker(l.title, action, keys, by => { void this.runList(action, { list: l.key, by }, here()); })),
       redraw: () => host?.redraw(),
@@ -4399,9 +4315,9 @@ export class NoteSurface {
   }
 
   /** ctrl+g in a comment being written: its box floats, and the arrows move it and shift+arrows size it until ⏎ or esc (PIE-785). */
-  private gripMode(cs: { place: AttachedPlace; float: FloatRect | null; mode?: string }, target: "comment" | "sources" = "comment"): GripMode {
-    const move = (args: ComposerMove, host: SurfaceHost) => void this.runKey(target === "comment" ? "comment.move" : "sources.move", args, host, true);
-    const side = (to: "left" | "right" | "up" | "down", host: SurfaceHost) => void this.runKey(target === "comment" ? "comment.place" : "sources.place", { place: "tile", side: to }, host, true);
+  gripMode(cs: { place: AttachedPlace; float: FloatRect | null; mode?: string }, target: "comment" | "sources" | "settings" = "comment"): GripMode {
+    const move = (args: ComposerMove, host: SurfaceHost) => void this.runKey(target === "comment" ? "comment.move" : target === "settings" ? "settings.move" : "sources.move", args, host, true);
+    const side = (to: "left" | "right" | "up" | "down", host: SurfaceHost) => void this.runKey(target === "comment" ? "comment.place" : target === "settings" ? "settings.place" : "sources.place", { place: "tile", side: to }, host, true);
     const tiled = () => cs.place === "tile";
     return {
       name: "grip", of: cs, holdsKeys: true, word: "composer move",
@@ -4482,9 +4398,9 @@ export class NoteSurface {
     const g = this.frameDrag!, f = g.from, dx = x - g.x, dy = y - g.y;
     const to = g.zone.kind === "move" ? { row: f.row + dy, col: f.col + dx, cols: f.cols, rows: f.rows }
       : { row: f.row, col: f.col, cols: f.cols + (g.zone.cols ? dx : 0), rows: f.rows + (g.zone.rows ? dy : 0) };
-    const now = g.target === "edit-preview" ? this.editPreview.float ?? this.editPreview.frame : g.target === "sources" ? this.sourcesMode?.float ?? this.sourcesMode?.frame : this.session?.float ?? this.boxRect;
+    const now = g.target === "settings" ? this.panel?.card?.float ?? this.panel?.card?.frame : g.target === "edit-preview" ? this.editPreview.float ?? this.editPreview.frame : g.target === "sources" ? this.sourcesMode?.float ?? this.sourcesMode?.frame : this.session?.float ?? this.boxRect;
     if (now && now.row === to.row && now.col === to.col && now.cols === to.cols && now.rows === to.rows) return;
-    void this.runKey(g.target === "edit-preview" ? "edit.preview.move" : g.target === "sources" ? "sources.move" : "comment.move", to, host, true);
+    void this.runKey(g.target === "settings" ? "settings.move" : g.target === "edit-preview" ? "edit.preview.move" : g.target === "sources" ? "sources.move" : "comment.move", to, host, true);
   }
 
   /**
@@ -4635,17 +4551,17 @@ export class NoteSurface {
     }
     return false;
   }
-  private attachmentTileHost(target: "comment" | "sources" | "list-preview" | "edit-preview", host?: SurfaceHost): AttachedTileHost | undefined {
-    if (!host || !(target === "edit-preview" ? host.editPreviewTile : target === "list-preview" ? host.listPreviewTile : target === "comment" ? host.composerTile : host.sourcesTile)) return undefined;
+  private attachmentTileHost(target: "comment" | "sources" | "list-preview" | "edit-preview" | "settings", host?: SurfaceHost): AttachedTileHost | undefined {
+    if (!host || !(target === "settings" ? host.settingsTile : target === "edit-preview" ? host.editPreviewTile : target === "list-preview" ? host.listPreviewTile : target === "comment" ? host.composerTile : host.sourcesTile)) return undefined;
     return {
-      open: (on, side) => target === "edit-preview" ? host.editPreviewTile!(on, side) : target === "list-preview" ? host.listPreviewTile!(on, side) : target === "comment" ? host.composerTile!(on, this.session?.startedBy.kind === "user", side) : host.sourcesTile!(on, side),
-      exists: target === "edit-preview" ? host.hasEditPreviewTile : target === "list-preview" ? host.hasListPreviewTile : target === "comment" ? host.hasComposerTile : host.hasSourcesTile,
+      open: (on, side) => target === "settings" ? host.settingsTile!(on, side) : target === "edit-preview" ? host.editPreviewTile!(on, side) : target === "list-preview" ? host.listPreviewTile!(on, side) : target === "comment" ? host.composerTile!(on, this.session?.startedBy.kind === "user", side) : host.sourcesTile!(on, side),
+      exists: target === "settings" ? host.hasSettingsTile : target === "edit-preview" ? host.hasEditPreviewTile : target === "list-preview" ? host.hasListPreviewTile : target === "comment" ? host.hasComposerTile : host.hasSourcesTile,
       changed: why => { if (why) host.ctx.flash(why); host.redraw(); },
     };
   }
 
-  async placeAttachment(target: "comment" | "sources" | "list-preview" | "edit-preview", place: AttachedPlace, host: SurfaceHost, side?: AttachedSide) {
-    const owner = target === "edit-preview" ? this.editPreview : target === "list-preview" ? this.listPreview : target === "comment" ? this.session! : this.sourcesMode!;
+  async placeAttachment(target: "comment" | "sources" | "list-preview" | "edit-preview" | "settings", place: AttachedPlace, host: SurfaceHost, side?: AttachedSide) {
+    const owner = target === "settings" ? this.panel!.card! : target === "edit-preview" ? this.editPreview : target === "list-preview" ? this.listPreview : target === "comment" ? this.session! : this.sourcesMode!;
     await this.attachmentTiles[target].place(owner, place, this.attachmentTileHost(target, host), side);
   }
 
@@ -4684,15 +4600,22 @@ export class NoteSurface {
     return i < 0 ? null : this.runKey("element.select", { n: i + 1 }, host);
   }
 
-  hoverAt(x: number, y: number): { target: LinkTarget; rect: { col: number; row: number; cols: number; rows: number } } | null {
+  hoverAt(x: number, y: number): { target?: LinkTarget; collection?: ListView; rect: { col: number; row: number; cols: number; rows: number } } | null {
     const h = this.hitAt(x, y - (this.drawn?.heroRows ?? 0));
-    return h && "link" in h && (h.link.block || h.link.page) ? { target: h.link, rect: { col: h.from, row: h.row + (this.drawn?.heroRows ?? 0), cols: h.to - h.from, rows: 1 } } : null;
+    const point = h && "link" in h && (h.link.block || h.link.page) ? { target: h.link, rect: { col: h.from, row: h.row + (this.drawn?.heroRows ?? 0), cols: h.to - h.from, rows: 1 } } : null;
+    for (const l of this.listsDrawn.filter(l => l.collection)) {
+      const hits = this.hits.filter(h => "link" in h && h.link.listRow?.key === l.key);
+      const col = Math.min(...hits.map(h => h.from)), row = Math.min(...hits.map(h => h.row)) + (this.drawn?.heroRows ?? 0);
+      const cols = Math.max(...hits.map(h => h.to)) - col, rows = Math.max(...hits.map(h => h.row)) + (this.drawn?.heroRows ?? 0) - row + 1;
+      if (x >= col && x < col + cols && y >= row && y < row + rows) return { ...point, collection: l.view, rect: point?.rect ?? { col, row, cols, rows } };
+    }
+    return point;
   }
 
-  /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
-  private hitAt(x: number, y: number): Hit | undefined {
+  /** What the last render put at cell `x`, `y`; a region's mark covers a fold at the same gutter cell. */
+  hitAt(x: number, y: number): Hit | undefined {
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "crumbs" in h || "start" in h || ("follow" in h && h.follow)) ?? at[0];
+    return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "crumbs" in h || "start" in h || ("follow" in h && h.follow)) ?? at.find(h => "region" in h) ?? at[0];
   }
 
   // ── keys: each one is an action, the same ones an agent calls ─────────────
@@ -4701,7 +4624,7 @@ export class NoteSurface {
     this.use(host);
     // A step's status choice, the property panel, the edit or the comment: the first open one takes the key.
     if (k.kind === "esc" && !this.modes.top()) {
-      const attachment = this.modes.all().find(m => m.name === "sources" || m.name === "comment" || m.name === "replies");
+      const attachment = this.modes.all().find(m => m.name === "sources" || m.name === "comment" || m.name === "replies" || m.name === "panel");
       if (attachment) return attachment.key(k, host);
     }
     const taken = this.modes.key(k, host);
@@ -4748,6 +4671,8 @@ export class NoteSurface {
     // W zooms into the part the [ ] position or the reading line is in; esc then returns to the whole note (PIE-780).
     const zk = modeBinding(ZOOM_KEYS, k);
     if (zk && (zk.args?.on !== false || this.zoom) && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("element.zoom", zk.args ?? {}, host); return true; }
+    // The [ ] position on a collection's row (PIE-1501): its list keys, as a figure's rows have theirs; no mode.
+    if (collectionKey(this, k, host)) return true;
     const fk = this.figureKey(k);
     if (fk) { void this.runKey(fk.name, fk.args as never, host); return true; }
     if (isUp(k) || isDown(k)) { void this.runKey("reading.step", { by: isUp(k) ? -1 : 1 }, host); return true; }
@@ -5152,7 +5077,7 @@ export class NoteSurface {
   // ── folds ──────────────────────────────────────────────────────────────────
 
   /** The note's readable source, the note line each of its lines comes from, and its fold points. */
-  foldsIn(m: Msg): { text: string; lines: number[]; points: FoldPoint[]; literal: Set<number>; unterminated: number | null; anchors: (string | undefined)[] } {
+  foldsIn(m: Msg, inserted = true): { text: string; lines: number[]; points: FoldPoint[]; literal: Set<number>; unterminated: number | null; anchors: (string | undefined)[] } {
     const r = this.zoomed(m, readableSource(m, this.src));
     const sig = m.text + "\0" + r.text + "\0" + r.anchors.join("\0");
     if (this.foldCache?.text !== sig) this.foldCache = { text: sig, points: foldPoints(r.text, r.anchors), lines: r.lines };
@@ -5161,7 +5086,7 @@ export class NoteSurface {
       const first = p.list.line;
       if (propertyTokensInLine(all[(r.lines[first] ?? 0) - 1] ?? "").some(t => t.key === "children" && t.value === "preview")) p.list.preview = true;
     }
-    return { text: r.text, lines: r.lines, points: this.foldCache.points, literal: r.literal, unterminated: r.unterminated, anchors: r.anchors };
+    return { text: r.text, lines: r.lines, points: inserted ? [...this.foldCache.points, ...this.drawnFolds.filter(p => !this.foldCache!.points.some(own => own.key === p.key))].sort((a, b) => compareFoldPosition(a.order?.line ?? [a.line], b.order?.line ?? [b.line])) : this.foldCache.points, literal: r.literal, unterminated: r.unterminated, anchors: r.anchors };
   }
 
   /** The note's readable source, only the zoomed part's lines while the reader is zoomed (PIE-780); each keeps its note line. */
@@ -5207,19 +5132,16 @@ export class NoteSurface {
   /** The fold points drawn now: none inside a folded section or item. */
   visibleFolds(m: Msg): FoldPoint[] {
     const out: FoldPoint[] = [], folded = this.effectiveFolds(m);
-    let hideTo = -1;
+    let hideTo: readonly number[] = [-1];
     for (const p of this.foldsIn(m).points) {
-      if (p.line < hideTo) continue;
+      if (compareFoldPosition(p.order?.line ?? [p.line], hideTo) < 0) continue;
       out.push(p);
-      if (folded.has(p.key)) hideTo = p.end;
+      if (folded.has(p.key)) hideTo = p.order?.end ?? [p.end];
     }
     return out;
   }
 
-  /**
-   * Fold (or unfold) `p`. By the person's keys or click it becomes the selected fold point, kept in view;
-   * an agent's fold leaves their selection and scroll where they were.
-   */
+  /** A person's fold selects it; an agent's preserves their selection and scroll. */
   setFold(p: FoldPoint, on: boolean, select = true) {
     if (this.previews(p)) { if (on) this.previewOpen.delete(p.key); else this.previewOpen.add(p.key); }
     if (on) this.folded.add(p.key); else this.folded.delete(p.key);
@@ -5232,16 +5154,13 @@ export class NoteSurface {
     for (const p of this.foldsIn(this.msg).points) if (p.kind === "callout") { if (!open && p.start === "folded") this.folded.add(p.key); else this.folded.delete(p.key); }
   }
 
-  /**
-   * Fold every outermost heading and list item, or unfold everything. How many changed. By the person's
-   * keys (`select`) their selection stays in view, or is let go when a fold hides it; an agent's leaves
-   * their selection and scroll where they were.
-   */
+  /** Fold the outermost points or unfold all; only the person's action can release their selection.
+   * Returns how many changed. */
   foldAll(on: boolean, select = true): number {
     if (!on) { const n = this.folded.size; this.folded.clear(); for (const p of this.msg ? this.foldsIn(this.msg).points : []) if (this.previews(p)) this.previewOpen.add(p.key); if (select) this.reveal = !!this.foldSel; return n; }
     this.previewOpen.clear();
     const all = this.msg ? this.foldsIn(this.msg).points : [];
-    const outer = all.filter(p => !all.some(q => q.line < p.line && p.line < q.end));
+    const outer = all.filter(p => !all.some(q => compareFoldPosition(q.order?.line ?? [q.line], p.order?.line ?? [p.line]) < 0 && compareFoldPosition(p.order?.line ?? [p.line], q.order?.end ?? [q.end]) < 0));
     for (const p of outer) this.folded.add(p.key);
     if (select && this.foldSel && !outer.some(p => p.key === this.foldSel)) this.foldSel = null;
     return outer.length;
@@ -5270,7 +5189,11 @@ export class NoteSurface {
     const visible = this.digesting || !!rows && rows[1] > this.scroll && rows[0] < this.scroll + (this.drawn?.room ?? 0);
     const line = visible ? this.readingSourceLine() : this.position.view?.line ?? this.readingSourceLine();
     const lines = this.foldsIn(this.msg!).lines;
-    const p = (d === 1 ? vis.find(p => (lines[p.line] ?? 0) >= line + (visible ? 1 : 0)) : vis.findLast(p => (lines[p.line] ?? 0) <= line - (visible ? 1 : 0))) ?? (d === 1 ? vis[0] : vis.at(-1));
+    // A template's source line edits its call; the heading's own position places the keys.
+    const selected = visible ? vis.findIndex(p => p.key === this.foldSel) : -1;
+    const current = visible && this.elems.find(e => e.key === this.cur), drawn = this.drawn;
+    const distance = (p: FoldPoint) => { const row = drawn?.doc.heads.find(h => h.key === p.key)?.row; return current && row !== undefined ? row - (current.row - drawn!.top) : (lines[p.line] ?? 0) - line; };
+    const p = selected >= 0 ? vis[(selected + d + vis.length) % vis.length] : (d === 1 ? vis.find(p => distance(p) >= (visible ? 1 : 0)) : vis.findLast(p => distance(p) <= -(visible ? 1 : 0))) ?? (d === 1 ? vis[0] : vis.at(-1));
     if (!p) return false;
     this.letGo();
     this.foldSel = p.key;
@@ -5336,7 +5259,7 @@ export class NoteSurface {
     this.position.reading = (this.msg?.text ?? "").split("\n").slice(0, line).reduce((n, l) => n + l.length + 1, 0);
   }
 
-  private readingSourceLine() { return lineAtOffset(this.msg?.text ?? "")(this.position.reading); }
+  readingSourceLine() { return lineAtOffset(this.msg?.text ?? "")(this.position.reading); }
 
   /** All wrapped rows of one source block, shared by navigation and ruler paint. */
   private blockRows(doc: Doc, row: number): [number, number] {
@@ -5347,7 +5270,7 @@ export class NoteSurface {
     return [a, b];
   }
 
-  private readingRows(): [number, number] | null {
+  readingRows(): [number, number] | null {
     const d = this.drawn;
     if (!d) return null;
     const line = this.readingSourceLine();
@@ -5362,11 +5285,26 @@ export class NoteSurface {
     else if (rows[1] > this.scroll + d.room) this.scroll = Math.min(rows[0], rows[1] - d.room);
   }
 
-  stepReading(by: 1 | -1) {
+  stepReading(by: 1 | -1, through = false, host?: SurfaceHost) {
     const current = this.selectedElement();
+    // The [ ] position on a collection's row (PIE-1501): the collection steps its own rows (down or up a grid, along a
+    // lane); past an edge the walk goes on through the note, as it came in. No mode: this is the one row step for a
+    // collection, as the inline branch below is for a figure's or a ::links' rows. The pick lands as a click's does
+    // (listHost.picked: the [ ] position, and the preview following it).
+    const onRow = collectionAtCursor(this);
+    const land = (l: ListHandle<any>, row: ListViewRow<any>) => { if (host) void this.listHost(host).picked(l, row); else this.selectListRow(l, row.id, row.group); };
+    if (onRow && !through) {
+      const row = onRow.view.step(PERSON, by);
+      if (row) { land(onRow, row); return; }
+      // k from its first row, with the block's own text above the rows (a saved view's last body line): onto that text.
+      if (by < 0 && collectionTextStop(this)) { this.letGo(); return; }
+      through = true;
+    }
+    const here = onRow ? null : collectionAtReading(this);
+    if (here && !through && by > 0) { this.enterList(here, true, "first"); return; }
     const figure = current?.link?.figure?.figure;
     const links = current?.link?.listRow?.key;
-    if (figure || (links && !current.link?.inlineList)) {
+    if (figure || (links && !current.link?.inlineList && !this.listsDrawn.some(l => l.key === links && l.collection))) {
       const entries = this.elems.filter(e => figure ? e.kind === "row" && e.link?.figure?.figure === figure : e.link?.listRow?.key === links && e.link?.listRow?.row !== undefined);
       const entry = entries[0];
       const inline = current.link?.inlineList ?? entry?.link?.inlineList;
@@ -5383,12 +5321,14 @@ export class NoteSurface {
       const row = inline.row + by;
       if (row >= 0 && row < list.rows.length) { this.selectInlineRow(current!, row); return; }
     }
+    // Leaving a collection's block (its rows scrolled by their own picks): walk on, never a screen of it at a time.
+    const leaving = !!here || !!onRow;
     this.letGo();
     const d = this.drawn;
     if (!d) return;
     const rows = this.readingRows();
     const visible = rows && rows[1] > this.scroll && rows[0] < this.scroll + d.room;
-    if (visible && (by > 0 ? rows[1] > this.scroll + d.room : rows[0] < this.scroll)) {
+    if (!leaving && visible && (by > 0 ? rows[1] > this.scroll + d.room : rows[0] < this.scroll)) {
       this.scroll = by > 0 ? Math.min(rows[1] - 1, this.scroll + d.room) : Math.max(rows[0], this.scroll - d.room);
       return;
     }
@@ -5407,6 +5347,9 @@ export class NoteSurface {
           const list = this.inlineLists.get(entry.link!.inlineList!.key)!;
           this.selectInlineRow(entry, by > 0 ? 0 : list.rows.length - 1);
         }
+        // A collection drawn in this block: the walk goes into it, at its first row going down, its last going up (PIE-1491).
+        const collection = collectionAtReading(this);
+        if (collection && !(by > 0 && collectionTextStop(this))) this.enterList(collection, true, by > 0 ? "first" : "last");
         this.revealReading();
         const block = this.readingRows();
         if (by < 0 && visible && block && block[1] - block[0] > d.room) this.scroll = Math.max(block[0], block[1] - d.room);
@@ -5414,6 +5357,12 @@ export class NoteSurface {
       }
       row += by;
     }
+    // Nothing that way. From a row (the collection ends or starts the note): the walk stays on its edge row. From off
+    // one (a saved view opened as its own note is only its rows, which no source line names): j lands on the kept pick,
+    // else its first row; k on its last.
+    if (onRow) { const edge = by > 0 ? onRow.view.pickable().at(-1) : onRow.view.pickable()[0]; if (edge) land(onRow, edge); return; }
+    const only = this.listsDrawn.find(l => l.collection);
+    if (only) { const row = (by > 0 ? only.view.picked(PERSON) : null) ?? (by > 0 ? only.view.pickable()[0] : only.view.pickable().at(-1)); if (row) land(only, row); }
   }
 
   sourceLineAt(y: number): number | null {
@@ -5445,7 +5394,7 @@ export class NoteSurface {
   }
 
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
-  letGo() { this.cur = null; this.link = -1; this.linkUnlaid = null; }
+  letGo() { this.cur = null; this.link = -1; this.linkUnlaid = null; this.pendingRow = null; }
   /** The generated regions the last layout drew (src/output-region.ts): what `[ ]` stops on at each one's gutter mark. */
   private regionInfo = new Map<string, { label: string; target: LinkTarget }>();
   /** Their rows in the reader's content rows (header included), for `openRegionKey`. */
@@ -5815,7 +5764,7 @@ export class NoteSurface {
     for (const l of summary) out.push({ key: keyOf("link", l.link), kind: "link", row: summaryRow, from: l.from, to: l.to, ruler: [summaryRow, summaryRow + 1], label: `${l.key} ${text(sum, l.from, l.to)}`, link: l.link, value: l.key });
     for (const h of doc.heads) {
       const p = points.find(p => p.key === h.key);
-      if (p && this.previews(p)) out.push({ key: `fold:${p.key}`, kind: "fold", fold: p.key, row: top + h.row, from: this.gutterStart, to: this.bx + h.cols, ruler: block(h.row), label: p.text });
+      if (p && (p.kind === "heading" || this.previews(p))) out.push({ key: `fold:${p.key}`, kind: "fold", fold: p.key, row: top + h.row, from: this.gutterStart, to: this.bx + h.cols, ruler: [top + h.row, top + h.row + (h.rows ?? 1)], label: p.text });
     }
     const heads = new Set(doc.links.filter(r => drawn[r.n]?.role === "resource").map(r => r.line));
     const byN = new Map<number, typeof doc.links>();
@@ -5849,7 +5798,7 @@ export class NoteSurface {
       const info = this.regionInfo.get(r.key);
       if (!info) continue;
       const kind = (info.target.role ?? "link") as ElementKind;
-      out.push({ key: keyOf(kind, info.target), kind, row: top + r.row, from: this.gutterStart, to: this.gutterStart + 1, ruler: [top + r.row, top + r.row + r.rows], label: info.label, link: info.target, region: r.key });
+      out.push({ key: keyOf(kind, info.target), kind, row: top + r.row, from: this.gutterStart, to: this.gutterStart + 1, ruler: [top + r.row, top + r.row + 1], label: info.label, link: info.target, region: r.key });
     }
     for (const x of doc.media) {
       const image = imageRef?.(x.line) ?? undefined;
@@ -6005,7 +5954,7 @@ export class NoteSurface {
    */
   claims(k: Key): boolean {
     const list = this.listsDrawn.find(l => l.key === this.listIn);
-    return !!list && (!!list.view.typing || !!listBinding(k, !!list.change, list.view.pickable().length)) || this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H");
+    return !!list && (!!list.view.typing || !!listBinding(k, !!list.change, list.view.pickable().length)) || !!collectionBinding(this, k) || this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H");
   }
 
   /**
@@ -7308,7 +7257,7 @@ export class NoteSurface {
     return askInBar(host.ctx as never, `${answer.template?.title ?? "::use"} needs`, need.map(x => propQuestion(x.name, answer.spec[x.name]!)), given, actor, write);
   }
 
-  splitAttachment(target: "comment" | "sources" | "list-preview" | "edit-preview", direction: string | undefined, share: number | undefined, host: SurfaceHost) {
+  splitAttachment(target: "comment" | "sources" | "list-preview" | "edit-preview" | "settings", direction: string | undefined, share: number | undefined, host: SurfaceHost) {
     if (direction !== undefined && direction !== "right" && direction !== "down") throw new ActionRefused("split direction is right or down");
     const split = this.splits[target];
     if (direction) split.direction = direction;
@@ -7332,13 +7281,14 @@ export class NoteSurface {
     host.redraw(); return sm.float;
   }
 
-  floatAt(x: number, y: number, host?: SurfaceHost): "comment" | "sources" | "draft" | null {
+  floatAt(x: number, y: number, host?: SurfaceHost): "comment" | "sources" | "draft" | "panel" | null {
     if (host?.attachment) return null;
     const sm = this.sourcesMode, cs = this.session;
     const comment = { target: "comment" as const, rect: cs && (cs.place === "floating" || cs.place === "popup") && this.boxRect ? { ...this.boxRect, row: this.boxRect.row + (this.drawn?.heroRows ?? 0) } : null };
     const sources = { target: "sources" as const, rect: sm && (sm.place === "floating" || sm.place === "popup") ? sm.frame : null };
     const preview = { target: "draft" as const, rect: this.draft?.preview ? this.editPreview.frame : null };
-    return attachedAt(sm && this.modes.active(sm) ? [preview, comment, sources] : [preview, sources, comment], x, y);
+    const card = this.panel?.card, settings = { target: "panel" as const, rect: card && (card.place === "floating" || card.place === "popup") ? card.frame : null };
+    return attachedAt(sm && this.modes.active(sm) ? [preview, comment, settings, sources] : [preview, sources, comment, settings], x, y);
   }
 
   private renderSources(cols: number, rows: number, row: number, col: number): SurfaceView {
@@ -7362,14 +7312,15 @@ export class NoteSurface {
     return { lines };
   }
 
-  attachmentHint(target: "comment" | "sources" | "list-preview" | "edit-preview"): string {
+  attachmentHint(target: "comment" | "sources" | "list-preview" | "edit-preview" | "settings"): string {
     if (target === "edit-preview") return modeHint(EDIT_PREVIEW_KEYS, action => NOTE_ACTIONS.def(action));
-    return (target === "comment" ? this.modes.get("comment") : this.modes.get(target))?.hint() ?? "";
+    return (target === "settings" ? this.modes.get("panel") : target === "comment" ? this.modes.get("comment") : this.modes.get(target))?.hint() ?? "";
   }
 
-  attachedKeys(target: "comment" | "sources" | "list-preview" | "edit-preview") {
+  attachedKeys(target: "comment" | "sources" | "list-preview" | "edit-preview" | "settings") {
     const sm = this.sourcesMode;
     if (sm) this.modes.focus(sm, target === "sources");
+    if (this.panel?.card) this.modes.focus(this.modes.get("panel")!, target === "settings");
   }
 
   sourcesTile(w: number, h: number): SurfaceView | null {
@@ -7404,22 +7355,23 @@ export class NoteSurface {
 
   private menuOffset = { col: 0, row: 0 };
   private menuArea = { row: 0, col: 0, rows: 0, cols: 0 };
-  private get placementMenu() { return this.modes.get("placement") as (ReaderMode<SurfaceHost> & { list: ListPicker<AttachedPlace, SurfaceHost>; target: "comment" | "sources" | "list-preview" | "edit-preview" }) | null; }
+  private get placementMenu() { return this.modes.get("placement") as (ReaderMode<SurfaceHost> & { list: ListPicker<AttachedPlace, SurfaceHost>; target: "comment" | "sources" | "list-preview" | "edit-preview" | "settings" }) | null; }
 
-  openPlacementMenu(target: "comment" | "sources" | "list-preview" | "edit-preview", host: SurfaceHost) {
+  openPlacementMenu(target: "comment" | "sources" | "list-preview" | "edit-preview" | "settings", host: SurfaceHost) {
     if (target === "list-preview" && host.hasWiredPreview?.()) throw new ActionRefused("the select wire places these children in its preview tile · tile.move moves that tile");
-    const place = target === "edit-preview" ? (this.draft?.preview ? this.editPreview.place : null) : target === "list-preview" ? this.listPreview.place : target === "comment" ? this.session?.place : this.sourcesMode?.place;
+    const place = target === "settings" ? this.panel?.card?.place : target === "edit-preview" ? (this.draft?.preview ? this.editPreview.place : null) : target === "list-preview" ? this.listPreview.place : target === "comment" ? this.session?.place : this.sourcesMode?.place;
     if (!place) throw new ActionRefused(`open ${target} first`);
     const control = this.session?.composer?.frame?.controls.find(c => c.action === "place");
     if (target === "comment" && !control) throw new ActionRefused("write a comment in a reader at least 28 columns wide to show its placement chip");
     const sm = this.sourcesMode;
     const chip = target === "comment"
       ? { col: control!.from, row: control!.row + (place === "tile" ? 0 : this.drawn?.heroRows ?? 0) }
+      : target === "settings" ? { col: this.panel!.card!.rect.col + this.panel!.card!.rect.cols - width(`[${place} ▸]`), row: this.panel!.card!.rect.row }
       : target === "edit-preview" ? { col: this.editPreview.rect!.col + this.editPreview.rect!.cols - `[${place} ▸]`.length, row: this.editPreview.rect!.row }
       : target === "list-preview" ? { col: this.listPreview.rect!.col + this.listPreview.rect!.cols - `[${place} ▸]`.length, row: this.listPreview.rect!.row }
       : { col: sm!.rect.x + sm!.rect.w - `[${place} ▸]`.length, row: sm!.rect.y };
     const list = new ListPicker<AttachedPlace, SurfaceHost>({
-      name: "placement", items: () => ATTACHED_PLACES.filter(p => p !== "tile" || !!(target === "edit-preview" ? host.editPreviewTile : target === "list-preview" ? host.listPreviewTile : target === "comment" ? host.composerTile : host.sourcesTile)),
+      name: "placement", items: () => ATTACHED_PLACES.filter(p => p !== "tile" || !!(target === "settings" ? host.settingsTile : target === "edit-preview" ? host.editPreviewTile : target === "list-preview" ? host.listPreviewTile : target === "comment" ? host.composerTile : host.sourcesTile)),
       row: (p, _i, on, w) => [menuRow({ label: p }, p === place ? "current" : on, w)], clickChooses: true, wraps: true,
       choose: p => { void this.runKey("placement.choose", { place: p }, host); },
       closed: () => { void this.runKey("placement.close", {}, host); },
@@ -7470,13 +7422,13 @@ export class NoteSurface {
     const chosen = place ?? m.list.items[m.list.sel]!;
     if (direction) this.splitAttachment(m.target, direction, undefined, host);
     this.closePlacement(host);
-    return m.target === "edit-preview" ? this.placeEditPreview(chosen, host) : m.target === "list-preview" ? this.placeListPreview(chosen, host) : m.target === "sources" ? this.placeSources(chosen, undefined, host) : this.runKey("comment.place", { place: chosen }, host);
+    return m.target === "settings" ? this.runKey("settings.place", { place: chosen }, host) : m.target === "edit-preview" ? this.placeEditPreview(chosen, host) : m.target === "list-preview" ? this.placeListPreview(chosen, host) : m.target === "sources" ? this.placeSources(chosen, undefined, host) : this.runKey("comment.place", { place: chosen }, host);
   }
 
-  private withPlacementMenu(view: SurfaceView, w: number, h: number, where: "reader" | "comment" | "sources" | "list-preview" | "edit-preview"): SurfaceView {
+  private withPlacementMenu(view: SurfaceView, w: number, h: number, where: "reader" | "comment" | "sources" | "list-preview" | "edit-preview" | "settings"): SurfaceView {
     const m = this.placementMenu;
     if (!m) return view;
-    const place = m.target === "edit-preview" ? this.editPreview.place : m.target === "list-preview" ? this.listPreview.place : m.target === "comment" ? this.session?.place : this.sourcesMode?.place;
+    const place = m.target === "settings" ? this.panel?.card?.place : m.target === "edit-preview" ? this.editPreview.place : m.target === "list-preview" ? this.listPreview.place : m.target === "comment" ? this.session?.place : this.sourcesMode?.place;
     if ((place === "tile" ? m.target : "reader") !== where) return view;
     const frame = view.frame ?? { col: 0, row: 0, cols: w, rows: h };
     this.menuOffset = frame;
@@ -7513,7 +7465,7 @@ export class NoteSurface {
       const was = P.answer?.sources[P.open ?? -1]?.key;
       P.answer = await host.ctx.board.siteSources(P.block);
       const { schemas } = await host.ctx.board.componentSchemas();
-      for (const source of P.answer.sources) if (source.kind === "figure") {
+      for (const source of P.answer.sources) if (source.query.editable) {
         const props = schemas.find(x => x.id === source.name)?.props.filter(x => x.where === "yaml") ?? [];
         for (const p of props) if (!source.query.params.some(x => x.key === p.key)) source.query.params.push({ key: p.key, value: p.default ?? "" });
       }
@@ -7669,7 +7621,7 @@ export class NoteSurface {
     const mode = this.sourcesMode;
     if (!mode) throw new ActionRefused("S opens the Sources inspector");
     this.modes.focus(mode, on);
-    if (on) host.enterMode?.();
+    if (on) { this.attachedKeys("sources"); host.enterMode?.(); }
     host.redraw();
     return { keys: on ? "sources" : "reader" };
   }
@@ -8531,6 +8483,8 @@ export class NoteSurface {
       return;
     }
     const float = this.floatAt(x, y, host);
+    const card = this.panel?.card;
+    if (float === "panel" && card?.place === "floating" && card.frame) { const zone = frameZone(card.frame, x, y); if (zone) { this.frameDrag = { target: "settings", zone, x, y, from: card.frame }; return; } }
     const ep = this.editPreview;
     if (float === "draft" && this.draft?.preview && ep.place === "floating" && ep.frame) {
       const zone = frameZone(ep.frame, x, y);
@@ -8609,7 +8563,7 @@ export class NoteSurface {
       void this.runKey("attachment.split", { target: s.target, share: 1 - (s.beside ? x / s.w : y / s.h) }, host);
       return;
     }
-    if (this.frameDrag?.target === "sources" || this.frameDrag?.target === "edit-preview") { this.dragFrame(x, y, host); return; }
+    if (this.frameDrag?.target === "settings" || this.frameDrag?.target === "sources" || this.frameDrag?.target === "edit-preview") { this.dragFrame(x, y, host); return; }
     const sm = this.sourcesMode;
     if (sm?.view.pressed) { void this.runKey("sources.select", { phase: "drag", row: Math.max(0, y - sm.rect.y - 1) + sm.view.top, col: Math.max(0, x - sm.rect.x) }, host); return; }
     if (this.replyLinks?.dragFrom) { this.gesture.drag(x, y); return; }
@@ -8663,7 +8617,7 @@ export class NoteSurface {
     }
     if (this.placementMenu) return this.modes.click(x, y, host) ?? false;
     if (this.splitDrag) { this.splitDrag = null; host.redraw(); return true; }
-    if (this.frameDrag?.target === "sources" || this.frameDrag?.target === "edit-preview") { this.frameDrag = null; host.redraw(); return true; }
+    if (this.frameDrag?.target === "settings" || this.frameDrag?.target === "sources" || this.frameDrag?.target === "edit-preview") { this.frameDrag = null; host.redraw(); return true; }
     if (this.listEditor.field && this.listEditor.pressed) {
       const selected = this.listEditor.editorPressed && !!this.listEditor.field.session.draft.selectedText();
       const gesture = this.gesture.release(x, y);
@@ -9808,7 +9762,7 @@ export const SESSION_ACTIONS: Record<SessionKind, { name: "note.thread" | "note.
 
 /** Each action's arguments. */
 export type NoteActionArgs = ArgsOfSet<typeof NOTE_ACTIONS>;
-type ListActionName = keyof ArgsOfSet<typeof LISTVIEW_ACTIONS> & string;
+export type ListActionName = keyof ArgsOfSet<typeof LISTVIEW_ACTIONS> & string;
 
 const STEP_ARGS = {
   n: { type: "number", optional: true, about: "which step, from 1, as tasks lists them (in the note and inside its embeds)" },
@@ -9828,7 +9782,7 @@ const IMAGE_ARGS = {
 
 const FOLD_ARGS = {
   text: { type: "string", optional: true, about: "a heading's, list item's or callout's text (## optional; a unique start is enough)" },
-  line: { type: "number", optional: true, about: "a line of the note (1 is the subject): the heading or item on it, or else the innermost one around it" },
+  line: { type: "number", optional: true, about: "a source line of the note (1 is the subject): its fold point, or the innermost one around it; several from one template call: use n from folds" },
   n: { type: "number", optional: true, about: "which fold point, from 1, as folds lists them" },
 } as const;
 type FoldArgs = ArgsOf<typeof FOLD_ARGS>;
@@ -9852,7 +9806,9 @@ function foldPointIn(surface: NoteSurface, m: Msg, { text, line, n }: FoldArgs):
   if (line !== undefined) {
     const at = lines.indexOf(line - 1);
     if (at < 0) throw new ActionRefused(line === 1 ? "line 1 is the subject; it doesn't fold" : `line ${line} isn't part of the note's readable body (it's past the end, or holds only properties)`);
-    const p = points.find(p => p.line === at) ?? points.filter(p => p.line < at && at < p.end).at(-1);
+    const hits = points.filter(p => p.line === at);
+    if (hits.length > 1) throw new ActionRefused(`line ${line} has ${hits.length} fold points (${listed(hits)}); pass n= from folds to select one`);
+    const p = hits[0] ?? points.filter(p => p.line < at && at < p.end).at(-1);
     if (!p) throw new ActionRefused(`line ${line} isn't a heading or a list item with nested lines, nor inside one; the note's are: ${listed(points)}`);
     return p;
   }
@@ -10768,7 +10724,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "edit.insert": def({
     summary: "insert text on its own line at the note cursor; a reader saves it, an open draft keeps it unsaved; either is one undo step",
     touches: "draft", draft: "type", replay: "ask",
-    args: { text: { type: "string", about: "the line to insert" } },
+    args: { text: { type: "string", about: "the line to insert" } }, examples: [{ act: 'edit.insert text="Order the seed potatoes"', does: "puts that line into the note at the cursor, saved unless a draft is open" }],
     run: ({ text }, { surface, host }, actor) => insertNoteLine(text, surface, host, actor),
   }),
   "edit.text": def({
@@ -11019,7 +10975,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     ],
     async run({ n, by, row }, { surface, host }, actor) {
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("say n= (an element, 0 lets go) or by=1 / by=-1");
-      if (n === 0) { surface.letGo(); host.redraw(); return { current: null }; }
+      // Letting go of a collection's row (esc) ends the peek that followed it, as leaving a list did (PIE-849, PIE-1501).
+      if (n === 0) { if (collectionAtCursor(surface)) host.retirePeeks?.(USER); surface.letGo(); host.redraw(); return { current: null }; }
       if (by !== undefined) {
         if (!surface.step(by < 0 ? -1 : 1)) throw new ActionRefused("nothing to step to: this note has no links, folds, figure rows, embeds, resource projections or comments");
         surface.previewRow(host);
@@ -11608,10 +11565,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "placement.menu": def({
     summary: "choose where the attachment sits; the current placement is marked",
     keys: "click the placement chip", touches: "tile", person: "the placement belongs to the person", replay: "ask",
-    args: { target: { type: "string", about: "comment, sources, list-preview or edit-preview" } },
+    args: { target: { type: "string", about: "comment, sources, list-preview, edit-preview or settings" } },
     examples: [{ act: "placement.menu target=sources", does: "opens the Sources placement menu" }],
     run({ target }, { surface, host }) {
-      if (target !== "comment" && target !== "sources" && target !== "list-preview" && target !== "edit-preview") throw new ActionRefused("target is comment, sources, list-preview or edit-preview");
+      if (target !== "comment" && target !== "sources" && target !== "list-preview" && target !== "edit-preview" && target !== "settings") throw new ActionRefused("target is comment, sources, list-preview, edit-preview or settings");
       return surface.openPlacementMenu(target, host);
     },
   }),
@@ -11637,10 +11594,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "attachment.split": def({
     summary: "size an attached surface split, or choose beside versus below", keys: [{ keys: "drag", does: "the split divider" }, { via: "placement menu beside/below" }],
     touches: "tile", person: "the split belongs to the person", replay: "ask",
-    args: { target: { type: "string", about: "comment, sources, list-preview or edit-preview" }, direction: { type: "string", optional: true, about: "right or down" }, share: { type: "number", optional: true, about: "attachment share of the reader, .15 to .85" } },
+    args: { target: { type: "string", about: "comment, sources, list-preview, edit-preview or settings" }, direction: { type: "string", optional: true, about: "right or down" }, share: { type: "number", optional: true, about: "attachment share of the reader, .15 to .85" } },
     examples: [{ act: "attachment.split target=sources direction=down share=0.4", does: "puts the sources split below the note with forty percent of its height" }],
     run({ target, direction, share }, { surface, host }) {
-      if (target !== "comment" && target !== "sources" && target !== "list-preview" && target !== "edit-preview") throw new ActionRefused("target is comment, sources, list-preview or edit-preview");
+      if (target !== "comment" && target !== "sources" && target !== "list-preview" && target !== "edit-preview" && target !== "settings") throw new ActionRefused("target is comment, sources, list-preview, edit-preview or settings");
       return surface.splitAttachment(target, direction, share, host);
     },
   }),
@@ -11650,7 +11607,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (_, { surface, host }) => surface.gripSources(host),
   }),
   "sources.move": def({
-    summary: "move or size the floating Sources panel inside its reader", keys: "drag its header or corner; ctrl+g then arrows or shift+arrows",
+    summary: "move or size the floating Sources panel inside its reader", keys: "drag its header or corner; ctrl+g then arrows or shift+arrows; 0 its usual place",
     touches: "tile", person: "the panel belongs to the person", replay: "ask", args: FLOAT_MOVE_ARGS,
     examples: [{ act: "sources.move dx=2 dy=-1", does: "moves floating sources right and up" }],
     run: (args, { surface, host }) => surface.moveSources(args, host),
@@ -11726,7 +11683,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.move": def({
     summary: "move or size the floating comment being written (PIE-785): dx dy step it (columns, rows), col row put its corner there, dcols drows or cols rows size it (the reader's cells); reset=true puts it back in its usual place beside the passage. Moving it never changes the passage it's on. For this sitting only: never kept, so a comment opened again (or read later) is in its usual place",
-    keys: "drag its top edge (≡ move), drag its ◢ corner or edges; ctrl+g then arrows (shift: size)",
+    keys: "drag its top edge (≡ move), drag its ◢ corner or edges; ctrl+g then arrows (shift: size); 0 its usual place",
     touches: "draft", draft: "type", replay: "ask",
     args: FLOAT_MOVE_ARGS,
     examples: [
@@ -12228,15 +12185,15 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "reading.step": def({
     summary: "move within a live figure or links list by rows, keeping its boundary until Esc; elsewhere move the reading line by logical blocks, a screen at a time in a tall block",
     touches: "tile", replay: "safe", person: "the reading position belongs to the person", keys: "↑ ↓ j k",
-    args: { by: { type: "number", about: "1 next block, -1 previous block" } },
+    args: { by: { type: "number", about: "1 next block, -1 previous block" }, through: { type: "boolean", optional: true, about: "on a collection's block: walk past it instead of into it (j or k at its edge)" } },
     examples: [
       { act: "reading.step by=1", does: "moves the reading line to the next block of the note" },
       { act: "reading.step by=-1", does: "moves the reading line back to the previous block" },
     ],
-    run({ by }, { surface, host }) {
+    run({ by, through }, { surface, host }) {
       surface.requireNote();
       if (by !== 1 && by !== -1) throw new ActionRefused("by is 1 or -1");
-      surface.stepReading(by); surface.previewRow(host); host.redraw();
+      surface.stepReading(by, !!through, host); surface.previewRow(host); host.redraw();
       return { position: surface.position.reading };
     },
   }),

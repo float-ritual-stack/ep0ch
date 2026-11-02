@@ -217,7 +217,7 @@ export type EmbedBody = (target: Msg, part: { text: string; startLine: number } 
  * body the way the reader does. With a sink, the title, a view's results, the links in the embedded text
  * and its step boxes are tagged, so `[ ]` stops on them and a click acts on them (PIE-415, PIE-441, PIE-472).
  */
-export function embedRegion(id: string, fragment: string | undefined, n: number, w: number, src: Source | null | undefined, body: EmbedBody, sink?: LinkTarget[], host = "", list?: InlineListDraw, span?: { note: Msg; startLine: number; endLine: number; task: (line: number, box: string) => string | null }, blocks?: LinkBlocksEnv): string[] {
+export function embedRegion(id: string, fragment: string | undefined, n: number, w: number, src: Source | null | undefined, body: EmbedBody, sink?: LinkTarget[], host = "", list?: InlineListDraw, span?: { note: Msg; startLine: number; endLine: number; task: (line: number, box: string) => string | null }, blocks?: LinkBlocksEnv, bodyOnly = false): string[] {
   const S = (line: string) => shade(line, w);
   if (span) {
     const source = span.note.text.split("\n"), depth = quoteDepth(source[span.startLine - 1] ?? "").depth;
@@ -231,7 +231,7 @@ export function embedRegion(id: string, fragment: string | undefined, n: number,
   }
   if (n >= MAX_EMBEDS) return [S(fg(C.lred) + `${shortRef(id, fragment)} · EMBED LIMIT · maximum ${MAX_EMBEDS}` + RESET)];
   const st = embedState(id, fragment, src, host);
-  if (st.kind === "node") return nodeRegion(st.node, st.views, w, body, sink, list, blocks, `embed:${host}:${n}:${refOf(id, fragment)}`);
+  if (st.kind === "node") return nodeRegion(st.node, st.views, w, body, sink, list, blocks, `embed:${host}:${n}:${refOf(id, fragment)}`, bodyOnly);
   if (st.kind === "loading") return [S(fg(C.dark) + `${shortRef(id, fragment)} · reading…` + RESET)];
   return [S(fg(C.lred) + `${shortRef(id, fragment)} · TARGET FAILED · ${printable(st.error)}` + RESET)];
 }
@@ -299,7 +299,7 @@ export function viewResults(m: Msg, w: number, _src: Source | null | undefined, 
  * body renderer, a nested embed inside it by this again (so it sits one gutter further in), and each step
  * the service found in what's shown gets its status control.
  */
-function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRead>, w: number, body: EmbedBody, sink: LinkTarget[] | undefined, list?: InlineListDraw, blocks?: LinkBlocksEnv, key?: string): string[] {
+function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRead>, w: number, body: EmbedBody, sink: LinkTarget[] | undefined, list?: InlineListDraw, blocks?: LinkBlocksEnv, key?: string, bodyOnly = false): string[] {
   const S = (line: string) => shade(line, w);
   const ref = shortRef(node.blockId, node.fragmentId);
   if (node.status !== "ready" || !node.block) {
@@ -323,7 +323,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
     return list ? list(rows, w) : rows;
   }
   const title = printable(node.title ?? headedTitle(target));
-  const out = [heading(id, node.fragmentId, node.fragmentId ? `» ${title} ^${node.fragmentId}` : `» ${title}`, w, sink, C.dark, !node.fragmentId && isOpenProposal(target) ? target : null)];
+  const out = bodyOnly ? [] : [heading(id, node.fragmentId, node.fragmentId ? `» ${title} ^${node.fragmentId}` : `» ${title}`, w, sink, C.dark, !node.fragmentId && isOpenProposal(target) ? target : null)];
   // The embeds inside, matched to the service's list by what they name, in order.
   const children = new Map<string, TransclusionNode[]>();
   for (const e of node.embeds ?? []) { const k = refOf(e.blockId, e.fragmentId); children.set(k, [...(children.get(k) ?? []), e]); }
@@ -339,6 +339,6 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
     return LINK_ON + tagged(sink, { role: "task", block: id, task: { block: id, revision: node.revision, step, via: ref } }, box) + LINK_OFF;
   };
   const part = node.fragment ? { text: node.fragment.text, startLine: node.fragment.startLine } : null;
-  for (const l of body(target, part, Math.max(4, w - 2), { embed, task })) out.push(S(" " + l));
+  for (const l of body(target, part, Math.max(4, w - (bodyOnly ? 0 : 2)), { embed, task })) out.push(bodyOnly ? l : S(" " + l));
   return out;
 }

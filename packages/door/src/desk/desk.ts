@@ -456,7 +456,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return this.ownTile(r, "sources", on, true, side);
   }
   /** Tile `p`'s attachment in a tile of its own (a facets tile's Matches, PIE-1443): the reader's attached tiles, any owner. */
-  attachedTile(p: Pane, attachment: "matches", on: boolean, side?: Dir): Promise<unknown> { return this.ownTile(p, attachment, on, false, side); }
+  attachedTile(p: Pane, attachment: "matches" | "settings", on: boolean, side?: Dir): Promise<unknown> { return this.ownTile(p, attachment, on, attachment === "settings", side); }
   private async ownTile(r: Pane, attachment: AttachedKind, on: boolean, keys: boolean, side?: Dir): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     if (at === undefined) return null;
@@ -4868,7 +4868,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
   }
 
-  /** What this desk's hint row says now, before the row fits it (the focused tile's keys, or the mode it is in). */
+  /** The focused tile's keys, or its current mode, before the hint row fits them. */
   private hintText(): string {
     const rd = this.panes.get(this.focus);
     // A source's model says the screen's hint its way (the board's: a card trashed before it, its status after).
@@ -4910,7 +4910,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
-        : this.specHint() ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
+        : (rd?.claims?.({ kind: "tab" }) && !this.contentCover(this.focus).fold ? `|08 ${rd.title()}` : this.specHint()) ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
     return line(paint(s));
   }
 
@@ -7382,17 +7382,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   floatingTiles() { return this.floats.map(f => ({ tile: this.tileId(f.id), name: this.nameOf(f.id), pane: this.panes.get(f.id)!, rect: keepOnScreen(f.rect, this.area) })); }
-  hoverAt(x: number, y: number): { desk: Desk; tile: string; target?: import("../refs").LinkTarget; text?: string; rect: Rect } | null {
+  hoverAt(x: number, y: number): { desk: Desk; tile: string; target?: import("../refs").LinkTarget; collection?: import("../surface/list-view").ListView; text?: string; rect: Rect } | null {
     const hit = this.hits.find(([, r]) => x >= r.col && y >= r.row && x < r.col + r.cols && y < r.row + r.rows);
     if (!hit) return null;
     const [id, r] = hit, p = this.panes.get(id), at = this.origin(id, r);
     if (p instanceof ScreenTile) return p.inner?.hoverAt(x - at.col, y - at.row) ?? null;
     const reader = p instanceof ReaderPane ? p : null, h = reader?.surface.hoverAt(x - at.col, y - at.row);
-    const cut = !h ? this.ctx.overflow?.targetAt(x + this.screenOrigin.col, y + this.screenOrigin.row) : null;
-    return h ? { desk: this, tile: this.nameOf(id), target: { ...reader!.noteAddress, ...h.target }, rect: { ...h.rect, col: h.rect.col + at.col + this.screenOrigin.col, row: h.rect.row + at.row + this.screenOrigin.row } } : cut ? { desk: this, tile: this.nameOf(id), ...cut } : null;
+    // A cut-short value in the tile's content or its header title; other frame rows (bottom border, hint row) are chrome and never answer (PIE-1499).
+    const cut = !h && (this.inBody(id, r, x, y) || y === r.row) ? this.ctx.overflow?.targetAt(x + this.screenOrigin.col, y + this.screenOrigin.row) : null;
+    return h ? { desk: this, tile: this.nameOf(id), ...(h.target ? { target: { ...reader!.noteAddress, ...h.target } } : {}), collection: h.collection, rect: { ...h.rect, col: h.rect.col + at.col + this.screenOrigin.col, row: h.rect.row + at.row + this.screenOrigin.row } } : cut ? { desk: this, tile: this.nameOf(id), ...cut } : null;
   }
   async hoverInto(tile: string, m: Msg): Promise<boolean> { return !!this.placeNote(m, { from: this.tile(tile).id, verb: "hover", note: m.id, keys: false }, USER); }
-
   /** `float.place`: move or size a float, kept on the screen. */
   placeFloat(sel: string | undefined, a: { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }, actor: Actor): TileDone {
     const t = sel ? this.tile(sel) : null;
@@ -8442,7 +8442,7 @@ export interface TileLine {
 export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[]; agents?: AgentLevel; fold?: Fold }
 /** A link whose far end is on another desk of the family (a group's tile and one outside it): its pane, or its path until it is found. */
 /** What a tile's attachment is: a reader's comment, Sources, list or edit preview; a facets tile's Matches (PIE-1443). */
-type AttachedKind = "comment" | "sources" | "list-preview" | "edit-preview" | "matches";
+type AttachedKind = "comment" | "sources" | "list-preview" | "edit-preview" | "matches" | "settings";
 
 export interface ExtLink { pane?: Pane; path?: string; verb: WireVerb; rule?: AltRule; found?: boolean }
 

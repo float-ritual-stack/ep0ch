@@ -8,15 +8,22 @@ import { deskOf, type Section } from "./showcase";
 export const COLLECTION_SECTIONS: Section[] = [
   PEEK_SECTION, GLASS_SECTION,
   {
+    key: "quiet-collection", need: "read what is waiting, with controls quiet until wanted",
+    part: "the collection's own header and footer, ListView's title and pick, and the existing settings card",
+    files: "src/collections.ts, src/surface/list-view.ts, src/surface/settings-card.ts",
+    aside: "two notes with type and ticket properties, each keeping its title · hover to reveal one control row · click a note to pick it, arrows or j k move the light (no mode: the [ ] position is the pick), Enter opens · comma or ≡ opens settings · Esc lets go, as of any element · the wheel scrolls the note over it · choose feed to read the notes' callouts, bold, headings and resolved values · Esc, then S lists the collection's query, layout, count and read time; r asks again · try at 44 and 120 columns",
+    stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · quiet collection", panes: [r], names: ["garden"] }, show, [[r, n.collectionQuiet]]); },
+  },
+  {
     key: "collection-tune", need: "tune a collection over its view without editing the source",
-    part: "the existing SettingsCard over VIEW, toggle and pick-order BarQuestions over the matched rows' facets, binding.set at the read revision",
+    part: "SettingsCard over VIEW in the reader's attached surface (ADR 0007), toggle and pick-order BarQuestions over the matched rows' facets, binding.set at the read revision",
     files: "src/surface/settings.ts, src/surface/settings-card.ts, src/surface/binding.ts, src/bar/ask.ts, src/desk/settings.ts",
-    aside: "press , over the garden · toggle board on and table off · Sort: J/K reorder · summary-properties: space hides owner · the view redraws under the card and its source keeps the keys · an agent writes the same keys without taking your focus",
+    aside: "press , over the garden · ctrl+o or the placement chip offers inline, floating, split, popup and its own tile · choose split and toggle board on: the view redraws beside the card · a long query wraps in its field · ctrl+g moves a float or tile · Esc returns to the picked row · Esc again lets go, then S opens Sources alongside · Sort: J/K reorder · summary-properties: space hides owner · an agent writes the same keys without taking your focus",
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · collection settings", panes: [r], names: ["garden"] }, show, [[r, n.collectionTune]]); },
   },
   {
     key: "collection", need: "draw a saved query as a table, gallery, feed or board, inline too", part: "VIEW schema → site.answer → list primitive → ListView over RowView", files: "src/collections.ts, src/surface/list-view.ts, outline-core/src/view-spec.ts, outliner/src/site-producers.ts",
-    aside: "one garden record, four layouts · enter the list then tab changes layouts; click a table header to cycle sort · j k pick; Enter opens · / filters with the query grammar · act list.layout layout=board, list.group by=area,owner, list.sort by=owner · NONE is last · a narrow table becomes record cards, a narrow board offers lane tabs · the saved note's keys and inline ::view blocks are the same record",
+    aside: "one garden record, four layouts in one control row · click a layout or table header to change layout or sort · arrows or j k pick the lit row, h l cross columns or lanes, H L cross groups, PgUp PgDn turn pages; Enter opens; Esc lets go; comma tunes; the wheel scrolls its rows first, then the note (PIE-1501) · feed draws the notes through the reader · / filters with the query grammar · act list.layout layout=board, list.group by=area,owner, list.sort by=owner · NONE is last · a narrow table becomes named record cards, a narrow board offers lane tabs · Tab out, then S explains the collection and r asks again",
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · collection", panes: [r], names: ["garden"] }, show, [[r, n.collection]]); },
   },
   {

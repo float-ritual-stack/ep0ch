@@ -1,6 +1,7 @@
 import type { RequestInput } from "./client";
 import { listLiveClients, requireUniqueClientId, sendClientCommand } from "./client-target";
 import { blockDisplayTitle } from "./references";
+import { headedTitle, workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { prepareSearchQuery, scoreSearchDocument, searchMemo, type SearchMatchKind, type SearchQuery } from "@ep0ch/outline-core/search-match";
 import type { Block, WorkspaceSnapshot } from "./types";
 
@@ -35,9 +36,17 @@ export interface BlockFocusResult {
 const displayTitle = searchMemo(text => blockDisplayTitle({ id: "", text } as Block));
 // `blockDisplayTitle` falls back to the id for a note without a first line.
 const titleOf = (block: Block) => displayTitle(block.text) || block.id;
+// The title as drawn, a work id heading it (`PIE-1162 · A dock…`), or null for a note without one.
+const headed = searchMemo(text => { const id = workIdOf({ text }); return id ? headedTitle(displayTitle(text), id) : ""; });
 
+/**
+ * A note scores on its own title and, when a work id heads it, on the title as drawn too, the better rung winning:
+ * `pie` and `PIE-11` reach the tickets by title (PIE-1497), and a ticket's own words still match its title exactly.
+ */
 function scoreBlock(block: Block, query: SearchQuery): BlockFocusMatch | null {
-  const match = scoreSearchDocument({ id: block.id, title: titleOf(block), text: block.text }, query);
+  const own = scoreSearchDocument({ id: block.id, title: titleOf(block), text: block.text }, query);
+  const drawn = headed(block.text), asDrawn = drawn ? scoreSearchDocument({ id: block.id, title: drawn, text: block.text }, query) : null;
+  const match = asDrawn && (!own || asDrawn.score > own.score) ? asDrawn : own;
   return match ? { block, kind: match.kind, score: match.score, title: match.title, inTitle: match.inTitle, ...(match.edits !== undefined ? { edits: match.edits } : {}) } : null;
 }
 

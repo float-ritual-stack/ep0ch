@@ -56,6 +56,7 @@ Pi/OMP users can invoke `/outliner`; supported coding clients can use the projec
 
 ## Source boundaries
 
+- `src/site-producers.ts` owns collection answers and their `collectionSource` description (query, layout, rows and read time). `site-sources.ts` uses it for saved and inline collections; inspectors draw that answer.
 - `src/link.ts`, `link-streams.ts`, `link-frame.ts` and `link-install.ts` own the outbound machine transport. They expose the existing shared forward socket, reuse `machine.ts`'s lock and `extension-secrets.ts`'s key storage, and never interpret outline requests. `link-install.ts` keeps the desired install SHA and receipts; the door calls its existing installer and deploy-record writer. See [Outbound machine links](docs/machine-link.md).
 
 The pinned Pi TUI patch in `patches/` supplies rendered lines and exact normalized
@@ -148,6 +149,10 @@ source evidence or distinguish authored glyphs from controls.
 - `block-record.ts` in outline-core is the block-as-a-record shape (PIE-534, for
   PIE-533) and its one builder; `src/block-records.ts` builds records from the
   service's own reads (`blocks.records`), and every consumer reads that shape.
+  Agent reads request `includeTrashed: true` so a note can be read before restoring it;
+  ordinary record reads report trashed ids as unavailable.
+- Figure child rows share outline-core's `figureChildRows` in `figure-props.ts`:
+  the door, publisher and `site.sources` parse the children from `site.answer` identically.
 - `src/view-writes.ts` owns what a write into a saved view must change
   (`views.planWrite`): the property patch that moves a block into a view, or the
   properties, text or roadmap-item input a new block there is born with, and the

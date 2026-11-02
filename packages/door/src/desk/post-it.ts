@@ -18,9 +18,9 @@ export const textNote = (text: string): Msg => ({ id: `glass:${text}`, text, par
 export const readPostIt = async (ctx: Ctx, ref: string): Promise<Msg> => ref.startsWith("glass:") ? textNote(ref.slice(6)) : await readNote(ctx, ref) ?? textNote(ref);
 
 export const POST_IT_KEYS = keyTable("post-it", "flip a post-it's hover history", [
-  { key: "left", action: "postit.flip", args: { by: -1 }, label: "back" },
-  { key: "p", action: "postit.stick", label: "sticky" },
-  { key: "right", action: "postit.flip", args: { by: 1 }, label: "forward" },
+  { key: "left", action: "postit.flip", args: { by: -1 }, label: "back", says: "flip back to the hover before this one" },
+  { key: "p", action: "postit.stick", label: "sticky", says: "keep this post-it until it is dismissed, or let it close again" },
+  { key: "right", action: "postit.flip", args: { by: 1 }, label: "forward", says: "flip forward to the hover after this one" },
   { key: "alt+E", action: "postit.peel", label: "peel" },
   { key: "alt+X", action: "postit.drop", label: "drop" },
 ] satisfies ModeKey[]);
@@ -72,6 +72,7 @@ export const POST_IT_ACTIONS = actionSet<KindHost>()("post-it", {
   "postit.flip": def({
     summary: "flip through this post-it's hover history without moving its rectangle", keys: "left right, wheel over the title, click ◂ ▸",
     touches: "tile", replay: "safe", args: { by: { type: "number", about: "negative goes back, positive goes forward" } },
+    examples: [{ act: "postit.flip by=-1", does: "shows the hover before this one" }],
     async run({ by }, { pane, desk }, actor) {
       const p = pane as PostIt, direction = by < 0 ? -1 : 1;
       if (p.surface.travelsHere(direction)) {
@@ -83,6 +84,7 @@ export const POST_IT_ACTIONS = actionSet<KindHost>()("post-it", {
   "postit.stick": def({
     summary: "keep this post-it until it is dismissed, or let it close after the pointer leaves", keys: "p, click ◇ ◆",
     touches: "tile", replay: "safe", args: { on: { type: "boolean", optional: true, about: "sticky; left out toggles" } },
+    examples: [{ act: "postit.stick on=true", does: "keeps this post-it until it is dismissed" }],
     run({ on }, { pane, desk }) { const p = pane as PostIt; p.sticky = on ?? !p.sticky; desk.keepLayout?.(); desk.redraw(); return { sticky: p.sticky }; },
   }),
   "postit.peel": def({
@@ -106,6 +108,7 @@ export const POST_IT_ACTIONS = actionSet<KindHost>()("post-it", {
   "postit.shelve": def({
     summary: "move this post-it's shown reference onto a shelf", keys: "drag onto a shelf", touches: "shape", replay: "safe",
     args: { shelf: { type: "string", kind: "tile", about: "the shelf's name or id" } },
+    examples: [{ act: "postit.shelve shelf=chores", does: "moves what this post-it shows onto the chores shelf" }],
     says: r => `shelved on ${r.name}`,
     async run({ shelf }, { pane, desk }, actor) { return desk.ctx.glass!.shelvePostIt(pane as PostIt, desk, shelf, actor); },
   }),

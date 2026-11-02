@@ -59,7 +59,7 @@ import { argKind } from "../bar/arg-kinds";
 import { Gesture, Selection, rowsOf, selectText } from "./selection";
 import { visible, width as cells } from "../style";
 import { JEV_PAUSE_MS, SearchSchedule, SearchTurn, TYPING_PAUSE_MS } from "../search-schedule";
-import { QUERY_WORDS_PAUSE_MS, type QueryWords } from "@ep0ch/outline-core/query-words";
+import { QUERY_WORDS_PAUSE_MS, readsAsQuery, type QueryWords } from "@ep0ch/outline-core/query-words";
 
 /** At most this many candidates per lookup, as in the outliner. */
 export const COMPLETION_LIMIT = 20;
@@ -478,7 +478,9 @@ export class Completer {
       if (host && actLineArgs(line.slice(0, f.col), host)) return { kind: "button-step", start: 0, end: wordEnd(line, f.col), query: line.slice(0, f.col) };
       const ask = askTargetAt(line, f.col) ?? completionTargetAtCursor(line, f.col, f.lines, f.row);
       if (ask || c.grammar === "act" || line.startsWith("@") || line.startsWith("outline:")) return ask;
-      return { kind: "query", start: 0, end: line.length, query: line.slice(0, f.col), where: c.where };
+      // Plain words search notes by their titles, with nothing over the results (PIE-1497): the query-words offer waits
+      // for a line that reads as a query (`key=`, AND/OR/NOT, `by:`); the bar's `=` scope is a `query` line outright.
+      return readsAsQuery(line) ? { kind: "query", start: 0, end: line.length, query: line.slice(0, f.col), where: c.where } : null;
     }
     // `/` at a line's start in a note's own edit: the actions that apply here, then their arguments (PIE-1076). Past a
     // real action's name the line is its arguments' even where a value starts `[[` (the sigil's rows, quoted for act).

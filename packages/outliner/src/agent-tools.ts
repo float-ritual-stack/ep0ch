@@ -33,7 +33,7 @@ import { randomUUID } from "node:crypto";
 import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
 import { createBlockComment } from "./block-comments";
-import { matchFacts, resourceTextRevision, type BlockRevisions } from "@ep0ch/outline-core/protocol";
+import { matchFacts, resourceTextRevision } from "@ep0ch/outline-core/protocol";
 import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } from "./resource-references";
 import { resourceCommentSource } from "./resource-comments";
 import type { ResourceDescription } from "./resources";
@@ -44,7 +44,6 @@ import { isPropertyKey } from "@ep0ch/outline-core/property-grammar";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { parseOutlinerLinkUri, resolveOutlinerLinkTarget, type OutlinerLinkTarget } from "./outliner-links";
 import { blockDisplayTitle } from "./references";
-import { textRecord } from "./block-records";
 import type { SiteAnswer } from "@ep0ch/outline-core/site";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
@@ -402,7 +401,8 @@ export async function readBlock(
   // The children's text in all, so a read of a large subtree never floods the caller: past it, `complete` is false.
   let chars = READ_CHILDREN_MAX_CHARS;
   const resolved = await resolveRef(client, input.ref);
-  const block = await client.request<Block>({ action: "get", blockId: resolved.id });
+  const { records } = await client.request<{ records: BlockRecord[] }>({ action: "blocks.records", ids: [resolved.id], includeTrashed: true });
+  const record = records[0]!;
   let budget = limit;
   let complete = true;
   // Blocks whose children this read doesn't reach: ask the service which have any, in one read.
@@ -433,24 +433,20 @@ export async function readBlock(
     return children;
   };
   let children: ReadChild[] = [];
-  if (depth > 0) children = await read(block.id, 1);
-  else await markMore([{ id: block.id, text: "", revision: block.revision }]);
-  const record = textRecord(block);
-  const site = await readSiteOf(client, block);
-  // Who last wrote it (its current revision's edit), as `updated` says when: the block's own author is who made it.
-  // Only the entry for the revision read: a write that lands between the two reads never lends its author to older text.
-  const saved = (await client.request<BlockRevisions>({ action: "block.revisions", blockId: block.id, latest: true }).catch(() => undefined))?.revisions.find(r => r.revision === block.revision);
-  const writer = saved?.author ? { author: saved.author, ...(saved.actorId ? { actorId: saved.actorId } : {}) } : { author: block.author, ...(block.actorId ? { actorId: block.actorId } : {}) };
+  if (depth > 0) children = await read(record.id, 1);
+  else await markMore([{ id: record.id, text: "", revision: record.revision }]);
+  const site = await readSiteOf(client, record);
   return {
     ...resolved,
-    title: blockDisplayTitle(block),
-    revision: block.revision,
-    text: block.text,
+    title: record.title,
+    revision: record.revision,
+    text: record.text,
     properties: record.properties,
     fields: record.fields,
-    ...writer,
-    updated: block.updatedAt,
-    parentId: block.parentId,
+    author: record.author as BlockAuthor,
+    ...(record.actor ? { actorId: record.actor } : {}),
+    updated: record.updated,
+    parentId: record.parent,
     children,
     complete,
     ...(site ? { site } : {}),
@@ -458,7 +454,7 @@ export async function readBlock(
 }
 
 /** The note's whole `site.answer` (bounded), for a note that holds a `{{ }}`; nothing when it holds none or the service can't answer. */
-async function readSiteOf(client: AgentToolsClient, block: Block): Promise<SiteAnswer | undefined> {
+async function readSiteOf(client: AgentToolsClient, block: Pick<Block, "id" | "text">): Promise<SiteAnswer | undefined> {
   if (!block.text.includes("{{") || !interpolationSpans(block.text).length) return undefined;
   try {
     const answer = await client.request<SiteAnswer>({ action: "site.answer", blockId: block.id });

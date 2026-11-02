@@ -108,7 +108,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
   }),
   "bar.edit": def({
     summary: "edit the power bar's shared line: clear, complete, paste, select, cut, delete-word or undo. An agent edits an unseen line supplied by query= and scope=",
-    keys: [{ keys: "esc", does: "with text in the line, clears it" }, { keys: "ctrl+u", does: "clear the line" }, { keys: "tab", does: "complete", says: "complete the word in the power bar's line" }, { keys: "paste", does: "paste into the line" }, { keys: "shift+left shift+right shift+up shift+down", does: "select", says: "select text in the power bar's line" }, { keys: "drag", does: "select" }, { keys: "double-click", does: "select" }, { keys: "ctrl+x", does: "cut", says: "cut the selection from the power bar's line" }, { keys: "ctrl+w", does: "delete a word" }, { keys: "ctrl+z", does: "undo", says: "undo the last change to the power bar's line; right after a typed line ran and its answer is kept, the run itself is taken back (the bar goes, layout.undo)" }],
+    keys: [{ keys: "esc", does: "with text in the line, clears it" }, { keys: "ctrl+u", does: "clear the line" }, { keys: "tab", does: "complete", says: "complete the word in the power bar's line, or put the lit action's next example in it" }, { keys: "paste", does: "paste into the line" }, { keys: "shift+left shift+right shift+up shift+down", does: "select", says: "select text in the power bar's line" }, { keys: "drag", does: "select" }, { keys: "double-click", does: "select" }, { keys: "ctrl+x", does: "cut", says: "cut the selection from the power bar's line" }, { keys: "ctrl+w", does: "delete a word" }, { keys: "ctrl+z", does: "undo", says: "undo the last change to the power bar's line; right after a typed line ran and its answer is kept, the run itself is taken back (the bar goes, layout.undo)" }],
     touches: "nothing", replay: "safe",
     args: {
       op: { type: "string", about: "clear, complete, paste, select, cut, delete-word or undo" },
@@ -120,7 +120,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     },
     examples: [
       { act: "bar.edit op=clear", does: "clears the power bar's line" },
-      { act: "bar.edit op=complete", does: "fills the next part of the lit row into the line, selected" },
+      { act: "bar.edit op=complete", does: "fills the next part of the lit row into the line, selected; a name alone takes its first example, then the next" },
     ],
     async run({ op, text, from, to, query, scope }, { on, standing }, actor: Actor) {
       if (!["clear", "complete", "paste", "select", "cut", "delete-word", "undo"].includes(op)) throw new ActionRefused("choose clear, complete, paste, select, cut, delete-word or undo");
@@ -172,6 +172,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     touches: "nothing", replay: "ask", person: "the question in the bar is the person's · an agent uses settings.set or settings.toggle",
     args: { op: { type: "string", choices: ["toggle", "move"], about: "toggle a choice or move it" },
       value: { type: "string", optional: true, about: "the choice; left out, the selected row" }, by: { type: "number", optional: true, about: "-1 earlier, 1 later" } },
+    examples: [{ act: "bar.question op=toggle value=due", does: "shows or hides the due choice in the open question" }, { act: "bar.question op=move by=-1", does: "moves the selected choice one earlier" }],
     async run({ op, value, by }, { on }) {
       const b = on.bar();
       if (!b || !liveQuestion()) throw new ActionRefused("no toggle or pick-order question is open");

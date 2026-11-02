@@ -77,20 +77,62 @@ describe.skipIf(!outliner)("the power bar", () => {
   /** Some tile on the desk shows note `id` (where an open landed). */
   const shows = (id: string) => (desk.layoutGet().tiles as any[]).some(t => t.showing?.id === id);
   // Each test starts with the bar put away, whatever the one before left.
-  const closeBar = () => { if (peek().bar?.query) key({ kind: "esc" }); if (peek().bar) key({ kind: "esc" }); };
+  const closeBar = () => { for (let i = 0; i < 4 && peek().bar; i++) key({ kind: "esc" }); };
   beforeEach(closeBar);
   afterAll(async () => {
     app?.drawer.tile?.kill(); board?.close(); await scratch.dispose();
     for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   });
 
-  test("Tab accepts a query ghost and lists the notes its grammar selects", async () => {
+  test("plain words in the bar search titles with nothing over them: ⏎ opens the first note (PIE-1497)", async () => {
+    const allotment = await board.createBlock(null, "Notes from the allotment\nwhat grew");
+    key(ctrlK); type("notes");
+    await until(() => peek().bar?.rows.some((r: any) => r.source === "notes" && r.key === allotment.id), "the title hit in the main list", 5000);
+    // No completion list opened over the rows: the query-words offer waits for a line that reads as a query.
+    expect(lineCompleter((app as any).bar.input)?.shown ?? null).toBeNull();
+    expect(frame().some(line => line.includes("query words") || line.includes("finding references"))).toBe(false);
+    closeBar();
+    key(ctrlK); type("/notes");
+    // The titles the word starts come first (the seeded "Notes" page, then this one); the first row is what ⏎ opens.
+    await until(() => peek().bar?.rows.length >= 2 && peek().bar.rows[1]?.key === allotment.id, "the title hits first in /notes", 5000);
+    const first = peek().bar.rows[0];
+    expect(first.source).toBe("notes"); expect(first.label).toBe("Notes");
+    expect(lineCompleter((app as any).bar.input)?.shown ?? null).toBeNull();
+    key({ kind: "enter" });
+    await until(() => shows(first.key), "the first note opened", 5000);
+    expect(peek().bar).toBeUndefined();
+    // The reader back on the garden: the tests after read it there.
+    showIn(desk, notes.garden!);
+  });
+
+  test("a line that reads as a query still gets the query-words offer in /notes (PIE-1497)", async () => {
+    key(ctrlK); type("/type=job AND");
+    await until(() => !!lineCompleter((app as any).bar.input)?.shown?.items.length, "the query grammar's completions", 10_000);
+    expect(lineCompleter((app as any).bar.input)!.shown!.target.kind).toBe("query");
+    closeBar();
+  });
+
+  test("one letter lists the notes whose titles start with it (PIE-1497)", async () => {
+    const quince = await board.createBlock(null, "Quince jelly\nset by noon");
+    key(ctrlK); type("/Q");
+    await until(() => peek().bar?.rows[0]?.key === quince.id, "the one-letter title hit", 5000);
+    closeBar();
+  });
+
+  test("= is a query line: Tab accepts a query ghost and lists the notes its grammar selects", async () => {
     await board.createBlock(null, 'Query words [type::rule] [rule-name::query-words]\n[alias::stakedbeans=text~"Runner beans"]');
-    await app.dispatch.press("bar.open", { scope: "notes" });
+    // `=` typed first in /notes enters the query scope, as it does from the main list.
+    key(ctrlK); type("/");
+    await until(() => peek().bar?.scope === "notes", "the notes scope");
+    type("=");
+    await until(() => peek().bar?.scope === "query", "the query scope");
+    expect(peek().bar.query).toBe("");
     type("stakedbeans");
-    await until(() => frame().some(line => line.includes("Tab accepts")), "the learned query ghost");
+    // The ghost listed and settled (not a re-ask under way), as the query-words showcase waits for it.
+    await until(() => { const c = lineCompleter((app as any).bar.input)?.shown; return !!c && !c.loading && !!c.items[0]?.querySuggestion; }, "the learned query ghost", 10_000);
+    expect(frame().some(line => line.includes("Tab accepts"))).toBe(true);
     key({ kind: "tab" });
-    await until(() => peek().bar.rows.some((row: any) => row.source === "notes" && row.key === notes.beans!.id), "the query's matching note");
+    await until(() => peek().bar.rows.some((row: any) => row.source === "query" && row.key === notes.beans!.id), "the query's matching note");
     expect(peek().bar.query).toBe('(text~"Runner beans")');
     expect(frame().some(line => line.includes("Runner beans"))).toBe(true);
     await app.dispatch.press("bar.close");
@@ -430,8 +472,34 @@ describe.skipIf(!outliner)("the power bar", () => {
     await until(() => frame().join("\n").includes("[^W] [m]"), "layout.move's keys as keycaps", 3000);
     const drawn = frame().join("\n");
     // Its examples next, before its arguments: what a short preview shows first.
-    expect(drawn).toContain("ep0ch act layout.move tile=activity to=reader where=tabs");
+    // As the bar's line takes it (PIE-1502): no `ep0ch act` in front.
+    expect(drawn).toContain("layout.move tile=activity to=reader where=tabs");
+    expect(drawn).not.toContain("ep0ch act layout.move");
     expect(drawn).toContain("→ puts the activity tile");
+  });
+
+  test("an action's name alone: the top row says the line to type, the preview opens with its examples, and tab puts the first in the bar (PIE-1502)", async () => {
+    closeBar();
+    key(ctrlK); type("glass.mode");
+    // The row reads as an instruction: the line, each missing argument with its values, and what ⏎ does.
+    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "type glass.mode set=off|on|sticky", detail: "⏎ for a form" });
+    await until(() => frame().join("\n").includes("EXAMPLES"), "glass.mode's examples", 3000);
+    const drawn = frame();
+    // The examples block is the first thing under the lead; the summary is one sentence, its status messages not in it.
+    const lead = drawn.findIndex(l => l.includes("set hover off, on or sticky"));
+    const examples = drawn.findIndex(l => l.includes("EXAMPLES"));
+    expect(lead).toBeGreaterThanOrEqual(0);
+    expect(examples).toBe(lead + 2);
+    expect(drawn.join("\n")).toContain("glass.mode set=sticky");
+    expect(drawn.join("\n")).not.toContain("ep0ch act glass.mode");
+    expect(drawn.join("\n")).not.toContain("hover a link to peek");
+    // Tab puts the first example in the bar; tab again the next; the line's row then runs it as typed.
+    key({ kind: "tab" });
+    expect(peek().bar.query).toBe("glass.mode set=sticky");
+    key({ kind: "tab" });
+    await until(() => peek().bar.query === "glass.mode set=off", "the next example", 3000);
+    expect(peek().bar.rows[0]).toMatchObject({ label: "run glass.mode set=off" });
+    closeBar();
   });
 
   test("an action that takes arguments opens its form: a field each, the tiles to pick from, the act line under them; ⏎ on it runs (PIE-1031)", async () => {
@@ -564,9 +632,8 @@ describe.skipIf(!outliner)("the power bar", () => {
     closeBar();
     // The name alone of one that needs arguments says what it needs, and ⏎ opens its form there (PIE-1031).
     key(ctrlK); type("tile.open");
-    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open" });
+    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "type tile.open kind=…", detail: "⏎ for a form" });
     expect(peek().bar.rows[0].refused).toBeUndefined();
-    expect(peek().bar.rows[0].detail).toContain("needs kind=");
     closeBar();
     // An argument the bar asks for takes a paste the same way.
     let answered: Record<string, string> | null = null;

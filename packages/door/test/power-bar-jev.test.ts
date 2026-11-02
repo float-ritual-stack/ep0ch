@@ -86,7 +86,8 @@ describe.skipIf(!outliner)("the power bar says how sure a search is", () => {
   test("the top row stays the top as Jev re-orders: its best lit, not the old best wherever it sank (PIE-1409)", async () => {
     exists = 0.1;
     key({ kind: "char", ch: "k", ctrl: true });
-    type("/compost bin");
+    // Words no title starts with (a title the words start stays first by title, PIE-1497): the words' order, then Jev's.
+    type("/bin compost");
     const bar = () => (app as any).bar.describe();
     await until(() => !!bar().rows?.length && bar().rows[0].label.includes("Compost bin repairs"), "the words' order", 10_000);
     await until(() => Object.values(bar().said ?? {}).some(s => String(s).includes("jev ranked")), "Jev's order", 10_000);

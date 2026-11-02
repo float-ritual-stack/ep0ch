@@ -94,8 +94,8 @@ export interface DeskApi {
   hasEditPreviewTile?(r: ReaderPane): boolean;
   editPreviewTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Tile `p`'s attachment `attachment` (a facets tile's Matches, PIE-1443) in a tile of its own beside it (`on`), or that tile closed. */
-  attachedTile?(p: Pane, attachment: "matches", on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
-  hasAttachedTile?(p: Pane, attachment: "matches"): boolean;
+  attachedTile?(p: Pane, attachment: "matches" | "settings", on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
+  hasAttachedTile?(p: Pane, attachment: "matches" | "settings"): boolean;
   hasSourcesTile?(r: ReaderPane): boolean;
   sourcesTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Reader `r`'s trail in a tile beside it (PIE-1425), or the one already open with the keys back in it; null when the layout can't place one. */
@@ -544,6 +544,7 @@ export class ReaderPane implements Pane, AttachedOwner {
     return { ...host, attachment: "list-preview", enterMode: () => { desk.focusPane?.(this, USER); host.enterMode?.(); } };
   }
   attachedView(a: Attachment, w: number, h: number, _focused: boolean, desk: DeskApi): PaneView | null {
+    if (a === "settings") return this.surface.settingsTile(w, h);
     if (a === "edit-preview") return this.surface.editPreviewTile(w, h, this.host(desk));
     if (a === "list-preview") return this.surface.listPreviewTile(w, h, this.host(desk));
     if (a === "sources") return this.surface.sourcesTile(w, h);
@@ -552,6 +553,7 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   attachedKey(a: Attachment, k: Key, desk: DeskApi): boolean {
     if (a === "matches") return false;
+    if (a === "settings") { this.surface.attachedKeys(a); return this.surface.key(k, { ...this.host(desk), attachment: a }); }
     if (a === "edit-preview") {
       if (!this.surface.editPreviewKey(k, { ...this.host(desk), attachment: "edit-preview" })) void desk.perform?.("tile.focus", {}, USER, this);
       return true;
@@ -571,6 +573,7 @@ export class ReaderPane implements Pane, AttachedOwner {
     return true;
   }
   attachedTitle(a: Attachment, source: string): string {
+    if (a === "settings") return `settings · ${source}`;
     if (a === "edit-preview") return `edit preview · ${source}`;
     if (a === "list-preview") return `list children · ${source}`;
     if (a === "sources") return `sources · ${source}`;
@@ -578,7 +581,7 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   attachedHint(a: Attachment): string { return a === "matches" ? "" : a === "list-preview" ? "list children · click placement chip to move · click text to edit" : this.surface.attachmentHint(a); }
   attachedSide(a: Attachment, side: AttachedSide, desk: DeskApi): void {
-    void this.surface.runKey(a === "edit-preview" ? "edit.preview.place" : a === "list-preview" ? "list.preview.place" : a === "sources" ? "sources.place" : "comment.place", { side }, this.host(desk), true);
+    void this.surface.runKey(a === "settings" ? "settings.place" : a === "edit-preview" ? "edit.preview.place" : a === "list-preview" ? "list.preview.place" : a === "sources" ? "sources.place" : "comment.place", { side }, this.host(desk), true);
   }
   attachedSideWords(): string { return "the note's"; }
 
@@ -639,6 +642,7 @@ export class ReaderPane implements Pane, AttachedOwner {
       ...(desk.editPreviewTile ? { hasEditPreviewTile: () => !!desk.hasEditPreviewTile?.(this), editPreviewTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.editPreviewTile!(this, on, side) } : {}),
       ...(desk.trailTile ? { trailTile: () => desk.trailTile!(this) } : {}),
       ...(desk.sourcesTile ? { hasSourcesTile: () => !!desk.hasSourcesTile?.(this), sourcesTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.sourcesTile!(this, on, side) } : {}),
+      ...(desk.attachedTile ? { hasSettingsTile: () => !!desk.hasAttachedTile?.(this, "settings"), settingsTile: (on: boolean, side?: AttachedSide) => desk.attachedTile!(this, "settings", on, side) } : {}),
       ...(desk.composerTile ? { composerTile: (on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down") => desk.composerTile!(this, on, keys, side), hasComposerTile: () => !!desk.hasComposerTile?.(this) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
       ...(desk.press ? {
@@ -773,6 +777,7 @@ export class ReaderPane implements Pane, AttachedOwner {
 
   key(k: Key, desk: DeskApi): boolean {
     const start = this.readOnly && !this.holdsKeys ? sessionStart(k) : null;
+    if (this.holdsKeys || this.surface.claims(k)) return this.surface.key(k, this.host(desk));
     if (start) { const why = this.refuses(start); if (why) { desk.ctx.flash(why); return true; } }
     if (this.pinnable && !this.editing && !this.surface.typingFilter && ch(k) === "p") { runOwn(READER_ACTIONS, "reader.pin", {}, { pane: this, desk }); return true; }
     if (this.pinnable && !this.editing && ch(k) === "P") { this.pickSource(desk); return true; }

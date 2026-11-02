@@ -38,6 +38,51 @@ describe("showcase: tune the collection's own record (PIE-1483)", () => {
     expect((await h.board.get(note.id))!.text).toBe(note.text);
   }, 20_000);
 
+  test.each([120, 44])("round two settings attaches beside the live collection and wraps its query at %s columns", async cols => {
+    h.app.t.cols = cols;
+    const note = await show();
+    await act("list.enter", { on: true });
+    h.ch(",");
+    await until(() => !!surface().panel?.card, "settings opens");
+    h.press({ kind: "char", ch: "o", ctrl: true });
+    await until(() => h.screen().includes("floating") && h.screen().includes("popup"), "settings uses the placement menu", 1500);
+    h.press({ kind: "esc" });
+    await act("settings.place", { place: "split" });
+    const before = h.screen();
+    expect(before).toContain("Water the");
+    expect(before).toContain("beans");
+    expect(before).toContain("settings · Views");
+    expect(before).toContain("NOT layout=table");
+    await act("settings.toggle", { key: "layout", value: "board" });
+    await until(() => lists()[0].detail.layout === "board", "the split card redraws the view");
+    expect(h.screen()).toContain("Water the");
+    for (const place of ["floating", "popup", "inline", "tile", "split"]) {
+      await act("settings.place", { place });
+      await until(() => h.screen().includes(`[${place} ▸]`), `${place} keeps the same settings`);
+      expect((await act("settings")).fields.find((f: any) => f.key === "layout").value).toContain("board");
+      if (place === "tile") {
+        const selected = surface().panel!.card!.sel;
+        h.press({ kind: "down" });
+        await until(() => surface().panel!.card!.sel !== selected, "the own tile takes field keys");
+        h.press({ kind: "char", ch: "o", ctrl: true });
+        await until(() => h.screen().includes("popup"), "the own tile opens the shared menu");
+        h.press({ kind: "up" }); h.press({ kind: "up" }); h.press({ kind: "enter" });
+        await until(() => surface().panel!.card!.place === "split" && !stage().layoutGet().tiles.some((t: any) => t.kind === "settings") && !h.screen().includes("e ⏎ enter"), "the card returns to its reader with the keys");
+        h.press({ kind: "esc" });
+        await until(() => !surface().panel, "Escape works immediately after returning");
+        h.ch(",");
+        await until(() => !!surface().panel?.card, "the same collection tunes again");
+      }
+    }
+    await act("tile.focus");
+    await act("settings.place", { place: "inline" });
+    h.press({ kind: "esc" });
+    await until(() => !surface().panel, "Escape closes settings");
+    expect(surface().msg.id).toBe(note.id);
+    expect(surface().selectedElement()?.link?.listRow?.row).toBeTruthy();   // the [ ] position is still on the collection's row
+    h.app.t.cols = 177;
+  }, 20_000);
+
   test("round two: clicking the view's settings opens its card", async () => {
     await show();
     await act("list.enter", { on: true });

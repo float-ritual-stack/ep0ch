@@ -4,7 +4,7 @@
 // writes what the session sends, runs a program the session hands it (the drop shell, $EDITOR) and gives the terminal
 // back when it detaches.
 //
-//   ep0ch session list [--json]                   every session on this state dir: outline, machine, pid, code,
+//   ep0ch session list [--machine <ssh-name>] [--json]   every session here, or running there over ssh:
 //                                                 terminals attached, programs
 //   ep0ch session attach [--watch] [--ws <name>]  attach to this folder's (or --ws's) session (--watch: read-only)
 //   ep0ch session end [--yes] [--all]             end it (asks when programs run in its tiles; --all asks first)
@@ -12,7 +12,7 @@
 //   ep0ch session restart                         hand it over whatever code it runs
 //   ep0ch session serve [door flags]              run one in the foreground (what `ep0ch` starts, detached)
 //
-// Which session: `--ws <name>` (and `--machine`), else EP0CH_WS, else the folder's .ep0ch, by the rule `ep0ch` opens
+// Which local session: `--ws <name>`, else EP0CH_WS, else the folder's .ep0ch, by the rule `ep0ch` opens
 // an outline by; with none named, the only session running (several: it says which to name).
 import { connect, type Socket } from "node:net";
 import { join, resolve } from "node:path";
@@ -20,7 +20,8 @@ import { createInterface } from "node:readline";
 import { listening } from "../jsonl";
 import { resolveTarget } from "../discover";
 import { readMissing } from "../outlines";
-import { forwardTo } from "../machine";
+import { forwardTo, shellWord } from "../machine";
+import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { appendNest, nestLayers } from "../nest";
 import { stateDir } from "../state";
 import { runProgram, Term } from "../term";
@@ -114,6 +115,34 @@ export function formatSessions(running: readonly Running[], waiting: readonly st
 
 /** `ep0ch session …`. */
 export async function sessionCommand(args: string[]): Promise<number> {
+  const machineAt = args.indexOf("--machine");
+  // Only `list --machine` runs on that machine; for every other session command --machine keeps naming where the
+  // session's outline lives (the daemon starts as `session serve --ws pie --machine float-2`).
+  const first = args.find(a => !a.startsWith("-") && a !== args[machineAt + 1]);
+  if (machineAt >= 0 && (first === undefined || first === "list")) {
+    const machine = args[machineAt + 1];
+    if (!machine || !isMachineName(machine)) {
+      console.error("ep0ch: --machine needs an ssh config name · ep0ch session list --machine <ssh-name>");
+      return 2;
+    }
+    const there = args.filter((_, i) => i !== machineAt && i !== machineAt + 1);
+    const remote = ["ep0ch", "session", "list", ...(there[0] === "list" ? there.slice(1) : there)].map(shellWord).join(" ");
+    try {
+      const { ssh } = await import("../mcp-netmail");
+      const { out, err, code } = await ssh(process.env, machine, remote);
+      if (err) process.stderr.write(err);
+      if (code !== 0) {
+        console.error(`ep0ch: cannot list sessions on ${machine} · check: ssh ${shellWord(machine)} ${shellWord("ep0ch session list")}`);
+        return code;
+      }
+      if (!there.includes("--json")) console.log(`Sessions on ${machine} (via ssh)`);
+      process.stdout.write(out);
+      return 0;
+    } catch (e) {
+      console.error(`ep0ch: cannot list sessions on ${machine}: ${(e as Error).message} · check: ssh ${shellWord(machine)} ${shellWord("ep0ch session list")}`);
+      return 1;
+    }
+  }
   const [cmd, ...rest] = args;
   if (cmd === "serve") return serve(rest);
   if (cmd === "pty-host") return servePtyHost(rest[0] ?? "");

@@ -52,7 +52,10 @@ finish() {
 trap 'finish $?' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-setsid nice -n 15 codex exec "${model[@]}" -c "$mcp_config" --output-last-message "$run_dir/last-message.md" - < "$brief" &
+# A builder's effort and tier are its own, never inherited from the person's interactive Codex config (Nov 1: a
+# desktop session's max effort and priority tier went to every builder and spent a week's plan in six hours).
+effort=${EP0CH_BUILDER_EFFORT:-high}
+setsid nice -n 15 codex exec "${model[@]}" -c "model_reasoning_effort=\"$effort\"" -c 'service_tier="default"' -c "$mcp_config" --output-last-message "$run_dir/last-message.md" - < "$brief" &
 child=$!
 echo "builder: run $run_id; wrapper $$; process group $child (stop: kill -TERM $$)" >&2
 wait "$child"
