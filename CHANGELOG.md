@@ -26,6 +26,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Step:** `[ ]` stops on each heading, figure tab and row a template draws; `( )` goes heading to heading through it both ways.
 - **Tabs:** Tab, shift+Tab and ← → switch a figure's tabs inside a template; only that row lights, not the whole template. A template used twice keeps each call's list-preview mode.
 - **Run:** `ep0ch install --apply`; the kitchen sink's **template-steps** section shows it. GRAMMAR 25, no protocol or schema change.
+- **CP437 frames (PIE-1490):** hover uses the distinct native `÷` glyph beside `○ » ^`, named in the frame hint and showcase; left triangles and curly apostrophes have font lookalikes.
 
 ### Arrow keys work in Ghostty (#1156)
 
