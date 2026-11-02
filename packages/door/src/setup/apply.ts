@@ -518,7 +518,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
     }
     case "host": {
       if (!f.host.unit) {
-        const install = hostInstall({ platform: f.platform, home: f.home, bun: f.bun.path, program: hostMainOf(f), outlines: f.host.folder, path: f.pathDirs.join(":") });
+        const install = hostInstall({ platform: f.platform, home: f.home, bun: f.bun.path, program: hostMainOf(f), outlines: f.host.folder, path: f.pathDirs.join(":"), taken: f.host.unitTaken });
         if (!install) throw new StepFailed("no available service unit for the outline host", `run bun ${sh(hostMainOf(f))}`);
         await installHost(install, env);
         if (!await hostReady({ host: { socket: f.host.socket, unit: install.unit } }, "start", undefined, 30_000))

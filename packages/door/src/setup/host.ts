@@ -1,10 +1,10 @@
 // Installing and starting the local host is shared by install and the first outline opened on a new machine.
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { hostLive, hostSocketOf, outlinesDir } from "../discover";
 import { hostReady } from "./apply";
-import { hostUnit, run, unitState } from "./facts";
+import { hostUnit, hostUnitPath, run, unitState } from "./facts";
 import { sh } from "./links";
 import { detectPlatform, type HostUnit, type Platform } from "./model";
 import { hostUnitArgv, hostUnitCommand } from "./plan";
@@ -15,13 +15,15 @@ const xml = (s: string) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").re
 const quoted = (s: string) => '"' + s.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%") + '"';
 
 /** The missing host's service definition; existing units remain owned by their installer. */
-export function hostInstall(o: { platform: Platform; home: string; bun: string | null; program: string; outlines: string; path: string }) {
-  if (o.platform === "other" || !o.bun) return null;
+/**
+ * The unit install would write, or null when it can't: no bun, no service manager, or a file already at that name
+ * (`taken`, a fact: another folder's host, or a scratch one; never overwritten). The plan stays off the file system.
+ */
+export function hostInstall(o: { platform: Platform; home: string; bun: string | null; program: string; outlines: string; path: string; taken?: string | null }) {
+  const at = hostUnitPath(o.platform, o.home);
+  if (!at || !o.bun || o.taken) return null;
   const mac = o.platform === "macos";
-  const name = mac ? "io.ep0ch.outliner-host" : "outliner-host.service";
-  const path = join(o.home, mac ? `Library/LaunchAgents/${name}.plist` : `.config/systemd/user/${name}`);
-  // A unit for a different outlines folder must never be overwritten by a scratch or second host.
-  if (existsSync(path)) return null;
+  const { name, path } = at;
   const argv = [o.bun, o.program];
   const log = join(o.home, "Library/Logs/ep0ch-outliner-host.log");
   const text = mac
