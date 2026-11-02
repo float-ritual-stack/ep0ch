@@ -172,7 +172,9 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
         await act("tile.open", { kind: "query", name: "query", query: "page=garden OR #garden" }, "reader");
         await until(() => (d.pane("query") as import("../src/desk/query").QueryPane).describe().count! >= 3, "the example query");
       }
-      if (page.name === "tree.depth") await act("tree.fold", { id: note.id, open: true }, "tree");
+      // The in-place example (PIE-1516) wires a links tile to itself: the example screen has none, so it opens one beside the reader.
+      if (page.name === "tile.link" && example.act.includes("tile=links")) await act("tile.open", { kind: "backlinks", name: "links", source: "tile:reader" }, "reader");
+      if (page.name === "tree.depth")await act("tree.fold", { id: note.id, open: true }, "tree");
       if (page.name === "tile.collapse" && example.act.includes("dir=h")) await act("layout.move", { to: "reader", where: "down" }, "replies");
       if (page.name === "float.place") await act("tile.float", { on: true }, "activity");
       if (page.name === "tile.slide") await act("tile.dock", { on: true }, "tree");

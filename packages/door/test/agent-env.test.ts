@@ -12,6 +12,7 @@ import { AGENT_VARS, CARRIED_VARS, DOOR_START_VARS, doorAgents, judgeAgent, know
 import { claudeProjectDir } from "../src/desk/agent-sessions";
 import { PtyPane, tileEnv } from "../src/desk/pty";
 import { DRAWER_TILE_ID } from "../src/drawer";
+import { OSC8_ALL } from "../src/hyperlink";
 import { doorAgentChecks } from "../src/setup/doctor";
 import type { Facts } from "../src/setup/model";
 import type { Key } from "../src/term";
@@ -89,7 +90,7 @@ function door(rows = 30, cols = 140) {
   };
   const app = new App(term, { protocol: null } as any, Date.now(), () => {});
   const screen = (title: string) => ({ title, key() {}, render(ctx: any) { return { lines: Array.from({ length: ctx.t.rows - 1 }, (_, i) => `${title} row ${i}`) }; } });
-  const paint = () => { (app as any).paint(); return painted.map(l => l.replace(/\x1b\[[\d;]*m/g, "")); };
+  const paint = () => { (app as any).paint(); return painted.map(l => l.replace(/\x1b\[[\d;]*m/g, "").replace(OSC8_ALL, "")); }; // cells as columns: SGR and OSC 8 (a cut value's link, PIE-1505 gave the message room) take none
   return { app, term, screen, paint, key: (k: Key) => key(k) };
 }
 
@@ -227,7 +228,8 @@ describe("what a running agent knows", () => {
       expect(shown.at(-1)!.slice(chip.to - 1, chip.to)).toBe("⟳");
       d.key({ kind: "mouse", action: "down", button: 0, x: chip.to - 1, y: chip.row });
       expect(d.app.drawer.open).toBe(true);                               // not toggled
-      await until(() => starts().length === 2 && d.app.drawer.tile?.running === true, "the restart");
+      // The restart is done when the new Claude is seen in the tab (PIE-1280's restartRunning): the chip says "restarting" until then.
+      await until(() => starts().length === 2 && d.app.drawer.tile?.running === true && !d.app.drawer.restarting, "the restart");
       expect(d.app.drawer.tile!.pid).not.toBe(first);
       expect(starts()[1]!.argv).toBe("--continue");                     // a claude with a conversation in its folder continues it
       expect(starts()[1]!.env.EP0CH_CONTROL).toBe(starts()[0]!.env.EP0CH_CONTROL);

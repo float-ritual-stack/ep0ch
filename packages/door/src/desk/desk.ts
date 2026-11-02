@@ -1454,7 +1454,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return found(hit.desk, hit.id);
     }
     if (address.kind !== "name") {
-      const hit = resolveAddress(address, this.addressable())?.value ?? (address.kind === "id" && this.ctx?.hostLayer?.everyDesk ? resolveAddress(address, this.addressable(this.ctx.hostLayer.everyDesk()))?.value : undefined); // an id names a tile on any screen, shown or not (PIE-1280): it acts on its own desk
+      const hit = resolveAddress(address, this.addressable())?.value ?? (address.kind === "id" && !o.shown && this.ctx?.hostLayer?.everyDesk ? resolveAddress(address, this.addressable(this.ctx.hostLayer.everyDesk()))?.value : undefined); // an id names a tile on any screen, shown or not (PIE-1280): it acts on its own desk; an open lands only where it is seen (`shown`)
       return hit ? found(hit.desk, hit.id) : null;
     }
     // `program`: the tile a program runs in (`open from=`), which it names by what it was told (EP0CH_TILE_ID): a program
@@ -2182,7 +2182,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return null;
     }
     if (dest.kind === "across") {
-      const target = this.resolveTile(dest.target);
+      const target = this.resolveTile(dest.target, { shown: true }); // a wire lands only on a tile shown now: one on a screen behind waits for it (PIE-1520)
       if (!target) return null;
       const d = target.desk, id = d.idNamed(target.tile.id!)!;
       return d.placeNote(m, { ...(dest.source ? d.landingRequest(id, m.id) : { from: id, to: id, rule: dest.rule, keep: dest.rule === "tile" ? false : undefined }), fresh: request.fresh, note: m.id, keys: false }, by);
