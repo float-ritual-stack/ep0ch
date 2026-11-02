@@ -172,7 +172,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.filter": def({
     summary: "narrow a list to the rows its words match (the one search matcher, over a row's label and detail); words= \"\" clears it; list= which list. With no words the person starts typing one (/ in the list). An agent's filter is its own: the list it reads (list.blocks) narrows for it, the person's list is untouched and says so in the agent's tint",
-    keys: [{ keys: "/", does: "in the list" }, { keys: "⏎", does: "keeps it", says: "keep the typed words as the list's filter" }, { keys: "esc", does: "goes back", says: "leave the filter box" }],
+    keys: [{ keys: "/", does: "in the list" }, { keys: "click", does: "on a list's / filter (the library's rail)" }, { keys: "⏎", does: "keeps it", says: "keep the typed words as the list's filter" }, { keys: "esc", does: "goes back", says: "leave the filter box" }],
     touches: "nothing", replay: "safe", says: r => `filtered ${r.title}${r.filter ? ` to ${r.filter}` : ""}`,
     args: {
       list: LIST_ARG,

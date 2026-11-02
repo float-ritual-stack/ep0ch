@@ -86,6 +86,7 @@ const W_TABLE = [
   { key: "v", group: "open", action: "tile.preview", how: run("tile.preview", { where: "right" }), label: "preview beside" },
   { key: "V", group: "open", action: "tile.preview", how: run("tile.preview", { where: "down" }), label: "preview below" },
   { key: "x", group: "open", action: "tile.close", how: run("tile.close") },
+  { key: "R", group: "open", action: "tile.restart", how: run("tile.restart"), label: "restart the terminal's program (a Claude gets /exit, then claude --continue)" },
   { key: "n", group: "open", action: "tile.title", how: run("tile.title") },
   { key: "N", group: "open", action: "tile.title.mode", how: run("tile.title.mode") },
   { key: "b", group: "open", action: "tile.header", how: run("tile.header"), label: "cycle the header: full, title only, none" },

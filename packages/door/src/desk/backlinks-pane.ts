@@ -218,7 +218,7 @@ export class BacklinksPane implements Pane {
     return modeHint([
       ...LINKS_KEYS.slice(0, 2),
       ...(this.backs.length ? [{ key: "alt+left", action: "tile.travel", args: { dir: "back" }, label: `back to ${subject(this.backs.at(-1)!)}` }] : []),
-      { key: "enter", action: "list.open", args: { where: "home" }, label: `open in ${wire("open")}` }, { key: "alt+enter", action: "list.open", args: { where: "new" }, label: String(wire("alt")) },
+      { key: "enter", action: "list.open", args: { where: "home" }, label: `open ${((at?: string) => (at === "in place" ? at : `in ${at}`))(wire("open"))}` }, { key: "alt+enter", action: "list.open", args: { where: "new" }, label: String(wire("alt")) },
       { key: "b", action: "backlinks", label: `${this.follows ? "aim" : "re-aim"} at ${this.sourceLabel()}'s note` },
       ...LINKS_KEYS.slice(2),
     ], () => undefined);

@@ -775,9 +775,12 @@ ep0ch agent restart <name | short id | --all> [--if-update] [--fresh-daemon] [--
 
 restart a background session at a safe moment (between turns, its builders done
 and pushed), detached: it prints where the log is and returns. An interactive one
-is its terminal's: refused, with how. --if-update: only one behind the installed
-version (after a Claude Code update); --all: every background session, one at a
-time (interactive ones left out, said); --fresh-daemon: so a changed ~/.bashrc
+in a door terminal tile is restarted by its door after the same wait (tile.restart:
+/exit, then the same command from an interactive login shell, so a changed ~/.bashrc
+counts); one in any other terminal (a Herdr pane, an ssh shell) is refused, with
+how. --if-update: only one behind the installed version (after a Claude Code
+update); --all: every background session and door tile's, one at a time (the others
+left out, said); --fresh-daemon: so a changed ~/.bashrc
 reaches it; --check-env: and check the new process carries <VAR>; --now: don't
 wait; --dry-run: say the plan, change nothing. It runs scripts/agent-restart here
 or on --machine (only that flag names the machine, never EP0CH_MACHINE or a .ep0ch)
