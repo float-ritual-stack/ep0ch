@@ -27,4 +27,7 @@ test("PIE-1510: a styling property isn't drawn, so a selection across it is foun
   expect(at(span, "clover - thyme")).toBe("clover [style.list.gap::2] [style.list.zebra::on]\n- thyme");
   expect(at(span, "clover")).toBe("clover");
   expect(at("## Beds [heading-pattern::dots] [who::sam]\nDig them", "Beds [who::sam] Dig")).toBe("Beds [heading-pattern::dots] [who::sam]\nDig");
+  // A token with text right after it: the reader draws the blank before it as the separator, so a selection keeps it.
+  expect(at("A [style.list.gap::2]B here", "A B here")).toBe("A [style.list.gap::2]B here");
+  expect(at("A [style.list.gap::2] B here", "A B")).toBe("A [style.list.gap::2] B");
 });

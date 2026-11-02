@@ -125,8 +125,8 @@ const FIELD_KEYS: ReadonlySet<string> = new Set(HEADING_FIELD_KEYS);
 
 /** A `style.*` key as the cascade reads one (style-cascade.ts styleFieldsOf): a width's (`style.wide.pad`) and a retired one too. */
 export const isStyleKey = (key: string): boolean => /^style\./i.test(key);
-/** A heading's or rule's own styling: the style it names (`heading`, `rule`) and PIE-599's `heading-*` fields. */
-export const isHeadingStyleKey = (key: string): boolean => key === "heading" || key === "rule" || FIELD_KEYS.has(key);
+/** A heading's own styling: the style it names (`heading`) and PIE-599's `heading-*` fields (a rule names its own with `rule`: styledLine). */
+export const isHeadingStyleKey = (key: string): boolean => key === "heading" || FIELD_KEYS.has(key);
 /**
  * The tokens of `line` that style it rather than say something: every `style.*` token, and on a heading line its
  * `heading` and `heading-*` tokens too (on any other line those are words: `- [heading::x]` means nothing). A rule's
@@ -333,8 +333,9 @@ export function styledLine(line: string): StyledLine | null {
   if (headingStyleDeclaration(line)) return null;
   const tokens = liveTokensInLine(line);
   const named = tokens.find(t => t.key === key);
-  // The one rule (stylingTokensInLine): its own heading fields and any `style.*` token leave the text.
-  const own = tokens.filter(t => t === named || isHeadingStyleKey(t.key) || isStyleKey(t.key));
+  // The one rule (stylingTokensInLine): the style it names, its own heading fields and any `style.*` token leave the
+  // text. A rule's style is `rule`; `--- [heading::band]` stays text, as it was.
+  const own = tokens.filter(t => t === named || FIELD_KEYS.has(t.key) || isStyleKey(t.key));
   const text = withoutTokens(line, own);
   if (r && RULE.exec(text)![2]!.trim()) return null;
   return {

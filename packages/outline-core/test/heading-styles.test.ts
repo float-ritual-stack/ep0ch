@@ -81,6 +81,9 @@ test("PIE-1510: a styling property isn't content: style.* anywhere, heading-* on
   // On a list item a heading field is words; a rule's token is the renderer's (a --- under a paragraph is no rule).
   expect(withoutStylingTokens("- odd [heading-rows::2]")).toBe("- odd [heading-rows::2]");
   expect(withoutStylingTokens("--- [rule::fade]")).toBe("--- [rule::fade]");
+  // A rule names its style with `rule`, never `heading`: `--- [heading::band]` is text, as before (CodeRabbit, #1193).
+  expect(styledLine("--- [heading::band]")).toBeNull();
+  expect(withoutStylingTokens("--- [heading::band]")).toBe("--- [heading::band]");
   // An item that is only its tokens stays an item: its marker keeps its space.
   expect(withoutStylingTokens("- [style.list.zebra::on]")).toBe("- ");
   expect(withoutStylingTokens("  1. [style.list.gap::1]")).toBe("  1. ");

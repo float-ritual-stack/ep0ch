@@ -48,15 +48,17 @@ function visibility(span: string, values: readonly DrawnValue[] = []): { shown: 
     const mark = m[1] ?? "`";
     hide(m.index!, m.index! + mark.length); hide(m.index! + m[0].length - mark.length, m.index! + m[0].length);
   }
-  // A fragment anchor at a line's end isn't drawn; nor is a styling property (PIE-1510: outline-core's one rule, with
-  // the blank before it, as the reader's withoutStylingTokens joins the text either side by one space).
+  // A fragment anchor at a line's end isn't drawn; nor is a styling property (PIE-1510: outline-core's one rule). The
+  // reader (withoutStylingTokens) joins the text either side of one by a single space: the blank before the token is
+  // hidden with it when another follows, and stays as that separator when text touches the token (`A [style…]B`).
   let at = 0;
   for (const line of span.split("\n")) {
     const a = fragmentAnchorMatch(line);
     if (a) hide(at + a.index!, at + line.length);
     for (const t of stylingTokensInLine(line)) {
       const lead = /[ \t]*$/.exec(line.slice(0, t.start))![0].length;
-      hide(at + t.start - lead, at + t.end);
+      const touches = t.end < line.length && !/\s/.test(line[t.end]!);
+      hide(at + t.start - (touches ? 0 : lead), at + t.end);
     }
     at += line.length + 1;
   }
