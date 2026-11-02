@@ -105,8 +105,8 @@ test("a jump to a title: notes whose titles start with the words stay first, and
   expect(r.matches.slice(0, 2).map(m => m.title)).toEqual(["PIE-101 Builder report for the dock strip", "PIE-102 Narrow strips keep their names"]);
   expect(r.matches[2]!.title).toBe("Compost turning schedule");
   expect(r.matches[2]!.score).toBe(2.8);
-  expect(r.semantic.status).toBe("ranked");
-  expect(r.semantic.verdict).toBeUndefined();
+  // Sure, with no label for a footer to nag with; said for `ep0ch find`.
+  expect(r.semantic).toMatchObject({ status: "ranked", verdict: "strong", said: "title match: “PIE-101 Builder report for the dock strip”" });
   expect(r.semantic.label).toBeUndefined();
   // Settled by title: the deep pass isn't asked either.
   const deep = await client.request<GotoSearchCollection>({ action: "tree.search", query: "pie", semantic: true, deep: true });

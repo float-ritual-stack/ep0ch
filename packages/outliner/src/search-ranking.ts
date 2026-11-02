@@ -109,6 +109,14 @@ export function titleMatch(query: string, title: string): SearchMatchKind | null
   return m && TITLE_RUNGS.has(m.kind) ? m.kind : null;
 }
 
+/**
+ * A title holds the words: sure, with no label to draw (the footer stays quiet, PIE-1497), said for `ep0ch find`; a
+ * strong verdict keeps the deep pass off and lets `[[` take the cursor to the page (PIE-1409).
+ */
+function titledCertainty(match: { title: string; score: number }, exists: number | undefined): SearchCertainty {
+  return { verdict: "strong", said: `title match: ${quoted(match.title)}`, top: match.score, ...(exists !== undefined ? { exists } : {}) };
+}
+
 /** HTTP and model output stay outside the synchronous SQLite read transaction. */
 export async function rankSearchWithJev<T extends SearchExcerpt>(
   query: string,
@@ -144,7 +152,7 @@ export async function rankSearchWithJev<T extends SearchExcerpt>(
       status: "ranked", model: asked.reading.model, elapsedMs: Math.round(performance.now() - started),
       candidateCount: scored.length, promptRevisions,
       ...(usage ? { inputTokens: usage.input, outputTokens: usage.output } : {}),
-      ...(titled.some(Boolean) ? {} : certaintyOf(top ? { title: top.title, score: top.score } : undefined, read.exists)),
+      ...(titled.some(Boolean) ? titledCertainty(scored.find(s => s.lead || titled[s.index])!.match, read.exists) : certaintyOf(top ? { title: top.title, score: top.score } : undefined, read.exists)),
     } };
   } catch (error) {
     // Provider error bodies can echo request content. Keep them out of UI/logs.

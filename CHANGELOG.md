@@ -14,7 +14,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Search:** in the main list and `/notes`, words search titles with nothing drawn over the results: ↑↓ ⏎ are the list's. One letter lists the titles that start with it.
 - **Query words on purpose:** `=` typed first (from the main list or `/notes`) is the query scope: its words get the query-words offer (Tab accepts) and a line that parses lists the notes it selects. A line that already reads as a query (`type=job AND`, `by:loki`) gets the offer in `/notes` too. An act line still completes its arguments.
-- **Verdict:** a search whose words start or appear in a title says no "no strong match": the titled notes stay first, Jev's order below them. `ep0ch find` and `outline_find` read the same.
+- **Verdict:** a search whose words start or appear in a title says no "no strong match": the titled notes stay first, Jev's order below them, and the footer says only "jev ranked". `ep0ch find` says "title match: …".
 - **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
 
 ### A `::use` template steps and tabs like the page's own text (PIE-1492, #1165)
