@@ -51,6 +51,12 @@ export interface KindKey { key: string; label: string; spec?(at: { name: string;
 
 export interface TileKind {
   readonly kind: TileKindName;
+  /**
+   * Kinds this one serves in place of (PIE-1514): a retired built-in's name an extension took over (what-changed's
+   * `what-changed.list` replaces `what-changed`). A saved tile of one opens as this kind and saves under it; the
+   * registry resolves the name (resolveKind), so nothing else maps old names to new.
+   */
+  readonly replaces?: readonly TileKindName[];
   /** One line: what the tile shows (tile.open's list, the docs). */
   readonly about: string;
   /**
@@ -185,6 +191,8 @@ export interface TileKind {
 }
 
 const registry = new Map<TileKindName, TileKind>();
+/** Retired names and the kind that serves each now (`TileKind.replaces`): the one map from an old kind to its new one. */
+const aliases = new Map<TileKindName, TileKindName>();
 /** Counts the kinds coming and going: what a list built from the registry is kept against. */
 let registryEdits = 0;
 // The dispatcher's refusals name a tile's kind as the registry does ("an outline tile", "a terminal tile").
@@ -196,6 +204,8 @@ const gone = new Map<TileKindName, string>();
 export function registerTileKind(k: TileKind): void {
   if (!/^[A-Za-z][\w.-]{0,39}$/.test(k.kind)) throw new Error(`a tile kind's name is a letter, then letters, digits, . - _ (not ${JSON.stringify(k.kind)})`);
   if (registry.has(k.kind)) throw new Error(`tile kind ${k.kind} is registered already`);
+  // A live kind keeps its name: a replaces entry over it is refused with the rest of the kind.
+  for (const old of k.replaces ?? []) if (registry.has(old)) throw new Error(`tile kind ${k.kind} can't replace ${old}: the door has a kind by that name`);
   const check = k.check;
   registry.set(k.kind, { ...k, check(spec, opening) {
     if (opening) {
@@ -206,6 +216,7 @@ export function registerTileKind(k: TileKind): void {
     }
     return check?.(spec) ?? null;
   } });
+  for (const old of k.replaces ?? []) { aliases.set(old, k.kind); gone.delete(old); }
   gone.delete(k.kind);
   wentAway.delete(k.kind);
   registryEdits++;
@@ -216,8 +227,15 @@ export function unregisterTileKind(kind: TileKindName, why?: string): boolean {
   const had = registry.delete(kind);
   registryEdits++;
   if (had) { gone.set(kind, why ?? "it was taken out of the door's tile kinds"); wentAway.set(kind, k!); }
+  for (const [old, to] of [...aliases]) if (to === kind) aliases.delete(old);
   return had;
 }
+/**
+ * A kind's name as the registry has it now: itself, or, for a retired name an extension's kind `replaces`, that kind.
+ * Every lookup by name goes through it (tileKind, isTileKind, a spec's canon), so a saved tile of a replaced kind opens
+ * as, and saves under, the kind that serves it. A name nobody replaces is its own.
+ */
+export const resolveKind = (kind: TileKindName): TileKindName => (registry.has(kind) ? kind : aliases.get(kind) ?? kind);
 /** The entries of kinds that went away: a tile of one still running asks its kind's hooks (holds work, when it's free). */
 const wentAway = new Map<TileKindName, TileKind>();
 /**
@@ -247,8 +265,8 @@ export function unwatchTileKinds(owner: object): void { for (const w of [...watc
 export function kindsChanged(): void {
   for (const w of [...watchers]) { const o = w.deref(); if (!o) { watchers.delete(w); continue; } try { o.kindsChanged(); } catch { /* one desk's problem */ } }
 }
-export const tileKind = (kind: string): TileKind | undefined => registry.get(kind);
-export const isTileKind = (kind: string): boolean => registry.has(kind);
+export const tileKind = (kind: string): TileKind | undefined => registry.get(resolveKind(kind));
+export const isTileKind = (kind: string): boolean => registry.has(resolveKind(kind));
 /** A kind as a message says it (an agent "opened a terminal tile"), never its internal name (`pty`). */
 export function kindNoun(kind: string): string {
   const k = registry.get(kind);
@@ -609,8 +627,8 @@ export type ServiceArgs = Record<string, { type: string; description?: string }>
  * program the service names (`program`, a terminal tile of that kind with the terminal kind's own hooks). `args` are
  * what a tile of it is opened and saved with; a `block` arg is the note read where it's opened.
  */
-export function serviceKind(o: { kind: TileKindName; about: string; noun?: string; render?: ServiceRender; view?: string; program?: ServiceProgram; args?: ServiceArgs; keyHint?: readonly string[]; /** A drawn tile's keys to its actions (an extension's `d`): pressed in it, the action runs on the picked row. */ keyActions?: Readonly<Record<string, string>>; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[]; actions?: TileKind["actions"] }): TileKind {
-  const base = { kind: o.kind, about: o.about, noun: o.noun, keys: o.keys, policy: o.policy, accepts: o.accepts, actions: o.actions };
+export function serviceKind(o: { kind: TileKindName; about: string; noun?: string; render?: ServiceRender; view?: string; program?: ServiceProgram; args?: ServiceArgs; keyHint?: readonly string[]; /** A drawn tile's keys to its actions (an extension's `d`): pressed in it, the action runs on the picked row. */ keyActions?: Readonly<Record<string, string>>; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[]; actions?: TileKind["actions"]; replaces?: readonly TileKindName[] }): TileKind {
+  const base = { kind: o.kind, about: o.about, noun: o.noun, keys: o.keys, policy: o.policy, accepts: o.accepts, actions: o.actions, replaces: o.replaces };
   const prog = o.program;
   const args = o.args ?? prog?.args ?? {};
   const blockArg = Object.entries(args).find(([, a]) => a.type === "block")?.[0];

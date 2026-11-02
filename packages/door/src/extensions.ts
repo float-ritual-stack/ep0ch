@@ -118,6 +118,8 @@ export interface ExtensionTileKind {
   accepts?: string[];
   args?: Record<string, { type: string; description?: string }>;
   save?: string;
+  /** Retired kinds this one serves in place of (PIE-1514): a saved tile of one opens as this kind. */
+  replaces?: string[];
 }
 /**
  * A rule (PIE-600) as `extensions.list` names it: an extension's (`ext:<id>/<rule>`) or a rule note's
@@ -851,7 +853,7 @@ function kindEntry(t: ExtensionTileKind, actions: ActionSet<Record<string, ExtAr
   const keyHint = t.actions.flatMap(a => (keyOf(a.key) ? [`${keyOf(a.key)} ${a.id}`] : []));
   // `accepts` names the kinds that may join a tile of it as tabs or drops; an empty one (the manifest's default) leaves it
   // open, as a built-in's does, so the drawer can open its lists as tabs beside an extension's tile.
-  const shared = { kind: t.kind, noun: t.name, ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}), ...(t.policy ? { policy: t.policy } : {}), accepts: { notes: false, ...(t.accepts?.length ? { tiles: t.accepts } : {}) }, actions };
+  const shared = { kind: t.kind, noun: t.name, ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}), ...(t.policy ? { policy: t.policy } : {}), accepts: { notes: false, ...(t.accepts?.length ? { tiles: t.accepts } : {}) }, actions, ...(t.replaces?.length ? { replaces: t.replaces } : {}) };
   if (t.render) {
     const of = t.render;
     return serviceKind({
