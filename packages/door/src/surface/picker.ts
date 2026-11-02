@@ -10,7 +10,7 @@ import { rowLines } from "../text";
 // in it: a click places the cursor, a drag selects).
 import { listPreview, type PickerPreview } from "../bar/list-preview";
 import type { Canvas, Rect } from "../canvas";
-import { RowView, wheelRows } from "../scroll";
+import { pageRows, RowView, wheelRows } from "../scroll";
 import { bg, C, fg, pad, RESET, floatSelectedRow } from "../style";
 import { type Key } from "../term";
 import { LineField } from "./line";
@@ -155,7 +155,7 @@ export class ListPicker<T, H> implements Mode<H> {
     if (this.spec.keys?.(k, host)) return true;
     const was = input?.text;
     if (input?.take(k)) { if (input.text !== was) this.spec.typed?.(host); return true; }
-    const page = Math.max(1, Math.floor((this.view.room - 1) / this.per));
+    const page = Math.max(1, Math.floor(pageRows(this.view.room) / this.per));
     switch (binding?.action) {
       case "picker.move": this.move(binding.args!.by as number); break;
       case "picker.page": this.move((binding.args!.by as number) * page); break;

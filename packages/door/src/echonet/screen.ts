@@ -17,7 +17,7 @@ import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
-import { pressOn, RowView, wheelRows, type RowPress } from "../scroll";
+import { listMove, pressOn, RowView, wheelRows, type RowPress } from "../scroll";
 import { authorName, hostRequest, SocketBoard, USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -262,7 +262,7 @@ export class EchoAreas implements Pane {
   private run(desk: DeskApi, name: "echo.area" | "echo.reload", args: Record<string, unknown> = {}) { void desk.press?.(this, ECHO_AREA_ACTIONS, name, args); }
 
   key(k: Key, desk: DeskApi): boolean {
-    const n = this.areas?.length ?? 0, to = listMove(k, this.at, n, 8);
+    const n = this.areas?.length ?? 0, to = listMove(k, { at: this.at, n, room: this.view.room });
     if (to !== null) { if (to !== this.at) this.run(desk, "echo.area", { n: to + 1 }); return true; }
     if (k.kind === "enter" && this.at >= 0) { this.run(desk, "echo.area", { n: this.at + 1, open: true }); return true; }
     if (ch(k) === "r") { this.run(desk, "echo.reload"); return true; }
@@ -343,17 +343,6 @@ export class EchoAreas implements Pane {
   }
 }
 
-/** Where ↑ ↓ j k PgUp PgDn Home End move a list's light, or null when `k` isn't one of them. */
-function listMove(k: Key, at: number, n: number, page: number): number | null {
-  if (!n) return isUp(k) || isDown(k) || k.kind === "pgup" || k.kind === "pgdn" || k.kind === "home" || k.kind === "end" ? at : null;
-  if (isUp(k)) return Math.max(0, at - 1);
-  if (isDown(k)) return Math.min(n - 1, at + 1);
-  if (k.kind === "pgup") return Math.max(0, at - page);
-  if (k.kind === "pgdn") return Math.min(n - 1, at + page);
-  if (k.kind === "home") return 0;
-  if (k.kind === "end") return n - 1;
-  return null;
-}
 
 // ── an area's messages ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -431,7 +420,7 @@ export class EchoMessages implements Pane {
   private run(desk: DeskApi, args: Record<string, unknown>) { void desk.press?.(this, ECHO_MESSAGE_ACTIONS, "echo.message", args); }
 
   key(k: Key, desk: DeskApi): boolean {
-    const n = this.items?.length ?? 0, to = listMove(k, this.at, n, 10);
+    const n = this.items?.length ?? 0, to = listMove(k, { at: this.at, n, room: this.view.room });
     if (to !== null) { if (to !== this.at) this.run(desk, { n: to + 1 }); return true; }
     if (k.kind === "enter" && this.at >= 0) { this.run(desk, { n: this.at + 1, read: true }); return true; }
     return false;

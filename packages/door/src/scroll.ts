@@ -64,6 +64,38 @@ export const lastTop = (total: number, room: number) => Math.max(0, Math.min(tot
 /** Rows a draft keeps between its cursor and the view's top or bottom edge (scrolloff): 3, less in a short view. */
 export const scrollOff = (room: number) => Math.min(3, Math.floor(room / 4));
 
+// ── a page (PIE-1293) ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Rows PgUp and PgDn move, everywhere: the view's rows less one, so the row at the edge stays in sight across the turn
+ * (as less and vim do); at least one. A list moves its cursor by this many rows, a reader or a preview scrolls by it.
+ */
+export const pageRows = (room: number) => Math.max(1, Math.floor(room) - 1);
+
+/** A key's step through a list, or null when `k` isn't one: ↑ ↓ j k a row, PgUp PgDn a page, Home End the ends. */
+export function listStep(k: { kind: string; ch?: string; ctrl?: boolean; alt?: boolean }): { by: number } | { page: 1 | -1 } | { edge: "first" | "last" } | null {
+  const c = k.kind === "char" && !k.ctrl && !k.alt ? k.ch : undefined;
+  if (k.kind === "up" || c === "k") return { by: -1 };
+  if (k.kind === "down" || c === "j") return { by: 1 };
+  if (k.kind === "pgup") return { page: -1 };
+  if (k.kind === "pgdn") return { page: 1 };
+  if (k.kind === "home") return { edge: "first" };
+  if (k.kind === "end") return { edge: "last" };
+  return null;
+}
+
+/**
+ * Where a key moves a list's cursor (`at` of `n` rows, in a view of `room` rows), or null when `k` isn't a list key:
+ * the one key-to-index every list without a RowView of its own uses (the BBS lists, EchoNet's, the tree).
+ */
+export function listMove(k: { kind: string; ch?: string; ctrl?: boolean; alt?: boolean }, o: { at: number; n: number; room: number }): number | null {
+  const step = listStep(k);
+  if (!step) return null;
+  if (!o.n) return o.at;
+  const by = "by" in step ? step.by : "page" in step ? step.page * pageRows(o.room) : step.edge === "first" ? -Infinity : Infinity;
+  return clamp(o.at + by, 0, o.n - 1);
+}
+
 /** `top` moved just far enough that row `sel` is in a view of `room` rows. */
 export function follow(sel: number, top: number, room: number): number {
   if (sel < top) return sel;
@@ -180,6 +212,8 @@ export class RowView {
   /** A press on row `row` (an index into the list, not a screen row): select, open, open fresh, or only focus. */
   press(row: number, p: RowPress = {}): RowGesture { return this.presses.press(row, p); }
   scroll(by: number) { this.top = scrolled(this.top, by, this.max); }
+  /** Rows a page moves here (PgUp -1, PgDn 1): the rows it was last placed in, less one (pageRows). */
+  page(dir: 1 | -1): number { return dir * pageRows(this.room < 0 ? 2 : this.room); }
   /** The selection comes into view at the next `place` even if it didn't move (j at the end of a list). */
   reveal() { this.shown = null; }
   /** The top to draw from, for `total` rows in `room`, with row `sel` selected (spanning `rows`). */

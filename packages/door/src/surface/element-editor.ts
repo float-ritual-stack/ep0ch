@@ -10,7 +10,7 @@ import { C, fg, RESET, pad, width } from "../style";
 import { SELECT_BG } from "./selection";
 import { type Actor } from "../socket";
 import type { Key } from "../term";
-import { lastTop, scrolled, follow } from "../scroll";
+import { lastTop, pageRows, scrolled, follow } from "../scroll";
 
 export interface ElementField { line: number; start: number; end: number; paddingEnd?: number; escapes?: RegExp; value: string; encode?: (value: string) => string; decode?: (source: string) => string }
 export type ElementOperation = "row.add" | "row.remove" | "column.add" | "column.remove" | "row.move" | "column.move";
@@ -273,7 +273,7 @@ export class ElementEdit {
     if (k.kind === "char" && k.ctrl && k.ch === "o") { run("rich.toggle"); return true; }
     if (!this.on) return false;
     if (this.draft.busy) return true;
-    if (k.kind === "pgup" || k.kind === "pgdn") { run("rich.scroll", { by: (k.kind === "pgup" ? -1 : 1) * this.room }); return true; }
+    if (k.kind === "pgup" || k.kind === "pgdn") { run("rich.scroll", { by: (k.kind === "pgup" ? -1 : 1) * pageRows(this.room) }); return true; }
     this.draft.follow = true;
     if (k.kind === "esc") { run("rich.toggle", { on: false }); return true; }
     if (!("pasted" in k) && ["tab", "backtab", "up", "down", "enter"].includes(k.kind)) { run("rich.move", { direction: k.kind === "backtab" ? "previous" : k.kind === "tab" || k.kind === "enter" ? "next" : k.kind }); return true; }

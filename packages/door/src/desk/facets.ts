@@ -580,7 +580,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (ch(k) === "/") { this.listHost(desk).type(this.listHost(desk).lists()[0]!); return true; }
     // Every list's keys (PIE-1457): Home and g to the first note, End and G to the last; space opens, as it does on a
     // note in the facets tile's own Matches.
-    const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8
+    const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? this.list.pageBy(1) : k.kind === "pgup" ? this.list.pageBy(-1)
       : k.kind === "home" || c === "g" ? -PAST_END : k.kind === "end" || c === "G" ? PAST_END : 0;
     const run = (name: string, args: Record<string, unknown> = {}) => { void desk.press?.(this, FACETS_ACTIONS, name, args); return true; };
     if (by) return run("facets.match", { by });
@@ -693,7 +693,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   key(k: Key, desk: DeskApi): boolean {
     if (this.draft !== null && k.kind !== "mouse") return this.draftKey(k, desk);
     const n = this.rows().length, c = ch(k), row = this.current();
-    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : k.kind === "home" || c === "g" ? -PAST_END : k.kind === "end" || c === "G" ? PAST_END : 0;
+    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? this.view.page(1) : k.kind === "pgup" ? this.view.page(-1) : k.kind === "home" || c === "g" ? -PAST_END : k.kind === "end" || c === "G" ? PAST_END : 0;
     if (by) { if (n) this.act(desk, "facets.pick", { by }); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "o") { this.act(desk, "facets.place"); return true; }
     if (k.kind === "enter" || c === " ") {

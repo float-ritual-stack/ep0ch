@@ -1,3 +1,4 @@
+import { pageRows } from "../scroll";
 import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
@@ -430,6 +431,8 @@ export interface CompletionState extends CompletionLookup {
   previewRect?: Rect;
   listWidth?: number;
   listCol?: number;
+  /** The list's rows as last drawn: what PgUp PgDn move by (pageRows). */
+  listRows?: number;
   target: CompletionTarget;
   previewLines?: string[];
   previewTop?: number;
@@ -892,7 +895,9 @@ const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" |
  * the popup took the key.
  */
 function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boolean {
-  if (c.shown && (k.kind === "pgup" || k.kind === "pgdn" || ((k.kind === "up" || k.kind === "down") && k.shift)) && c.scrollPreview(k.kind === "pgup" ? -8 : k.kind === "pgdn" ? 8 : k.kind === "up" ? -1 : 1)) return true;
+  // shift+↑ shift+↓ scroll the docs beside the list; PgUp PgDn page the list itself, as in every picker (PIE-1293).
+  if (c.shown && (k.kind === "up" || k.kind === "down") && k.shift && c.scrollPreview(k.kind === "up" ? -1 : 1)) return true;
+  if (c.shown?.items.length && !c.shown.loading && (k.kind === "pgup" || k.kind === "pgdn")) { c.move((k.kind === "pgup" ? -1 : 1) * pageRows(c.shown.listRows ?? COMPLETION_ROWS)); return true; }
   if (c.state && !c.shown) c.dismiss();
   const s = c.state;
   if (s) {

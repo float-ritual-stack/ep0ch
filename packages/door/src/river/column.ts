@@ -29,7 +29,7 @@ import { outlineState, readState, writeState } from "../state";
 import { C, fg, pad, paint, RESET, selectedRow, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, ago, wrap } from "../text";
-import { lastTop, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
+import { lastTop, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE, pageRows, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
 import { askInBar } from "../bar/ask";
@@ -566,7 +566,7 @@ export class RiverColumn extends ReaderPane {
       if ((this.linked() || current) && (k.kind === "enter" || k.kind === "alt-enter")) return super.key(k, desk);
       if (current === "task" && c === " ") return super.key(k, desk);
       if (isDown(k) || isUp(k)) { this.run(desk, "column.select", { by: isDown(k) ? 1 : -1 }); return true; }
-      if (k.kind === "pgdn" || k.kind === "pgup") { this.run(desk, "column.scroll", { by: (k.kind === "pgdn" ? 1 : -1) * Math.max(1, this.height - 2) }); return true; }
+      if (k.kind === "pgdn" || k.kind === "pgup") { this.run(desk, "column.scroll", { by: (k.kind === "pgdn" ? 1 : -1) * pageRows(this.height - 1) }); return true; }
       if (k.kind === "home" || k.kind === "end") { this.run(desk, "column.select", { by: k.kind === "home" ? -1e9 : 1e9 }); return true; }
       // ⏎ opens the selected note in the next column (the flow's), alt+⏎ in a new one even when a column has it.
       if (k.kind === "enter" || k.kind === "alt-enter") {
@@ -638,7 +638,7 @@ export class RiverColumn extends ReaderPane {
       if (k.kind === "esc") { this.text = null; desk.redraw(); return true; }
       return false;
     }
-    const r = modeKey(k, sel, this.selRows(), 10);
+    const r = modeKey(k, sel, this.selRows(), this.height - 1);
     if (r === null) return false;
     if (r === "done") this.text = null;
     desk.redraw();
@@ -936,7 +936,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.scroll": def({
     words: "scroll a river column",
-    summary: "scroll a river column by= rows (a page is its height less two); what it lists, its selection and the keys stay", keys: [{ keys: "pgup pgdn", does: "by a page" }, { keys: "wheel", does: "by a few rows" }],
+    summary: "scroll a river column by= rows (a page is its height less one, pageRows); what it lists, its selection and the keys stay", keys: [{ keys: "pgup pgdn", does: "by a page" }, { keys: "wheel", does: "by a few rows" }],
     touches: "tile", replay: "safe", way: "an agent doesn't scroll what they're reading · peek reads the column whole, or act on another column", says: r => `scrolled ${r.tile}`,
     args: { by: { type: "number", about: "rows: positive down, negative up" } },
     examples: [

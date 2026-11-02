@@ -61,6 +61,8 @@ export class LibraryPane implements Pane {
   /** The variation selected, an index into what the part shows. */
   selectedV = 0;
   private view = new RowView();
+  /** Rows PgUp PgDn scroll (RowView.page: the rows shown, less one). */
+  pageStep(dir: 1 | -1) { return this.view.page(dir); }
   private desk: DeskApi | null = null;
   /** What the last paint laid out: the fixed rows, the scrolled ones. */
   private head: Row[] = [];
@@ -588,7 +590,7 @@ function pressed(p: LibraryPane, k: Key): { action: string; args?: Record<string
   if (k.kind === "right" || c === "l") return own(1);
   if (k.kind === "down" || c === "j") return { action: "library.select", args: { by: 1 } };
   if (k.kind === "up" || c === "k") return { action: "library.select", args: { by: -1 } };
-  if (k.kind === "pgdn" || k.kind === "pgup") return { action: "library.scroll", args: { by: (k.kind === "pgdn" ? 1 : -1) * 10 } };
+  if (k.kind === "pgdn" || k.kind === "pgup") return { action: "library.scroll", args: { by: p.pageStep(k.kind === "pgdn" ? 1 : -1) } };
   if (c === "y") return { action: "library.copy" };
   if (isCopyKey(k)) return { action: "library.copy", args: { part: "selection" } };
   if (c === "w") return { action: "library.width" };

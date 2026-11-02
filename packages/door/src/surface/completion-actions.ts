@@ -4,7 +4,7 @@ import type { Completer } from "./completer";
 
 export const COMPLETION_PREVIEW = {
     summary: "scroll the docs panel beside the completion list (the lit row's docs, a reference's reader, a component's demo), or select text from a component demo; an agent reads that text without changing the person's selection",
-    keys: "shift+up, shift+down, PgUp/PgDn, wheel over the docs",
+    keys: "shift+up, shift+down, wheel over the docs",
     touches: "tile", replay: "safe",
     touchesWith: ({ text }: { text?: string }): "nothing" | "tile" => text === undefined ? "tile" : "nothing",
     args: { by: { type: "number", optional: true, about: "rows to scroll; negative goes up" }, text: { type: "string", optional: true, about: "component preview text to select; an agent reads it without changing the selection" } },
@@ -36,7 +36,7 @@ export const COMPLETION_DEFINITION = {
 
 export const COMPLETION_MOVE = {
   summary: "light another row of the open completion list (PIE-1339): by= rows, negative up; the docs beside it follow the lit row",
-  keys: "up/down, ctrl+n, ctrl+p, hover, wheel over the list", touches: "draft", draft: "type", replay: "safe",
+  keys: "up/down, ctrl+n, ctrl+p, PgUp/PgDn (a page), hover, wheel over the list", touches: "draft", draft: "type", replay: "safe",
   args: { by: { type: "number", about: "rows to move; negative goes up" } },
   examples: [{ act: "complete.move by=2", does: "lights the row two below the lit one" }],
 } as const;

@@ -32,7 +32,7 @@ export const KEYS_WINDOW_KEYS: readonly ModeKey[] = keyTable("keys window", "the
   row("k", "keys.select", "select", { by: -1 }), row("up", "keys.select", "select", { by: -1 }),
   // The way out early, so a hint row cut at 40 columns still says it (PIE-1439).
   row("esc", "keys.close", "close"), row("q", "keys.close", "close"),
-  row("pgdn", "keys.select", "page", { by: 10 }, "select the binding a page down"), row("pgup", "keys.select", "page", { by: -10 }, "select the binding a page up"),
+  row("pgdn", "keys.select", "page", { by: 1, page: true }, "select the binding a page down"), row("pgup", "keys.select", "page", { by: -1, page: true }, "select the binding a page up"),
   // Tabs by digit (the screen has no tile digits); Tab stays the desk's focus key.
   row("/", "keys.filter", "filter"), row("1", "keys.tab", "bindings", { tab: "bindings" }), row("2", "keys.tab", "conflicts", { tab: "conflicts" }), row("3", "keys.tab", "yours", { tab: "yours" }, "show the keys your keymap gives"), row("4", "keys.tab", "unbound", { tab: "unbound" }, "show the actions no key reaches"),
   row("r", "keys.rebind", "rebind", undefined, "move the selected binding to another key"), row("u", "keys.unbind", "unbind", undefined, "take the selected binding's key away"), row("d", "keys.reset", "built-in keys"),
@@ -326,9 +326,9 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
     summary: "select a binding in the keys window: n=<from 1> or by=<rows> (negative up)",
     keys: [{ keys: "j k ↓ ↑", does: "a row" }, { keys: "pgdn pgup", does: "a page" }, { keys: "click", does: "on a row" }, { keys: "wheel", does: "scrolls the list" }],
     touches: "tile", replay: "safe", way: "an agent reads the rows with keys.find, which moves nothing",
-    args: { n: { type: "number", optional: true, about: "the row, from 1" }, by: { type: "number", optional: true, about: "rows to move, negative up" } },
+    args: { n: { type: "number", optional: true, about: "the row, from 1" }, by: { type: "number", optional: true, about: "rows to move, negative up" }, page: { type: "boolean", optional: true, about: "by= counts pages (the rows shown, less one: PgUp PgDn), not rows" } },
     examples: [{ act: "keys.select n=3 tile=keys", does: "selects the third binding listed" }, { act: "keys.select by=1 tile=keys", does: "selects the next one" }],
-    run({ n, by }, { pane }) { const p = paneOf(pane); p.record = null; return said(pick(p, n, by)); },
+    run({ n, by, page }, { pane }) { const p = paneOf(pane); p.record = null; return said(pick(p, n, page && by !== undefined ? p.view.page(by < 0 ? -1 : 1) : by)); },
   }),
   "keys.filter": def({
     summary: "filter the keys window: text= the words (each must be in a binding's keys, action, scope or what it does); without text= the person types it (/), done=true stops typing",

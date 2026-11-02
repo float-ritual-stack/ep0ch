@@ -126,16 +126,18 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.step": def({
     summary: "move the pick `by` rows (1 the next, -1 the one before) among the rows that can be picked, as j and k do; list= which list. The person's moves their selection and the [ ] position; an agent's is its own, in its tint",
-    get keys() { return [{ keys: keysOf([LIST_KEYS], "list.step"), does: "the next or previous row" }, { keys: keysOf([COLLECTION_KEYS], "list.step", "column"), does: "across a gallery's columns or a board's lanes" }, { keys: keysOf([COLLECTION_KEYS], "list.step", "group"), does: "the next or previous group" }, { keys: "wheel", does: "over a links tile" }]; },
+    get keys() { return [{ keys: keysOf([LIST_KEYS], "list.step"), does: "the next or previous row" }, { keys: keysOf([LIST_KEYS], "list.step", "page"), does: "a page down or up" }, { keys: keysOf([COLLECTION_KEYS], "list.step", "column"), does: "across a gallery's columns or a board's lanes" }, { keys: keysOf([COLLECTION_KEYS], "list.step", "group"), does: "the next or previous group" }, { keys: "wheel", does: "over a links tile" }]; },
     touches: "nothing", replay: "safe", says: r => (r.moved ? null : `stepped to row ${r.row} of ${r.title}`),
     args: {
       list: LIST_ARG,
       by: { type: "number", about: "1 forward, -1 back" },
       axis: { type: "string", optional: true, choices: ["row", "column", "group"], about: "row (default): down/up a grid; column: across grid columns or board lanes; group: next/previous group" },
+      page: { type: "boolean", optional: true, about: "by= counts pages, not rows: a page is the rows last shown, less one (PgUp PgDn)" },
     },
-    examples: [{ act: "list.step by=1", does: "moves to the next row, as j does" }],
-    async run({ list, by, axis }, { host, standing }, actor) {
+    examples: [{ act: "list.step by=1", does: "moves to the next row, as j does" }, { act: "list.step by=1 page=true", does: "moves the pick a page down, as PgDn does" }],
+    async run({ list, by, axis, page }, { host, standing }, actor) {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
+      if (page) by = l.view.pageBy(by < 0 ? -1 : 1);
       const row = l.view.step(who, by, axis as "row" | "column" | "group" | undefined);
       if (!row) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} the pick in ${l.title}`);
       if (who === PERSON) await host.picked(l, row);
@@ -194,7 +196,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
     },
   }),
   "list.page": def({
-    summary: "turn a collection's page without changing its note", get keys() { return [{ keys: keysOf([COLLECTION_KEYS], "list.page"), does: "on a collection's row" }, { keys: "click", does: "the ◀ ▶ page controls" }]; }, touches: "nothing", replay: "safe",
+    summary: "turn a collection's page without changing its note", keys: [{ keys: "click", does: "the ◀ ▶ page controls" }, { keys: "PgUp PgDn", does: "page the pick (list.step page=true), which turns the collection's page at its edge" }], touches: "nothing", replay: "safe",
     args: { list: LIST_ARG, by: { type: "number", optional: true, about: "pages to turn, default 1" } },
     examples: [{ act: "list.page by=1", does: "turns the collection on a page; an agent's turn is its own" }],
     async run({ list, by }, { host, standing }, actor) {

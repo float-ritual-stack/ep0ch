@@ -76,6 +76,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   if (drawn.preview) s.previewRect = { ...drawn.preview, row: drawn.preview.row + Number(header) };
   s.listCol = drawn.listCol;
   s.listWidth = drawn.listWidth;
+  s.listRows = drawn.rows.filter(r => r !== null).length;
   rows.push(...drawn.rows); out.push(...drawn.lines);
   // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
   const long = s.jev === "ranked" ? (s.sure?.label ? `jev ranked · ${s.sure.label} · ` : "jev ranked · ") : s.jev === "asking" ? "jev… · " : "";
@@ -114,7 +115,7 @@ export function enterKeeps(s: CompletionState): "new line" | "applies" | null {
   return item.enter || item.newPage || item.querySuggestion || unchanged ? (s.line ? "applies" : item.enter ?? "new line") : null;
 }
 
-/** Whether the docs panel has more than it shows (a reference's reader always may): shift+up/down, PgUp/PgDn scroll it. */
+/** Whether the docs panel has more than it shows (a reference's reader always may): shift+up/down scroll it (PgUp/PgDn page the list). */
 export function docsScroll(s: CompletionState): boolean {
   const item = s.items[s.index];
   if (!item) return false;

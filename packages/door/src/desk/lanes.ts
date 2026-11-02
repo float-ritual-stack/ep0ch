@@ -1386,7 +1386,7 @@ export class Lanes implements SourceModel {
     if (c === "u" && this.trashed) { void this.run("card.restore", {}); return true; }
     if (c === "c" && l) { void this.run("lane.collapse", { lane: l.name }); return true; }
     if (l && this.host.folded(l) && (k.kind === "enter" || c === " ")) { void this.run("lane.collapse", { lane: l.name, on: false }); return true; }
-    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
+    const by = isDown(k) ? 1 : isUp(k) ? -1 : l && k.kind === "pgdn" ? l.list.pageBy(1) : l && k.kind === "pgup" ? l.list.pageBy(-1) : 0;
     if (l && by) { void this.run("card.select", { by }); return true; }
     // ⏎ opens the card where the lane's opens land (the readers row's detail), alt+⏎ in a new one: the desk's `open from=`.
     if (k.kind === "enter" || k.kind === "alt-enter") { const m = this.card(); if (m && l) void this.host.perform?.("open", { id: m.id, from: this.host.nameOfPane(l), ...(k.kind === "alt-enter" ? { fresh: true } : {}) }, USER); return true; }

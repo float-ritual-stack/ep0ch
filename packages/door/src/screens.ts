@@ -31,7 +31,7 @@ import { ARM_MS, editArmMs, useEditArm } from "./arm";
 import { hyperOn, useHyper } from "./hyper";
 import { HERO_MODES, heroHeaderMode, heroHeaderOn, useHeroHeader, type HeroMode } from "./surface/hero-header";
 import { writeState } from "./state";
-import { RowView, RowPresses, overscroll, overscrollOf, useOverscroll } from "./scroll";
+import { listMove, pageRows, RowView, RowPresses, overscroll, overscrollOf, useOverscroll } from "./scroll";
 import { composerPlace, useComposerPlace } from "./surface/composer";
 import { attachedPlaceOf } from "./surface/attached";
 import { ATTACHED_PLACES } from "./surface/attached";
@@ -61,15 +61,6 @@ import { prop } from "./props";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-const nav = (k: Key, len: number, i: number, page: number) => {
-  if (isUp(k)) return Math.max(0, i - 1);
-  if (isDown(k)) return Math.min(len - 1, i + 1);
-  if (k.kind === "pgup") return Math.max(0, i - page);
-  if (k.kind === "pgdn") return Math.min(len - 1, i + page);
-  if (k.kind === "home") return 0;
-  if (k.kind === "end") return Math.max(0, len - 1);
-  return i;
-};
 /** q leaves a BBS screen. Esc never does (UI-GRAMMAR, "Esc"): it closes the innermost temporary thing, and with none says so. */
 const isBack = (k: Key) => k.kind === "char" && !k.ctrl && (k.ch === "q" || k.ch === "Q");
 
@@ -1264,7 +1255,7 @@ abstract class BbsList implements Screen {
     }
     if (k.kind === "esc") return nothingToClose(ctx);
     if (isBack(k)) return back(this, ctx);
-    const to = count ? nav(k, count, this.sel, this.page(ctx)) : this.sel;
+    const to = count ? listMove(k, { at: this.sel, n: count, room: this.page(ctx) }) ?? this.sel : this.sel;
     if (count && k.kind === "enter") this.press("list.open", {});
     else if (to !== this.sel) this.press("list.select", { n: to + 1 });
     else if (!this.ownKey(k, ctx)) ctx.redraw();
@@ -1449,7 +1440,7 @@ export class StatusMessages extends BbsList {
     if (k.kind === "enter" && this.litLink() >= 0) { void this.dispatch.press("status.link", { n: this.litLink() + 1 }); return; }
     if (ch(k) === "/") { void this.dispatch.press("status.filter", { editing: true }); return; }
     if (k.kind === "pgup" || k.kind === "pgdn" || k.kind === "mouse" && (k.action === "wheel-up" || k.action === "wheel-down")) {
-      const by = k.kind === "mouse" ? k.action === "wheel-up" ? -1 : 1 : (k.kind === "pgup" ? -1 : 1) * Math.max(1, ctx.t.rows - 5);
+      const by = k.kind === "mouse" ? k.action === "wheel-up" ? -1 : 1 : (k.kind === "pgup" ? -1 : 1) * pageRows(ctx.t.rows - 4);
       void this.dispatch.press("status.scroll", { by }); return;
     }
     super.key(k, ctx);
@@ -2111,7 +2102,7 @@ export class ArtViewer implements Screen {
     if (c === "i") return run("art.ice", {});
     if (c === "v") return shellKey("video.cycle", {}, this, ctx);
     if (k.kind === "enter" || c === " ") return run("art.reveal", {});
-    const by = isDown(k) ? 2 : isUp(k) ? -2 : k.kind === "pgdn" ? 20 : k.kind === "pgup" ? -20 : 0;
+    const by = isDown(k) ? 2 : isUp(k) ? -2 : k.kind === "pgdn" ? pageRows(ctx.t.rows) : k.kind === "pgup" ? -pageRows(ctx.t.rows) : 0;
     if (by) return run("art.scroll", { by });
   }
   private ctx: Ctx | null = null;

@@ -3,7 +3,7 @@
 // an exact quote with its offset, so a stale or moved passage is refused, never guessed at; every comment
 // and reply carries a requestId, reused on retry, so a send whose answer was lost can't land twice.
 import { savedReferenceWarning, type ReferenceBoard } from "./reference-warnings";
-import { RowView, wheelRows } from "./scroll";
+import { pageRows, RowView, wheelRows } from "./scroll";
 import type { Msg } from "./board";
 import type { Draft } from "./edit";
 import { commentEditTarget, commentTarget, DraftSession, Outgoing, type CommentWhere, type EditedMark } from "./draft-session";
@@ -92,7 +92,8 @@ export class Passage {
     return null;
   }
 
-  key(k: Key): "keep" | "compose" | "close" {
+  /** `room`: the rows the passage is shown in, a page's step (pageRows). */
+  key(k: Key, room = 11): "keep" | "compose" | "close" {
     const c = ch(k);
     this.note = "";
     if (k.kind === "esc") return "close";
@@ -103,8 +104,7 @@ export class Passage {
     const move = (d: number) => { const j = this.nextFilled(d > 0 ? this.lastLine : this.firstLine, d); if (j !== null) this.selectLine(j); };
     if (isDown(k)) move(1);
     else if (isUp(k)) move(-1);
-    else if (k.kind === "pgdn") for (let i = 0; i < 10; i++) move(1);
-    else if (k.kind === "pgup") for (let i = 0; i < 10; i++) move(-1);
+    else if (k.kind === "pgdn" || k.kind === "pgup") for (let i = 0; i < pageRows(room); i++) move(k.kind === "pgdn" ? 1 : -1);
     else if (c === "J") { const j = this.nextFilled(this.lastLine, 1); if (j !== null) this.to = this.span(j).to; }
     else if (c === "K") {
       const j = this.nextFilled(this.lastLine, -1);
@@ -261,7 +261,7 @@ export class CommentSession {
   key(k: Key, env: CommentEnv): "keep" | "close" {
     if (this.busy || k.kind === "mouse") return "keep";
     if (this.mode === "select") {
-      const a = this.passage!.key(k);
+      const a = this.passage!.key(k, this.room);
       if (a === "close") {
         if (this.origin === "select" && !this.composer) return "close";
         this.passage = null; this.mode = this.composer ? "compose" : "threads";
@@ -298,7 +298,7 @@ export class CommentSession {
     const c = ch(k), n = this.threads.length;
     this.error = null;
     if (k.kind === "esc") return "close";
-    if (k.kind === "pgdn" || k.kind === "pgup") { this.view.scroll((k.kind === "pgdn" ? 1 : -1) * Math.max(1, this.room - 1)); return "keep"; }
+    if (k.kind === "pgdn" || k.kind === "pgup") { this.view.scroll(this.view.page(k.kind === "pgdn" ? 1 : -1)); return "keep"; }
     if (isDown(k)) { this.sel = Math.min(Math.max(0, n - 1), this.sel + 1); this.view.reveal(); }
     else if (isUp(k)) { this.sel = Math.max(0, this.sel - 1); this.view.reveal(); }
     else if ((c === "r" || k.kind === "enter") && this.threads[this.sel]) this.replyTo(this.sel);

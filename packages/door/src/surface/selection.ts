@@ -13,6 +13,7 @@
 // `y` or cmd+c; an agent's selection is never the person's clipboard. A copy shows "copied to clipboard"
 // over the screen (App.copy), as Herdr's `ui.toast.clipboard` does.
 import { DRAWN_PART } from "../hyperlink";
+import { pageRows } from "../scroll";
 import { ActionRefused } from "./actions";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ellipsize, bgRgb, glyphWidth, itemStyle, RESET, surfaceBg, tint } from "../style";
@@ -412,8 +413,8 @@ export type ModeKey = "moved" | "copy" | "source" | "done" | null;
  * The keyboard mode's keys (after `v`): h l ← → a cell, j k ↑ ↓ a row, PgUp PgDn a page, Home End the
  * row's ends move the head; y or cmd+c copies, Y copies the source, v and esc leave. Null: not one of its keys.
  */
-export function modeKey(k: Key, s: Selection, rows: SelectRows, page: number): ModeKey {
-  const c = ch(k);
+export function modeKey(k: Key, s: Selection, rows: SelectRows, room: number): ModeKey {
+  const c = ch(k), page = pageRows(room);
   if (c === "y" || isCopyKey(k)) return "copy";
   if (c === "Y") return "source";
   if (c === "v" || k.kind === "esc") return "done";

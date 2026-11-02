@@ -29,7 +29,7 @@ import { ActionRefused, actionSet, def } from "../surface/actions";
 import { width, drawEllipsized, C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { Fold } from "../fold";
 import { readView, type ViewRead } from "../views";
-import { RowView, type RowPress } from "../scroll";
+import { listMove, RowView, type RowPress } from "../scroll";
 import { ch, isUp, isDown, type Key } from "../term";
 import { askInBar } from "../bar/ask";
 import { lastTrashed } from "../note-trash";
@@ -673,12 +673,8 @@ export class TreePane implements Pane {
   key(k: Key, desk: DeskApi): boolean {
     const row = this.rows[this.sel], n = this.rows.length;
     const pickTo = (i: number) => { const to = Math.max(0, Math.min(n - 1, i)); if (n && to !== this.sel) this.run(desk, "tree.pick", { n: to + 1 }); return true; };
-    if (isUp(k)) return pickTo(this.sel - 1);
-    if (isDown(k)) return pickTo(this.sel + 1);
-    if (k.kind === "pgup") return pickTo(this.sel - 15);
-    if (k.kind === "pgdn") return pickTo(this.sel + 15);
-    if (k.kind === "home") return pickTo(0);
-    if (k.kind === "end") return pickTo(n - 1);
+    const to = listMove(k, { at: this.sel, n, room: this.view.room });
+    if (to !== null) return pickTo(to);
     if (!row) return false;
     // alt+↑ alt+↓ put the note up or down among its siblings (as in a reader, the board's lanes and the Welcome list); K and J do
     // too, for a terminal that doesn't send Option+arrows (a Mac's); I moves it in under the note above, O out after its parent.

@@ -21,7 +21,7 @@ import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
 import { bg, C, chip, codePointCells, drawEllipsized, fg, RESET, width } from "./style";
 import { wrap } from "./text";
-import { lastTop, scrolled, scrollOff } from "./scroll";
+import { lastTop, pageRows, scrolled, scrollOff } from "./scroll";
 import type { Key } from "./term";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
@@ -563,8 +563,8 @@ export class Draft {
       // Up and down move by the rows drawn (a wrapped line is several), keeping the column they started at.
       case "up": this.moveVisual(-1); break;
       case "down": this.moveVisual(1); break;
-      case "pgup": this.moveVisual(-Math.max(1, this.shown.h - 1)); break;
-      case "pgdn": this.moveVisual(Math.max(1, this.shown.h - 1)); break;
+      case "pgup": this.moveVisual(-this.pageRows()); break;
+      case "pgdn": this.moveVisual(this.pageRows()); break;
       case "home": this.col = 0; break;
       case "end": this.col = this.line.length; break;
       // Enter keeps the list going (draft.newline); alt+enter, shift+enter and a pasted line break are plain line breaks.
@@ -1038,6 +1038,8 @@ export class Draft {
   private goal: number | null = null;
   /** The last render: its width, height and rows, for the wheel, clicks and up/down. */
   private shown: { w: number; h: number; rows: VRow[] } = { w: 0, h: 15, rows: [] };
+  /** Rows PgUp PgDn move the cursor (and scroll): the rows shown, less one (pageRows, PIE-1293). */
+  pageRows(): number { return pageRows(this.shown.h); }
   /** Show the Markdown preview under the text (ctrl+p, or the frame's control). The host draws it. */
   preview = false;
   /**
@@ -1409,15 +1411,16 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
   "draft.scroll": def({
     summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view). preview=true scrolls its preview instead (PIE-846), until the text changes", keys: [{ keys: "wheel", does: "over the text, or over the preview" }],
     touches: "draft", draft: "type", replay: "safe",
-    args: { by: { type: "number", about: "rows, negative up" }, preview: { type: "boolean", optional: true, about: "scroll the preview under the text (ctrl+p shows it)" } },
+    args: { by: { type: "number", about: "rows, negative up" }, preview: { type: "boolean", optional: true, about: "scroll the preview under the text (ctrl+p shows it)" }, page: { type: "boolean", optional: true, about: "by= counts pages (the rows shown, less one: PgUp PgDn), not rows" } },
     examples: [
       { act: "draft.scroll by=10", does: "scrolls the draft's view down ten rows, the cursor staying put" },
       { act: "draft.scroll by=-5 preview=true", does: "scrolls the preview up five rows" },
     ],
-    run({ by, preview }, d, actor) {
-      if (!preview) { d.scrollBy(by); return { following: d.follow }; }
+    run({ by, preview, page }, d, actor) {
+      if (!preview) { d.scrollBy(page ? Math.sign(by) * d.pageRows() : by); return { following: d.follow }; }
       const p = d.frame?.preview;
       if (!d.preview || !p) throw new ActionRefused("the preview isn't shown · ctrl+p (draft.preview) shows it");
+      if (page) by = Math.sign(by) * pageRows(p.rows);
       const top = Math.max(0, Math.min(Math.max(0, p.total - (p.rows - 1)), p.top + by));
       const projected = new PositionRows(new ReaderPosition());
       projected.source = p.source;

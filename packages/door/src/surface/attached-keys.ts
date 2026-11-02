@@ -11,7 +11,7 @@ export const SOURCES_KEYS: readonly ModeKey[] = keyTable("sources", "the Sources
   say(row("j", "sources.pick", "select", { by: 1 }), "select the next row of the inspector"), say(row("down", "sources.pick", "select", { by: 1 }), "select the next row of the inspector"), say(row("tab", "sources.pick", "select", { by: 1 }), "select the next row of the inspector"),
   say(row("k", "sources.pick", "select", { by: -1 }), "select the previous row of the inspector"), say(row("up", "sources.pick", "select", { by: -1 }), "select the previous row of the inspector"),
   ...["enter", "shift+enter", "ctrl+enter"].map(key => say(row(key, "sources.enter", "open"), "open the selected row of the inspector")), row("alt+enter", "sources.enter", "open beside", { fresh: true }),
-  row("r", "sources.refresh", "read again"), row("pgdn", "sources.scroll", "scroll", { by: 8 }), row("space", "sources.scroll", "scroll", { by: 8 }), row("pgup", "sources.scroll", "scroll", { by: -8 }),
+  row("r", "sources.refresh", "read again"), row("pgdn", "sources.scroll", "scroll", { by: 1, page: true }), row("space", "sources.scroll", "scroll", { by: 1, page: true }), row("pgup", "sources.scroll", "scroll", { by: -1, page: true }),
   say(row("ctrl+o", "sources.place", "placement"), "choose where the Sources inspector sits"), row("ctrl+g", "sources.grip", "move"), row("ctrl+z", "sources.undo", "undo"),
   ...["sources.close", "sources.enter", "sources.refresh", "sources.place"].map(action => row("click", action, "")),
   row("wheel", "sources.scroll", ""),
@@ -66,7 +66,7 @@ export const REVISION_KEYS: readonly ModeKey[] = keyTable("revision", "a note at
   ...["right", "l"].map(key => say(row(key, "revision.newer", "newer"), "show the revision after this one")),
   row("n", "revision.against", "against now"),
   row("j", "revision.scroll", "scroll", { by: 1 }), row("down", "revision.scroll", "scroll", { by: 1 }), row("k", "revision.scroll", "scroll", { by: -1 }), row("up", "revision.scroll", "scroll", { by: -1 }),
-  row("pgdn", "revision.scroll", "scroll", { by: 8 }), row("space", "revision.scroll", "scroll", { by: 8 }), row("pgup", "revision.scroll", "scroll", { by: -8 }),
+  row("pgdn", "revision.scroll", "scroll", { by: 1, page: true }), row("space", "revision.scroll", "scroll", { by: 1, page: true }), row("pgup", "revision.scroll", "scroll", { by: -1, page: true }),
   ...REVISION_CONTROLS.map(action => row("click", action, "")), row("wheel", "revision.scroll", ""),
 ]);
 
@@ -78,7 +78,7 @@ export const EDIT_PREVIEW_KEYS: readonly ModeKey[] = keyTable("edit preview", "a
   row("esc", "draft.preview", "close preview", { on: false }), row("ctrl+p", "draft.preview", "close preview", { on: false }),
   row("up", "draft.scroll", "scroll", { preview: true, by: -1 }), row("k", "draft.scroll", "scroll", { preview: true, by: -1 }),
   row("down", "draft.scroll", "scroll", { preview: true, by: 1 }), row("j", "draft.scroll", "scroll", { preview: true, by: 1 }),
-  row("pgup", "draft.scroll", "scroll", { preview: true, by: -10 }), row("pgdn", "draft.scroll", "scroll", { preview: true, by: 10 }),
+  row("pgup", "draft.scroll", "scroll", { preview: true, by: -1, page: true }), row("pgdn", "draft.scroll", "scroll", { preview: true, by: 1, page: true }),
   row("click", "draft.preview", ""), row("wheel", "draft.scroll", ""),
 ]);
 

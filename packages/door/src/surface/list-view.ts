@@ -9,7 +9,7 @@ import { BORDER_BOXES, stringFrame } from "../canvas";
 import { listCellText, filterListRows, listHead, listSections, type ListPreviewSide, type ListPrimitive, type ListRow, type ListTone } from "@ep0ch/outline-core/list-row";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { dividerLine, listSlots, zebraRow } from "../list-look";
-import { RowView, type RowGesture, type RowPress } from "../scroll";
+import { pageRows, RowView, type RowGesture, type RowPress } from "../scroll";
 import type { Actor } from "../socket";
 import { BOLD, C, ellipsize, fg, LINK_END, pad, RESET, selectedRow, tint, width } from "../style";
 import { primitiveLines } from "../components";
@@ -351,6 +351,16 @@ export class ListView<S = unknown> {
    * host decides: `tag` turns a row's text into the reader's link, `preview.of` draws the row's note.
    */
   draw(o: ListDrawOpts<S>): ListDrawn<S> {
+    const drawn = this.drawList(o);
+    this.shownRows = new Set(drawn.rowAt.filter(at => at !== null)).size;
+    return drawn;
+  }
+  /** Rows the last draw showed: a page's step (pageBy). */
+  private shownRows = 0;
+  /** Rows a page moves the pick (PgUp -1, PgDn 1, PIE-1293): the rows last shown, less one (pageRows), at least one. */
+  pageBy(dir: 1 | -1): number { return dir * pageRows(Math.max(2, this.shownRows)); }
+
+  private drawList(o: ListDrawOpts<S>): ListDrawn<S> {
     this.selectionStyle = o.primitive?.arrange ? "frame" : "row";
     if (o.primitive) this.shapes.set(PERSON, o.primitive);
     if (o.primitive?.arrange) {

@@ -288,9 +288,6 @@ export class QueryPane implements Pane {
   dispose() { this.search.cancel(); this.disposed = true; this.again = false; hiddenStale.delete(this); }
 
   private drawnItems: number[] = [];
-  private cardHeight = 2;
-  /** A page step, using the average height of the cards last painted. */
-  fits(rows: number) { return Math.max(1, Math.floor(rows / this.cardHeight)); }
 
   render(w: number, h: number, focused: boolean): PaneView {
     if (this.stale && this.desk) { const desk = this.desk; this.stale = false; queueMicrotask(() => void this.refreshNow(desk)); }
@@ -309,7 +306,6 @@ export class QueryPane implements Pane {
     const drawn = this.list.draw({ cols: w, room: h, focused, selection: true, lines: 2 });
     const lines = drawn.lines;
     this.drawnItems = drawn.rowAt.map(at => at ?? -1);
-    this.cardHeight = lines.length / Math.max(1, new Set(this.drawnItems.filter(i => i >= 0)).size) || 2;
     if (!this.items) lines.push(fg(C.dark) + " loading…" + RESET);
     else if (this.read && this.read.status !== "ready") for (const e of this.read.errors) lines.push(fg(C.lred) + " " + e + RESET);
     else if (!items.length) lines.push(fg(C.dark) + ` nothing in ${this.name || "this view"} yet: no note matches what it asks for` + RESET);
@@ -344,7 +340,7 @@ export class QueryPane implements Pane {
     // A lane on the board: the lanes' keys (its model's).
     if (this.model) return this.model.laneKeys(k);
     const c = ch(k);
-    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
+    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? this.list.pageBy(1) : k.kind === "pgup" ? this.list.pageBy(-1) : 0;
     if (by) { if (this.items?.length) this.run(desk, "query.pick", { by }); return true; }
     if (k.kind === "enter" || k.kind === "alt-enter") { if (this.card()) this.run(desk, "query.pick", { n: this.sel + 1, ...(k.kind === "alt-enter" ? { fresh: true } : { open: true }) }); return true; }
     if (c === "r") { this.run(desk, "query.reload", {}); return true; }

@@ -56,7 +56,7 @@ import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { componentRowFields, listFieldsTuned, listTarget, lookFor, pageOf as lookPage, type Look } from "../look";
 import { fencedLines, LIST_ITEM, listLayers, listStart, type StyleLayer } from "@ep0ch/outline-core/style-cascade";
-import { onlyScrolled, overscrollRows, scrolled, wheelRows } from "../scroll";
+import { onlyScrolled, overscrollRows, pageRows, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
 import { headedTitle, subject, titleLine, type Msg } from "../board";
 import { editArmMs } from "../arm";
@@ -2097,6 +2097,7 @@ export class NoteSurface {
       return !full || over >= full ? Math.max(0, over) : Math.max(0, Math.ceil((over + full) / 2));
     };
     this.endScroll = reach(0);
+    this.bodyRoom = roomFull;
     // Never so far that the last body row leaves the view (a short note under a header image).
     this.maxScroll = Math.max(this.endScroll, Math.min(Math.max(0, body.length - 1), reach(overscrollRows(roomFull))));
     if (this.endWant) { this.scroll = this.endWant === "edge" ? this.endScroll : this.maxScroll; this.endWant = null; }
@@ -3122,14 +3123,19 @@ export class NoteSurface {
     return { keys: next, source: "yours" };
   }
 
+  /** The body rows the reader showed last: a page's step. */
+  private bodyRoom = 0;
+  /** Rows PgUp PgDn and space scroll the note (PIE-1293): the body rows shown, less one (pageRows). */
+  pageBy(dir: 1 | -1): number { return dir * pageRows(this.bodyRoom || 16); }
+
   private panelKey(k: Key, host: SurfaceHost): boolean {
     const P = this.panel!, m = this.msg;
     // Scrolling always works (PIE-411): PgDn, PgUp and Space (unless it's being typed) page the note,
     // or the property list when it fills the reader and the note isn't drawn.
     const page = k.kind === "pgdn" || (ch(k) === " " && !P.field) ? 1 : k.kind === "pgup" ? -1 : 0;
     if (page) {
-      if (P.full && m && !m.partial) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + page * 15)); P.note = ""; }
-      else this.scroll = scrolled(this.scroll, page * 15, this.maxScroll);
+      if (P.full && m && !m.partial) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + this.pageBy(page))); P.note = ""; }
+      else this.scroll = scrolled(this.scroll, this.pageBy(page), this.maxScroll);
       host.redraw();
       return true;
     }
@@ -4629,7 +4635,7 @@ export class NoteSurface {
       void this.runKey(last.name, {}, host, true);
       return true;
     }
-    if (k.kind === "pgdn" || c === " " || k.kind === "pgup") { void this.runKey("scroll", { by: k.kind === "pgup" ? -15 : 15 }, host); return true; }
+    if (k.kind === "pgdn" || c === " " || k.kind === "pgup") { void this.runKey("scroll", { by: this.pageBy(k.kind === "pgup" ? -1 : 1) }, host); return true; }
     // Home to the top; End or G to the last line, then (pressed again) past it to the middle (PIE-622).
     if (k.kind === "home" || k.kind === "end" || c === "G") { void this.runKey("scroll", { to: k.kind === "home" ? "top" : "end" }, host); return true; }
     // An image is current (PIE-532): its size, where it sits, the header (imageKey).
@@ -4996,7 +5002,7 @@ export class NoteSurface {
     // A draft or a comment session renders in place of the note, and its view follows its own cursor:
     // there is no note to scroll, so the keys aren't claimed (and the agent's cursor isn't moved).
     const c = ch(k);
-    const by = isUp(k) ? -1 : isDown(k) ? 1 : k.kind === "pgdn" || c === " " ? 15 : k.kind === "pgup" ? -15 : 0;
+    const by = isUp(k) ? -1 : isDown(k) ? 1 : k.kind === "pgdn" || c === " " ? this.pageBy(1) : k.kind === "pgup" ? this.pageBy(-1) : 0;
     const to = k.kind === "home" ? "top" : k.kind === "end" || c === "G" ? "end" : undefined;
     if (!by && !to) return false;
     if (!this.replyParent && (this.draft || this.session?.composer)) {
@@ -7495,9 +7501,10 @@ export class NoteSurface {
   }
 
   /** Scroll the inspector's rows by `by` (a tall result or transform is read by scrolling; moving the focus scrolls it into view). */
-  scrollSources(host: SurfaceHost, by: number) {
+  scrollSources(host: SurfaceHost, by: number, page = false) {
     const mode = this.sourcesMode;
     if (!mode) throw new ActionRefused("the Sources inspector isn't open here · S opens it");
+    if (page) by = Math.sign(by) * pageRows(mode.room.h);
     mode.view.scroll(by);
     host.redraw();
     return { top: mode.view.top };
@@ -8769,7 +8776,7 @@ export class NoteSurface {
       return false;
     }
     const d = this.drawn!;
-    const r = modeKey(k, s, rows, Math.max(1, d.room - 1));
+    const r = modeKey(k, s, rows, d.room);
     if (r === null) return false;
     if (r === "done") { void this.runKey("select.clear", {}, host); return true; }
     else {
@@ -10380,11 +10387,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "revision.scroll": def({
     summary: "scroll the revision compare's rows", keys: modeActionKeys(ATTACHED_KEYS, "revision.scroll"),
-    touches: "tile", replay: "safe", args: { by: { type: "number", about: "rows, down when positive" } },
-    examples: [{ act: "revision.scroll by=8", does: "scrolls the compare down a page" }, { act: "revision.scroll by=-1", does: "scrolls it up a row" }],
-    run({ by }, { surface, host }) {
+    touches: "tile", replay: "safe", args: { by: { type: "number", about: "rows, down when positive" }, page: { type: "boolean", optional: true, about: "by= counts pages (the rows shown, less one: PgUp PgDn), not rows" } },
+    examples: [{ act: "revision.scroll by=1 page=true", does: "scrolls the compare down a page" }, { act: "revision.scroll by=-1", does: "scrolls it up a row" }],
+    run({ by, page }, { surface, host }) {
       const mode = surface.revisionMode;
       if (!mode) throw new ActionRefused("open the revision compare first (revision.compare)");
+      if (page) by = Math.sign(by) * pageRows(mode.body || mode.rect.h);
       mode.view.top = Math.max(0, mode.view.top + by);
       host.redraw();
       return { top: mode.view.top };
@@ -12922,12 +12930,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "sources.scroll": def({
     summary: "scroll the Sources inspector's rows (a tall result or transform), by rows; moving the focus scrolls it into view too", keys: modeActionKeys(ATTACHED_KEYS, "sources.scroll"),
     touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads the rows in sources.open's answer",
-    args: { by: { type: "number", about: "rows; negative is up" } },
+    args: { by: { type: "number", about: "rows; negative is up" }, page: { type: "boolean", optional: true, about: "by= counts pages (the rows shown, less one: PgUp PgDn), not rows" } },
     examples: [
-      { act: "sources.scroll by=8", does: "scrolls the inspector's rows down eight rows" },
+      { act: "sources.scroll by=1 page=true", does: "scrolls the inspector's rows down a page" },
       { act: "sources.scroll by=-8", does: "scrolls the inspector's rows up eight rows" },
     ],
-    run: ({ by }, { surface, host }) => surface.scrollSources(host, by),
+    run: ({ by, page }, { surface, host }) => surface.scrollSources(host, by, page),
   }),
   "sources.undo": def({
     summary: "undo the last source edit or line insertion made in this reader while reading this note (an agent undoes its own, the person theirs); refused if that text changed again since",
