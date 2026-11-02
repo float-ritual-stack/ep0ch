@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Tile edges have room to breathe (PIE-1282)
+
+- The screen saves `gap` (0–8) and `inset` in cells. Set them with `^W P` on screen, or `act layout.policy gap=1 inset=1`; the layout places every tile inside that spacing. The kitchen sink’s **spacing** section shows 0, 1 and 2 by key, click and act.
+- Trashed-note spine labels are covered by a scratch-host check. The reported blank label was not reproduced through tuios.dev/vt on this baseline; no speculative style change was made.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
+### A note’s hyper chord reaches the lift while you type (PIE-1278)
+
+- `[keys::hyper+b]` on a script note joins the hyper table and appears beside its action in the hint row and power bar. Built-in clashes name the owner: `hyper+l` belongs to focus right.
+- An agent can lift the tile holding your keys (screen, column or full), with attribution on its frame. Moving, closing, floating and taking it remain refused by the typing rule. The drawer’s `ownPane()` delegates to the shared role resolver, including after a handover.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 - **Builders can run the checks again (PIE-1503):** the reader’s history controls live beside its history codec, bringing `note.ts` below its line cap without changing navigation. Run `bun run check`; no protocol, grammar or schema change.
 
 ### An action's preview shows the line to type (PIE-1502, #1180)

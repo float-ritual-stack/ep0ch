@@ -30,6 +30,9 @@ export type Spines = "book" | "start" | "end" | "centre" | "invoker";
 export const SPINES: readonly Spines[] = ["book", "start", "end", "centre", "invoker"];
 
 export interface Policy {
+  /** Screen spacing, in cells: between tiles and inside its outer edge. */
+  gap?: number;
+  inset?: number;
   /** Where automatically folded pages gather; hand folds stay where they are. */
   spines?: Spines;
   /** Least width of an open page before the least recently touched one folds; 0 keeps all open. */
@@ -100,7 +103,7 @@ export const ALT_RULES: readonly AltRule[] = ["beside", "tab", "tile", "first-un
 /** Where opens land after a tile's wire and its container's opensInto. */
 export const OPEN_RULES = ["reader", "next", "beside", "float", "full"] as const;
 export type OpenRule = typeof OPEN_RULES[number];
-export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "altOpens", "host", "readable", "shuts", "agents", "spines", "min-width"] as const;
+export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "altOpens", "host", "readable", "shuts", "agents", "spines", "min-width", "gap", "inset"] as const;
 /** The width a reader opened beside others still gets before earlier ones fold to spines, when no policy says (PIE-794). */
 export const READABLE = 48;
 
@@ -175,6 +178,7 @@ export const columnsOf = <I>(kids: LNode<I>[], o: { source?: string; key?: strin
 
 /** How a view sizes its panes as they're placed. */
 export interface PlaceOpts<I> {
+  gap?: number;
   flowPolicy?(flow: Flow<I>): Pick<Effective, "spines" | "min-width" | "readable" | "by">;
   /** A pane squeezed to this many cells along the split's axis (a spine): its share goes to the others. */
   fixed?(id: I, dir: Axis): number | undefined;
@@ -292,11 +296,14 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
   if (n.t === "flow") return placeFlow(n, r, opts, out, place);
   if (n.key) out.nodes.set(n.key, r);
   // Columns are placed as a row split is.
-  const row = n.dir === "row", S = row ? r.cols : r.rows;
+  const row = n.dir === "row", span = row ? r.cols : r.rows;
   // A tab set is sized as the tab it shows (a dock's tab set slides over like a dock). A dock sliding
   // over, or shut, takes no room (unless placed as pinned); a container's policy can fix its size.
   const fixed: (number | undefined)[] = n.kids.map(k => (k.t === "leaf" ? opts.fixed?.(k.id, n.dir) : k.t === "tabs" && k.ids[k.active] !== undefined ? opts.fixed?.(k.ids[k.active]!, n.dir) ?? cells(k.policy?.fixed)
     : k.t === "dock" && !(opts.asPinned === true || (typeof opts.asPinned === "function" && opts.asPinned(k))) && (!k.open || k.policy?.overlay !== false) ? 0 : cells(k.policy?.fixed)));
+  const participating = fixed.filter(f => f !== 0).length;
+  const gap = Math.min(opts.gap ?? 0, Math.max(0, Math.floor((span - participating) / Math.max(1, participating - 1))));
+  const S = span - gap * Math.max(0, participating - 1);
   // A container's fixed size with nothing beside it to take the rest (the screen's only row, a dock sliding over it) would
   // leave the rest of the screen to nobody and squeeze its tiles: ignored, the last such one taking the room (PIE-869).
   if (!fixed.some(f => f === undefined) && fixed.reduce<number>((a, f) => a + f!, 0) !== S) {
@@ -340,7 +347,8 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
   if (flex !== undefined) sizes[flex] = Math.max(0, S - used);
   // This split's borders before its kids' (where two cross, the outer one is grabbed), then the kids.
   const size = sizes as number[];
-  const starts = size.map((_, i) => (row ? r.col : r.row) + size.slice(0, i).reduce((a, x) => a + x, 0));
+  let cursor = row ? r.col : r.row;
+  const starts = size.map((s, i) => { const at = cursor; cursor += s + (fixed[i] === 0 ? 0 : gap); return at; });
   n.kids.forEach((_, i) => {
     if (i > 0 && fixed[i] === undefined && fixed[i - 1] === undefined)
       out.dividers.push({ node: n, i: i - 1, area: r, at: starts[i]!, sizes: [size[i - 1]!, size[i]!] });
@@ -1031,7 +1039,7 @@ export function policyOf(x: unknown): Policy {
   if (!x || typeof x !== "object") return out;
   const o = x as Record<string, unknown>;
   for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible", "overlay", "stays", "locked", "shuts"] as const) if (typeof o[k] === "boolean") out[k] = o[k] as boolean;
-  for (const k of ["min", "max", "fixed", "readable", "min-width"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
+  for (const k of ["min", "max", "fixed", "readable", "min-width", "gap", "inset"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
   if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)).map(canonKind))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
   if (OPEN_RULES.includes(o.opens as OpenRule)) out.opens = o.opens as OpenRule;

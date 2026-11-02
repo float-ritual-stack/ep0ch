@@ -48,6 +48,7 @@ export const marks: Record<string, string[]> = {
   hints: ["source: select wire", "select wire", "HintCard"],
   // The tree's row for the note it follows: the outline is scrolled to show it (the root, above, is off a 60-row screen
   // once the seed has more top-level notes than the dock has rows).
+  spacing: ["Room around the tiles", "0 cells", "1 cell", "2 cells"],
   panes: ["outline", "Drop zones", "▸ Allotment notebook"],
   "book-spines": ["Bike shed", "Allotment notebook", "spines"],
   folds: ["outline", "children", "◂", "▾"],
@@ -197,7 +198,7 @@ export const marks: Record<string, string[]> = {
   // The outline beside a reader over two details, the second folded to a spine: the tiles the power bar lists as a tree.
   bar: ["outline", "Kitchen whiteboard", "Bike shed"],
   // A reader and a shell for a hyper chord to reach the door from, and the part's line.
-  hyper: ["Allotment notebook", "a terminal tile: with the layer on", "reach the door"],
+  hyper: ["Lift from a note", "a terminal tile: with the layer on", "reach the door"],
   // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
   "query-words": ["Words become a query", "where: stage=ready"],
   "facets": ["#frost-jobs", "uses▾", "facets"],

@@ -1452,6 +1452,11 @@ lands in a tile opened there), `readable` (growth by room, PIE-794: the width in
 others still gets, 48 when no layer says; past it the earliest readers in its row, never the first, fold to
 spines, and in a flow it's a full column's width; 0 never folds), `shuts` (a close in it shuts its dock),
 `opens` (the open rule: `current`, or `next`).
+The screen also owns `gap` (0–8 cells between tiles) and `inset` (cells inside its edge):
+`act layout.policy gap=1 inset=1`, or `^W P`, then `h` to screen and the gap/inset rows.
+Both are saved with the layout; the kitchen sink’s **spacing** section shows 0, 1 and 2.
+A script note’s `[keys::hyper+b]` works inside drafts and terminal tiles when hyper is on;
+a built-in clash names its owner (`hyper+l` belongs to focus right).
 A locked screen comes back locked after a restart. A **flow** (PIE-513) is the river's columns as a container: an
 open from one of its tiles (a link followed) lands in a new column right after its own, the columns squeeze full,
 peek or spine around the wide one, and only `^W W` (or a click on a spine) moves the wide place. A layout saved

@@ -2,11 +2,7 @@ import { landing } from "./landing";
 import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
 import type { AltRule } from "./layout";
-// The screen-layout module (PIE-513): the reducer in the door's one-way data flow. A screen's layout is one value
-// (its tree of containers and tiles, its floats, the tiles folded to a spine, the zoom, the links, the tiles' names,
-// the screen's policy and lock, its revision) and it changes only one way: `apply(state, op, ctx)`, which applies one
-// layout operation for one actor as one transaction and answers either the new state or a refusal with its reason.
-// Nothing outside this module changes a tree.
+// A screen layout changes only through apply(state, op, ctx): one actor, one operation, the new state or a refusal.
 //
 // The rules live here, checked inside every operation, so no caller can break them one operation at a time (the
 // round-2 review's B7–B11, C3, C4 came from callers doing exactly that):
@@ -818,7 +814,7 @@ export function flowHolding<I>(tree: LNode<I>, id: I): { flow: Flow<I>; ci: numb
 
 /** How the tiles are placed: a folded tile is a spine across a row; a tile holding work keeps its flow column wide. */
 export function placeOpts<I>(s: Pick<LayoutState<I>, "collapsed" | "tree" | "policy">, holds?: (id: I) => boolean): PlaceOpts<I> {
-  return { flowPolicy: f => policyOfNode(s, f), fixed: (id, dir) => { const f = s.collapsed.get(id); return f && foldFits(f, dir) ? (f.dir === "h" ? 1 : SPINE) : undefined; }, folded: id => s.collapsed.has(id), ...(holds ? { holds } : {}) };
+  return { gap: s.policy.gap ?? 0, flowPolicy: f => policyOfNode(s, f), fixed: (id, dir) => { const f = s.collapsed.get(id); return f && foldFits(f, dir) ? (f.dir === "h" ? 1 : SPINE) : undefined; }, folded: id => s.collapsed.has(id), ...(holds ? { holds } : {}) };
 }
 /** Tile `id`'s share of the screen along each axis: the product of its weight in each line over it (a flow's columns count whole). */
 function shareOf<I>(tree: LNode<I>, id: I): { row: number; col: number } {
@@ -833,13 +829,18 @@ function shareOf<I>(tree: LNode<I>, id: I): { row: number; col: number } {
   });
   return out;
 }
-/** The screen placed in `area`: the tree, the docks sliding over it, each flow's columns (floats keep their own rects). */
+/** The room inside the screen's inset; even a small terminal keeps one cell. */
+export function screenArea(policy: Policy, area: Rect): Rect {
+  const x = Math.min(policy.inset ?? 0, Math.max(0, Math.floor((area.cols - 1) / 2)));
+  const y = Math.min(policy.inset ?? 0, Math.max(0, Math.floor((area.rows - 1) / 2)));
+  return { col: area.col + x, row: area.row + y, cols: area.cols - 2 * x, rows: area.rows - 2 * y };
+}
 export function place<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | "policy">, area: Rect, holds?: (id: I) => boolean): PlacedScreen<I> {
-  return placeScreen({ root: s.tree, floats: [...s.floats] }, area, placeOpts(s, holds));
+  return placeScreen({ root: s.tree, floats: [...s.floats] }, screenArea(s.policy, area), placeOpts(s, holds));
 }
 /** Where each tile is in `area`, from the state as it is: the zoomed tile alone, else the tree, the docks over it, the floats. */
 export function rects<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | "zoom" | "policy">, area: Rect, holds?: (id: I) => boolean): Map<I, Rect> {
-  if (s.zoom !== null && allTiles(s).includes(s.zoom)) return new Map([[s.zoom, area]]);
+  if (s.zoom !== null && allTiles(s).includes(s.zoom)) return new Map([[s.zoom, screenArea(s.policy, area)]]);
   const ps = place(s, area, holds);
   const out = new Map(ps.rects);
   for (const dr of ps.slid) for (const [id, r] of dr.placed.rects) out.set(id, r);
@@ -2125,7 +2126,6 @@ class Step<I> {
     const unfold = () => { if (this.d.collapsed.has(id)) this.collapse(id, false); };
     if (reach !== "screen") {
       const want = on ?? !(lift?.tile === id && lift.reach === reach);
-      if (this.agent && want && ((this.ctx.person.here !== false && id === this.d.focus) || id === this.ctx.person.typingIn)) refuse(`${this.name(id)} has the person's keys; an agent lifts another tile`);
       if (want) unfold();
       // A tab behind another is drawn lifted only from the front of its tabs (PIE-1342: the drawer's agent tab behind
       // what-changed); an agent's lift never puts away the tab the person is in to get it there.

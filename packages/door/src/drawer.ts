@@ -1177,7 +1177,7 @@ export class AgentDrawer {
     const pick = this.liftPick();
     if (pick) return pick.tile;
     if (on === false || !this.desk) return `role:${ROLE_AGENT}`;
-    const away = this.findAgent(this.allDesks());
+    const away = this.ownPane(this.allDesks());
     if (away && !this.putRefusal(away.desk, away.name, actor)) return this.put(away.desk, away.name, actor, false, undefined, undefined, true).tile;
     return this.agentTab(this.desk, actor).tile;
   }
@@ -1188,11 +1188,11 @@ export class AgentDrawer {
    */
   agentPane(): { pane: PtyPane; desk: Desk } | null {
     this.asking();
-    const hit = this.findAgent(this.desks());
+    const hit = this.ownPane(this.desks());
     return hit ? { pane: hit.pane, desk: hit.desk } : null;
   }
   /** The tile `role:agent` names among `desks` (and the screens mounted in them), by the address resolver: the one used last. */
-  private findAgent(desks: (Desk | null | undefined)[]): { pane: PtyPane; desk: Desk; name: string } | null {
+  private ownPane(desks: (Desk | null | undefined)[]): { pane: PtyPane; desk: Desk; name: string } | null {
     const roots = desks.filter((d): d is Desk => !!d), asking = this.asking();
     if (!asking || !roots.length) return null;
     const hit = resolveAddress(parseTileAddress(`role:${ROLE_AGENT}`), asking.addressable(roots));
@@ -1912,7 +1912,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   "agent.lift": preset({
     summary: "lift the agent tab you're using above everything as a column (reach=full: across the terminal), wherever it is: the one you last typed in or clicked (an agent from alt+g too); with none open, a new agent tab running the last agent picked opens first. A folded or put-away drawer stays as it is (drawer=true brings it up too). Again, or on=false, drops it. The person's lift takes their keys and clicks, the drawer down too, until it drops; an agent's lift never replaces the person's",
     keys: [{ keys: "✦a", does: "lift the agent tab" }, { via: "a status-bar button (::button{label=\"▲ lift\" act=\"agent.lift\"} in your bar note)" }, { keys: "^W Z", does: "on its tile, does the same where it is" }],
-    touches: "screen", host: true, replay: "safe",
+    touches: "shape", host: true, replay: "safe",
     says: (out: { zoomed?: boolean }) => ({ text: out?.zoomed ? "· lifted the agent tab" : "· dropped the agent tab", ms: 4000 }),
     args: {
       on: { type: "boolean", optional: true, about: "true lifts, false drops; left out, it toggles" },

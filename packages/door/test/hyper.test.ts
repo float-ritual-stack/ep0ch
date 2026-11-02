@@ -189,6 +189,41 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     expect(get().focus).toBe(t);
   });
 
+  test("a note's hyper chord runs inside a draft and a terminal, and a built-in clash names its owner", async () => {
+    useHyper(true);
+    const id = await create('Lift seeds [script::lift-seeds] [keys::hyper+b]\n```actions\nagent.lift\n```');
+    await app.loadExtensions(true);
+    expect(render().lines.join("\n")).toContain("✦b lift-seeds");
+    await app.dispatch.press("bar.open", { query: "lift-seeds", scope: "actions" });
+    await until(() => !!app.bar?.items.some(r => r.row.label === "lift-seeds"), "the bound action in the power bar");
+    expect(app.bar!.items.find(r => r.row.label === "lift-seeds")!.row.detail).toContain("✦b");
+    await app.dispatch.press("bar.close");
+    const { rd } = await editing("A garden draft\nKeep these words.");
+    const before = rd.draft!.text;
+    const decoder = new KeyDecoder(info);
+    decoder.keyHandler = key;
+    decoder.rawSink = () => (app as any).term.rawSink();
+    decoder.feed("\x1b[98;16u");
+    await until(() => !!app.drawer.made?.lifted, "the note-bound lift from the draft");
+    expect(rd.draft!.text).toBe(before);
+    decoder.feed("\x1b[98;16u");
+    await until(() => !app.drawer.made?.lifted, "the note-bound drop");
+    idle();
+    key({ kind: "alt", ch: "a" });
+    await until(() => app.drawer.tile?.running === true, "the drawer terminal");
+    expect(app.drawer.entered).toBe(true);
+    decoder.feed("\x1b[98;16u");
+    await until(() => !!app.drawer.made?.lifted, "the note-bound lift from the terminal");
+    decoder.feed("\x1b[98;16u");
+    await until(() => !app.drawer.made?.lifted, "the note-bound drop from the terminal");
+    const clash = await create('Clashing lift [script::clashing-lift] [keys::hyper+l]\n```actions\nagent.lift\n```');
+    await app.loadExtensions(true);
+    expect(message()).toContain("hyper+l");
+    expect(message()).toContain("tile.focus");
+    await board.trash(id); await board.trash(clash); await app.loadExtensions(true);
+    app.drawer.set(false, { kind: "user" });
+  });
+
   test("while the person types - + = are text: a draft takes them, and folds nothing", async () => {
     const { rd, name } = await editing("Prune the plum\nin winter");
     for (const c of "a-b+c=d") key(char(c));
@@ -285,8 +320,10 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     expect(drawer.open).toBe(true);
     await (app as any).dispatch.press("agent.lift", { on: false });
     expect(drawer.made.lifted).toBeNull();
-    // An agent's lift never takes the person's keys: refused while they're in the drawer, said why.
-    await expect((app as any).act({ action: "agent.lift" })).rejects.toThrow(/typing in shell in the drawer/);
+    await app.act({ action: "agent.lift", as: "gardener" });
+    expect(drawer.made.lifted?.reach).toBe("column");
+    expect(drawer.entered).toBe(true);
+    await app.act({ action: "agent.lift", args: { on: false }, as: "gardener" });
     await (app as any).dispatch.press("host.toggle", { open: false });
     await until(() => !drawer.open, "the drawer put away");
   });

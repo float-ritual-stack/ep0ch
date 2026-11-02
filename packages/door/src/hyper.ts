@@ -43,13 +43,19 @@ export const HYPER_KEYS: readonly HyperBinding[] = keyTable("hyper", "the hyper 
 
 /** The chord a base key names: `+` is `=` with shift, which hyper always holds. */
 const BASE: Record<string, string> = { "+": "=", _: "-" };
-export const hyperBinding = (key: string): HyperBinding | undefined => { const k = BASE[key] ?? key; return effective(HYPER_KEYS, "hyper+").find(b => b.key === k); };
+type NoteBinding = { key: string; action: string; label?: string };
+export function hyperBindings(notes: readonly NoteBinding[] = []): readonly HyperBinding[] {
+  const builtins = effective(HYPER_KEYS, "hyper+");
+  const bound = notes.filter(b => /^hyper\+.$/u.test(b.key)).map(b => ({ ...b, key: BASE[b.key.slice(6)] ?? b.key.slice(6), label: b.label ?? b.action }));
+  return [...builtins, ...bound.filter(b => !builtins.some(k => k.key === b.key))];
+}
+export const hyperBinding = (key: string, notes: readonly NoteBinding[] = []): HyperBinding | undefined => { const k = BASE[key] ?? key; return hyperBindings(notes).find(b => b.key === k); };
 
 /** `✦k`: how a chord is written in a hint, the power bar and the docs. */
 export const hyperLabel = (key: string) => `✦${key}`;
 /** The hyper chords an action is also reached by, as `✦-` (the hints and the power bar show them only while the layer is on). */
-export function hyperKeysOf(action: string): string[] {
-  return effective(HYPER_KEYS, "hyper+").filter(b => b.action === action && b.tile === undefined && !(b.args?.scope)).map(b => hyperLabel(b.key));
+export function hyperKeysOf(action: string, notes: readonly NoteBinding[] = []): string[] {
+  return hyperBindings(notes).filter(b => b.action === action && b.tile === undefined && !(b.args?.scope)).map(b => hyperLabel(b.key));
 }
 
 let saved: boolean | null = null;

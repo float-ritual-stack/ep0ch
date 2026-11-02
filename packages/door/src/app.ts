@@ -1656,7 +1656,7 @@ export class App implements Ctx {
 
   /** A hyper chord: its binding's action as the person, after leaving an edit when it moves the keys. */
   private hyper(key: string) {
-    const b = hyperBinding(key), top = this.stack.at(-1);
+    const b = hyperBinding(key, scriptBindings()), top = this.stack.at(-1);
     if (top?.noDrawer) return;
     if (!b) return void this.refuse(`${hyperLabel(key)} isn't bound · ${HYPER_KEYS.map(x => hyperLabel(x.key)).join(" ")}`);
     if (b.leaves && top?.leaveTyping && !top.leaveTyping()) return;

@@ -202,6 +202,18 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect(rect("detail0")).toBeDefined();
   });
 
+  test("a trashed note keeps a readable spine label", async () => {
+    const d = await withDetail();
+    await other.trash(d.msg!.id);
+    await until(() => !!d.msg?.deleted, "the reader shows its trashed note");
+    await act("tile.collapse", { on: true }, "detail1");
+    await act("hint.dismiss");
+    const r = rect("detail0");
+    const label = frame().slice(r.row, r.row + r.rows).map(l => [...l][r.col] ?? " ").join("");
+    expect(label).toContain("Fix the gate");
+    await other.restore(d.msg!.id);
+  });
+
   test("the preview's collapse is saved with the layout and restored by the next board", async () => {
     await fresh();
     key({ kind: "tab" }); key(char("c"));

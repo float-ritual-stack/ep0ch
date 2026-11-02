@@ -73,6 +73,32 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   /** Another screen (last callers), on top: the screen switch. */
   const otherScreen = () => new Desk({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "reader", name: "notes" }] } as any } });
 
+  test("an agent lifts the program the person is typing in without taking its keys", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      const drawer = d.app.drawer.desk!;
+      await until(() => d.app.drawer.tile?.running === true, "the drawer program");
+      const focus = drawer.layoutGet().focus;
+      expect(d.app.drawer.entered).toBe(true);
+      await d.app.act({ action: "agent.lift", as: AS });
+      expect(drawer.lifted?.reach).toBe("column");
+      expect(drawer.layoutGet().focus).toBe(focus);
+      expect(d.app.drawer.entered).toBe(true);
+      expect(d.A.message).toContain(AS);
+      expect(d.A.message).toContain("lifted");
+      await d.app.act({ action: "agent.lift", as: AS });
+      for (const reach of ["screen", "full"] as const) {
+        await d.app.act({ action: "tile.zoom", tile: "drawer.agent", args: { reach, on: true }, as: AS });
+        expect(drawer.layoutGet().focus).toBe(focus);
+        await d.app.act({ action: "tile.zoom", tile: "drawer.agent", args: { reach, on: false }, as: AS });
+      }
+      for (const action of ["tile.float", "tile.close", "tile.drawer"]) {
+        await expect(d.app.act({ action, tile: "drawer.agent", as: AS })).rejects.toThrow(/person.*(typing|keys)/);
+      }
+    } finally { d.app.quit(); }
+  });
+
   test("an open from the drawer identifies and accents its screen tile until clicked (PIE-1131)", async () => {
     const d = await door();
     try {
@@ -1078,6 +1104,16 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         }
         // Whichever button lifted it, it is the one program: nothing new was started.
         expect(d.app.drawer.tabs()).toHaveLength(scene === "after a door restart" || scene.startsWith("restored") ? 2 : scene.startsWith("after a handover") ? 0 : 1);
+        if (scene.startsWith("after a handover")) {
+          const own = d.app.drawer.agentPane()!;
+          const reached = d.app.drawer.goTo(own.pane, USER);
+          d.key({ kind: "enter" }); d.paint();
+          expect(own.desk.pane(reached.name)).toBe(d.app.drawer.tile!);
+          await d.app.act({ action: "agent.lift", as: AS });
+          expect(own.desk.liftsPane(own.pane)).toBe(true);
+          expect(own.desk.layoutGet().focus).toBe(reached.name);
+          await d.app.act({ action: "agent.lift", args: { on: false }, as: AS });
+        }
       } finally { for (const x of alive) try { x.app.quit(); } catch { /* quit twice */ } await board.trash(bar.id); }
     }, 60_000);
   }

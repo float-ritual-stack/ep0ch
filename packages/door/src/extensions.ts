@@ -294,7 +294,7 @@ explainNotInstalled(name => installWords(name));
 nameAlso(() => scriptNames().map(s => s.name));
 
 export function scriptBindings() {
-  return scriptActions().flatMap(s => s.extension.script!.keys.map(key => ({ key, action: s.action.name })));
+  return scriptActions().flatMap(s => s.extension.script!.keys.map(key => ({ key, action: s.action.name, label: s.extension.name ?? s.action.label })));
 }
 
 /** The scripts this outline has, by the name a person types: `neat` runs `ext.<id>.run`. The one answer for "is this word a script" (a press, the power bar, `act`, `script.run`). */

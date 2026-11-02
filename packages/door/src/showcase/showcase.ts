@@ -1,6 +1,7 @@
 import { namedAgentSection } from "./named-agent";
 import { completionSection, snippetSection } from "./completion";
 import { STRIP_SECTION } from "./strip";
+import { spacingSection } from "./spacing";
 import { queryWordSections } from "./query-words";
 import { DropZonesPane } from "./drop-zones";
 import { runbookSections } from "./runbook";
@@ -98,7 +99,6 @@ export interface Section {
 /** Put a note in a reader once its desk is open (readers on a stage keep their own notes). */
 type Shower = (after: (ctx: Ctx) => void) => void;
 
-/** Two panes side by side, the first `ratio` of the width. */
 export const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
 /** The thread tile as it is now (PIE-693): a links tile listing the reader's note's Children alone. */
 const repliesTile = () => new BacklinksPane("reader", false, ["children"]);
@@ -490,7 +490,7 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "x-ray and hint cards", panes: [source, reader], names: ["source", "reader"] }, show, [[source, n.notebook], [reader, n.shed]], d => { void d.dispatch.press("tile.title", { text: "Allotment notebook: planting, watering and seed orders through the growing season" }, "source"); void d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source"); });
     },
   },
-  STRIP_SECTION,
+  STRIP_SECTION, spacingSection({ deskOf, row }),
   {
     key: "panes", need: "open, split, zoom, close tiles; docks; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, docks, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a dock, c a spine, f a float, P the policy; the hint row's □ lock chip locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
     aside: "Drag a tile title over the reader: all six bands show, dim; the pointer lights one. Upper middle makes tabs, lower middle swaps, edges split. The Drop zones tab is a still of this overlay. ^W n or double click a title to rename; ^W N toggles without losing it. Reading {{this.title}} follows the notebook; Visitors is a written tab title. The frame card's close row closes the tile (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
@@ -1403,11 +1403,11 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "hyper", need: "reach the door's own actions from anywhere, even while typing in a draft or a terminal tile, and see what a chord arrives as", part: "the hyper layer (PIE-699): ⌃⌥⇧⌘ and a key (Kitty modifiers 15) read before any tile's own keys, one keymap (HYPER_KEYS), optional and off by default (EP0CH_HYPER=1, or hyper.set on=true); keys.probe shows exactly what a chord arrived as; bare - + = fold and open the focused tile (the folds section)", files: "src/hyper.ts, src/key-probe.ts, src/kbd.ts, src/app.ts",
+    key: "hyper", need: "reach the door's own actions from anywhere, even while typing in a draft or a terminal tile, and see what a chord arrives as", part: "the hyper layer (PIE-699): ⌃⌥⇧⌘ and a key (Kitty modifiers 15) read before any tile's own keys, one keymap (HYPER_KEYS plus notes with [keys::hyper+b]), optional and off by default (EP0CH_HYPER=1, or hyper.set on=true); keys.probe shows exactly what a chord arrived as; bare - + = fold and open the focused tile (the folds section)", files: "src/hyper.ts, src/key-probe.ts, src/kbd.ts, src/app.ts",
     aside: "off by default: `ep0ch act hyper.set on=true` (or EP0CH_HYPER=1) turns it on, and the hint row ends ✦ hyper · then ✦p the power bar, ✦h ✦j ✦k ✦l move the keys, ✦1-✦9 a tile, ✦- ✦= fold and open it, ✦z zoom, ✦n a new note, ✦g a screen: from inside a draft (the edit is left or kept as a click away would) and from inside the shell on the right · each is also a key, a click and an act · `ep0ch act keys.probe` (or a click on the ✦ hyper chip) then any chord: the status bar shows its bytes, modifiers and the key the door read, which is how you learn what your terminal, Herdr and ssh pass · a terminal that sends no Kitty reports can't send hyper at all",
     stage(n, show) {
       const r = new ReaderPane(true), term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: with the layer on, a hyper chord still reaches the door from here'; exec sh"], label: "shell" });
-      return deskOf({ title: "showcase · hyper", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) fill(d, n.notebook); });
+      return deskOf({ title: "showcase · hyper", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.hyperBinding) fill(d, n.hyperBinding); });
     },
   },
   ...queryWordSections({ deskOf, row, fill }),

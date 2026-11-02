@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { beginTrace } from "./probe";
+import { hyperBinding } from "../hyper";
 import { parseTileAddress, type ResolveOpts } from "../desk/tile-address";
 import { fromPress } from "../session/session-term";
 import { effective, keyNow, keysNow } from "./keymap";
@@ -616,6 +617,8 @@ export class Dispatcher {
   /** A saved binding must not replace a key the screen or another action already owns. */
   bindingProblem(binding: KeyBinding): string | undefined {
     if (!isKeyName(binding.key)) return `${binding.key} isn't a key name; use a name such as alt+S`;
+    const hyper = binding.key.startsWith("hyper+") ? hyperBinding(binding.key.slice(6)) : undefined;
+    if (hyper) return `${binding.key} is held by ${hyper.action} (${hyper.label}); choose another [keys::] value`;
     const held = this.bindings().find(b => b.key === binding.key && b.action !== binding.action)
       ?? this.list().actions.find(a => a.name !== binding.action && declaredKeys(a.keys).has(binding.key));
     return held ? `${binding.key} is held by ${"action" in held ? held.action : held.name}; choose another [keys::] value` : undefined;

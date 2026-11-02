@@ -36,6 +36,44 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+  test("screen spacing: key, click and act leave the same gap and inset", async () => {
+    await sc.dispatch.press("section", { name: "spacing" });
+    screen();
+    const d = sc.tilesHere()!;
+    const spacing = () => d.layoutGet().policy;
+    for (const value of [0, 1, 2]) {
+      await d.dispatch.act({ action: "layout.policy", args: { gap: value, inset: value } }, USER);
+      screen();
+      const a = d.drawnAt("guide")!, b = d.drawnAt("reader")!;
+      expect(b.col - a.col - a.cols).toBe(value);
+      expect(a.col).toBe(value);
+      expect(a.row).toBe(value);
+      expect(d.savedState().policy).toMatchObject({ gap: value, inset: value });
+    }
+    await d.dispatch.act({ action: "layout.policy", args: { gap: 0, inset: 0 } }, USER);
+    await sc.dispatch.press("section.try");
+    press({ kind: "char", ch: "w", ctrl: true }); ch("P"); screen();
+    ch("h"); screen();
+    const pick = (word: string) => {
+      const lines = screen().split("\n"), y = lines.findIndex(l => l.includes(`${word} · screen spacing`));
+      expect(y).toBeGreaterThanOrEqual(0);
+      const x = lines[y]!.indexOf(`${word} ·`);
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "up", button: 0, x, y });
+      screen();
+    };
+    pick("gap");
+    expect(spacing()?.gap).toBe(1);
+    ch("+"); screen();
+    expect(spacing()?.gap).toBe(2);
+    pick("inset");
+    expect(spacing()?.inset).toBe(1);
+    ch("+"); screen();
+    expect(spacing()?.inset).toBe(2);
+    press({ kind: "esc" });
+    await sc.dispatch.press("section.leave");
+  });
+
   test("a held tile drag shows all six drop zones on the layout exhibit (PIE-1209)", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "panes" }, as: "test-agent" });
