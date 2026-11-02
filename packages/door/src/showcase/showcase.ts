@@ -1,3 +1,4 @@
+import { namedAgentSection } from "./named-agent";
 import { completionSection, snippetSection } from "./completion";
 import { queryWordSections } from "./query-words";
 import { DropZonesPane } from "./drop-zones";
@@ -10,7 +11,6 @@ import { errorDetails } from "../status-log";
 // row of the reuse map (docs/UI-GRAMMAR.md "Before adding a feature"), in the map's order; each is drawn
 // by the part itself, hosted on a desk of its own spec or the real board, never a copy. A parallel version still
 // in the code is shown beside the shared one and labelled, until consolidation removes it.
-//
 // It only runs on an outline the showcase seed wrote (src/showcase/seed.ts): `scripts/try-it.sh --showcase`
 // starts one. On any other outline it says so and writes nothing.
 import { nothingToClose, shellKeyOf } from "../shell-keys";
@@ -112,7 +112,6 @@ type Shower = (after: (ctx: Ctx) => void) => void;
 
 /** Two panes side by side, the first `ratio` of the width. */
 export const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
-
 /** The thread tile as it is now (PIE-693): a links tile listing the reader's note's Children alone. */
 const repliesTile = () => new BacklinksPane("reader", false, ["children"]);
 
@@ -602,6 +601,7 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · lift", panes: [brief, other], names: ["brief", "other"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },
+  namedAgentSection(deskOf),
   {
     key: "drawer", need: "carry a tile across screens (a terminal, a reader, the tree)", part: "your drawer: the host layer's tabs, above every screen, on a desk of its own; tile.drawer moves a tile in or out whole, as a tab or beside one where a drag onto its zones drops it (to= where=, PIE-1263)", files: "src/drawer.ts, src/desk/drawer-program.ts",
     aside: "Your drawer has a lock of its own (PIE-1346): with the keys in it, ctrl+k then >lock your drawer locks it; the frame and the hint row say ▣ drawer locked, ^W x there is refused in the drawer's name, and a click on that chip unlocks it. The screen's lock is its own. The drawer holds linkbox, a group with a links tile. Click its list, press alt+l then o, and click the screen reader: the wire starts at the links tile inside the group. Each verb has one destination: wiring it again replaces that destination. The group refuses a wire and names its inner tile. Press b on reader to pin its note in the links tile; opening another note into reader keeps those links until b re-aims them. The links hint names the same open and alt destinations as the wire chips. Its id stays the same when moved or renamed; layout.get and peek list every layer. Move kettle into the drawer with ^W a, then alt+l: the card lists screen tiles by number and name. Wire its open to reader, and open a note from kettle through act (as a chat link does); the drawer's own chat is wired the same way (alt+l on it), and a reference pressed in Claude there opens in that reader, found by the name the program was given. The landing wears a star in its title and a bright frame; click or focus it to clear, or leave it visible for 10 seconds. Use ids when two desks have the same name. Close every tile with ^W x, its menu, or its frame x. The last closes too: the screen or drawer shows home, with the power bar and New note / Shell / Agent buttons. Nothing starts itself; alt+s always opens a shell. In the drawer, ^W o d makes an empty detail; click New note to write in that same tile, then ctrl+s saves. alt+click (or right-click) the drawer chip for its picker, a new agent tab: the program you choose starts in a tab of its own, and the agent you had keeps running in its tab, the same process (^W x on a tab is the only way one ends). Tab switches this outline / every outline, and the folder is editable. An EP0CH_DAILY_AGENT override is named on the chip and explained in the picker. alt+g with no agents shows New Agent and Shell buttons and Getting about. ^W a or a drag still carries a tile whole between the screen and drawer. Being the drawer's agent is a role, never a place (PIE-1432): drag it onto the desk and it comes back on the desk after a session restart, the same process. A program the session's terminal host still keeps with no tile (a place a restart lost) is never dropped without a word: the restart's status line counts it, and alt+g lists it as a row saying no tile and when it last wrote; ⏎ or a click puts it back in a drawer tab with your keys in it, a into your drawer, d onto this screen, the same process and conversation.",

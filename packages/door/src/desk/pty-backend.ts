@@ -30,8 +30,6 @@ export interface PtyMeta {
   socket?: string | null;
   /** The EP0CH_TILE_ID the program was started with: the id it names its tile by, whichever tile holds it now. */
   toldId?: string | null;
-  /** The Herdr pane an attach shows (`tile.herdr`). */
-  herdr?: { pane: string; name?: string } | null;
   /** The folder it was started in, and the agent session it was started as: what a tile that puts it back needs (PIE-1432). */
   cwd?: string;
   session?: SessionMark;

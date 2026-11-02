@@ -1291,8 +1291,10 @@ A **completion source** (PIE-1340, ADR 0004 §4) adds rows to the list that open
 a property: the door's editor, every line field, and the outliner's Detail, Tree and Quick Capture. It joins the
 triggers that exist, beside the built-in sources (the outline's pages, notes and their anchors, files, agents,
 components, properties, callout types). The shared matcher orders by preselect, explicit source or row priority,
-match tier, frecency, then last pick. Ordinary built-ins and extensions share priority zero. A literal match removes
-local partial and fuzzy guesses; notes keep the service's ranking. The outline host keeps picks, so every client agrees.
+match tier, frecency, then last pick. Ordinary built-ins and extensions share priority zero. Completion keeps every
+query term and requires its typed letters; a one-letter term starts a word. A literal match removes local fuzzy
+guesses. Lexical page completion uses that same mode; note search keeps its typo and missing-word tolerance and
+service ranking. The outline host keeps picks, so every client agrees.
 
 ```json
 "sources": [{ "id": "issues", "title": "issues", "triggers": ["[[", "key::"], "keys": ["issue"],

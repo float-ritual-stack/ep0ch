@@ -56,8 +56,8 @@ import { stateDir, writeState } from "./state";
 import { alertMark, readAlert } from "./backup/alert";
 import type { AgentSession } from "./desk/agent-sessions";
 import { Glass, GLASS_ACTIONS } from "./glass";
-import { AgentDrawer, DRAWER_ACTIONS, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
-import { namesAgent, type ResolveOpts } from "./desk/tile-address";
+import { AgentDrawer, DRAWER_ACTIONS, overlay, type DrawerRun } from "./drawer";
+import { type ResolveOpts } from "./desk/tile-address";
 import { layerOrder, type HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
 import type { Pane } from "./desk/panes";
@@ -1233,7 +1233,6 @@ export class App implements Ctx {
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
     { set: GLASS_ACTIONS, takes: "none", on: () => this.glass },
-    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && namesAgent(req.tile), on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => this.drawer.agentRef(), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>, tile?: string) => this.dispatch.act({ action: name, args, ...(tile ? { tile } : {}) }, how.actor) }) },
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing ? this.keysScreen() : this.stack.at(-1) }) },
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: this.stack.at(-1) }) },

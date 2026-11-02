@@ -565,7 +565,7 @@ export class Dispatcher {
 
   /** Whether some set here (or a dispatcher it hands to) takes the action. */
   has(name: string): boolean { return !!this.owner({ action: name }); }
-  /** Whether some set here takes this request (a set that takes only requests naming a tile, the host layer's tile.herdr). */
+  /** Whether some set here takes this request (a set may take only requests naming a tile). */
   takes(req: ActRequest, actor?: Actor): boolean { return !!this.owner(this.pointed(req, actor), actor); }
 
   /** An authored press defaults tile actions to its own reader; screen and host actions keep their scope. */
@@ -892,8 +892,7 @@ export class Dispatcher {
 
   /**
    * A host that reads no tiles itself (the door's shell, a menu) hands a request naming a tile of another layer to that
-   * layer's dispatcher, except where one of its sets that takes a tile claims the request outright (the host layer's own `tile.herdr
-   * tile=drawer.agent`): that set's.
+   * layer's dispatcher, except where one of its sets claims the request outright.
    */
   private claimedOutright(req: ActRequest): Registration | null {
     if (this.host.resolveTile) return null;

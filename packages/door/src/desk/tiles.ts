@@ -21,6 +21,7 @@ import { tileRegistry } from "./tile-registry";
 
 /** One tile as saved: what it is, its name, and what it needs to be built again. */
 export interface TileSpec {
+  namedAgent?: import("./named-agent").NamedAgent;
   t: "leaf";
   /** Its kind: a name in the tile-kind registry (an extension's too). */
   kind: TileKindName;
@@ -105,6 +106,9 @@ export interface TileSpec {
   /** A river column's filter (its clauses, as `/` takes them). */
   filter?: string;
   sticky?: boolean; hover?: boolean; by?: string | null;
+  refs?: import("./shelf").ShelfRef[];
+  shelfLayout?: import("./shelf").ShelfLayout;
+  colour?: import("./shelf").ShelfColour;
   /** A backlinks tile whose groups start open (the welcome's). */
   groups?: "open";
   /** The link groups a backlinks tile lists (PIE-693), comma-separated (`children`: the thread tile's replies); left out, every group. */
@@ -158,7 +162,7 @@ export function makeTile(given: Partial<TileSpec> & { kind: TileKindName }): Pan
   const k = tileKind(s.kind);
   if (!k) return new UnavailableTile(s.kind, missingKind(s.kind), s.state ?? {});
   const p = k.make(s);
-  p.deliberate = s.deliberate;
+  p.deliberate = s.deliberate ?? p.deliberate;
   tileRegistry.restore(p, { role: s.role, openedFrom: s.openedFrom, copiedFrom: s.copiedFrom });
   p.writtenTitle = s.writtenTitle;
   p.systemTitle = s.systemTitle;

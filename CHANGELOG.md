@@ -10,6 +10,24 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The drawer attaches to a named agent and offers recovery when it ends (PIE-1487)
+
+- **Keep one agent:** declare a persona, machine, folder and program in `.ep0ch/agents.toml`, then `ep0ch agent start <persona>`. The drawer attaches by hc name; a second door on the same client watches. The status chip follows hc events.
+- **Recover in place:** a missing or ended agent shows a card with the names hc has, the exit and final lines when available, and pressable start and login-shell rows. Opening the drawer never respawns it. The Herdr daily launcher and pane ownership are removed.
+- **Run:** `ep0ch install --apply` brings this machine's declared agents back. Try **named-agent** in the kitchen sink for a private scratch core. No schema change; loki assigns PROTOCOL if needed at the final rebase for the removed control fields/actions.
+
+### Post-its peel, dock, tuck and collect on shelves (PIE-1485)
+
+- **Keep or drop an entry:** a post-it's peel control (`alt+E`) pins its shown entry while the hover keeps its stack. Drop (`alt+X`) removes just that entry. The tile menu docks it into the work area or tucks it in the drawer; peel brings it back. Drag its title onto a work-area header to land it there.
+- **Collect refs:** `glass.shelf name=seeds colour=amber` makes a shelf. Drag post-its onto it, or use `glass.shelve ref=… shelf=seeds`. Its header switches list/grid and colour; its tile menu renames it. One click previews a row; the second opens it. Shelves persist and count with pins in the glass glyph.
+- **Keep your place:** post-it arrows use the same saved back/forward history as every reader (`alt+←` / `alt+→`). Agents can `glass.pin ref=… shelf=seeds`, attributed on screen, while your focus and selection stay put. An agent's clear keeps the tile you're in.
+- **Run:** open the kitchen sink's **glass** section (`ep0ch try --showcase`) and press **Three refs on a shelf**. Door only; no protocol, grammar or schema change.
+
+### Completion keeps every letter you type (PIE-1486)
+
+- **Narrow the list:** property and page completion keep every query term; a one-letter term starts a word. `[heading-p` and `[heading-pa` offer pattern and padding, then `[heading-pat` offers only pattern. Note search keeps its typo and missing-word tolerance.
+- **Run:** try `[heading-p` in the kitchen sink's **completion** section. No protocol, grammar or schema change.
+
 ### Completion follows you and fills whole snippets (PIE-1480)
 
 - **Complete where you type:** one source contract and matcher in notes, the power bar and Detail. Chosen rows rise across clients; the popup lights matched letters and sits at the cursor through the shared screen float placement.
@@ -5550,7 +5568,7 @@ The river's replies under a note are read again the same way. Restart the door (
   Nothing restarts it behind your back.
 - **Choose the dock's agent.** `alt+g` opens a picker of the agents installed here (Herdr's agent kinds found on
   your PATH, each also "in Herdr" when Herdr is installed) and a shell; the choice is saved per outline session
-  (`host.agent name=<agent> [herdr=true] [default=true]`). `alt+s` opens a new shell in the dock. `ep0ch doctor`
+  (`host.agent name=<agent> [default=true]`). `alt+s` opens a new shell in the dock. `ep0ch doctor`
   lists each session's dock agent, where the choice came from, and the command to change it.
   Both work while you type in a dock terminal too (as `alt+a` does), and the picker has your keys over it. Pulling
   the dock up the first time with no agent chosen (`alt+a`, a click on the chip) offers the picker once a door.

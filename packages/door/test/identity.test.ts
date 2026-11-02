@@ -11,7 +11,6 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { startControl } from "../src/control";
 import { Desk } from "../src/desk/desk";
-import { attachTitle } from "../src/desk/herdr-agent";
 import { registerScreen, savedNodes, type ScreenSpec } from "../src/desk/screen-spec";
 import { readState, writeState, outlineState } from "../src/state";
 import { builtin } from "../src/desk/tiles";
@@ -254,27 +253,6 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     const added = await act("tile.open", { kind: "reader", name: "extra" }, "middle") as any;
     expect(added.tile).not.toBe(side.tile);
     await expect(act("tile.info", {}, side.tile)).rejects.toThrow(new RegExp(`no tile ${side.tile}`));
-    await daily();
-  });
-
-  test("F18: the Herdr agent tile is flagged by tile.herdr, not by what its program puts in its title", async () => {
-    // A terminal tile of the person's own (the agent is the host layer's, PIE-513, not a tile here).
-    await mine("tile.open", { kind: "pty", name: "claude", cmd: "sh" }, "middle");
-    await until(() => !!D().panes.get([...D().names].find(([, n]: any) => n === "claude")![0])?.running, "its shell");
-    // The program says the attach title itself: that no longer makes the door think the agent outlives it.
-    await act("tile.type", { text: `printf '\\033]2;${attachTitle("door-claude")}\\007'\n` }, "claude");
-    await Bun.sleep(300);
-    const pane = D().panes.get([...D().names].find(([, n]: any) => n === "claude")![0]);
-    expect(pane.herdr).toBeNull();
-    expect(D().leaveWarning()).toContain(pane.title());
-    // The wrapper says so over the control socket, as the tile it runs in.
-    const r = await act("tile.herdr", { pane: "door-claude" }, "claude") as any;
-    expect(r).toMatchObject({ name: "claude", herdr: { pane: "door-claude" } });
-    expect((await act("tile.info", {}, "claude") as any).herdr).toEqual({ pane: "door-claude" });
-    expect(D().leaveWarning() ?? "").not.toContain(pane.title());
-    await expect(act("tile.herdr", { pane: "door-claude" }, "tree")).rejects.toThrow(/tree is an outline tile: tile.herdr is for a terminal tile/);
-    await act("tile.herdr", { on: false }, "claude");
-    expect(pane.herdr).toBeNull();
     await daily();
   });
 
