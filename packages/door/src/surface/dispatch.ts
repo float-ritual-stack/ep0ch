@@ -20,7 +20,7 @@ import type { Hint } from "./hint-card";
 //   (`actorRule`, below), so no action asks who is acting for this;
 // - runs it as the person (a key, a click: a refusal is said, then the screen is redrawn) or as an agent (said on
 //   the status bar before it runs, refused with the reason, and what it did said after: ActionDef.says).
-import { INVITES, type InviteScope } from "./invite";
+import { INVITES, type InviteScope, type Press } from "./invite";
 import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
 import { Offline, USER, type Actor } from "../socket";
@@ -570,16 +570,24 @@ export class Dispatcher {
   takes(req: ActRequest, actor?: Actor): boolean { return !!this.owner(this.pointed(req, actor), actor); }
 
   /**
-   * An authored press defaults tile actions to its own reader; screen and host actions keep their scope. A press made in
-   * no reader (`button.press note=`, a status-bar button) has `press`, the note its button is written in and who pressed
-   * (PIE-1517): its tile actions go to a reader showing that note. Where none does, they act where the presser stands: the
-   * person's own press at their focus; anyone else's is refused with "open it first", never landing in the person's reader.
+   * An authored press defaults tile actions to its own reader; screen and host actions keep their scope. The one owner of
+   * where a press acts (PIE-1517): given the press (src/surface/invite.ts `Press`), its reader; made in none (`button.press
+   * note=`, a status-bar button), a reader showing its note, here or on the screen this host hands tile actions to. Where
+   * none does, the person's own press acts at their focus; anyone else's is refused with "open it first", never landing
+   * in the person's reader. A run's steps are placed by the same press (extensions.ts `connectScriptActions`).
    */
-  requestIn(req: ActRequest, tile: string | undefined, press?: { note?: string; actor: Actor }): ActRequest {
-    if (tile === undefined && press?.note && (this.tile(press.note) || !this.standing(press.actor, "tile"))) tile = press.note;
+  requestIn(req: ActRequest, at: string | Press | undefined): ActRequest {
+    let tile = typeof at === "object" ? at.tile : at;
+    if (tile === undefined && typeof at === "object" && at.note && (this.showing(at.note) || !this.standing(at.actor, "tile"))) tile = at.note;
     if (req.tile !== undefined || tile === undefined) return req;
     const there = { ...req, tile };
     return this.tileAction(there) ? there : req;
+  }
+
+  /** A tile showing `note` here, or on the screen this host hands its tile actions to (the door's shell to its desk). */
+  private showing(note: string): TileRef | null {
+    const address = this.where().address;
+    return this.tile(note) ?? (address ? this.resolve(address)?.dispatch.tile(note) ?? null : null);
   }
 
   private tileAction(req: ActRequest): boolean {

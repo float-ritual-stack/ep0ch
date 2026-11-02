@@ -22,6 +22,7 @@ describe.skipIf(!outliner)("an agent's press acts on the note it names, never th
     await board.info();
     app = new App({ info: size, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey(_f: (k: Key) => void) {}, onResize() {}, stop() {}, resume() {} }, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
+    await app.loadExtensions();
     desk = openScreen("desk")! as Desk;
     app.push(desk);
   }, 60_000);
@@ -86,6 +87,47 @@ describe.skipIf(!outliner)("an agent's press acts on the note it names, never th
     // An agent's comment is sent at once: one with no body is refused, saying so.
     expect(await press("Ask")).toMatchObject({ refused: expect.stringMatching(/body=/) });
     unchanged();
+  }, 60_000);
+
+  // Codex on #1209: three routes that still wrote to the reader the person holds. A in the focused reader, B in another.
+  test("with B open beside the person's A: the person's press, an agent pointed at A, and a sequence all act on B", async () => {
+    const a = await board.createBlock(null, "Prune the roses\nJust above an outward bud.");
+    const b = await board.createBlock(null, [
+      "Rose feed",
+      '::button{label="Feed" act="comment.note body=\\"Feed in April\\""}',
+      '::button{label="Seq" act="[comment.note body=hello, theme.cycle]"}',
+    ].join("\n"));
+    await desk.dispatch.act({ action: "open", args: { id: a.id }, tile: "reader" }, USER);
+    await desk.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "feed", note: b.id }, tile: "reader" }, USER);
+    await desk.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
+    for (let i = 0; i < 100 && ((desk.pane("feed") as any)?.surface?.msg?.id !== b.id || reader().surface?.msg?.id !== a.id); i++) await Bun.sleep(30);
+    const focus = desk.focusName();
+    const still = () => { expect(reader().surface.msg.id).toBe(a.id); expect(reader().surface.session).toBeNull(); expect(desk.focusName()).toBe(focus); };
+    const bodies = async (id: string) => (await board.comments(id)).map(c => `${c.author}: ${c.body}`);
+
+    // The person's own press of B (the status bar's route, App.dispatch): B's reader, not their focus.
+    await app.dispatch.act({ action: "button.press", args: { note: b.id, label: "Feed" } }, USER);
+    expect(await bodies(a.id)).toEqual([]);
+    expect(await bodies(b.id)).toContain("user: Feed in April");
+
+    // An agent whose own focus is on A: its press of B still acts on B.
+    await app.act({ action: "agent.focus", tile: "reader", as: AGENT });
+    await app.act({ action: "button.press", args: { note: b.id, label: "Feed" }, as: AGENT });
+    still();
+    expect(await bodies(a.id)).toEqual([]);
+    expect(await bodies(b.id)).toContain(`${AGENT}: Feed in April`);
+    await app.act({ action: "agent.focus", args: { clear: true }, as: AGENT });
+
+    // A sequence's steps run where its press acts: B, for the person and for an agent.
+    // (A step is the run's own, said as the script on whoever's press: `script:Seq`.)
+    const hellos = async () => (await bodies(b.id)).filter(x => x === "script:Seq: hello").length;
+    for (const [n, run] of [[1, () => app.dispatch.act({ action: "button.press", args: { note: b.id, label: "Seq" } }, USER)], [2, () => app.act({ action: "button.press", args: { note: b.id, label: "Seq" }, as: AGENT })]] as const) {
+      await run();
+      for (let i = 0; i < 100 && (await hellos()) < n && !(await bodies(a.id)).length; i++) await Bun.sleep(50);
+      expect(await bodies(a.id)).toEqual([]);
+      expect(await hellos()).toBe(n);
+      still();
+    }
   }, 60_000);
 
   test("the person's own press of a note open nowhere still acts where they are (a status-bar button)", async () => {
