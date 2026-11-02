@@ -1,8 +1,6 @@
-// The reader's list mode (PIE-693, PIE-747: a ::links list the person goes into, and a filter being typed) and the
-// collection walk (PIE-1491, PIE-1501): a collection has no mode. Its rows are elements like a live figure's rows: the
-// `[ ]` position on one of them routes the list keys (collectionKey), j k step its rows through reading.step and walk
-// on past its edges, and esc lets go of the position as it does anywhere. Rows, elements and the reading line stay
-// NoteSurface's; this reads them.
+// The reader's list mode (PIE-693, PIE-747: a ::links list the person goes into, and a filter being typed) and a
+// collection's keys (PIE-1501): a collection has no mode. The `[ ]` position on one of its rows routes the list keys
+// (collectionKey); j k go to reading.step, whose walk the row containers answer (row-container.ts).
 import type { NoteSurface, SurfaceHost } from "./note";
 import type { ReaderMode } from "./modes";
 import { modeHint, type ModeKey } from "./modes";
@@ -59,26 +57,6 @@ function listKey(surface: NoteSurface, list: string, k: Key, host: SurfaceHost):
   return surface.key(k, host);
 }
 
-/** The collection drawn in the block the reading line is on (its row elements fall in that block's rows), or null (PIE-1491). */
-export function collectionAtReading(surface: NoteSurface): ListHandle<any> | null {
-  const d = surface.drawn, rows = surface.readingRows();
-  if (!d || !rows) return null;
-  for (const e of surface.elems) {
-    const key = e.link?.listRow?.key;
-    if (key === undefined || e.row - d.top < rows[0] || e.row - d.top >= rows[1]) continue;
-    const l = surface.listsDrawn.find(l => l.key === key && l.collection);
-    if (l) return l;
-  }
-  return null;
-}
-
-/** The collection whose row the `[ ]` position is on (`j`, `]`, a click), or null (PIE-1501). */
-export function collectionAtCursor(surface: NoteSurface): ListHandle<any> | null {
-  const row = surface.selectedElement()?.link?.listRow ?? surface.rowWanted();
-  if (!row?.row) return null;
-  return surface.listsDrawn.find(l => l.key === row.key && l.collection) ?? null;
-}
-
 /**
  * The list key `k` binds to while the `[ ]` position is on a collection's row (PIE-1501), as figureKey reads a figure's:
  * the tables in list-keys.ts, less list.enter (esc lets go of the position, as anywhere; tab is the screen's). Null
@@ -86,7 +64,7 @@ export function collectionAtCursor(surface: NoteSurface): ListHandle<any> | null
  */
 export function collectionBinding(surface: NoteSurface, k: Key): { list: ListHandle<any>; binding: ModeKey } | null {
   if (surface.modes.top()) return null;
-  const list = collectionAtCursor(surface);
+  const list = surface.collectionAtCursor();
   if (!list) return null;
   const binding = listBinding(k, !!list.change, list.view.pickable().length);
   return binding && binding.action !== "list.enter" ? { list, binding } : null;
@@ -101,13 +79,3 @@ export function collectionKey(surface: NoteSurface, k: Key, host: SurfaceHost): 
   else void surface.runList(binding.action as ListActionName, { list: list.key, ...binding.args } as never, host);
   return true;
 }
-/**
- * A collection in the walk (PIE-1491): j from above stops on the text of its block when there is some (a saved view's
- * last body line), then its first row; k from below lands on its last row. From its edge row the walk goes on: up,
- * onto that text; down, on to the next block.
- */
-export function collectionTextStop(surface: NoteSurface): boolean {
-  const line = surface.msg?.text.split("\n")[surface.readingSourceLine()] ?? "";
-  return line.trim() !== "" && !line.trimStart().startsWith("::");
-}
-
