@@ -42,14 +42,16 @@ export class FigureSizing {
   /**
    * The reader's scroll that keeps a held bottom edge in sight (PIE-1513): a figure that grows past the reader's last
    * row scrolls it up by as much, so the edge and its row count stay where the person can see them while the pointer
-   * goes on below the tile. `scroll` is the reader's now; the answer is never less than it.
+   * goes on below the tile. Measured from the scroll the drag started at, both ways: dragged back up, the scroll it
+   * added goes again and the edge comes back under the pointer. `scroll` is the reader's now, kept when nothing is held.
    */
   follow(scroll: number): number {
     const d = this.drag;
     if (!d || d.axis !== "height" || d.now?.height === undefined) return scroll;
-    const grown = d.now.height - (d.frame.figure.size.height ?? d.frame.rows - 4);
-    const edge = d.frame.y + d.frame.rows - 1 + grown - (scroll - (d.scroll ?? scroll));
-    return edge > this.last ? scroll + edge - this.last : scroll;
+    const start = d.scroll ?? scroll, grown = d.now.height - (d.frame.figure.size.height ?? d.frame.rows - 4);
+    // The edge's row at the scroll the drag started from.
+    const edge = d.frame.y + d.frame.rows - 1 + grown;
+    return start + Math.max(0, edge - this.last);
   }
   paint(key: string, lines: string[], cols: number): string[] {
     const d = this.drag;

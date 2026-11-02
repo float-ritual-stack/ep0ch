@@ -187,10 +187,19 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect(at, held.slice(-8).join("\n")).toBeGreaterThan(-1);
     expect(held[at]).toContain("7 rows");
     expect((await board.get(note.id))!.text).toContain("height: 4");
-    surface.release(x, y + 3, host);
+    // Further down, then back up past where it started (Codex review): the scroll the drag added goes again, so the
+    // edge comes back under the pointer instead of above the reader.
+    const scrolled = surface.scroll;
+    surface.drag(x, y + 12, host); await surface.inTurn(async () => {}); short();
+    expect(surface.scroll).toBeGreaterThan(scrolled);
+    surface.drag(x, y - 1, host); await surface.inTurn(async () => {});
+    const back = short();
+    expect(back.findIndex(l => l.includes("let go to save")), back.join("\n")).toBe(y - 1);
+    expect(back[y - 1]).toContain("3 rows");
+    surface.release(x, y - 1, host);
     await until(() => !surface.figureSizing.drag, "the table's height is saved");
     await surface.inTurn(async () => {});
-    expect((await board.get(note.id))!.text).toContain("height: 7");
+    expect((await board.get(note.id))!.text).toContain("height: 3");
   });
 
   test("review 5: shifted arrows scroll inside a figure and keep the reading position", async () => {
