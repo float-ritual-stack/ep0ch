@@ -80,7 +80,7 @@ async function keepSearchEval(board: SocketBoard, root: Msg, cases: { query: str
 }
 import { ECHO_COPIES, ECHO_NODELIST, ECHO_POSTS, ECHO_SEEN_BY, ECHO_TOSSER, ECHO_TOSSES } from "./seed/echonet";
 import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
-import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, COPY_PAGE, COPY_CRATES, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, figureCellsText, laneQuery, societyText } from "./seed/work";
+import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, COPY_PAGE, COPY_PAGE_TEMPLATE, COPY_CRATES, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, figureCellsText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, FIGURE_SIZING, LANDINGS, KEYS_TEXT, dashboardText, figuresText, markdownFiguresText, pageReadingText } from "./seed/figures";
 import { SEARCH_EVAL_SCORES, SEARCH_EVAL_SWEEP } from "./seed/notes";
 import { ASK_AGENT, DEEP_LINKS, ONE_COMPLETER, TRAIL_STOPS, trailStopText, backHubText, backJobText, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, WRITE_REVIEW, WRITE_REVIEW_FIXED, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
@@ -561,6 +561,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
 
   notes.plotJobs = await make(notes.root.id, PLOT_JOBS_NOTE);
   for (const j of PLOT_JOBS) await make(notes.plotJobs.id, `${j.title} [type::plot-job] [stage::${j.stage}] [priority::${j.priority}]`);
+  await make(notes.root.id, COPY_PAGE_TEMPLATE);
   notes.copyPage = await make(notes.root.id, COPY_PAGE);
   for (const c of COPY_CRATES) await make(notes.copyPage.id, c.replace(" [", " [type::showcase-crate] ["));
   notes.dates = await make(notes.root.id, PLOT_DATES_NOTE);

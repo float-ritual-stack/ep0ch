@@ -164,6 +164,12 @@ export const COPY_PAGE = [
   "",
   "Press Y: the copy holds this text and, under each figure, its rows as Markdown, for an agent with no outline tools.",
   "",
+  "::use{of=type:showcase-crate-day}",
+].join("\n").trimEnd();
+
+export const COPY_PAGE_TEMPLATE = [
+  "Crate day template [type::template] [template-for::showcase-crate-day]",
+  "",
   ...fig("check", ["title: Crates", 'query: "type=showcase-crate"', 'done: "packed=yes"', "sort: title", "direction: asc"]),
   ...fig("table", ["title: Parcels", 'query: "type=showcase-parcel"', "columns: [title]", "sort: title", "direction: asc"]),
   ...fig("tabs", ["title: Crates by bay", 'query: "type=showcase-crate"', "group: bay", "columns: [title]", "sort: title", "direction: asc"]),

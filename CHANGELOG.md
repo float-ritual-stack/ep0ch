@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Page embeds reach another machine's outline (PIE-1350)
+
+- **Read across machines:** `![[attic:Plan]]` and `![[attic:Plan^part]]` use the host's existing forwards to draw the page or its anchored part. A missing page stays saved and offers nearby pages inline; a name ending in `^word` explains the anchor reading and gives its block reference.
+- **Run:** `ep0ch install --apply` on the machines serving and reading the outlines. No protocol, grammar or schema change.
+
+### Copying a templated page includes its live figure results (PIE-1380)
+
+- **Take the rows along:** `ep0ch show --markdown`, the reader's `Y` and `act note.copy` include figures from `::use` templates, with their call's props and the same row caps and “showing N of M · the rest” commands. Copy source only still gives the stored text.
+- **Run:** open **copy-page** in the kitchen sink to copy its templated crate page. No protocol, grammar or schema change.
+
 ### A fresh machine can open its first outline from the home base (PIE-1489)
 
 - **Create locally:** `n`, a name and Enter start the local host and open the new outline, installing its launchd agent on macOS or systemd user unit on Linux when missing. `ep0ch --ws garden` uses the same startup path; a failed start is shown on the status line.
