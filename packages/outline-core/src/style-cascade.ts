@@ -32,7 +32,7 @@
 import { CALLOUT_TONES, type CalloutTone } from "./callouts";
 import { parsePropertyRecords } from "./property-parse";
 import { componentAttrs, noteCodeFences } from "./component-block";
-import { BUILTIN_HEADING_STYLES, bandMarginText, bandPaddingText, liveTokensInLine, parseBandMargin, parseBandPadding, type BandMargin, type BandRoom } from "./heading-styles";
+import { BUILTIN_HEADING_STYLES, bandMarginText, bandPaddingText, isStyleKey, liveTokensInLine, parseBandMargin, parseBandPadding, type BandMargin, type BandRoom } from "./heading-styles";
 
 /**
  * The keys PIE-1361 retired: a header picture and its look (`style.header.image…`, `style.header.title`, a width's too),
@@ -417,7 +417,7 @@ export function styleFieldsOf(props: readonly { key: string; value: string }[], 
   for (const p0 of props) {
     const k = p0.key.toLowerCase();
     if (aliases && HEADING_ALIASES[k]) { put(fields, HEADING_ALIASES[k]!, p0.value); continue; }
-    if (!k.startsWith("style.")) continue;
+    if (!isStyleKey(k)) continue;
     // A retired key (PIE-1361) is gathered for the caller that lists them; elsewhere one line says them all.
     if (isRetiredLookKey(k)) { found.push({ key: p0.key, value: p0.value }); continue; }
     const rest = k.slice(6), vm = /^((?:narrow|wide)\.)?(.*)$/.exec(rest)!;

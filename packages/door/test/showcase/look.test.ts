@@ -3,7 +3,6 @@
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
-import { TUNE_ROWS } from "../../src/desk/tune";
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { osc52, SELECT_BG, rowsOf } from "../../src/surface/selection";
 import { surfaceBg } from "../../src/style";
@@ -12,6 +11,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../../src/app";
+// After the app: tune.ts is in the tiles' import cycle, and entering it first leaves TUNE_ACTIONS uninitialized.
+import { TUNE_ROWS } from "../../src/desk/tune";
 import { REMOTE_CLIENT, type Seeded } from "../../src/showcase/seed";
 import { heroText } from "../../src/showcase/seed/media";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
