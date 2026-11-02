@@ -156,6 +156,28 @@ describe.skipIf(!outliner)("the strip exhibit", () => {
     await desk.dispatch.press("tile.focus", {}, "Build logs");
   }, 15_000);
 
+  test("agents list and pick a desk's dock strip by name with or without a tile", async () => {
+    await h.sc.dispatch.press("section", { name: "strip" });
+    await h.sc.dispatch.press("section.try");
+    const desk = h.sc.tilesHere()!;
+    await desk.dispatch.press("tile.focus", {}, "Build logs");
+    const paint = () => { h.app.redraw(); h.app.flush(); };
+    const focus = desk.keys().address;
+    (h.app as any).lastInput = 0;
+    for (const tile of [undefined, "Build logs"]) {
+      paint();
+      const choices = await h.app.act({ action: "strip.more", args: { strip: "docks-down" }, tile, as: "strip-test" }) as any;
+      expect(choices.rows[1].label).toMatch(/Seed (stock|cupboard)/);
+      await h.app.act({ action: "strip.pick", args: { strip: "docks-down", n: 2 }, tile, as: "strip-test" });
+      paint();
+      expect(desk.layoutGet().tiles.find(t => t.name === "Seed stock")?.shown).toBe(true);
+      expect(desk.keys().address).toBe(focus);
+      await desk.dispatch.act({ action: "tile.slide", args: { open: false }, tile: "Seed stock" }, { kind: "agent", id: "strip-test" });
+    }
+    paint();
+    await expect(h.app.act({ action: "strip.more", args: { strip: "absent" }, as: "strip-test" })).rejects.toThrow(/strip=.*docks-down/);
+  });
+
   test("tabs inside one dock stay selectable and agents leave the current one visible", async () => {
     await h.sc.dispatch.press("section", { name: "strip" }); h.screen();
     await h.sc.dispatch.press("section.try");

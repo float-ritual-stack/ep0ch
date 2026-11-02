@@ -174,7 +174,7 @@ const FOLD_KEYS = new Set(["-", "+", "="]);
  * The desk's own hint row, part by part (PIE-492): each names its action and its built-in key, and draws the key the
  * person's keymap gives it (`partsHint`), so a rebind shows here; test/keys-window.test.ts holds each key to its def.
  */
-export const FOCUS_PART: HintPart = { action: "tile.focus", key: "tab", also: "1-9", label: "focus" };
+export const FOCUS_PART: HintPart = { action: "tile.focus", key: "tab", also: "1-9", label: "focus", args: { by: 1 } };
 export const WINDOW_PART: HintPart = { action: "keys.panel", key: "ctrl+w", label: "window" };
 export const LINK_PART: HintPart = { action: "tile.link", key: "alt+l", label: "link", args: { ask: true } };
 export const NEW_PART: HintPart = { action: "note.new", key: "ctrl+n", label: "new" };
@@ -3786,7 +3786,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
     else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
-    this.drawDocks(canvas, area);
+    withStripOwner(undefined, area.cols, () => this.drawDocks(canvas, area));
     if (this.layout.lift) return { lines: canvas.lines(), placements };
     return this.finishFrame(canvas, area, cols, rows, placements, !!host);
   }
@@ -4843,7 +4843,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const s = this.prefix === "wm"
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
-        ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
+        ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ` + partsHint(tileKinds().flatMap(k => (k.keys ?? []).map(x => ({ key: x.key, label: x.label, action: "tile.open", args: this.openKindArgs(x.key, this.prefix === "addtab")! }))))
         : this.specHint() ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
     return line(paint(s));
   }
@@ -5166,11 +5166,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const claimer = this.panes.get(this.focus);
     if (claimer?.claims?.(k) && !this.holdsKeys() && !this.contentCover(this.focus).fold && claimer.key(k, this)) return this.redraw();
     if (k.kind === "tab" && claimer?.completing?.()) { claimer.key(k, this); return this.redraw(); }
-    if (k.kind === "tab" || k.kind === "backtab") {
-      const ids = this.zoom !== null ? [this.zoom] : this.tabStops();
-      const i = ids.indexOf(this.focus);
-      return this.run("tile.focus", {}, this.nameOf(ids[(i + (k.kind === "tab" ? 1 : ids.length - 1)) % ids.length]!));
-    }
+    if (k.kind === "tab" || k.kind === "backtab") return this.run("tile.focus", { by: k.kind === "tab" ? 1 : -1 });
     const pane = this.panes.get(this.focus);
     const c0 = ch(k);
     // A spine has the keys: ⏎ or space opens it; its own keys don't reach what it holds out of sight.
@@ -5387,6 +5383,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.prefix === "resize") this.prefix = "";
   }
 
+  private openKindArgs(key: string, tab: boolean): Record<string, unknown> | undefined {
+    const hit = kindForKey(key);
+    if (!hit) return;
+    const s0 = hit.key.spec?.({ name: this.nameOf(this.focus), pane: this.panes.get(this.focus)! }) ?? {};
+    const extra: Partial<NewTile> = { ...(s0.cmd ? { cmd: s0.cmd.join(" ") } : {}), ...(s0.file ? { file: s0.file } : {}), ...(s0.source ? { source: s0.source } : {}), ...(s0.view ? { view: s0.view } : {}), ...(s0.mode ? { mode: s0.mode } : {}), ...(s0.name ? { name: this.idNamed(s0.name) === undefined ? s0.name : this.autoName(s0.name) } : {}) };
+    return { kind: hit.kind.kind, ...extra, where: tab ? "tabs" : "right" };
+  }
+
   private command(k: Key) {
     const mode = this.prefix;
     // ^W held down repeats: while the prefix is pending (or resize mode is on) another ^W is ignored, not a toggle.
@@ -5408,11 +5412,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const flash = (s: string) => { this.ctx.flash(s); return this.redraw(); };
     if (mode === "add" || mode === "addtab") {
       // The kind under that key, from the registry (an extension's kind with a key is here too).
-      const hit = kindForKey(c);
-      if (!hit) return this.redraw();
-      const s0 = hit.key.spec?.({ name: me, pane: this.panes.get(this.focus)! }) ?? {};
-      const extra: Partial<NewTile> = { ...(s0.cmd ? { cmd: s0.cmd.join(" ") } : {}), ...(s0.file ? { file: s0.file } : {}), ...(s0.source ? { source: s0.source } : {}), ...(s0.view ? { view: s0.view } : {}), ...(s0.mode ? { mode: s0.mode } : {}), ...(s0.name ? { name: this.idNamed(s0.name) === undefined ? s0.name : this.autoName(s0.name) } : {}) };
-      return this.run("tile.open", { kind: hit.kind.kind, ...extra, where: mode === "addtab" ? "tabs" : "right" }, me);
+      const args = this.openKindArgs(c, mode === "addtab");
+      return args ? this.run("tile.open", args, me) : this.redraw();
     }
     const dir = MOVE[c], n = dir ? neighbour(this.rectsNow(), this.focus, dir) : null;
     if (mode === "move" || mode === "tab") {
@@ -5713,6 +5714,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * same layout step (tile.preview); `keys: false` leaves the person's keys where they are.
    */
   async openTile(given: NewTile, at: string | undefined, where: Where, actor: Actor, also: { link?: number; verb?: WireVerb; keys?: false; unnamed?: boolean } = {}): Promise<TileDone> {
+    if (this.dispatch.standing(actor)) this.prefix = "";
     const t = canonSpec(given);
     if (t.outline) await outlineBoards(this.ctx).on({ outline: t.outline, machine: t.machine });
     const k = kindOf({ kind: t.kind } as Pane);
@@ -6061,6 +6063,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(t.id), pane: t.name };
   }
 
+  nextTile(sel: string | undefined, by: number): string {
+    const ids = this.zoom !== null ? [this.zoom] : this.tabStops(), i = ids.indexOf(this.tile(sel).id);
+    return this.nameOf(ids[((i + by) % ids.length + ids.length) % ids.length]!);
+  }
   /**
    * Where Tab stops, in reading order: each tile shown, then the floats; columns (the board's lanes) are one stop, the
    * tile last in them, and a dock is one stop, its first tile (its list, not the preview beside it).

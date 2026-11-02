@@ -2074,7 +2074,7 @@ class Step<I> {
   private reveal(id: I) {
     this.present(id);
     const set = tabsOf(this.d.tree, id);
-    if (set && !(this.agent && set.ids.includes(this.d.focus) && this.d.focus !== id)) activate(this.d.tree, id);
+    if (!(this.agent && set?.ids.includes(this.d.focus) && this.d.focus !== id)) activate(this.d.tree, id);
     const folded = this.d.collapsed.has(id);
     const prior = folded ? rects({ ...this.d, zoom: null }, this.ctx.area) : undefined;
     for (const t of this.foldSet(id)) this.d.collapsed.delete(t);

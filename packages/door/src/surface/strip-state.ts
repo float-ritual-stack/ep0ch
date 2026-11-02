@@ -3,7 +3,7 @@ import { fullValue, type StripTarget } from "../overflow";
 import { visible } from "../style";
 
 export interface StripRecord {
-  id: string; tabs: readonly Tab[]; tile?: string; scroll?: number; cursor: number;
+  id: string; name?: string; tabs: readonly Tab[]; tile?: string; scroll?: number; cursor: number;
   /** A breadcrumb or dock acts on its segment without entering the tile underneath. */
   direct: boolean; about?: string;
 }
@@ -56,15 +56,16 @@ export class StripState {
     const key = `${tile ?? "door"}/${o.id ?? JSON.stringify([o.lead, tabs.map(t => t.hit ?? t.key ?? t.label)])}`;
     this.drawn.add(key);
     const old = this.rows.get(key), current = Math.max(0, tabs.findIndex(t => t.on));
-    const row: StripRecord = { id: key, tile, tabs, direct: !!o.direct, about: o.about, cursor: old?.scroll === undefined ? current : Math.min(old.cursor, Math.max(0, tabs.length - 1)), scroll: old?.scroll };
+    const row: StripRecord = { id: key, name: o.id, tile, tabs, direct: !!o.direct, about: o.about, cursor: old?.scroll === undefined ? current : Math.min(old.cursor, Math.max(0, tabs.length - 1)), scroll: old?.scroll };
     this.rows.set(key, row);
     return row;
   }
   get(id?: string, tile?: string): StripRecord | undefined {
     const all = [...this.rows.values()];
-    if (id) return this.rows.get(id) ?? all.find(r => r.id.endsWith(`/${id}`) && r.tile === tile) ?? all.find(r => r.id.endsWith(`/${id}`) && !r.tile);
+    if (id) return this.rows.get(id) ?? all.find(r => r.name === id && r.tile === tile) ?? all.find(r => !r.tile && (r.name === id || r.name?.endsWith(`:${id}`)));
     return (this.active ? this.rows.get(this.active) : undefined) ?? all.find(r => r.tile === tile && r.id.endsWith("/tabs")) ?? all.find(r => r.tile === tile && r.tabs.some(t => t.on)) ?? all.find(r => r.tile === tile && r.id.endsWith("/hint"));
   }
+  names(tile?: string): string[] { return [...new Set([...this.rows.values()].filter(r => r.name && (!r.tile || r.tile === tile)).map(r => r.name!))]; }
   move(row: StripRecord, by: number, keys = true) {
     row.scroll = (((row.scroll ?? row.cursor) + by) % row.tabs.length + row.tabs.length) % row.tabs.length;
     if (keys) { row.cursor = row.scroll; this.active = row.id; }

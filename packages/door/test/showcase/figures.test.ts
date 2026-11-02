@@ -39,6 +39,31 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
 
   const sizingSurfaces: NoteSurface[] = [];
   afterEach(() => { for (const surface of sizingSurfaces.splice(0)) surface.dispose(); });
+  test("a hidden graph tab chosen from +N changes the figure", async () => {
+    await sc.dispatch.press("section", { name: "tabs" });
+    await sc.dispatch.press("section.try");
+    const cols = app.t.cols;
+    const paint = () => { app.redraw(); app.flush(); };
+    try {
+      (app as any).term.info.cols = 60;
+      await until(() => { paint(); return [...app.strips.state.rows.values()].some(r => r.tabs.some(t => t.hit?.action === "figure.tab")); }, "the graph tabs strip");
+      const row = [...app.strips.state.rows.values()].find(r => r.tabs.some(t => t.hit?.action === "figure.tab"))!;
+      let more: { x: number; y: number } | undefined;
+      for (let y = 0; y < app.t.rows; y++) for (let x = 0; x < app.t.cols; x++) {
+        const hit = app.overflow.stripAt(x, y);
+        if (hit?.id === row.id && hit.n === -1) more = { x, y };
+      }
+      expect(more).toBeDefined();
+      press({ kind: "mouse", action: "down", button: 0, ...more! }); paint();
+      expect(h.painted.map(visible).join("\n")).toContain("all choices");
+      await app.dispatch.press("strip.pick", { strip: row.id, n: row.tabs.length });
+      const figures = await app.act({ action: "figures", tile: row.tile, as: "figure-reader" }) as any;
+      expect(figures.figures[0].tab).toBe(row.tabs.at(-1)!.hit!.args!.tab);
+    } finally {
+      app.strips.close(); (app as any).term.info.cols = cols;
+      press({ kind: "esc" });
+    }
+  });
   test("one garden report expands cut table cells and decision rows through selection and act", async () => {
     const surface = new NoteSurface(); sizingSurfaces.push(surface);
     const host: SurfaceHost = { ctx: app, redraw() {}, navigate() {} };

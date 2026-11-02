@@ -116,7 +116,7 @@ export interface FiguresEnv {
   answer?: import("@ep0ch/outline-core/figure-live").FigureAnswer;
 }
 /** One figure's share of that, as the drawing code gets it; `rows`: what the reader lends its rows (PIE-864). */
-interface FigureUI { lines: number; key: string; density: Density; tab?: string; tag?: (c: FigureControl, text: string) => string; all?: boolean; rows?: RowInline; expansion?: RowExpansion }
+interface FigureUI { lines: number; key: string; n: number; density: Density; tab?: string; tag?: (c: FigureControl, text: string) => string; all?: boolean; rows?: RowInline; expansion?: RowExpansion }
 
 const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI) => string[]> = {
   // The kinds in src/figures/ (check, decision, chat, keys, uptime, activity, calendar, annotate, …).
@@ -393,7 +393,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       return [...wrap(bar, w).map(l => fg(INK) + l + RESET), ...tabs.flatMap(t => ["", fg(ACCENT) + BOLD + `▸ ${t.value.toUpperCase()} · ${t.count}${plus}` + UNBOLD + RESET, ...table(t)])];
     }
     // The bar: each label its value and count, the chosen one lit and underlined; a bar wider than the figure wraps.
-    const bars = tabStrip(tabs.map(t => ({ label: `${t.value} ${t.count}${plus}`, on: t === sel, hit: { action: "figure.tab", args: { figure: ui?.key, tab: t.value } } })), {
+    const bars = tabStrip(tabs.map(t => ({ label: `${t.value} ${t.count}${plus}`, on: t === sel, hit: { action: "figure.tab", args: { figure: ui && String(ui.n), tab: t.value } } })), {
       width: w, style: { on: fg(ACCENT) + BOLD, off: fg(INK), sep: fg(DIM) + " · ", under: fg(ACCENT) },
       ...(ui?.tag ? { tag: (drawn: string, i: number) => ui.tag!({ figure: ui.key, tab: tabs[i]!.value }, drawn) } : {}),
     }).map(b => ({ text: b.text, under: b.under ?? "" }));
@@ -428,7 +428,7 @@ export function figureFrame(kind: string, props: Props, width: number, figures?:
     figures?.seen?.({ key, n, kind, title, density, size, cols: width, rows: lines.length, note, line: figures.line, ...extra });
     return lines;
   };
-  return { key, title, chosen, density, width, finish };
+  return { key, n, title, chosen, density, width, finish };
 }
 
 /**
@@ -445,7 +445,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   let props = read.props;
   // Props written without their `---` lines (PIE-941): said in the figure, whatever it then draws.
   const warn = read.warning ? [fg(C.lred) + read.warning + RESET] : [];
-  const framing = figureFrame(kind, props, W, figures, src.note), { key, title, chosen, density, finish } = framing;
+  const framing = figureFrame(kind, props, W, figures, src.note), { key, n, title, chosen, density, finish } = framing;
   W = framing.width;
   // All kinds lend their row targets the same figure identity, including rows outside the current viewport.
   const rowLink = link;
@@ -453,7 +453,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   const writtenLines = props.lines === undefined ? undefined : Number(props.lines);
   const validLines = writtenLines === undefined || Number.isSafeInteger(writtenLines) && writtenLines >= 0;
   if (!validLines) warn.push(fg(C.yellow) + "lines needs a whole number: 0 truncates, 1 or more wraps" + RESET);
-  const ui: FigureUI = { lines: chosen?.density ? TITLE_LINES[chosen.density] : writtenLines !== undefined && validLines ? writtenLines : isDensity(props.density) ? TITLE_LINES[props.density] : figures?.lines ?? 2, key, density, ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}), ...(rows ? { rows } : {}) };
+  const ui: FigureUI = { lines: chosen?.density ? TITLE_LINES[chosen.density] : writtenLines !== undefined && validLines ? writtenLines : isDensity(props.density) ? TITLE_LINES[props.density] : figures?.lines ?? 2, key, n, density, ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}), ...(rows ? { rows } : {}) };
   if (figures?.tag && (kind === "table" || kind === "decision")) ui.expansion = {
     open: (row, block) => !!chosen?.expanded?.includes(row) || chosen?.selected?.row === row || !!block && chosen?.selected?.block === block,
     draw: (row, lines) => {

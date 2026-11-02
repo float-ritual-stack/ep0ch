@@ -323,13 +323,13 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "give the person's keys to tile=<tile>. Refused to an agent while the person is typing (an edit, a comment, a terminal they're in)",
     keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →), ✦h ✦j ✦k ✦l ✦1-✦9 (hyper, from an edit or a terminal tile too); esc q back home (a screen with a home: the board's lanes)",
     touches: "screen", replay: "safe", says: r => `gave the keys to ${r.name ?? r.tile}`,
-    args: { dir: { type: "string", optional: true, choices: ["left", "right", "up", "down"], about: "left, right, up or down: the tile that way from tile= (in a flow: the column before or after)" } },
+    args: { by: { type: "number", optional: true, about: "steps through the visible tiles, as Tab (1) or shift+Tab (-1)" }, dir: { type: "string", optional: true, choices: ["left", "right", "up", "down"], about: "left, right, up or down: the tile that way from tile= (in a flow: the column before or after)" } },
     examples: [
       { act: "tile.focus tile=reader", does: "gives the person's keys to the reader" },
       { act: "tile.focus dir=left tile=reader", does: "gives the keys to the tile left of the reader" },
     ],
-    run({ dir }, { d, reader }, actor) {
-      return d.focusTile(dir ? d.neighbourOf(reader, dir as Dir) : reader, actor, true);
+    run({ dir, by }, { d, reader }, actor) {
+      return d.focusTile(dir ? d.neighbourOf(reader, dir as Dir) : by ? d.nextTile(reader, by) : reader, actor, true);
     },
   }),
   "tile.dock": def({

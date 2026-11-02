@@ -164,7 +164,7 @@ export class Overflow {
     const phase = this.step % (over + 20), offset = Math.min(over, phase);
     const label = pad(headOf(tailFrom(text, offset), available), available);
     for (const [i, part] of span.entries()) {
-      const cells = cut.strip?.vertical ? headOf(tailFrom(label, i), 1) : label;
+      const cells = cut.strip?.vertical ? pad(headOf(tailFrom(label, i), 1), 1) : label;
       clean[part.y] = headOf(clean[part.y] ?? "", x) + OSC8_CLOSE + RESET + selected() + cells + RESET + tailFrom(clean[part.y] ?? "", part.end);
     }
     return { lines: clean, overlay: { col: x, row: y, cols: cut.strip?.vertical ? 1 : available, rows: span.length } };

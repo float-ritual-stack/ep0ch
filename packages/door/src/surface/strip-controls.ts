@@ -31,7 +31,10 @@ export class StripControls {
   constructor(private host: StripHost) {}
   private row(id?: string, tile?: string) {
     const focus = this.host.focused(), row = this.state.get(id ?? focus.strip, tile ?? focus.tile);
-    if (!row) throw new ActionRefused("no strip here; point at a strip or name strip=tabs, breadcrumb, status or docks-down");
+    if (!row) {
+      const names = this.state.names(tile ?? focus.tile);
+      throw new ActionRefused(`no strip here; ${names.length ? "point at a strip or name " + names.map(name => `strip=${name}`).join(" or ") : "no named strips are drawn"}`);
+    }
     return row;
   }
   more(id: string | undefined, actor: Actor, tile?: string) {
@@ -103,7 +106,7 @@ export class StripControls {
   }
 }
 
-const strip = { type: "string" as const, optional: true, about: "the strip's id; tabs, breadcrumb or status, or the id returned by strip.more; left out, the strip under the keys" };
+const strip = { type: "string" as const, optional: true, about: "the strip's name (tabs, breadcrumb, hint, status, docks-down or another drawn dock edge), or the id returned by strip.more; dock strips belong to the desk and need no tile=; left out, the strip under the keys" };
 export const STRIP_ACTIONS = actionSet<{ strips: StripControls; tile?: string }>()("strip", {
   "strip.more": def({ summary: "list every segment in the strip; the person's +N or alt+/ opens the picker", keys: "alt+/; click +N", touches: "nothing", replay: "safe", args: { strip }, run({ strip }, { strips, tile }, actor) { return strips.more(strip, actor, tile); } }),
   "strip.scroll": def({ summary: "scroll a strip sideways, keeping its current name; arrows and the wheel move its cursor", keys: "left right up down [ ]; wheel; click ‹ ›", touches: "nothing", replay: "safe", args: { strip, by: { type: "number", about: "segments to move, negative for left" } }, run({ strip, by }, { strips, tile }, actor) { return strips.scroll(strip, by, actor, tile); } }),
