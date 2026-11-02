@@ -63,7 +63,8 @@ describe("scripts/agent-env", () => {
     const probe = ['env | grep -E "^(XDG_(CONFIG|DATA|STATE|CACHE)_HOME|AWS_[A-Z_]*FILE|RESTIC_[A-Z_]*|EP0CH_[A-Z_]*)=" | sort',
       'ls "$XDG_CONFIG_HOME/ep0ch" 2>&1 | head -1; echo "config:$XDG_CONFIG_HOME"'].join("; ");
     const seen = (...flags: string[]) => Bun.spawnSync([script, "xdgtest", ...flags, "--", "sh", "-c", probe], { env, stdout: "pipe", stderr: "pipe" }).stdout.toString();
-    const plain = seen(), tested = seen("--test");
+    // The one setting only a --test run adds is its slack (PIE-1504); everything else is the same.
+    const plain = seen(), tested = seen("--test").replace(/^EP0CH_TEST_SLACK=\d+\n/m, "");
     expect(tested).toBe(plain);
     const d = join(root, "xdgtest", "xdg");
     expect(tested).toContain(`XDG_CONFIG_HOME=${d}/config`);
@@ -106,6 +107,32 @@ describe("scripts/agent-env", () => {
         .toEqual({ file, code: 0, passed: true, skipped: pkg === "door" && !(process.env.EP0CH_TEST_NVIM || Bun.which("nvim")) ? 1 : 0, failed: [] });
     }
   }, 300_000);
+
+  // PIE-1504: a --test run tells the tests how much slack the load allows and leaves one row behind.
+  test("a --test run sets EP0CH_TEST_SLACK from the load at start (2 over 6, the caller's own kept) and appends one tsv row", () => {
+    const agentRoot = join(root, "slack-root");   // its own root: the other tests' --test runs leave rows in `root`'s
+    const env = { ...process.env, EP0CH_AGENT_ROOT: agentRoot };
+    delete (env as Record<string, string | undefined>).EP0CH_TEST_SLACK;
+    const tsv = join(agentRoot, "test-runs.tsv");
+    const seen = (extra: Record<string, string>, ...args: string[]) => Bun.spawnSync([script, "slack", "--test", "--", ...args], { env: { ...env, ...extra }, stdout: "pipe", stderr: "pipe" }).stdout.toString().trim();
+    const rows = () => readFileSync(tsv, "utf8").trimEnd().split("\n").map(l => l.split("\t"));
+    const first = seen({}, "sh", "-c", 'echo "$EP0CH_TEST_SLACK"; sleep 1; exit 3', "sh", "test/one.test.ts", "test/showcase/two.test.ts");
+    expect(rows()[0]).toEqual(["when", "worktree", "files", "seconds", "slot-wait", "exit", "load"]);
+    const [when, worktree, files, seconds, wait, code, load] = rows()[1] ?? [];
+    expect(when).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+    expect(worktree).toBe(join(import.meta.dir, "../../.."));
+    expect(files).toBe("test/one.test.ts test/showcase/two.test.ts");
+    expect(Number(seconds)).toBeGreaterThanOrEqual(1);
+    expect(Number(wait)).toBeGreaterThanOrEqual(0);
+    expect(code).toBe("3");
+    expect(load).toMatch(/^\d+(\.\d+)?$/);
+    // The rule, against the load this run saw, not a faked one.
+    expect(first).toBe(Number(load) > 6 ? "2" : "1");
+    // A caller's own slack goes through as given; a command naming no test file is recorded whole.
+    expect(seen({ EP0CH_TEST_SLACK: "3" }, "sh", "-c", 'echo "$EP0CH_TEST_SLACK"')).toBe("3");
+    expect(rows()).toHaveLength(3);
+    expect(rows()[2]?.slice(2, 3)).toEqual(['sh -c echo "$EP0CH_TEST_SLACK"']);
+  }, 60_000);
 
   test.skipIf(!procs)("a run, and what it starts, are the first the kernel kills: oom_score_adj 1000", () => {
     expect(run("--", "sh", "-c", "cat /proc/self/oom_score_adj; sh -c 'cat /proc/self/oom_score_adj'").out.trim().split("\n")).toEqual(["1000", "1000"]);

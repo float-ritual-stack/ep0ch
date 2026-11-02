@@ -43,7 +43,12 @@ and no note or tickets. Inventory writing and #hydra ticket filing belong to lok
 
 Before a PR claims a change works:
 
-1. `bun run check` passes at the root (each package's `tsc --noEmit`).
+1. `bun run check` passes at the root: each package's `tsc --noEmit`, the health ratchet, and the **agreement
+   tests** (PIE-1504): the fast, host-free tests that only check two things agree (a doc and the code, a key row and
+   its action, a package and its imports), listed once in `scripts/agreement-tests.txt` and run by
+   `scripts/agreement-tests.ts` in about ten seconds (`bun scripts/agreement-tests.ts` runs them alone). Add a test of
+   that kind to the list, a file a line with an optional `-t <regex>` for the tests whose names match; a listed file
+   that starts a host or a process fails the run (`scripts/host-free-guard.ts`), so it belongs in step 2 instead.
 2. The focused tests pass: the files you touched and their neighbours. That and step 1 are the whole gate
    ([AGENTS.md](AGENTS.md#machines-checkouts-and-processes)). The door's tests start their own scratch outline host from
    `../outliner` (`test/scratch.ts`; `EP0CH_OUTLINER` overrides it). outline-core's tests are pure. The Claude mod's
@@ -63,8 +68,14 @@ Before a PR claims a change works:
      your commit (unpushed goes up as a bundle) in a private dir it removes, exits with the first failing suite's
      code, and logs each run in `~/.local/state/ep0ch/box-test.tsv`. On float-box `scripts/box-test-guard` owns each
      run (PIE-998): one per worktree (`--replace` stops the old one), at most `EP0CH_BOX_SLOTS` (default 2) at once,
-     each killed whole on exit, a leaked process fails it (exit 97). `--each` runs the door's files each alone: a file
-     that loads only because another loaded a module first passes in one process and fails alone (#204).
+     each killed whole on exit, a leaked process fails it (exit 97). `--each` runs the door's files each alone, the
+     showcase's `test/showcase/*.test.ts` included (`sh scripts/test-each.sh --list` names them): a file that loads
+     only because another loaded a module first passes in one process and fails alone (#204).
+   - **A focused run under load waits longer, never goes red for it** (PIE-1504): `scripts/agent-env --test` sets
+     `EP0CH_TEST_SLACK=2` when float-box's load at start is over 6, and the tests' `until` (the door's
+     `test/scratch.ts`, the outliner's `test/script-harness.ts`) scales every deadline by it. Each run leaves one row
+     in `~/.agent-env/test-runs.tsv` (when, worktree, files, seconds, slot wait, exit, load): read it before calling a
+     red "flaky".
    - **A door test file leaves nothing for the next** (PIE-1412). Between files the door's preload
      (`packages/door/test/preload.ts`) retires the earlier file's Apps (which unbinds the extensions they read), stops
      its scratch hosts, puts the environment back and unbinds an extension list it bound itself; a scratch host still

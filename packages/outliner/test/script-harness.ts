@@ -12,8 +12,14 @@ import { OutlinerStore } from "../src/store";
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
+/** The same multiplier as the door's `testSlack` (packages/door/test/scratch.ts): EP0CH_TEST_SLACK, default 1, read at each call (PIE-1504). */
+export function testSlack(): number {
+  const n = Number(process.env.EP0CH_TEST_SLACK);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
 export async function until<T>(what: string, check: () => T | undefined | null | false | Promise<T | undefined | null | false>, ms = 10_000): Promise<T> {
-  const end = Date.now() + ms;
+  const end = Date.now() + ms * testSlack();
   for (;;) {
     const value = await check();
     if (value) return value;

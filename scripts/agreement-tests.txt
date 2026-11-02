@@ -1,0 +1,13 @@
+# The agreement tests: fast, host-free checks that two things agree (a doc and the code, a key row and its action,
+# a package and its imports). Every `bun run check` runs them through scripts/agreement-tests.ts (PIE-1504): the
+# whole set stays under about a minute, and a file here that starts a host or a process fails (scripts/host-free-guard.ts).
+# One file a line, from the repository root; `-t <regex>` after it runs only the tests whose names match (the rest of
+# the file starts a host, so it stays in the focused gate). Lines starting with # are comments.
+packages/door/test/action-pages.test.ts -t an action's examples
+packages/door/test/key-rows.test.ts
+packages/door/test/package-boundary.test.ts
+packages/door/test/architecture-map.test.ts
+packages/outliner/test/extension-call-reference.test.ts
+packages/outliner/test/extension-outline-client.test.ts -t exactly the clients|same file
+packages/outliner/test/scripts-docs.test.ts -t generated tables|local links|pointer whose line|examples the page
+packages/outline-core/test/protocol.test.ts

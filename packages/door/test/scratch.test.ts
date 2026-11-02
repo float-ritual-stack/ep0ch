@@ -3,7 +3,27 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SocketBoard } from "../src/socket";
-import { outliner, Scratch, scratchDir, scratchRoot } from "./scratch";
+import { outliner, Scratch, scratchDir, scratchRoot, testSlack, until } from "./scratch";
+
+// PIE-1504: a wait's deadline scales with EP0CH_TEST_SLACK, read at each call, so a run under load (agent-env --test
+// sets 2) waits longer instead of going red. Lower bounds only: an upper bound would be the load-dependent red itself.
+test("until waits EP0CH_TEST_SLACK times as long; unset, empty or nonsense means 1", async () => {
+  const was = process.env.EP0CH_TEST_SLACK;
+  const timing = async (slack: string | undefined, ms: number) => {
+    if (slack === undefined) delete process.env.EP0CH_TEST_SLACK; else process.env.EP0CH_TEST_SLACK = slack;
+    const t0 = performance.now();
+    await expect(until(() => false, "never", ms)).rejects.toThrow("timed out waiting for never");
+    return performance.now() - t0;
+  };
+  try {
+    expect([testSlack(), (process.env.EP0CH_TEST_SLACK = "", testSlack()), (process.env.EP0CH_TEST_SLACK = "x", testSlack()), (process.env.EP0CH_TEST_SLACK = "0", testSlack()), (process.env.EP0CH_TEST_SLACK = "2.5", testSlack())])
+      .toEqual([was ? testSlack() : 1, 1, 1, 1, 2.5]);
+    expect(await timing(undefined, 60)).toBeGreaterThanOrEqual(55);
+    expect(await timing("4", 60)).toBeGreaterThanOrEqual(235);
+  } finally {
+    if (was === undefined) delete process.env.EP0CH_TEST_SLACK; else process.env.EP0CH_TEST_SLACK = was;
+  }
+});
 
 test("scratchDir removes its prefix's dirs whose test process is gone, and keeps live, unmarked, other-namespace and other dirs", async () => {
   const prefix = `ep0ch-prune-check-${process.pid}-`;
