@@ -69,11 +69,12 @@ describe("showcase: completion placement (PIE-1511)", () => {
       }
       const left = p.lines[0]!.indexOf("┌─  ");
       expect(shape(p.lines, left, p.at.cols!)).toMatchSnapshot(`A at ${cols}`);
-      // ((Sowing week lower down: its rows are two lines each (the note and where it is), so the list is taller than a
-      // third of the screen. Where it won't fit under the caret: the sheet along the bottom at 200 (list left, preview
-      // right), and near the bottom it goes above the caret. At 44 a sheet has no room for the preview beside: A above.
+      // ((Sowing week lower down, on a 36-row screen: its list is taller than a third of the screen. Where it won't fit
+      // under the caret: the sheet along the bottom at 200 (list left, preview right), and near the bottom it goes above
+      // the caret. At 44 a sheet has no room for the preview beside: A above.
+      h.app.t.rows = 36;
       const seen: string[] = [];
-      for (let n = 6; n <= 44; n += 2) {
+      for (let n = 6; n <= 44; n += 1) {
         await askAt(n, "((Sowing week");
         rows(cols);
         if (seen.at(-1) !== layout()) seen.push(layout()!);
@@ -90,7 +91,7 @@ describe("showcase: completion placement (PIE-1511)", () => {
         }
       }
       const order = seen.filter(s => s !== "snapped");
-      expect(order[0]).toBe("below");
+      // On the short screen the note's first lines put Bed 1 low already: A under the caret is checked above, at 60 rows.
       expect(order.at(-1)).toBe("above");
       if (cols === 200) expect(order).toContain("sheet");
       else expect(order).not.toContain("sheet");
@@ -99,6 +100,7 @@ describe("showcase: completion placement (PIE-1511)", () => {
       lines = rows(cols);
       p = popupLines(lines);
       expect(lines[p.end + 1]).toMatch(/║ +(- Bed \d+: plan \(\()?(Sowing )?week /);
+      h.app.t.rows = 60;
     }
   }, 120_000);
 

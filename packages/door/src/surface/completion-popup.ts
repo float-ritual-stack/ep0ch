@@ -139,11 +139,10 @@ export function anchoredRows(s: CompletionState, w: number, h: number): number {
   return Math.min(h, body + 4);
 }
 
-/** The columns a row wants: marker, label, its detail (up to a cap), its kind and a component's arrow. */
+/** The columns a row wants on its one line: marker, label, its detail, its kind and a component's arrow (the list caps it). */
 const listMaxCols = (w: number) => Math.min(60, Math.max(48, w - 36));
 function rowWidth(it: CompletionItem): number {
-  return Math.max(3 + cells(printable(it.label, " ")) + cells(it.kind) + (it.children ? 4 : 2),
-    it.detail ? 4 + cells(printable(it.detail, " ")) : 0);
+  return 3 + cells(printable(it.label, " ")) + (it.detail ? 2 + cells(printable(it.detail, " ")) : 0) + cells(it.kind) + (it.children ? 4 : 2);
 }
 
 /**
@@ -200,12 +199,14 @@ export function completionPicker(s: CompletionState): ListPicker<CompletionItem,
         const room = Math.max(1, w - 3 - cells(kind) - cells(arrow));
         const label = ellipsize(printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " "), room);
         const addition = it.addition ? ellipsize(it.addition, Math.max(0, room - cells(label))) : "";
+        // One row per match (PIE-1511): its detail (where it is, a ranked row's score) dim after the label, cut to the room left.
+        const left = room - cells(label) - cells(addition) - 2;
+        const detail = it.detail && left >= 4 ? "  " + ellipsize(printable(it.detail, " "), left) : "";
         const lit = new Set(it.matches ?? searchMatchSpans(it.label, s.target.query));
         const words = [...label].map((c, i) => lit.has(i) ? fg(C.yellow) + c + fg(C.grey) : c).join("");
-        const text = ` ${on ? "»" : " "} ${words}` + (addition ? fg(C.dark) + addition + fg(C.grey) : "");
+        const text = ` ${on ? "»" : " "} ${words}` + (addition ? fg(C.dark) + addition + fg(C.grey) : "") + (detail ? fg(C.dark) + detail + fg(C.grey) : "");
         const tail = fg(C.dark) + kind + fg(C.grey) + arrow;
-        return [pickRow(pad(text, w - cells(kind) - cells(arrow)) + tail, on, w),
-          ...(it.detail ? [pickRow(fg(C.dark) + "    " + printable(it.detail, " "), on, w, C.dark)] : [])];
+        return [pickRow(pad(text, w - cells(kind) - cells(arrow)) + tail, on, w)];
       },
       heading: (it, i, w) => it.group && it.group !== s.items[i - 1]?.group ? fg(C.dark) + pad(` ${it.group} (${s.items.filter(row => row.group === it.group).length})`, w) + RESET : null,
       choose: () => {},

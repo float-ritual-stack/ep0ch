@@ -544,7 +544,7 @@ export const SOWING_WEEKS = SOWN.map((crop, i) => ({
 export const COMPLETION_PLACE = [
   SEED.completionPlace,
   "",
-  "The edit is open with `[[sow-` typed on the first plan line: the matches drop under the cursor with the preview beside them, only as tall as the rows. Lower down, type `((Sowing week` (each row two lines, so the list is taller): where it won't fit under the cursor it opens as a short sheet along the bottom, list left and preview right. Near the bottom it goes above the cursor. The keys are in the status bar, not the box. A click lights a row and previews it, a second click inserts it, the wheel moves through the rows.",
+  "The edit is open with `[[sow-` typed on the first plan line: the matches drop under the cursor with the preview beside them, only as tall as the rows. Lower down, type `((Sowing week`: where the list won't fit under the cursor (taller than a third of the screen, on a short terminal) it opens as a short sheet along the bottom, list left and preview right. Near the bottom it goes above the cursor. The keys are in the status bar, not the box. A click lights a row and previews it, a second click inserts it, the wheel moves through the rows.",
   "",
   ...Array.from({ length: 40 }, (_, i) => `- Bed ${i + 1}: plan `),
 ].join("\n");

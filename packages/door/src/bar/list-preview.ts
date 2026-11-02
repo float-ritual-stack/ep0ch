@@ -34,9 +34,12 @@ function listWithDocs<T, H>(picker: ListPicker<T, H>, w: number, h: number, prev
   }
   const below = !!preview && h >= 6;
   if (below) {
-    const docs = preview!(w, h - 2);
-    // With `fit.under` (the anchored popup), the docs take at most that many rows under the list, which keeps the rest.
-    const docRows = fit.under !== undefined ? Math.min(docs.length, fit.under, Math.max(0, h - 2)) : Math.min(docs.length, Math.max(Math.floor((h - 1) / 2), h - 1 - need));
+    // The docs' rows are decided before they're drawn, and they're drawn at that height: a note's reader scrolls in the
+    // rows it's shown in, so its last lines come into view (Codex review). With `fit.under` (the anchored popup), at most
+    // that many under the list, which keeps the rest.
+    const room = Math.min(h - 2, fit.under !== undefined ? fit.under : Math.max(Math.floor((h - 1) / 2), h - 1 - need));
+    const docs = preview!(w, room);
+    const docRows = Math.min(docs.length, room);
     const listHeight = Math.min(need, h - 1 - docRows);
     const list = picker.lines(listWidth, listHeight, at);
     if (docRows > 0) {

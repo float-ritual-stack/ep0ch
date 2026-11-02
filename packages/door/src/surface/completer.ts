@@ -802,6 +802,7 @@ export class Completer {
     const s = this.shown, item = s?.items[s.index];
     if (!s || !item?.children) return false;
     this.parent = s;
+    this.presses.forget();                                                // a variation's first click previews it (Codex review)
     // Its variations and arguments, as the service answered them (PIE-1344).
     this.state = { ...s, items: item.children, previewLines: undefined, previewTop: 0, previewSelection: undefined, index: 0, picked: true, heading: `${item.label}: variations and arguments` };
     this.redraw();
@@ -809,7 +810,7 @@ export class Completer {
   }
   back(): boolean {
     if (!this.parent) return false;
-    this.state = this.parent; this.parent = null; this.redraw(); return true;
+    this.state = this.parent; this.parent = null; this.presses.forget(); this.redraw(); return true;
   }
 
   /** The wheel's or a key's move through the rows: the `complete.move` action, as `act` runs it. */

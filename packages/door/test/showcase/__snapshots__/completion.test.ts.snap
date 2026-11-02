@@ -2,26 +2,16 @@
 
 exports[`showcase: completion (PIE-1339) the popup reads and inserts the same at 120 and 80 columns, through keys, mouse and act (PIE-1478): reference popup at 120 1`] = `
 "┌─  ────────────────────────────────────────────────────────────────────────────────┐
-│ » Greenhouse meeting, October            block █│  Greenhouse meeting, October · …│
-│    Kitchen sink                                █│ ◆ line 1 · the line that links …│
-│     ^a10  We agreed to water the seedl… anchor █│                                 │
-│    Greenhouse meeting, October                 █│   Present: Ana, Bo and Cy, in   │
-│     ^decision  # Decision               anchor █│   the greenhouse at ten.        │
-│    Greenhouse meeting, October                 █│                                 │
-│   Greenhouse plan for the spring         block █│   We agreed to water the        │
-│    Kitchen sink                                 │   seedlings every morning,      │
-│     ^water  Water the tomatoes at dawn… anchor  │   before the glass warms.       │
-│    Greenhouse plan for the spring               │                                 │
-│     # Glossary · adds ^glossary        heading  │ ▾ ▾ ## Decision                 │
-│    Greenhouse plan for the spring               │   Buy a second water butt for   │
-│     - **soil pH**: how acid or swee… list-item  │   the north side.               │
-│    Greenhouse plan for the spring               │                                 │
-│     - cold frame — a low glass box … list-item  │ ▾ ▾ ## Actions                  │
-│    Greenhouse plan for the spring               │   ∙ Ana mends the vent hinge    │
-│     - harden off: get a seedling us… list-item  │   ∙ Bo orders the shade netting │
-│    Greenhouse plan for the spring               │                                 │
-│   Greenhouse watering rota               block  │ ▾ ╭─ ▾ ❝ What Cy said ─ quote ⧉╮│
-│    Kitchen sink                                 │   │ The seedlings don't mind   ││
+│ » Greenhouse meeting, October  Kitchen … block █│  Greenhouse meeting, October · …│
+│     ^a10  We agreed to water the seedl… anchor █│ ◆ line 1 · the line that links …│
+│     ^decision  # Decision  Greenhouse … anchor █│                                 │
+│   Greenhouse plan for the spring  Kitch… block █│   Present: Ana, Bo and Cy, in   │
+│     ^water  Water the tomatoes at dawn… anchor  │   the greenhouse at ten.        │
+│     # Glossary · adds ^glossary  Gree… heading  │                                 │
+│     - **soil pH**: how acid or swee… list-item  │   We agreed to water the        │
+│     - cold frame — a low glass box … list-item  │   seedlings every morning,      │
+│     - harden off: get a seedling us… list-item  │   before the glass warms.       │
+│   Greenhouse watering rota  Kitchen sink block  │                                 │
 │───────────────────────────────────────────────────────────────────────────────────│
 │ references 1/27 · showing the first 20 matches                                    │
 └───────────────────────────────────────────────────────────────────────────────────┘"
@@ -29,22 +19,16 @@ exports[`showcase: completion (PIE-1339) the popup reads and inserts the same at
 
 exports[`showcase: completion (PIE-1339) the popup reads and inserts the same at 120 and 80 columns, through keys, mouse and act (PIE-1478): reference popup at 80 1`] = `
 "┌─  ─────────────────────────────────────────────┐
-│ » Greenhouse meeting, October            block █
-│    Kitchen sink                                █
+│ » Greenhouse meeting, October  Kitchen … block █
 │     ^a10  We agreed to water the seedl… anchor █
-│    Greenhouse meeting, October                 █
-│     ^decision  # Decision               anchor █
-│    Greenhouse meeting, October                 │
-│   Greenhouse plan for the spring         block │
-│    Kitchen sink                                │
+│     ^decision  # Decision  Greenhouse … anchor █
+│   Greenhouse plan for the spring  Kitch… block █
 │     ^water  Water the tomatoes at dawn… anchor │
-│    Greenhouse plan for the spring              │
-│     # Glossary · adds ^glossary        heading │
-│    Greenhouse plan for the spring              │
+│     # Glossary · adds ^glossary  Gree… heading │
 │     - **soil pH**: how acid or swee… list-item │
-│    Greenhouse plan for the spring              │
 │     - cold frame — a low glass box … list-item │
-│    Greenhouse plan for the spring              │
+│     - harden off: get a seedling us… list-item │
+│   Greenhouse watering rota  Kitchen sink block │
 │────────────────────────────────────────────────│
 │ Greenhouse meeting, October · Kitchen sink · u…│
 │◆ line 1 · the line that links here · esc lets …│

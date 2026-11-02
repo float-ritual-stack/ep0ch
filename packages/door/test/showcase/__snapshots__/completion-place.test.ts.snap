@@ -20,20 +20,13 @@ exports[`showcase: completion placement (PIE-1511) A under the cursor, B as a sh
 exports[`showcase: completion placement (PIE-1511) A under the cursor, B as a sheet lower down, above it near the bottom; at 200 and 44 columns: B at 200 1`] = `
 "┌─  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ references #/##  ((Sowing week▌ · showing the first ## matches                                                                                  │
-│ » Sowing week ##                                block █│ Kitchen sink › Sowing calendar, completion practice » What goes in the cold frame in   │
-│    Kitchen sink › Sowing calendar, completion practice█│ week ##: ~~~~~~. « sow-wk## | sow-wk## »                                               │
-│   Sowing week ##                                block █│                                                                                        │
-│    Kitchen sink › Sowing calendar, completion practice█│                                                                                        │
-│   Sowing week ##                                block █│                                                                                        │
-│    Kitchen sink › Sowing calendar, completion practice │                                                                                        │
-│   Sowing week #                                 block  │                                                                                        │
-│    Kitchen sink › Sowing calendar, completion practice │                                                                                        │
-│   Sowing week #                                 block  │                                                                                        │
-│    Kitchen sink › Sowing calendar, completion practice │                                                                                        │
-│   Sowing week #                                 block  │                                                                                        │
-│    Kitchen sink › Sowing calendar, completion practice │                                                                                        │
-│   Sowing week #                                 block  │                                                                                        │
-│    Kitchen sink › Sowing calendar, completion practice │                                                                                        │
+│ » Sowing week ##  Kitchen sink › Sowing calendar, c… block █│ Kitchen sink › Sowing calendar, completion practice » What goes in the cold frame │
+│   Sowing week ##  Kitchen sink › Sowing calendar, c… block █│ in week ##: ~~~~~~. « sow-wk## | sow-wk## »                                       │
+│   Sowing week ##  Kitchen sink › Sowing calendar, c… block  │                                                                                   │
+│   Sowing week #  Kitchen sink › Sowing calendar, co… block  │                                                                                   │
+│   Sowing week #  Kitchen sink › Sowing calendar, co… block  │                                                                                   │
+│   Sowing week #  Kitchen sink › Sowing calendar, co… block  │                                                                                   │
+│   Sowing week #  Kitchen sink › Sowing calendar, co… block  │                                                                                   │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘"
 `;
 
