@@ -10,6 +10,7 @@ import { setupCommand, withoutProgress } from "../src/setup/apply";
 import { drain, run } from "../src/setup/facts";
 import { ASCII_SPINNER, bar, elapsed, FRAME_MS, Progress, progressMode, size, SPINNER, spinnerFor, type Terminal } from "../src/setup/progress";
 import { visible, width } from "../src/style";
+import { fakeServiceManager } from "./fake-service-manager";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-progress-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -231,7 +232,7 @@ describe("the whole command, in a scratch home", () => {
       db.run("INSERT INTO notes VALUES ('n1', 'a fictional note')");
       db.close();
     }
-    const env = { HOME: h, PATH: [join(h, ".local/bin"), dirname(process.execPath), "/usr/bin", "/bin"].join(":"), TERM: "xterm-256color" };
+    const env = { HOME: h, PATH: [fakeServiceManager(h).bin, join(h, ".local/bin"), dirname(process.execPath), "/usr/bin", "/bin"].join(":"), TERM: "xterm-256color" };
     return { h, env, repoRoot: join(h, "ep0ch") };
   }
 

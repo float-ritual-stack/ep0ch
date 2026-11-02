@@ -3,6 +3,7 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setupCommand } from "../src/setup/apply";
+import { fakeServiceManager } from "./fake-service-manager";
 
 const scratch = mkdtempSync(join(tmpdir(), "setup-secrets-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -24,7 +25,7 @@ for (const platform of ["linux", "darwin"]) for (const state of ["missing", "old
     if (state === "wrong-mode") { copyFileSync(source, installed); chmodSync(installed, 0o644); }
     const before = state === "current" || state === "newer" ? statSync(installed).mtimeMs : undefined;
     const lines: string[] = [];
-    const io = { repoRoot: repo, cwd: home, platform, env: { HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, EP0CH_OUTLINES: join(home, "outlines"), EP0CH_STATE: join(home, "state"), XDG_CONFIG_HOME: join(home, ".config") }, out: (s: string) => lines.push(s), err: (s: string) => lines.push(s) };
+    const io = { repoRoot: repo, cwd: home, platform, env: { HOME: home, PATH: `${fakeServiceManager(home).bin}:${dirname(process.execPath)}:/usr/bin:/bin`, EP0CH_OUTLINES: join(home, "outlines"), EP0CH_STATE: join(home, "state"), XDG_CONFIG_HOME: join(home, ".config") }, out: (s: string) => lines.push(s), err: (s: string) => lines.push(s) };
     await setupCommand(["doctor", "--json"], io);
     const checks = JSON.parse(lines.at(-1)!).checks;
     lines.length = 0;
