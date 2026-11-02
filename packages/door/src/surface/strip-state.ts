@@ -24,6 +24,8 @@ export function withStripOwner<T>(tile: string | undefined, width: number, draw:
   try { return draw(); } finally { drawing.owner = before; }
 }
 export const stripWidth = () => drawing?.owner.width ?? Infinity;
+/** Whether strips drawn now are recorded (an App paint): a strip.pick by name finds them only then. */
+export const stripsRecorded = () => !!drawing;
 export const stripHint = () => drawing?.hover ? drawing.strips.rows.get(drawing.hover.id)?.about : undefined;
 export function recordStrip(tabs: readonly Tab[], o: StripOptions): StripRecord | undefined {
   return drawing?.strips.record(tabs, o, drawing.owner.tile);

@@ -162,7 +162,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     const s = spine("preview");
     expect(s.cols).toBe(3);
     expect(before).toBeLessThan(120);
-    expect(rect("detail0").cols).toBe(180 - 3);                         // the freed width went to the detail
+    expect(rect("detail0").cols).toBe(180 - 3 - 1);                     // the freed width went to the detail (one column is the dock strip's)
     // Stacked letters of the title in cells, under the "nothing held" mark.
     const title = B().preview.msg.text.split("\n")[0].slice(0, 6);
     const col = frame().slice(s.row + 1, s.row + 1 + 6).map(l => l[s.col]).join("");
@@ -192,7 +192,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect(!!folded(d)).toBe(true);
     const s = spine("detail0");
     expect(s.col + s.cols).toBe(180);                                   // the preview took the width
-    expect(rect("preview").cols).toBe(180 - 3);
+    expect(rect("preview").cols).toBe(180 - 3 - 1);                     // the dock strip keeps its column
     key({ kind: "esc" }); // dismiss the fold hint
     key({ kind: "esc" });
     expect(BV.where(b)).toBe("lanes");
