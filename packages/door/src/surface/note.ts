@@ -11052,7 +11052,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "button.press": def({
     summary: "press a button or a pressable square of a view in this note by its label (or n from elements): a button runs its ordered action taps and script pipe stages as one undo group over reversible effects; a view square runs its action line. The dispatcher attributes whoever asks, and the first sequence failure reports the step and effects that remain. It opens nothing and moves nothing the person is reading, so it works on the reader they hold; tile= names another reader, and note=<id> presses a ::button, an [label](act: …) link or a control a render script drew (a view's button, badge, card or row, from the service's projection) in a note that is open nowhere, with no focus moved",
-    keys: "a click on a button, or ⏎ on it (element.open does the same)", touches: "nothing", replay: "ask",
+    keys: "a click on a button, or ⏎ on it (element.open does the same); alt+⏎ or alt+click a control's alt action (a breadcrumb's reveal)", touches: "nothing", replay: "ask",
     args: {
       label: { type: "string", optional: true, about: "the button's label, or part of it (`Fantasia` finds `✦ Fantasia`); the one pressable element that has it" },
       alt: { type: "boolean", optional: true, about: "run the button's alt= action, as alt+click does" },

@@ -1902,26 +1902,26 @@ export class App implements Ctx {
     const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() });
     const items: StatusItem[] = [
       { id: "brand", text: `${fg(C.white)}ep0ch`, place: "left", click: { action: "status.log" } },
-      { id: "power", text: `${fg(C.yellow)}^K`, place: "left", ...(!s?.noDrawer ? { click: { action: "bar.open" } } : {}) },
+      { id: "power", text: `${fg(C.yellow)}^K`, place: "left", keep: true, ...(!s?.noDrawer ? { click: { action: "bar.open" } } : {}) },
       { id: "macro", text: `${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : "⇧⌥Q"}`, place: "left", ...(!s?.noDrawer ? { click: { action: this.recording.active ? "macro.stop" : "macro.record" } } : {}) },
       { id: "screen", text: s?.title ?? "", place: "left", click: { action: "status.log" } },
       { id: "machine", text: this.location, place: "left", click: { action: "status.log" } },
       right("docks", this.screenDesk()?.dockChoices().length ? "docks" : "", "strip.more", { strip: `${this.screenDesk()?.name}:docks` }),
       right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
-      { ...right("glass", this.glass.chip(), "glass.toggle"), alt: { action: "glass.clear" } },
+      { ...right("glass", this.glass.chip(), "glass.toggle"), tiny: `◇${this.glass.mode === "off" ? "×" : this.glass.mode === "sticky" ? "◆" : ""}${this.glass.floats().length || ""}`, keep: true, alt: { action: "glass.clear" } },
       right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
-      { ...right("drawer", chip?.whole ?? "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}) },
-      right("waiting", waiting.styled, "host.waiting"),
+      { ...right("drawer", chip?.whole ?? "", "host.toggle"), alt: { action: "host.agent" }, keep: true, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}), ...(chip ? { short: chip.short, tiny: chip.tiny } : {}) },
+      { ...right("waiting", waiting.styled, "host.waiting"), ...(waiting.short ? { short: waiting.short } : {}) },
       right("split", split ? `${fg(C.lred)}${split}` : "", "claude.splits"),
       right("offline", this.offline ? `${fg(C.lred)}offline` : "", "status.log"),
       right("slow", slow ? `${fg(C.yellow)}${slow}` : "", "status.speed"),
       right("backup", backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text}` : "", "backups.alert"),
       right("new", count ? `${fg(C.yellow)}+${count} new` : "", "changes.open"),
-      right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"),
+      { ...right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"), ...(held ? { short: `${fg(C.dark)}+${held}` } : {}) },
       right("video", this.video, "video.cycle"),
       right("theme", theme().name, "theme.cycle"),
-      right("uptime", `on ${mins}m`, "status.log"),
-      right("clock", clock ?? "", "status.log"),
+      { ...right("uptime", `on ${mins}m`, "status.log"), short: `${mins}m` },
+      { ...right("clock", clock ?? "", "status.log"), keep: true },
     ];
     return items;
   }
@@ -1946,9 +1946,11 @@ export class App implements Ctx {
     const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
     const messageAt = items.findIndex(i => i.place === "right");
     if (message) items.splice(messageAt < 0 ? items.length : messageAt, 0, { id: "message", text: `${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${message}${loud ? UNBOLD : ""}`, place: "left", click: { action: "status.log" } });
+    // A `drop` strip: chips keep their words (short, then tiny, then into +N; the ^K, drawer, glass and clock stay), and
+    // the message yields first (PIE-1213, PIE-1410: a message never costs the person a chip's name).
     const row = tabStrip(items.map((item, i) => ({ label: item.text, on: item.id === (message ? "message" : "screen"), end: item.place === "right" && items[i - 1]?.place !== "right",
-      hit: item.click ?? { action: "status.log" }, alt: item.alt,
-    })), { id: "status", width: cols, style: { on: STATUS_INK, off: STATUS_INK, key: fg(C.white), sep: " │ " } })[0]!;
+      hit: item.click ?? { action: "status.log" }, alt: item.alt, short: item.short, tiny: item.tiny, keep: item.keep, yield: item.id === "message",
+    })), { id: "status", width: cols, overflow: "drop", style: { on: STATUS_INK, off: STATUS_INK, key: fg(C.white), sep: " │ " } })[0]!;
     const drawn = new Set(row.hits.map(h => h.index));
     this.statusHidden = items.filter((item, i) => !drawn.has(i) && item.id !== "message");
     this.statusBoxes = row.hits.map(h => ({ from: h.from, to: h.to, item: h.index >= 0 ? { ...items[h.index]!, text: headOf(tailFrom(row.text, h.from), h.to - h.from) } : {

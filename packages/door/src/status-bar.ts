@@ -20,6 +20,12 @@ export interface StatusItem {
   lastCell?: ActRequest;
   /** A note's `::button` (its label is `text`): drawn by the button part, in its press's state, one row high. */
   button?: { look: ButtonLookWords; line: number };
+  /** Its words when the bar is narrow (the drawer chip without what it's doing, `+3` for `+3 machine`): the strip takes them before anything goes into +N. */
+  short?: string;
+  /** Shorter still (the drawer chip's arrow), taken after every `short`. */
+  tiny?: string;
+  /** Stays on the bar while others go into +N (the ^K, the drawer, the glass, the clock). */
+  keep?: boolean;
 }
 export interface StatusHit { item: StatusItem; from: number; to: number }
 

@@ -198,9 +198,9 @@ describe.skipIf(!outliner)("Esc lands where it was meant (PIE-1431)", () => {
       await d.app.dispatch.press("host.toggle", { open: true });
       await until(() => d.app.drawer.tile?.running === true, "the drawer's agent runs");
       await d.feed(click(d.chip("overflow"), d.rows - 1));
-      await until(() => [...(d.desk as any).overlays.all()].length === 1, "the +N menu opens");
+      await until(() => d.app.strips.engaged, "the +N opens the strip's picker");       // the bar's +N is the shared strip's all-choices picker
       await d.feed("\x1b");
-      expect([...(d.desk as any).overlays.all()].length).toBe(0);
+      expect(d.app.strips.engaged).toBe(false);
       expect(await d.echoed(() => d.app.drawer.tile as PtyPane | undefined)).toBe(false);
     } finally { d.quit(); }
   });

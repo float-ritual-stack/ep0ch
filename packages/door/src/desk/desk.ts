@@ -4730,12 +4730,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const desk = this.hintDesk(), tile = desk.tileId(desk.focus);
     const text = stripHint() ?? withStripOwner(tile, Infinity, () => desk.hintText());
     const tabs = stripSegments(text), locked = this.screenLocked();
-    if (this.spec.layouts || locked) tabs.push({ label: locked ? lockChipText(this.layoutSelf()).trim() : "□ lock", hit: { action: "layout.lock", tile: this.tileId(this.focus) } });
+    // The chips keep to the row while hint parts go into +N (a `drop` strip): the lock is what a refusal says to click.
+    if (this.spec.layouts || locked) tabs.push({ label: locked ? lockChipText(this.layoutSelf()).trim() : "□ lock", keep: true, hit: { action: "layout.lock", tile: this.tileId(this.focus) } });
     const host = this.ctx?.hostLayer, drawer = host?.desks().find(d => host.isDrawer(d) && d !== this);
-    if (drawer?.screenLocked()) tabs.push({ label: lockChipText(drawer.layoutSelf()).trim(), hit: { action: "layout.lock", tile: drawer.tileId(drawer.focus) } });
-    if (hyperOn()) tabs.push({ label: HYPER_CHIP, hit: { action: "keys.probe" } });
-    const row = withStripOwner(tile, cols, () => tabStrip(tabs, { id: "hint", width: cols, style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } }))[0]!;
-    this.keySpots = [...row.hits.map(h => ({ from: h.from, to: h.to, y: this.hintRow, run: () => { void this.ctx.press?.(h.index < 0 ? h.action : "strip.pick", h.index < 0 ? h.args : { strip: "hint", n: h.index + 1 }, tile); } })), ...hintSpots(row.text, keyStyles()).map(p => ({ ...p, y: this.hintRow }))];
+    if (drawer?.screenLocked()) tabs.push({ label: lockChipText(drawer.layoutSelf()).trim(), keep: true, hit: { action: "layout.lock", tile: drawer.tileId(drawer.focus) } });
+    if (hyperOn()) tabs.push({ label: HYPER_CHIP, keep: true, hit: { action: "keys.probe" } });
+    const row = withStripOwner(tile, cols, () => tabStrip(tabs, { id: "hint", width: cols, overflow: "drop", style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } }))[0]!;
+    // A strip hit presses its action; a door with no dispatcher (a screen on a stand-in context) gets the part's key as typed, from the key spots after.
+    const ctx = this.ctx;
+    this.keySpots = [...(ctx.press ? row.hits.map(h => ({ from: h.from, to: h.to, y: this.hintRow, run: () => { void ctx.press!(h.index < 0 ? h.action : "strip.pick", h.index < 0 ? h.args : { strip: "hint", n: h.index + 1 }, tile); } })) : []), ...hintSpots(row.text, keyStyles()).map(p => ({ ...p, y: this.hintRow }))];
     return pad(row.text, cols);
   }
 
