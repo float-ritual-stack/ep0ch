@@ -3284,9 +3284,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const landed = d.placeNote(m, request, actor);
     if (!landed) throw new ActionRefused(place ? `no reader in ${place} takes this open` : "no reader takes this open; tile.open kind=reader gives it a destination");
     if (place) d.openedIn(place).active = landed.id;
-    if (landed.performed) await landed.performed;
+    // The screen's own action placed it itself (the welcome's detail): the answer names the tile showing it now.
+    const shown = landed.performed ? (await landed.performed, d.all().find(i => d.showing(d.panes.get(i))?.id === m.id && i !== landed.id) ?? d.all().find(i => d.showing(d.panes.get(i))?.id === m.id)) : landed.id;
     this.redraw(); d.redraw(); landed.desk.redraw();
-    return { ...landed.desk.tileAnswer(landed.id), id: m.id, ...(landed.why ? { why: landed.why } : {}) };
+    return { ...(shown === undefined ? { tile: null } : landed.desk.tileAnswer(shown)), id: m.id, ...(landed.why ? { why: landed.why } : {}) };
   }
 
   /**

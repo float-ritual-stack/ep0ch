@@ -307,6 +307,13 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect((app as any).message).toContain("an agent (test-agent) put House rules in the detail (welcome 2)");
     expect(await app.act({ action: "welcome.read", args: { id: n.kettle.id }, as: "test-agent" })).toMatchObject({ id: n.kettle.id, n: null });
     expect(focus()).toBe("welcome");
+    // An open fresh here is the welcome's own (PIE-1522: placement's action destination): read in the detail, the answer naming it.
+    // An agent's lands where the detail's opens go now, never the person's keys; the answer names the tile that shows it.
+    const fresh = await app.act({ action: "open", args: { id: n.rules.id, fresh: true }, as: "test-agent" }) as { name: string; id: string };
+    expect(fresh.id).toBe(n.rules.id);
+    expect(top().layoutAll().tiles.find(t => t.name === fresh.name)?.showing?.id).toBe(n.rules.id);
+    expect(focus()).toBe("welcome");
+    await app.act({ action: "welcome.read", args: { id: n.kettle.id }, as: "test-agent" });
     await until(() => kettleRows(), "the kettle's backlinks");
     // An agent's pick is its own (ADR 0004): it is the list's, in its tint, and the preview the person follows doesn't move.
     const shown = tileOf<WelcomePreview>("preview").msg?.id;
