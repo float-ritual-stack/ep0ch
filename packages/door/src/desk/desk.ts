@@ -456,7 +456,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return this.ownTile(r, "sources", on, true, side);
   }
   /** Tile `p`'s attachment in a tile of its own (a facets tile's Matches, PIE-1443): the reader's attached tiles, any owner. */
-  attachedTile(p: Pane, attachment: "matches", on: boolean, side?: Dir): Promise<unknown> { return this.ownTile(p, attachment, on, false, side); }
+  attachedTile(p: Pane, attachment: "matches" | "settings", on: boolean, side?: Dir): Promise<unknown> { return this.ownTile(p, attachment, on, attachment === "settings", side); }
   private async ownTile(r: Pane, attachment: AttachedKind, on: boolean, keys: boolean, side?: Dir): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     if (at === undefined) return null;
@@ -4868,7 +4868,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
   }
 
-  /** What this desk's hint row says now, before the row fits it (the focused tile's keys, or the mode it is in). */
+  /** The focused tile's keys, or its current mode, before the hint row fits them. */
   private hintText(): string {
     const rd = this.panes.get(this.focus);
     // A source's model says the screen's hint its way (the board's: a card trashed before it, its status after).
@@ -4910,7 +4910,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
-        : this.specHint() ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
+        : (rd?.claims?.({ kind: "tab" }) && !this.contentCover(this.focus).fold ? `|08 ${rd.title()}` : this.specHint()) ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}`;
     return line(paint(s));
   }
 
@@ -8442,7 +8442,7 @@ export interface TileLine {
 export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[]; agents?: AgentLevel; fold?: Fold }
 /** A link whose far end is on another desk of the family (a group's tile and one outside it): its pane, or its path until it is found. */
 /** What a tile's attachment is: a reader's comment, Sources, list or edit preview; a facets tile's Matches (PIE-1443). */
-type AttachedKind = "comment" | "sources" | "list-preview" | "edit-preview" | "matches";
+type AttachedKind = "comment" | "sources" | "list-preview" | "edit-preview" | "matches" | "settings";
 
 export interface ExtLink { pane?: Pane; path?: string; verb: WireVerb; rule?: AltRule; found?: boolean }
 

@@ -21,10 +21,66 @@ describe("showcase: a collection record (PIE-1281)", () => {
     await act("tile.focus");
     const note = await h.board.createBlock(null, text);
     await act("open", { id: note.id });
-    await until(() => lists().some(l => l.view.pickable().length), "the collection's rows", 8000);
+    await until(() => stage().pane("garden").surface.msg?.id === note.id && lists().some(l => l.view.pickable().length), "the collection's rows", 8000);
     return note;
   };
   const agent = (action: string, args: Record<string, unknown> = {}) => stage().dispatch.act({ action, tile: "garden", args }, { kind: "agent", id: "gardener" }) as Promise<any>;
+
+  test.each([120, 44])("round two feed reads the note and collection keys stay inside at %s columns", async cols => {
+    const first = await h.board.createBlock(null, `Check the parcel [collection::feed-${cols}] [to::Mira] [stage::waiting]\n\n> [!success]\n> **Ready** for {{this.to}}.\n\n## Before it travels [heading::tab]\n\n- #garden\n\nPack the seeds.`);
+    const second = await h.board.createBlock(null, `Read the field report [collection::feed-${cols}] [stage::ready]\n\nThe beds are watered.`);
+    await show(`Needs a gardener [type::virtual-branch] [query::collection=feed-${cols}] [layout::feed, table, board] [body::20] [sort::title asc] [group::stage]`, cols);
+    await until(() => h.screen().includes("Ready") && h.screen().includes("Mira."), "the feed resolves the card's own values", 1500);
+    const text = h.screen();
+    expect(text).not.toContain("[!success]");
+    expect(text).not.toContain("**Ready**");
+    expect(text).not.toContain("{{this.to}}");
+    expect(text).not.toContain("[heading::tab]");
+    expect(text.toLowerCase()).toContain("before it");
+    expect(text.toLowerCase()).toContain("travels");
+    expect(h.sc.render(h.app).lines.find(line => visible(line).includes("Ready"))).toContain("\x1b[1m");
+    for (const layout of ["feed", "table", "board"]) {
+      await act("list.layout", { layout });
+      expect(h.screen()).not.toContain("{{this.to}}");
+      await act("list.enter", { on: true });
+      const rows = lists()[0].view.pickable();
+      await act("list.pick", { n: 1 });
+      h.ch("j");
+      await until(() => lists()[0].view.picked().id === rows[1].id, `${layout} j picks the next note`);
+      h.press({ kind: "up" });
+      await until(() => lists()[0].view.picked().id === rows[0].id, `${layout} up picks the first note`);
+      const hint = stage().pane("garden").surface.contextualHint();
+      expect(hint).toContain("pick");
+      expect(hint).toContain("leave");
+      expect(hint).not.toMatch(/\[ \]|\( \)|preview|zoom/);
+      expect(h.screen()).not.toContain("Tab/1-9 focus");
+      h.ch("p");
+      expect(lists()[0].entered).toBe(true);
+      expect(stage().pane("garden").pinned).toBe(false);
+      h.press({ kind: "tab" });
+      await until(() => !lists()[0].entered, `${layout} Tab leaves`);
+      expect(lists()[0].detail.layout).toBe(layout);
+      await act("list.enter", { on: true });
+      h.press({ kind: "esc" });
+      await until(() => !lists()[0].entered, `${layout} Escape leaves`);
+    }
+  }, 20_000);
+
+  test("round two Sources describes and asks the saved collection again", async () => {
+    await h.board.createBlock(null, "Check the gate [collection::source-garden]");
+    await show("Needs a gardener [type::virtual-branch] [query::collection=source-garden] [layout::feed]");
+    const answer = await act("sources.open");
+    expect(answer.sources).toHaveLength(1);
+    expect(answer.sources[0]).toMatchObject({ params: expect.arrayContaining([{ key: "query", value: "collection=source-garden" }]), rows: 1, readAt: expect.any(String) });
+    await act("sources.enter", { n: 1 });
+    expect(h.screen()).toContain("feed");
+    expect(h.screen()).toContain("Check the gate");
+    await h.board.createBlock(null, "Read the seed report [collection::source-garden]");
+    h.ch("r");
+    await until(() => h.screen().includes("Read the seed report"), "r asks the collection again");
+    expect(h.screen()).toContain("2 rows");
+    h.press({ kind: "esc" });
+  }, 20_000);
 
   test.each([120, 44])("a plain saved view stays quiet and names its notes at %s columns", async cols => {
     try {
@@ -86,7 +142,7 @@ describe("showcase: a collection record (PIE-1281)", () => {
       expect(controls()).toHaveLength(1);
       if (cols === 120) expect(h.sc.render(h.app).lines.find(line => line.includes("Read report"))).toContain(ITEM_BG);
       else expect(h.screen()).toContain("▸ Read report");
-      expect(h.screen()).toContain("settings");
+      expect(stage().pane("garden").surface.contextualHint()).toContain(", tune");
       h.press({ kind: "up" });
       await until(() => lists()[0].view.picked().label === "Check seeds", "arrow picks the other note");
       h.ch(",");
@@ -108,12 +164,13 @@ describe("showcase: a collection record (PIE-1281)", () => {
 
   test("a saved collection opens with four layouts, sorts by a header, picks and opens", async () => {
     expect(await h.app.dispatch.act({ action: "section", args: { name: "collection" } }, { kind: "user" })).toMatchObject({ key: "collection" });
+    await act("open", { id: h.seeded.notes.collection.id });
     await ready("table");
     const names = lists()[0].view.pickable().map((r: any) => r.label);
     h.press({ kind: "enter" });
     await act("list.enter", { on: true });
     for (const layout of ["gallery", "feed", "board", "table"]) {
-      h.press({ kind: "tab" });
+      await act("list.layout", { layout });
       await ready(layout);
       await act("list.pick", { n: 1 });
       const picked = h.sc.render(h.app).lines.find(line => line.includes(lists()[0].view.picked().label))!;
@@ -122,7 +179,7 @@ describe("showcase: a collection record (PIE-1281)", () => {
       expect(picked).not.toContain(RULER_BG);
       expect(lists()[0].view.pickable().map((r: any) => r.label).sort()).toEqual([...names].sort());
       expect(h.screen()).toContain("Water the beans");
-      if (layout === "feed") expect(h.screen()).toContain("Water at dusk");
+      if (layout === "feed") await until(() => h.screen().includes("Water at dusk"), "the feed reads its notes");
       if (layout === "board") expect(h.screen()).toContain("NONE");
     }
     const elements = (await act("elements")).elements;

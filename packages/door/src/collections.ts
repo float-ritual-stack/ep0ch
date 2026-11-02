@@ -7,7 +7,6 @@ import { watchedOn } from "./watched";
 import type { LinkBlocksEnv } from "./links";
 import { listOpenTarget, type LinkTarget } from "./refs";
 import { ListView, PERSON, listRowsOf } from "./surface/list-view";
-import { collectionHint } from "./surface/list-keys";
 import { tabStrip, type Tab } from "./surface/chip-rows";
 import { BOLD, C, fg, RESET, width as textWidth } from "./style";
 import { rowLines } from "./text";
@@ -45,6 +44,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
     return blocks?.row ? blocks.row(key, r.id, to, text, r.group) : tag?.(to, text) ?? text;
   };
   const drawing = view.draw({ primitive: answer.view, cols: Math.max(8, width - 4), focused: entered || current, selection: true, tag: row,
+    ...(blocks?.preview && Number(answer.config.body) > 0 ? { body: (row, cols) => blocks.preview!(row.id, cols, true).slice(0, Number(answer.config.body)) } : {}),
     link: (id, text, revision) => tag?.({ block: id, role: "row", revision, figure }, text) ?? text,
     header: (by, text) => press("list.sort", { by }, text),
     lane: (lane, text) => press("list.layout", { lane }, text),
@@ -90,8 +90,7 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   }).map(row => row.text) : [];
   const footer = `${answer.view.rows.length} notes${read?.state === "loading" ? " · updating…" : ""}${answer.truncated ? " · more matches" : ""}`;
   const warning = answer.error ?? (answer.view.rows.length ? answer.hint : undefined);
-  const body = [...(warning ? rowLines(warning, inner).map(line => fg(C.lred) + line + RESET) : []), ...drawing.lines,
-    ...(entered ? rowLines(collectionHint(), inner).map(line => fg(C.dark) + line + RESET) : [])];
+  const body = [...(warning ? rowLines(warning, inner).map(line => fg(C.lred) + line + RESET) : []), ...drawing.lines];
   const control = plain ? "" : blocks?.control?.(key, entered ? "esc out" : "⏎ in");
   const count = blocks?.control?.(key, footer) ?? footer;
   // Reveal in the frame's spacer so the note under the pointer stays put.

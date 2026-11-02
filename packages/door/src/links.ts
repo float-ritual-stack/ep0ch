@@ -666,7 +666,7 @@ export interface LinkBlocksEnv {
   /** Tag the frame's control that goes in (or out). */
   control?(key: string, text: string): string;
   /** Block `id` drawn `width` wide, as the reader draws an embed of it. */
-  preview?(id: string, width: number): string[];
+  preview?(id: string, width: number, bodyOnly?: boolean): string[];
   seen?(info: ListHandle<any>): void;
 }
 /**

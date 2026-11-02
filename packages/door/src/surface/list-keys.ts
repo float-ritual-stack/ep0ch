@@ -12,7 +12,7 @@ export const LIST_KEYS = keyTable<ModeKey>("list", "While a list has the keys", 
   { key: "enter", action: "list.open", label: "open" },
   { key: "alt+enter", action: "list.open", args: { where: "new" }, label: "beside" },
   { key: "/", action: "list.filter", label: "filter" },
-  { key: "esc", action: "list.enter", args: { on: false }, label: "out" },
+  { key: "esc", action: "list.enter", args: { on: false }, label: "leave" },
 ]);
 export const COLLECTION_KEYS = keyTable<ModeKey>("collection", "While a collection has the keys", [
   { key: "h", action: "list.step", args: { by: -1, axis: "column" }, label: "column" },
@@ -23,8 +23,8 @@ export const COLLECTION_KEYS = keyTable<ModeKey>("collection", "While a collecti
   { key: "L", action: "list.step", args: { by: 1, axis: "group" }, label: "group" },
   { key: "pgup", action: "list.page", args: { by: -1 }, label: "page" },
   { key: "pgdn", action: "list.page", args: { by: 1 }, label: "page" },
-  { key: "tab", action: "list.layout", label: "layout" },
-  { key: ",", action: "list.tune", label: "settings" },
+  { key: "tab", action: "list.enter", args: { on: false }, label: "leave" },
+  { key: ",", action: "list.tune", label: "tune" },
   { key: "s", action: "list.sort", label: "sort" },
   { key: "g", action: "list.group", label: "group" },
 ]);
@@ -35,6 +35,6 @@ export function listBinding(key: Key, collection: boolean, count: number): ModeK
 }
 
 export const collectionHint = () => modeHint([
-  ...LIST_KEYS.filter(row => ["up", "down", "enter"].includes(row.key)),
-  ...COLLECTION_KEYS.filter(row => row.action === "list.tune"),
-], () => undefined);
+  ...LIST_KEYS.filter(row => ["up", "down", "j", "k", "enter", "esc"].includes(row.key)),
+  ...COLLECTION_KEYS.filter(row => row.action === "list.tune" || row.key === "tab"),
+], () => undefined).replaceAll(" · ", " ").replace(/\btab\b/g, "⇥");

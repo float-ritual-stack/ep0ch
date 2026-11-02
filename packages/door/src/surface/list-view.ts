@@ -119,6 +119,8 @@ export interface ListPreview<S> {
 
 export interface ListDrawOpts<S> {
   primitive?: ListPrimitive;
+  /** A card's note body, drawn by its reader in that note's context. */
+  body?: (row: ListViewRow<S>, cols: number) => string[];
   header?: (key: string, text: string) => string;
   link?: (id: string, text: string, revision?: number) => string;
   lane?: (name: string, text: string) => string;
@@ -448,8 +450,8 @@ export class ListView<S = unknown> {
           const cell = row.cells?.[i] ?? "";
           return [{ type: "text", ...(typeof cell === "object" ? cell : {}), text: rowLines(`${node.headers?.[i] ?? key}: ${listCellText(cell)}`, Math.max(8, cols - 2), sameRow(row, expanded) ? Infinity : 4).join("\n") }];
         }) : []),
-        ...(row.body ?? []).map(text => ({ type: "text", text })),
-      ] }, f.inner, { link: o.link });
+        ...(o.body ? [{ type: "blockdown", text: "" }] : (row.body ?? []).map(text => ({ type: "text", text }))),
+      ] }, f.inner, { link: o.link, blockdown: o.body ? (_text, cols) => o.body!(row, cols) : undefined });
       const lines = [f.top(), ...content.map(f.row), f.bottom()];
       if (!o.tag) return lines;
       const [before, after] = o.tag(row, "\u0000").split("\u0000");

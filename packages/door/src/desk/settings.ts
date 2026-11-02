@@ -3,6 +3,7 @@ import { USER } from "../socket";
 import { openSettings, settingsSubject } from "../surface/settings";
 import { ReaderPane, READER_ACTIONS, type DeskApi, type PaneView } from "./panes";
 import type { TileKind } from "./tile-kinds";
+import { AttachedTilePane } from "./attached-tile";
 
 /** A reader hosting the same card: the subject and its write path stay with NoteSurface. */
 class SettingsPane extends ReaderPane {
@@ -23,10 +24,11 @@ class SettingsPane extends ReaderPane {
 
 export const SETTINGS_TILE: TileKind = {
   kind: "settings", about: "the settings card for note=<id>, optionally view=<^name> for an inline collection; the same card as comma over the view",
-  openArgs: ["note", "view"], actions: READER_ACTIONS,
+  openArgs: ["note", "view", "source"], actions: READER_ACTIONS,
+  takesKeys: p => p instanceof AttachedTilePane, windowKeys: true,
   keys: [{ key: ",", label: "settings" }],
   defaults: (spec, at) => at.pane instanceof ReaderPane ? { note: at.pane.msg?.id, view: at.pane.surface.listHost().current() ?? undefined, ...spec } : spec,
-  make: spec => { const pane = new SettingsPane(spec.view); pane.want = spec.note ?? null; return pane; },
+  make: spec => { if (spec.source?.startsWith("tile:")) return new AttachedTilePane(spec.source.slice(5), "settings"); const pane = new SettingsPane(spec.view); pane.want = spec.note ?? null; return pane; },
   accepts: { notes: true }, shows: p => (p as SettingsPane).msg,
   take: (p, m, desk, by) => { (p as SettingsPane).hold(m, desk, by); return null; },
   start: async (p, env) => {
