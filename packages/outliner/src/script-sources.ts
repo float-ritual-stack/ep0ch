@@ -116,7 +116,9 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
         ...(script.render ? { handlers: [{ key: name, kind: "output", effects: "read", description: `Draws what ${name} returns, in place`, argument: { name: "slots", description: "name=value words the script reads as props" } }] } : {}),
         // Its note says what it takes, as an extension's components[] does (a schema that wouldn't load is the warning).
         ...(component?.schema ? { components: [component.schema] } : {}),
-        actions: runs ? [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as script:${name}; returns an answer, keeping content or a requested [results::keep] record`, on: "outline", effects: script.effects,
+        actions: runs ? [{ id: "run", label: `Run ${name}`, description: script.render
+          ? `In the door, inserts ${name}:: with its slots at the note cursor, saving and drawing it there (an open draft keeps the edit). Open a note first. Buttons and service calls return its answer in a run record`
+          : `Runs saved revision ${script.revision} as script:${name}; returns an answer, keeping content or a requested [results::keep] record`, on: "outline", effects: script.effects,
           args: runArgs(script) }] : [] }),
       // What its note says of it is part of what clients hear changed (the intro, the demo line), as its code is.
       configRaw: "{}", scriptName: name, script, stamp: component?.schema ? hash(scriptStamp(script) + JSON.stringify(component.schema)) : scriptStamp(script),

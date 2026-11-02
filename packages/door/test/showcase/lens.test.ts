@@ -3,6 +3,8 @@
 // uninstalled, the line says how to bring the lens back, and installing by act brings it. Scratch services; made up.
 import { describe, expect, test } from "bun:test";
 import { extensionList, scriptActions } from "../../src/extensions";
+import { ReaderPane } from "../../src/desk/panes";
+import { MainMenu } from "../../src/screens";
 import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -84,15 +86,87 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
 
   test("the power bar's Run lens asks every slot the lens declares, query among them, and it completes from the grammar (PIE-1473)", async () => {
     const { app } = h;
-    await app.dispatch.act({ action: "section", args: { name: "lens" } }, USER);
+    await app.dispatch.act({ action: "section.try", args: { name: "lens" } }, USER);
     const name = scriptActions().find(x => x.action.label === "Run lens")!.action.name;
+    await app.dispatch.act({ action: "bar.open", args: { scope: "actions", query: "run lens" } }, USER);
+    await app.bar!.settled();
+    const preview = () => h.painted.map(plain).join("\n");
+    await until(() => preview().includes("ARGUMENTS"), "the script's preview");
+    expect(preview()).toContain("query");
+    expect(preview()).not.toContain("invitation");
     await app.dispatch.act({ action: name }, USER);
     await until(() => (app.describe() as any).bar?.form, "the lens's form", 5000);
     const form = () => (app.describe() as any).bar.form;
     expect(form().fields.map((f: any) => f.name)).toContain("query");
     expect(form().fields.map((f: any) => f.name)).toEqual(expect.arrayContaining(["view", "columns", "limit", "dir"]));
     expect(form().fields.some((f: any) => f.required)).toBe(false);
+    expect(form().line).toBe("lens");
     await app.dispatch.act({ action: "bar.cancel" }, USER).catch(() => {});
+  }, 30_000);
+
+  test("Run lens keeps its live line in the note where the person runs it (PIE-1488)", async () => {
+    const { app, board } = h;
+    await app.dispatch.act({ action: "section.try", args: { name: "lens" } }, USER);
+    const note = await board.createBlock(null, "Garden jobs\nPut the table here.\nKeep these instructions.");
+    await app.dispatch.act({ action: "open", tile: "jobs", args: { id: note.id } }, USER);
+    await app.dispatch.act({ action: "tile.focus", tile: "jobs" }, USER);
+    await app.dispatch.act({ action: "reading.place", tile: "jobs", args: { line: 3 } }, USER);
+    const name = scriptActions().find(x => x.action.label === "Run lens")!.action.name;
+    await app.dispatch.act({ action: "bar.open", args: { scope: "actions", query: "run lens" } }, USER);
+    await app.bar!.settled();
+    await app.dispatch.act({ action: "bar.pick", args: { source: "actions", key: name } }, USER);
+    await until(() => !!app.bar?.describe().form, "the lens's form");
+    await app.dispatch.act({ action: "bar.form", args: { op: "set", field: "query", value: "type=job" } }, USER);
+    await app.dispatch.act({ action: "bar.form", args: { op: "set", field: "columns", value: "title,stage" } }, USER);
+    const before = new Set(app.describe().messages.map(row => row.id));
+    await app.dispatch.act({ action: "bar.form", args: { op: "run" } }, USER);
+    await until(() => app.describe().messages.some(row => !before.has(row.id) && /lens.*(done|failed|inserted)/.test(row.message)), "the lens run's result");
+    expect((await board.get(note.id))!.text).toBe('Garden jobs\nPut the table here.\nlens:: query="type=job" columns="title,stage"\nKeep these instructions.');
+    expect(await drawn(note.id, "Fix the gate latch")).toContain("Mend the hose");
+    expect((await board.get(note.id))!.text).toContain("Keep these instructions.");
+  }, 30_000);
+
+  test("Run lens says where to run it when no note is open (PIE-1488)", async () => {
+    const { app } = h;
+    app.push(new MainMenu());
+    try {
+      await expect(app.dispatch.act({ action: "script.run", args: { of: "lens", query: "type=job", asked: true } }, USER)).rejects.toThrow(/open a note/i);
+    } finally { app.pop(); }
+  });
+
+  test("a missing lens slot reports failure and keeps the line editable (PIE-1488)", async () => {
+    const { app, board } = h;
+    await app.dispatch.act({ action: "section.try", args: { name: "lens" } }, USER);
+    const note = await board.createBlock(null, "Unfinished garden lens\nKeep this paragraph.");
+    await app.dispatch.act({ action: "open", tile: "jobs", args: { id: note.id } }, USER);
+    await app.dispatch.act({ action: "tile.focus", tile: "jobs" }, USER);
+    const before = new Set(app.describe().messages.map(row => row.id));
+    await expect(app.dispatch.act({ action: "script.run", args: { of: "lens", asked: true } }, USER)).rejects.toThrow(/needs query=/);
+    expect((await board.get(note.id))!.text).toContain("lens::");
+    expect(app.describe().messages.filter(row => !before.has(row.id)).some(row => /lens done/.test(row.message))).toBe(false);
+  }, 30_000);
+
+  test.each(["open", "put aside"])("Run lens keeps a %s draft unsaved and reports its missing slot (PIE-1488)", async state => {
+    const { app, board } = h;
+    await app.dispatch.act({ action: "section.try", args: { name: "lens" } }, USER);
+    const note = await board.createBlock(null, "Garden draft\nSaved paragraph.");
+    const unsaved = `${note.text}\nUnfinished thoughts.`;
+    try {
+      await app.dispatch.act({ action: "open", tile: "jobs", args: { id: note.id } }, USER);
+      await app.dispatch.act({ action: "tile.focus", tile: "jobs" }, USER);
+      await app.dispatch.act({ action: "edit.text", tile: "jobs", args: { text: unsaved } }, USER);
+      if (state === "put aside") await app.dispatch.act({ action: "edit.close", tile: "jobs", args: { discard: true } }, USER);
+      await expect(app.dispatch.act({ action: "script.run", args: { of: "lens", asked: true } }, USER)).rejects.toThrow(/needs query=/);
+      const draft = (h.sc.tilesHere()!.pane("jobs") as ReaderPane).surface.draft!;
+      expect(draft.text).toContain("lens::");
+      expect(draft.text).toContain("Unfinished thoughts.");
+      expect((await board.get(note.id))!.text).toBe(note.text);
+      await app.dispatch.act({ action: "draft.undo", tile: "jobs" }, USER);
+      expect(draft.text).toBe(unsaved);
+    } finally {
+      if ((h.sc.tilesHere()!.pane("jobs") as ReaderPane).surface.draft) await app.dispatch.act({ action: "edit.close", tile: "jobs", args: { discard: true } }, USER);
+      await board.trash(note.id);
+    }
   }, 30_000);
 
   test("uninstalled, the lens's lines say so; installed by act, they draw again without a second lab", async () => {
