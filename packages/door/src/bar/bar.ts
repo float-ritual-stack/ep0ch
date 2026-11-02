@@ -35,7 +35,7 @@ import { C, chip, dim, drawEllipsized, fg, headOf, MARKS, pad, paint, RESET, TAG
 import { paintable, rowLines, withRowLimit, wrap } from "../text";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
-import { barSource, barSources, QUERY_SCOPE, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
+import { barSource, barSources, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 import "./sources";
 import { tabKeys, tabStrip, type TabRow } from "../surface/chip-rows";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
@@ -163,12 +163,14 @@ export class PowerBar {
   private compact() { return this.scope === "ask" ? compactQuestion() : null; }
 
   /**
-   * What the line completes outside the ask scope (PIE-1497): the `=` scope is a query line (query words on any words);
-   * the main list and /notes complete an act line's arguments, and offer query words only once the line reads as a
-   * query (plain words search); a quick bar and the other scopes complete act lines alone.
+   * What the line completes outside the ask scope (PIE-1497): a scope whose source declares `grammar: "query"` (the
+   * `=` scope, an extension's, PIE-1508) is a query line (query words on any words); the main list and /notes complete
+   * an act line's arguments, and offer query words only once the line reads as a query (plain words search); a quick
+   * bar and the other scopes complete act lines alone.
    */
   private grammar(): "query" | "act-query" | "act" {
-    return this.scope === QUERY_SCOPE ? "query" : !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act";
+    if (this.scope && barSource(this.scope)?.grammar === "query") return "query";
+    return !this.quick && (!this.scope || this.scope === "notes") ? "act-query" : "act";
   }
 
   /** Commands, query words and outline triggers share the editor's completer; masked answers never copy. */
@@ -477,8 +479,9 @@ export class PowerBar {
       });
     }
     // In another source's scope (never an answer's, `alone`), the row a source names outright comes first: a typed action line runs from anywhere.
+    // A query line (`grammar: "query"`, PIE-1508) is no action line: nothing names a row there.
     const scoped = this.scope ? barSource(this.scope) : undefined, q = this.query.trim();
-    const guests = scoped && !scoped.alone && q ? barSources().filter(s => s !== scoped && s.named).flatMap((s): BarItem[] => {
+    const guests = scoped && !scoped.alone && scoped.grammar !== "query" && q ? barSources().filter(s => s !== scoped && s.named).flatMap((s): BarItem[] => {
       try { const row = s.named!(q, this.host); return row ? [{ source: s, row: { ...row, exact: true }, heading: s.title }] : []; } catch { return []; }
     }) : [];
     const runs: BarSource = {

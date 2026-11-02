@@ -37,7 +37,7 @@ import { headedTitle, subject, type Msg } from "../board";
 import { completionTargetAtCursor, filterTargetAtCursor, parseFragmentCompletionQuery, type CompletionKind, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { insertSelection, insertSlots, insertText, mergeSourceAnswers, pickId, pickKey, triggerOf, sourceAnswers, type SourceAnswer, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
 import type { SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
-import type { CompletionRowsResult, CompletionSourceAnswer } from "@ep0ch/outline-core/protocol";
+import type { CompletionPickedRequest, CompletionRowsResult, CompletionSourceAnswer } from "@ep0ch/outline-core/protocol";
 import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type SocketBoard } from "../socket";
 import { lineCompletionHooks, type LineCompletion } from "./line-hooks";
@@ -101,6 +101,8 @@ export interface CompletionField {
  * the kind's name.
  */
 export interface CompletionItem extends Omit<SourceRow, "insert"> {
+  /** The source whose row it is (`pages`, `ext.issues.issues`), as the merge names it. */
+  from?: string;
   children?: CompletionItem[];
   source?: string;
   preview?: (w: number, h: number) => string[];
@@ -469,6 +471,8 @@ export class Completer {
   private previewGesture = new Gesture();
   private accepting = false;
   private acceptedQuery?: { suggestion: QueryWords; text: string };
+  /** An extension's row just chosen, and its line as the insert left it: a change to that line is told as `edited` (PIE-1508). */
+  private acceptedRow?: { key: string; item: CompletionItem; query: string; row: number; line: string };
   private loadingMore = false;
   private limit = COMPLETION_LIMIT;
   constructor(private readonly d: CompletionField, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: CompletionOwner = () => undefined) {}
@@ -517,7 +521,7 @@ export class Completer {
     this.previewGesture.cancel();
     this.presses.forget();
     if (!this.state) return;
-    if (!this.accepting) this.recordIgnored();
+    if (!this.accepting) { this.recordIgnored(); this.tellIgnored(); }
     this.state = null;
     this.parent = null;
     this.preview?.surface.dispose();
@@ -526,6 +530,21 @@ export class Completer {
   }
 
   private near(): string | undefined { return nearOf(this.d, this.own()); }
+  /** Closed with nothing chosen: each extension source whose rows were shown hears `ignored` (PIE-1508), once a list. */
+  private tellIgnored(): void {
+    const s = this.state;
+    if (!s || s.loading || !s.pickKey) return;
+    for (const from of new Set(s.items.flatMap(i => heard(i) ? [i.from!] : []))) tellSource(this.board, s.pickKey, "ignored", { source: from, query: s.target.query });
+  }
+  /** The line an extension's row was written into changed since: its source hears `edited`, with the line as it reads now. */
+  private tellEdited(): void {
+    const a = this.acceptedRow;
+    if (!a) return;
+    const now = this.d.lines[a.row];
+    if (now === a.line) return;
+    this.acceptedRow = undefined;
+    if (now !== undefined) tellSource(this.board, a.key, "edited", { source: a.item.from!, query: a.query, row: rowTold(a.item), text: now });
+  }
   private recordIgnored(): void {
     const suggestion = this.state?.items.find(i => i.querySuggestion)?.querySuggestion;
     if (suggestion) void this.board.querySuggest?.({ text: suggestion.input, outcome: "ignored", suggestion }).catch(e => { this.d.note = String(e); });
@@ -582,6 +601,8 @@ export class Completer {
    */
   refresh(explicit = false): Promise<void> {
     this.parent = null;
+    // Before anything else: an edit past the token (prose after `]`) has no target, and the source still hears it.
+    this.tellEdited();
     const target = this.target();
     if (!target || this.d.busy) { this.dismiss(); return Promise.resolve(); }
     this.limit = COMPLETION_LIMIT;
@@ -866,7 +887,8 @@ export class Completer {
     try {
       if (!await insertCompletion(this.board, this.d, s.target, item, this.own(), () => this.current(turn))) return false;
       // Counted by the outline host (PIE-1340), so this pick ranks higher next time, here and in every other client.
-      if (s.pickKey) void recordCompletionPick(this.board, s.pickKey, item.insertion);
+      if (s.pickKey) void recordCompletionPick(this.board, s.pickKey, item, s.target.query);
+      this.acceptedRow = s.pickKey && heard(item) ? { key: s.pickKey, item, query: s.target.query, row: this.d.row, line: this.d.lines[this.d.row] ?? "" } : undefined;
       // A note picked from a search's list (ranked or not, as the bar's): the words and the note, the eval's label (PIE-1197).
       if ((s.target.kind === "page" || s.target.kind === "block") && item.blockId) this.board.searchPicked?.(s.target.query, item.blockId, index, "complete");
       if (item.querySuggestion) {
@@ -901,9 +923,19 @@ export function completerFor(d: CompletionField, board: unknown, redraw: () => v
   return c;
 }
 
-/** Ranking history must never turn a successful draft insertion into a reported failure. */
-export const recordCompletionPick = (board: CompletionBoard, key: string, insertion: string) =>
-  board.completionPicked?.(key, pickId(insertion)).catch(() => {});
+/** An extension's row (`ext.…`): its source may hear what became of it; the service tells only those that declare `picks`. */
+const heard = (item: Pick<CompletionItem, "from">) => !!item.from?.startsWith("ext.");
+const rowTold = (item: Pick<CompletionItem, "id" | "label" | "insertion">) => ({ ...(item.id ? { id: item.id } : {}), label: item.label, insertion: item.insertion });
+/** What became of a source's rows, told through the host (PIE-1508); never a failure the person sees. */
+const tellSource = (board: CompletionBoard, key: string, outcome: "edited" | "ignored", told: Omit<CompletionPickedRequest, "key" | "insert" | "outcome">) =>
+  void board.completionPicked?.(key, undefined, { outcome, ...told }).catch(() => {});
+
+/**
+ * Ranking history must never turn a successful draft insertion into a reported failure. An extension's row also tells
+ * its source it was accepted (PIE-1508), with what was typed when it was offered.
+ */
+export const recordCompletionPick = (board: CompletionBoard, key: string, item: Pick<CompletionItem, "insertion" | "from" | "id" | "label">, query?: string) =>
+  board.completionPicked?.(key, pickId(item.insertion), heard(item) ? { source: item.from, outcome: "accepted", ...(query !== undefined ? { query } : {}), row: rowTold(item) } : {}).catch(() => {});
 
 /** The draft's completer, if it has one. */
 export const completerOf = (d: CompletionField): Completer | null => byDraft.get(d) ?? null;

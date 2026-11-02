@@ -2,8 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { blockNameOf, componentReading } from "../src/component-warnings";
 import { BUILTIN_COMPONENT_SCHEMAS, mergeComponentSchemas, type ComponentSchema } from "../src/component-schema";
 import { schemaOfScript } from "../src/script-component";
+import { syntaxWarnings } from "../src/syntax-warnings";
 
 const read = (...lines: string[]) => componentReading(lines.join("\n"), BUILTIN_COMPONENT_SCHEMAS);
+/** What a write says, as agent-tools lists it: the construct warnings (a key a figure doesn't take, PIE-1518), then the components'. */
+const said = (...lines: string[]) => [...syntaxWarnings(lines.join("\n")).map(w => w.message), ...read(...lines).warnings];
 const STAT = ["::graph-stat", "---", "title: the beds", "items: [{ value: \"4\", label: raised }, { value: \"2\", label: bags }]", "---", "::"];
 
 describe("what a written note's components will draw", () => {
@@ -29,7 +32,7 @@ describe("what a written note's components will draw", () => {
   });
 
   test("a key the figure doesn't take, when it is a typo of one it does", () => {
-    expect(read("Garden", "::graph-stat", "---", "titel: the beds", "items: [{ value: \"4\", label: raised }]", "---", "::").warnings)
+    expect(said("Garden", "::graph-stat", "---", "titel: the beds", "items: [{ value: \"4\", label: raised }]", "---", "::"))
       .toEqual(["the ::graph-stat on line 2 doesn't take titel: did you mean title?"]);
   });
 
@@ -48,7 +51,7 @@ describe("what a written note's components will draw", () => {
     expect(read("Garden", "::graph-table", "---", "\"density\": snug", "---", "::").warnings).toEqual([wrong]);
     expect(read("Garden", "::graph-table", "---", "{density: snug}", "---", "::").warnings).toEqual([wrong]);
     expect(read("Garden", "::graph-table", "---", "density: false", "---", "::").warnings).toEqual([wrong.replace("snug", "false")]);
-    expect(read("Garden", "::graph-table", "---", "{\"titel\": beds}", "---", "::").warnings).toEqual(["the ::graph-table on line 2 doesn't take titel: did you mean title?"]);
+    expect(said("Garden", "::graph-table", "---", "{\"titel\": beds}", "---", "::")).toEqual(["the ::graph-table on line 2 doesn't take titel: did you mean title?"]);
   });
 
   test("a value outside what a property takes", () => {
@@ -136,7 +139,8 @@ describe("a note component's call", () => {
   });
 
   test("an extension's or a built-in's components are left to the figure pass: the graph YAML warnings are unchanged", () => {
-    expect(componentReading(["Plot", "::graph-stat", "---", "titel: the beds", "---", "::", `::board{where="type=errand"}`].join("\n"), schemas).warnings)
+    const text = ["Plot", "::graph-stat", "---", "titel: the beds", "---", "::", `::board{where="type=errand"}`].join("\n");
+    expect([...syntaxWarnings(text).map(w => w.message), ...componentReading(text, schemas).warnings])
       .toEqual(["the ::graph-stat on line 2 doesn't take titel: did you mean title?"]);
   });
 });

@@ -1,7 +1,7 @@
 // What a note's `::` components will draw, said when the note is written (PIE-721) instead of found only when someone
 // draws it: the components it holds (a write's confirmation), a `::name` that is a typo of one (with the one it may
-// mean), a figure whose YAML doesn't read, a YAML key its component doesn't take that is a typo of one it does, and a
-// value outside what a property takes. A component is known by the opener its own schema writes (`source.use`), so an
+// mean), a figure whose YAML doesn't read, and a value outside what a property takes (a YAML key it doesn't take is
+// syntax-warnings.ts's, which every write path lists). A component is known by the opener its own schema writes (`source.use`), so an
 // extension's `::forecast` is found by its name, not its id. Read with the door's own figure reader (figure-props.ts)
 // and the merged schemas, so it says what the drawing would; a figure written without its `---` lines is
 // syntax-warnings.ts's to say. A note component's call (`::board{where=… grup=…}`, script-component.ts) is read off its
@@ -10,7 +10,7 @@
 
 import { COMPONENT_OPEN, componentBlocks } from "./component-block";
 import { checkValue, type ComponentSchema } from "./component-schema";
-import { figureProps, figureSource, figureYaml, graphKind, unknownFigureKeys } from "./figure-props";
+import { figureProps, figureSource, figureYaml, graphKind } from "./figure-props";
 import { oneLineCalls } from "./script-component";
 import { closest } from "./tool-args";
 
@@ -54,8 +54,7 @@ export function componentReading(text: string, schemas: readonly ComponentSchema
     // The keys and values as the figure reads its YAML: a quoted key, a flow map and a boolean are what they parse to.
     const yaml = (figureYaml(src) as { yaml: Record<string, unknown> }).yaml;
     const props = schema.props.filter(p => p.where === "yaml");
-    // A key it doesn't take: a typo's nearest, else the keys it takes (figure-props.ts, the same sentence the readers draw).
-    warnings.push(...unknownFigureKeys(kind, yaml).map(w => `${at} ${w}`));
+    // A key it doesn't take is syntax-warnings.ts's to say (PIE-1518): every write path lists those, the door's too.
     for (const [key, value] of Object.entries(yaml)) {
       const prop = props.find(p => p.key === key);
       if (!prop) continue;

@@ -87,6 +87,83 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     expect(lifted()).toBe(false);
   });
 
+  // PIE-1518: the validate pass's find. The note changed on another screen while the picker was open; the pick was refused
+  // ("that line changed since the sources were read") and nothing read it again. The pick writes on the button as it is now.
+  test("a pick answered after the note changed elsewhere is written on the button's line as it is now", async () => {
+    const note = seeded.notes.pickATile.id, probe = '::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}';
+    const added = "A line written on another screen.";
+    let m = (await board.get(note))!;
+    await board.update(note, m.text.replace(/^::button\{label="pop it".*$/m, probe), m.revision!);
+    await untilAsync(() => buttonLine().then(l => l === probe), "the empty slot");
+    await untilAsync(async () => !!(desk().pane("notes") as any)?.msg?.text?.includes(probe), "the reader on the empty slot");
+    expect((await act("button.press", { note, label: "pop it" })).picking).toBe("tile");
+    // While the picker is open, another screen writes a line above the button: its line moves down one.
+    m = (await board.get(note))!;
+    const lines = m.text.split("\n");
+    lines.splice(1, 0, added);
+    await board.update(note, lines.join("\n"), m.revision!);
+    const links = (await act("tile.info", {}, "links", AGENT)).tile as string;
+    const chose = await act("tile.pick", { to: "links" });
+    if (chose.picking === "which") await act("tile.pick", { value: links });
+    await untilAsync(() => buttonLine().then(l => l === probe.replace("target=}", `target=${links}}`)), "the pick written on the moved line");
+    expect((await text()).split("\n")[1]).toBe(added);
+    // The pick ran the press it answered: drop what it lifted, and take the added line out again.
+    await until(lifted, "links lifted");
+    await act("button.press", { note, label: "pop it" });
+    await until(() => !lifted(), "links dropped");
+    m = (await board.get(note))!;
+    await board.update(note, m.text.split("\n").filter(l => l !== added).join("\n"), m.revision!);
+  });
+
+  // PIE-1518 review: the button the picker asked for is gone (an agent took its line out) while another button has a slot of
+  // the same name. The answer is refused with why; the other button is neither written nor run.
+  test("a pick for a button that is gone is refused; another button with the same slot is left alone", async () => {
+    const note = seeded.notes.pickATile.id, probe = '::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}';
+    const other = '::button{label="other one" act="tile.zoom tile={target} reach=column" target=}';
+    let m = (await board.get(note))!;
+    const original = m.text.replace(/^::button\{label="pop it".*$/m, probe);
+    await board.update(note, original, m.revision!);
+    await untilAsync(async () => !!(desk().pane("notes") as any)?.msg?.text?.includes(probe), "the reader on the empty slot");
+    expect((await act("button.press", { note, label: "pop it" })).picking).toBe("tile");
+    // While the picker is open, an agent swaps the button for another one with a target slot.
+    m = (await board.get(note))!;
+    await board.update(note, m.text.replace(probe, other), m.revision!);
+    const links = (await act("tile.info", {}, "links", AGENT)).tile as string;
+    let refused = "";
+    try {
+      const chose = await act("tile.pick", { to: "links" });
+      if (chose?.picking === "which") await act("tile.pick", { value: links });
+    } catch (e) { refused = (e as Error).message; }
+    await Bun.sleep(300);
+    expect((await text()).split("\n").find(l => l.includes('label="other one"'))).toBe(other);
+    expect(lifted()).toBe(false);
+    if (refused) expect(refused).toContain("pop it");
+    m = (await board.get(note))!;
+    await board.update(note, m.text.replace(other, probe), m.revision!);
+  });
+
+  // PIE-1518: ⏎ with the reading line (j k) on a button's block presses it, as ] then ⏎ did; the hint says so.
+  test("the reading line on a button: ⏎ presses it, no ] first", async () => {
+    const { press, ch } = h;
+    await act("section", { name: "pick-a-tile" });
+    press({ kind: "enter" });
+    await until(() => h.S().focus === "stage", "in the stage");
+    await act("tile.focus", {}, "notes");
+    for (let i = 0; i < 4 && (desk() as any).overlays.top(); i++) press({ kind: "esc" });
+    const reader = desk().pane("notes") as any, surface = reader.surface ?? reader;
+    const zoomLine = (await text()).split("\n").indexOf('::button{label="zoom links"}');
+    expect(zoomLine).toBeGreaterThan(0);
+    for (let i = 0; i < 30 && surface.readingSourceLine() !== zoomLine; i++) { ch("j"); await Bun.sleep(10); }
+    expect(surface.readingSourceLine()).toBe(zoomLine);
+    expect(surface.cur ?? null).toBeNull();
+    await until(() => screen().includes("press zoom links · ⏎ runs"), "the hint naming the button");
+    press({ kind: "enter" });
+    await until(lifted, "links lifted by ⏎ on the reading line");
+    await act("button.press", { note: seeded.notes.pickATile.id, label: "zoom links" });
+    await until(() => !lifted(), "dropped");
+    for (let i = 0; i < 4 && h.S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
   test("the misread button runs nothing and says the line to write: one action per line", async () => {
     await expect(act("button.press", { note: seeded.notes.pickATile.id, label: "misread" }, undefined, AGENT)).rejects.toThrow('act= ends early, at a quote inside it: write one action per line, ::button{label="misread"} ⏎ tile.zoom reach="column" tile="t-a6125371" ⏎ ::');
     // The form it steers to, beside it, is a button that runs, its quotes as typed.

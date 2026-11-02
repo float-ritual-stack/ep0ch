@@ -165,6 +165,8 @@ export const SEED = {
   queryWords: "Words become a query",
   queryTrellis: "Climbing bean supports",
   queryFence: "Allotment gate hinges",
+  querySources: "Your own words for a filter",
+  seedTable: "Seed swap table",
   askAgent: "Potting bench rota",
   shedPlan: "Shed rebuild plan",
   shedPad: "Shed sticky pad",

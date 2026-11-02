@@ -546,6 +546,7 @@ export class ExtensionRegistry {
       ...(source.prefix ? { prefix: source.prefix } : {}),
       ...(source.description ? { description: source.description } : {}),
       main: source.main ?? false,
+      ...(source.grammar ? { grammar: source.grammar } : {}),
     }));
   }
 
@@ -554,7 +555,7 @@ export class ExtensionRegistry {
     return manifestSources(extension.manifest).flatMap((source) => source.triggers ? [{
       id: source.id, extension: extension.id, name: `ext.${extension.id}.${source.id}`, title: source.title,
       ...(source.description ? { description: source.description } : {}),
-      triggers: source.triggers, ...(source.keys ? { keys: source.keys } : {}),
+      triggers: source.triggers, ...(source.keys ? { keys: source.keys } : {}), ...(source.picks ? { picks: true } : {}),
     }] : []);
   }
 

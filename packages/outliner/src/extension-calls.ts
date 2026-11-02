@@ -255,9 +255,21 @@ export interface ExtensionCompleteRequest {
   readonly extension: string;
   readonly source: string;
   readonly query: string;
-  readonly trigger: { readonly kind: SourceTrigger; readonly key?: string; readonly component?: string };
+  readonly trigger: { readonly kind: SourceTrigger; readonly key?: string; readonly component?: string; readonly where?: string };
   readonly near?: string;
   readonly limit?: number;
+}
+
+/** What became of a completion source's rows (PIE-1508), told to a source that declares `picks`. */
+export interface ExtensionPickedRequest {
+  readonly extension: string;
+  readonly source: string;
+  readonly outcome: import("@ep0ch/outline-core/protocol").CompletionOutcome;
+  /** The trigger's pick key (`query`, `[[`, `key::issue`). */
+  readonly key: string;
+  readonly query?: string;
+  readonly row?: { readonly id?: string; readonly label: string; readonly insertion: string };
+  readonly text?: string;
 }
 
 const MAX_BAR_ROWS = 50;
@@ -1599,6 +1611,20 @@ export class ExtensionCalls {
     } catch (error) {
       throw new Error(`${extension.name}'s completion source ${source.id} answered what the service can't show: ${message(error)}`);
     }
+  }
+
+  /**
+   * Tell a completion source what became of its rows (PIE-1508): its `picked` operation, given `{ source, outcome, key,
+   * query?, row?, text? }`. It only hears: whatever it answers is dropped, and it writes through its own connection if
+   * it keeps anything.
+   */
+  async picked(request: ExtensionPickedRequest): Promise<void> {
+    const extension = this.registry.extension(request.extension);
+    if (!extension) throw new Error(this.notActive(request.extension));
+    const source = manifestSources(extension.manifest).find((candidate) => candidate.id === request.source && candidate.triggers && candidate.picks);
+    if (!source) throw new Error(`${extension.name} has no completion source ${request.source} that hears picks`);
+    const { extension: _e, ...input } = request;
+    await this.runtime.invokeLoaded(extension, "picked", input, durationMs(source.deadline) ?? this.deadline(extension));
   }
 
   /**

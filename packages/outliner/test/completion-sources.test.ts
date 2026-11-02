@@ -3,7 +3,7 @@
 // every note and issue is made up.
 import { afterEach, expect, test } from "bun:test";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -407,4 +407,100 @@ test("cancelling a popup stops a slow extension source before its timeout", asyn
   const source = answer.answers.find(a => a.source.id === "ext.slow-garden.beds")!;
   expect(source.problem).toMatch(/abort|cancel|stop/i);
   expect(source.problem).not.toContain("no answer in");
+});
+
+// PIE-1508: extensions answer completion on query lines, and hear what became of their rows.
+test("an extension's query source answers a query line beside the query words, and its row writes the whole line", async () => {
+  const { list, rows } = await setup(["issues"]);
+  const listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "issues")?.state).toBe("active");
+  expect(listed.completionSources).toContainEqual(expect.objectContaining({ name: "ext.issues.issue-words", triggers: ["query"] }));
+  const r = await rows("query", "type=job AND seed sw");
+  expect(r.answers.map(a => a.source.id)).toEqual(["query-words", "ext.issues.issue-words"]);
+  // The whole line is no name to match letters against: the source's own order stands.
+  const words = merged(r, "type=job AND seed sw").filter(row => row.from === "ext.issues.issue-words");
+  expect(words.map(row => [row.label, insertText(row.insert)])).toEqual([['issue="#15"', 'type=job AND issue="#15"']]);
+});
+
+test("a view's [query:: value asks the query source too, its row fitted to the place it goes", async () => {
+  const { list, rows } = await setup(["issues"]);
+  await list(true);
+  const r = await rows("value", "seed", { key: "query" });
+  const words = r.answers.find(a => a.source.id === "ext.issues.issue-words");
+  expect(words?.rows.map(row => insertText(row.insert))).toEqual(['issue="#15"]']);
+});
+
+test("a source that declares picks hears accepted, edited and ignored; one that doesn't hears nothing", async () => {
+  const { root, client, extensionsFolder, list } = await setup();
+  const heard = join(root, "heard.jsonl");
+  for (const [id, picks] of [["hears", true], ["deaf", false]] as const) {
+    const folder = join(extensionsFolder, id);
+    mkdirSync(folder);
+    writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id, version: 1, name: id, run: ["bun", "main.ts"],
+      sources: [{ id: "words", title: "words", triggers: ["query"], ...(picks ? { picks: true } : {}) }] }));
+    // The log is outside the extension's folder: a write there would reload it.
+    writeFileSync(join(folder, "main.ts"), `import { appendFileSync } from "node:fs";
+const r = await Bun.stdin.json();
+if (r.operation === "picked") appendFileSync(${JSON.stringify(heard)}, JSON.stringify({ id: ${JSON.stringify(id)}, ...r.input }) + "\\n");
+console.log(JSON.stringify({ ok: true, value: r.operation === "source" ? { rows: [{ label: "mine", insert: "by:me" }] } : {} }));`);
+  }
+  await list(true);
+  const row = { id: "mine", label: "mine", insertion: "by:me" };
+  for (const source of ["ext.hears.words", "ext.deaf.words"]) {
+    await client.request({ action: "completion.picked", key: "query", insert: pickId("by:me"), source, outcome: "accepted", query: "mi", row });
+    await client.request({ action: "completion.picked", key: "query", source, outcome: "edited", query: "mi", row, text: "by:me AND type=job" });
+    await client.request({ action: "completion.picked", key: "query", source, outcome: "ignored", query: "mi" });
+  }
+  const read = () => existsSync(heard) ? readFileSync(heard, "utf8").trim().split("\n").map((l: string) => JSON.parse(l)) : [];
+  for (let n = 0; n < 200 && read().length < 3; n++) await Bun.sleep(20);
+  await Bun.sleep(200);
+  const events = read();
+  // Each is told without waiting, so they may land in any order.
+  expect(events.map((e: any) => `${e.id} ${e.outcome}`).sort()).toEqual(["hears accepted", "hears edited", "hears ignored"]);
+  expect(events.find((e: any) => e.outcome === "edited")).toMatchObject({ source: "words", key: "query", query: "mi", row, text: "by:me AND type=job" });
+  // Only a choice counts for ranking.
+  const picks = (await client.request<CompletionRowsResult>({ action: "completion.rows", target: { kind: "query", query: "" } })).picks;
+  expect(picks[pickId("by:me")]?.n).toBe(2);
+});
+
+test("picks without triggers, and a grammar on a source the bar never lists, are refused with what to write", async () => {
+  const { extensionsFolder, list } = await setup();
+  for (const [id, source] of [["picky", { id: "x", title: "x", prefix: "~", picks: true }], ["lineless", { id: "y", title: "y", triggers: ["[["], grammar: "query" }], ["barred", { id: "z", title: "z", prefix: "$", grammar: "query" }]] as const) {
+    mkdirSync(join(extensionsFolder, id));
+    writeFileSync(join(extensionsFolder, id, "extension.json"), JSON.stringify({ contract: 2, id, version: 1, name: id, run: ["bun", "main.ts"], sources: [source] }));
+  }
+  const listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "picky")?.error).toContain("picks hears what became of completion rows: give it triggers");
+  expect(listed.extensions.find(e => e.id === "lineless")?.error).toContain("grammar is how its power bar line completes");
+  expect(listed.barSources).toContainEqual(expect.objectContaining({ name: "ext.barred.z", grammar: "query" }));
+});
+
+test("Detail tells an extension's source its row was chosen, with what was typed (PIE-1508)", async () => {
+  const { client, list } = await setup(["issues"]);
+  await list(true);
+  const told: unknown[][] = [];
+  const provider = referenceCompletionProvider(client, "told-test");
+  const real = provider.completionPicked!;
+  provider.completionPicked = (...a) => { told.push(a); return real(...a); };
+  const buffer = new TextBuffer("[[seed"); buffer.moveEnd();
+  const session = new ReferenceCompletionSession(provider, () => buffer, () => {}, () => true);
+  await session.refresh();
+  const n = session.state!.items.findIndex(i => i.from === "ext.issues.issues");
+  expect(n).toBeGreaterThanOrEqual(0);
+  expect(await session.accept(n)).toBe(true);
+  expect(told).toContainEqual(["[[", pickId("[issue::#15]"), { source: "ext.issues.issues", outcome: "accepted", query: "seed", row: { id: "#15", label: "#15 Seed swap sign-up sheet", insertion: "[issue::#15]" } }]);
+});
+
+test("a query source's snippet is fitted to its place too, its selection and slots moved with it (PIE-1508)", async () => {
+  const { extensionsFolder, list, rows } = await setup();
+  const folder = join(extensionsFolder, "snips");
+  mkdirSync(folder);
+  writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "snips", version: 1, name: "snips", run: ["bun", "main.ts"], sources: [{ id: "words", title: "words", triggers: ["query"] }] }));
+  writeFileSync(join(folder, "main.ts"), 'await Bun.stdin.json(); console.log(JSON.stringify({ ok: true, value: { rows: [{ label: "an issue", insert: { snippet: "issue=15 AND tag: x", select: { start: 6, end: 8 }, slots: [{ start: 6, end: 8 }, { start: 18, end: 19 }] } }] } }));');
+  await list(true);
+  const insertOf = async (kind: CompletionKind, more: Record<string, unknown>) => (await rows(kind, "seed", more)).answers.find(a => a.source.id === "ext.snips.words")!.rows[0]!.insert;
+  // [query:: closes with ]: the offsets stay.
+  expect(await insertOf("value", { key: "query" })).toEqual({ snippet: "issue=15 AND tag: x]", select: { start: 6, end: 8 }, slots: [{ start: 6, end: 8 }, { start: 18, end: 19 }] });
+  // An ::if where: needs quotes (": " in it): every offset moves past the opening quote.
+  expect(await insertOf("yaml-value", { key: "where", component: "if" })).toEqual({ snippet: '"issue=15 AND tag: x"', select: { start: 7, end: 9 }, slots: [{ start: 7, end: 9 }, { start: 19, end: 20 }] });
 });

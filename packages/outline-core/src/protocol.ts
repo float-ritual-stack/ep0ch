@@ -14,7 +14,7 @@
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 305;
+export const PROTOCOL = 306;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 29;
 
@@ -580,6 +580,8 @@ export interface ExtensionBarSource {
   readonly description?: string;
   /** Its rows join the bar's main list, not only its own scope. */
   readonly main: boolean;
+  /** What its line completes as while the bar is scoped to it (PIE-1508): `query` is a query line, as the door's `=`. */
+  readonly grammar?: "query" | "act";
 }
 
 /**
@@ -622,6 +624,8 @@ export interface ExtensionCompletionSource {
   readonly triggers: readonly SourceTrigger[];
   /** For `key::`: only these property keys. */
   readonly keys?: readonly string[];
+  /** It hears what became of its rows (PIE-1508): `completion.picked` with its name calls its `picked` operation. */
+  readonly picks?: boolean;
 }
 
 /**
@@ -767,7 +771,25 @@ export interface CompletionRowsResult {
 }
 
 /** `completion.picked`: a row was chosen. `key` is `pickKey`'s, `insert` is its compact `pickId` identity. */
-export interface CompletionPickedRequest { key: string; insert: string }
+/**
+ * A pick, counted for ranking (`key`, `insert`), and (PIE-1508) what became of a source's rows, told to the extension
+ * source that asked to hear it (`picks`): `accepted` (a row chosen), `edited` (the line changed after it), `ignored`
+ * (its rows shown, none chosen; no `insert`, nothing counted).
+ */
+export interface CompletionPickedRequest {
+  key: string;
+  insert?: string;
+  /** The source whose row it was (`ext.<extension>.<id>`), as `completion.rows` named it. */
+  source?: string;
+  outcome?: CompletionOutcome;
+  /** What was typed when it was offered. */
+  query?: string;
+  /** The row: its id and words, and what it wrote. */
+  row?: { id?: string; label: string; insertion: string };
+  /** The line as it reads now, for `edited`. */
+  text?: string;
+}
+export type CompletionOutcome = "accepted" | "edited" | "ignored";
 
 /** Progress for an ask in a held draft; the line stays authored text. */
 export interface AskProgress { line: string; state: string; blocks?: number; beside?: boolean; warning?: string }
