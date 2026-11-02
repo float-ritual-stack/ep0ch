@@ -361,8 +361,8 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     key({ kind: "tab" });
     expect(tile("tree").dock).toBe("shut");
     render();
-    const h = D().handles[0];
-    mouse("down", h.from + 1, 58);
+    const h = D().dockHits[0];                                        // a shut dock is a strip on its edge
+    mouse("down", h.from, h.row);
     expect(tile("tree").dock).toBe("open");
     expect(get().focus).toBe("tree");
     key(ctrl("w")); key(char("p"));

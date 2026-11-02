@@ -162,7 +162,7 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     expect(links.filter(l => l.label === "at 08:17" || l.page === "Compost heap" || l.block === "transcript")).toEqual([]);
     expect(links.some(l => l.page === SEED.shed)).toBe(true);
     // The block-level tags drawn under the byline (PIE-880) are tag links like any other: ⏎ or a click lists the notes carrying one.
-    const tagRow = async () => ((await app.act({ action: "elements", tile: reader().name, as: "test-agent" })) as any).elements.slice(0, 2).map((e: any) => e.label);
+    const tagRow = async () => ((await app.act({ action: "elements", tile: reader().name, as: "test-agent" })) as any).elements.filter((e: any) => e.kind === "link").slice(0, 2).map((e: any) => e.label);
     for (let i = 0; i < 100 && (await tagRow()).join() !== "#allotment,#beds"; i++) { screen(); await Bun.sleep(50); }
     expect(await tagRow()).toEqual(["#allotment", "#beds"]);
     // Past the last real link there is none: the quoted ones aren't counted.

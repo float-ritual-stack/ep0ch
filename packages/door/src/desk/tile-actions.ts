@@ -323,13 +323,13 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "give the person's keys to tile=<tile>. Refused to an agent while the person is typing (an edit, a comment, a terminal they're in)",
     keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →), ✦h ✦j ✦k ✦l ✦1-✦9 (hyper, from an edit or a terminal tile too); esc q back home (a screen with a home: the board's lanes)",
     touches: "screen", replay: "safe", says: r => `gave the keys to ${r.name ?? r.tile}`,
-    args: { dir: { type: "string", optional: true, choices: ["left", "right", "up", "down"], about: "left, right, up or down: the tile that way from tile= (in a flow: the column before or after)" } },
+    args: { by: { type: "number", optional: true, about: "steps through the visible tiles, as Tab (1) or shift+Tab (-1)" }, dir: { type: "string", optional: true, choices: ["left", "right", "up", "down"], about: "left, right, up or down: the tile that way from tile= (in a flow: the column before or after)" } },
     examples: [
       { act: "tile.focus tile=reader", does: "gives the person's keys to the reader" },
       { act: "tile.focus dir=left tile=reader", does: "gives the keys to the tile left of the reader" },
     ],
-    run({ dir }, { d, reader }, actor) {
-      return d.focusTile(dir ? d.neighbourOf(reader, dir as Dir) : reader, actor, true);
+    run({ dir, by }, { d, reader }, actor) {
+      return d.focusTile(dir ? d.neighbourOf(reader, dir as Dir) : by ? d.nextTile(reader, by) : reader, actor, true);
     },
   }),
   "tile.dock": def({
@@ -511,16 +511,16 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.slide": def({
     words: "slide this tile's dock open or shut",
-    summary: "slide the dock holding tile=<tile> open (open=true) or shut (open=false); default toggles. A shut dock is a handle at the end of the hint row; a tile dragged onto the handle goes into the dock. Refused when its policy says it isn't collapsible",
-    keys: [{ keys: "^W d", does: "slide a dock" }, { keys: "click", does: "on its handle (⇤ ⇥ ⤒ ⤓ on the hint row)" }, { via: "a dock slides shut when the keys go elsewhere" }],
+    summary: "Show tile=<tile> at its dock edge, replacing the open choice there. beside=true keeps the other choices open beside it. Clicking a lit segment closes it; open=false tucks its dock away. Nothing underneath reflows.",
+    keys: [{ keys: "^W d", does: "slide a dock" }, { keys: "click", does: "on its edge segment; alt-click opens beside" }, { via: "a dock slides shut when the keys go elsewhere" }],
     touches: "shape", replay: "safe", says: r => `${r.open ? "opened" : "shut"} dock ${r.name ?? r.tile}`,
-    args: { open: { type: "boolean", optional: true, about: "true opens it, false shuts it" }, container: { type: "string", optional: true, about: "the dock's id (d<n>), when it isn't the innermost one holding tile=" } },
+    args: { beside: { type: "boolean", optional: true, about: "keep the other choices on this edge open beside this one" }, open: { type: "boolean", optional: true, about: "true opens this tile, false shuts its dock; omitted toggles this segment" }, container: { type: "string", optional: true, about: "the dock's id (d<n>), when it isn't the innermost one holding tile=" } },
     examples: [
       { act: "tile.slide open=true tile=tree", does: "slides the dock holding the tree open over the other tiles" },
-      { act: "tile.slide open=false tile=tree", does: "slides the tree's dock shut to a handle on the hint row" },
+      { act: "tile.slide open=false tile=tree", does: "tucks the tree away, keeping its edge segment reachable" },
     ],
-    run({ open, container }, { d, reader }, actor) {
-      return d.slideTile(reader, open, actor, container);
+    run({ open, container, beside }, { d, reader }, actor) {
+      return d.slideTile(reader, open, actor, container, beside);
     },
   }),
   "tile.preview": def({

@@ -1,18 +1,16 @@
-// PIE-509: the hint row on a narrow screen (120 columns), found by walking the door in a real pane. A row too long
-// for the screen ends "? more", and a click on it shows every part in a box above it (? is the keys window); a ^W chord's row
-// shows the box at once (^W o lists every tile kind). The keys a row names work on that screen: a float on the
-// desk goes back with ^W f (o and x are the board's), and a preset (the brief) doesn't offer alt+d. Moving the board's
-// outline across with S keeps its width. Scratch services and fictional notes only.
+// Narrow hint strips keep their full choices reachable; prefix panels still name the tile keys.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { boardScreen } from "./board-view";
 import * as BV from "./board-view";
 import { Desk } from "../src/desk/desk";
+import { BacklinksPane } from "../src/desk/backlinks-pane";
+import { ReaderPane } from "../src/desk/panes";
 import { dockToEdge, splitOf, leaf, type LNode } from "../src/desk/layout";
 import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import { visible } from "../src/style";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -37,6 +35,8 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, garden: any;
   let key: (k: Key) => void = () => {};
+  let painted: string[] = [];
+  const frame = () => { app.redraw(); app.flush(); return painted.map(visible); };
   const message = () => (app as any).message as string;
   const screen = () => (app as any).stack.at(-1) as any;
   const lines = () => screen().render((screen() as any).ctx).lines.map(visible) as string[];
@@ -55,7 +55,7 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     garden = await make(null, "Garden jobs");
     await make(garden.id, "To do [type::virtual-branch] [query::type=job stage=todo]");
     await make(garden.id, "Done [type::virtual-branch] [query::type=job stage=done]");
-    const term = { info: { cols: COLS, rows: ROWS, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols: COLS, rows: ROWS, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());
   }, 30_000);
@@ -75,45 +75,30 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR"]) delete process.env[k];
   });
 
-  test("the desk's row is cut between parts and ends ? more; a click on it shows the rest in a box above it (? is the keys window), and the next key puts it away", async () => {
+  test("a narrow hint strip opens every full hint and returns the keys to the same tile", async () => {
     const desk = new Desk(undefined, { layout: "daily" });
     app.push(desk);
-    const row = hintRow();
-    expect(row).toContain("Tab/1-9 focus");
-    expect(row).toMatch(/· \? more\s/);
-    expect(row).not.toContain("q menu");
-    const more = () => { const at = hintRow().indexOf("? more"); key({ kind: "mouse", action: "down", button: 0, x: at + 1, y: ROWS - 2 }); };
-    more();
-    let all = lines();
-    const box = all.findIndex(l => l.includes("─ keys "));
-    expect(box).toBeGreaterThan(ROWS - 10);
-    const shown = all.slice(box, ROWS - 2).join("\n");
-    expect(shown).toContain("q menu");
-    expect(shown).toContain("^N new");
-    expect(shown).toContain("any key closes");
-    // Esc only puts it away; any other key puts it away and does what it does.
-    key({ kind: "esc" });
-    expect(lines().some(l => l.includes("─ keys "))).toBe(false);
-    // A click on "? more" shows it too, as keys.more.
-    const at = hintRow().indexOf("? more");
-    key({ kind: "mouse", action: "down", button: 0, x: at + 1, y: ROWS - 2 });
-    expect(lines().some(l => l.includes("─ keys "))).toBe(true);
-    key({ kind: "mouse", action: "down", button: 0, x: at + 1, y: ROWS - 2 });
-    expect(lines().some(l => l.includes("─ keys "))).toBe(false);
-    // Another key puts it away and does its own job (Tab moves the keys on); a click elsewhere puts it away too.
-    const d = screen() as any;
-    more();
-    const was = d.focus;
-    key({ kind: "tab" });
-    expect(lines().some(l => l.includes("─ keys "))).toBe(false);
-    expect(d.focus).not.toBe(was);
-    more();
-    const r = d.layoutGet().tiles.find((t: any) => t.name === "now").rect;                  // a reader, not a terminal
-    key({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 3 });
-    key({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 3 });
-    expect(lines().some(l => l.includes("─ keys "))).toBe(false);
-    // It's the person's view: an agent is told where the keys are instead.
-    await expect(app.act({ action: "keys.more", args: {}, as: "hint-agent-509" })).rejects.toThrow(/actions/);
+    const before = desk.keys().address;
+    try {
+      (app as any).term.info.cols = 32;
+      const row = frame()[ROWS - 2]!;
+      expect(row).toContain("Tab/1-9 focus");
+      const more = /\+\d+/.exec(row)!;
+      expect(more).not.toBeNull();
+      key({ kind: "mouse", action: "down", button: 0, x: more.index, y: ROWS - 2 });
+      await until(() => frame().some(l => l.includes("all choices")), "the hint picker");
+      expect(frame().join("\n")).toContain("q menu");
+      expect(frame().join("\n")).toContain("^N new");
+      key({ kind: "esc" });
+      expect(frame().some(l => l.includes("all choices"))).toBe(false);
+      expect(desk.keys().address).toBe(before);
+      (app as any).term.info.cols = COLS;
+      frame();
+      await desk.dispatch.press("keys.more");
+      expect(frame().some(l => l.includes("all choices"))).toBe(true);
+      key({ kind: "esc" });
+      await expect(app.act({ action: "keys.more", args: {}, as: "hint-agent-509" })).rejects.toThrow(/actions/);
+    } finally { (app as any).term.info.cols = COLS; app.strips.close(); }
   });
 
   test("^W and ^W o show every part at once, above their row: every tile kind, with its key", () => {
@@ -137,6 +122,52 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     } finally { if (was === undefined) delete process.env.EP0CH_KEY_PANEL_MS; else process.env.EP0CH_KEY_PANEL_MS = was; }
   });
 
+  test("a tile kind picked from the narrow prefix hint opens beside or as a tab", async () => {
+    const desk = new Desk(); app.push(desk);
+    try {
+      (app as any).term.info.cols = 32;
+      for (const prefix of ["o", "O"]) {
+        key(ctrl("w")); key(char(prefix));
+        const line = frame()[ROWS - 2]!, more = /\+\d+/.exec(line)!;
+        expect(more).not.toBeNull();
+        key({ kind: "mouse", action: "down", button: 0, x: more.index, y: ROWS - 2 });
+        expect(frame().join("\n")).toContain("all choices");
+        const row = app.strips.state.get("hint", desk.keys().address!)!;
+        const index = row.tabs.findIndex(t => visible(t.label).includes("outline"));
+        expect(index).toBeGreaterThanOrEqual(0);
+        const before = new Set(desk.layoutGet().tiles.map(t => t.tile));
+        const result = await app.dispatch.act({ action: "strip.pick", args: { strip: row.id, n: index + 1 } }, USER) as any;
+        expect(result).toMatchObject({ kind: "tree", where: prefix === "o" ? "right" : "tabs" });
+        expect(desk.layoutGet().tiles.some(t => t.kind === "tree" && !before.has(t.tile))).toBe(true);
+        frame();
+      }
+    } finally { (app as any).term.info.cols = COLS; app.strips.close(); app.pop(); }
+  });
+
+  test("the focus hint and its picker advance to the same tile as Tab", async () => {
+    const desk = new Desk(); app.push(desk);
+    try {
+      const before = desk.keys().address;
+      key({ kind: "tab" });
+      const next = desk.keys().address;
+      expect(next).not.toBe(before);
+      key({ kind: "backtab" });
+      expect(desk.keys().address).toBe(before);
+      const line = frame()[ROWS - 2]!;
+      expect(line).toContain("Tab/1-9 focus");
+      key({ kind: "mouse", action: "down", button: 0, x: line.indexOf("focus"), y: ROWS - 2 });
+      expect(desk.keys().address).toBe(next);
+      key({ kind: "backtab" });
+      (app as any).term.info.cols = 32;
+      const more = /\+\d+/.exec(frame()[ROWS - 2]!)!;
+      key({ kind: "mouse", action: "down", button: 0, x: more.index, y: ROWS - 2 });
+      frame();
+      const row = app.strips.state.get("hint", before!)!;
+      await app.dispatch.act({ action: "strip.pick", args: { strip: row.id, n: row.tabs.findIndex(t => t.label === "focus") + 1 } }, USER);
+      expect(desk.keys().address).toBe(next);
+    } finally { (app as any).term.info.cols = COLS; app.strips.close(); app.pop(); }
+  });
+
   test("a float on the desk names the desk's keys for putting it back, and they put it back", () => {
     const d = screen() as any;
     d.focus = [...d.names].find(([, v]: any) => v === "side")[0];
@@ -158,7 +189,7 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     app.pop();
   });
 
-  test("a preset (Waiting) doesn't offer alt+d, which it refuses; its ? more lists the rest", () => {
+  test("a preset (Waiting) doesn't offer alt+d, which it refuses; its keys window lists the rest", () => {
     const w = openScreen("waiting") as Desk;
     app.push(w);
     key(char("?"));
@@ -183,5 +214,27 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     await until(() => share().edge === "left", "the outline back on the left");
     expect(share().share).toBeCloseTo(0.3, 2);
     app.pop();
+  });
+
+  test("a breadcrumb reveals the links list when its dock shows the preview", async () => {
+    const b = boardScreen(garden.id, false);
+    app.push(b);
+    try {
+      await until(() => BV.view(b).lanes.length === 2 && BV.view(b).lanes.every((l: any) => l.items), "the lanes");
+      const note = await board.createBlock(garden.id, "Garden week");
+      await b.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "garden-reader", note: note.id, where: "right" }, tile: "preview" }, USER);
+      await until(() => (b.pane("garden-reader") as ReaderPane).msg?.id === note.id, "the nested note");
+      await b.dispatch.press("tile.focus", {}, "garden-reader");
+      await b.dispatch.act({ action: "tile.slide", tile: "backlinks-preview", args: { open: true } }, { kind: "agent", id: "strip-test" });
+      frame();
+      expect(b.layoutGet().tiles.find(t => t.name === "backlinks-preview")?.shown).toBe(true);
+      const focus = b.keys().address;
+      await b.dispatch.act({ action: "reader.crumb", args: { id: garden.id }, tile: "garden-reader" }, USER);
+      frame();
+      expect((b.pane("backlinks") as BacklinksPane).target?.id).toBe(garden.id);
+      expect(b.layoutGet().tiles.find(t => t.name === "backlinks")?.shown).toBe(true);
+      expect(b.keys().address).toBe(focus);
+      expect((b.pane("garden-reader") as ReaderPane).msg?.id).toBe(note.id);
+    } finally { app.pop(); }
   });
 });

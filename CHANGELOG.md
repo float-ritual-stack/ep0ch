@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Narrow strips keep the current choice readable (PIE-923, PIE-1162)
+
+- **One strip:** tabs, breadcrumbs, Tune, power-bar scopes, status chips, hints and dock edges share one shrink rule. The current name keeps its space; `‹ +N ›` and Alt+/ reveal every choice in a picker. Arrows, Enter, numbers and the wheel work through the same actions.
+- **Crumbs are links:** breadcrumbs show an ancestor’s links while the reader keeps its note and keys; Alt-click still reveals the note in the outline. The links tile offers an optional Parents group.
+- **Docks on the edge:** dock segments use tile titles: click swaps, Alt-click opens beside, and clicking a lit segment closes it. The edge stays reachable above an expanded drawer; the status bar’s docks segment lists them all.
+- **Choices work:** hidden graph tabs and tile-kind hints run their actions; the focus hint advances like Tab. Breadcrumbs select the links list in its dock without moving focus. Named dock strips work through `act`, and wide characters keep vertical edges within their columns.
+- **Run:** open `ep0ch try --showcase`, choose **strip**, and drag the seven-tab tile narrower. Door only; no protocol, grammar or schema change.
+
 - **CP437 frames (PIE-1490):** hover uses the distinct native `÷` glyph beside `○ » ^`, named in the frame hint and showcase; left triangles and curly apostrophes have font lookalikes.
 - Note records, agent reads and `ep0ch show --json` name the writer of the newest revision (PIE-1393).
 - Binding and outline reads distinguish a down host from a missing outline, with the machine, socket paths and retry command (PIE-1325).

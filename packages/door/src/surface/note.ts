@@ -1,3 +1,4 @@
+import { tabStrip, stripControls } from "./chip-rows";
 import { panelMode } from "./panel-mode";
 import { HISTORY, NAV_VERSION, savedPlace, placeOf, readNav, type Place, type Zoom, type FigureChoice, type SavedNav } from "./navigation";
 export { HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
@@ -216,8 +217,6 @@ export interface SurfaceHost {
   opensOnClick?(link: Link): boolean;
   /** Detach the part this reader is on into a tile of its own (`element.detach`, alt+D, PIE-1247); absent where the reader isn't a tile. */
   detach?(): void;
-  /** Show this reader's note in the outline (`reader.reveal`, a click on the crumbs, PIE-794); absent where there's no outline to show it in. */
-  revealInOutline?(): void;
   /**
    * A `#tag` was opened in the note (PIE-800): the host lists the notes carrying it (the service's `#tag` query), as a
    * list whose home is this reader. `how.by` is who opened it.
@@ -494,14 +493,12 @@ interface HeaderBlock {
   title: { row: number; rows: number } | null;
   /** A host's own header (the BBS message header) stands in for the title, byline and crumbs. */
   own?: boolean;
-  /** The crumbs' row (the path above the title), where a click shows the note in the outline; null: a host's own header. */
-  crumbsRow?: number;
+  pathRow?: number;
   /** The byline's [comment] (PIE-846): a click writes a comment on the whole note, as C with nothing selected does. */
   commentChip?: { row: number; from: number; to: number };
   sourcesChip?: { row: number; from: number; to: number };
   /** The byline's comment count (PIE-873): a click cycles the margin, as M does. */
   marginChip?: { row: number; from: number; to: number };
-  /** Marks only (PIE-873): the whole-note threads' one mark after the title, and the thread a click opens. */
   titleControls?: { row: number; from: number; to: number; link: Link }[];
   wholeMarks?: { row: number; from: number; to: number; thread: string }[];
 }
@@ -557,7 +554,7 @@ const same = <T,>(a: T | undefined, b: T | undefined, base: (x: T) => unknown) =
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: TrailDir } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind } | { margin: true } | { fold: number } | { listPreview: number } | { region: string } | { sources: true } | { zoom: number });
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: TrailDir } | { pick: number } | { image: string } | { passage: string } | { start: SessionKind } | { margin: true } | { fold: number } | { listPreview: number } | { region: string } | { sources: true } | { zoom: number });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -900,7 +897,9 @@ export class NoteSurface {
     this.my = look.values["margin.y"];
     return look;
   }
-  private crumbs = "";
+  private ancestors: Msg[] = [];
+  private pathNote = "";
+  private get pathLabel() { return this.pathNote || this.ancestors.map(m => subject(m)).join(" › ") || "top level"; }
   /** Shown under the header after a save that changed the note's properties, until the surface moves on. */
   notice = "";
   private links: Link[] = [];
@@ -1318,6 +1317,7 @@ export class NoteSurface {
     const e = this.inView(), i = e ? this.elems.indexOf(e) : -1;
     // A proposal's keys go first: in a narrow tile the hint is cut from the end.
     // An extension's line or control: its keys go first, as a proposal's do.
+    if (e?.link?.press?.act.startsWith("reader.crumb")) return "breadcrumb: show its links";
     if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label)} · ⏎ runs ${printable(e.link.press.act.replaceAll("\n", " -> "))}`;
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
     // A table row's label keeps its columns' gaps: one space each here, since two spaces part a hint row's keys (hintKeys).
@@ -1411,12 +1411,12 @@ export class NoteSurface {
     if (m?.id !== this.msg?.id) { if (this.msg) host.retirePeeks?.(by); this.figureSizing.cancel(); this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.modes.drop("revision"); this.foldsOf = m?.id ?? null; this.drawnFolds = []; this.zoom = null; this.zoomTurn++; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
-    this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
+    this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.ancestors = []; this.pathNote = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return true;
     if (!isOutlineNote(m)) {
-      this.crumbs = m.id.startsWith(RESOURCE_NOTE) ? "a Resource · not a note in the outline" : m.id.startsWith(UNSENT_NOTE) ? "an unsent draft · read here, never written" : "a file";
+      this.pathNote = m.id.startsWith(RESOURCE_NOTE) ? "a Resource · not a note in the outline" : m.id.startsWith(UNSENT_NOTE) ? "an unsent draft · read here, never written" : "a file";
       // A Resource's text takes comments (PIE-650): its threads live in the outline, so they are read for it too.
       if (m.resource) void this.loadComments(host);
       return true;
@@ -1427,7 +1427,7 @@ export class NoteSurface {
     this.takeReveal(m, host);
     host.ctx.board.ancestors(m.id).then(a => {
       if (this.msg?.id !== m.id) return;
-      this.crumbs = a.map(m => subject(m)).join(" › ") || "top level"; host.redraw();
+      this.ancestors = a; this.pathNote = ""; host.redraw();
     }, () => {});
     return true;
   }
@@ -1910,13 +1910,18 @@ export class NoteSurface {
     // The byline's row: after the crumbs and the title, as many of them as are drawn.
     const first = this.printed ? lines.length + subRows.length : above + titleRows.length;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
-    const crumbs = this.zoom && !this.printed ? this.zoomBar(m, w) : fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
-    const rows = this.printed ? [...titled, ...subRows, ...metas, crumbs] : [...(omit.crumbs ? [] : [crumbs]), ...titleRows, ...(omit.byline ? [] : metas)];
+    const path = this.ancestors, [breadcrumb] = tabStrip(path.map((note, i) => ({ label: subject(note), on: i === path.length - 1,
+      hit: { action: "reader.crumb", args: { id: note.id } }, alt: { action: "reader.reveal" } })),
+      { id: "breadcrumb", about: "breadcrumb: show its links · alt+click reveals this note in the outline", direct: true, width: w, overflow: "middle", style: { on: fg(C.grey), off: fg(C.dark), sep: " › " } });
+    const pathText = this.zoom && !this.printed ? this.zoomBar(m, w) : isOutlineNote(m) && path.length ? breadcrumb!.text : fg(C.dark) + pad(this.pathLabel, w) + RESET;
+    if (!omit.crumbs && !this.zoom && !this.printed && isOutlineNote(m)) titleControls.push(...stripControls(breadcrumb!, m.id, gx));
+    const metas = metaRows.map(r => pad(r, w) + RESET);
+    const rows = this.printed ? [...titled, ...subRows, ...metas, pathText] : [...(omit.crumbs ? [] : [pathText]), ...titleRows, ...(omit.byline ? [] : metas)];
     // The chip ends the first byline row (the one `said` is on), where it fits in the tile; with no byline, the tile
     // menu (⋯) has the same rows: comment on the whole note, comments, properties, sources.
     const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped && commentOn && !omit.byline ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
     const sourcesChip = chipped && sourcesOn && !omit.byline ? { row: first, from: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) - width(SOURCES_CHIP), to: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) } : undefined;
-    return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary: omit.byline ? "" : summary, summaryRow: first + summaryAt, summaryLinks: omit.byline ? [] : links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: omit.title ? null : { row: this.printed ? 0 : above, rows: lines.length }, ...(this.printed ? { crumbsRow: rows.length - 1 } : omit.crumbs ? {} : { crumbsRow: 0 }), ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip && !omit.byline ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
+    return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary: omit.byline ? "" : summary, summaryRow: first + summaryAt, summaryLinks: omit.byline ? [] : links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: omit.title ? null : { row: this.printed ? 0 : above, rows: lines.length }, ...(this.printed ? { pathRow: rows.length - 1 } : omit.crumbs ? {} : { pathRow: 0 }), ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip && !omit.byline ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
   }
 
   /**
@@ -2060,7 +2065,7 @@ export class NoteSurface {
     if (foot) h -= 1;
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
-    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, own, crumbsRow, commentChip, sourcesChip, marginChip, wholeMarks, titleControls } = this.headerBlock(m, w, host, src);
+    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, own, pathRow, commentChip, sourcesChip, marginChip, wholeMarks, titleControls } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (" · " + this.proposalKeys(m.id).replace(/ · $/, "") + (proposalApplies(m) ? "" : " · it can't be applied: its passage was already gone")), w) + RESET]) } : null;
@@ -2239,10 +2244,7 @@ export class NoteSurface {
     // Each is the element it is, so a click also puts `[ ]` there.
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
     if (summary) for (const l of summaryLinks) this.hits.push({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: keyOf.get(`${summaryRow}:${l.from}`) });
-    // The crumbs: a click shows the note in the outline (reader.reveal, PIE-794), where the host has one.
-    // Zoomed (PIE-780), that row is the zoom's: a click on it is esc's, element.zoom on=false.
-    if (crumbsRow !== undefined && this.zoom && !this.printed) this.hits.push({ row: crumbsRow, from: 0, to: w, zoom: -1 });
-    else if (crumbsRow !== undefined && host?.revealInOutline && isOutlineNote(m)) this.hits.push({ row: crumbsRow, from: 0, to: Math.max(1, Math.min(w, width(this.crumbs))), crumbs: true });
+    if (pathRow !== undefined && this.zoom && !this.printed) this.hits.push({ row: pathRow, from: 0, to: w, zoom: -1 });
     if (commentChip) this.hits.push({ ...commentChip, start: "note" });
     if (sourcesChip) this.hits.push({ ...sourcesChip, sources: true });
     if (marginChip) this.hits.push({ ...marginChip, margin: true });
@@ -3030,7 +3032,7 @@ export class NoteSurface {
   /** What a host's header is told (SurfaceHost.header). */
   private headerInfo(m: Msg, properties: number): HeaderInfo {
     const c = this.comments && this.commentsFor === m.id ? this.comments : null;
-    return { crumbs: this.crumbs, comments: c ? { open: c.filter(x => x.open).length, total: c.length } : null, properties };
+    return { crumbs: this.pathLabel, comments: c ? { open: c.filter(x => x.open).length, total: c.length } : null, properties };
   }
 
   // ── properties ─────────────────────────────────────────────────────────────
@@ -3258,7 +3260,7 @@ export class NoteSurface {
       look: this.lastLook?.values, attachedPreview: !!host,
       preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links, false, isOutlineNote(m) ? m.id : undefined), pick: true, follow: true, ...(away ? { away } : {}),
       // A new note says where it lands, a click to move it (PIE-883).
-      ...(this.newNotes.has(m.id) ? { lands: `→ ${this.crumbs}` } : {}),
+      ...(this.newNotes.has(m.id) ? { lands: `→ ${this.pathLabel}` } : {}),
       title: `editing · ${subject({ ...m, text: d.text })}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
@@ -3649,10 +3651,10 @@ export class NoteSurface {
   /** Where the note shown is now, read again (after a move): its path, as the reader's crumbs say it. */
   async rereadPlace(host: SurfaceHost): Promise<string> {
     const m = this.msg;
-    if (!m) return this.crumbs;
+    if (!m) return this.pathLabel;
     const a = await host.ctx.board.ancestors(m.id);
-    if (this.msg?.id === m.id) { this.crumbs = a.map(m => subject(m)).join(" › ") || "top level"; host.redraw(); }
-    return this.crumbs;
+    if (this.msg?.id === m.id) { this.ancestors = a; this.pathNote = ""; host.redraw(); }
+    return this.pathLabel;
   }
   /** Whether the note shown is a new one being written (`note.new`). */
   isNew(): boolean { return !!this.msg && this.newNotes.has(this.msg.id); }
@@ -4615,7 +4617,7 @@ export class NoteSurface {
   /** What the last render put at cell `x`, `y`; a region's mark covers a fold at the same gutter cell. */
   hitAt(x: number, y: number): Hit | undefined {
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "crumbs" in h || "start" in h || ("follow" in h && h.follow)) ?? at.find(h => "region" in h) ?? at[0];
+    return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "start" in h || ("follow" in h && h.follow)) ?? at.find(h => "region" in h) ?? at[0];
   }
 
   // ── keys: each one is an action, the same ones an agent calls ─────────────
@@ -6419,8 +6421,6 @@ export class NoteSurface {
       return true;
     }
     if (h && "history" in h) { void this.runKey(historyAction(h.history), {}, host); return true; }
-    // The crumbs: the note in the outline (reader.reveal: the outline's cursor moves there, nothing else, PIE-794).
-    if (h && "crumbs" in h) { host.revealInOutline?.(); return true; }
     // The byline's [comment] (PIE-846): as its key would, where the host keeps track of the person's session.
     // The byline's comment count (PIE-873): the margin's next mode, as M.
     if (h && "margin" in h) { void this.runKey("margin", {}, host); return true; }
@@ -11009,7 +11009,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "button.press": def({
     summary: "press a button or a pressable square of a view in this note by its label (or n from elements): a button runs its ordered action taps and script pipe stages as one undo group over reversible effects; a view square runs its action line. The dispatcher attributes whoever asks, and the first sequence failure reports the step and effects that remain. It opens nothing and moves nothing the person is reading, so it works on the reader they hold; tile= names another reader, and note=<id> presses a ::button, an [label](act: …) link or a control a render script drew (a view's button, badge, card or row, from the service's projection) in a note that is open nowhere, with no focus moved",
-    keys: "a click on a button, or ⏎ on it (element.open does the same)", touches: "nothing", replay: "ask",
+    keys: "a click on a button, or ⏎ on it (element.open does the same); alt+⏎ or alt+click a control's alt action (a breadcrumb's reveal)", touches: "nothing", replay: "ask",
     args: {
       label: { type: "string", optional: true, about: "the button's label, or part of it (`Fantasia` finds `✦ Fantasia`); the one pressable element that has it" },
       alt: { type: "boolean", optional: true, about: "run the button's alt= action, as alt+click does" },

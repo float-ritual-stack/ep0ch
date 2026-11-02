@@ -1367,8 +1367,8 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       // Put away, a locked drawer shows on the hint row's chip, and a click there unlocks it; the screen's own lock untouched throughout.
       await pickRow("lock your drawer");
       await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
-      const hint = d.paint().findIndex(l => l.includes("▣ drawer locked"));
-      expect(hint).toBeGreaterThan(-1);
+      const hint = d.paint().length - 2;                                        // the hint row itself (the refusal said whole above it names the chip too)
+      expect(d.paint()[hint]!).toContain("▣ drawer locked");
       d.key(mouse("down", d.paint()[hint]!.indexOf("▣ drawer locked") + 1, hint));
       await until(() => !d.app.drawer.desk!.layoutGet().locked, "the hint row's chip unlocks the drawer");
       expect(d.desk.layoutGet().locked).toBeFalsy();

@@ -13,7 +13,7 @@ describe.skipIf(!outliner)("showcase: zoom (PIE-780)", () => {
   const stage = () => h.S().stages.get(h.S().sel).top;
   const reader = () => stage().pane("plan").surface;
   const act = (action: string, args: Record<string, unknown> = {}) => stage().dispatch.act({ action, args, tile: "plan" }, USER) as Promise<any>;
-  const click = (x: number, y: number) => { h.press({ kind: "mouse", action: "down", button: 0, x, y } as never); h.press({ kind: "mouse", action: "up", button: 0, x, y } as never); };
+  const click = (x: number, y: number) => { (h.app as any).paint(true); h.press({ kind: "mouse", action: "down", button: 0, x, y } as never); h.press({ kind: "mouse", action: "up", button: 0, x, y } as never); };
   const open = async () => {
     // Each test starts on the whole note, its keys in the stage.
     if (h.S().focus === "stage" && reader().zoom) await act("element.zoom", { on: false });

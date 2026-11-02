@@ -287,13 +287,14 @@ export function ellipsizeApart(s: string, w: number, others: readonly string[]):
 /** Drawing only: keep the hidden value for Canvas and the composed frame's reveal. */
 export function drawEllipsized(s: string, w: number): string {
   const drawn = ellipsize(s, w);
-  return drawn === s || w < 1 ? drawn : fullText(s, drawn);
+  return drawn === s || w < 1 || s.includes(FULL_START) ? drawn : fullText(s, drawn);
 }
 
 function shortened(s: string, w: number, padded: boolean): string {
   if (w < 1) return "";
   const head = headOf(s, w - 1);
-  return fullText(s, head + (padded ? " ".repeat(Math.max(0, w - 1 - width(head))) : "") + "…") + (padded ? tagsIn(s.slice(head.length)) : "");
+  const drawn = head + (padded ? " ".repeat(Math.max(0, w - 1 - width(head))) : "") + "…";
+  return (s.includes(FULL_START) ? drawn : fullText(s, drawn)) + (padded ? tagsIn(s.slice(head.length)) : "");
 }
 
 /**

@@ -1124,7 +1124,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     const link = "https://my.ep0ch.sh/pub/o/garden/p/0b5c2d11-7e4f-4a3b-9c8d-1e2f3a4b5c6d";
     key(ctrlK); key({ kind: "paste", text: link });
     await (app as any).bar.settled(3000).catch(() => {});
-    const line = ((app as any).bar.draw(40, 30) as { lines: string[] }).lines.map(plain).find(l => l.includes("›"))!;
+    const line = ((app as any).bar.draw(40, 30) as { lines: string[] }).lines.map(plain).find(l => l.includes("›") && !l.includes("+"))!;   // the input's ›, not the scope strip's +N›
     // The line shows the link's last cells, the whole field's worth, not ten of them.
     expect(line).toContain(link.slice(-30));
     key({ kind: "esc" }); key({ kind: "esc" });

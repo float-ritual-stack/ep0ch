@@ -243,6 +243,17 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
       press({ kind: "mouse", action: "down", button: 0, x, y });
       press({ kind: "mouse", action: "up", button: 0, x, y });
     };
+    const choice = (value: string) => {
+      (app as any).paint(true);
+      for (let y = 0; y < app.t.rows; y++) for (let x = 0; x < app.t.cols; x++) {
+        const hit = app.overflow.stripAt(x, y), tab = hit && app.strips.state.rows.get(hit.id)?.tabs[hit.n];
+        if (tab?.hit?.action !== "form.set" || tab.hit.args?.field !== "mood" || tab.hit.args.value !== value) continue;
+        press({ kind: "mouse", action: "down", button: 0, x, y });
+        press({ kind: "mouse", action: "up", button: 0, x, y });
+        return;
+      }
+      throw new Error(`no drawn mood choice ${value}`);
+    };
     press({ kind: "enter" });
     click("│ pages", 15);
     press({ kind: "paste", text: "272" });
@@ -272,9 +283,9 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     press({ kind: "tab" });
     press({ kind: "left" });
     expect(screen()).toContain("(*) gripping");
-    click("( ) slow");
+    choice("slow");
     await until(() => screen().includes("(*) slow"), "clicked slow radio");
-    click("( ) gripping");
+    choice("gripping");
     await until(() => screen().includes("(*) gripping"), "clicked gripping radio");
     click("Log it │");
     const reading = seeded.notes.formReading.id;

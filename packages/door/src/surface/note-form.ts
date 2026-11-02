@@ -129,10 +129,10 @@ export class NoteForm {
       const d = this.draft(field.name), label = pad(field.name + (field.required ? " *" : ""), labelWidth);
       if (field.type === "choice") {
         const chips = field.options!.map(value => ({
-          label: tag(field.name, `(${d.text === value ? "*" : " "}) ${printable(value)}`, shownLine("form.set", { field: field.name, value })),
+          label: `(${d.text === value ? "*" : " "}) ${printable(value)}`,
           on: d.text === value, cursor: active && this.focus === index && d.text === value, hit: { action: "form.set", args: { field: field.name, value } },
         }));
-        for (const row of tabStrip(chips, { width: inner, lead: label })) line(row.text);
+        for (const row of tabStrip(chips, { width: inner, lead: label, tag: (drawn, i) => tag(field.name, drawn, shownLine("form.set", { field: field.name, value: field.options![i] })) })) line(row.text);
       } else {
         const box = field.type === "number" ? Math.min(10, room) : room;
         const cell = stringFrame(box + 2, { glyphs: LINE_BOX, pad: 0 });

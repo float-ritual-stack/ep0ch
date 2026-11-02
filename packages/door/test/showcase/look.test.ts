@@ -294,13 +294,12 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(screen()).toMatch(/─{20}/);
     const stage = S().stage(SECTIONS.findIndex(s => s.key === "style")).top;
     const tune = stage.pane("tune");
-    for (let n = 0; n < 7; n++) {
-      tune.key({ kind: "char", ch: "v" }, stage);
+    for (const [level, label] of [["page", "this page"], ["instance", "this tile"], ["list", "this list"]]) {
+      await app.act({ action: "tune.level", args: { level }, tile: "tune", as: "test-agent" });
       const narrow = tune.render(67, 45, true, stage).lines.map(plain).join("\n");
-      expect(narrow).toContain("this page");
-      expect(narrow).toContain("this tile");
-      expect(narrow).toContain("this list");
+      expect(narrow).toContain(label!);
     }
+    await app.act({ action: "tune.level", args: { level: "auto" }, tile: "tune", as: "test-agent" });
     await app.act({ action: "tune.group.pick", args: { group: "Header" }, tile: "tune", as: "test-agent" });
     expect(tune.render(67, 45, true, stage).lines.map(plain).join("\n")).toContain("Header (");
     await app.act({ action: "tune.group", args: { group: "Header" }, tile: "tune", as: "test-agent" });
@@ -622,7 +621,10 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     // The person, by keys: into the stage, [ ] to the first callout's icon, ⏎ opens the type choice, j ⏎ picks the next type.
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
-    ch("]");
+    await untilAsync(async () => {
+      ch("]"); screen();
+      return ((await app.act({ action: "elements", tile: "reader", as: "test-agent" })) as any).elements.some((e: any) => e.current && e.kind === "callout");
+    }, "the first callout selected");
     press({ kind: "enter" });
     await until(() => screen().includes("note · now") && screen().includes("make it start folded (-)"), "the type choice, every choice drawn", 5000);
     expect(screen()).toContain("note · now");
@@ -986,10 +988,13 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(await line(6)).toContain("[size::40] [align::center]");
     await app.act({ action: "image.undo", as: "test-agent" });
     expect(await line(6)).toContain("[size::25%] [align::center]");
-    // The person, by keys: into the stage, [ ] to the seed packet (the header's caption is the first element), + a step bigger.
+    // The person, by keys: into the stage, [ ] to the seed packet, + a step bigger.
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
-    ch("]"); ch("]");
+    await untilAsync(async () => {
+      ch("]"); screen();
+      return ((await app.act({ action: "elements", as: "test-agent" })) as any).elements.some((e: any) => e.current && e.label === "seed-packet.webp");
+    }, "the seed packet selected");
     ch("+");
     await reads(t => t.split("\n")[5]!.includes("[size::33%]"), "a step bigger: a third");
     press({ kind: "right" });
@@ -1048,7 +1053,12 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     process.env.DISPLAY = ":fictional"; delete process.env.SSH_CONNECTION; delete process.env.SSH_CLIENT; delete process.env.SSH_TTY;
     external.run = cmd => { opened.push(cmd); };
     try {
-      press({ kind: "enter" }); ch("]"); ch("]"); press({ kind: "enter" });
+      press({ kind: "enter" });
+      await untilAsync(async () => {
+        ch("]"); screen();
+        return ((await app.act({ action: "elements", as: "test-agent" })) as any).elements.some((e: any) => e.current && e.target === list[1].path);
+      }, "the pinned artifact selected");
+      press({ kind: "enter" });
       await until(() => opened.length === 1, "Enter opened the snapshot", 5000);
       expect(opened[0]!.at(-1)).toBe(pinned.url);
       const rows = sc.render(app).lines.map(plain);
