@@ -14,6 +14,7 @@ import { expandRuns, figureRow, splitOutsideLinks, numbersOf, parseFigureMarkdow
 import { readDate } from "./dates";
 import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
 import { pageLinkRanges } from "./link-syntax";
+import { headerLine } from "./header-line";
 import type { SiteLink } from "./site";
 
 /** A figure's props, from its YAML (or its Markdown, or the outline). */
@@ -106,6 +107,14 @@ export function figureSteps(lines: readonly string[]): { line: number; box: numb
 /** A note's child bullets as figure rows, as the caller asks the outline for them; null when it can't ask. */
 export type ChildRows = (note: string) => { rows: Row[]; waiting: boolean } | null;
 
+/** Keep child rows identical in the door, published figures and their Sources. */
+export function figureChildRows(blocks: readonly { id: string; text: string }[]): Row[] {
+  return blocks.flatMap(block => {
+    const prose = headerLine(block.text).prose.trim();
+    return prose ? [{ ...figureRow(prose), block: block.id }] : [];
+  });
+}
+
 /**
  * A value that starts with `{{` is YAML's flow map (`title: {{this.title}}` parses as an object, or fails), but it is a
  * `{{ }}` placeholder: quote such a plain value, so it reaches the figure as the text it was written as.
@@ -176,7 +185,7 @@ export function figureProps(kind: string, src: FigureSource, childRows?: ChildRo
 
 /** The data each figure draws, after its written rows and YAML have become props. */
 const FIGURE_ITEMS: Record<string, string> = {
-  timeline: "events", check: "items", rank: "items", funnel: "steps", stat: "items", kpi: "items", meter: "items",
+  timeline: "events", check: "items", rank: "items", waterfall: "items", funnel: "steps", stat: "items", kpi: "items", meter: "items",
   spark: "data", plot: "data", gantt: "items", tree: "nodes", table: "rows", tabs: "tabs", decision: "options",
   chat: "messages", keys: "keys", props: "props", example: "examples", uptime: "days", activity: "counts",
   calendar: "marks", annotate: "notes", quadrant: "points", matrix: "cells", compare: "entries", flow: "flows",

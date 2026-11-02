@@ -607,6 +607,12 @@ test("trash puts a note away against the revision read, restore brings it back; 
   expect(activity.entries.map((e: any) => [e.kind, e.block.id, e.actorId])).toEqual([["delete", dup.id, "garden-agent"]]);
   expect((await agent("trash", { ref: dup.id, revision: dup.revision })).json.outcome).toBe("unchanged");
 
+  for (const note of [dup, inside]) {
+    const read = await agent("read", { ref: note.id });
+    expect(read.exitCode, read.stderr).toBe(0);
+    expect(read.json).toMatchObject({ id: note.id, text: note.text, revision: store.require(note.id).revision });
+  }
+
   const nested = await agent("restore", { ref: inside.id });
   expect(nested.exitCode).toBe(1);
   expect(nested.stderr).toContain(`outline_restore ${dup.id}`);

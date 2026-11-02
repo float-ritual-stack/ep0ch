@@ -449,9 +449,10 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
 
 /** Notes as block records, a JSON array with its keys sorted (outline-core's recordJson); with `matches`, where a line-scope query matched each. */
 async function printRecords(board: SocketBoard & { address: BoardAddress }, ids: string[], io: Out, matches?: Map<string, PropertyMatch[]>): Promise<number> {
-  const { records } = await board.records(ids);
+  const { records, unavailable } = await board.records(ids);
   io.out(recordJson(records.map(record => ({ uri: blockUri(board, record.id), ...record, ...(matches?.get(record.id) ? { matches: matches.get(record.id)!.map(matchFacts) } : {}) }))).trimEnd());
-  return 0;
+  for (const { id } of unavailable) io.err(`ep0ch: no note ${id} in this outline`);
+  return unavailable.length ? 1 : 0;
 }
 
 /** Where a note matched, off its own header: "line 30 needs: sysop: …" (and "to do" on an open step). */
@@ -579,7 +580,7 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
         if ("error" in note) { io.err(`ep0ch: ${note.error}`); code = 1; return []; }
         return [note.id];
       });
-      if (found.length) await printRecords(board, found, io);
+      if (found.length) code = (await printRecords(board, found, io)) || code;
       else io.out("[]");
       return code;
     }

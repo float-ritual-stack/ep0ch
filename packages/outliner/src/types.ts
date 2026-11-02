@@ -2002,7 +2002,7 @@ export type OutlinerRequestAction =
   | ({ id: string; action: "blocks.query"; query: BlockSearchQuery; fields?: BlockReadField[] } & WatchFields)
   | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
-  | { id: string; action: "blocks.records"; ids: string[] }
+  | { id: string; action: "blocks.records"; ids: string[]; includeTrashed?: boolean }
   | ({ id: string; action: "blocks.grep" } & import("@ep0ch/outline-core/text-search").GrepQuery)
   | ({ id: string; action: "site.answer" } & import("@ep0ch/outline-core/site").SiteAnswerRequest & WatchFields)
   /** The call a `::use` line makes (PIE-533 S4): the template, the props resolved and checked, the chain to draw its body in. Reads only. */

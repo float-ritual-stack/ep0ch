@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { figureItemCount } from "../src/figure-props";
 import { outputRegionText } from "../src/output-region";
 import { slotArgument, sourceCalls, withSlotProps, yamlParams } from "../src/sources";
 
@@ -41,4 +42,8 @@ test("editing one slot leaves quoted words and spacing alone, and only the first
 test("code inside a component's body is still code", () => {
   const text = 'Note\n::if{where="x=y"}\n```\n::use{of=[[fake]]}\n```\n::';
   expect(sourceCalls(text).map(c => c.kind)).toEqual(["if"]);
+});
+
+test("Sources counts a written waterfall's items", () => {
+  expect(figureItemCount("waterfall", { items: [{ label: "Start", value: 10 }, { label: "Used", value: -3 }] })).toBe(2);
 });

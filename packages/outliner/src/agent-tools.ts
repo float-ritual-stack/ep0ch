@@ -401,7 +401,7 @@ export async function readBlock(
   // The children's text in all, so a read of a large subtree never floods the caller: past it, `complete` is false.
   let chars = READ_CHILDREN_MAX_CHARS;
   const resolved = await resolveRef(client, input.ref);
-  const { records } = await client.request<{ records: BlockRecord[] }>({ action: "blocks.records", ids: [resolved.id] });
+  const { records } = await client.request<{ records: BlockRecord[] }>({ action: "blocks.records", ids: [resolved.id], includeTrashed: true });
   const record = records[0]!;
   let budget = limit;
   let complete = true;
