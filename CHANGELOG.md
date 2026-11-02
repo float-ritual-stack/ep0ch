@@ -10,6 +10,8 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+- **Builders can run the checks again (PIE-1503):** the reader’s history controls live beside its history codec, bringing `note.ts` below its line cap without changing navigation. Run `bun run check`; no protocol, grammar or schema change.
+
 ### An action's preview shows the line to type (PIE-1502, #1180)
 
 - **In the power bar:** an action that takes arguments opens with "type glass.mode set=off|on|sticky · ⏎ for a form" and an Examples box of lines to click or Tab in; the shell form stays in `ep0ch actions --doc`.
