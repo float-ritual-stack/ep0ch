@@ -1,7 +1,7 @@
 // The door agent's environment, one set whichever way it's started (`^W o s` then claude, D's daily agent tile,
-// the ▲ claude chip, the Herdr launcher's pane), and what the chip and `ep0ch doctor` say a running agent knows.
+// the ▲ claude chip), and what the chip and `ep0ch doctor` say a running agent knows.
 // The agent is a stand-in: a script linked as `claude` by absolute path that writes its argv and EP0CH_
-// variables to a file, then waits. No real Claude, no real Herdr (a fake `herdr` records what it was asked).
+// variables to a file, then waits. No real Claude or Herdr.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +10,6 @@ import { App } from "../src/app";
 import { startControl } from "../src/control";
 import { AGENT_VARS, CARRIED_VARS, DOOR_START_VARS, doorAgents, judgeAgent, knowsLabel, modDirs, modStamp, procEnv, procStart } from "../src/desk/agent-env";
 import { claudeProjectDir } from "../src/desk/agent-sessions";
-import { agentConfig, findOrCreate, herdrRunner, runLine } from "../src/desk/herdr-agent";
 import { PtyPane, tileEnv } from "../src/desk/pty";
 import { DRAWER_TILE_ID } from "../src/drawer";
 import { doorAgentChecks } from "../src/setup/doctor";
@@ -71,10 +70,6 @@ beforeEach(async () => {
   writeFileSync(standin, `#!/bin/sh\n{ echo "argv: $*"; env | grep '^EP0CH_' | sort; echo "--"; } >> ${JSON.stringify(out)}\ntrap 'exit 0' TERM\nwhile :; do sleep 0.2; done\n`);
   chmodSync(standin, 0o755);
   process.env.EP0CH_DAILY_AGENT = standin;
-  const fake = join(dir, "herdr");
-  writeFileSync(fake, `#!/bin/sh\necho "$*" >> ${JSON.stringify(join(dir, "calls"))}\nexit 0\n`);
-  chmodSync(fake, 0o755);
-  process.env.EP0CH_HERDR_BIN = fake;
   mkdirSync(join(dir, "state"), { mode: 0o700 });
   control = await startControl({} as any, join(dir, "state", "door.sock"));
 });
@@ -109,7 +104,7 @@ async function tile(cmd: string[], label: string, tileId: string, place = "desk"
 }
 
 describe("one set of agent variables, whichever way the agent is started", () => {
-  test("a terminal tile (^W o s, then claude), the drawer's agent (▲ claude, D's daily tile) and the Herdr launcher's pane get the same set", async () => {
+  test("a terminal tile (^W o s, then claude), the drawer's agent (▲ claude, D's daily tile) get the same set", async () => {
     // 1. ^W o s, then claude: a terminal tile's program.
     const t = await tile([standin], "claude", "t5");
     const fromTile = starts()[0]!.env;
@@ -126,37 +121,17 @@ describe("one set of agent variables, whichever way the agent is started", () =>
       fromDrawer = starts()[0]!.env;
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
 
-    // 4. The Herdr launcher, in the drawer's tile: what it hands Herdr for the agent's pane (`--env`) and runs there.
-    const launcherEnv = tileEnv({ ...process.env, EP0CH_DAILY_AGENT: "/x/door-agent-herdr.ts", EP0CH_LANDING: "welcome" }, "claude", join(dir, "door.sock"), DRAWER_TILE_ID, "drawer");
-    const cfg = agentConfig(launcherEnv, () => null);
-    writeFileSync(join(dir, "herdr"), `#!/bin/sh\necho "$*" >> ${JSON.stringify(join(dir, "calls"))}\ncase "$1 $2" in\n "pane list") echo '{"result":{"panes":[]}}' ;;\n "workspace list") echo '{"result":{"workspaces":[]}}' ;;\n "workspace create") echo '{"result":{"root_pane":{"pane_id":"w9:p1","terminal_id":"term_new"}}}' ;;\n *) echo '{"result":{}}' ;;\nesac\n`);
-    await findOrCreate(herdrRunner(join(dir, "herdr")), cfg);
-    const calls = readFileSync(join(dir, "calls"), "utf8").trim().split("\n");
-    const create = calls.find(c => c.startsWith("workspace create"))!;
-    const fromHerdr = Object.fromEntries([...create.matchAll(/--env (EP0CH_\w+)=(.*?)(?= --|$)/g)].map(m => [m[1]!, m[2]!]));
-
     const keys = (e: Record<string, string>) => Object.keys(agentVarsOf(e)).sort();
     expect(keys(fromTile)).toEqual(["EP0CH_CONTROL", "EP0CH_IN_DOOR", "EP0CH_NEST", "EP0CH_STATE", "EP0CH_TILE", "EP0CH_TILE_ID"]);
     expect(keys(fromDrawer!)).toEqual(keys(fromTile));
-    expect(keys(fromHerdr)).toEqual(keys(fromTile));
-    for (const k of AGENT_VARS) expect(fromHerdr[k]).toBeTruthy();
 
     expect(fromTile).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: "t5", EP0CH_IN_DOOR: "1" });
     // An agent tab is told its own tile's id, as any terminal tile is (PIE-1331), and its nest says it's in the drawer.
     expect(fromDrawer!).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: expect.stringMatching(/^t-/), EP0CH_IN_DOOR: "1" });
     expect(fromDrawer!.EP0CH_NEST).toMatch(/door:\d+\/drawer\/t-[0-9a-f-]+:claude$/);
-    // In Herdr: the link the launcher points at the attached door, the tile's nest then the pane's layer.
-    expect(fromHerdr).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: DRAWER_TILE_ID, EP0CH_IN_DOOR: "1", EP0CH_CONTROL: cfg.link });
-    // A test door (its own EP0CH_STATE): its own pane, `door-claude-<hash>`, never the person's.
-    expect(cfg.pane).toMatch(/^door-claude-[0-9a-f]{8}$/);
-    expect(fromHerdr.EP0CH_NEST).toMatch(new RegExp(`door:\\d+/drawer/drawer\\.agent:claude › herdr:${cfg.pane}$`));
-    // The pane mustn't inherit how a door was started from the Herdr server's own environment.
-    const run = calls.find(c => c.startsWith("pane run"))!;
-    for (const k of DOOR_START_VARS) expect(run).toContain(`-u ${k}`);
-    expect(run).toMatch(/exec env (-u \w+ )+\S+ -l -c 'exec \/bin\/sh -c '\\''claude; c=\$\?; /);
   });
 
-  test("the door names its outline (EP0CH_WS, and EP0CH_MACHINE only on another machine) to a tile program, the drawer's agent and the Herdr launcher's pane (PIE-756)", async () => {
+  test("the door names its outline (EP0CH_WS, and EP0CH_MACHINE only on another machine) to a tile program, the drawer's agent (PIE-756)", async () => {
     process.env.EP0CH_WS = "garden"; process.env.EP0CH_MACHINE = "far-box";
     const t = await tile([standin], "claude", "t6");
     expect(starts()[0]!.env).toMatchObject({ EP0CH_WS: "garden", EP0CH_MACHINE: "far-box" });
@@ -167,10 +142,6 @@ describe("one set of agent variables, whichever way the agent is started", () =>
     expect(starts()[0]!.env.EP0CH_WS).toBe("garden");
     expect(starts()[0]!.env.EP0CH_MACHINE).toBeUndefined();
     local.kill();
-    // The launcher's env is the tile's; its pane gets the same two.
-    const launcherEnv = tileEnv(process.env, "claude", join(dir, "door.sock"), DRAWER_TILE_ID, "drawer");
-    expect(launcherEnv.EP0CH_WS).toBe("garden");
-    expect(agentConfig(launcherEnv, () => null).env).toMatchObject({ EP0CH_WS: "garden" });
   });
 
   test("a terminal tile opened without a name (^W o s) tells its program the name the desk gave it", async () => {
@@ -183,36 +154,6 @@ describe("one set of agent variables, whichever way the agent is started", () =>
       expect(starts()[0]!.env).toMatchObject({ EP0CH_TILE: "pty2", EP0CH_TILE_ID: "t12" });
       expect(starts()[0]!.env.EP0CH_NEST).toMatch(/\/t12:pty2$/);
     } finally { p.kill(); }
-  });
-
-  test("a launcher run by hand (no tile id) unsets any EP0CH_TILE_ID the Herdr server has", () => {
-    const cfg = agentConfig({ HOME: "/h", PWD: "/w", EP0CH_TILE: "claude" }, () => null);
-    expect(cfg.unset).toContain("EP0CH_TILE_ID");
-    expect(runLine(cfg, "sh")).toMatch(new RegExp(`^exec env ${cfg.unset.map(k => `-u ${k}`).join(" ")} sh -l -c 'exec /bin/sh -c '\\\\''claude; `));
-    expect(runLine({ agent: ["pi"], unset: [] }, "zsh")).toMatch(/^exec zsh -l -c 'exec \/bin\/sh -c '\\''pi; c=\$\?; .*exec zsh -l'\\'''$/);
-  });
-
-  test("a Herdr restart keeps the conversation only where the folder has one: a fresh claude runs bare, door-claude and a claude told what to resume are left alone", () => {
-    const home = mkdtempSync(join(tmpdir(), "ep0ch-launch-home-"));
-    const cwd = process.cwd(), env = (extra: Record<string, string> = {}) => ({ HOME: home, PWD: cwd, CLAUDE_CONFIG_DIR: join(home, ".claude"), EP0CH_AGENT_CONTINUE: "1", ...extra });
-    try {
-      // Nothing to continue here (no transcript): the restart is bare, not a claude that refuses --continue.
-      expect(agentConfig(env(), () => null).cmd).toBe("claude");
-      expect(agentConfig(env(), () => null, { agent: ["claude", "--model", "x"] }).cmd).toBe("claude --model x");
-      // A transcript with a turn in the launcher's folder: it continues.
-      const dir = claudeProjectDir(cwd, env(), home);
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, "a1.jsonl"), '{"type":"mode","mode":"normal","sessionId":"s1"}\n');
-      expect(agentConfig(env(), () => null).cmd).toBe("claude");
-      writeFileSync(join(dir, "a2.jsonl"), '{"type":"user","message":{"role":"user","content":"hi"},"sessionId":"s2"}\n');
-      expect(agentConfig(env(), () => null).cmd).toBe("claude --continue");
-      expect(agentConfig(env(), () => "/bin/door-claude").cmd).toBe("claude --continue");
-      expect(agentConfig(env(), () => null, { agent: ["claude", "-c"] }).cmd).toBe("claude -c");
-      expect(agentConfig(env(), () => null, { agent: ["claude", "--resume=abc"] }).cmd).toBe("claude --resume=abc");
-      expect(agentConfig(env(), () => null, { agent: ["door-claude"] }).cmd).toBe("door-claude");
-      // Not a restart: the command as given.
-      expect(agentConfig(env({ EP0CH_AGENT_CONTINUE: "" }), () => null).cmd).toBe("claude");
-    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });
 
@@ -239,7 +180,7 @@ describe("what a running agent knows", () => {
 
   test("judged: current (even with a newer mod, which reloads live), stale (an older door's missing variables), no door tools, unknown", () => {
     const mod = { dir: "/o/claude-mod", at: 1_000_000, file: "/o/claude-mod/hooks/register.ts" };
-    const full = { EP0CH_CONTROL: "/s/door.sock", EP0CH_TILE: "claude", EP0CH_TILE_ID: "t3", EP0CH_NEST: "door:1/daily/t3:claude", EP0CH_IN_DOOR: "1" };
+    const full = { EP0CH_CONTROL: "/s/door.sock", EP0CH_TILE: "claude", EP0CH_TILE_ID: "t3", EP0CH_NEST: "door:1/desk/t3:claude", EP0CH_IN_DOOR: "1" };
     expect(judgeAgent({ pid: 1, env: full, startedAt: 2_000_000 }, mod).state).toBe("current");
     expect(judgeAgent({ pid: 1, env: full, startedAt: 500_000 }, mod).state).toBe("current");
     // An older door's Herdr pane: EP0CH_CONTROL, EP0CH_TILE and EP0CH_NEST only.
@@ -320,23 +261,6 @@ describe("what a running agent knows", () => {
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
-  test("in Herdr, a restart without the agent's pid is refused: restarting only the attach would leave the old agent", async () => {
-    installMod();
-    const d = door();
-    try {
-      d.app.push(d.screen("main menu") as any);
-      d.key(ALT("a")); d.paint();
-      await until(() => d.app.drawer.tile?.running === true && starts().length === 1, "the drawer's agent");
-      await d.app.act({ action: "tile.herdr", tile: DRAWER_TILE_ID, args: { pane: "door-claude" }, as: "door" });
-      d.key({ kind: "char", ch: "]", ctrl: true }); d.key({ kind: "esc" });
-      d.app.drawer.tile!.personKeyAt = 0;
-      // The fake Herdr lists no pane labelled door-claude.
-      await expect(d.app.act({ action: "agent.restart", args: {}, as: "helper" })).rejects.toThrow(/couldn't find the agent's process in Herdr pane door-claude/);
-      expect(d.app.drawer.tile!.running).toBe(true);                      // nothing was signalled
-      expect(starts().length).toBe(1);
-    } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
-  });
-
   test("ep0ch doctor: a newer mod leaves a door agent current; a stale one (older door) is listed with the fix", async () => {
     const mod = installMod();
     const t = await tile([standin], "claude", "t7", "daily");
@@ -356,12 +280,11 @@ describe("what a running agent knows", () => {
       expect(check).toMatchObject({ group: "claude", name: `agent ${stale[0]!.pid}`, status: "behind" });
       expect(check!.detail).toContain("door:");
       expect(check!.fix).toContain("/exit");                              // a tile's own claude: restarted by hand
-      // An agent tab in a door's drawer (its nest's drawer layer), or the door's Herdr pane, is restarted by the chip.
+      // An agent tab in a door's drawer (its nest's drawer layer), is restarted by the chip.
       const drawer = (env: Record<string, string>) => doorAgentChecks({ claude: { agents: [{ pid: 9, cmd: "claude", env, startedAt: 0, knows: { state: "stale", why: "x" } }] } } as unknown as Facts)[0]!.fix;
       expect(drawer({ EP0CH_NEST: "door:1/drawer/t-1a2b3c4d-0000-4000-8000-000000000000:claude", EP0CH_TILE_ID: "t-1a2b3c4d-0000-4000-8000-000000000000" })).toContain("⟳");
       expect(drawer({ EP0CH_NEST: "door:1/desk/t-1a2b3c4d-0000-4000-8000-000000000000:claude" })).toContain("/exit");
-      expect(drawer({ EP0CH_NEST: "door:1/daily/t3:claude › herdr:door-claude" })).toContain("⟳");
-      expect(doorAgentChecks({ claude: { agents: [] } } as unknown as Facts)).toEqual([{ group: "claude", name: "door agents", status: "info", detail: "no Claude running in a door tile or the door's Herdr pane" }]);
+      expect(doorAgentChecks({ claude: { agents: [] } } as unknown as Facts)).toEqual([{ group: "claude", name: "door agents", status: "info", detail: "no Claude running in a door tile" }]);
       expect(doorAgentChecks({ claude: {} } as unknown as Facts)).toEqual([]);
     } finally { t.kill(); }
   });

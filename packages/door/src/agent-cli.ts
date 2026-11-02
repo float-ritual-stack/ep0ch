@@ -1,9 +1,13 @@
 // `ep0ch agent` (PIE-737): start an agent session in this folder, or attach the one running here, in the door on this
 // folder's outline. It is `act agent.start` on that door (src/drawer.ts), as an agent: the session opens as a tab in the
 // drawer, behind the one shown, and the person's keys stay where they are; the door says it on its status bar.
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import { nearestDotEp0ch } from "@ep0ch/outline-core/outline-location";
 import { ask } from "./jsonl";
 import { resolveDoor } from "./door-resolve";
+import { HC_NAME, parseAgentsToml, startNamedAgent, type NamedAgent } from "./desk/named-agent";
 
 export const AGENT_USAGE = `  ep0ch agent ls [--machine <ssh-name>] [--json]
                                    the Claude Code sessions here (or on that machine, over ssh): name, short id, kind
@@ -31,6 +35,11 @@ export const AGENT_USAGE = `  ep0ch agent ls [--machine <ssh-name>] [--json]
                                    nothing is stopped
   ep0ch agent use <name> [--everywhere]
                                    choose and restart the drawer agent for this outline, or every outline
+  ep0ch agent start <persona> [--on <machine>] [--cwd <folder>] [--program <cmd>] [--outline <name>]
+                                   start that persona's hc terminal, or say it is already live. One launch
+                                   line (hc run --bg --no-parent --keep --name <persona>). Flags left out
+                                   come from the nearest .ep0ch/agents.toml. A live terminal is not started
+                                   again, so a phone session stays up
   ep0ch agent [--program <name>] [--in <folder>] [--persona <name>] [--new] [--json]
                                    start an agent session in this folder (or --in one), or attach the one already
                                    running there: the same program in the same folder is the same session. It opens
@@ -84,6 +93,7 @@ export async function agentCommand(argv: readonly string[], env: Record<string, 
     if (!r?.ok) { console.error(`ep0ch agent: ${r?.error ?? "no door answered"}`); return 1; }
     console.log(JSON.stringify(r.result)); return 0;
   }
+  if (argv[0] === "start") return agentStart(argv.slice(1), env, cwd);
   const parsed = agentArgs(argv, cwd);
   if ("error" in parsed) { console.error(parsed.error); return 2; }
   const door = await resolveDoor(env, cwd);
@@ -95,5 +105,47 @@ export async function agentCommand(argv: readonly string[], env: Record<string, 
   if (parsed.json) console.log(JSON.stringify(out));
   else if (out.attached) console.log(`${out.id} runs already (${out.where}) · alt+g in the door lists it: ⏎ jumps to it`);
   else console.log(`started ${out.program} in ${out.folder}${out.resumed ? ", continuing its last conversation there" : ""} · a tab in the door's drawer (${out.tile}) · alt+a shows it, alt+g lists every session`);
+  return 0;
+}
+
+const START_USAGE = "ep0ch agent start <persona> [--on <machine>] [--cwd <folder>] [--program <cmd>] [--outline <name>]";
+
+/** The one `hc run` line. Flags left out are the persona's row in the nearest `.ep0ch/agents.toml`. */
+async function agentStart(argv: readonly string[], env: Record<string, string | undefined>, cwd: string): Promise<number> {
+  let persona = "", machine: string | undefined, folder: string | undefined, program: string | undefined, outline: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    const value = () => {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith("--")) throw new Error(`${a} needs a value`);
+      return v;
+    };
+    try {
+      if (a === "--on") machine = value();
+      else if (a === "--cwd") folder = value();
+      else if (a === "--program") program = value();
+      else if (a === "--outline") outline = value();
+      else if (a.startsWith("--")) throw new Error(`no flag ${a}`);
+      else if (!persona) persona = a;
+      else throw new Error(`unexpected ${a}`);
+    } catch (e) { console.error(`ep0ch agent start: ${(e as Error).message}\n${START_USAGE}`); return 2; }
+  }
+  if (!persona) { console.error(START_USAGE); return 2; }
+  if (!HC_NAME.test(persona)) { console.error(`ep0ch agent start: ${JSON.stringify(persona)} is not an hc name (lowercase letters, digits, _ and -, at most 32)`); return 2; }
+  const home = env.HOME ?? homedir();
+  const readFile = (p: string) => { try { return readFileSync(p, "utf8"); } catch { return undefined; } };
+  let agent: NamedAgent;
+  try {
+    const dot = nearestDotEp0ch(cwd, { readFile, exists: existsSync });
+    const file = dot ? join(dot.folder, ".ep0ch", "agents.toml") : null;
+    const text = file ? readFile(file) : undefined;
+    const row = text !== undefined ? parseAgentsToml(text, file!, dot!.name, home).find(r => r.persona === persona) : undefined;
+    const ws = outline ?? row?.outline ?? dot?.name;
+    if (!ws || (!row && !folder)) throw new Error(`no launch line for ${persona}. Add an [[agent]] row in .ep0ch/agents.toml, or pass --cwd <folder> --outline <name>.`);
+    agent = { persona, machine: machine ?? row?.machine ?? "", folder: folder ?? row!.folder, program: program ?? row?.program ?? "claude", outline: ws, ...(dot?.machine ? { outlineMachine: dot.machine } : {}) };
+  } catch (e) { console.error(`ep0ch agent start: ${(e as Error).message}`); return 2; }
+  const r = await startNamedAgent(agent, env);
+  if (!r.ok) { console.error(r.error); return 1; }
+  console.log(r.started ? `started ${agent.persona} at ${r.address}` : `${agent.persona} already live at ${r.address}`);
   return 0;
 }

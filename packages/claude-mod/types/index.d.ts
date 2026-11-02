@@ -93,7 +93,7 @@ export type WhereFacts = {
    */
   here: { machine: string | null; folder: string | null; persona: { name: string; source: 'OUTLINER_ACTOR' | 'EP0CH_AGENT' | 'file'; file: string | null } | null }
   /** The innermost Herdr pane: its label when Herdr gave one, and whether it is the door agent's own pane. */
-  herdr: { pane: string; label: string | null; agent: boolean } | null
+  herdr: { pane: string; label: string | null } | null
   door: null | {
     /** A door answers on EP0CH_CONTROL now. */
     answers: boolean

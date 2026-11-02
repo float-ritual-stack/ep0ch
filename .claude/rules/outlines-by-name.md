@@ -3,7 +3,7 @@ paths:
   - "packages/outline-core/src/{outline-location,machine}.ts"
   - "packages/door/src/{home,pick,where,outlines,machine,discover,main,socket,control}.ts"
   - "packages/door/src/{session,setup}/**"
-  - "packages/door/src/desk/{agent-env,drawer-program,herdr-agent}.ts"
+  - "packages/door/src/desk/{agent-env,drawer-program,named-agent,named-agent-pane}.ts"
   - "packages/outliner/src/{choose-outline-main,outline-chooser,machine-forward,machine-name,paths,cli,client,outline-host,outline-host-client,herdr-open}.ts"
   - "packages/claude-mod/hooks/**"
 ---

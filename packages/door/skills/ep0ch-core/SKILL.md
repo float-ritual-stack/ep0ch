@@ -190,10 +190,8 @@ tmux kill-session -t try; ../../scripts/agent-env me --clean   # then check no h
 
 - **Never the person's agent.** Start every test door through `../../scripts/agent-env` or `scripts/test-door-env.sh` (or
   `env -u EP0CH_DAILY_AGENT -u EP0CH_DAILY_CWD -u EP0CH_LANDING -u EP0CH_NOW_PAGE
-  EP0CH_DAILY_AGENT=sh …`, with any other inherited `EP0CH_*` unset too). As a backstop, a door on its own
-  `EP0CH_STATE` or `EP0CH_CONTROL` refuses to start the Herdr daily agent (`doorScope`, src/desk/herdr-agent.ts);
-  `EP0CH_HERDR_SCOPED=1` gives it one of its own (`door-<outline>-<hash>`), never the person's. Never attach to or type
-  into a Herdr pane you didn't make; kill only your own pids.
+  EP0CH_DAILY_AGENT=sh …`, with any other inherited `EP0CH_*` unset too). A named-agent test also needs a private `HC_SESSION` and private `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and
+  `XDG_RUNTIME_DIR`; the **named-agent** showcase makes these itself. Remove the scratch shell override only inside that private core. Never attach to or type into a Herdr pane or an hc terminal you didn't make; kill only your own pids.
 - **Short paths.** Unix sockets fail past about 104 bytes. The scratchpad folders agents get are too long:
   agent-env's `~/.agent-env/<name>/` is short, or use `mktemp -d /tmp/…`.
 - **Cleaning up.** `scripts/scratch-clean <dir>…` removes a `mktemp -d`, an agent-env tmp folder or a finished worktree

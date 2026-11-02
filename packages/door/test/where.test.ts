@@ -5,7 +5,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { actAs } from "../src/control";
-import { agentConfig } from "../src/desk/herdr-agent";
 import { tileEnv } from "../src/desk/pty";
 import { loginShell, shellCwd, shellEnv } from "../src/drop";
 import { appendNest, doorLayer, NEST_MAX, NEST_SEP, nestLayers, outerLayers, parseLayer } from "../src/nest";
@@ -79,10 +78,6 @@ describe("EP0CH_NEST", () => {
     expect(env.EP0CH_PLACE).toBe("/state/sessions/local/garden");
     // A door serving elsewhere (a test door's moved socket, the home base) gives none, and an inherited one goes.
     expect(tileEnv({ EP0CH_PLACE: "/state/sessions/local/outer" }, "claude", "/tmp/test/door.sock", "t1", "desk", 10, null).EP0CH_PLACE).toBeUndefined();
-    // The Herdr agent's pane never has one: its EP0CH_CONTROL is a link each door re-points.
-    const c = agentConfig({ HOME: "/home/someone", EP0CH_TILE: "claude", EP0CH_PLACE: "/state/sessions/local/garden" }, () => null);
-    expect(c.env.EP0CH_PLACE).toBeUndefined();
-    expect(c.unset).toContain("EP0CH_PLACE");
   });
 
   test("door in Herdr in door: the inner Herdr pane is recorded between the doors", () => {
@@ -91,15 +86,10 @@ describe("EP0CH_NEST", () => {
     const inner = tileEnv({ ...outer, HERDR_PANE_ID: "w1:p4", HERDR_WORKSPACE_ID: "w1" }, "claude", "/c/inner.sock", "t1", "desk", 200);
     expect(inner.EP0CH_NEST).toBe("ssh:pts/5 › herdr:w1:p1 › door:100/desk/t1:shell › herdr:w1:p4 › door:200/desk/t1:claude");
   });
-
-  test("the Herdr launcher's pane gets the tile's nest and its own label", () => {
-    const c = agentConfig({ HOME: "/home/someone", PWD: "/somewhere", EP0CH_TILE: "claude", EP0CH_NEST: "ssh:pts/5 › door:77/daily/t3:claude" }, () => null);
-    expect(c.env.EP0CH_NEST).toBe(`ssh:pts/5${NEST_SEP}door:77/daily/t3:claude${NEST_SEP}herdr:door-claude`);
-  });
 });
 
 /** A desk's `peek`, as a door answers it: `focus` has the keys, `typing` the terminal typed in. */
-const deskPeek = (o: { pid?: number; focus: string; typing?: string | null; tiles: { id?: string; name: string; herdr?: string; pid?: number; agents?: string }[]; screen?: string; limits?: object }) => ({
+const deskPeek = (o: { pid?: number; focus: string; typing?: string | null; tiles: { id?: string; name: string; pid?: number; agents?: string }[]; screen?: string; limits?: object }) => ({
   screen: {
     screen: o.screen ?? "Desk", stack: ["Main menu", "Desk"], ...(o.pid ? { pid: o.pid } : {}), outline: "garden", workspace: "/ws",
     // Where the person is, as App.person answers it: the agent rules' answer, which `where` reads.
@@ -107,7 +97,7 @@ const deskPeek = (o: { pid?: number; focus: string; typing?: string | null; tile
     state: o.screen && o.screen !== "Desk" ? { kind: "menu" } : {
       kind: "desk", focusName: o.focus,
       panes: o.tiles.map((t, i) => ({ n: i + 1, name: t.name, ...(t.id ? { tile: t.id } : {}), kind: "pty", focused: t.name === o.focus, shown: true,
-        terminal: { pid: t.pid ?? 5000 + i }, ...(t.herdr ? { herdr: { pane: t.herdr } } : {}), ...(t.agents ? { agents: t.agents, agentsBy: "tile" } : {}) })),
+        terminal: { pid: t.pid ?? 5000 + i }, ...(t.agents ? { agents: t.agents, agentsBy: "tile" } : {}) })),
       ...(o.limits ?? {}),
     },
   },
@@ -128,14 +118,14 @@ function deps(env: Record<string, string>, o: { peek?: any; panes?: any[] | null
 
 describe("ep0ch where", () => {
   test("the facts the Claude mod's binding card reads: this machine and folder, the door's outline and its machine, the Herdr pane", async () => {
-    const env = { EP0CH_NEST: "ssh:pts/5 › door:30/daily/drawer.agent:claude › herdr:door-claude", EP0CH_CONTROL: "/s/agent-door-claude.sock", EP0CH_TILE: "claude" };
-    const peek = { screen: { screen: "Daily", pid: 30, outline: "orchard", host: "far-box", machine: "far", drawer: { tile: { tile: "drawer.agent", name: "claude" }, shown: true, herdr: { pane: "door-claude" } }, state: { kind: "daily" } } };
+    const env = { EP0CH_NEST: "ssh:pts/5 › herdr:w4:p1 › door:30/daily/drawer.agent:claude", EP0CH_CONTROL: "/s/agent-door-claude.sock", EP0CH_TILE: "claude" };
+    const peek = { screen: { screen: "Daily", pid: 30, outline: "orchard", host: "far-box", machine: "far", drawer: { tile: { tile: "drawer.agent", name: "claude" }, shown: true }, state: { kind: "daily" } } };
     const persona = { name: "testbot", source: "file" as const, file: "/work/notes/.ep0ch" };
     const d = { ...deps(env, { alive: [30], ttys: ["pts/5"], panes: [{ pane_id: "w4:p1", label: "door-claude" }], peek }), hostname: () => "near-box", cwd: () => "/work/notes", persona: () => persona };
     const w = await where(d);
     expect(w.here).toEqual({ machine: "near-box", folder: "/work/notes", persona });
     expect(formatWhere(w)).toContain("an agent here writes as testbot (agent in /work/notes/.ep0ch)");
-    expect(w.herdr).toEqual({ pane: "door-claude", label: "door-claude", agent: true });
+    expect(w.herdr).toEqual({ pane: "w4:p1", label: "door-claude" });
     expect(w.door).toMatchObject({ outline: "orchard", host: "far-box", machine: "far", tile: { drawer: true } });
     expect(formatWhere(w)).toContain("this runs on near-box in /work/notes");
     // A door on this machine's host names no machine; outside Herdr there is no pane.
@@ -289,24 +279,6 @@ describe("ep0ch where", () => {
     expect(w.layers.map(l => [l.kind, l.live])).toEqual([["ssh", true], ["herdr", true], ["door", true], ["tile", true]]);
     expect(w.layers[1]!.why).toBe("in Herdr · focused");
     expect(d.asked).toEqual([["pane", "list"]]);
-  });
-
-  test("the Herdr agent: its pane, and the tile that shows it now, even in another door than the one that made it", async () => {
-    const env = { EP0CH_NEST: "ssh:pts/5 › door:30/daily/t3:claude › herdr:door-claude", EP0CH_CONTROL: "/s/agent-door-claude.sock", EP0CH_TILE: "claude", HERDR_PANE_ID: "w4:p1" };
-    const peek = deskPeek({ pid: 31, focus: "claude", typing: "claude", tiles: [{ id: "t2", name: "middle" }, { id: "t5", name: "claude", herdr: "door-claude" }] });
-    const w = await where(deps(env, { alive: [31], ttys: ["pts/5"], panes: [{ pane_id: "w4:p1", label: "door-claude" }], peek }));
-    expect(w.nest).toBe("ssh:pts/5 › door:30/daily/t3:claude › herdr:door-claude");
-    expect(w.layers.map(l => [l.kind, l.live])).toEqual([["ssh", true], ["door", false], ["herdr", true], ["tile", true]]);
-    expect(w.layers[2]!.why).toBe("in Herdr (w4:p1)");
-    expect(w.layers[3]!.label).toBe("shown in tile t5 claude of door 31");
-    expect(w.door).toMatchObject({ pid: 31, moved: true, tile: { id: "t5", found: true } });
-    expect(w.keys).toMatchObject({ mine: true, typing: true, text: "the person is typing in this tile (t5 claude)" });
-  });
-
-  test("the Herdr agent with no door showing it: it runs on in Herdr", async () => {
-    const env = { EP0CH_NEST: "door:30/daily/t3:claude › herdr:door-claude", EP0CH_CONTROL: "/s/agent-door-claude.sock" };
-    const w = await where(deps(env, { alive: [], panes: [{ pane_id: "w4:p1", label: "door-claude" }] }));
-    expect(w.layers.at(-1)).toMatchObject({ kind: "tile", live: null, why: "no door answers on EP0CH_CONTROL (the agent runs on in Herdr)" });
   });
 
   test("a door older than EP0CH_NEST, pid and tile ids: the tile by EP0CH_TILE, and what couldn't be checked said", async () => {

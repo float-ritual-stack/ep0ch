@@ -19,11 +19,11 @@ const boundTo = (outline: string | null, machine?: string) => (folder: string) =
   : JSON.stringify({ bound: false, folder })
 
 /** What `ep0ch where --json` says: this machine and folder, and the door around Claude, if any. */
-function whereJson(door: null | { outline: string; machine?: string; host: string; drawer?: boolean; tile?: string }, herdr: null | { pane: string; label?: string; agent?: boolean } = null): string {
+function whereJson(door: null | { outline: string; machine?: string; host: string; drawer?: boolean; tile?: string }, herdr: null | { pane: string; label?: string } = null): string {
   return JSON.stringify({
     inDoor: !!door,
     here: { machine: 'near-box', folder: FOLDER, persona: null },
-    herdr: herdr ? { pane: herdr.pane, label: herdr.label ?? null, agent: !!herdr.agent } : null,
+    herdr: herdr ? { pane: herdr.pane, label: herdr.label ?? null } : null,
     door: door ? {
       pid: 4242, control: '/run/door.sock', answers: true, screen: 'Daily', outline: door.outline, workspace: '/outlines/x',
       host: door.host, machine: door.machine ?? null, moved: false,
@@ -90,13 +90,13 @@ const DOOR: Case = { env: { EP0CH_CONTROL: '/run/door.sock', EP0CH_NEST: 'door:4
 const REMOTE: Case = {
   env: { EP0CH_CONTROL: '/run/door.sock', EP0CH_NEST: 'door:4242/drawer/drawer.agent:claude › herdr:door-claude' },
   bound: boundTo('harbor', 'far'),
-  where: whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', drawer: true }, { pane: 'door-claude', label: 'door-claude', agent: true }),
+  where: whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', drawer: true }, { pane: 'door-claude', label: 'door-claude' }),
 }
 // A door the folder reaches without Claude sitting in one of its tiles (no EP0CH_CONTROL): the folder's binding stands.
 const MISMATCH: Case = {
   env: { EP0CH_NEST: 'door:4242/drawer/drawer.agent:claude › herdr:door-claude' },
   bound: boundTo('garden'),
-  where: whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', drawer: true }, { pane: 'door-claude', label: 'door-claude', agent: true }),
+  where: whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', drawer: true }, { pane: 'door-claude', label: 'door-claude' }),
 }
 const UNBOUND: Case = { bound: boundTo(null), where: whereJson(null, { pane: 'w1:p3' }) }
 const UNBOUND_IN_DOOR: Case = { ...MISMATCH, bound: boundTo(null) }
@@ -136,7 +136,7 @@ describe('where this Claude is bound: the card, the status line, the context', (
       await s.clock.settle()
       const text = await cardText(await band($, surface))
       expect(text).toContain('harbor, on far (another machine)')
-      expect(text).toContain('in the drawer of the harbor door · its own Herdr pane door-claude')
+      expect(text).toContain('in the drawer of the harbor door · Herdr pane door-claude')
       expect(text).toContain("the harbor door's outline is on far (far-box)")
       expect(s.statuses.at(-1)).toBe('outline: harbor @ far · folder, door')
     })
@@ -322,12 +322,12 @@ describe('where this Claude is bound: more cases', () => {
 })
 
 describe('binding helpers', () => {
-  const where = whereFactsOf(whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', drawer: true }, { pane: 'door-claude', label: 'door-claude', agent: true }))!
+  const where = whereFactsOf(whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', drawer: true }, { pane: 'door-claude', label: 'door-claude' }))!
   const facts = (folder: BindingFacts['folder'], w: WhereFacts | null = where): BindingFacts => ({ folder, where: w, cwd: FOLDER, home: HOME, doorTools: true })
 
   test('where --json is read for its facts; anything else is not one', () => {
     expect(where).toEqual({
-      inDoor: true, here: { machine: 'near-box', folder: FOLDER, persona: null }, herdr: { pane: 'door-claude', label: 'door-claude', agent: true },
+      inDoor: true, here: { machine: 'near-box', folder: FOLDER, persona: null }, herdr: { pane: 'door-claude', label: 'door-claude' },
       door: { answers: true, outline: 'harbor', machine: 'far', host: 'far-box', drawer: true, tile: 'claude', stale: false },
     })
     expect(whereFactsOf('usage: ep0ch …')).toBeNull()

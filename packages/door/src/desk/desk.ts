@@ -108,7 +108,7 @@ import { prop } from "../props";
 /**
  * desk.json: the layout tree of tile specs (pairs as `ratio a b`, what every door reads), the focus, the open
  * rule; and (PIE-491) the layout's revision and the next tile and split ids, so a restarted door never gives
- * out a revision or an id an agent may still hold from before (a Herdr agent outlives the door).
+ * out a revision or an id an agent may still hold from before (a named agent outlives the door).
  */
 /**
  * How a desk is made beyond its spec. `layout`: a named layout to lay it out as. `given`: tiles the host made, by name
@@ -3253,7 +3253,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private choosingReader(): ReaderPane | undefined { return this.namedReaders().find(r => r.pane.surface.choosing && !this.contentCover(r.id).fold)?.pane; }
 
   /** The person is in a terminal tile (its program running, or exited and waiting for ⏎ or ctrl+]): every key is the tile's, ctrl+c included. */
-  rawKeys(): boolean { return !!this.ptyIn && this.panes.get(this.focus) === this.ptyIn; }
+  rawKeys(): boolean { return !!this.ptyIn && this.ptyIn.showsTerminal && this.panes.get(this.focus) === this.ptyIn; }
   /** The person is in a terminal tile whose program exited: its keys wait for ⏎ (again), ^W x (closed), Esc or ctrl+]. */
   waitsOnExit(): boolean { return this.rawKeys() && !this.ptyIn!.running; }
   /** What an exited terminal tile `sel` offers: ⏎ runs it again, ^W x closes it (where it may close), ctrl+] leaves (in the drawer, Esc too). */
@@ -3574,7 +3574,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Quitting the door ends the desk's programs: said first, and asked twice (App). Leaving the desk doesn't. */
   leaveWarning(): string | null {
     // An agent attached from Herdr keeps running in its pane when the door quits: nothing of it ends here.
-    const r = this.running().filter(p => !p.herdr);
+    const r = this.running().filter(p => !p.named);
     return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "is" : "are"} running in a tile · quitting ends ${r.length === 1 ? "it" : "them"} · again within 3s quits` : null;
   }
 
@@ -6459,15 +6459,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!p.running) throw new ActionRefused(`${name}'s program isn't running · tile.restart runs it again`);
     p.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
     return { ...this.tileAnswer(this.tile(name).id), chars: text.length };
-  }
-
-  herdrTerminal(name: string, p: PtyPane, pane: string | undefined, on: boolean | undefined, _actor: Actor, agent?: string): TileDone {
-    if (on === false) { p.herdr = null; return { ...this.tileAnswer(this.tile(name).id), herdr: null }; }
-    if (!pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
-    if (!p.running) throw new ActionRefused(`${name}'s program isn't running`);
-    p.herdr = { pane, ...(agent ? { name: agent } : {}) };
-    this.redraw();
-    return { ...this.tileAnswer(this.tile(name).id), herdr: p.herdr };
   }
 
   /**

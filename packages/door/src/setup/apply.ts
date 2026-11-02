@@ -23,6 +23,7 @@ import { sshBin } from "../machine";
 import { copyName, type CopyUpdate, newsWords, removeCommand } from "@ep0ch/outliner/extension-update";
 import { prepareInstallBackups, pruneInstallBackups } from "./install-backups";
 import { startDeployRecord } from "./deploy-record";
+import { ensureNamedAgents } from "../desk/named-agent";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--ws <outline>] [--machine <ssh-name>] [--machine-name <name>] [--dials-in | --no-dials-in] [--no-allow] [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client] [--sha <origin-main-sha>]";
@@ -186,6 +187,14 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
   const say = (s: string) => { record(s); show(`    ✓ ${s}`); };
   const child = task.child;
   switch (step.id) {
+    case "named-agents": {
+      const here = f.machineName?.chosen || f.machineName?.configured || f.machineName?.env || f.machineName?.suggested || "";
+      const result = await ensureNamedAgents({ home: f.home, here, extra: [f.repo.root], env });
+      for (const line of result.lines) { record(line); show(`    ${line}`); }
+      if (!result.ok) throw new StepFailed("some named agents could not start", result.lines.join("; "));
+      if (!result.lines.length) say("no named agents declared for this machine");
+      return;
+    }
     case "with-secrets": {
       const w = f.withSecrets!;
       mkdirSync(dirname(w.installed), { recursive: true });

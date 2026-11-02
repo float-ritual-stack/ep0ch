@@ -24,10 +24,6 @@ describe("the drawer's own program", () => {
     expect(set.cmd).toEqual(["claude", "--model", "x"]);
     expect(set.name).toBe("claude");
     expect(set.programWhy).toContain("remove: export EP0CH_DAILY_AGENT='claude --model x'");
-    // The Herdr launcher is a Claude too; another program is its own name.
-    expect(programName(["/x/scripts/door-agent-herdr.ts", "--agent", "codex"])).toBe("codex");
-    expect(programName(["/x/scripts/door-agent-herdr.ts"])).toBe("claude");
-    expect(programName(["bun", "/x/scripts/door-agent-herdr.ts"])).toBe("claude");
     expect(programName(["htop"])).toBe("htop");
   });
 
@@ -60,21 +56,18 @@ describe("the drawer's agent: chosen per session, detected, started inside the p
     expect(program()).toMatchObject({ cmd: ["/bin/zsh"], name: "shell", from: "none" });
     writeFileSync(join(state, "drawer-agent.json"), JSON.stringify({ agent: "pi" }));
     expect(program()).toMatchObject({ cmd: ["pi"], name: "pi", from: "default", programWhy: "your default (pi)" });
-    writeFileSync(join(session, "drawer-agent.json"), JSON.stringify({ agent: "codex", herdr: true }));
+    writeFileSync(join(session, "drawer-agent.json"), JSON.stringify({ agent: "codex" }));
     const p = program();
-    expect(p).toMatchObject({ name: "codex", herdr: true, from: "session", programWhy: "chosen for allotment (codex in Herdr)" });
-    // In Herdr: the launcher, told this session (its own pane) and the agent, plain.
-    expect(p.cmd.slice(1)).toEqual(["--session", "allotment", "--agent", "codex"]);
+    expect(p.cmd).toEqual(["codex"]);
+    expect(p.name).toBe("codex");
+    expect(p.from).toBe("session");
     expect(program({ EP0CH_DAILY_AGENT: "claude" })).toMatchObject({ cmd: ["claude"], from: "env" });
-    // The launcher named outright is still told this session.
-    expect(program({ EP0CH_DAILY_AGENT: "/x/scripts/door-agent-herdr.ts" }).cmd).toEqual(["/x/scripts/door-agent-herdr.ts", "--session", "allotment"]);
   });
 
-  test("the agents offered: a shell first, then those on PATH, each in Herdr too when Herdr is installed", () => {
+  test("the agents offered: a shell first, then those on PATH. The Herdr launcher is not a choice", () => {
     const on = new Set(["claude", "pi", "herdr"]);
     const a = detectAgents({ env, which: c => (on.has(c) ? `/usr/bin/${c}` : null), session: "allotment@far" });
-    expect(a.map(x => `${x.name}${x.herdr ? "/herdr" : ""}`)).toEqual(["shell", "claude", "pi", "claude/herdr", "pi/herdr"]);
-    expect(a.find(x => x.name === "pi" && x.herdr)!.cmd.slice(1)).toEqual(["--session", "allotment@far", "--agent", "pi"]);
+    expect(a.map(x => x.name)).toEqual(["shell", "claude", "pi"]);
     expect(detectAgents({ env, which: () => null }).map(x => x.name)).toEqual(["shell"]);
   });
 
@@ -82,8 +75,6 @@ describe("the drawer's agent: chosen per session, detected, started inside the p
     expect(isAgentCmd(["claude", "--model", "x"])).toBe(true);
     expect(isAgentCmd(["/opt/bin/codex"])).toBe(true);
     expect(isAgentCmd(["nvim", "a.md"])).toBe(false);
-    // The Herdr launcher only attaches; its pane wraps the agent: never a shell around it here.
-    expect(isAgentCmd(["bun", "/x/scripts/door-agent-herdr.ts", "--agent", "claude"])).toBe(false);
     const argv = inLoginShell(["claude", "--model", "it's"], "/bin/zsh");
     expect(argv.slice(0, 3)).toEqual(["/bin/zsh", "-l", "-c"]);
     expect(argv[3]).toStartWith("exec /bin/sh -c ");          // any login shell (fish too) only runs the exec; sh runs the rest
@@ -95,12 +86,20 @@ describe("the drawer's agent: chosen per session, detected, started inside the p
   });
 });
 
-describe("the Herdr launcher named outright", () => {
-  test("EP0CH_DAILY_AGENT=\"bun …/door-agent-herdr.ts\": the session goes after the script, where the launcher reads it, not to bun", () => {
-    const p = drawerProgram({ env: { EP0CH_DAILY_AGENT: "bun /x/scripts/door-agent-herdr.ts --agent codex", EP0CH_OUTLINES: outlines }, outline: "allotment", start: root, home });
-    expect(p.cmd).toEqual(["bun", "/x/scripts/door-agent-herdr.ts", "--session", "allotment", "--agent", "codex"]);
-    const bare = drawerProgram({ env: { EP0CH_DAILY_AGENT: "/x/scripts/door-agent-herdr.ts", EP0CH_OUTLINES: outlines }, outline: "allotment", start: root, home });
-    expect(bare.cmd).toEqual(["/x/scripts/door-agent-herdr.ts", "--session", "allotment"]);
+describe("a named agent", () => {
+  test("the project names its kept terminal and an explicit scratch shell still wins", () => {
+    const named = join(root, "named");
+    mkdirSync(join(named, ".ep0ch"), { recursive: true });
+    writeFileSync(join(named, ".ep0ch", "config.toml"), 'ws = "allotment"\nagent = "fern"\n');
+    writeFileSync(join(named, ".ep0ch", "agents.toml"), '[[agent]]\npersona = "fern"\nmachine = "garden-box"\nfolder = "~/greenhouse"\nprogram = "claude"\n');
+    const row = drawerProgram({ env: { SHELL: "/bin/zsh", EP0CH_OUTLINES: outlines }, outline: "allotment", start: named, home });
+    expect(row.from).toBe("named");
+    expect(row.name).toBe("fern");
+    expect(row.cmd).toEqual(["hc", "attach", "garden-box/fern"]);
+    expect(row.cwd).toBe("~/greenhouse");
+    expect(row.named?.persona).toBe("fern");
+    // A test door's shell still wins, so it never attaches a real agent.
+    expect(drawerProgram({ env: { EP0CH_DAILY_AGENT: "sh", EP0CH_OUTLINES: outlines }, outline: "allotment", start: named, home }).cmd).toEqual(["sh"]);
   });
 });
 
@@ -111,8 +110,8 @@ describe("the drawer reads the door's own outline and machine", () => {
     process.env.EP0CH_OUTLINES = outlines;
     try {
       const host = (machine?: string) => ({ redraw() {}, statusChanged() {}, flash() {}, ctx: () => ({ outline: "allotment", ...(machine ? { machine } : {}) }) as any });
-      expect(new AgentDrawer(host(), false, null).runs.cwd).toBe(join(outlines, "allotment"));
-      const far = new AgentDrawer(host("far"), false, null).runs;
+      expect(new AgentDrawer(host(), false).runs.cwd).toBe(join(outlines, "allotment"));
+      const far = new AgentDrawer(host("far"), false).runs;
       expect(far.cwd).not.toBe(join(outlines, "allotment"));
       expect(far.folderWhy).not.toMatch(/the outline's own folder/);
     } finally { if (saved === undefined) delete process.env.EP0CH_OUTLINES; else process.env.EP0CH_OUTLINES = saved; }
