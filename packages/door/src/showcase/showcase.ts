@@ -1,5 +1,6 @@
 import { namedAgentSection } from "./named-agent";
 import { completionSection, snippetSection } from "./completion";
+import { STRIP_SECTION } from "./strip";
 import { queryWordSections } from "./query-words";
 import { DropZonesPane } from "./drop-zones";
 import { runbookSections } from "./runbook";
@@ -7,11 +8,9 @@ import { COLLECTION_SECTIONS } from "./collections";
 import { tileRegistry } from "../desk/tile-registry";
 import { LibraryPane } from "../library/library";
 import { errorDetails } from "../status-log";
-// Each reuse-map section hosts the real shared part on a seeded scratch outline (PIE-439).
 import { nothingToClose, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Screen } from "../app";
-import type { Msg } from "../board";
-import { subject } from "../board";
+import { subject, type Msg } from "../board";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } from "../backlinks";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
@@ -27,8 +26,8 @@ import { actionPage } from "../surface/action-page";
 import { DRAFT_ACTIONS } from "../edit";
 import { keepUnsent, unsent } from "../draft-session";
 import { Desk, DESK_ACTIONS } from "../desk/desk";
+import { FRAME_LEGEND } from "../desk/frame-controls";
 import { openScreen } from "../desk/screen-specs";
-import { autoName, serializeTree } from "../desk/screen-layout";
 import { type SavedTree, type TileSpec } from "../desk/tiles";
 import type { NewNoteOpens, NewNoteRule } from "../desk/screen-spec";
 import type { NewNoteHow } from "../new-note";
@@ -42,7 +41,7 @@ import { BacklinksPane } from "../desk/backlinks-pane";
 import { FacetsPane } from "../desk/facets";
 import { TunePane } from "../desk/tune";
 import { MessageReader, StatusMessages, SHELL_ACTIONS } from "../screens";
-import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layout";
+import { autoName, columnsOf, leaf, pair, serializeTree, splitOf, type LNode } from "../desk/screen-layout";
 import { FramedScreen } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
@@ -65,7 +64,6 @@ import type { FleetIO, SessionRow } from "../agent-fleet";
 import type { AgentLevel } from "../surface/agent-level";
 
 type Notes = Partial<Record<SeedName, Msg>>;
-
 const details = new WeakSet<ReaderPane>();
 /** A reader named `detail` on its stage: it keeps the note the exhibit opens into it. */
 const detailPane = (): ReaderPane => { const r = new ReaderPane(true); details.add(r); return r; };
@@ -486,12 +484,13 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "hints", need: "x-ray and hint cards", part: "HintCard and Canvas.float in the desk float layer, ActionDef hints, menuRow and keycaps", files: "src/surface/hint-card.ts, src/desk/desk.ts",
-    aside: "Hover a clipped title or label to read it whole; Alt+? cycles clipped values, and values wider than the screen scroll. Linking has its instructions beside the tile. Click a destination; the card leaves the keys with you. The frame controls are ○ (select lands), » (open lands), ^ (alt-open lands), \u25c4/\u25bc (fold), \u2261 (menu), x (close), and \u25d8 (float or put back). Hover the menu or press ? on the frame for their meanings. The menu still opens its searchable action list. All floats share a raised panel and accent border; menus dim the screen, hints leave it readable. Hold ctrl for every tile's card, or ctrl+] then ? to toggle. hint.pin keeps a card; esc dismisses it. Fold source with tile.collapse, then hint.never: folding now gives one status line. [never] (Alt+Shift+N) saves that choice across restarts. Open tune and its Hints section to choose card, status or off for every declared hint, or reset all. hints.list reads the settings; hints.set id=tile.collapse to=status changes one.",
+    aside: `Hover a clipped title or label to read it whole; Alt+? cycles clipped values, and values wider than the screen scroll. Linking has its instructions beside the tile. Click a destination; the card leaves the keys with you. The frame controls are ${FRAME_LEGEND}. Hover the menu or press ? on the frame for their meanings. The menu still opens its searchable action list. All floats share a raised panel and accent border; menus dim the screen, hints leave it readable. Hold ctrl for every tile's card, or ctrl+] then ? to toggle. hint.pin keeps a card; esc dismisses it. Fold source with tile.collapse, then hint.never: folding now gives one status line. [never] (Alt+Shift+N) saves that choice across restarts. Open tune and its Hints section to choose card, status or off for every declared hint, or reset all. hints.list reads the settings; hints.set id=tile.collapse to=status changes one.`,
     stage(n, show) {
       const source = new ReaderPane(), reader = new ReaderPane();
       return deskOf({ title: "x-ray and hint cards", panes: [source, reader], names: ["source", "reader"] }, show, [[source, n.notebook], [reader, n.shed]], d => { void d.dispatch.press("tile.title", { text: "Allotment notebook: planting, watering and seed orders through the growing season" }, "source"); void d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source"); });
     },
   },
+  STRIP_SECTION,
   {
     key: "panes", need: "open, split, zoom, close tiles; docks; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, docks, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a dock, c a spine, f a float, P the policy; the hint row's □ lock chip locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
     aside: "Drag a tile title over the reader: all six bands show, dim; the pointer lights one. Upper middle makes tabs, lower middle swaps, edges split. The Drop zones tab is a still of this overlay. ^W n or double click a title to rename; ^W N toggles without losing it. Reading {{this.title}} follows the notebook; Visitors is a written tab title. The frame card's close row closes the tile (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
@@ -565,7 +564,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "terminal", need: "run a program beside the notes (nvim, claude, a shell)", part: "the terminal tile: a pty (Bun.Terminal) drawn through @xterm/headless; click or ⏎ types in it, ctrl+] leaves; $EDITOR on a draft runs in one (a reader's ctrl+e, a draft's ctrl+x ctrl+e); its program's copy (OSC 52, Claude Code's) goes on to your clipboard through App.copy if you typed or clicked in the tile within 2 min, said \"copied from <tile>\" (or why not); drag across its text and the door selects and copies it itself (PIE-716), in the drawer too: shift+drag (alt+drag where your terminal keeps shift) when its program has the mouse", files: "src/desk/pty.ts, src/surface/editor.ts, src/surface/selection.ts",
-    aside: "The shell prints an OSC 8 link: use your terminal's link gesture on Example website » to open it in your browser. Resize the tile or scroll away and back: the link stays inside its text. Drag across the line in the shell: it's selected and copied when you let go (\"copied from sh\"), as in a reader; a program that has asked for the mouse (Claude Code's fullscreen, vim's mouse=a) keeps plain drags, and shift+drag or alt+drag selects for the door · `act terminal.copy tile=<tile>` copies the person's selection again (never an agent's) · the drawer (next section; src/drawer.ts, PIE-498) runs your agents too, each in a tab of its own, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where",
+    aside: "The shell prints an OSC 8 link: use your terminal's link gesture on Example website » to open it in your browser. Resize the tile or scroll away and back: the link stays inside its text. Drag across the line in the shell: it's selected and copied when you let go (\"copied from sh\"), as in a reader; a program that has asked for the mouse (Claude Code's fullscreen, vim's mouse=a) keeps plain drags, and shift+drag or alt+drag selects for the door · `act terminal.copy tile=<tile>` copies the person's selection again (never an agent's) · the drawer (next section; src/drawer.ts, PIE-498) runs your agents too, each in a tab of its own, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where · find its source: type echo $EP0CH_SOURCE or ep0ch where --source; read AGENTS.md there · over MCP, list_outlines points to ep0ch://skills/whats-moving for recent activity",
     stage(n, show) {
       const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; printf '\\033]8;id=example;https://example.com\\033\\\\Example website »\\033]8;;\\033\\\\\\n'; echo 'drag across this line: Plant out the courgettes'; echo 'copy from it as Claude Code does:'; printf '%s\\n' \"  printf '\\\\033]52;c;%s\\\\007' \\\"\\$(printf hello | base64)\\\"\"; exec sh"], label: "shell" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · terminal", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) fill(d, n.notebook); });
@@ -904,9 +903,9 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "copy-page", need: "copy a live page so an agent without the outline's tools can read it: its text, and each figure's rows as of now",
-    part: "a page copy (PIE-1355): note.copy (Y) keeps the text as written and puts each live figure's results under it, from the rows the reader draws (graphs.ts figureResults over live.ts resolveLive), written by outline-core's figure-results.ts: a check as steps with their ticks, a table as a table, tabs a list per group, every row ((id|title)); at most 50 rows a figure, a cut said with the ep0ch find command (and outline_query's) that reads the rest; ep0ch show --markdown prints the same",
+    part: "a page copy (PIE-1355, PIE-1380): note.copy (Y) keeps the text as written and puts each live figure's results under its figure or ::use call, reading templates through template.use, from the rows the reader draws (graphs.ts figureResults over live.ts resolveLive), written by outline-core's figure-results.ts: a check as steps with their ticks, a table as a table, tabs a list per group, every row ((id|title)); at most 50 rows a figure, a cut said with the ep0ch find command (and outline_query's) that reads the rest; ep0ch show --markdown prints the same",
     files: "outline-core/src/figure-results.ts, src/page-results.ts, src/graphs.ts (figureResults), src/surface/note.ts (copyNote, note.copy), src/notes-cli.ts (show --markdown)",
-    aside: "Y (nothing selected) or the tile menu's \"copy note\" copies the page with its figures' results; the status line says how many figures and how many were cut · \"copy source only\" in the menu, or `act note.copy source=true`, copies the text alone · an agent's `act note.copy` is answered with the text and never touches your clipboard · `ep0ch show <id> --markdown` prints the same at a shell",
+    aside: "Y (nothing selected) or the tile menu's \"copy note\" copies this templated page with its figures' results; the status line says how many figures and how many were cut · \"copy source only\" in the menu, or `act note.copy source=true`, copies the text alone · an agent's `act note.copy` is answered with the text and never touches your clipboard · `ep0ch show <id> --markdown` prints the same at a shell",
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · copy a page", panes: [r], names: ["page"] }, show, [[r, n.copyPage]]); },
   },
   {

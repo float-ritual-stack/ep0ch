@@ -10,6 +10,7 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+- **CP437 frames (PIE-1490):** hover uses the distinct native `÷` glyph beside `○ » ^`, named in the frame hint and showcase; left triangles and curly apostrophes have font lookalikes.
 - Note records, agent reads and `ep0ch show --json` name the writer of the newest revision (PIE-1393).
 - Binding and outline reads distinguish a down host from a missing outline, with the machine, socket paths and retry command (PIE-1325).
 - Sources describes a written figure as “Written in the note · N items” and shows its text once, in the door and on the web (PIE-1226).
