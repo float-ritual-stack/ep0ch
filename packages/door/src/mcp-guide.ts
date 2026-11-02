@@ -11,6 +11,7 @@
 //   write answers   `warnings` (what to fix before calling the write done: references, figures, the house rules
 //                   measured), `components` and the `next` check (what the outliner's agent tools found in the text
 //                   written) lifted beside `said`, where an agent reads, instead of only inside `detail`.
+import { sourcePath, NO_SOURCE } from "@ep0ch/outliner/program-env";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { agentGuide } from "@ep0ch/outline-core/agent-guide";
@@ -21,7 +22,7 @@ import { skillRoots, skillsIn, type Skill } from "./skills";
 /** The gateway's tool lines in the guide: how to orient, where an outline's own components are, where the skills are. */
 export const GATEWAY_GUIDE_TOOLS = [
   "- Text: `outline_find` gives matching lines and context, quoted phrases first; `outline_grep` scans every note by regex, uncapped unless you pass `limit`. Structure/properties: `outline_query`. `outline_read` gives body, properties and link IDs; `detail: true` adds offsets and spans.",
-  "- Orient: `list_outlines` names outlines and access. `outline_query` with `updated >= -1d NOT type=peer-message`, sort `updated desc`, `fold: true` reads recent changes; `machineryOmitted` counts excluded bookkeeping. Keep one `call` id across requests.",
+  "- Orient: `list_outlines` names outlines, access and skills. Use `ep0ch://skills/whats-moving` for recent activity. Keep one `call` id across requests; own writes drop out.",
   "- Writes: `persona: \"loki\"` attributes another agent; omit for the connection's mapping. Receipt `by` names persona and client. Principal, access and path caps stay the same. Use the same persona for `outline_write_status`.",
   "- `outline_components` with `outline` lists its components, including heading styles and callout types. Writes return `components`, `warnings` and the `next` check; read back with `outline_read`.",
   "- For buttons, rules, scripts or extensions use `ep0ch://skills/ep0ch-extend`; references: `ep0ch://docs/scripts`, `ep0ch://docs/extensions`.",
@@ -33,8 +34,14 @@ export const INSTRUCTIONS_MAX = 4096;
 
 let instructions: string | undefined;
 /** The gateway's `instructions`: built once, from the built-in components; each outline's own are `outline_components`'. */
-export const gatewayInstructions = (): string =>
-  (instructions ??= agentGuide(BUILTIN_COMPONENT_SCHEMAS, { index: "names", tools: GATEWAY_GUIDE_TOOLS, scope: "the built-ins; each outline adds its own" }));
+export function gatewayInstructions(): string {
+  if (instructions) return instructions;
+  const source = sourcePath();
+  const tools = [...GATEWAY_GUIDE_TOOLS, source
+    ? `- Source: ${source}. Read its AGENTS.md and docs first; without local files, use the MCP docs above.`
+    : `- ${NO_SOURCE}`];
+  return instructions = agentGuide(BUILTIN_COMPONENT_SCHEMAS, { index: "names", tools, scope: "the built-ins; each outline adds its own" });
+}
 
 /** A tool as `tools/list` lists it, with `anthropic/alwaysLoad` when it is one of outline-core's UP_FRONT_TOOLS. */
 export const withLoadHint = <T extends { name: string }>(tool: T): T | T & { _meta: Record<string, unknown> } =>

@@ -40,6 +40,8 @@ export const AGENT_USAGE = `  ep0ch agent ls [--machine <ssh-name>] [--json]
                                    line (hc run --bg --no-parent --keep --name <persona>). Flags left out
                                    come from the nearest .ep0ch/agents.toml. A live terminal is not started
                                    again, so a phone session stays up
+  ep0ch agent exec -- <program> [args…]
+                                   run in this terminal with this machine's EP0CH_SOURCE (the named hc agent's launch path)
   ep0ch agent [--program <name>] [--in <folder>] [--persona <name>] [--new] [--json]
                                    start an agent session in this folder (or --in one), or attach the one already
                                    running there: the same program in the same folder is the same session. It opens

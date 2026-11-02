@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { startControl } from "../src/control";
 import { Mirror } from "../src/mirror";
 import { Desk } from "../src/desk/desk";
@@ -86,11 +86,21 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
   });
 
   test("where --json: the binding card's facts, outside a door", async () => {
-    const { whereFactsOf } = await mod("binding.ts");
+    const { whereFactsOf, cardLines } = await mod("binding.ts");
     const cwd = scratchDir("ep0ch-where-");
     const where = await run(["ep0ch", "where", "--json"], { cwd, env }).finally(() => rmSync(cwd, { recursive: true, force: true }));
     expect(where.exitCode).toBe(0);
-    expect(whereFactsOf(where.stdout)).toMatchObject({ inDoor: false, here: { machine: expect.any(String), folder: expect.any(String) }, door: null });
+    const facts = whereFactsOf(where.stdout);
+    const source = resolve(import.meta.dir, "../../..");
+    expect(facts).toMatchObject({ inDoor: false, here: { machine: expect.any(String), folder: expect.any(String) }, door: null,
+      source: { path: source, agentsMd: join(source, "AGENTS.md"), docs: join(source, "packages/outliner/docs"), skills: join(source, "packages/door/skills"), sha: expect.stringMatching(/^[a-f0-9]{40}$/) } });
+    expect(cardLines({ where: facts, folder: { kind: "unbound" }, cwd, doorTools: false }, true)).toContainEqual(expect.objectContaining({ label: "source", text: expect.stringContaining(source) }));
+    const path = await run(["ep0ch", "where", "--source"], { env });
+    expect(path.exitCode).toBe(0);
+    expect(path.stdout.trim()).toBe(source);
+    const text = await run(["ep0ch", "where"], { env });
+    expect(text.exitCode).toBe(0);
+    for (const value of Object.values(JSON.parse(where.stdout).source)) expect(text.stdout).toContain(value as string);
   });
 
   test("where --json: a stale pane and no EP0CH_CONTROL still reach the folder's door, and the mod's reader says so (PIE-715)", async () => {

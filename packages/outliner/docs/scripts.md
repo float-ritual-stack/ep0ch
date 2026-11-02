@@ -19,6 +19,16 @@ Other pages: the extensions README has the four extension kinds and where a scri
 ([Script blocks and files](extensions/README.md#script-blocks-and-files-pie-601)); the `ep0ch-outline` skill says when
 to reach for one while working in an outline.
 
+## Server skills
+
+MCP lists the shipped skills in `list_outlines` and `resources/list`, with the same text available through
+`prompts/get` and `ep0ch://skills/<name>`. `daily-brief` writes the morning brief; `whats-moving` reads recent
+activity across the requested outlines in a small projected response, keeping one `call` id to leave out its
+own writes. Read `ep0ch://skills/whats-moving` for the recipe. `ep0ch --skill` lists the same shipped folders.
+
+With a local checkout, start with `ep0ch where --source` or `$EP0CH_SOURCE/AGENTS.md`; the source's docs are in
+`packages/outliner/docs`. Without local files, read `ep0ch://docs/scripts` and `ep0ch://docs/extensions`.
+
 ## A script in one minute
 
 Write the script next to the button that runs it:
@@ -381,7 +391,7 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:66` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1016` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1021` |
 | `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:460` |
 
 ## A render script is a component
@@ -453,8 +463,8 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:813` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1839` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:218` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4825` |
-| `viaYolo` | `packages/outliner/src/server.ts:4850` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4803` |
+| `viaYolo` | `packages/outliner/src/server.ts:4826` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:594` |
 
 ## Lifecycle
@@ -493,7 +503,7 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 | `stopRun` | `packages/outliner/src/script-runs.ts:286` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:348` |
 | `scripts.stop` | `packages/outliner/src/server.ts:763` |
-| `scripts.stop` request | `packages/outliner/src/types.ts:2549` |
+| `scripts.stop` request | `packages/outliner/src/types.ts:2546` |
 
 ## Traps
 

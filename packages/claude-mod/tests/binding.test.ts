@@ -21,6 +21,7 @@ const boundTo = (outline: string | null, machine?: string) => (folder: string) =
 /** What `ep0ch where --json` says: this machine and folder, and the door around Claude, if any. */
 function whereJson(door: null | { outline: string; machine?: string; host: string; drawer?: boolean; tile?: string }, herdr: null | { pane: string; label?: string } = null): string {
   return JSON.stringify({
+    source: null,
     inDoor: !!door,
     here: { machine: 'near-box', folder: FOLDER, persona: null },
     herdr: herdr ? { pane: herdr.pane, label: herdr.label ?? null } : null,
@@ -327,6 +328,7 @@ describe('binding helpers', () => {
 
   test('where --json is read for its facts; anything else is not one', () => {
     expect(where).toEqual({
+      source: null,
       inDoor: true, here: { machine: 'near-box', folder: FOLDER, persona: null }, herdr: { pane: 'door-claude', label: 'door-claude' },
       door: { answers: true, outline: 'harbor', machine: 'far', host: 'far-box', drawer: true, tile: 'claude', stale: false },
     })

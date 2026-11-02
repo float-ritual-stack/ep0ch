@@ -5,6 +5,10 @@ description: Use when someone wants an ep0ch outline or door to do something new
 
 # ep0ch-extend: make the outline do a new thing
 
+Read `$EP0CH_SOURCE/AGENTS.md` and its docs in `$EP0CH_SOURCE/packages/outliner/docs` first.
+From a shell without that variable, `ep0ch where --source` finds the checkout. Without a local checkout
+(claude.ai, GPT, Grok), read the MCP resources `ep0ch://docs/scripts` and `ep0ch://docs/extensions`.
+
 People ask for behaviours ("a button that puts these two side by side", "every morning, list yesterday's open
 threads"). Most of them are a script, a rule or an extension on parts ep0ch already has, not a change to its code.
 This skill is a map from the ask to the part, and the rules for building it so it works the way the person will

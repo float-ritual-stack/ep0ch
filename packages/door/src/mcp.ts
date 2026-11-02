@@ -1107,6 +1107,7 @@ async function listOutlines(outlines: McpOutlines, caller: McpCaller | undefined
   const taking = listed.filter(o => o.writes).map(o => `${o.outline}@${o.machine}`);
   return toolText({
     outlines: listed,
+    skills: skillResources(gatewaySkills()).map(({ name, uri }) => ({ name, uri })),
     ...(caller?.call && !caller.freshCall ? { call: { ...callShown(caller.call), said: "This conversation's call: every write you make records its id, call:<id or handle> finds those writes in outline_query, and your own recent-activity reads leave them out unless includeOwn. Pass call (the id) on your requests to keep it; a name of your own works too and wins." } } : {}),
     tools: {
       writes,
