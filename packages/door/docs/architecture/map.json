@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "1e8f12be", "outliner": "1e8f12be", "on": "2026-11-02" },
+  "verified": { "door": "5917760b", "outliner": "5917760b", "on": "2026-11-02" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -129,7 +129,7 @@
     { "id": "backup", "title": "Backups", "lede": "Every machine runs the same 15-minute job: snapshot what changed to restic, refresh the mirrors of other machines' outlines, check how fresh it is, and say it in one line with the command that fixes it. A machine that can't reach the repository relays through the hub." }
   ],
   "structures": [
-    {"id": "door.strip", "name": "One strip", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions", "door.overflow"], "does": "Keeps the current segment readable while tabs, breadcrumbs, hints, status chips and dock edges narrow; every hidden choice stays reachable.", "built": "tabStrip owns shrinking and hit ranges. StripState keeps the cursor and scroll; StripControls opens ListPicker and dispatches the segment's existing action. Full-text marks carry hits through Canvas composition; dock edges draw above the drawer.", "refs": [{"r": "door", "p": "src/surface/chip-rows.ts", "l": 27, "m": "export function tabStrip"}, {"r": "door", "p": "src/surface/strip-state.ts", "l": 49, "m": "export class StripState"}, {"r": "door", "p": "src/surface/strip-controls.ts", "l": 27, "m": "export class StripControls"}]},
+    {"id": "door.strip", "name": "One strip", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions", "door.overflow"], "does": "Keeps the current segment readable while tabs, breadcrumbs, hints, status chips and dock edges narrow; every hidden choice stays reachable.", "built": "tabStrip owns shrinking and hit ranges. StripState keeps the cursor and scroll; StripControls opens ListPicker and dispatches the segment's existing action. Full-text marks carry hits through Canvas composition; dock edges draw above the drawer.", "refs": [{"r": "door", "p": "src/surface/chip-rows.ts", "l": 34, "m": "export function tabStrip"}, {"r": "door", "p": "src/surface/strip-state.ts", "l": 51, "m": "export class StripState"}, {"r": "door", "p": "src/surface/strip-controls.ts", "l": 27, "m": "export class StripControls"}]},
     {"id": "door.overflow", "name": "Readable clipped text", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": [], "does": "Keeps a cut-short value readable by hover, keyboard selection or Alt+?, without changing focus or a click.", "built": "Shared text helpers retain full values as drawing marks; Canvas carries them independently of style and hyperlinks. Overflow composes one-line reveals and marquees after screens and floats.", "refs": [{"r": "door", "p": "src/overflow.ts", "l": 67, "m": "export class Overflow"}, {"r": "door", "p": "src/style.ts", "l": 293, "m": "function shortened("}]},
     {"id": "door.inspector", "name": "Property inspector surface", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Scrolls and selects inspector content and edits a property in place for tune, Sources and the element panel.", "built": "Inspector extends RowView and uses Selection, DraftSession and Draft; schemas and the service's row properties supply choices. Source YAML writes use draft.patch and withFigureProp.", "refs": [{"r": "door", "p": "src/surface/inspector.ts", "l": 24, "m": "export class Inspector"}]},
     {"id": "door.hint-card", "name": "Hint cards", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Explains modes and reveals frame controls without taking keys or focus.", "built": "ActionDef hints and Dispatcher.menu rows, drawn in the desk float layer with Canvas.box, RowView and keycaps. X-ray shows the same cards together; peek reads their rows.", "refs": [{"r": "door", "p": "src/surface/hint-card.ts", "l": 21, "m": "export class HintCard"}]},
@@ -317,8 +317,8 @@
         { "r": "door", "p": "src/surface/modes.ts", "l": 63, "m": "export const PRECEDENCE" },
         { "r": "door", "p": "src/surface/note.ts", "l": 188, "m": "export interface SurfaceHost" },
         { "r": "door", "p": "src/surface/note.ts", "l": 10077, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1353, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1370, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 1354, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1371, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -420,7 +420,7 @@
         { "r": "door", "p": "src/app.ts", "l": 881, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 33, "m": "export function refused" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 680, "m": "private asPerson(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 8344, "m": "export function refusalHint" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 8355, "m": "export function refusalHint" }
       ]
     },
     {
@@ -489,7 +489,7 @@
         { "r": "door", "p": "src/desk/layout.ts", "l": 128, "m": "export type Columns" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 151, "m": "export type Flow" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 32, "m": "export interface Policy" },
-        { "r": "door", "p": "src/desk/layout.ts", "l": 892, "m": "export function effective" },
+        { "r": "door", "p": "src/desk/layout.ts", "l": 902, "m": "export function effective" },
         { "r": "door", "p": "src/desk/flow.ts", "l": 36, "m": "export function squeeze" },
         { "r": "door", "p": "src/desk/flow.ts", "l": 90, "m": "export function placeFlow" },
         { "r": "door", "p": "src/desk/drop.ts", "l": 31, "m": "export function dropAt" }
@@ -515,7 +515,7 @@
         { "r": "door", "p": "src/desk/desk.ts", "l": 805, "m": "private layoutCtx" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 3190, "m": "  run(name: string, args" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1752, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 7222, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 7229, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 123, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 449, "m": "\"tile.widen\": def({" }
       ],
@@ -629,7 +629,7 @@
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 108, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 121, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 7558, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 7565, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1405, "m": "private take(id: I, heir?" }
       ]
     },
@@ -641,7 +641,7 @@
         { "r": "door", "p": "src/desk/agent-sessions.ts", "l": 168, "m": "export function asSession" },
         { "r": "door", "p": "src/desk/agents-panel.ts", "l": 25, "m": "export class AgentsPane" },
         { "r": "door", "p": "src/drawer.ts", "l": 500, "m": "async startSession(" },
-        { "r": "door", "p": "src/agent-cli.ts", "l": 76, "m": "export async function agentCommand" }
+        { "r": "door", "p": "src/agent-cli.ts", "l": 37, "m": "export async function agentCommand" }
       ],
       "questions": [
         { "text": "The drawer's own tab is still a path of its own (DrawerTile, drawer-agent.json, EP0CH_DAILY_AGENT) and the Herdr launcher keeps its own pane records: both fold into sessions next, a Herdr pane becoming one more place a session is shown.", "route": "PIE-737" }
@@ -667,7 +667,7 @@
         { "r": "door", "p": "src/session/place.ts", "l": 51, "m": "export function placeFor" },
         { "r": "door", "p": "src/session/daemon.ts", "l": 82, "m": "export async function serve" },
         { "r": "door", "p": "src/session/session-term.ts", "l": 126, "m": "export class SessionTerm" },
-        { "r": "door", "p": "src/session/client.ts", "l": 255, "m": "export async function attach(" },
+        { "r": "door", "p": "src/session/client.ts", "l": 284, "m": "export async function attach(" },
         { "r": "door", "p": "src/session/protocol.ts", "l": 142, "m": "export class Frames" },
         { "r": "door", "p": "src/display.ts", "l": 70, "m": "export class Painter" },
         { "r": "door", "p": "src/door.ts", "l": 60, "m": "export async function openDoor" }
@@ -829,7 +829,7 @@
       "id": "cli.ep0ch", "name": "ep0ch act | peek | snap", "group": "clients", "chapter": "agents", "ladder": "shared", "dependsOn": ["door.control"],
       "does": "The command line an agent uses: `ep0ch act card.move lane=Doing --as <id>`, `ep0ch peek`, `ep0ch subscribe`.",
       "built": "main.ts's subcommands write one request line to the control socket (EP0CH_CONTROL) and print the answer. CLI_COMMANDS owns command descriptions for help, shell completion and typo suggestions; cli-help renders them, and docs/cli.md keeps detailed rules. Session lists over SSH reuse mcp-netmail's ssh helper and the remote session reader.",
-      "refs": [ { "r": "door", "p": "src/control.ts", "l": 5, "m": "bun src/main.ts peek | snap" }, { "r": "door", "p": "src/cli-commands.ts", "l": 64, "m": "export const CLI_COMMANDS" } ]
+      "refs": [ { "r": "door", "p": "src/control.ts", "l": 5, "m": "bun src/main.ts peek | snap" }, { "r": "door", "p": "src/cli-commands.ts", "l": 151, "m": "export const CLI_COMMANDS" } ]
     },
     {
       "id": "cli.cli", "name": "Outliner CLI", "group": "clients", "chapter": "agents", "ladder": "stable", "dependsOn": ["cli.client"],
@@ -1045,8 +1045,8 @@
       "does": "The outline for any MCP client (ADR 0002): ep0ch:// block resources and the tools list_outlines, outline_read, outline_threads, outline_find, outline_query, outline_links and outline_components, gated by each outline's own `ep0ch mcp access` grant. Every answer says where it came from (live or mirror, and as of when).",
       "built": "One implementation, two transports: `ep0ch mcp` over stdio and the gateway over HTTP both call answerMcp over an McpOutlines. outline_query is the views' grammar through the service's blocks.query and views.read (mcp-query.ts pages it, no second engine); threads are the door's Comment rows in an agent's words (mcp-threads.ts).",
       "refs": [
-        { "r": "door", "p": "src/mcp.ts", "l": 1449, "m": "export async function answerMcp" },
-        { "r": "door", "p": "src/mcp.ts", "l": 139, "m": "export interface McpOutlines" },
+        { "r": "door", "p": "src/mcp.ts", "l": 1423, "m": "export async function answerMcp" },
+        { "r": "door", "p": "src/mcp.ts", "l": 113, "m": "export interface McpOutlines" },
         { "r": "door", "p": "src/mcp-query.ts", "l": 13, "m": "export const QUERY_LIMIT" },
         { "r": "door", "p": "src/mcp-threads.ts", "l": 33, "m": "export function threadRows" }
       ]
