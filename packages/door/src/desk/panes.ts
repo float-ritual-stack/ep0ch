@@ -23,7 +23,7 @@ import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
-import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList, type TileHeader, type Trail, type TrailStop } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type ReaderHistory, type SessionKind, type SurfaceHost, type TagList, type TileHeader, type Trail, type TrailStop } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, ago, wrap } from "../text";
@@ -158,6 +158,8 @@ export interface DeskApi {
   followSource?(p: ReaderPane): { name: string; hidden: boolean } | null;
   /** The note shown where tile `from`'s opens land (the tree marks its row), or null. */
   opensShow?(from: Pane): string | null;
+  /** Tile `from`'s opens land in itself (PIE-1516: its own wire, or the self rule). */
+  opensInPlace?(from: Pane): boolean;
   /** Why reader `p` can't follow tile `source` (no such tile, itself, nothing to follow), or null. */
   followRefusal?(p: ReaderPane, source: string, actor?: Actor): string | null;
   /** Reader `p` follows tile `source` (a link with the preview role, saved with the layout); null: no tile. */
@@ -653,6 +655,7 @@ export class ReaderPane implements Pane, AttachedOwner {
       ...(desk.noteGone ? { gone: (id: string) => desk.noteGone!(this, id) } : {}),
       // A reader the person owns takes `p` (its pin) before the surface does.
       ...(this.pinnable ? { ownKeys: "p" } : {}),
+      ...(this.beneath ? { history: this.beneath } : {}),
     };
     return h;
   }
@@ -685,6 +688,8 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   /** The history a saved layout brought, until the reader shows the note it was saved on (NoteSurface.restoreNav). */
   wantNav: unknown;
+  /** What lies beneath its own trail (PIE-1516: the list it opened in place over): back past its first stop goes there. */
+  beneath?: ReaderHistory;
   /** The note the saved layout had this reader on, until it shows it (or `dropWant`: it couldn't). */
   wantNote(): string | null { return this.wantNav === undefined ? null : navNote(this.wantNav); }
   dropWant() { this.wantNav = undefined; }
