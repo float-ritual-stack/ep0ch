@@ -552,11 +552,94 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     await until(() => numbers(a).length === 3, "the latest frame to go after the stale time, with no other paint to bring it", 400);
     expect(numbers(a)).toEqual([0, 1, 5]);
     expect(term.speed()[0]).toMatchObject({ ackTimeouts: 1, unacked: 1 });
-    // The answers to the two given up on come late: they are theirs, not frame 5's.
-    term.input(term.all()[0]!, answer); term.input(term.all()[0]!, answer);
-    expect(term.speed()[0]).toMatchObject({ unacked: 1 });
+    // An answer that comes late is taken as the newest frame's (PIE-1500): never set against one given up on.
     term.input(term.all()[0]!, answer);
     expect(term.speed()[0]).toMatchObject({ unacked: 0 });
+    term.input(term.all()[0]!, answer); term.input(term.all()[0]!, answer);
+    expect(term.speed()[0]).toMatchObject({ unacked: 0 });
+  });
+
+  // PIE-1500, Evan Nov 2 on the mini over ssh: "everything just becomes unresponsive", keys landing, the screen frozen;
+  // peek showed the mini's tab at 81 answers given up on with 2 frames unanswered, the laptop's at none.
+  test("two answers truly lost cost one stale wait, not one every window: the terminal that answers everything after is painted every frame", async () => {
+    const { term, make, numbers } = counting();
+    term.ackStaleMs = 60;
+    const a = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true }));
+    make(2);                                              // frames 0 and 1 in flight; their answers never come
+    expect(numbers(a)).toEqual([0, 1]);
+    await until(() => numbers(a).length === 3, "the latest frame after the stale wait", 400);
+    expect(term.speed()[0]).toMatchObject({ ackTimeouts: 1, unacked: 1 });
+    // From here the terminal answers every frame it is sent, as it does: each answer lets the next frame out.
+    for (let n = 3; n <= 20; n++) { term.input(ca, answer); make(n); expect(numbers(a).at(-1)).toBe(n); }
+    term.input(ca, answer); term.input(ca, answer);
+    await Bun.sleep(150);                                 // more than the stale wait: nothing else is given up on
+    expect(term.speed()[0]).toMatchObject({ ackTimeouts: 1, unacked: 0 });
+  });
+
+  test("a terminal that loses every third answer still gets the latest frame on each key, with nothing given up on", () => {
+    const { term, make, numbers } = counting();
+    const a = fakeLink(80, 24);
+    // Its terminal answers the queries it is sent, dropping every third, after the frames of a batch went out.
+    let asked = 0; const due: string[] = [];
+    const send = a.link.send;
+    a.link.send = m => { send(m); if (m.t === "output") for (const _ of m.text.matchAll(/\x1b\[5n/g)) { asked++; if (asked % 3) due.push(answer); } };
+    const ca = term.attach(a.link, hello(80, 24, { acks: true }));
+    const drain = () => { const d = due.splice(0); for (const x of d) term.input(ca, x); };
+    const keys = (term as any).keyHandler as (k: unknown) => void;
+    let typed = 0; term.onKey(k => { typed++; keys(k); });
+    for (let round = 1; round <= 12; round++) {
+      make(round * 5); drain();                           // five frames made; the answers it didn't lose come back
+      term.input(ca, "j");                                // a key: the terminal is alive, the latest frame goes now
+      expect(numbers(a).at(-1)).toBe(round * 5);
+      drain();
+    }
+    expect(typed).toBe(12);
+    expect(term.speed()[0]).toMatchObject({ ackTimeouts: 0 });
+    expect(term.activeClient).toBe(ca);
+  });
+
+  test("a mouse motion opens no window: a drag over a slow link still gets the latest frame, never each one", () => {
+    const { term, make, numbers } = counting();
+    const a = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true }));
+    make(1);
+    for (let n = 2; n <= 10; n++) { term.input(ca, "\x1b[<35;10;10M"); make(n); }   // motion reports between frames
+    expect(numbers(a)).toEqual([0, 1]);
+    term.input(ca, "\x1b[<0;10;10M");                                            // a click: proof of life
+    expect(numbers(a)).toEqual([0, 1, 10]);
+  });
+
+  test("a lost answer is given up on after a few of that client's round trips, not a fixed 5 s", async () => {
+    const { term, make, numbers } = counting();
+    const a = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true }));
+    // Its pace is measured: answers after ~20 ms, a few times.
+    for (let n = 1; n <= 4; n++) { await Bun.sleep(20); term.input(ca, answer); make(n); }
+    term.input(ca, answer); term.input(ca, answer);
+    expect(term.speed()[0]!.ackMs).toBeLessThan(100);
+    expect(term.staleFor(ca)).toBeLessThan(1000);
+    const start = performance.now();
+    make(6);                                              // frames 5 and 6 in flight, answered by nobody
+    make(7);
+    expect(numbers(a).at(-1)).toBe(6);
+    await until(() => numbers(a).at(-1) === 7, "the latest frame within the client's own stale wait", 1500);
+    expect(performance.now() - start).toBeLessThan(1500);
+    expect(term.speed()[0]).toMatchObject({ ackTimeouts: 1 });
+  });
+
+  test("an answer cut in two by the reads is one answer, not the person: it opens the window and takes no keys", () => {
+    const { term, make, numbers } = counting();
+    const a = fakeLink(80, 24), b = fakeLink(60, 20);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true })), cb = term.attach(b.link, hello(60, 20, { acks: true }));
+    make(2);
+    expect(term.speed()[1]).toMatchObject({ unacked: 2 });
+    term.input(cb, "\x1b[0"); term.input(cb, "n");
+    expect(term.activeClient).toBe(ca);                   // half an answer didn't take the keys
+    term.input(cb, "\x1b");                               // a lone ESC is a key: it does
+    expect(term.activeClient).toBe(cb);
+    expect(numbers(b).at(-1)).toBe(2);                   // one answered: the frame it was waiting on went
+    expect(term.speed()[1]).toMatchObject({ unacked: 2, ackJoined: 1 });
   });
 
   test("the round trip of the answers is measured for each client, beside the frames waiting", async () => {
@@ -582,6 +665,9 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     const ran = term.handOver(["sh", "-l"]);
     await Bun.sleep(30);
     expect(a.sent.some(m => m.t === "run")).toBe(false);  // the answers would have gone to the shell
+    term.input(ca, "j");                                  // typing ahead proves the terminal alive, not the answers arrived (PIE-1500)
+    await Bun.sleep(30);
+    expect(a.sent.some(m => m.t === "run")).toBe(false);
     term.input(ca, answer); term.input(ca, answer);
     await until(() => a.sent.some(m => m.t === "run"), "the run, once everything sent was answered", 1000);
     const run = a.sent.find(m => m.t === "run") as Extract<DaemonMsg, { t: "run" }>;

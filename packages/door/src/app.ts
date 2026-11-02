@@ -1,4 +1,4 @@
-import { Canvas, type Rect } from "./canvas";
+import { Canvas, type Rect } from "./canvas"; import { doorLocation } from "./session/place";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { pressEnded } from "./surface/button";
 import { RANK, StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
@@ -1876,8 +1876,8 @@ export class App implements Ctx {
     this.schedulePublish();
   }
 
-  /** Where the door is: `host · outline` on an outline host, else `host:workspace root`. */
-  get location(): string { return this.outline ? `${this.host} · ${this.outline}` : `${this.host}:${this.workspace}`; }
+  /** Where the door is (`doorLocation`, src/session/place.ts): `host · outline`, or `pie on float-2 · session on float-box` for an outline on another machine (PIE-1498). */
+  get location(): string { return doorLocation(this).text; }
 
   /** The built-ins declare their text and the existing ActionDefs their gestures press. */
   get terminalSize() { return this.term.info; }
@@ -1897,7 +1897,7 @@ export class App implements Ctx {
       { id: "power", text: `${fg(C.yellow)}^K`, place: "left", after: " ", ...(!s?.noDrawer ? { click: { action: "bar.open" } } : {}) },
       { id: "macro", text: `${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : "⇧⌥Q"}`, place: "left", after: `${fg(C.lcyan)} │ `, ...(!s?.noDrawer ? { click: { action: this.recording.active ? "macro.stop" : "macro.record" } } : {}) },
       { id: "screen", text: s?.title ?? "", place: "left", after: " │ ", click: { action: "status.log" } },
-      { id: "machine", text: this.location, place: "left", click: { action: "status.log" } },
+      { id: "machine", text: this.location, place: "left", click: { action: "status.log" }, ...(this.machine ? { short: doorLocation(this).short } : {}) },
       right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
       { ...right("glass", this.glass.chip(), "glass.toggle"), short: this.glass.chip(), tiny: `◇${this.glass.mode === "off" ? "×" : this.glass.mode === "sticky" ? "◆" : ""}${this.glass.floats().length || ""}`, alt: { action: "glass.clear" } },
       right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
