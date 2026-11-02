@@ -79,7 +79,7 @@ describe("showcase: tune the collection's own record (PIE-1483)", () => {
     h.press({ kind: "esc" });
     await until(() => !surface().panel, "Escape closes settings");
     expect(surface().msg.id).toBe(note.id);
-    expect(lists()[0].entered).toBe(true);
+    expect(surface().selectedElement()?.link?.listRow?.row).toBeTruthy();   // the [ ] position is still on the collection's row
     h.app.t.cols = 177;
   }, 20_000);
 

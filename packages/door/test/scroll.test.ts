@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { follow, RowView, scrolled, scrollRows, SCROLL_ROWS } from "../src/scroll";
+import { PositionRows, ReaderPosition } from "../src/reader-position";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { Term, type Key } from "../src/term";
 
@@ -68,6 +69,20 @@ describe("a scroll before the first paint (PIE-929)", () => {
     surface.scrollBy(7);
     surface.show({ ...note(400), id: "99999999-2222-4333-8444-555555555555" }, host);
     expect(surface.render(80, 29, host).scroll?.top).toBe(0);
+  });
+
+  test("a scroll over rows no source line names (a saved view as its own note) is kept (PIE-1501)", () => {
+    const rows = new PositionRows(new ReaderPosition());
+    rows.source = [-1, -1, -1, -1, -1, -1, -1, -1];
+    rows.origin = 3;
+    rows.top = 3;
+    expect(rows.top).toBe(3);
+    rows.top = 5;
+    expect(rows.top).toBe(5);
+    rows.settle();
+    expect(rows.top).toBe(5);
+    rows.top = 0;
+    expect(rows.top).toBe(0);
   });
 
   test("a place restored before the first paint wins over the waiting scroll", () => {
