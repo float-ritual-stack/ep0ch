@@ -218,3 +218,22 @@ export function subtitleSuffix(title: string, subtitle: string | undefined, cols
   const room = cols - width(title);
   return subtitle && room > 3 ? fg(C.dark) + " · " + drawEllipsized(printable(subtitle, " "), room - 3) + RESET : "";
 }
+
+// ── waiting and "N more" rows (PIE-1293) ────────────────────────────────────────────────────────────────
+
+/**
+ * What a part says while its answer is on the way: one wording everywhere, `asking the outline…`, or with what it
+ * asks for, `asking the outline for the steps…`. Waits that aren't on the outline (a provider, a machine) say their own.
+ */
+export const waitingText = (what?: string) => `asking the outline${what ? ` for ${what}` : ""}…`;
+/** waitingText as a row: dim. */
+export const waiting = (what?: string) => fg(C.dark) + waitingText(what) + RESET;
+
+/**
+ * The line where a list is cut short: `… 12 more`, what they are (`rows`), where (`above`, `below`), and what shows them;
+ * `inline`: a clause in another row (`Backlinks 5 · 2 more`), with no ellipsis.
+ */
+export const moreText = (n: number, o: { what?: string; dir?: "above" | "below"; hint?: string; inline?: boolean } = {}) =>
+  `${o.inline ? "" : "… "}${n} more${o.what ? ` ${o.what}` : ""}${o.dir ? ` ${o.dir}` : ""}${o.hint ? ` · ${o.hint}` : ""}`;
+/** moreText as a row: dim, as the welcome list's. */
+export const moreRow = (n: number, o: { what?: string; dir?: "above" | "below"; hint?: string } = {}) => fg(C.dark) + moreText(n, o) + RESET;

@@ -1,6 +1,6 @@
 import { holdsEdit } from "../whereabouts";
 import type { LineField } from "../surface/line";
-import type { ModeKey } from "../surface/modes";
+import { modeHint, type ModeKey } from "../surface/modes";
 import { outlineBoards, type NoteAddress } from "./outline-boards";
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
 import { headedTitle } from "../board";
@@ -853,6 +853,12 @@ export class Entered {
 
 // ── activity (last callers, live) and who's online ───────────────────────────
 
+/** The keys of the last-callers list's hint row (key() below runs them). */
+const ACTIVITY_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "activity.pick", label: "pick" }, { key: "k", action: "activity.pick", label: "pick" },
+  { key: "enter", action: "activity.pick", args: { open: true }, label: "open" }, { key: "r", action: "activity.reload", label: "reload" },
+];
+
 export class ActivityPane implements Pane {
   readonly kind = "activity";
   private rows: Activity[] | null = null;
@@ -861,7 +867,7 @@ export class ActivityPane implements Pane {
   private view = new RowView();
   private timer: Timer | null = null;
   title() { return "last callers · live"; }
-  hint() { return "j k pick · ⏎ open · r reload"; }
+  hint() { return modeHint(ACTIVITY_KEYS, () => undefined); }
   list(): Activity[] { return this.rows ?? []; }
   get selected() { return this.sel; }
   pickRow(i: number, desk: DeskApi) { this.sel = i; desk.redraw(); }

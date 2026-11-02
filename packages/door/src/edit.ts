@@ -532,8 +532,8 @@ export class Draft {
       if (!was) {
         this.discard.arm(true);
         this.note = this.restored === this.text
-          ? "esc again lets this kept draft go (a copy stays on disk) · ctrl+s saves"
-          : "unsaved · esc again keeps it here (nothing is lost) · ctrl+s saves";
+          ? "esc again lets this kept draft go (a copy stays on disk) · ctrl+s saves" // says, not a hint row
+          : "unsaved · esc again keeps it here (nothing is lost) · ctrl+s saves"; // says, not a hint row
         return "keep";
       }
       return "discard";

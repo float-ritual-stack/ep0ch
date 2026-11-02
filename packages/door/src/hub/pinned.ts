@@ -5,6 +5,7 @@
 //
 // A screen spec on the desk (PIE-515: `pinnedSpec`): one tile of its own kind (`pinned`, `pinnedKind`), a reader that
 // knows which page it's pinned to; the layout, the sessions, the mouse, `act` and `peek` are the desk's.
+import { waiting, waitingText } from "../text";
 import type { Msg } from "../board";
 import { USER, type OutlineEvent } from "../socket";
 import { C, fg, pad, RESET } from "../style";
@@ -57,14 +58,14 @@ export class PinnedReader extends ReaderPane {
   override dispose() { if (this.reload) clearTimeout(this.reload); super.dispose?.(); }
 
   heading(): string {
-    if (!this.asked) return `${this.label} · asking the outline…`;
+    if (!this.asked) return `${this.label} · ${waitingText()}`;
     if (!this.page) return `${this.label} · no page yet`;
     return `${this.label} · pinned [[${this.address}]]`;
   }
 
   emptyLines(): string[] | null {
     if (this.problem) return [fg(C.lred) + this.problem + RESET];
-    if (!this.asked) return [fg(C.dark) + "asking the outline…" + RESET];
+    if (!this.asked) return [waiting()];
     if (this.page) return null;
     return [
       fg(C.white) + `No [[${this.address}]] page on this outline yet.` + RESET, "",

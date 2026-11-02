@@ -17,7 +17,7 @@ import { armsEdit, draftPreviewDoc, leaveSaid, sessionStart } from "../surface/n
 import { viewSummaryKeys, prop } from "../props";
 import { bg, C, chip, drawEllipsized, fg, pad, paint, RESET } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ago } from "../text";
+import { ago, waiting, waitingText } from "../text";
 import { applyMove, describeChanges, NO_PLAN, planMoves, type MovePlan } from "../move";
 import { PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
 import { headerLine } from "@ep0ch/outline-core/header-line";
@@ -775,7 +775,7 @@ export class Lanes implements SourceModel {
       row: (l, i, on, w) => {
         const p = M.plans?.[i];
         const what = i === from ? fg(C.dark) + "the card's lane now"
-          : !p ? fg(C.dark) + "asking the outline what would be patched…"
+          : !p ? fg(C.dark) + waitingText("what would be patched")
           : p.kind === "patch" ? fg(C.lgreen) + "-> " + describeChanges(p.changes)
           : p.kind === "already" ? fg(C.dark) + "already matches · nothing to change"
           : fg(C.lred) + "can't: " + p.reason;
@@ -1234,7 +1234,7 @@ export class Lanes implements SourceModel {
         return {
           rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, Math.max(6, n + 4)) },
           title: `steps · ${drawEllipsized(titleOf(S.card), 50)}${S.read ? ` · ${done}/${n} done · rev ${S.read.revision}` : ""}`,
-          head: S.read ? [] : [fg(C.dark) + " reading the steps…" + RESET],
+          head: S.read ? [] : [" " + waiting("the steps")],
           tail: S.read ? [fg(S.busy ? C.grey : C.dark) + ` ${S.busy ? "saving…" : S.note || "each step is changed by the service, checked against how it was read"}` + RESET] : [],
         };
       },

@@ -9,6 +9,8 @@ import { modeHint, type ModeKey } from "./modes";
 import { PERSON, type ListHandle } from "./list-view";
 import { LIST_KEYS, listBinding } from "./list-keys";
 import { LISTVIEW_ACTIONS } from "./list-actions";
+/** While a list's filter is being typed: the list.filter action's own two exits. */
+const FILTER_KEYS: readonly ModeKey[] = [{ key: "enter", action: "list.filter", label: "keep" }, { key: "esc", action: "list.filter", args: { words: "" }, label: "clear" }];
 import type { ListActionName } from "./note";
 import type { Key } from "../term";
 
@@ -28,7 +30,7 @@ export function listMode(surface: NoteSurface, list: string, title: string): Lis
     },
     rows: () => null,
     leave: async () => { surface.leaveList(); return { left: "nothing" }; },
-    hint: () => surface.listViews.get(list)?.typing ? "type to filter the list · ⏎ keep · esc clear" : `${title} · ${modeHint(LIST_KEYS, name => LISTVIEW_ACTIONS.def(name))}`,
+    hint: () => surface.listViews.get(list)?.typing ? `type to filter the list · ${modeHint(FILTER_KEYS, () => undefined)}` : `${title} · ${modeHint(LIST_KEYS, name => LISTVIEW_ACTIONS.def(name))}`,
     state: () => "in a list",
     describe: () => ({ list, title, selected: surface.listViews.get(list)?.picked(PERSON)?.id ?? null, typing: surface.listViews.get(list)?.typing?.text ?? null }),
   };

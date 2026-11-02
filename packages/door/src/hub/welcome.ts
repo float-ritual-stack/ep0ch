@@ -33,7 +33,7 @@ import { artNamed } from "../packs";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { C, chip, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ch, type Key, type TermInfo } from "../term";
-import { bbsDate, wrap } from "../text";
+import { bbsDate, moreRow, waiting, waitingText, wrap } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { OpenHow } from "../surface/note";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
@@ -217,13 +217,13 @@ export class WelcomeList implements Pane {
   subject() { return this.items?.[this.at]?.id ?? null; }
   title() {
     const items = this.items;
-    return !items ? "asking the outline…" : items.length ? `${items.length} note${items.length === 1 ? "" : "s"}` : "none tagged yet";
+    return !items ? waitingText() : items.length ? `${items.length} note${items.length === 1 ? "" : "s"}` : "none tagged yet";
   }
   hint() { return modeHint(WELCOME_LIST_KEYS, action => WELCOME_ACTIONS.def(action)); }
 
   render(w: number, h: number, focused: boolean): PaneView {
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
-    if (!this.items) return { lines: [fg(C.dark) + "asking the outline…" + RESET] };
+    if (!this.items) return { lines: [waiting()] };
     if (!this.items.length) {
       const lines = [
         ...wrap("No note is a welcome note yet.", w).map(l => fg(C.white) + pad(l, w) + RESET), "",
@@ -240,7 +240,7 @@ export class WelcomeList implements Pane {
     this.view.place(sel >= 0 ? sel : null, this.rows.length, h);
     return {
       lines: this.rows.slice(this.view.top, this.view.top + h).map(r => {
-        if ("more" in r) return fg(C.dark) + pad(`  … ${r.more} more`, w) + RESET;
+        if ("more" in r) return pad("  " + moreRow(r.more), w);
         const m = this.items![r.i]!, key = TAB_DIGITS[r.i] ?? " ";
         if (r.i === at) return selectedRow(` ${key} ${subject(m)}`, w, focused);
         return pad(` ${fg(C.white)}${key} ${fg(C.lmagenta)}${subject(m)}`, w) + RESET;
@@ -450,7 +450,7 @@ export class WelcomeList implements Pane {
     return [
       "|15e p 0 c h |08· |11welcome",
       `|07node 1${ctx.outline ?? ctx.workspace ? ` |08· |03${ctx.outline ?? basename(ctx.workspace)}` : ""}`,
-      n === undefined ? "|08asking the outline…" : n ? `|07${n} |08welcome note${n === 1 ? "" : "s"} · |151-9 0|08 pick` : `|08no notes tagged [${WELCOME_KEY}::true] yet`,
+      n === undefined ? `|08${waitingText()}` : n ? `|07${n} |08welcome note${n === 1 ? "" : "s"} · |151-9 0|08 pick` : `|08no notes tagged [${WELCOME_KEY}::true] yet`,
       `|08last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`,
     ];
   }
@@ -468,7 +468,7 @@ export class WelcomeList implements Pane {
         width: cols - 2, lead, overflow: "share",
         style: { on: chip(C.magenta), off: fg(C.lmagenta), key: fg(C.white), more: fg(C.lcyan), sep: " ", gap: rail(" =") },
       })
-      : [{ text: lead + fg(C.dark) + (this.items ? `no welcome notes yet · showing [[${welcomeFallback()}]] ` : "asking the outline… ") + RESET + rail("="), hits: [] }];
+      : [{ text: lead + fg(C.dark) + (this.items ? `no welcome notes yet · showing [[${welcomeFallback()}]] ` : `${waitingText()} `) + RESET + rail("="), hits: [] }];
     for (const h of strip!.hits) this.hits.push({ y0: row, y1: row, ...h });
     canvas.text(0, row, strip!.text + rail("=".repeat(Math.max(0, cols - 1 - width(strip!.text))) + "]"), cols);
   }
@@ -501,7 +501,7 @@ export class WelcomeDetail extends ReaderPane {
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
     const s = this.list;
     if (!this.msg && s) {
-      const why = !s.items ? "asking the outline…" : s.items.length ? "" : `Nothing to read yet: tag a note [${WELCOME_KEY}::true].`;
+      const why = !s.items ? waitingText() : s.items.length ? "" : `Nothing to read yet: tag a note [${WELCOME_KEY}::true].`;
       if (why) return { lines: [fg(C.dark) + pad(why, w) + RESET] };
     }
     return super.render(w, h, focused, desk);

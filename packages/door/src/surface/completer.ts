@@ -43,7 +43,7 @@ import { lineCompletionHooks, type LineCompletion } from "./line-hooks";
 import type { LineField } from "./line";
 import { C, fg, pad, RESET, TAGS, MARKS } from "../style";
 import type { Key } from "../term";
-import { rowLines } from "../text";
+import { rowLines, waitingText } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { blockReferenceOccurrences, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
@@ -590,7 +590,7 @@ export class Completer {
     }
     const picked = explicit || (same && this.state?.picked);
     const turn = this.search.begin(), was = same ? this.state?.items[this.state.index]?.insertion : undefined;
-    this.state = { target, picked, line: this.d.complete !== undefined, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: "finding references...", loading: true, at: this.here() };
+    this.state = { target, picked, line: this.d.complete !== undefined, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: waitingText("references"), loading: true, at: this.here() };
     this.redraw();
     if (explicit || !asksService(this.board, target)) return this.lookup(turn, target, was, explicit);
     return new Promise<void>(done => {

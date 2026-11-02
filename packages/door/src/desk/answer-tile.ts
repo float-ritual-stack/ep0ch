@@ -4,6 +4,7 @@ import { ReaderPane, type DeskApi, type Pane } from "./panes";
 import type { TileKind } from "./tile-kinds";
 import type { KindHost } from "./tile-kinds";
 import { actionSet, def, ActionRefused } from "../surface/actions";
+import { partsHint } from "../surface/modes";
 import { refOfLink, type Link } from "../surface/note";
 import type { LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -20,7 +21,13 @@ export class AnswerTile implements Pane {
   constructor(public source: string, public ask: string, public fold?: string) {}
   title() { return this.ask; }
   renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
-  hint() { return "↑↓ scroll · 1–9 follow a link · f fold/unfold in the note"; }
+  hint() {
+    return partsHint([
+      { key: "up", action: "answer.scroll", args: { by: -1 }, label: "scroll", also: "↓" },
+      { key: "1", action: "answer.follow", args: { n: 1 }, label: "follow a link", also: "2–9" },
+      { key: "f", action: "answer.fold", label: "fold/unfold in the note" },
+    ]);
+  }
   spec() { return { source: `tile:${this.source}`, state: { ask: this.ask, fold: this.fold } }; }
   answer(text: string) {
     const at = text.split("\n").indexOf(this.ask);

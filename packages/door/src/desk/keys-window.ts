@@ -209,7 +209,7 @@ export class KeysPane implements Pane {
     if (this.record && this.record.b.id === b.id) {
       out.push("");
       const r = this.record;
-      if (!r.key) out.push(fg(C.lcyan) + ellipsize(`press the new key for ${b.id}${r.first ? `: ${keyCaption(r.first)} …` : b.key.startsWith("ctrl+w ") ? " (^W, then the key)" : ""} · esc cancels`, w) + RESET);
+      if (!r.key) out.push(fg(C.lcyan) + ellipsize(`press the new key for ${b.id}${r.first ? `: ${keyCaption(r.first)} …` : b.key.startsWith("ctrl+w ") ? " (^W, then the key)" : ""} · esc cancels`, w) + RESET); // says, not a hint row
       else {
         const e = rebindEffects(b, r.key, all);
         if (e.problem) out.push(fg(C.lred) + ellipsize(`${keyCaption(r.key)}: ${e.problem}`, w) + RESET);

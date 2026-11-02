@@ -806,7 +806,7 @@ export class App implements Ctx {
     const dirty = [...screens, ...(quitting && this.drawer.made ? [this.drawer.made] : [])].filter((s): s is Screen => !!s?.unsaved?.());
     // Quitting with the tune inspector's nudges unwritten (PIE-673): they live in memory, so say so once, never lose them silently.
     const tuned = quitting ? tuningOf(this.board).unsavedCount() : 0;   // this door's own connection, never another App's in the same process
-    const tuning = tuned ? `unsaved tuning, s to save (${tuned} value${tuned === 1 ? "" : "s"}, alt+y opens the tune inspector) · again within 3s quits without ${tuned === 1 ? "it" : "them"}` : null;
+    const tuning = tuned ? `unsaved tuning, s to save (${tuned} value${tuned === 1 ? "" : "s"}, alt+y opens the tune inspector) · again within 3s quits without ${tuned === 1 ? "it" : "them"}` : null; // says, not a hint row
     const warn = (quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.drawer.leaveWarning() ?? this.quitWarning?.() ?? tuning : null) ?? screens.map(s => s?.shapeWarning?.()).find(Boolean) ?? null;
     if (!dirty.length && !warn) return true;
     if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }

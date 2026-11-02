@@ -17,6 +17,7 @@ import { tileKinds } from "../desk/tile-kinds";
 import { wCaption, type WRow } from "../desk/wkeys";
 import { ScreenTile } from "../desk/screen-tile";
 import { notConfigured, jevOff } from "../surface/completer";
+import { modeHint, type ModeKey } from "../surface/modes";
 import { ActionRefused, actRequestOf, coerceActionArgs, FREE_ARGS, declaredKeys, lineWords, type Keys, shownLine, type ActionInfo, type ActRequest } from "../surface/actions";
 import { authorName, USER } from "../socket";
 import { ago } from "../text";
@@ -37,6 +38,9 @@ import { settingsChip, settingsMarkdown, settingsNeedYou, settingsWords, shownVa
 const actionArgs = (host: BarHost, name: string) => host.dispatch.list().actions.find(a => a.name === name)?.args ?? {};
 
 /** The tiles a screen holds: a desk, or the desk inside it (the showcase's section). */
+/** What a pick of a tile's row does: the preview's last line is drawn from these. */
+const TILE_PREVIEW_KEYS: readonly ModeKey[] = [{ key: "enter", action: "bar.pick", label: "goes to it" }, { key: "alt+enter", action: "bar.pick", args: { alt: true }, label: "zooms it" }];
+
 export function tilesOf(s: Screen | undefined): Desk | null { return s instanceof Desk ? s : s?.tilesHere?.() ?? null; }
 
 /** What a tile row carries: where the tile is (a screen, or the drawer) and its name there. */
@@ -100,7 +104,7 @@ const TILES: BarSource = {
     if (t.shows) return { note: t.shows };
     const p = t.desk.pane(t.name);
     if (p instanceof PtyPane) { const text = p.text(); while (text.length && !text.at(-1)!.trim()) text.pop(); return { lines: text.length ? text : ["(the terminal is blank)"] }; }
-    return { lines: [`${t.name}: a ${t.kind} tile${t.screen ? ` on the ${t.screen.title}` : " in your drawer"}`, "", p?.title?.() ?? "", "", "⏎ goes to it · alt+⏎ zooms it"] };
+    return { lines: [`${t.name}: a ${t.kind} tile${t.screen ? ` on the ${t.screen.title}` : " in your drawer"}`, "", p?.title?.() ?? "", "", modeHint(TILE_PREVIEW_KEYS, () => undefined)] };
   },
   // The line its pick runs, where a line can run it: a tile on the screen shown (one in the drawer, under this screen or in
   // a mount is gone to by the person's pick alone).

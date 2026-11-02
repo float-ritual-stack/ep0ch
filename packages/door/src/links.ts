@@ -26,7 +26,7 @@ import {
   type BacklinkAcross, type BacklinkCollection, type BacklinkSource, type BacklinkStageBucket, type BacklinkStageFilter, type BacklinkViewGroup, type BacklinkViewOptions,
 } from "./backlinks";
 import { headedTitle, subject, type Msg } from "./board";
-import { ago, rowLines, wrap } from "./text";
+import { ago, moreText, rowLines, waitingText, wrap } from "./text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { authorName, backlinkCollectionOf, LIST_FIELDS, USER, type Actor, type SocketBoard } from "./socket";
 import { BACKLINK_QUERY_LIMIT } from "./backlinks";
@@ -228,7 +228,7 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
       const c = data[group];
       // Read only where the list asks for them (the links tile); elsewhere the group isn't there.
       if (!c) continue;
-      if (c.kind === "loading") note = "asking the service…";
+      if (c.kind === "loading") note = waitingText();
       else if (c.kind === "error") note = c.message;
       else {
         // No children: the group says nothing, as an empty Outlinks doesn't, unless it's all the list shows (the replies).
@@ -239,7 +239,7 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
       }
     } else if (group === "backlinks") {
       const b = data.backlinks;
-      if (b.kind === "loading") note = "asking the service…";
+      if (b.kind === "loading") note = waitingText();
       else if (b.kind === "error") note = b.message;
       else {
         const bv = backlinkView(b.value, view.backlinks);
@@ -254,7 +254,7 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
       }
     } else {
       const l = data.links;
-      if (l.kind === "loading") note = "asking the service…";
+      if (l.kind === "loading") note = waitingText();
       else if (l.kind === "error") note = l.message;
       else {
         const why = snapshotProblem(l.value);
@@ -408,7 +408,7 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
     case "kind": {
       // Folded, it lists only its open rows: how many more it holds, said (PIE-819), so none seem missing.
       const more = backlinkGroupHidden(r.group, r.expanded);
-      return { mark: r.expanded ? "−" : "+", text: `${r.group.label} ${r.group.sources.length}`, context: [backlinkStageSummary(r.group).trim(), more ? `· ${more} more` : ""].filter(Boolean).join(" ") };
+      return { mark: r.expanded ? "−" : "+", text: `${r.group.label} ${r.group.sources.length}`, context: [backlinkStageSummary(r.group).trim(), more ? `· ${moreText(more, { inline: true })}` : ""].filter(Boolean).join(" ") };
     }
     case "outlink": { const w = outlinkWords(r.link); return { mark: w.problem ? "!" : nest === null ? "→" : linkBlock(r) ? (nest ? "▾" : "▸") : "·", ...w }; }
     case "resource": { const w = resourceWords(r.link); return { mark: w.problem ? "!" : "♦", ...w }; }
@@ -418,7 +418,7 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
       const where = line ? `“${line.snippet}”${line.anchor && !line.snippet.includes(`^${line.anchor}`) ? ` ^${line.anchor}` : ""}` : "";
       return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: (r.source.outline ? `${r.source.outline} · ` : "") + r.source.title, context: backlinkRowSuffix(r.source, where) };
     }
-    case "fold": return { mark: "┄", text: `${r.count} more ${r.what}`, context: "⏎ shows them" };
+    case "fold": return { mark: "┄", text: moreText(r.count, { what: r.what }), context: "⏎ shows them" };
     case "child": case "match": {
       const b = r.child.block, f = r.child.facets;
       // A post in the thread tree (PIE-944): the note being read is marked, each post says who wrote it and how long ago.

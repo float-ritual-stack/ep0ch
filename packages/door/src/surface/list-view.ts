@@ -14,7 +14,7 @@ import type { Actor } from "../socket";
 import { BOLD, C, ellipsize, fg, LINK_END, pad, RESET, selectedRow, tint, width } from "../style";
 import { primitiveLines } from "../components";
 import { tier } from "../figures/palette";
-import { rowLines } from "../text";
+import { moreRow, rowLines } from "../text";
 import type { LineField } from "./line";
 import { paintRange } from "./selection";
 
@@ -430,7 +430,7 @@ export class ListView<S = unknown> {
     if (preview && mine) {
       const got = preview.of(mine, pw);
       const max = preview.maxRows ?? 16;
-      if (got) pv = got.length > max ? [...got.slice(0, max - 1), fg(C.dark) + `… ${got.length - max + 1} more rows · ⏎ opens it` + RESET] : got;
+      if (got) pv = got.length > max ? [...got.slice(0, max - 1), moreRow(got.length - max + 1, { what: "rows", hint: "⏎ opens it" })] : got;
     }
     if (beside) {
       const n = Math.max(lines.length, pv.length), out: string[] = [], outAt: (number | null)[] = [];

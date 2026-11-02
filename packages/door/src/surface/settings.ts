@@ -149,7 +149,7 @@ async function write(on: On, subject: SettingsSubject, field: SettingField, valu
     ? (await Promise.all(viewWords(value).filter(v => !beforeValues.includes(v)).map(v => choiceProblem(subject, host, field, v)))).filter((p): p is string => p !== undefined) : []);
   const said = `${value === null ? "cleared" : "saved"} · ${field.prop.key}${value === null ? "" : `: ${printable(value)}`}`;
   const message = [said, ...warnings].join(" · ");
-  if (surface.panel?.card) surface.panel.card.note = message;
+  if (surface.panel?.card) surface.panel.card.say(message, warnings.length ? "problem" : "news");
   host.ctx.flash(message);
   surface.noteAgent(actor, said);
   host.redraw();

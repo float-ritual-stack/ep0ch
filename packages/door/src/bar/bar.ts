@@ -38,7 +38,7 @@ import type { Actor } from "../socket";
 import { barSource, barSources, QUERY_SCOPE, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 import "./sources";
 import { tabKeys, tabStrip, type TabRow } from "../surface/chip-rows";
-import { modeBinding } from "../surface/modes";
+import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
 import { JEV_PAUSE_MS, SearchSchedule, TYPING_PAUSE_MS } from "../search-schedule";
 import { liveQuestion, QUESTION_KEYS, compactQuestion, formOpen, formLine, maskedQuestion, questionCompletion, clearPrivateForm } from "./ask";
 
@@ -53,6 +53,29 @@ export function barRect(cols: number, rows: number): Rect {
 
 /** The bar's scopes: alt+← alt+→, and alt+b alt+f (Option+arrows some terminals send as word jumps), step through them. */
 const SCOPE_KEYS = tabKeys("bar.open", { prev: ["alt+left", "alt+b"], next: ["alt+right", "alt+f"], label: "scope" });
+/** The bar's own keys, as its foot says them. Up and down move the lit row, which bar.pick then takes. */
+const BAR_KEYS: readonly ModeKey[] = [
+  { key: "esc", action: "bar.close", label: "clear/close" },
+  { key: "up", action: "bar.pick", label: "pick" }, { key: "down", action: "bar.pick", label: "pick" },
+  { key: "enter", action: "bar.pick", label: "run" },
+  { key: "tab", action: "bar.edit", args: { op: "complete" }, label: "complete" },
+  { key: "alt+o", action: "bar.command", args: { op: "copy" }, label: "copy" },
+  { key: "alt+y", action: "bar.command", args: { op: "button" }, label: "button" },
+  { key: "alt+i", action: "bar.insert", label: "insert" },
+  { key: "alt+m", action: "bar.command", args: { op: "menu" }, label: "menu" },
+  { key: "alt+v", action: "bar.docs", args: { op: "focus" }, label: "docs" },
+];
+/** The docs reader's keys (alt+v), as its foot says them. */
+const DOCS_KEYS: readonly ModeKey[] = [
+  ...["up", "down", "left", "right", "pgup", "pgdn"].map(key => ({ key, action: "bar.docs", args: { op: "key", key }, label: "select" })),
+  { key: "y", action: "bar.docs", args: { op: "copy" }, label: "copy" }, { key: "cmd+c", action: "bar.docs", args: { op: "copy" }, label: "copy" },
+  { key: "enter", action: "bar.docs", args: { op: "example" }, label: "example" },
+  { key: "esc", action: "bar.docs", args: { op: "key", key: "esc" }, label: "returns to line" },
+];
+/** A compact question: a choice is picked with j k and ⏎, anything else typed and run. */
+const COMPACT_KEYS = (choice: boolean): readonly ModeKey[] => choice
+  ? [{ key: "j", action: "bar.pick", label: "choose" }, { key: "k", action: "bar.pick", label: "choose" }, { key: "enter", action: "bar.pick", label: "choose" }, { key: "esc", action: "bar.close", label: "cancel" }]
+  : [{ key: "enter", action: "bar.pick", label: "run" }, { key: "esc", action: "bar.close", label: "cancel" }];
 /** The columns a row's words keep before its kind chip is drawn beside them. */
 const CHIP_ROOM = 32;
 const SCOPE_LOOK = { on: chip(C.cyan, C.black), off: fg(C.grey), pad: " " };
@@ -499,7 +522,7 @@ export class PowerBar {
       const label = clipText(compact.title, Math.max(1, w - 12));
       this.fieldW = Math.max(1, w - width(label) - 2);
       const input = this.scope === "ask" && maskedQuestion() ? "·".repeat(Math.min(this.query.length, this.fieldW)) + "█" : this.input.render(this.fieldW, 1)[0];
-      return { rect, title: "", foot: compact.choice ? "click or j k ⏎ choose · esc cancel" : "⏎ run · esc cancel",
+      return { rect, title: "", foot: modeHint(COMPACT_KEYS(!!compact.choice), () => undefined),
         head: [fg(C.lcyan) + ` ${label} ` + RESET + (compact.choice ? "" : input)] };
     }
     // The scopes, the one shown lit; a click is bar.open scope= as the keys are.
@@ -541,7 +564,7 @@ export class PowerBar {
     const preview = (pw: number, ph: number) => it ? this.previewLines(it, pw, ph) : empty ? wrap(hint, pw).map(l => dim(l)) : [];
     return {
       rect, title: " power bar ",
-      foot: this.docsMode ? "docs: arrows / page keys select · y or cmd+c copy · enter example · esc returns to line" : scoped?.foot?.() ?? "esc clear/close · ↑↓ pick · ⏎ run · ⇥ complete · alt+o copy · alt+y button · alt+i insert · alt+m menu · alt+v docs",
+      foot: this.docsMode ? `docs: ${modeHint(DOCS_KEYS, () => undefined)}` : scoped?.foot?.() ?? modeHint(BAR_KEYS, () => undefined),
       head, ...(tail.length ? { tail } : {}),
       preview, previewPlaced: (rect: Rect | null) => { this.previewRect = rect; this.docsRect = this.docsLines.length ? rect : null; },
     };

@@ -15,6 +15,7 @@ import { C, dim, fg, pad, RESET, selected } from "../style";
 import { ch, type Key } from "../term";
 import { ago } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
+import { modeHint, type ModeKey } from "../surface/modes";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
 import { RowView } from "../scroll";
@@ -47,6 +48,13 @@ const usageWords = (c: MatrixCell) => !c.usage ? `no usage records: they are the
   : c.usage.calls ? `${c.usage.calls} call${c.usage.calls === 1 ? "" : "s"} in ${7} days, the last ${ago(Date.parse(c.usage.lastCall!))} ago`
   : c.level === "none" ? "no calls in 7 days" : "unused in 7 days";
 
+/** The keys of the matrix's hint row (key() below runs them): the plan levels are the `n r p f` of access.plan. */
+const ACCESS_KEYS: readonly ModeKey[] = [
+  ...["h", "j", "k", "l"].map(key => ({ key, action: "access.pick", label: "pick" })),
+  ...(["n", "r", "p", "f"] as const).map((key, i) => ({ key, action: "access.plan", args: { level: ["none", "read", "propose", "full"][i] }, label: "plan a level" })),
+  { key: "enter", action: "access.apply", label: "apply" }, { key: "esc", action: "access.cancel", label: "cancel" }, { key: "R", action: "access.refresh", label: "read again" },
+];
+
 export class AccessMatrixPane implements Pane {
   readonly kind = ACCESS_MATRIX_KIND_NAME;
   /** `env`: where the caps are read and written (the process's; the showcase gives its own folder). */
@@ -69,7 +77,7 @@ export class AccessMatrixPane implements Pane {
   private bodyEnd = 2;
 
   title() { return this.matrix ? `who can reach what · ${this.matrix.callers.length} caller${this.matrix.callers.length === 1 ? "" : "s"}` : "who can reach what"; }
-  hint() { return "h j k l pick · n r p f plan a level · ⏎ apply · esc cancel · R read again"; }
+  hint() { return modeHint(ACCESS_KEYS, () => undefined); }
   init(desk: DeskApi) { this.desk = desk; void this.load(); }
   focused() { void this.load(); }
 

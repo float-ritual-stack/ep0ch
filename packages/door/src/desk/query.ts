@@ -19,9 +19,10 @@ import { bodyMatch, headedTitle, matchWords, subject, type Msg } from "../board"
 import { markReveal } from "../reveal";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
+import { modeHint, type ModeKey } from "../surface/modes";
 import { C, fg, RESET } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ago } from "../text";
+import { ago, waiting } from "../text";
 import { describeChanges, type MovePlan } from "../move";
 import { readView, type ViewRead } from "../views";
 import { RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
@@ -105,6 +106,17 @@ async function readBehind() {
   } finally { hiddenReading = false; }
 }
 
+/** The keys a query tile's hint row names; a card list reads them as the key handler does (key() below). */
+const QUERY_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "query.pick", label: "pick", args: { by: 1 } }, { key: "k", action: "query.pick", label: "pick", args: { by: -1 } },
+  { key: "enter", action: "query.pick", label: "open", args: { open: true } }, { key: "r", action: "query.reload", label: "reload" },
+];
+const QUERY_HOME_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "query.pick", label: "preview", args: { by: 1 } }, { key: "k", action: "query.pick", label: "preview", args: { by: -1 } },
+  { key: "enter", action: "query.pick", label: "open", args: { open: true } }, { key: "alt+enter", action: "query.pick", label: "new detail", args: { fresh: true } },
+  { key: "r", action: "query.reload", label: "reload" },
+];
+
 export class QueryPane implements Pane {
   /** Its kind: `query`, or an extension's view kind drawn through it (PIE-1506, serviceKind). */
   kind: TileKindName = "query";
@@ -174,8 +186,8 @@ export class QueryPane implements Pane {
   headName() { return this.def ? headedTitle(this.def) : this.name; }
   hint() {
     if (this.boardHint) return this.boardHint;
-    if (!this.home) return "j k pick · ⏎ open · r reload";
-    const keys = `j k preview · ⏎ open in ${this.home} · alt+⏎ new detail · r reload`;
+    if (!this.home) return modeHint(QUERY_KEYS, () => undefined);
+    const keys = modeHint(QUERY_HOME_KEYS.map(r => r.action === "query.pick" && r.args?.open ? { ...r, label: `open in ${this.home}` } : r), () => undefined);
     return !this.holdable ? keys : this.held ? `held · a new tag opens its own list · ${keys} · p let go` : `${keys} · p hold`;
   }
   /** While a card is dragged over it: yellow (it would move, and what changes), red (refused, why). */
@@ -306,7 +318,7 @@ export class QueryPane implements Pane {
     const drawn = this.list.draw({ cols: w, room: h, focused, selection: true, lines: 2 });
     const lines = drawn.lines;
     this.drawnItems = drawn.rowAt.map(at => at ?? -1);
-    if (!this.items) lines.push(fg(C.dark) + " loading…" + RESET);
+    if (!this.items) lines.push(" " + waiting());
     else if (this.read && this.read.status !== "ready") for (const e of this.read.errors) lines.push(fg(C.lred) + " " + e + RESET);
     else if (!items.length) lines.push(fg(C.dark) + ` nothing in ${this.name || "this view"} yet: no note matches what it asks for` + RESET);
     return { lines };

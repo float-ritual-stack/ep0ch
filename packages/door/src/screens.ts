@@ -1,6 +1,7 @@
 import { drawCompletionFloat } from "./surface/completion-float";
 import { LIST_MOVE_KEYS } from "./surface/attached-keys";
-import { modeBinding, modeHint, modeActionKeys, Modes } from "./surface/modes";
+import { modeBinding, modeHint, modeActionKeys, Modes, type ModeKey } from "./surface/modes";
+import { effective } from "./surface/keymap";
 import { clipText } from "./overflow";
 import { errorDetails } from "./status-log";
 import { matchesSearchText } from "@ep0ch/outline-core/search-match";
@@ -46,12 +47,12 @@ import { madeScreen, resolveScreen, screenNames, screenTargetArg, screenTitle } 
 import { screenNoteProblems } from "./desk/screen-notes";
 import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
-import { bbsDate, colourInline, printable, rowLines, rule, wrap } from "./text";
+import { bbsDate, colourInline, printable, rowLines, rule, waitingText, wrap } from "./text";
 import { LISTVIEW_ACTIONS } from "./surface/list-actions";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { copyNoteById, NOTE_REF_ACTIONS, ownOutline, type NoteRefOn } from "./note-ref";
 import { shellRunner } from "./drop";
-import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
+import { ActionRefused, actionSet, def, keyCaption, type ArgsOfSet } from "./surface/actions";
 import { Dispatcher, type TileRef } from "./surface/dispatch";
 import { holdsEdit, SHELL_IDLE_MS } from "./whereabouts";
 import { authorName, type Actor, type OutlineEvent } from "./socket";
@@ -139,6 +140,17 @@ function hotLine(p: Pointer, y: number, w: number, parts: (string | [string, Key
   }
   return out;
 }
+
+/** Hot line parts drawn from key rows (the keymap's, so a rebind shows): one part per label, its keys joined, a click on it sending the first. */
+const sendOf = (key: string): Key => key === "enter" ? ENTER : key === "up" || key === "down" ? { kind: key } : char(key);
+function hotParts(rows: readonly ModeKey[]): (string | [string, Key])[] {
+  const groups = new Map<string, ModeKey[]>();
+  for (const r of effective(rows)) groups.set(r.label ?? r.action, [...(groups.get(r.label ?? r.action) ?? []), r]);
+  return [...groups].flatMap(([label, g], i): (string | [string, Key])[] => [...(i ? [" · "] : []), [`|15${g.map(r => keyCaption(r.key)).join("/")}|08 ${label}`, sendOf(g[0]!.key)]]);
+}
+/** The lists' own keys on their hot line: the lit row moves, ⏎ takes it, q goes back. */
+const listKeys = (enter: string, then: readonly ModeKey[] = []): readonly ModeKey[] => [{ key: "up", action: "list.select", label: "select" }, { key: "down", action: "list.select", label: "select" }, { key: "enter", action: "list.open", label: enter }, ...then];
+const BACK_KEY: readonly ModeKey[] = [{ key: "q", action: "screen.back", label: "back" }];
 
 const screenArt = artNamed;
 
@@ -1576,7 +1588,7 @@ export class MessageList extends BbsList {
     this.ptr.frame();
     const lines = [
       center(paint(`|09─=|11[ |15${this.title.toUpperCase()} |11]|09=─`), w),
-      center(paint(`|08${this.items ? `${this.items.length} message(s)` : "scanning…"}${this.caption ? ` · ${this.caption}` : ""}${this.receiving ? ` · |14receiving up to ${this.receiving.limit} ${"▒▓█▓"[Math.floor(Date.now() / 150) % 4]} ${((Date.now() - this.receiving.started) / 1000).toFixed(1)}s` : ""}`), w),
+      center(paint(`|08${this.items ? `${this.items.length} message(s)` : waitingText()}${this.caption ? ` · ${this.caption}` : ""}${this.receiving ? ` · |14receiving up to ${this.receiving.limit} ${"▒▓█▓"[Math.floor(Date.now() / 150) % 4]} ${((Date.now() - this.receiving.started) / 1000).toFixed(1)}s` : ""}`), w),
       "",
       paint(`|09  Msg#  |09From              |09Subject${" ".repeat(Math.max(0, w - 62))}|09Date`),
       rule(w),
@@ -1601,7 +1613,7 @@ export class MessageList extends BbsList {
       lines.push(n === this.sel ? selectedRow(text, w) : fg(C.grey) + pad(text, w) + RESET);
     }
     while (lines.length < h - 1) lines.push("");
-    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · " + modeHint(LIST_MOVE_KEYS.filter(row => row.key !== "Z"), action => LIST_ACTIONS.def(action)) + " · ", [modeHint(LIST_MOVE_KEYS.filter(row => row.key === "Z"), action => LIST_ACTIONS.def(action)), char("Z")], " · ", ["|15Q|08 back", char("q")]]));
+    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ", ...hotParts(listKeys("read", [{ key: "t", action: "list.thread", label: "thread" }])), " · " + modeHint(LIST_MOVE_KEYS.filter(row => row.key !== "Z"), action => LIST_ACTIONS.def(action)) + " · ", [modeHint(LIST_MOVE_KEYS.filter(row => row.key === "Z"), action => LIST_ACTIONS.def(action)), char("Z")], " · ", ...hotParts(BACK_KEY)]));
     return { lines };
   }
   protected override page(ctx: Ctx) { return ctx.t.rows - 10; }
@@ -1978,7 +1990,7 @@ export class Conferences extends BbsList {
       }
     });
     if (!this.confs) lines.push(paint("|08  dialing…"));
-    lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ↑↓ select · ", ["|15ENTER|08 join", ENTER], " · ", ["|15Q|08 back", char("q")]]));
+    lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ", ...hotParts(listKeys("join")), " · ", ...hotParts(BACK_KEY)]));
     return { lines };
   }
   listRows(): ListRow[] | null { return this.confs?.map((c, i) => ({ n: i + 1, title: subject(c), id: c.id, type: prop(c, "type") ?? null })) ?? null; }
@@ -2015,7 +2027,7 @@ export class FileAreas extends BbsList {
       }
     });
     while (lines.length < h - 1) lines.push("");
-    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 browse pack", ENTER], " · ", ["Q back", char("q")]]));
+    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ", ...hotParts(listKeys("browse pack")), " · ", ...hotParts(BACK_KEY)]));
     return { lines };
   }
   protected override page() { return 5; }

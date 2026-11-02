@@ -43,6 +43,21 @@ import { keyTable } from "../surface/keymap";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
+const TUNE_FIELD_KEYS: readonly ModeKey[] = [{ key: "enter", action: "tune.field", args: { op: "save" }, label: "save" }, { key: "esc", action: "tune.field", args: { op: "cancel" }, label: "cancel" }];
+const TUNE_HINTS_KEYS: readonly ModeKey[] = [
+  { key: "H", action: "tune.section", args: { section: "values" }, label: "values" }, { key: "j", action: "tune.hint.pick", label: "pick" }, { key: "k", action: "tune.hint.pick", label: "pick" },
+  ...([["c", "card"], ["s", "status"], ["o", "off"]] as const).map(([key, to]) => ({ key, action: "hints.set", args: { to }, label: to })),
+  { key: "R", action: "hints.reset", label: "reset all" },
+];
+const TUNE_VALUES_KEYS: readonly ModeKey[] = [
+  { key: "enter", action: "tune.group", label: "fold" }, { key: "f", action: "tune.filter", label: "set here" }, { key: "e", action: "tune.edit", label: "edit" },
+  { key: "j", action: "tune.pick", label: "pick" }, { key: "k", action: "tune.pick", label: "pick" },
+  { key: "+", action: "tune.nudge", args: { by: 1 }, label: "nudge" }, { key: "-", action: "tune.nudge", args: { by: -1 }, label: "nudge" },
+  { key: "v", action: "tune.level", label: "level" }, { key: "w", action: "tune.width", label: "width" }, { key: "s", action: "tune.save", label: "save" },
+  { key: "u", action: "tune.undo", label: "undo" }, { key: "U", action: "tune.redo", label: "redo" }, { key: "x", action: "tune.unset", label: "reset value" },
+  { key: "X", action: "tune.resetlevel", label: "reset level" }, { key: "R", action: "tune.revert", label: "revert all" },
+];
+const TUNE_RETIRED_KEYS: readonly ModeKey[] = [{ key: "D", action: "tune.retired.remove", label: "drop retired keys" }, { key: "M", action: "tune.retired.move", label: "move them to a hero line" }];
 const TUNE_GLASS_KEYS = keyTable("tune glass", "the glass's delays and limits", [
   { key: "G", action: "tune.section", args: { section: "values" }, label: "values" },
   ...["k", "up"].map(key => ({ key, action: "tune.glass.pick", args: { by: -1 }, label: "pick" })),
@@ -172,7 +187,12 @@ export class TunePane implements Pane {
   unsaved() { return this.view.unsaved(); }
   keepDrafts() { return this.view.keep(); }
   dispose() { void this.view.field?.session.leave(); }
-  hint() { if (this.view.field) return "editing · Enter save · Esc cancel"; if (this.section === "glass") return modeHint(TUNE_GLASS_KEYS, () => undefined); if (this.section === "hints") return "H values · j k pick · c card · s status · o off · R reset all"; return `Enter fold · f set here · e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all${this.retiredShown ? " · D drop retired keys · M move them to a hero line" : ""}`; }
+  hint() {
+    if (this.view.field) return "editing · " + modeHint(TUNE_FIELD_KEYS, () => undefined);
+    if (this.section === "glass") return modeHint(TUNE_GLASS_KEYS, () => undefined);
+    if (this.section === "hints") return modeHint(TUNE_HINTS_KEYS, () => undefined);
+    return modeHint(this.retiredShown ? [...TUNE_VALUES_KEYS, ...TUNE_RETIRED_KEYS] : TUNE_VALUES_KEYS, () => undefined);
+  }
   spec() { return { source: `tile:${this.source}` }; }
 
   info(desk: DeskApi): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }

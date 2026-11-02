@@ -183,7 +183,12 @@ export class SettingsCard {
   rect: FloatRect = { col: 0, row: 0, cols: 0, rows: 0 };
   sel = 0;
   view = new RowView();
-  note = "";
+  /** What the card says under its fields (a save, an undo) and its tone: a problem is red, news yellow (PIE-1293: said by whoever writes it, never guessed from its words). */
+  private said: { text: string; tone: "news" | "problem" } = { text: "", tone: "news" };
+  get note(): string { return this.said.text; }
+  set note(text: string) { this.said = { text, tone: "news" }; }
+  /** Say `text` under the fields, as news or as a problem. */
+  say(text: string, tone: "news" | "problem" = "news") { this.said = { text, tone }; }
   /** Where the last render drew each field (`y` in its lines), for clicks. */
   at: { y: number; n: number }[] = [];
 
@@ -241,7 +246,7 @@ export class SettingsCard {
       if (r.n) this.at.push({ y: out.length, n: r.n });
       out.push(r.n - 1 === this.sel ? selectedRow(r.text, w) : pad(r.text, w));
     }
-    if (foot) out.push(fg(/not saved|can't|refused|failed|isn't|is one of|is a /.test(this.note) ? C.lred : this.note ? C.yellow : C.dark) + pad(drawEllipsized(foot, w), w) + RESET);
+    if (foot) out.push(fg(!this.note ? C.dark : this.said.tone === "problem" ? C.lred : C.yellow) + pad(drawEllipsized(foot, w), w) + RESET);
     return out.slice(0, h);
   }
 }

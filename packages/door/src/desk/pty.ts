@@ -31,6 +31,8 @@ import { dropStatus, foregroundGroup, holdStatus, newStatusKey, recordFacts, sta
 import { stateDir } from "../state";
 import type { Actor } from "../socket";
 import { sessionCommand, type SessionMark } from "./agent-sessions";
+import { modeHint } from "../surface/modes";
+import { keyCaption } from "../surface/actions";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -279,7 +281,8 @@ export class PtyPane implements Pane {
   }
   hint(): string {
     if (this.exited !== null) return this.run.rerun ? "run it again from the note" : "⏎ runs it again";
-    return `click or ⏎ types here · ${this.wantsMouse() ? "shift+drag (alt+drag) selects and copies" : "drag selects and copies"} · ${ESCAPE_CHORD} back to the door`;
+    const select = this.wantsMouse() ? "shift+drag (alt+drag) selects and copies" : "drag selects and copies";
+    return modeHint([{ key: "enter", action: "tile.enter", label: "types here" }], () => undefined) + ` · ${select} · ` + modeHint([{ key: ESCAPE_CHORD, action: "tile.leave", label: "back to the door" }], () => undefined);
   }
 
   /** What the "waiting on you" list and the door's own report call it: its name on the desk, else its program. */
@@ -614,7 +617,7 @@ export class PtyPane implements Pane {
       }) : "");
     }
     if (this.sel) for (let y = 0; y < h; y++) { const span = this.sel.span(top + y, w); if (span && lines[y]) lines[y] = paintRange(lines[y]!, span[0], span[1], SELECT_BG); }
-    if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ${this.run.rerun ? "run it again from the note" : "⏎ runs it again"}${this.closesBy} · ctrl+] back to the door\x1b[0m`;
+    if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ${this.run.rerun ? "run it again from the note" : `${keyCaption("enter")} runs it again`}${this.closesBy} · ${keyCaption(ESCAPE_CHORD)} back to the door\x1b[0m`;
     return { lines, scroll: b.baseY > 0 ? { top, room: h, total: b.baseY + h } : undefined };
   }
 

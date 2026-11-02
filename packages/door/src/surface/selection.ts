@@ -15,6 +15,7 @@
 import { DRAWN_PART } from "../hyperlink";
 import { pageRows } from "../scroll";
 import { ActionRefused } from "./actions";
+import { modeHint } from "./modes";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ellipsize, bgRgb, glyphWidth, itemStyle, RESET, surfaceBg, tint } from "../style";
 import { theme, themed } from "../theme";
@@ -439,11 +440,24 @@ export function modeKey(k: Key, s: Selection, rows: SelectRows, room: number): M
   return "moved";
 }
 
-/** The hint while a selection exists. */
-export function selectionHint(s: Selection, chars: number): string {
-  return s.keys
-    ? `selecting ${chars} chars · h j k l move · y cmd+c copy · Y source · esc done`
-    : `selected ${chars} chars · y cmd+c copy · Y source · v keys · esc clear`;
+/**
+ * The keys of a selection, one row per key: the keyboard mode's (after `v`) and a selection held without it. `modeKey`
+ * above is the handler; the rows name what each key does, so the hint reads them. The actions are the mode's own results.
+ */
+const sel = (key: string, action: string, label: string): SelectionKey => ({ key, action, label });
+type SelectionKey = { readonly key: string; readonly action: string; readonly label: string };
+const SELECTING_KEYS: readonly SelectionKey[] = [
+  ...["h", "j", "k", "l"].map(key => sel(key, "selection.move", "move")),
+  sel("y", "selection.copy", "copy"), sel("super+c", "selection.copy", "copy"), sel("Y", "selection.source", "source"), sel("esc", "selection.done", "done"),
+];
+const SELECTED_KEYS: readonly SelectionKey[] = [
+  sel("y", "selection.copy", "copy"), sel("super+c", "selection.copy", "copy"), sel("Y", "selection.source", "source"), sel("v", "selection.keys", "keys"), sel("esc", "selection.done", "clear"),
+];
+
+/** The hint while a selection exists. `source: false` leaves Y out where the reader has no source to copy (a river column). */
+export function selectionHint(s: Selection, chars: number, o: { source?: boolean } = {}): string {
+  const rows = (s.keys ? SELECTING_KEYS : SELECTED_KEYS).filter(r => o.source !== false || r.action !== "selection.source");
+  return `${s.keys ? "selecting" : "selected"} ${chars} chars · ${modeHint(rows, () => undefined)}`;
 }
 
 /** Find words in rendered rows, using the same whitespace matching in every reader. */

@@ -28,7 +28,7 @@ import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, LINK_GROUPS_ARE_THE_PERSON
 import { outlineState, readState, writeState } from "../state";
 import { C, fg, pad, paint, RESET, selectedRow, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { rowLines, ago, wrap } from "../text";
+import { ago, rowLines, waiting, wrap } from "../text";
 import { lastTop, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE, pageRows, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
@@ -234,10 +234,10 @@ export class RiverColumn extends ReaderPane {
   override keysScope(): string { return this.surface.editing ? super.keysScope() : COLUMN_ACTIONS.scope; }
   override hint() {
     // Typing a filter or choosing a property: the hint row is its prompt (the screen's row shows a typing tile's own).
-    if (this.mode === "filter") return completionOf(this.input)?.items.length ? paint(`|08${popupHint(completionOf(this.input)!)}`) : paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
+    if (this.mode === "filter") return completionOf(this.input)?.items.length ? paint(`|08${popupHint(completionOf(this.input)!)}`) : paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · `) + modeHint(COLUMN_FILTER_KEYS, () => undefined);
     if (this.mode === "tags") return paint(this.tagChoices.length ? `|14same property|08 · ${this.tagChoices.map(([k, v], i) => `|15${i + 1}|08 ${k}:: |11${v}`).join("|08 · ")}|08 · |15esc|08 cancel` : "|14same property|08 · this note has no properties to follow · |15esc|08 back");
     if (this.surface.editing || this.linked()) return this.surface.hint();
-    return modeHint(FLOW_KEYS.filter(row => row.action !== "tile.close" || this.desk?.canClose?.(this)), () => undefined) + " · " + modeHint(COLUMN_MOVE_KEYS, action => COLUMN_ACTIONS.def(action)) + " · j k notes · ⏎ open · space replies · / filter · v select";
+    return modeHint(FLOW_KEYS.filter(row => row.action !== "tile.close" || this.desk?.canClose?.(this)), () => undefined) + " · " + modeHint(COLUMN_MOVE_KEYS, action => COLUMN_ACTIONS.def(action)) + " · " + modeHint(COLUMN_LIST_KEYS, () => undefined);
   }
   override spine() {
     const hold = this.surface.draft ? "✎" : this.surface.session ? "¶" : "";
@@ -459,7 +459,7 @@ export class RiverColumn extends ReaderPane {
         for (const line of linkRowLines(r, { cols: w - 1, selected: on && active, focused: active })) push((on ? fg(active ? C.lcyan : C.grey) + "▌" + RESET : " ") + line, n);
       });
     }
-    if (!this.items && !this.error) push(fg(C.dark) + "dialing…" + RESET);
+    if (!this.items && !this.error) push(waiting());
     else if (filterQuery(this.filter) && !this.matched && !this.error) push(fg(C.dark) + "filtering…" + RESET);
     // The selected card comes into view only when the selection moved to it (keys, a click); a repaint or the wheel
     // leaves the scroll alone, so a note longer than the column can be read to its end (PIE-465).
@@ -651,7 +651,7 @@ export class RiverColumn extends ReaderPane {
     return rowsOf(d?.lines ?? [], r => (d && r >= d.body[0] && r < d.body[1] ? 1 : 0), r => d?.trims.get(r));
   }
   /** The hint while text is selected (the screen's hint row says the rest). */
-  selectionHint(): string | null { return this.text ? selectionHint(this.text, [...this.text.text(this.selRows())].length).replace(" · Y source", "") : null; }
+  selectionHint(): string | null { return this.text ? selectionHint(this.text, [...this.text.text(this.selRows())].length, { source: false }) : null; }
 
   // ── the mouse (every event inside the tile; x, y in it) ──
 
@@ -1057,6 +1057,18 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
  * column beside, w widen, p hold (keep full), x close, g search. Back and forward (alt+← backspace alt+→) are its surface's history,
  * which goes along the flow's trail (`host`).
  */
+/** What a listed column's keys do beyond the flow's and the moves': the hint row below is drawn from these. v starts a text selection, which y (column.copy) copies. */
+const COLUMN_LIST_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "column.select", label: "notes", args: { by: 1 } },
+  { key: "k", action: "column.select", label: "notes", args: { by: -1 } },
+  { key: "enter", action: "open", label: "open" },
+  { key: " ", action: "column.replies", label: "replies" },
+  { key: "/", action: "column.filter", label: "filter" },
+  { key: "v", action: "column.copy", label: "select" },
+];
+/** The filter prompt's keys. */
+const COLUMN_FILTER_KEYS: readonly ModeKey[] = [{ key: "enter", action: "column.filter", label: "apply" }, { key: "esc", action: "column.filter", label: "cancel" }];
+
 const FLOW_KEYS: readonly ModeKey[] = keyTable("river column", "a river column", [
   { key: "x", action: "tile.close", label: "close" },
   { key: "h", action: "tile.focus", args: { dir: "left" }, label: "columns", says: "give your keys to the column on the left" },

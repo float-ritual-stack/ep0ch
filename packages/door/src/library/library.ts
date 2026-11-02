@@ -14,6 +14,7 @@ import { BOLD, C, ellipsize, fg, pad, RESET, selectedRow, UNBOLD, width } from "
 import { Gesture, Selection, isCopyKey, rowsOf, wordAt, lineAt, paintRange, SELECT_BG, selectText, type Pos } from "../surface/selection";
 import { draftPreview } from "../surface/note";
 import { ActionRefused, actionSet, def } from "../surface/actions";
+import { modeHint, type ModeKey } from "../surface/modes";
 import { ch, type Key } from "../term";
 import { rowLines, wrap } from "../text";
 import type { DeskApi, Pane, PaneView } from "../desk/panes";
@@ -29,6 +30,27 @@ export const PARTS = [
   { part: "space", key: "4", label: "every combination" },
 ] as const;
 export type Part = (typeof PARTS)[number]["part"];
+/** The keys a part adds to the page's own: the hint row is drawn from these and the page's (LIBRARY_KEYS). */
+const PART_KEYS: Record<Part, readonly ModeKey[]> = {
+  overview: [],
+  property: [{ key: "left", action: "library.axis", args: { by: -1 }, label: "property" }, { key: "right", action: "library.axis", args: { by: 1 }, label: "property" }],
+  grid: [{ key: "left", action: "library.grid", args: { by: -1 }, label: "grid" }, { key: "right", action: "library.grid", args: { by: 1 }, label: "grid" }],
+  space: [
+    { key: "[", action: "library.cursor", args: { rows: -1 }, label: "axis" }, { key: "]", action: "library.cursor", args: { rows: 1 }, label: "axis" },
+    { key: "left", action: "library.cursor", args: { by: -1 }, label: "value" }, { key: "right", action: "library.cursor", args: { by: 1 }, label: "value" },
+    { key: "space", action: "library.pick", label: "picks" }, { key: "x", action: "library.clear", label: "clears" },
+    { key: "n", action: "library.page", args: { by: 1 }, label: "page" }, { key: "p", action: "library.page", args: { by: -1 }, label: "page" },
+  ],
+};
+const LIBRARY_KEYS: readonly ModeKey[] = [
+  { key: ",", action: "library.component", args: { by: -1 }, label: "component" }, { key: ".", action: "library.component", args: { by: 1 }, label: "component" },
+  ...PARTS.map(p => ({ key: p.key, action: "library.part", args: { part: p.part }, label: "part" })),
+];
+const VARIATION_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "library.select", args: { by: 1 }, label: "variation" }, { key: "k", action: "library.select", args: { by: -1 }, label: "variation" },
+  { key: "y", action: "library.copy", label: "copy whole source" },
+  { key: "w", action: "library.width", label: "width" },
+];
 /** The widths a variation is drawn at: the narrow fallback, a reader, a wide screen. */
 export const WIDTHS = [40, 80, 160] as const;
 /** Variations of the whole space drawn at once. */
@@ -99,8 +121,8 @@ export class LibraryPane implements Pane {
     return `library · ${s.title}${s.origin && s.origin !== "built-in" ? ` · ${s.origin}` : ""} · ${PARTS.find(p => p.part === this.part)!.label}`;
   }
   hint() {
-    const own = this.part === "property" ? "← → property · " : this.part === "grid" ? "← → grid · " : this.part === "space" ? "[ ] axis · ← → value · space picks · x clears · n p page · " : "";
-    return `, . component · 1-4 part · ${own}j k variation · y/copy whole source · drag copies text · w width`;
+    const keys = [...LIBRARY_KEYS, ...PART_KEYS[this.part], ...VARIATION_KEYS];
+    return modeHint(keys, () => undefined) + " · drag copies text";
   }
   init(desk: DeskApi) { this.desk = desk; }
   spec(): { component: string; part: Part } { return { component: this.component, part: this.part }; }

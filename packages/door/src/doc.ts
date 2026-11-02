@@ -14,7 +14,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
 import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
-import { colourBody, wrap } from "./text";
+import { colourBody, waitingText, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FigureInfo, type FiguresEnv, type RowInline } from "./graphs";
 import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
@@ -1125,7 +1125,7 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
     : ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} ${ctl({ align: -1 }, "[◂]")}${ctl({ align: 1 }, "[▸]")} ${ctl({ hero: true }, "[▀]")}`;
   const room = Math.max(4, W - vwidth(controls));
   const fit = (x: string) => ellipsize(x, room);
-  if (entry.state === "loading") return fg(C.dark) + pad(fit(`◌ ${label} ${name} · loading…`), room) + controls + RESET;
+  if (entry.state === "loading") return fg(C.dark) + pad(fit(`◌ ${label} ${name} · ${waitingText()}`), room) + controls + RESET;
   if (entry.state === "error") return fg(C.lred) + pad(`✗ ${label} ${name} · ${entry.reason}`, W) + RESET;
   const off = !env.graphics && env.noImages && !env.printed ? ` · ${env.noImages}` : "";
   const problems = spec.problems.length ? ` · ⚠ ${spec.problems.join(" · ")}` : "";

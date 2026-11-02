@@ -131,7 +131,7 @@ function caps(keys: string, n: number): string {
 export const popupHint = (s: CompletionState): string => completionHint(s, s.items[s.index]);
 function completionHint(s: CompletionState, selected: CompletionItem | undefined): string {
   const enter = enterKeeps(s);
-  const insert = enter ? `⏎ ${enter} · tab inserts` : `${caps(COMPLETION_ACCEPT.keys, 2).replace(" ", "/").split("/").reverse().join("/")} inserts`;
+  const insert = enter ? `${keyCaption("enter")} ${enter} · ${keyCaption("tab")} inserts` : `${caps(COMPLETION_ACCEPT.keys, 2).replace(" ", "/").split("/").reverse().join("/")} inserts`;
   if (!selected) return "esc dismisses";
   const docs = docsScroll(s) ? ` · ${caps(COMPLETION_DOCS.keys, 2)} docs` : "";
   const extra = [

@@ -20,10 +20,12 @@ import { artNamed } from "../packs";
 import { listMove, pressOn, RowView, wheelRows, type RowPress } from "../scroll";
 import { authorName, hostRequest, SocketBoard, USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selectedRow, width } from "../style";
-import { ActionRefused, actionSet, def } from "../surface/actions";
+import { ActionRefused, actionSet, def, keyCaption } from "../surface/actions";
+import { hintKey, modeHint, partsHint, type HintPart, type ModeKey } from "../surface/modes";
+import { FOCUS_PART } from "../desk/desk";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
 import { ch, isDown, isUp, type Key } from "../term";
-import { ago, bbsDate } from "../text";
+import { ago, bbsDate, waiting, waitingText } from "../text";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import { tileKind, type KindHost, type TileKind, type TileKindName } from "../desk/tile-kinds";
@@ -73,6 +75,31 @@ export interface Nodelist { node: string; title: string; nodes: NodeEntry[]; tos
 /** How many toss logs the nodelist shows. */
 const TOSSES_SHOWN = 5;
 
+// ── the keys: each list's rows and the hint rows drawn from them ─────────────────────────────────────────────
+
+/** The area list's keys: the hint row below is drawn from them, so a rebind shows on it. */
+export const ECHO_AREA_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "echo.area", label: "area", args: { by: 1 } },
+  { key: "k", action: "echo.area", label: "area", args: { by: -1 } },
+  { key: "enter", action: "echo.area", label: "messages", args: { open: true } },
+  { key: "r", action: "echo.reload", label: "reload" },
+];
+/** The message list's keys. */
+export const ECHO_MESSAGE_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "echo.message", label: "message", args: { by: 1 } },
+  { key: "k", action: "echo.message", label: "message", args: { by: -1 } },
+  { key: "enter", action: "echo.message", label: "read", args: { read: true } },
+];
+/** The reader's parts: a message's steps, reply and quote, the elements, and the way back to the areas. */
+const STEP_PART: HintPart = { action: "echo.step", key: "}", also: "{", label: "next prev", args: { by: 1 } };
+const REPLY_PART: HintPart = { action: "echo.reply", key: "r", label: "reply" };
+const QUOTE_PART: HintPart = { action: "echo.quote", key: "q", label: "quote" };
+const ELEMENT_PART: HintPart = { action: "element.select", key: "[", also: "]", label: "elements", args: { by: 1 } };
+const TILES_PART: HintPart = { ...FOCUS_PART, label: "tiles" };
+const back = (key: string, label: string): HintPart => ({ action: "screen.back", key, label });
+const describeKey = (p: HintPart) => { const k = hintKey(p); return k === null ? "" : keyCaption(k) + (k === p.key && p.also ? ` ${p.also}` : ""); };
+const echoDef = (action: string) => ({ summary: action });
+
 // ── the area list, and the screen's model ──────────────────────────────────────────────────────────────────
 
 /**
@@ -107,7 +134,7 @@ export class EchoAreas implements Pane {
     const fresh = this.areas.reduce((n, a) => n + (a.fresh ?? 0), 0);
     return `message areas · ${this.areas.length}${fresh ? ` · ${fresh} new` : ""}`;
   }
-  hint() { return "j k area · ⏎ its messages · r reload"; }
+  hint() { return modeHint(ECHO_AREA_KEYS, echoDef); }
   init(desk: DeskApi) { this.desk = desk; }
 
   /** The board an area is read on, and a ctx on it for the reader. */
@@ -229,7 +256,7 @@ export class EchoAreas implements Pane {
 
   render(w: number, h: number, focused: boolean): PaneView {
     if (this.problem && !this.areas?.length) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
-    if (!this.areas) return { lines: [fg(C.dark) + "dialing the outlines for their message areas…" + RESET] };
+    if (!this.areas) return { lines: [waiting("the message areas")] };
     if (!this.areas.length) return {
       lines: [
         fg(C.white) + "No message areas yet." + RESET, "",
@@ -364,9 +391,9 @@ export class EchoMessages implements Pane {
   title() {
     if (!this.area) return "messages";
     const fresh = this.items?.filter(m => m.fresh).length ?? 0;
-    return `${this.area.tag.toUpperCase()} · ${this.items ? `${this.items.length} message${this.items.length === 1 ? "" : "s"}` : "scanning…"}${fresh ? ` · ${fresh} new` : ""}`;
+    return `${this.area.tag.toUpperCase()} · ${this.items ? `${this.items.length} message${this.items.length === 1 ? "" : "s"}` : waitingText()}${fresh ? ` · ${fresh} new` : ""}`;
   }
-  hint() { return "j k message · ⏎ read it"; }
+  hint() { return modeHint(ECHO_MESSAGE_KEYS, echoDef); }
 
   /** List `a`'s messages (the one lit stays lit; first shown, the first new one). */
   async showArea(a: Area, net: EchoAreas, desk: DeskApi) {
@@ -477,7 +504,7 @@ export class EchoReader extends ReaderPane {
     return m && this.area ? `${this.area.tag.toUpperCase()} · message ${m.n} of ${this.list.length}` : this.msg ? `reading · ${subject(this.msg)}` : "message reader";
   }
   override hint() { return this.message ? `} { next prev · r reply · q quote · ${super.hint()}` : super.hint(); }
-  protected override emptyFor(): string { return "⏎ on a message in the list reads it here · } { then step through the area · r replies · q quotes"; }
+  protected override emptyFor(): string { return `${keyCaption("enter")} on a message in the list reads it here, ${describeKey(STEP_PART)} then step through the area, ${describeKey(REPLY_PART)} replies and ${describeKey(QUOTE_PART)} quotes`; }
 
   override host(desk: DeskApi): SurfaceHost {
     const base = super.host(desk), a = this.area, net = this.net;
@@ -614,7 +641,7 @@ export class EchoNodelist implements Pane {
   hint() { return ""; }
   render(w: number): PaneView {
     const lists = this.net?.nodelists;
-    if (!lists) return { lines: [fg(C.dark) + "dialing…" + RESET] };
+    if (!lists) return { lines: [waiting()] };
     if (!lists.length) return { lines: [pad(paint("|08;A no [type::nodelist] block in these outlines yet: the tosser keeps one"), w)] };
     return { lines: lists.flatMap((l, i) => [...(i ? [""] : []), ...nodelistLines(`${l.title} · kept at ${l.node}`, l.nodes, l.tosses)]).map(l => pad(paint(l), w) + RESET) };
   }
@@ -639,15 +666,17 @@ export const ECHO_AREA_ACTIONS = actionSet<KindHost>()("echo", {
       n: { type: "number", optional: true, about: "its place in the list, from 1" },
       tag: { type: "string", optional: true, about: "its echo tag (any case)" },
       open: { type: "boolean", optional: true, about: "go to its messages, as ⏎ does" },
+      by: { type: "number", optional: true, about: "1 the next, -1 the previous area from the one picked (j k)" },
     },
     examples: [
       { act: "echo.area n=2 tile=areas", does: "picks the second message area and lists its messages beside" },
       { act: "echo.area tag=garden.swap open=true tile=areas", does: "picks the GARDEN.SWAP area and moves the person's keys to its messages" },
     ],
-    async run({ n, tag, open }, { pane, desk, standing }, actor) {
+    async run({ n, tag, open, by }, { pane, desk, standing }, actor) {
       const net = areasOf(pane);
-      if ((n === undefined) === (tag === undefined)) throw new ActionRefused("echo.area takes n or tag, one of them");
-      const i = tag !== undefined ? (net.areas ?? []).findIndex(a => a.tag.toLowerCase() === tag.trim().toLowerCase()) : n! - 1;
+      if (open && n === undefined && tag === undefined && by === undefined) { if (net.at < 0) throw new ActionRefused("pick an area first"); n = net.at + 1; }
+      if ([n, tag, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("echo.area takes n, tag or by, one of them");
+      const i = tag !== undefined ? (net.areas ?? []).findIndex(a => a.tag.toLowerCase() === tag.trim().toLowerCase()) : by !== undefined ? Math.max(0, Math.min((net.areas?.length ?? 1) - 1, net.at + by)) : n! - 1;
       if (i < 0) throw new ActionRefused(`no area tagged ${tag}; the areas are ${(net.areas ?? []).map(a => a.tag).join(", ") || "none yet"}`);
       const a = await net.pick(i, desk);
       if (open && standing && net.messages) desk.focusPane?.(net.messages, actor);
@@ -671,16 +700,18 @@ export const ECHO_MESSAGE_ACTIONS = actionSet<KindHost>()("echo", {
       n: { type: "number", optional: true, about: "its number in the area, from 1 (oldest first)" },
       id: { type: "string", optional: true, about: "its block id" },
       read: { type: "boolean", optional: true, about: "read it in the reader, as ⏎ does" },
+      by: { type: "number", optional: true, about: "1 the next, -1 the previous message from the one lit (j k)" },
     },
     examples: [
       { act: "echo.message n=1", does: "lights the oldest message of the area listed" },
       { act: "echo.message id=8c4d1e92-6a3b-4f07-b2e5-1d9a7c0f3b58 read=true", does: "reads that message in the reader, marked read" },
     ],
-    run({ n, id, read }, { pane, desk, standing }, actor) {
+    run({ n, id, read, by }, { pane, desk, standing }, actor) {
       const ms = pane as EchoMessages, items = ms.items;
       if (!ms.area || !items) throw new ActionRefused("no area's messages are listed yet · pick an area");
-      if ((n === undefined) === (id === undefined)) throw new ActionRefused("echo.message takes n or id, one of them");
-      const i = id !== undefined ? items.findIndex(m => m.msg.id === id || (id.length >= 8 && m.msg.id.startsWith(id))) : n! - 1;
+      if (read && n === undefined && id === undefined && by === undefined) { if (ms.at < 0) throw new ActionRefused("light a message first"); n = ms.at + 1; }
+      if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("echo.message takes n, id or by, one of them");
+      const i = by !== undefined ? Math.max(0, Math.min(items.length - 1, ms.at + by)) : id !== undefined ? items.findIndex(m => m.msg.id === id || (id.length >= 8 && m.msg.id.startsWith(id))) : n! - 1;
       if (i < 0 || i >= items.length) throw new ActionRefused(id !== undefined ? `no message ${id} in ${ms.area.tag}` : items.length ? `${ms.area.tag} has messages 1 to ${items.length}` : `${ms.area.tag} has no messages`);
       ms.at = i;
       desk.redraw();
@@ -825,10 +856,10 @@ export function echonetSpec(): ScreenSpec {
   return {
     name: "echonet", title: "echonet · message areas", band: AREAS_TILE, lands: "reader", home: AREAS_TILE,
     hint: {
-      "echo.areas": "|15j k|08 area · |15⏎|08 messages · |15r|08 reload · |15Tab|08 tiles · |15q|08 back",
-      "echo.messages": "|15j k|08 message · |15⏎|08 read · |15Tab|08 tiles · |15q|08 areas",
-      "echo.reader": "|15} {|08 next prev · |15r|08 reply · |15q|08 quote · |15[ ]|08 elements · |15esc|08 areas",
-      "*": "|15Tab|08 tiles · |15q|08 areas",
+      "echo.areas": `${modeHint(ECHO_AREA_KEYS, echoDef)} · ${partsHint([TILES_PART, back("q", "back")])}`,
+      "echo.messages": `${modeHint(ECHO_MESSAGE_KEYS, echoDef)} · ${partsHint([TILES_PART, back("q", "areas")])}`,
+      "echo.reader": partsHint([STEP_PART, REPLY_PART, QUOTE_PART, ELEMENT_PART, back("esc", "areas")]),
+      "*": partsHint([TILES_PART, back("q", "areas")]),
     },
     layout: {
       focus: AREAS_TILE,
