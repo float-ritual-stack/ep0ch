@@ -174,3 +174,39 @@ describe("an agent here reaches box-a's doors through hub's link", () => {
     expect(other.reach.rule).not.toBe("ssh");
   }, 60_000);
 });
+
+describe("a real door session, through the link", () => {
+  test("its own control protocol answers through the socket the link gives it, and an agent's act is attributed there", async () => {
+    const { startSession } = await import("../src/session/start");
+    const { placeOf } = await import("../src/session/place");
+    const { linkDoorSessions } = await import("../src/link");
+    await hub.create("meadow");
+    const laptopState = join(here, "laptop-state");
+    mkdirSync(laptopState, { recursive: true, mode: 0o700 });
+    const laptop = { ...process.env, ...hub.env, EP0CH_WS: "", EP0CH_MACHINE: "", EP0CH_SOCKET: "", EP0CH_CONTROL: "", EP0CH_STATE: laptopState, EP0CH_DAILY_AGENT: "sh" } as Record<string, string>;
+    expect(await startSession(placeOf({ outline: "meadow" }, laptopState, laptop).dir, ["--ws", "meadow", "--screen", "desk"], laptop)).toEqual({ ok: true });
+    const outlines = join(here, "real-hub");
+    mkdirSync(outlines, { recursive: true, mode: 0o700 });
+    const real = serveLink({ outlines, port: 0, keys: { "box-b": "fictional-machine-key" }, log() {} });
+    const sessions = linkDoorSessions(laptopState);
+    const link = connectLink({ server: `http://127.0.0.1:${real.port}`, machine: "box-b", key: "fictional-machine-key", host: hub.sock, doors: sessions.list, doorSocket: sessions.socket, log() {} });
+    try {
+      await until(() => !!readLinkDoors(outlines, "box-b")?.doors.length, "the session announced", 10_000);
+      const control = linkDoorSocket(outlines, "box-b", "meadow");
+      const peek = await ep0ch(["peek", "--json"], { EP0CH_CONTROL: control });
+      expect(peek.code, peek.err).toBe(0);
+      expect(JSON.parse(peek.out).outline).toBe("meadow");
+      const layout = JSON.parse((await ep0ch(["act", "layout.get", "--as", "gardener"], { EP0CH_CONTROL: control })).out);
+      const shown = layout.tiles.find((t: any) => t.name === "reader").showing.id;
+      // An agent's mark, as itself: the door records who, and never moves the person's focus.
+      const mark = await ep0ch(["act", "block.mark", `id=${shown}`, "reason=needs your call", "--as", "gardener"], { EP0CH_CONTROL: control });
+      expect(mark.code, mark.err).toBe(0);
+      const after = await ep0ch(["peek", "--json"], { EP0CH_CONTROL: control });
+      expect(after.out).toContain("gardener");
+      expect(JSON.parse((await ep0ch(["act", "layout.get"], { EP0CH_CONTROL: control })).out).focus).toBe(layout.focus);
+    } finally {
+      link.stop(); await real.stop();
+      await ep0ch(["session", "end", "--all", "--yes"], { EP0CH_STATE: laptopState, ...hub.env });
+    }
+  }, 60_000);
+});

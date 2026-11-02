@@ -27,14 +27,15 @@ export async function installLinkedSha(sha: string): Promise<LinkInstallResult> 
  * The door sessions on this machine, as the link announces them (PIE-1242), and where each one's control socket is:
  * the machine at the other end gives each a local end, so its agents peek and act here as on a door of their own.
  */
-export function linkDoorSessions() {
+/** `root`: the state dir whose sessions they are (the default: this one's). */
+export function linkDoorSessions(root?: string) {
   const controls = new Map<string, string>();
   return {
     async list(): Promise<LinkDoor[]> {
       const { runningSessions } = await import("./session/place");
       const doors: LinkDoor[] = [];
       controls.clear();
-      for (const { info } of await runningSessions()) {
+      for (const { info } of await runningSessions(root)) {
         if (!info.control || info.place.socket) continue;
         const key = doorKey(info.place.outline, info.place.machine);
         if (!DOOR_KEY.test(key) || controls.has(key)) continue;
