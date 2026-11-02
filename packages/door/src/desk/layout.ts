@@ -749,6 +749,16 @@ export function dockOf<I>(root: LNode<I>, id: I): Dock<I> | null {
 }
 /** Every dock in the tree, outermost first. */
 export function docks<I>(n: LNode<I>): Dock<I>[] { return [...(n.t === "dock" ? [n] : []), ...kidsOf(n).flatMap(k => docks(k))]; }
+/** `full` less a row or column for each edge that holds docked tiles: the dock strip drawn there never covers a tile. */
+export function besideDockStrips<I>(root: LNode<I>, full: Rect): Rect {
+  const edges = new Set(docks(root).filter(d => leaves(d.kid).length).map(d => d.edge));
+  let r = full;
+  if (edges.has("down")) r = { ...r, rows: Math.max(1, r.rows - 1) };
+  if (edges.has("up")) r = { ...r, row: r.row + 1, rows: Math.max(1, r.rows - 1) };
+  if (edges.has("right")) r = { ...r, cols: Math.max(1, r.cols - 1) };
+  if (edges.has("left")) r = { ...r, col: r.col + 1, cols: Math.max(1, r.cols - 1) };
+  return r;
+}
 /** The container with this id (`s3`, `g2`, `d1`). */
 export function nodeById<I>(n: LNode<I>, id: string): Container<I> | null {
   if (n.t === "leaf") return null;

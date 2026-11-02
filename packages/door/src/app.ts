@@ -1946,8 +1946,6 @@ export class App implements Ctx {
     const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
     const messageAt = items.findIndex(i => i.place === "right");
     if (message) items.splice(messageAt < 0 ? items.length : messageAt, 0, { id: "message", text: `${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${message}${loud ? UNBOLD : ""}`, place: "left", click: { action: "status.log" } });
-    // A `drop` strip: chips keep their words (short, then tiny, then into +N; the ^K, drawer, glass and clock stay), and
-    // the message yields first (PIE-1213, PIE-1410: a message never costs the person a chip's name).
     const row = tabStrip(items.map((item, i) => ({ label: item.text, on: item.id === (message ? "message" : "screen"), end: item.place === "right" && items[i - 1]?.place !== "right",
       hit: item.click ?? { action: "status.log" }, alt: item.alt, short: item.short, tiny: item.tiny, keep: item.keep, yield: item.id === "message",
     })), { id: "status", width: cols, overflow: "drop", style: { on: STATUS_INK, off: STATUS_INK, key: fg(C.white), sep: " │ " } })[0]!;

@@ -18,6 +18,12 @@ are its record. The outliner's entries from then are kept below, under
 - **Choices work:** hidden graph tabs and tile-kind hints run their actions; the focus hint advances like Tab. Breadcrumbs select the links list in its dock without moving focus. Named dock strips work through `act`, and wide characters keep vertical edges within their columns.
 - **Run:** open `ep0ch try --showcase`, choose **strip**, and drag the seven-tab tile narrower. Door only; no protocol, grammar or schema change.
 
+### A `::use` template steps and tabs like the page's own text (PIE-1492, #1165)
+
+- **Step:** `[ ]` stops on each heading, figure tab and row a template draws; `( )` goes heading to heading through it both ways.
+- **Tabs:** Tab, shift+Tab and ← → switch a figure's tabs inside a template; only that row lights, not the whole template. A template used twice keeps each call's list-preview mode.
+- **Run:** `ep0ch install --apply`; the kitchen sink's **template-steps** section shows it. GRAMMAR 25, no protocol or schema change.
+
 ### Arrow keys work in Ghostty (#1156)
 
 - **Moving:** ↑ and ↓ move through lists and tiles in Ghostty as in kitty: the door reads Ghostty's `CSI 1;1:1A` arrows (with press and release) as keys and hands a tile's program the plain arrow bytes it expects, shift and alt kept.

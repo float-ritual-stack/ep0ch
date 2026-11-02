@@ -16,7 +16,7 @@ import { HintCard, hintStatus, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT
 import { revealOn, type Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
 import { readNote, outlineBoards, type NoteAddress } from "./outline-boards";
-import { MIN_ROWS, SPINES, type AltRule } from "./layout";
+import { MIN_ROWS, SPINES, besideDockStrips, type AltRule } from "./layout";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // The desk: the door owns the whole canvas, and the canvas is tiles (PIE-413). A tile is a view (the outline
 // tree, a reader, a detail, a preview, a program in a terminal, a whole screen) in the layout tree: split,
@@ -3675,9 +3675,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const top = band ? Math.max(0, Math.min(rows - 6, band.kind.rows(band.pane, cols, rows, this))) : 0;
     this.bandHits = top ? [{ col: 0, row: 0, cols, rows: top }] : [];
     const full: Rect = host?.area ?? { col: 0, row: top, cols, rows: rows - (this.holder ? 1 : 2) - top };
-    // An edge with docked tiles carries their strip (drawDocks): that row or column is kept out of the tiles' room, so
-    // the strip never covers a tile's content (a spine's letters, a list's last row).
-    const area = host ? full : this.dockEdges().reduce((r, edge) => edge === "down" ? { ...r, rows: Math.max(1, r.rows - 1) } : edge === "up" ? { ...r, row: r.row + 1, rows: Math.max(1, r.rows - 1) } : edge === "right" ? { ...r, cols: Math.max(1, r.cols - 1) } : { ...r, col: r.col + 1, cols: Math.max(1, r.cols - 1) }, full);
+    const area = host ? full : besideDockStrips(this.root, full);      // the dock strips' edges (drawDocks) stay out of the tiles' room
     this.area = area; this.rootArea = host?.root ?? full;
     this.slid = [];
     const zoomed = this.zoom !== null && this.panes.has(this.zoom);
@@ -4733,15 +4731,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const desk = this.hintDesk(), tile = desk.tileId(desk.focus);
     const text = stripHint() ?? withStripOwner(tile, Infinity, () => desk.hintText());
     const tabs = stripSegments(text), locked = this.screenLocked();
-    // The chips keep to the row while hint parts go into +N (a `drop` strip): the lock is what a refusal says to click.
     if (this.spec.layouts || locked) tabs.push({ label: locked ? lockChipText(this.layoutSelf()).trim() : "□ lock", keep: true, hit: { action: "layout.lock", tile: this.tileId(this.focus) } });
     const host = this.ctx?.hostLayer, drawer = host?.desks().find(d => host.isDrawer(d) && d !== this);
     if (drawer?.screenLocked()) tabs.push({ label: lockChipText(drawer.layoutSelf()).trim(), keep: true, hit: { action: "layout.lock", tile: drawer.tileId(drawer.focus) } });
     if (hyperOn()) tabs.push({ label: HYPER_CHIP, keep: true, hit: { action: "keys.probe" } });
     const row = withStripOwner(tile, cols, () => tabStrip(tabs, { id: "hint", width: cols, overflow: "drop", style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } }))[0]!;
-    // A segment's click is strip.pick through the door's dispatcher while an App paint records the strip (+N and
-    // ‹ › need it too). A desk drawn on its own presses the segment's action through its own dispatcher when that
-    // owns it; a screen on a stand-in context with neither gets the part's key as typed, from the key spots after.
+    // A click is strip.pick while an App paint records the strip; a desk drawn on its own presses a chip's action
+    // itself, and a keyed part's key as typed (the key spots after), as a screen on a stand-in context does.
     const ctx = this.ctx, routed = !!ctx.press && stripsRecorded(), keyed = hintSpots(row.text, keyStyles());
     const spots = row.hits.filter(h => routed || (h.index >= 0 && this.dispatch.defOf(h.action) && !keyed.some(k => k.from < h.to && h.from < k.to))).map(h => ({ from: h.from, to: h.to, y: this.hintRow, run: () => {
       if (routed) void ctx.press!(h.index < 0 ? h.action : "strip.pick", h.index < 0 ? h.args : { strip: "hint", n: h.index + 1 }, tile); else this.run(h.action, h.args, h.tile ?? tile);
@@ -5658,8 +5654,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     walk(this.root);
     return out;
   }
-  /** The edges that carry a dock strip: each dock holding a tile, open or shut. */
-  private dockEdges(): Dir[] { return [...new Set(docks(this.root).filter(d => leaves(d.kid).length).map(d => d.edge))]; }
   /** Every segment describes its own action; the status bar's docks list reads these same choices. */
   dockChoices(edge?: Dir) {
     return docks(this.root).filter(d => !edge || d.edge === edge).flatMap(d => leaves(d.kid).map(id => ({
@@ -8168,8 +8162,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return;
     }
     if (k.action === "down") {
-      // A dock strip's segment on its edge: under an App the strip hover routes the click (strip.pick); a desk drawn
-      // on its own answers it itself with the segment's action, alt (mods 8) its alt (open beside).
+      // A dock strip's segment on its edge (the App's strip hover routes it first): its action, alt (mods 8) its alt.
       const ds = this.dockHits.find(h => h.row === k.y && k.x >= h.from && k.x < h.to);
       if (ds) {
         const seg = this.dockChoices(ds.dock.edge).find(t => t.id === ds.id), press = seg && (((k.mods ?? 0) & 8) ? seg.alt : seg.hit);
