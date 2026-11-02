@@ -189,6 +189,8 @@ export async function serve(args: string[]): Promise<never> {
   checkpoints.start();
   // Programs the terminal host keeps that no tile has adopted yet (a screen not drawn since the handoff) end with the
   // session too: ending it says so.
+  // A terminal that stopped answering was stepped down to a lesser video by the session: said, with the key back (PIE-1500).
+  term.onNotice(text => { app.flash(text, 12_000, { kind: "warning" }); app.redraw(); });
   app.quitWarning = () => { const n = host.unadopted().length; return n ? `${n} program${n === 1 ? "" : "s"} kept in the terminal host for a screen not opened since the handoff · ending the session ends ${n === 1 ? "it" : "them"} · again within 3s ends it` : null; };
   host.onLost = () => { if (!over) app.flash("the terminal host went away: the programs in the session's tiles ended (⏎ on a tile runs its program again)", 20_000); };
   if (endedOld) app.flash(`the terminal host was older than this door: its ${endedOld} program${endedOld === 1 ? "" : "s"} ended, and the tiles start them again`, 20_000);
