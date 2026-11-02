@@ -117,6 +117,17 @@ describe.skipIf(!outliner)("the showcase screen: templates (PIE-533 S4)", () => 
     };
     h.press({ kind: "enter" });
     expect(stepTo("Morning")?.kind).toBe("fold");
+    for (const [key, label] of [[")", "Evening"], [")", "After the plan"], ["(", "Evening"], ["(", "Morning"]]) {
+      h.ch(key!);
+      expect(current()).toMatchObject({ kind: "fold", label });
+    }
+    const { folds } = await desk.dispatch.press("folds", {}, "plan") as { folds: { n: number; text: string; line: number }[] };
+    const evening = folds.find(f => f.text === "Evening")!;
+    await expect(desk.dispatch.act({ action: "fold", tile: "plan", args: { line: evening.line } }, { kind: "agent", id: "test-agent" })).rejects.toThrow("pass n= from folds");
+    expect(await desk.dispatch.act({ action: "fold", tile: "plan", args: { n: evening.n } }, { kind: "agent", id: "test-agent" })).toMatchObject({ text: "Evening", line: 3, folded: true });
+    expect(screen()).not.toContain("Leave the tools");
+    expect(screen()).toContain("Carry the seed trays");
+    await desk.dispatch.act({ action: "unfold", tile: "plan", args: { n: evening.n } }, { kind: "agent", id: "test-agent" });
     expect(h.sc.render(app).lines.find(row => row.includes("Leave the tools"))).not.toContain(RULER_BG);
     click("≡ ");
     await until(() => current()?.label === "Day plan sections", "the gutter mark selects the template's source");
@@ -124,9 +135,17 @@ describe.skipIf(!outliner)("the showcase screen: templates (PIE-533 S4)", () => 
     stepTo("Morning");
     h.press({ kind: "enter" });
     await until(() => !screen().includes("Carry the seed trays"), "the template's Morning section folds");
+    h.ch(")");
+    expect(current()).toMatchObject({ kind: "fold", label: "Evening" });
+    h.ch("(");
+    expect(current()).toMatchObject({ kind: "fold", label: "Morning" });
     h.press({ kind: "enter" });
     await until(() => screen().includes("morning 1"), "the template's Morning section unfolds");
     expect(stepTo("morning 1")?.kind).toBe("figure");
+    h.ch(")");
+    expect(current()).toMatchObject({ kind: "fold", label: "Evening" });
+    h.ch("(");
+    stepTo("morning 1");
     h.press({ kind: "tab" });
     await until(() => screen().includes("Water the beans"), "Tab switches the template's jobs");
     h.press({ kind: "backtab" });
@@ -162,5 +181,29 @@ describe.skipIf(!outliner)("the showcase screen: templates (PIE-533 S4)", () => 
     h.press({ kind: "enter" });
     await until(() => reader.surface.msg?.text.startsWith("Water the beans") === true, "Enter opens the template's job");
     expect((await board.get(seeded.notes.templatePlan.id))!.text).toBe(seeded.notes.templatePlan.text);
+  }, 30_000);
+
+  test("PIE-1492: previewing a list in one template call leaves the other call expanded", async () => {
+    await board.createBlock(null, "Tray list [page::tray-list] [type::template]\n[form-field::time text required]\n\n- Seed packet\n  - Prepare the {{props.time}} tray", { kind: "agent", id: "test-agent" });
+    const page = await board.createBlock(null, "Two trays\n\n::use{of=[[tray-list]] time=morning}\n\n::use{of=[[tray-list]] time=evening}", { kind: "agent", id: "test-agent" });
+    await app.dispatch.act({ action: "section", args: { name: "template-steps" } }, USER);
+    const desk = S().stages.get(S().sel).top as Desk;
+    await desk.dispatch.press("open", { id: page.id }, "plan");
+    await until(() => screen().includes("Prepare the morning tray") && screen().includes("Prepare the evening tray"), "both template lists", 12_000);
+    await app.dispatch.act({ action: "section.try" }, USER);
+    const reader = desk.pane("plan") as ReaderPane;
+    h.ch(")");
+    screen();
+    expect(reader.surface.describe().folds?.selected).toBe("- Seed packet");
+    const rows = screen().split("\n"), y = rows.findIndex(row => row.includes("Seed packet"));
+    const x = rows[y]!.indexOf(" p", rows[y]!.indexOf("Seed packet") + "Seed packet".length) + 1;
+    expect(x).toBeGreaterThan(0);
+    h.press({ kind: "mouse", action: "down", button: 0, x, y });
+    h.press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => { screen(); return !!reader.surface.describe().folds?.folded.length; }, "the selected list enters preview", 1000);
+    const { folds } = await desk.dispatch.press("folds", {}, "plan") as { folds: { text: string; folded: boolean }[] };
+    expect(folds.filter(f => f.text === "Seed packet").map(f => f.folded)).toEqual([true, false]);
+    expect(screen()).toContain("Prepare the evening tray");
+    expect((await board.get(page.id))!.text).toBe(page.text);
   }, 30_000);
 });

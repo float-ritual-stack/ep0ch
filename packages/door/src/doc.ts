@@ -285,7 +285,15 @@ export interface DocBlock { kind: "code" | "quote" | "callout" | "span"; row: nu
  * one, else its kind, level and text (without a step's box) with how many identical headings or items
  * come before it, folding or not.
  */
-export interface FoldPoint { list?: { key: string; line: number; preview: boolean }; key: string; kind: "heading" | "list" | "callout"; level: number; text: string; line: number; end: number; hidden: number; start?: "folded" }
+export interface FoldPoint { list?: { key: string; line: number; preview: boolean }; key: string; kind: "heading" | "list" | "callout"; level: number; text: string; line: number; end: number; hidden: number; start?: "folded";
+  /** Inserted documents keep their order and containment inside the call, while line/end still address its source. */
+  order?: { line: number[]; end: number[] };
+}
+
+export function compareFoldPosition(a: readonly number[], b: readonly number[]): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i]! - b[i]!;
+  return a.length - b.length;
+}
 
 // Inline Markdown (bold, italic, strikethrough) arrives as style marks from presentLinks, placed before the
 // text was wrapped; colourBody turns them into SGR.
@@ -478,7 +486,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     });
     for (const [r, j] of sub.wraps ?? []) wraps.set(base + r, j);
     for (const r of sub.regions ?? []) regions.push({ ...r, row: base + r.row });
-    for (const p of sub.folds ?? []) if (!folds.some(own => own.key === p.key)) folds.push({ ...p, line: off + p.line, end: off + p.end });
+    for (const p of sub.folds ?? []) if (!folds.some(own => own.key === p.key)) folds.push({ ...p, line: off + p.line, end: off + p.end, ...(p.order ? { order: { line: [off + p.order.line[0]!, ...p.order.line.slice(1)], end: [off + p.order.end[0]!, ...p.order.end.slice(1)] } } : {}) });
     // A child's full width stays inside its parent's inset.
     for (const p of sub.parts ?? []) parts.push({ ...p, row: base + p.row, line: off + p.line, col: dx + p.col, full: false });
     for (const b of sub.blocks) if (b.kind !== "span") blocks.push({ ...b, row: base + b.row, line: b.line + off, end: b.end + off, inner: [b.inner[0] + off, b.inner[1] + off], strip: b.strip + quoted, col: b.col + dx });
@@ -506,7 +514,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       for (const r of got.regions ?? []) regions.push({ key: r.key, row: out.length + r.at, rows: r.rows });
       for (const h of got.heads ?? []) heads.push({ ...h, row: out.length + h.row });
       // The inserted text is read here; editing still belongs to the line that inserted it.
-      for (const p of got.folds ?? []) folds.push({ ...p, line, end: line + 1 });
+      for (const p of got.folds ?? []) folds.push({ ...p, line, end: line + 1, order: { line: [line, ...(p.order?.line ?? [p.line])], end: [line, ...(p.order?.end ?? [p.end])] } });
     }
     out.push(...(Array.isArray(got) ? got : got.rows));
   };
