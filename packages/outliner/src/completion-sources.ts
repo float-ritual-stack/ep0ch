@@ -10,7 +10,7 @@
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery, type PageAddressMatch } from "@ep0ch/outline-core/completion-triggers";
-import { pickKey, sourceAnswers, triggerOf, VALUE_TRIGGERS, type Picks, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
+import { pickKey, sourceAnswers, triggerOf, VALUE_TRIGGERS, type Picks, type SourceAsk, type SourceDecl, type SourceInsert, type SourceRow } from "@ep0ch/outline-core/completion-source";
 import { FRAGMENT_ID_SOURCE, qualifiedReference, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import type { CompletionRowsRequest, CompletionRowsResult, CompletionSourceAnswer, ExtensionCompletionSource, QuestionFacet, SearchCertainty } from "@ep0ch/outline-core/protocol";
@@ -586,6 +586,20 @@ async function asksQuery(ask: Asked, svc: CompletionService): Promise<boolean> {
 const queryText = (ask: Asked) => ask.kind === "yaml-value" ? yamlQuoted(ask.query) : ask.query;
 /** A query written into its place: a property's value closed with `]`, a YAML or attribute value quoted as it needs. */
 const queryInsert = (ask: Asked, where: string) => ask.kind === "value" ? `${where}]` : ask.kind === "yaml-value" ? yamlScalar(where) : ask.kind === "attribute-value" ? attributeScalar(where, ask.quote) : where;
+/**
+ * A source's insert written into its place as `queryInsert` writes a query: a snippet's text too, its selection and
+ * slots moved to where their letters land once it's closed, quoted or escaped (PIE-1508).
+ */
+function queryFit(ask: Asked, insert: SourceInsert): SourceInsert {
+  if (typeof insert === "string") return queryInsert(ask, insert);
+  const text = insert.snippet, fitted = queryInsert(ask, text);
+  // Closed with `]` or left as written, every letter stays put; quoted, each sits where its quoted prefix ends.
+  const at = fitted.startsWith(text) ? (i: number) => i
+    : ask.kind === "attribute-value" && ask.quote ? (i: number) => attributeScalar(text.slice(0, i), ask.quote).length - 1
+    : (i: number) => JSON.stringify(text.slice(0, i)).length - 1;
+  const move = <S extends { start: number; end: number }>(s: S): S => ({ ...s, start: at(s.start), end: at(s.end) });
+  return { snippet: fitted, ...(insert.select ? { select: move(insert.select) } : {}), ...(insert.slots ? { slots: insert.slots.map(move) } : {}) };
+}
 
 const queryWords: ServiceSource = {
   decl: { id: "query-words", title: "query words", triggers: ["query", "key::", "yaml-value", "attribute-value"], priority: 20, ranked: true, by: "service" },
@@ -646,7 +660,7 @@ export async function completionRows(svc: CompletionService, request: Completion
     // A query line is no name to match letters against: under `query` the source's own order stands, as query words' does.
     const decl = { id: e.name, title: e.title, priority: 0, by: e.extension, ...(asQuery ? { ranked: true } : {}) };
     const asked: Asked = asQuery ? { ...ask, trigger: "query", query: queryText(ask) } : ask;
-    const fit = (rows: SourceRow[]) => asQuery && ask.kind !== "query" ? rows.map(r => typeof r.insert === "string" ? { ...r, insert: queryInsert(ask, r.insert) } : r) : rows;
+    const fit = (rows: SourceRow[]) => asQuery && ask.kind !== "query" ? rows.map(r => ({ ...r, insert: queryFit(ask, r.insert) })) : rows;
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(new Error("took too long")), EXTENSION_SOURCE_MS);
     asks.push(askExtension(e, asked, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal).then(
       rows => ({ source: decl, rows: fit(rows) }),

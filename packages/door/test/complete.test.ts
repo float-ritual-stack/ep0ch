@@ -215,6 +215,27 @@ describe("the popup opens on typing, never on moving the cursor (a fake service)
     expect(d.lines[0]).toBe("see [[ga");                                  // nothing inserted later either
   });
 
+  test("an extension's row chosen, then prose typed past its token: its source hears edited (PIE-1508)", async () => {
+    const { board } = fake();
+    const rows = board.completionRows;
+    board.completionRows = async (r: any) => {
+      const a = await rows(r);
+      return { ...a, answers: [...a.answers, { source: { id: "ext.issues.issues", title: "issues", priority: 0, by: "issues" }, rows: [{ id: "#15", label: "#15 Seed swap", insert: "[issue::#15]" }] }] };
+    };
+    const told: unknown[][] = [];
+    board.completionPicked = (async (...a: unknown[]) => { told.push(a); return {}; }) as never;
+    const d = new Draft("x", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "see [[seed") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading && c.state.items.some(i => i.from === "ext.issues.issues"), "the issue row");
+    expect(await c.accept(c.state!.items.findIndex(i => i.from === "ext.issues.issues"))).toBe(true);
+    expect(d.lines[0]).toBe("see [issue::#15]");
+    // Past the token: no completion target, and the edit is still the source's to hear.
+    for (const ch of " today") completionKey(d, char(ch), c);
+    await until(() => told.some(a => (a[2] as any)?.outcome === "edited"), "the edit told");
+    expect(told.find(a => (a[2] as any)?.outcome === "edited")![2]).toMatchObject({ source: "ext.issues.issues", text: "see [issue::#15] " });
+  });
+
   test("an open popup follows the cursor inside its token and closes when the cursor leaves it", async () => {
     const { board } = fake();
     const d = new Draft("x", 1, "");

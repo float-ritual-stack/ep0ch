@@ -490,3 +490,17 @@ test("Detail tells an extension's source its row was chosen, with what was typed
   expect(await session.accept(n)).toBe(true);
   expect(told).toContainEqual(["[[", pickId("[issue::#15]"), { source: "ext.issues.issues", outcome: "accepted", query: "seed", row: { id: "#15", label: "#15 Seed swap sign-up sheet", insertion: "[issue::#15]" } }]);
 });
+
+test("a query source's snippet is fitted to its place too, its selection and slots moved with it (PIE-1508)", async () => {
+  const { extensionsFolder, list, rows } = await setup();
+  const folder = join(extensionsFolder, "snips");
+  mkdirSync(folder);
+  writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "snips", version: 1, name: "snips", run: ["bun", "main.ts"], sources: [{ id: "words", title: "words", triggers: ["query"] }] }));
+  writeFileSync(join(folder, "main.ts"), 'await Bun.stdin.json(); console.log(JSON.stringify({ ok: true, value: { rows: [{ label: "an issue", insert: { snippet: "issue=15 AND tag: x", select: { start: 6, end: 8 }, slots: [{ start: 6, end: 8 }, { start: 18, end: 19 }] } }] } }));');
+  await list(true);
+  const insertOf = async (kind: CompletionKind, more: Record<string, unknown>) => (await rows(kind, "seed", more)).answers.find(a => a.source.id === "ext.snips.words")!.rows[0]!.insert;
+  // [query:: closes with ]: the offsets stay.
+  expect(await insertOf("value", { key: "query" })).toEqual({ snippet: "issue=15 AND tag: x]", select: { start: 6, end: 8 }, slots: [{ start: 6, end: 8 }, { start: 18, end: 19 }] });
+  // An ::if where: needs quotes (": " in it): every offset moves past the opening quote.
+  expect(await insertOf("yaml-value", { key: "where", component: "if" })).toEqual({ snippet: '"issue=15 AND tag: x"', select: { start: 7, end: 9 }, slots: [{ start: 7, end: 9 }, { start: 19, end: 20 }] });
+});

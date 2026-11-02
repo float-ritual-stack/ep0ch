@@ -601,13 +601,14 @@ export class Completer {
    */
   refresh(explicit = false): Promise<void> {
     this.parent = null;
+    // Before anything else: an edit past the token (prose after `]`) has no target, and the source still hears it.
+    this.tellEdited();
     const target = this.target();
     if (!target || this.d.busy) { this.dismiss(); return Promise.resolve(); }
     this.limit = COMPLETION_LIMIT;
     // A re-ask of the same query keeps the pick; a changed query picks its best match.
     const same = this.state?.target.kind === target.kind && this.state.target.query === target.query;
     if (!same) this.recordIgnored();
-    this.tellEdited();
     if (this.acceptedQuery && this.acceptedQuery.text !== this.d.text) {
       const { suggestion } = this.acceptedQuery;
       this.acceptedQuery = undefined;
