@@ -444,6 +444,21 @@ test("a button in a list item or a quote is its label on a page too, never its s
 });
 
 
+test("written figures describe their own items in Sources (PIE-1226)", async () => {
+  const { store, page } = await setup();
+  const figure = "::graph-timeline\n- March: sow peas\n- April: plant beans\n- May: thin carrots\n- June: water beds\n- July: pick peas\n::";
+  const note = store.create(`Garden year [publish::public]\n${figure}`);
+  const window = new Window();
+  try {
+    window.document.body.innerHTML = await page(`/p/${note.id}`);
+    const panel = window.document.querySelector(".sources-panel")!;
+    expect(panel.textContent).toContain("Written in the note · 5 items");
+    expect(panel.querySelectorAll("pre")).toHaveLength(1);
+    expect(panel.querySelector("pre")!.textContent).toBe(figure);
+    expect([...panel.querySelectorAll("summary")].map(s => s.textContent).join("\n")).not.toMatch(/Query|Result/);
+  } finally { await window.happyDOM.close(); }
+});
+
 test("published Sources exposes query, transform and downloadable visible rows", async () => {
   const { store, publisher } = await setup();
   const shown = store.create("Sow peas [crop::peas] [publish::public]");

@@ -1,5 +1,5 @@
 {
-  "revision": "1853637f27381f2dc09158c7a67ea478b18e1a78",
+  "revision": "cffd0bf8aff84af293d62174a5a6c324ff85aec2",
   "patterns": {
     "width-length": {
       "count": 255,
@@ -291,7 +291,7 @@
         "packages/door/src/outlines.ts:8a5c70f06db45e0c",
         "packages/door/src/outlines.ts:8a5c70f06db45e0c",
         "packages/door/src/outlines.ts:fbab8ec7aee67a88",
-        "packages/door/src/outlines.ts:68a28b7db76c4c3f",
+        "packages/door/src/outlines.ts:a371f7240b7d75c",
         "packages/door/src/screens.ts:67be08c6534e189a",
         "packages/door/src/screens.ts:75183afbaaacb138",
         "packages/door/src/screens.ts:80327cbc2b2fc6d9",
@@ -385,7 +385,7 @@
     }
   },
   "files": {
-    "packages/claude-mod/hooks/register.ts": 2906,
+    "packages/claude-mod/hooks/register.ts": 2898,
     "packages/door/src/app.ts": 2078,
     "packages/door/src/desk/desk.ts": 8737,
     "packages/door/src/desk/screen-layout.ts": 2358,

@@ -305,7 +305,7 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
     try {
       const every = await everyOutline(host.sock, { ...host.env, EP0CH_STATE: state, EP0CH_SSH: "/bin/false" });
       expect(every.filter(o => !o.machine).map(o => o.name)).toEqual(expect.arrayContaining(["bob", "fred"]));
-      expect(every.at(-1)).toEqual({ machine: "box-a", problem: "not connected" });
+      expect(every.at(-1)).toMatchObject({ machine: "box-a", problem: expect.stringContaining("outline host on box-a did not answer") });
       const lines = await run(host.root, "outline", "list", "--lines");
       expect(lines.out.split("\n")).toContain("bob\t\t");
     } finally { rmSync(state, { recursive: true, force: true }); }

@@ -28,6 +28,7 @@ export function landingLine(lines: readonly string[], line: number): number {
 
 /** What line `after` of `lines` becomes with `block` put after it: that line, then the block, blank lines around it. */
 export function blockAfter(lines: readonly string[], after: number, block: string): string {
+  if (lines.length === 1 && lines[0] === "") return block;
   const line = lines[after] ?? "", next = lines[after + 1];
   const lead = line.trim() ? "\n" : "";
   const tail = next !== undefined && next.trim() ? "\n" : "";

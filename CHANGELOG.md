@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+- Note records, agent reads and `ep0ch show --json` name the writer of the newest revision (PIE-1393).
+- Binding and outline reads distinguish a down host from a missing outline, with the machine, socket paths and retry command (PIE-1325).
+- Sources describes a written figure as “Written in the note · N items” and shows its text once, in the door and on the web (PIE-1226).
+- The first part dropped into an empty new note starts on line 1; later drops keep one blank line between parts (PIE-1381).
+
 ### The drawer attaches to a named agent and offers recovery when it ends (PIE-1487)
 
 - **Keep one agent:** declare a persona, machine, folder and program in `.ep0ch/agents.toml`, then `ep0ch agent start <persona>`. The drawer attaches by hc name; a second door on the same client watches. The status chip follows hc events.

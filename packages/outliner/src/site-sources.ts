@@ -3,7 +3,8 @@
 // (`extensions.outputs`), `template.use`, the figure/fields/if producers (`site.answer`'s `produce`) and the output
 // regions' text grammar. The door's Sources inspector draws this answer and the published page's panel, so a second client agrees with it.
 // A page shows none of it by default; "where this comes from" asks. Reads only.
-import { figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
+import { figureItemCount, figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
+import { asksPerItem, figureQuestion, liveAsk } from "@ep0ch/outline-core/figure-live";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import type { SiteProduced } from "@ep0ch/outline-core/site";
 import { slotArgument, sourceCalls, yamlParams, type SourceEntry, type SourcesAnswer, type SourcesRequest } from "@ep0ch/outline-core/sources";
@@ -110,6 +111,13 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
         const parsed = figureProps(c.figure.kind, src);
         if ("error" in parsed) throw new Error(parsed.error);
         const props = parsed.props;
+        if (!asksPerItem(c.figure.kind, props) && !figureQuestion(liveAsk(c.figure.kind, props).ask)) {
+          const count = figureItemCount(c.figure.kind, props);
+          out.push({ ...base, live: false, query: { params: [], text: "", editable: false },
+            transform: { kind: "figure", label: `Written in the note · ${count} item${count === 1 ? "" : "s"}`, text: lines.slice(c.line, c.endLine + 1).join("\n") },
+            result: { rows: 0, text: "" } });
+          continue;
+        }
         const answer = read({ blockId: host.id, produce: { kind: "figure", figure: c.figure.kind, props } });
         const produced = answer.produced as Extract<SiteProduced, { kind: "figure" }> | undefined;
         const question = typeof props.query === "string" ? props.query : typeof props.view === "string" ? `view ${props.view}` : "";

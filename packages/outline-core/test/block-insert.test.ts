@@ -2,6 +2,12 @@
 import { expect, test } from "bun:test";
 import { blockAfter } from "../src/block-insert";
 
+test("the first dropped part starts an empty note, the second is separated by one blank line (PIE-1381)", () => {
+  const first = blockAfter([""], 0, "((n^first))");
+  expect(first).toBe("((n^first))");
+  expect(blockAfter(first.split("\n"), 0, "((n^second))")).toBe("((n^first))\n\n((n^second))");
+});
+
 test("a blank line before and after the block, unless one is there or the note ends", () => {
   expect(blockAfter(["Pad", "First.", "Second."], 1, "!((n^a))")).toBe("First.\n\n!((n^a))\n");
   expect(blockAfter(["Pad", "First.", "", "Second."], 1, "!((n^a))")).toBe("First.\n\n!((n^a))");

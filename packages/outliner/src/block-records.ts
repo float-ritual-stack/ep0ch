@@ -16,6 +16,7 @@ import type { Block } from "./types";
 export const MAX_BLOCK_RECORD_IDS = 200;
 
 export interface BlockRecordSource extends AuthoredLinksDataSource {
+  textSaved(block: Block): Pick<Block, "author" | "actorId">;
   children(parentId: string | null): Block[];
   backlinkSources(ids: readonly string[]): Map<string, string[]>;
 }
@@ -111,8 +112,9 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
       });
     }
     links.push(...byTarget.values());
+    const saved = source.textSaved(block);
     records.push(blockRecord({
-      block,
+      block: { ...block, author: saved.author, actorId: saved.actorId },
       title: blockDisplayTitle(block),
       path: ancestorPath(block, source),
       properties,

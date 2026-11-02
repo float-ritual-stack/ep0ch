@@ -40,6 +40,9 @@ export interface SourceEntry {
   problem?: string;
 }
 
+/** A source with no read of its own presents its producer's description and text once. */
+export const sourceIsWritten = (s: SourceEntry): boolean => !s.live && !s.query.text && !s.query.params.length;
+
 /** `site.sources`' question. */
 export interface SourcesRequest { blockId: string; hidden?: string[] }
 

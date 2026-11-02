@@ -15,7 +15,7 @@ import { hostLive, hostSocketOf, outlinesDir, resolveTarget, type Target } from 
 import { hostRequest, type HostedOutline, OUTLINE_NAME } from "./socket";
 import type { OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { actorLabel } from "@ep0ch/outline-core/attribution";
-import { everyOutline, forwardTo, remoteArgs, shellWord } from "./machine";
+import { everyOutline, forwardTo, outlineHostProblem, remoteArgs, shellWord } from "./machine";
 import type { HomeArgs, HomeChoice } from "./home";
 
 /** `machine`: `--machine <ssh-name>`, the host that machine's, through its forward (else the one rule: runOutlineCommand). */
@@ -165,11 +165,11 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
   }
   if (machine) {
     try { path = (await forwardTo(machine)).socket; }
-    catch (e) { err(`ep0ch: can't reach the outline host on ${machine}: ${(e as Error).message}`); return 1; }
+    catch (e) { err(`ep0ch: ${outlineHostProblem(path, machine)}; ${(e as Error).message}`); return 1; }
   }
   cmd = machine ? { ...cmd, machine } : cmd;
   const status = await hostLive(path);
-  if (!status) { err(`ep0ch: no outline host answers at ${path}; start it (systemctl --user start outliner-host, or bun packages/outliner/src/host-main.ts)`); return 1; }
+  if (!status) { err(`ep0ch: ${outlineHostProblem(path, machine)}`); return 1; }
   const on = cmd.machine ? ` on ${cmd.machine}` : "";
   const print = (value: unknown, text: string) => out(cmd.json ? JSON.stringify(value, null, 2) : text);
   try {
@@ -305,17 +305,16 @@ export function commandOn(command: readonly string[], machine: string | undefine
  * What a read says when the host it reached has no outline `outline` (PIE-938): that nothing was made (a read never
  * creates one; only opening a door, `outline create` and `init` do), which machines have it (this machine's host, the
  * shared forwards in `.remote/` and the machines opened before: `everyOutline`) and the command that reads it there.
- * `command` is the `ep0ch` argv as typed. Null when the host has it, or when it doesn't answer and no other machine is
- * known to have the outline (that is said as "no carrier").
+ * `command` is the `ep0ch` argv as typed. Null when the host has it.
  */
 export async function readMissing(o: { outline: string; path: string; machine?: string; command?: readonly string[] }): Promise<string | null> {
   const has = await outlinesAt(o.path);
+  if (!has) return outlineHostProblem(o.path, o.machine);
   if (has?.includes(o.outline)) return null;
   const there = o.machine ?? `this machine (${hostname()})`;
   const every = await everyOutline(hostSocketOf());
   const holders = [...new Set(every.filter(k => k.name === o.outline && k.machine && k.machine !== o.machine).map(k => k.machine!))];
   const local = !!o.machine && every.some(k => k.name === o.outline && !k.machine);
-  if (!has && !holders.length && !local) return null;
   const again = (m: string | undefined) => o.command ? commandOn(o.command, m) : `ep0ch <the same command> ${m ? `--machine ${m}` : "--here"}`;
   const rows: [string, string][] = [
     ...holders.map(m => [`${m} has it:`, again(m)] as [string, string]),
@@ -323,11 +322,10 @@ export async function readMissing(o: { outline: string; path: string; machine?: 
   ];
   const w = Math.max(0, ...rows.map(r => r[0].length)) + 2;
   return [
-    has ? `${there} has no outline ${o.outline}. Nothing was created (a read never makes one).`
-      : `no outline host answers at ${o.path}, and ${o.outline} is on another machine. Nothing was created.`,
+    `${there} has no outline ${o.outline}. Nothing was created (a read never makes one).`,
     ...rows.map(([k, v]) => `  ${k.padEnd(w)}${v}`),
     ...(rows.length ? [] : [`  no machine I know of has an outline ${o.outline}; see what exists: ep0ch outline list --all`]),
-    ...(has ? [`  to make it on purpose: ep0ch outline create ${o.outline}${o.machine ? ` --machine ${o.machine}` : ""}`] : []),
+    `  to make it on purpose: ep0ch outline create ${o.outline}${o.machine ? ` --machine ${o.machine}` : ""}`,
   ].join("\n");
 }
 

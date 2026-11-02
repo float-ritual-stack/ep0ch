@@ -174,6 +174,23 @@ export function figureProps(kind: string, src: FigureSource, childRows?: ChildRo
   return { props: { ...from, ...args, ...yaml }, children, waiting: !!kids?.waiting, ...(warning ? { warning } : {}), ...(args && Object.keys(args).length ? { args } : {}) };
 }
 
+/** The data each figure draws, after its written rows and YAML have become props. */
+const FIGURE_ITEMS: Record<string, string> = {
+  timeline: "events", check: "items", rank: "items", funnel: "steps", stat: "items", kpi: "items", meter: "items",
+  spark: "data", plot: "data", gantt: "items", tree: "nodes", table: "rows", tabs: "tabs", decision: "options",
+  chat: "messages", keys: "keys", props: "props", example: "examples", uptime: "days", activity: "counts",
+  calendar: "marks", annotate: "notes", quadrant: "points", matrix: "cells", compare: "entries", flow: "flows",
+};
+
+/** How many written items a figure describes in Sources, using the props its renderer receives. */
+export function figureItemCount(kind: string, props: Props): number {
+  const items = props[FIGURE_ITEMS[kind] ?? ""];
+  if (Array.isArray(items)) return items.length;
+  if (items instanceof Map) return items.size;
+  if (items && typeof items === "object") return Object.keys(items).length;
+  return kind === "meter" && props.value !== undefined ? 1 : 0;
+}
+
 // ── shared readings ──────────────────────────────────────────────────────────────────────────────────
 
 /**

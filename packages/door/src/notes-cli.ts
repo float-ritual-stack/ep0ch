@@ -85,8 +85,9 @@ export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --
                                    --json each note as a block record (outline-core's block-record.ts: title,
                                    header, properties as lists, children, tasks, links, backlinks, resources,
                                    created, updated, author) plus its canonical ep0ch:// URI, keys sorted; with --tree, the rows
-  ep0ch show <id>… [--source | --markdown | --ansi | --cells | --site] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
-                                   each note drawn as a reader draws it, at that width (default the terminal's,
+  ep0ch show <id>… [--json | --source | --markdown | --ansi | --cells | --site] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
+                                   --json reads the same block records as find --json, including the newest revision's writer;
+                                   otherwise each note drawn as a reader draws it, at that width (default the terminal's,
                                    else 80), live figures, ::links and a view's results answered by the
                                    outline, folded callouts open, a blank line between notes; --source prints each note's text exactly as written
                                    (properties, links and :: blocks verbatim, no header, no wrapping), a ---
@@ -558,12 +559,12 @@ export async function revisionsCommand(argsIn: string[], io: Out = { out: consol
 export async function showCommand(argsIn: string[], io: Out = { out: console.log, err: console.error, columns: process.stdout.columns, tty: !!process.stdout.isTTY }): Promise<number> {
   const args = argsIn.slice(1);
   for (const f of ["--ws", "--machine", "--width", "--rows"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
-  const ansi = args.includes("--ansi"), cells = args.includes("--cells"), markdown = args.includes("--markdown"), source = args.includes("--source") || markdown, site = args.includes("--site");
-  if (Number(ansi) + Number(cells) + Number(args.includes("--source")) + Number(markdown) + Number(site) > 1) { io.err("ep0ch: show prints the drawing, --ansi, --cells, --source, --markdown or --site: one of them"); return 2; }
+  const ansi = args.includes("--ansi"), cells = args.includes("--cells"), markdown = args.includes("--markdown"), source = args.includes("--source") || markdown, site = args.includes("--site"), json = args.includes("--json");
+  if (Number(ansi) + Number(cells) + Number(args.includes("--source")) + Number(markdown) + Number(site) + Number(json) > 1) { io.err("ep0ch: show prints the drawing, --json, --ansi, --cells, --source, --markdown or --site: one of them"); return 2; }
   const rowsArg = flag(args, "--rows") as string | undefined;
   const rows = rowsArg === undefined ? Infinity : Number(rowsArg);
   if (rowsArg !== undefined && (!Number.isInteger(rows) || rows < 1)) { io.err("ep0ch: --rows takes a number of rows, 1 or more"); return 2; }
-  const ids = without(args, ["--ws", "--machine", "--width", "--rows"], ["--ansi", "--cells", "--source", "--markdown", "--site", "--here"]);
+  const ids = without(args, ["--ws", "--machine", "--width", "--rows"], ["--json", "--ansi", "--cells", "--source", "--markdown", "--site", "--here"]);
   if (!ids.length || ids.some(id => id.startsWith("--"))) { io.err(`ep0ch: show takes notes' ids (${ids.find(id => id.startsWith("--")) ?? "none given"})\n${NOTES_USAGE}`); return 2; }
   const wArg = flag(args, "--width") as string | undefined;
   const width = wArg !== undefined ? Number(wArg) : io.columns || 80;
@@ -571,13 +572,22 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
   const board = await boardFor(args, argsIn);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
+    let code = 0, shown = 0;
+    const named = await resolveNotes(board, ids);
+    if (json) {
+      const found = named.flatMap(note => {
+        if ("error" in note) { io.err(`ep0ch: ${note.error}`); code = 1; return []; }
+        return [note.id];
+      });
+      if (found.length) await printRecords(board, found, io);
+      else io.out("[]");
+      return code;
+    }
     // The person's theme, as their door draws in it (EP0CH_THEME, else the one last chosen).
     if (!source) setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
     if (!source && !site) board.subscribe(e => {
       if (e.domain === "resource-catalog") resourceChanged(e.resourceId ?? null, e.resourceId ? undefined : e.blockId);
     });
-    let code = 0, shown = 0;
-    const named = await resolveNotes(board, ids);
     for (const [at, id] of ids.entries()) {
       const found = named[at]!;
       if ("error" in found) { io.err(`ep0ch: ${found.error}`); code = 1; continue; }
