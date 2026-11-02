@@ -9,7 +9,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { checkWords, closest, COMMANDS, screenUriArgs } from "../src/cli-words";
-import { SESSION_COMMANDS } from "../src/cli-commands";
+import { CLI_COMMANDS, SESSION_COMMANDS } from "../src/cli-commands";
+import { renderHelp } from "../src/cli-help";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { hostRequest } from "../src/socket";
 import { ScratchHost } from "./scratch";
@@ -124,6 +125,19 @@ describe("--help, -h and help, anywhere", () => {
 });
 
 describe("the rule, without a process", () => {
+  test("every command describes itself: a summary, two runnable examples and a rules section for --more", () => {
+    const paths = [...CLI_COMMANDS.map(c => c.name || "launch"), ...SESSION_COMMANDS.map(c => `session ${c.name}`)];
+    for (const path of paths) {
+      const command = path.startsWith("session ") ? SESSION_COMMANDS.find(c => c.name === path.slice(8))! : CLI_COMMANDS.find(c => (c.name || "launch") === path)!;
+      expect(command.summary.trim(), path).not.toBe("");
+      expect(command.examples.length, path).toBe(2);
+      for (const example of command.examples) expect(example, path).toMatch(/^ep0ch /);
+      // --more reads the command's section of docs/cli.md; a missing or misnamed heading has to fail here, never in use.
+      const more = renderHelp(path, true);
+      expect(more, path).toContain(command.summary);
+      expect(more.length, path).toBeGreaterThan(renderHelp(path).length);
+    }
+  });
   test("bare ep0ch and the door's flags go on to the door; subcommands go on to theirs", () => {
     for (const args of [[], ["--ws", "garden"], ["--screen", "desk"], ["--screen", "board"], ["--screen", "board", "hub-1", "--no-daemon"], ["--layout", "daily"],
       ["--screen", "detail", "ep0ch://garden@box-a/b/a1111111-1111-4111-8111-111111111111"], ["--screen", "detail", "((a1111111-1111-4111-8111-111111111111))"],

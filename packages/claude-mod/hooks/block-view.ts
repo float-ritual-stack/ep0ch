@@ -32,8 +32,8 @@ const B64_PER_CELL = 16
 /** The most rows kept of one drawing: a preview, not the note. */
 export const MAX_ROWS = 24
 
-/** `ep0ch help` lists `show … --cells`: this ep0ch draws cells (an older `show` would refuse the flag; one older than `show` would open a door). */
-export const knowsCells = (help: string): boolean => /^\s*ep0ch show\b.*--cells.*--rows/m.test(help)
+/** `ep0ch help` lists `show`: a usable ep0ch is on PATH (one version: its `show` draws cells; `ep0ch help show` names the flags). */
+export const knowsCells = (help: string): boolean => /^\s*ep0ch show\b/m.test(help)
 
 /** The `ep0ch show` argv for one block at one width: its first rows only, so a long note is never drawn whole. */
 export function blockViewArgv(id: string, width: number, rows = MAX_ROWS): string[] {

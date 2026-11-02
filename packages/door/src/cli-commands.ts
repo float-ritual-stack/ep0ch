@@ -20,7 +20,7 @@ export interface CliCommand {
 }
 
 const ws: CliFlag = ["--ws <name>", "Use this outline"];
-const machine: CliFlag = ["--machine <ssh-name>", "Use the outline on this machine"];
+const machine: CliFlag = ["--machine <ssh-name>", "Reach the outline on that machine (an ssh config name)"];
 const json: CliFlag = ["--json", "Print JSON"];
 const actor: CliFlag = ["--as <id>", "Record the action as this agent"];
 const target = [ws, machine];
@@ -55,7 +55,7 @@ export const SESSION_COMMANDS: readonly CliCommand[] = [
 export const DOOR_OPTIONS: readonly CliFlag[] = [
   ...target, ["--screen <name> [<target>]", "Open a screen, optionally on a note or hub", "screen"],
   ["--layout <name>", "Open a saved desk layout"], ["--create", "Create a missing outline on another machine"],
-  ["--here", "Open the outline on this machine"], ["--remote <ssh-name>", "Run the door there and carry its terminal here", "rest"],
+  ["--here", "Open the outline here even when .ep0ch names a machine"], ["--remote <ssh-name>", "Run the door there and carry its terminal here", "rest"],
   ["--showcase", "Explore shared parts on made-up notes"], ["--reset", "Reseed the showcase"],
   ["--no-daemon", "Run in this terminal instead of a lasting session"], ["--daemon", "Attach to a lasting session"],
   ["--no-create", "Refuse a missing outline"], json, ["--skill [<name>]", "List skills or print one skill's path", "rest"],
@@ -79,7 +79,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     synopsis: "outline list | attach|create|stop|archive|unarchive|delete <name> | import <database.sqlite> <name>",
     flags: [machine, ["--all", "List outlines on every known machine"], ["--archived", "Include archived outlines"], ["--lines", "Print tab-separated name, machine and problem"], ["--create", "Allow attach to create on another machine"], ["--yes", "Delete without asking"], json],
     examples: ["ep0ch outline list --all", "ep0ch outline create garden"] },
-  { name: "show", group: "Notes", summary: "Read notes", overview: "show [--cells --rows N]",
+  { name: "show", group: "Notes", summary: "Read notes as the door draws them",
     synopsis: "show <id>… [--source | --markdown | --ansi | --cells | --site]",
     flags: [...target, ["--source", "Print the Blockdown as written"], ["--markdown", "Include live figures as Markdown"], ["--ansi", "Keep terminal colours"], ["--cells", "Print the rendered cell grid as JSON"], ["--site", "Print source and resolved placeholders as JSON"], ["--width <n>", "Draw at this width (default: terminal or 80)"], ["--rows <n>", "Keep the first n drawn rows"]],
     examples: ["ep0ch show '[[seed-plan]]' --ws garden", "ep0ch show '[[seed-plan]]' --ws garden --source"] },
