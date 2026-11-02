@@ -54,7 +54,7 @@ const TABLE_MAX = 120;
 /** A part of a row a click runs an action on. */
 interface Hit { from: number; to: number; action: string; args?: Record<string, unknown> }
 /** One drawn row: its text, what a click on it runs, the variation it belongs to (`vs`: the variations of a grid's row of cells). */
-interface Row { text: string; hits?: Hit[]; v?: number; vs?: number[]; margin?: number; cuts?: [number, number][] }
+interface Row { text: string; hits?: Hit[]; v?: number; vs?: number[]; margin?: number; cuts?: [number, number][]; frames?: [number, number][] }
 
 /** A row of chips (a TabRow) as a page row. */
 const chipRow = (r: { text: string; hits: { from: number; to: number; action: string; args?: Record<string, unknown> }[] }): Row => ({ text: r.text, hits: r.hits.map(h => ({ ...h })) });
@@ -103,9 +103,27 @@ export class LibraryPane implements Pane {
   /** Where the page starts (the rail's columns and its rule; 0 with the rail folded), and the rail row each line holds. */
   private pageX = 0;
   private railAt: (number | null)[] = [];
-  private selectRows() { return rowsOf(this.body.map(r => r.text), r => this.body[r]?.margin ?? 0, r => ({ cuts: this.body[r]?.cuts ?? [] })); }
+  /** The page column a mouse selection started in: its frame bounds the selection (null: every frame's text, as an agent's `text=` reads it). */
+  private within: number | null = null;
+  /**
+   * A row's bounds as the reader's selection takes them (its margin and cuts): a framed row's text is its frames'
+   * insides, and a selection the mouse started keeps to the frame it started in (the drawing or the source beside it),
+   * so a triple click or a drag never takes the frame beside it, the padding or the borders.
+   */
+  private bounds(r: Row | undefined): { margin: number; cuts: [number, number][] } {
+    if (!r?.frames?.length) return { margin: r?.margin ?? 0, cuts: r?.cuts ?? [] };
+    const at = this.within;
+    const keep = at === null ? r.frames : [r.frames.find(([a, b]) => at >= a - 2 && at < b + 2) ?? r.frames.reduce((x, y) => (Math.abs(y[0] - at) < Math.abs(x[0] - at) ? y : x))];
+    const cuts: [number, number][] = keep.slice(1).map((f, i) => [keep[i]![1], f[0]]);
+    return { margin: keep[0]![0], cuts: [...cuts, [keep[keep.length - 1]![1], Infinity]] };
+  }
+  private selectRows() { return rowsOf(this.body.map(r => r.text), r => this.bounds(this.body[r]).margin, r => ({ cuts: this.bounds(this.body[r]).cuts })); }
   selectedText() { return this.selection?.text(this.selectRows()) ?? ""; }
-  selectText(text: string) { return selectText(this.selectRows(), text).text(this.selectRows()); }
+  selectText(text: string) {
+    const was = this.within;
+    this.within = null;
+    try { return selectText(this.selectRows(), text).text(this.selectRows()); } finally { this.within = was; }
+  }
   private posAt(x: number, y: number): Pos | null {
     if (y < this.headShown || y >= this.headShown + this.room) return null;
     const row = this.view.top + y - this.headShown;
@@ -171,6 +189,8 @@ export class LibraryPane implements Pane {
       },
       enter: () => { throw new ActionRefused("the rail has the keys whenever the library does: j k step it, ← → its groups, / filters it"); },
       type: () => { this.list.startTyping(filterLine); desk.redraw(); },
+      // The person's filter by action (the power bar's list.filter words=) moves the page as typing does.
+      keep: (_l, words) => { this.list.setFilter(PERSON, words); this.followFilter(); },
       redraw: () => desk.redraw(),
     };
   }
@@ -213,14 +233,14 @@ export class LibraryPane implements Pane {
     if (side) {
       const n = Math.max(drawn.length, source.length);
       out.push({ text: df.top(top(label)) + " " + sf.top(copyTitle), v: i, margin: W, hits: [select(0, dw), copy(dw + 1, W)] });
-      for (let j = 0; j < n; j++) out.push({ text: df.row(drawn[j] ?? "") + " " + sf.row(source[j] ?? ""), v: i, margin: 2, cuts: [[dw - 2, dw + 3]], hits: [select(0, dw)] });
+      for (let j = 0; j < n; j++) out.push({ text: df.row(drawn[j] ?? "") + " " + sf.row(source[j] ?? ""), v: i, frames: [[2, dw - 2], [dw + 3, W - 2]], hits: [select(0, dw)] });
       out.push({ text: df.bottom() + " " + sf.bottom(), v: i, margin: W });
     } else {
       out.push({ text: df.top(top(label)), v: i, margin: W, hits: [select(0, dw)] });
-      for (const l of drawn) out.push({ text: df.row(l), v: i, margin: 2, cuts: [[dw - 2, W]] });
+      for (const l of drawn) out.push({ text: df.row(l), v: i, frames: [[2, dw - 2]] });
       out.push({ text: df.bottom(), v: i, margin: W });
       out.push({ text: sf.top(copyTitle), v: i, margin: W, hits: [copy(0, sw)] });
-      for (const l of source) out.push({ text: sf.row(l), v: i, margin: 2, cuts: [[sw - 2, W]] });
+      for (const l of source) out.push({ text: sf.row(l), v: i, frames: [[2, sw - 2]] });
       out.push({ text: sf.bottom(), v: i, margin: W });
     }
     out.push({ text: "", v: i });
@@ -310,21 +330,19 @@ export class LibraryPane implements Pane {
           const blocks = row.cells.map(c => { const r = this.block(c, shown.length, this.labelOf(s, c, [b]), cellW - 2, src); shown.push(c); return r; });
           const tall = Math.max(...blocks.map(x => x.length));
           for (let j = 0; j < tall; j++) {
-            let t = "", hits: Hit[] = [], cuts: [number, number][] = [];
+            let t = "", hits: Hit[] = [];
+            const frames: [number, number][] = [];
             const vs: number[] = [];
             blocks.forEach((rows, k) => {
               const r = rows[j], x0 = k * cellW;
-              // Each cell's own margin and cuts, moved to where the cell sits: the frames are never selected text.
-              if (r) {
-                cuts.push([x0, x0 + Math.min(r.margin ?? 0, cellW)]);
-                for (const [f, e] of r.cuts ?? []) cuts.push([x0 + f, x0 + Math.min(e, cellW)]);
-              }
+              // Each cell's frames, moved to where the cell sits: only their insides are selected text.
+              for (const [f, e] of r?.frames ?? []) frames.push([x0 + f, x0 + e]);
               t += pad(r?.text ?? "", cellW - 2) + RESET + "  ";
               hits = hits.concat((r?.hits ?? []).map(h => ({ ...h, from: h.from + x0, to: h.to + x0 })));
               // A click anywhere on a cell's drawing or source selects it, as on a variation one under another.
               if (r?.v !== undefined) { vs.push(r.v); hits.push({ from: x0, to: x0 + cellW - 2, action: "library.select", args: { n: r.v + 1 } }); }
             });
-            body.push({ text: t, hits, vs, cuts });
+            body.push({ text: t, hits, vs, ...(frames.length ? { frames } : { margin: W }) });
           }
         }
       }
@@ -376,7 +394,10 @@ export class LibraryPane implements Pane {
     const top = this.view.place(sel ? this.selectedV : null, this.body.length, room, sel);
     const pageLines = [...headRows.map(r => pad(r.text, pw) + RESET), ...this.body.slice(top, top + room).map((r, i) => {
       const line = pad(r.text, pw) + RESET, span = this.selection?.span(top + i);
-      return span ? paintRange(line, Math.max(r.margin ?? 0, span[0]), span[1], SELECT_BG) : line;
+      if (!span) return line;
+      // Lit only inside the bounds the copy takes: the frame it started in, never the one beside it.
+      const b = this.bounds(r);
+      return paintRange(line, Math.max(b.margin, span[0]), Math.min(span[1], b.cuts[0]?.[0] ?? Infinity), SELECT_BG);
     })];
     if (!beside) { this.railAt = []; return { lines: pageLines, scroll: { top, total: this.body.length, room } }; }
     // The rail: its count (or the filter being typed, which the list draws itself), the list, the keys under it.
@@ -426,7 +447,9 @@ export class LibraryPane implements Pane {
     if ((k.button ?? 0) !== 0) return false;
     if (k.action === "down") {
       if (x < 0) return true;
-      const n = this.gesture.press(x, y), at = this.posAt(x, y);
+      const n = this.gesture.press(x, y);
+      if (n === 1) this.within = x;
+      const at = this.posAt(x, y);
       this.selecting = false;
       if (n === 1) this.selection = null;
       if (at && n > 1) this.selection = n === 2 ? wordAt(this.selectRows(), at) : lineAt(this.selectRows(), at.row);
@@ -462,11 +485,15 @@ export class LibraryPane implements Pane {
     if (!this.list.typing) return false;
     if (k.kind === "enter" || k.kind === "esc") this.list.stopTyping(k.kind === "enter");
     else if (!this.list.typing.take(k)) return k.kind !== "tab" && k.kind !== "backtab";
-    // The first component the filter leaves is shown, so the page follows what's typed.
-    const first = this.list.picked();
-    if (first && first.id !== this.component) this.show(first.id);
+    this.followFilter();
     desk.redraw();
     return true;
+  }
+
+  /** The person's filter changed: the page shows the component the rail has picked among what it leaves, so `y` copies what's shown. */
+  private followFilter() {
+    const first = this.list.picked();
+    if (first && first.id !== this.component) this.show(first.id);
   }
 
   // ── what the actions change ────────────────────────────────────────────

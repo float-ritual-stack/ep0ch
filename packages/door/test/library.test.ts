@@ -56,6 +56,29 @@ test("all widths: every variation drawn at 40, 80 and 160 one under another; w c
   expect(p.render(120, 400, true, desk).lines.map(visible).join("\n")).toContain("at 89 (160 is wider than the page)");
 });
 
+test("a triple click on a source line beside its drawing copies that line only: no drawing, padding or frame (PIE-1515)", () => {
+  const desk: any = { ctx: { board: {} }, redraw() {}, press: () => Promise.resolve() };
+  const p = new LibraryPane({ component: "graph-annotate" });
+  const lines = p.render(200, 60, true, desk).lines.map(visible);
+  const y = lines.findIndex(l => l.includes("sqlite3") && l.includes("# (1)"));
+  expect(y).toBeGreaterThan(0);
+  const x = lines[y]!.lastIndexOf("sqlite3") + 2;
+  for (let i = 0; i < 3; i++) { p.mouse({ kind: "mouse", action: "down", button: 0, x, y } as never, x, y, desk); p.mouse({ kind: "mouse", action: "up", button: 0, x, y } as never, x, y, desk); }
+  expect(p.selectedText()).toBe(`sqlite3 "$db" ".backup '$stage'"  # (1)`);
+  // A drag down the drawing stays in the drawing's frame.
+  const d = lines.findIndex(l => l.includes("[1] sqlite3")), dx = lines[d]!.indexOf("[1] sqlite3");
+  p.mouse({ kind: "mouse", action: "down", button: 0, x: dx, y: d } as never, dx, d, desk);
+  p.mouse({ kind: "mouse", action: "drag", button: 0, x: dx + 60, y: d + 1 } as never, dx + 60, d + 1, desk);
+  p.mouse({ kind: "mouse", action: "up", button: 0, x: dx + 60, y: d + 1 } as never, dx + 60, d + 1, desk);
+  const dragged = p.selectedText();
+  expect(dragged).toStartWith(`[1] sqlite3 "$db" ".backup '$stage'"`);
+  expect(dragged).toContain(`[2] restic backup "$stage"`);
+  // The figure's own ┊ is the drawing's; the library's frames (│) and the source beside it are not.
+  expect(dragged).not.toContain("│");
+  expect(dragged).not.toContain("::graph-annotate");
+  expect(dragged).not.toContain("# (1)");
+});
+
 test("the rail beside the page, folded into the header when narrow: groups and counts from the schemas, ‹ › step", () => {
   const pressed: { name: string; args: unknown }[] = [];
   const desk: any = { ctx: { board: {} }, redraw() {}, press: (_p: unknown, _set: unknown, name: string, args: unknown) => { pressed.push({ name, args }); return Promise.resolve(); } };
@@ -249,6 +272,10 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     expect(lines().join("\n")).toContain("1 of ");
     await act("list.filter", { words: "" });
     await until(() => library().rail.filter === undefined, "cleared");
+    // The person's filter by action (the power bar's list.filter) moves the page as typing does, so y copies what's shown.
+    await act("list.filter", { words: "quad" });
+    await until(() => library().component === "graph-quadrant", "the page follows a filter set by action");
+    await act("list.filter", { words: "" });
     // A click on a name in the rail shows it.
     const y = lines().findIndex(l => l.includes(" · graph-meter ")), x = lines()[y]!.indexOf("graph-meter");
     key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
