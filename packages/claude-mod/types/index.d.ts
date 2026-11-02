@@ -84,10 +84,12 @@ export type WhereFacts = {
   /**
    * Which door this Claude reaches and by which rule (`ep0ch where`, PIE-715): `control` (EP0CH_CONTROL or its outline's
    * session), `folder` (the door of the outline this folder names, for a Claude that does not descend from a tile) or
-   * `only` (the one door running). `none`: no door, `text` says why and the command that starts one. `control` is the
-   * socket, only when a door answers there.
+   * `only` (the one door running), `ssh` (the door on the machine this ssh session came from, through its link: PIE-1242).
+   * `none`: no door, `text` says why and the command that starts one. `control` is the socket, only when a door answers there.
    */
-  reach?: { rule: 'control' | 'folder' | 'only' | 'none'; text: string; control: string | null }
+  reach?: { rule: 'control' | 'ssh' | 'folder' | 'only' | 'none'; text: string; control: string | null }
+  /** The machines whose doors a link carries here (`ep0ch where`'s `elsewhere`, PIE-1242): the door tools' `remote`. */
+  elsewhere?: string[]
   /**
    * The machine Claude runs on (its hostname) and its folder, and the persona its writes carry (ADR 0003): from
    * OUTLINER_ACTOR, EP0CH_AGENT or the folder's `.ep0ch` `agent` (`file` names it); null: none.

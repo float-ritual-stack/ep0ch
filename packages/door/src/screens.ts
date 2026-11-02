@@ -513,7 +513,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     person: "the pointer is the person's",
     args: { alt: { type: "boolean", optional: true, about: "alt keeps this hover sticky, even with hover off" }, x: { type: "number", about: "screen column, from 0" }, y: { type: "number", about: "screen row, from 0" } },
     examples: [{ act: "text.hover x=4 y=2", does: "reads the clipped value at column 4, row 2 without opening it" }],
-    run({ x, y, alt }, { ctx }) { ctx.glass?.motion(x, y, alt); if (ctx.overflow?.hover(x, y)) ctx.redraw(); },
+    run({ x, y, alt }, { ctx }) { ctx.hover?.motion(x, y, alt); if (ctx.overflow?.hover(x, y)) ctx.redraw(); },
   }),
   "status.log": def({
     summary: "open the session's message log: every status, warning, refusal and error, with time and the action and tile; / searches, enter returns to its note or tile, q or esc comes back; pressed again (a click on the status line, alt+M) it closes",

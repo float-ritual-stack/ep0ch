@@ -90,7 +90,6 @@ import { AttachedTilePane } from "./attached-tile";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ptyBackend } from "./pty-backend";
-import { PostIt } from "./post-it";
 import { PreviewPane } from "./preview";
 import { fileOpenNote } from "./file-open";
 import { isOutlineNote, openResource, resourceRefTarget } from "../authored";
@@ -734,7 +733,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A tile's door-wide stable id, kept through moves, tabs and saves; never given to another tile. */
   private tileAnswer(id: number) { return { tile: this.tileId(id), name: this.nameOf(id) }; }
 
-  private tileId(id: number): string { return tileRegistry.idOf(this.panes.get(id)!); }
+  private tileId(id: number): string { return tileRegistry.idOf(this.panes.get(id)!); } private focusId(): string | undefined { return this.panes.has(this.focus) ? this.tileId(this.focus) : undefined; } // none on an emptied desk
   private readonly restoredIds = new Map<string, string>();
   private claimIds(door = this.ctx?.hostLayer ?? this.ctx) {
     if (!door) return;
@@ -4727,12 +4726,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private hints(cols: number): string {
     this.hintPanel = null;
-    const desk = this.hintDesk(), tile = desk.tileId(desk.focus);
+    const desk = this.hintDesk(), tile = desk.focusId();
     const text = stripHint() ?? withStripOwner(tile, Infinity, () => desk.hintText());
     const tabs = stripSegments(text), locked = this.screenLocked();
-    if (this.spec.layouts || locked) tabs.push({ label: locked ? lockChipText(this.layoutSelf()).trim() : "□ lock", keep: true, hit: { action: "layout.lock", tile: this.tileId(this.focus) } });
+    if (this.spec.layouts || locked) tabs.push({ label: locked ? lockChipText(this.layoutSelf()).trim() : "□ lock", keep: true, hit: { action: "layout.lock", tile: this.focusId() } });
     const host = this.ctx?.hostLayer, drawer = host?.desks().find(d => host.isDrawer(d) && d !== this);
-    if (drawer?.screenLocked()) tabs.push({ label: lockChipText(drawer.layoutSelf()).trim(), keep: true, hit: { action: "layout.lock", tile: drawer.tileId(drawer.focus) } });
+    if (drawer?.screenLocked()) tabs.push({ label: lockChipText(drawer.layoutSelf()).trim(), keep: true, hit: { action: "layout.lock", tile: drawer.focusId() } });
     if (hyperOn()) {
       const notes = scriptBindings();
       for (const b of hyperBindings(notes).filter(b => notes.some(n => n.action === b.action))) tabs.push({ label: `${hyperLabel(b.key)} ${b.label}`, hit: { action: b.action } });

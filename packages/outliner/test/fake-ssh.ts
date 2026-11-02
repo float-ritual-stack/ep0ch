@@ -8,6 +8,9 @@
 //                                                  forwards <local> to <remote> from a process of its own (its pid in
 //                                                  <ctl>), once it listens; `StreamLocalBindUnlink` replaces a dead file
 //   ssh -S <ctl> -O check|exit -- <machine>       whether that process runs; ending it
+//   ssh -S <ctl> -O forward -L <local>:<remote> -- <machine>
+//                                                  one more forward over that connection (a process of its own, ended
+//                                                  with the connection's)
 //
 // Every call is appended to FAKE_SSH_LOG (one JSON argv per line). FAKE_SSH_DOWN=1: every connection fails, as an
 // unreachable machine's does (exit 255). FAKE_SSH_REFUSE=<machine>[,<machine>]: connections to those machines fail
@@ -66,12 +69,25 @@ if (argv[0] === "--serve") {
   const ownerFile = process.env.FAKE_SSH_OWNER_FILE;
   const owner = ownerFile ? pidIn(ownerFile) : 0;
   // The launching ssh exits immediately; the runner and this fixture's control file own the forward instead.
+  // A forward added to a connection (`-O forward`) ends with it.
+  const master = argv[4];
   server.once("listening", () => setInterval(() => {
-    if (!existsSync(ctl) || (ownerFile && (!owner || pidIn(ownerFile) !== owner || !alive(owner)))) quit();
+    if (!existsSync(ctl) || (master && !(pidIn(master) && alive(pidIn(master)))) || (ownerFile && (!owner || pidIn(ownerFile) !== owner || !alive(owner)))) quit();
   }, 100).unref());
 } else if (argv.includes("-O")) {
   const ctl = opt("-S")!, op = opt("-O"), pid = pidIn(ctl);
   if (!pid || !alive(pid)) { console.error(`Control socket connect(${ctl}): No such file or directory`); process.exit(255); }
+  if (op === "forward") {
+    const [local, remote] = opt("-L")!.split(":") as [string, string];
+    if (!scratch(remote) || !scratch(local)) { console.error(`fake ssh: refusing to forward ${remote}, which isn't under the temp dir`); process.exit(255); }
+    const own = `${local}.fwd`;
+    rmSync(own, { force: true });
+    const child = Bun.spawn([process.execPath, import.meta.path, "--serve", local, remote, own, ctl], { stdio: ["ignore", "ignore", "ignore"], detached: true } as any);
+    child.unref();
+    for (let i = 0; i < 250 && !existsSync(own); i++) await Bun.sleep(20);
+    if (!existsSync(own)) { console.error("mux_client_forward: forwarding request failed"); process.exit(255); }
+    process.exit(0);
+  }
   if (op === "exit") { process.kill(pid, "SIGTERM"); for (let i = 0; i < 50 && alive(pid); i++) await Bun.sleep(20); console.error("Exit request sent."); }
   else console.error(`Master running (pid=${pid})`);
   process.exit(0);

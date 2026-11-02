@@ -552,7 +552,11 @@ Alt-hover keeps one sticky, even with hover off. Esc dismisses it; alt+U clears 
 
 ::button{label="Three refs on a shelf" of=glass-shelf}
 Drag a post-it onto the shelf. Its header switches list/grid and colour; its tile menu renames it. A row selects and previews on one click, opens on the second.
-Tune → Glass adjusts delays and the soft pin limit. Shelves count too. ^W U keeps any tile above every screen.`);
+Tune → Glass adjusts delays and the soft pin limit. Shelves count too. ^W U keeps any tile above every screen.
+
+The glass is an extension, listed with the others (ctrl+k then &). Off, hovers do nothing and ◇ goes; ^W U still works.
+::button{label="Glass off" act="extensions.uninstall id=glass demo=keep"}
+::button{label="Glass on" act="extensions.install id=glass"}`);
   await make(notes.glass.id, `Three refs on a shelf [script::glass-shelf] [effects::write]
 \`\`\`js
 const shelf = await act('glass.shelf', { name: 'seeds', colour: 'amber' });
