@@ -172,6 +172,27 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect((await board.get(note.id))!.text).toContain("width: full");
   });
 
+  test("PIE-1513: dragging a live table's bottom edge past the reader's bottom keeps the edge in sight, saying its rows", async () => {
+    const { note, surface, host, draw } = await sizingReader(timeline.replace("graph-timeline", "graph-table").replace("date: landed", "columns: title\nsort: title asc").replace("height: 4", "height: 4\nwidth: full\nlayout: feed") + "\n\n" + Array.from({ length: 30 }, (_, i) => `Bed ${i + 1} is dug.`).join("\n\n"));
+    const all = draw(), y = all.findIndex(l => l.includes("↔ full")), x = all[y]!.indexOf("+") + 8;
+    expect(y, all.join("\n")).toBeGreaterThan(-1);
+    // A reader whose last row is the table's bottom edge, as when the note is scrolled to it.
+    const short = () => surface.render(100, h, host).lines.map(plain);
+    let h = y;
+    while (h < 60 && !short().at(-1)?.includes("↔ full")) h++;
+    expect(short().findLastIndex(l => l.includes("↔ full"))).toBe(y);
+    surface.press(x, y, host); surface.drag(x, y + 3, host);
+    await surface.inTurn(async () => {});
+    const held = short(), at = held.findIndex(l => l.includes("let go to save"));
+    expect(at, held.slice(-8).join("\n")).toBeGreaterThan(-1);
+    expect(held[at]).toContain("7 rows");
+    expect((await board.get(note.id))!.text).toContain("height: 4");
+    surface.release(x, y + 3, host);
+    await until(() => !surface.figureSizing.drag, "the table's height is saved");
+    await surface.inTurn(async () => {});
+    expect((await board.get(note.id))!.text).toContain("height: 7");
+  });
+
   test("review 5: shifted arrows scroll inside a figure and keep the reading position", async () => {
     const { surface, host, draw } = await sizingReader(timeline);
     const elements = (await surface.act("elements", {}, host, USER) as any).elements;

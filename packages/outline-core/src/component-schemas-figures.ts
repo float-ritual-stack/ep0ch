@@ -7,6 +7,7 @@
 import type { ComponentSchema, PropSchema } from "./component-schema";
 import { CONTENT_SIZE_PROPS } from "./media-line";
 import { enumOf } from "./prop-values";
+import { VIEW_LAYOUT } from "./view-fields";
 
 const yaml = (key: string, type: PropSchema["type"], meaning: string, extra: Partial<PropSchema> = {}): PropSchema => ({ key, where: "yaml", type, meaning, ...extra });
 
@@ -111,7 +112,7 @@ const FIGURES: Kind[] = [
     kind: "table", title: "Table", intro: "Rows and columns: `headers:`, `rows:` (a list of rows), an optional `footer:`, and `align:` per column. Live, the results are rows and `columns:` name the properties (title, subtitle when present, and updated when left out); a row opens its note. Narrow, only the title column and one more are drawn and the rest are counted." + LIVE_WORDS,
     props: [TITLE, yaml("headers", "list", "the column names", { samples: ["[Agent, Tokens, Time]", "[Name, Count]"] }), yaml("rows", "list", "the rows, each a list of cells", { samples: ["[[Inks, \"115,207\", 16m], [Patterns, \"186,716\", 18m]]", "[[a, 1], [b, 2]]"] }),
       yaml("footer", "list", "a closing row, ruled off", { samples: ["[Total, \"301,923\", 34m]"] }), yaml("align", "list", "left or right for each column", { samples: ["[left, right, right]", "[left, left, right]"] }),
-      yaml("layout", "enum", "how a live table's rows are drawn: a table, or one of the views' other layouts through the same collection renderer", { default: "table", values: enumOf({ table: "rows with sortable column headers", feed: "full-width cards with body lines", gallery: "cards in a responsive grid", board: "a lane per group, tabs when narrow" }) }),
+      { ...VIEW_LAYOUT, where: "yaml" },
       yaml("columns", "list", "a live table's properties, one a column (title, subtitle when present, and updated: the defaults)", { samples: ["[title, status, updated]", "[ticket, title, owner]"], question: { type: "pick-order", source: "facets" } }), yaml("titleColumn", "int", "which column is the title, the one density wraps", { min: 0, max: 8, default: "0" }), yaml("link", "property", "a live table's property naming a note: a row opens that note instead of its own (a record table opens what the record is about)", { samples: ["note", "ticket"] }), yaml("at", "property", "with link:, a live table's property holding a revision of that note: a row opens the note at that revision beside how it is now (a review record's revision)", { samples: ["revision"] }), DENSITY, ...LIVE, LIMIT, SORT, DIRECTION],
     example: { title: "what the research cost", headers: "[Agent, Tokens, Time]", rows: "[[Inks, \"115,207\", 16m], [Patterns, \"186,716\", 18m]]", footer: "[Total, \"301,923\", 34m]", align: "[left, right, right]" }, sweep: ["align", "footer", "density"], grids: [["align", "footer"]],
   },

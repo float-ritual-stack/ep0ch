@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { componentBlocks } from "../src/component-block";
 import { componentReading } from "../src/component-warnings";
-import { BUILTIN_COMPONENT_SCHEMAS } from "../src/component-schema";
+import { BUILTIN_COMPONENT_SCHEMAS, VIEW } from "../src/component-schema";
 import { figureProps, figureSource, unknownFigureKeys } from "../src/figure-props";
 import { viewSpec } from "../src/view-spec";
 
@@ -30,5 +30,16 @@ describe("a live graph-table's layout (PIE-1513)", () => {
     expect(r.warnings[0]).toStartWith("the ::graph-table on line 2 doesn't take colour: it takes title");
     const read = figureProps("rank", figureSource(["---", "items: [{ label: a, value: 1 }]", "colour: red", "---"]));
     expect("warning" in read && read.warning).toStartWith("this ::graph-rank doesn't take colour: it takes title");
+  });
+  test("graph-table's layout is the view's one definition: several layouts are tabs over one source (PIE-1513 finding)", () => {
+    const table = BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === "graph-table")!.props.find(p => p.key === "layout")!;
+    const view = VIEW.props.find(p => p.key === "layout")!;
+    expect({ ...table, where: "note" }).toEqual(view);
+    expect(table.where).toBe("yaml");
+    expect(table.question).toEqual({ type: "toggle" });
+    expect(spec("::graph-table", "---", "query: type=bed", 'layout: "table, feed"', "---", "::")!.props.layout).toBe("table, feed");
+    expect(componentReading('Garden\n::graph-table\n---\nquery: type=bed\nlayout: "table, feed"\n---\n::', BUILTIN_COMPONENT_SCHEMAS).warnings).toEqual([]);
+    expect(componentReading("Garden\n::graph-table\n---\nquery: type=bed\nlayout: [table, feed]\n---\n::", BUILTIN_COMPONENT_SCHEMAS).warnings).toEqual([]);
+    expect(componentReading("Garden\n::graph-table\n---\nquery: type=bed\nlayout: table, cards\n---\n::", BUILTIN_COMPONENT_SCHEMAS).warnings[0]).toContain('layout "cards" is one of table, gallery, feed, board');
   });
 });
