@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Arrow keys work in Ghostty (#1156)
+
+- **Moving:** ↑ and ↓ move through lists and tiles in Ghostty as in kitty: the door reads Ghostty's `CSI 1;1:1A` arrows (with press and release) as keys and hands a tile's program the plain arrow bytes it expects, shift and alt kept.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
+### A Mac opens a new outline again (#1155)
+
+- **Open:** a host on macOS creates and opens outlines; its system SQLite 3.51 had refused the graph's TEMP triggers since PIE-1413, so every open there failed.
+- **Run:** `ep0ch install --apply` on the Mac. No protocol, grammar or schema change.
+
 ### A fresh machine can open its first outline from the home base (PIE-1489)
 
 - **Create locally:** `n`, a name and Enter start the local host and open the new outline, installing its launchd agent on macOS or systemd user unit on Linux when missing. `ep0ch --ws garden` uses the same startup path; a failed start is shown on the status line.
