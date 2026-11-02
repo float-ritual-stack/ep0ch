@@ -27,7 +27,7 @@ export const SPACING_LAB = [
   "- Peppers, pricked out in May",
   "",
   "## Hardy ones [style.list.gap::0] [style.list.divider::none]",
-  "This list is tight: its heading says so (this list). Its tokens leave the text you read; e, x-ray and the tune show them.",
+  "This list is tight: its heading says so (this list). Its tokens leave the text you read; e, the property panel (i) and the tune show them.",
   "- Kale",
   "- Leeks",
   "",

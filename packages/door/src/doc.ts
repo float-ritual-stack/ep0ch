@@ -1355,7 +1355,7 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false, task
   const inline = (s: string) => inlineOf(s, literal);
   // A styling property isn't content (PIE-1510, outline-core's stylingTokensInLine): a list's `[style.list.zebra::on]` on
   // its first item styles the list and leaves the drawn text, as a heading's `[heading-pattern::dots]` does. The editor,
-  // x-ray and the tune show it; a source copy and an export keep it.
+  // the property panel (i, the service's own tokens) and the tune show it; a source copy and an export keep it.
   if (!literal) line = withoutStylingTokens(line);
   if (/^\s*>/.test(line)) {
     const body = line.replace(/^\s*> ?/, ""), item = /^(\s*)([-*]) /.exec(body);
