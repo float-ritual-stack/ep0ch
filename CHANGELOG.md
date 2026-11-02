@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A published page never prints a proposal's patch (PIE-1333)
+
+- A published page's inside list folds proposals and deliveries into one "N changes" line; each change is one line ("1 edit from @daddy, applied") linking to its diff.
+- A `draft-patch` value is never printed, on the page, its Markdown or `?view=full`; a `[publish::never]` change stays a locked row.
+- **Fix:** an open lands only on a tile you can see, never on a screen behind (PIE-1520).
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### Keys and controls mean the same everywhere (PIE-1293, PIE-1173)
 
 - Enter on the trash box keeps the note. To trash it, press `d` again, Delete, or click the red row.
