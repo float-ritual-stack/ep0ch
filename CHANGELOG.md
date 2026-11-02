@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A misread button says the one-action-per-line form; a lift button drops on the next press (PIE-1298)
+
+- A `::button` whose `act=` a nested quote cuts short runs nothing and says what to write: `::button{label="zoom"}`, the action on its own line as you meant it, then `::`. This also catches a quote that cut off a word the button reads (`tone=red"`), which ran a shortened action before. The kitchen sink's **pick-a-tile** section shows the form beside the misread button.
+- A note's button that lifts a tile (`tile.zoom tile={target} reach=column`, the pop it button) now drops it on the next click or ⏎. The click outside the lift dropped it and the press lifted it again; the status bar's buttons were already fixed this way.
+- **Run:** `ep0ch install --apply`. GRAMMAR moves by one (a button line reads differently); no protocol or schema change.
+
 ### The Trail remembers the notes and tiles you left (PIE-1234)
 
 - **Find a visit:** Alt+T opens the day's forest across tiles: what opened what, · flipped / ◐ read / ● held, closed tiles and attributed agent visits. Enter restores a visit where it was; o opens it here, s saves its branch, f folds flips, / searches, t changes view and a dims or hides agents. A click selects, a double-click reopens, and alt-click opens here; a selected visit stays selected as new visits arrive. Saved branches follow note routing, defaulting to the Inbox. Visits stay in per-outline session state for a configurable week; `trail.forget` clears a branch, day or all.

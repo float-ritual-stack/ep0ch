@@ -27,7 +27,7 @@ test("what won't run: nested quotes, an unknown action with a did-you-mean, an a
   const m = buttonLineLook([nested], 0, ask)!.marks;
   expect(m.every(x => x.kind === "misread")).toBe(true);
   expect(m.map(x => text(nested, x.from, x.to))).toEqual(['column"', 'tile="t-a6125371"']);
-  expect(m[0]!.message).toContain("act='tile.zoom reach=column tile=t-a6125371'");
+  expect(m[0]!.message).toContain('::button{label="zoom"} ⏎ tile.zoom reach="column" tile="t-a6125371" ⏎ ::');
   const typo = '::button{act="tile.zom tile=links"}';
   expect(buttonLineLook([typo], 0, ask)!.marks).toMatchObject([{ kind: "action", message: "no action tile.zom here; did you mean tile.zoom?" }]);
   const stray = '::button{act="tile.zoom colum=1"}';
