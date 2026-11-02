@@ -15,7 +15,7 @@ import { leaf, serializeTree, splitOf, type LNode, type NaryForm, type BinaryFor
 import { ReaderPane, type Pane } from "./panes";
 import { isTileHeader, type TileHeader } from "../surface/note";
 import { nowPage } from "../hub/now";
-import { isTileKind, missingKind, tileKind, tileKinds, UnavailableTile, type TileKindName } from "./tile-kinds";
+import { isTileKind, missingKind, resolveKind, tileKind, tileKinds, UnavailableTile, type TileKindName } from "./tile-kinds";
 import { registerBuiltinTiles } from "./builtin-tiles";
 import { tileRegistry } from "./tile-registry";
 
@@ -179,6 +179,8 @@ export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: 
   const { link, linkRole, ...rest } = s;
   const out = { ...rest, ...(link ? { wires: [...(s.wires ?? []), ...(!s.wires?.some(w => w.verb === "open") ? [{ verb: "open" as const, to: link }] : []), ...(!s.wires?.some(w => w.verb === "select") && (linkRole ?? (s.kind === "backlinks" ? "target" : "preview")) === "preview" ? [{ verb: "select" as const, to: link }] : [])] } : {}) };
   if (out.kind === "detail") { out.kind = "reader"; out.mode ??= s.page ? "pinned" : "held"; }
+  // A retired kind an extension's kind replaces (PIE-1514) reads as that kind, and saves under it.
+  out.kind = resolveKind(out.kind);
   // The reader modes before the pin (PIE-1207): `held` is any reader now (it names a new tile a detail, and the reader
   // ignores it); one that followed the current note (saved with its place and no note and no mode, or `mode: follows`)
   // loads on the note it showed, and the desk wires a list to it once.

@@ -90,6 +90,7 @@ export const SETTINGS_KEYS: readonly ModeKey[] = keyTable("settings", "the setti
   ...["backtab", "k", "up"].map(key => say(row(key, "settings.pick", "field", { by: -1 }), "select the previous field of the card")),
   say(row("enter", "settings.set", "edit"), "edit the selected field's value"), say(row("e", "settings.set", "edit"), "edit the selected field's value"),
   row("x", "settings.clear", "clear"), row("delete", "settings.clear", "clear"),
+  say(row("ctrl+z", "settings.undo", "undo"), "put the last settings write back"),
   row("i", "props", "every property"),
   ...["esc", "q", ","].map(key => row(key, "props.close", "close")),
   say(row("ctrl+o", "settings.place", "placement"), "choose where the settings card sits"), row("ctrl+g", "settings.grip", "move"),

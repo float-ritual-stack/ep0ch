@@ -16,6 +16,11 @@ const src: SettingSources = {
 const props = (o: Record<string, string>) => Object.entries(o).map(([key, value]) => ({ key, value }));
 
 describe("the settings card", () => {
+  test("a figure's camel-case key reads as set, in its own spelling (PIE-1513 review)", () => {
+    const table = BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === "graph-table")!;
+    const field = settingFields(table, props({ titleColumn: "1" }), "yaml").find(f => f.prop.key === "titleColumn")!;
+    expect(field.value).toBe("1");
+  });
   test("a note is configured by the schema whose declaring property it carries; its fields in the schema's order, the name first", () => {
     expect(settingsSchema(BUILTIN_COMPONENT_SCHEMAS, props({ "rule-name": "bay", "rule-tone": "good" }))?.id).toBe("rule");
     expect(settingsSchema(BUILTIN_COMPONENT_SCHEMAS, props({ type: "virtual-branch", query: "type=chore" }))?.id).toBe("view");

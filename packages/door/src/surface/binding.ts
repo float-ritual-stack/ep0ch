@@ -1,5 +1,6 @@
-import { componentBlocks, COMPONENT_OPEN, splitWords } from "@ep0ch/outline-core/component-block";
+import { componentAttrs, componentBlocks, COMPONENT_OPEN, splitWords } from "@ep0ch/outline-core/component-block";
 import { viewSpec } from "@ep0ch/outline-core/view-spec";
+import { figureSource, figureYaml } from "@ep0ch/outline-core/figure-props";
 import type { Msg } from "../board";
 import { EditConflict, type Actor, type SocketBoard } from "../socket";
 import { ActionRefused } from "./actions";
@@ -14,7 +15,12 @@ export function boundComponent(note: Msg, binding: Binding) {
   const blocks = componentBlocks(lines);
   const block = blocks.find(b => ref.id ? b.id === ref.id : b.start === ref.line);
   const spec = block && viewSpec(block, lines);
-  return block && spec ? { block, lines, props: spec.props } : null;
+  if (!block || !spec) return null;
+  // The figure's own keys as written (`columns`, not the view's `summary-properties` the spec translates it to): its
+  // attributes, with its YAML over them, as the figure reads them (viewSpec, figureProps).
+  const read = figureYaml(figureSource(lines.slice(block.start + 1, block.end), undefined, false, block.attrs));
+  const attrs = Object.fromEntries(componentAttrs(block.attrs ?? "").pairs.map(p => [p.key, p.value]));
+  return { block, lines, props: spec.props, yaml: { ...attrs, ...("yaml" in read ? read.yaml : {}) } };
 }
 
 /** Only the chosen field changes; the component's other words, body and anchor stay as authored. */

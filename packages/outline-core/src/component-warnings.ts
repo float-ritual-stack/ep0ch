@@ -10,7 +10,7 @@
 
 import { COMPONENT_OPEN, componentBlocks } from "./component-block";
 import { checkValue, type ComponentSchema } from "./component-schema";
-import { figureProps, figureSource, figureYaml, graphKind } from "./figure-props";
+import { figureProps, figureSource, figureYaml, graphKind, unknownFigureKeys } from "./figure-props";
 import { oneLineCalls } from "./script-component";
 import { closest } from "./tool-args";
 
@@ -54,14 +54,11 @@ export function componentReading(text: string, schemas: readonly ComponentSchema
     // The keys and values as the figure reads its YAML: a quoted key, a flow map and a boolean are what they parse to.
     const yaml = (figureYaml(src) as { yaml: Record<string, unknown> }).yaml;
     const props = schema.props.filter(p => p.where === "yaml");
-    const known = props.map(p => p.key);
+    // A key it doesn't take: a typo's nearest, else the keys it takes (figure-props.ts, the same sentence the readers draw).
+    warnings.push(...unknownFigureKeys(kind, yaml).map(w => `${at} ${w}`));
     for (const [key, value] of Object.entries(yaml)) {
       const prop = props.find(p => p.key === key);
-      if (!prop) {
-        const near = closest(key, known);
-        if (near) warnings.push(`${at} doesn't take ${key}: did you mean ${near}?`);
-        continue;
-      }
+      if (!prop) continue;
       // A scalar as YAML read it; a `{{ }}` value is the Site's to fill when the figure is drawn.
       if ((typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") || String(value).includes("{{")) continue;
       const wrong = checkValue(prop, String(value));

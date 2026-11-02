@@ -1491,6 +1491,12 @@ its name. A tile is one of three things (PIE-507, PIE-1506), exactly one per `ti
 }
 ```
 
+A tile that took over a built-in's place also says so (PIE-1514), so a desk saved with the old kind keeps working:
+
+```json
+{ "kind": "list", "name": "What changed", "render": "what-changed", "replaces": ["what-changed"] }
+```
+
 A drawn one, and a view, from the same manifest shape:
 
 ```json
@@ -1507,6 +1513,10 @@ A drawn one, and a view, from the same manifest shape:
 - A drawn tile asks the service again when the outline changes (after a pause) and when it's opened again with new
   args; the render runs with no note (`this` throws), only `props`, reads and queries. Its actions' keys press them in
   the tile (`d`), on the picked row's note.
+- `replaces` names retired kinds this tile serves in place of (a built-in the door no longer has, at most 8, each the
+  full name a layout saved). The door's tile-kind registry resolves a saved tile of one to this kind the moment it
+  registers, and the tile saves under the new name; nothing in the door maps old kinds to new by hand. A name the door
+  still has a live kind under is refused with the kind, and so is one of the extension's own.
 - **`defaultOn: true`** (a built-in only): on wherever the service runs. The host installs it into the user folder (or
   the outline's own) at start when no copy is installed, unless `.off/<id>` there says it was uninstalled
   (`extensions.uninstall` writes it, `extensions.install` takes it back). what-changed is one: the door's +N new never
@@ -1547,6 +1557,7 @@ A drawn tile carries `render: "<script name>"` instead of `command`, a view `vie
 | its actions | `actions`: bind each as an `ActionDef` named `name` with its `key`; it runs `extensions.act` (`extension`, `extensionAction: id`, and the tile's block (its `block` arg, or the picked row's note) as `blockId` when `on` is `block`) |
 | default policy | `policy` (the layout design's per-container settings) |
 | what it accepts | `accepts` (tile kinds it takes as drops; empty: none) |
+| what it replaces | `replaces` (retired kinds whose saved tiles open as this one and save under it; absent: none) |
 | how it saves | `save: "args"`: a screen stores the kind and its args, nothing else |
 | where it can run | `host`: a program's command is a path on the service's host, so a door on another machine shows the kind as unavailable; a drawn tile and a view run anywhere the service answers |
 

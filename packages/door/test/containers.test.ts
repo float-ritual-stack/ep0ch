@@ -278,6 +278,26 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(says()).toContain("the test took it out");
   });
 
+  test("a kind that replaces a retired one (PIE-1514): the old name resolves to it, a live kind can't be replaced, and the alias goes with the kind", async () => {
+    const { isTileKind, resolveKind, tileKind } = await import("../src/desk/tile-kinds");
+    const { makeTile } = await import("../src/desk/tiles");
+    const newer = serviceKind({ kind: "ledger.list", about: "a made-up ledger", replaces: ["ledger"], render: async () => ({ title: "Ledger", lines: ["one row"] }) });
+    expect(isTileKind("ledger")).toBe(false);
+    registerTileKind(newer);
+    try {
+      expect(resolveKind("ledger")).toBe("ledger.list");
+      expect(tileKind("ledger")?.kind).toBe("ledger.list");
+      expect(isTileKind("ledger")).toBe(true);
+      // A spec saved with the old kind makes a tile of the new one, and says so when saved again.
+      expect(makeTile({ kind: "ledger", state: {} }).kind).toBe("ledger.list");
+      // A live kind keeps its name: a replaces over it is refused with the kind that asked.
+      expect(() => registerTileKind(serviceKind({ kind: "ledger.other", about: "another", replaces: ["reader"], render: async () => ({ title: "x", lines: [] }) }))).toThrow(/can't replace reader/);
+      expect(isTileKind("ledger.other")).toBe(false);
+    } finally { unregisterTileKind("ledger.list"); }
+    expect(resolveKind("ledger")).toBe("ledger");
+    expect(isTileKind("ledger")).toBe(false);
+  });
+
   test("review: a dock's border sizes only it; an agent's dock or move never hides the person's tile; a dock's own resizable", async () => {
     await mine("layout.load", { name: "desk" });                    // row(tree, row(reader, col(replies, activity)))
     await mine("tile.dock", { edge: "left" }, "replies");

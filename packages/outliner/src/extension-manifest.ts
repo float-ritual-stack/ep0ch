@@ -246,6 +246,11 @@ const Tile = Type.Object(
     )),
     /** Tile kinds it takes as drops (a container tile); empty or absent: none. */
     accepts: Type.Optional(Type.Array(Type.String({ maxLength: 64 }), { maxItems: 16 })),
+    /**
+     * Retired kinds this tile serves in place of (PIE-1514): a built-in the door no longer has, whose saved tiles open as
+     * this kind (`"replaces": ["what-changed"]`). Full names, as a layout saved them.
+     */
+    replaces: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 8 })),
     /** The arguments a tile is opened with and saved with in a screen. */
     args: Type.Optional(Type.Record(
       Type.String({ pattern: EXTENSION_ID_PATTERN }),
@@ -672,6 +677,9 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     if (tile.render !== undefined && !shippedScripts.has(tile.render)) throw new ExtensionLoadError(`extension.json: tiles/${index}/render names ${tile.render}, which scripts[] doesn't declare`);
     for (const id of tile.actions ?? []) {
       if (!actionIds.has(id)) throw new ExtensionLoadError(`extension.json: tiles/${index}/actions names ${id}, which actions[] doesn't declare`);
+    }
+    for (const old of tile.replaces ?? []) {
+      if ((manifest.tiles ?? []).some((other) => `${manifest.id}.${other.kind}` === old)) throw new ExtensionLoadError(`extension.json: tiles/${index}/replaces names ${old}, one of this extension's own kinds`);
     }
   }
   for (const [index, action] of (manifest.actions ?? []).entries()) {

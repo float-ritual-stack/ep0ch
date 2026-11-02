@@ -46,6 +46,8 @@ export interface Display {
    * terminal meanwhile; it's painted whole after. A session's is the terminal of the client with the person's keys.
    */
   handOver(argv: string[], o: HandoverOpts): Promise<number | null>;
+  /** The video mode the person's terminal was stepped down from because it stopped answering (a session, PIE-1500); null when it wasn't. */
+  steppedDown?(): Video | null;
   /** Nobody sees the frames (a session with no terminal attached): App renders none until someone does. */
   unseen?(): boolean;
   /** Said when the frames are seen again (a terminal attached to a session nobody saw): App draws the frame it skipped. */
@@ -61,6 +63,8 @@ export const isDisplay = (t: unknown): t is Display => typeof (t as Display | nu
 
 /** The next video mode after `v`, on a terminal that has Kitty graphics. */
 export const nextVideo = (v: Video): Video => (v === "kitty+crt" ? "kitty" : v === "kitty" ? "cells" : "kitty+crt");
+/** The mode under `v`, what a terminal that keeps up less is shown in (kitty+crt, kitty, cells); null under cells. */
+export const stepVideoDown = (v: Video): Video | null => (v === "kitty+crt" ? "kitty" : v === "kitty" ? "cells" : null);
 
 /**
  * One terminal's frames: its rows through `term`, its images through a Kitty layer of its own, in its own video mode.
@@ -94,8 +98,10 @@ export class Painter implements Display {
     if (this.away) return;
     const wanted = this.video === "cells" ? [] : placements;
     const images = this.video === "kitty+crt" ? [crtUnderlay(this.term.info), ...wanted.filter(p => !isSized(p))] : wanted.filter(p => !isSized(p));
-    // Text drawn at a size (a reader's title) only where the terminal has it; elsewhere its cells already hold the title.
-    const sized = this.term.info.sized ? wanted.filter(isSized).map(p => ({ ...p, sized: { ...p.sized, text: this.glyphs(p.sized.text) } })) : [];
+    // Text drawn at a size (a reader's title) only where the terminal has it, and only under a Kitty video mode: cells is
+    // plain cells, nothing the terminal might choke on (a session steps a terminal that stops answering down to it, PIE-1500);
+    // elsewhere its cells already hold the title.
+    const sized = this.term.info.sized && this.video !== "cells" ? wanted.filter(isSized).map(p => ({ ...p, sized: { ...p.sized, text: this.glyphs(p.sized.text) } })) : [];
     // The text and the images are one frame: a terminal never shows new rows over old placements (PIE-462).
     const draw = () => {
       const mapped = lines.map(l => this.glyphs(l));

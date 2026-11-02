@@ -32,6 +32,9 @@
       "name": "What changed",
       "description": "the notes others changed since you last looked (who, what, when), newest first; ⏎ opens one where opens land, alt+⏎ in a new detail, d the change beside it, / filters",
       "render": "what-changed",
+      "replaces": [
+        "what-changed"
+      ],
       "args": {
         "since": {
           "type": "string",
