@@ -580,7 +580,7 @@ export class PtyPane implements Pane {
    * Bytes as the person's terminal sent them. A bracketed paste keeps its markers only for a program that asked for
    * them; a Kitty keyboard report reaches it as it asked (the protocol, or legacy bytes: Shift+Enter as ESC CR).
    */
-  inputRaw(s: string) { this.sel = null; this.picking = null; this.personKeyAt = Date.now(); this.sawIt(); s = translateReports(s, this.kbd.flags); this.input(this.term?.modes.bracketedPasteMode ? s : s.replace(/\x1b\[20[01]~/g, "")); }
+  inputRaw(s: string) { this.sel = null; this.picking = null; this.personKeyAt = Date.now(); this.sawIt(); s = translateReports(s, this.kbd.flags, this.term?.modes.applicationCursorKeysMode ?? false); this.input(this.term?.modes.bracketedPasteMode ? s : s.replace(/\x1b\[20[01]~/g, "")); }
   /** A paste, whole: bracketed (mode 2004) when the program asked for that, so it arrives as one paste, not typed lines. */
   paste(text: string) { this.sel = null; this.picking = null; this.personKeyAt = Date.now(); this.sawIt(); this.input(this.term?.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text); }
 
