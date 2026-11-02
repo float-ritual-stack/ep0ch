@@ -1,5 +1,5 @@
 import { drawCompletionFloat } from "./surface/completion-float";
-import { BACK_KEY, hotParts, listKeys } from "./hint-parts";
+import { BACK_KEY, hotParts, listKeys, messageNavHint } from "./hint-parts";
 import { LIST_MOVE_KEYS } from "./surface/attached-keys";
 import { modeBinding, modeHint, modeActionKeys, Modes, type ModeKey } from "./surface/modes";
 import { effective } from "./surface/keymap";
@@ -1826,7 +1826,7 @@ export class MessageReader implements Screen {
   private hint(scroll: { top: number; room: number; total: number } | undefined, w: number): string {
     const s = this.surface;
     const more = overflows(scroll) ? ` · ${scrollPct(scroll)}` : "";
-    return pad(fg(C.dark) + "  " + s.hint("n next · p prev · ") + (s.holdsKeys ? "" : `${more} · q back`) + RESET, w);
+    return pad(fg(C.dark) + "  " + s.hint(`${messageNavHint()} · `) + (s.holdsKeys ? "" : `${more} · ${modeHint(BACK_KEY, () => undefined)}`) + RESET, w);
   }
 
   key(k: Key, ctx: Ctx) {

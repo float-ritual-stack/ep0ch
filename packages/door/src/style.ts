@@ -349,7 +349,8 @@ export function tailFrom(s: string, n: number): string {
 /**
  * A hint (a row of key parts joined by " · ") cut to `w` cells: between parts, never inside a key's, ending
  * with `more` (a "? more" chip, or a plain " …"). When even the first part is too wide it's cut at its last
- * space that fits. `at`: the cell where `more` starts, so a click on it can be found. Short enough: as it is.
+ * space that fits. `at`: the cell where `more` starts, so a click on it can be found; hovering it reads the whole
+ * hint. Short enough: as it is.
  */
 export function fitHint(s: string, w: number, more = ` ${fg(C.dark)}…`): { text: string; at: number; cut: boolean } {
   if (width(s) <= w) return { text: s, at: -1, cut: false };
@@ -362,7 +363,8 @@ export function fitHint(s: string, w: number, more = ` ${fg(C.dark)}…`): { tex
     col += glyphWidth(gs[i]!);
   }
   const at = part > 0 ? part : space > 0 ? space : room;
-  return { text: fullText(s, headOf(s, at) + RESET + more + RESET), at, cut: true };
+  // The parts that fit keep their own marks, so each is still a click (PIE-1293); the `more` mark reads the whole hint.
+  return { text: headOf(s, at) + RESET + fullText(s, more + RESET) + RESET, at, cut: true };
 }
 const tagsIn = (rest: string) => rest.match(TAGS)?.join("") ?? "";
 

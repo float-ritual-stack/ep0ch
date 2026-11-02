@@ -950,7 +950,12 @@ export class Dispatcher {
     if (!req.tile) return null;
     const hit = this.resolve(req.tile);
     if (!hit || hit.dispatch.host.pointerScope === this.host.pointerScope) return null;
-    return { delegate: () => hit.dispatch, request: r => ({ ...r, tile: hit.tile.id ?? hit.tile.name }), listed: false };
+    const request = (r: ActRequest) => ({ ...r, tile: hit.tile.id ?? hit.tile.name });
+    if (hit.dispatch.owner(request(req))) return { delegate: () => hit.dispatch, request, listed: false };
+    // An action the tile's screen doesn't answer (the App's note.new, keys.open, screen.back) runs here as its key does,
+    // with no tile=: a hint segment's click names the tile it was drawn in (PIE-1293).
+    const untiled = (r: ActRequest): ActRequest => { const { tile: _, ...rest } = r; return rest; };
+    return this.owner(untiled(req)) ? { delegate: () => this, request: untiled, listed: false } : null;
   }
 
   standing(actor: Actor, touch: ActionDef<unknown, unknown>["touches"] = "tile"): boolean {

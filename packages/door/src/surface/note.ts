@@ -1276,7 +1276,7 @@ export class NoteSurface {
   /** The zoom's keys (PIE-780) as the hint says them, read from ZOOM_KEYS: the way in, or while zoomed the way back. */
   private zoomHint(): string {
     const k = ZOOM_KEYS.find(k => k.key !== "click" && (k.args?.on === false) === !!this.zoom)!;
-    return `${keyCaption(k.key)} ${this.zoom ? k.label : "zoom"}`;
+    return hintOf([{ ...k, label: this.zoom ? k.label : "zoom" }]);
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
