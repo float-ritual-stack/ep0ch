@@ -8,14 +8,10 @@ import { COLLECTION_SECTIONS } from "./collections";
 import { tileRegistry } from "../desk/tile-registry";
 import { LibraryPane } from "../library/library";
 import { errorDetails } from "../status-log";
-// The showcase draws every shared part on the seeded outline in reuse-map order (docs/UI-GRAMMAR.md).
-// Each section uses the part itself, hosted on a desk's spec or the real board.
-// It only runs on an outline the showcase seed wrote (src/showcase/seed.ts): `scripts/try-it.sh --showcase`
-// starts one. On any other outline it says so and writes nothing.
+// Each reuse-map section hosts the real shared part on a seeded scratch outline (PIE-439).
 import { nothingToClose, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Screen } from "../app";
-import type { Msg } from "../board";
-import { subject } from "../board";
+import { subject, type Msg } from "../board";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } from "../backlinks";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
@@ -32,7 +28,6 @@ import { DRAFT_ACTIONS } from "../edit";
 import { keepUnsent, unsent } from "../draft-session";
 import { Desk, DESK_ACTIONS } from "../desk/desk";
 import { openScreen } from "../desk/screen-specs";
-import { autoName, serializeTree } from "../desk/screen-layout";
 import { type SavedTree, type TileSpec } from "../desk/tiles";
 import type { NewNoteOpens, NewNoteRule } from "../desk/screen-spec";
 import type { NewNoteHow } from "../new-note";
@@ -46,7 +41,7 @@ import { BacklinksPane } from "../desk/backlinks-pane";
 import { FacetsPane } from "../desk/facets";
 import { TunePane } from "../desk/tune";
 import { MessageReader, StatusMessages, SHELL_ACTIONS } from "../screens";
-import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layout";
+import { autoName, columnsOf, leaf, pair, serializeTree, splitOf, type LNode } from "../desk/screen-layout";
 import { FramedScreen } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
