@@ -66,31 +66,31 @@ const visitArg = { visit: { type: "string", optional: true, about: "visit id; de
 const menu = (label: string, key: string) => ({ label, key, group: "Trail" });
 
 export const TRAIL_ACTIONS = actionSet<KindHost>()("trail", {
-  "trail.pick": def({ summary: "Pick a visit without opening it", touches: "tile", replay: "safe",
+  "trail.pick": def({ examples: [{ act: "trail.pick tile=trail n=2", does: "selects the first visit below the day heading" }], summary: "Pick a visit without opening it", touches: "tile", replay: "safe",
     args: { n: { type: "number", optional: true, about: "row from 1" }, by: { type: "number", optional: true, about: "rows to move" } },
     run({ n, by }, { pane, desk }) { const p = paneOf(pane), rows = p.rows(desk); p.at = Math.max(0, Math.min(rows.length - 1, n !== undefined ? n - 1 : p.at + (by ?? 1))); p.scroll.reveal(); desk.redraw(); return { at: p.at + 1 }; } }),
-  "trail.open": def({ summary: "Open a visit where it was, restoring its closed tile in its place", touches: "shape", replay: "ask", args: visitArg, menu: menu("open where it was", "enter"),
+  "trail.open": def({ examples: [{ act: "trail.open tile=trail visit=visit-garden", does: "opens the visit returned by trail.recent in its original place" }], summary: "Open a visit where it was, restoring its closed tile in its place", touches: "shape", replay: "ask", args: visitArg, menu: menu("open where it was", "enter"),
     async run({ visit }, { pane, desk }, actor) { if (!desk.reopenTrail) throw new ActionRefused("this screen cannot reopen tiles"); return desk.reopenTrail(paneOf(pane).visit(desk, visit), actor); } }),
-  "trail.here": def({ summary: "Open a visit beside this Trail tile", touches: "shape", replay: "ask", args: visitArg, menu: menu("open here", "o"),
+  "trail.here": def({ examples: [{ act: "trail.here tile=trail visit=visit-garden", does: "opens that visit beside the Trail" }], summary: "Open a visit beside this Trail tile", touches: "shape", replay: "ask", args: visitArg, menu: menu("open here", "o"),
     async run({ visit }, { pane, desk }, actor) { const v = paneOf(pane).visit(desk, visit); const m = await desk.ctx.board.get(v.open.target.note); if (!m) throw new ActionRefused("that note is no longer available"); desk.openFromTile(m, { from: pane, fresh: true, link: true, by: actor }); return { opened: m.id }; } }),
-  "trail.save": def({ summary: "Save this visit and the branch it started as a note", touches: "nothing", replay: "ask", args: visitArg, menu: menu("save branch as a note", "s"),
+  "trail.save": def({ examples: [{ act: "trail.save tile=trail visit=visit-garden", does: "writes that branch as a linked note" }], summary: "Save this visit and the branch it started as a note", touches: "nothing", replay: "ask", args: visitArg, menu: menu("save branch as a note", "s"),
     async run({ visit }, { pane, desk }, actor) { const p = paneOf(pane), v = p.visit(desk, visit), trail = desk.ctx.trail!;
       const branch = trail.branch(v.open.target.visit);
       const tree = treeRows([v], parent => branch.filter(child => child.open.source?.visit === parent.open.target.visit));
       const text = `Trail · ${v.title}\n\n` + tree.map(({ node: v, lead }) => `${lead}((${v.open.target.note}|${v.title})) · ${trail.dwell(v)} · ${v.open.method} · ${new Date(v.open.at).toLocaleString()}${v.open.actor.kind === "agent" ? ` · ${v.open.actor.id}` : ""}`).join("\n");
       const note = await desk.ctx.board.createBlock(null, text, actor); desk.ctx.flash(`Saved trail as ((${note.id}|${note.text.split("\n")[0]}))`); return { note: note.id }; } }),
-  "trail.forget": def({ summary: "Forget a branch, a day (YYYY-MM-DD), or all visits", touches: "nothing", replay: "ask", menu: menu("forget branch", "delete"),
+  "trail.forget": def({ examples: [{ act: "trail.forget tile=trail day=2026-10-22", does: "forgets the visits from that day" }], summary: "Forget a branch, a day (YYYY-MM-DD), or all visits", touches: "nothing", replay: "ask", menu: menu("forget branch", "delete"),
     args: { ...visitArg, day: { type: "string", optional: true, about: "YYYY-MM-DD" }, all: { type: "boolean", optional: true, about: "clear all visits" } },
     run({ visit, day, all }, { pane, desk }) { const n = desk.ctx.trail!.forget({ visit: all || day ? undefined : paneOf(pane).visit(desk, visit).open.target.visit, day, all }); desk.redraw(); return { forgotten: n }; } }),
-  "trail.fold": def({ summary: "Fold or show flipped visits and skimmed previews", touches: "tile", replay: "safe", menu: menu("fold or show flips", "f"),
+  "trail.fold": def({ examples: [{ act: "trail.fold tile=trail on=false", does: "shows the quick flips and skimmed previews" }], summary: "Fold or show flipped visits and skimmed previews", touches: "tile", replay: "safe", menu: menu("fold or show flips", "f"),
     args: { on: { type: "boolean", optional: true, about: "fold flips" } }, run({ on }, { pane, desk }) { const p = paneOf(pane); p.options.folded = on ?? !p.options.folded; desk.redraw(); return { folded: p.options.folded }; } }),
-  "trail.search": def({ summary: "Search the trail with the shared note matcher", touches: "tile", replay: "safe", menu: menu("search trail", "/"),
+  "trail.search": def({ examples: [{ act: "trail.search tile=trail q=garden", does: "finds visits by their note or tile words" }], summary: "Search the trail with the shared note matcher", touches: "tile", replay: "safe", menu: menu("search trail", "/"),
     args: { q: { type: "string", optional: true, about: "words to find; empty clears" } },
     run({ q }, { pane, desk }, actor) { const p = paneOf(pane); const set = async (q: string) => { p.options.q = q; p.at = 0; desk.redraw(); return { q }; };
       return q !== undefined ? set(q) : askInBar(desk.ctx as never, "Search the trail", [{ name: "q", type: "text", value: p.options.q }], {}, actor, a => set(a.q ?? "")); } }),
-  "trail.view": def({ summary: "Switch between the forest, timeline and per-tile views", touches: "tile", replay: "safe", menu: menu("switch view", "t"),
+  "trail.view": def({ examples: [{ act: "trail.view tile=trail view=timeline", does: "shows visits in time order" }], summary: "Switch between the forest, timeline and per-tile views", touches: "tile", replay: "safe", menu: menu("switch view", "t"),
     args: { view: { type: "string", optional: true, choices: ["forest", "timeline", "tile"], about: "view" } }, run({ view }, { pane, desk }) { const p = paneOf(pane); const views = ["forest", "timeline", "tile"] as const; p.options.view = view as TrailView["view"] ?? views[(views.indexOf(p.options.view) + 1) % 3]!; p.at = 0; desk.redraw(); return { view: p.options.view }; } }),
-  "trail.agents": def({ summary: "Show, dim or hide visits opened by agents", touches: "tile", replay: "safe", menu: menu("show, dim or hide agents", "a"),
+  "trail.agents": def({ examples: [{ act: "trail.agents tile=trail mode=dim", does: "dims visits opened by agents" }], summary: "Show, dim or hide visits opened by agents", touches: "tile", replay: "safe", menu: menu("show, dim or hide agents", "a"),
     args: { mode: { type: "string", optional: true, choices: ["show", "dim", "hide"], about: "visibility" } }, run({ mode }, { pane, desk }) { const p = paneOf(pane); const modes = ["show", "dim", "hide"] as const; p.options.agents = mode as TrailView["agents"] ?? modes[(modes.indexOf(p.options.agents) + 1) % 3]!; desk.redraw(); return { agents: p.options.agents }; } }),
 });
 export const TRAIL_TILE: TileKind = {
