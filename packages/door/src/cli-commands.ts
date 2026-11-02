@@ -61,6 +61,91 @@ export const DOOR_OPTIONS: readonly CliFlag[] = [
   ["--no-create", "Refuse a missing outline"], json, ["--skill [<name>]", "List skills or print one skill's path", "rest"],
 ];
 
+
+const sub = (parent: string, group: string) => (name: string, summary: string, synopsis: string, flags: readonly CliFlag[], examples: readonly [string, string]): CliCommand =>
+  ({ name, group, summary, synopsis: `${parent} ${synopsis}`, flags, examples: [`ep0ch ${parent} ${examples[0]}`, `ep0ch ${parent} ${examples[1]}`] });
+
+const outline = sub("outline", "Outlines");
+export const OUTLINE_COMMANDS: readonly CliCommand[] = [
+  outline("list", "List the outlines here, or on every known machine", "list [--all] [--archived] [--lines] [--json]",
+    [["--all", "Include every machine opened before (one not connected is said)"], ["--archived", "Include archived outlines"], ["--lines", "Print tab-separated name, machine and problem"], json], ["list", "list --all"]),
+  outline("attach", "Open the door on an outline (the same as --ws)", "attach <name> [--machine <ssh-name>] [--create]",
+    [machine, ["--create", "Make it on that machine when it lacks one"]], ["attach garden", "attach garden --machine box-a --create"]),
+  outline("create", "Make a new, empty outline", "create <name> [--machine <ssh-name>]", [machine], ["create garden", "create garden --machine box-a"]),
+  outline("import", "Make a new outline from an older database (the file is only read)", "import <database.sqlite> <name>", [], ["import ./old-garden.sqlite garden", "import ~/backups/garden.sqlite garden-2025"]),
+  outline("stop", "Take an outline offline: release its database", "stop <name>", [], ["stop garden", "stop orchard"]),
+  outline("archive", "Hide an outline, keeping its database", "archive <name>", [], ["archive orchard", "archive garden-2025"]),
+  outline("unarchive", "Bring an archived outline back", "unarchive <name>", [], ["unarchive orchard", "unarchive garden-2025"]),
+  outline("delete", "Move an outline to .deleted/, after asking", "delete <name> [--yes]", [["--yes", "Delete without asking"]], ["delete orchard", "delete orchard --yes"]),
+];
+
+const share = sub("share", "Notes");
+export const SHARE_COMMANDS: readonly CliCommand[] = [
+  share("start", "Make a temporary public link, opening on a note", "start [<ref>] [--only <ref>] [--ttl <duration>] [--no-comments]",
+    [...target, ["--only <ref>", "Share only this note and what's under it"], ["--artifact <name>", "Share one artifact on its own"], ["--ttl <duration>", "End the link by itself after this long (30m, 4h, 7d)"], ["--no-comments", "Turn off reader comments"], ["--via edge|cloudflare", "The public host (default) or a tunnel of its own"], ["--allow-mail <email>", "Require sign-in with this email or @domain; repeat for more"], actor, json],
+    ["start '[[seed-plan]]' --ws garden", "start '[[seed-plan]]' --only '[[seed-plan]]' --ttl 4h --ws garden"]),
+  share("list", "List the open links: link, what, ends in", "list [--all] [--json]", [...target, ["--all", "Include links that ended"], json], ["list --ws garden", "list --all --ws garden"]),
+  share("revoke", "End a link now", "revoke <id> | revoke --all", [...target, ["--all", "End every open link"], json], ["revoke 7f3a --ws garden", "revoke --all --ws garden"]),
+];
+
+const agent = sub("agent", "Agents");
+export const AGENT_COMMANDS: readonly CliCommand[] = [
+  agent("ls", "List the Claude sessions here or on another machine", "ls [--machine <ssh-name>] [--json]", [["--machine <ssh-name>", "List the sessions running there, over SSH"], json], ["ls", "ls --machine box-a"]),
+  agent("start", "Start a persona's terminal, or say it is already live", "start <persona> [--on <machine>] [--cwd <folder>] [--program <cmd>] [--outline <name>]",
+    [["--on <machine>", "Start it there"], ["--cwd <folder>", "Its folder"], ["--program <cmd>", "The program it runs"], ["--outline <name>", "Bind it to this outline"]], ["start gardener", "start gardener --on box-a --outline garden"]),
+  agent("use", "Choose and restart the drawer agent", "use <name> [--everywhere]", [["--everywhere", "For every outline, not only this one"]], ["use codex", "use claude --everywhere"]),
+  agent("restart", "Restart a background session at a safe moment", "restart <name | short id | --all> [--if-update] [--now] [--dry-run] [--machine <ssh-name>]",
+    [["--all", "Every background session, one at a time"], ["--if-update", "Only one behind the installed version"], ["--fresh-daemon", "Start with the current shell environment"], ["--check-env <VAR>", "Check the new process carries this variable"], ["--now", "Don't wait between turns"], ["--dry-run", "Say the plan, change nothing"], ["--machine <ssh-name>", "Run it there over SSH"]],
+    ["restart gardener", "restart --all --if-update --dry-run"]),
+  agent("splits", "List sessions running twice, with the command that stops one", "splits [--session <id>] [--machine <ssh-name>] [--json]", [["--session <id>", "Only this session"], ["--machine <ssh-name>", "Read that machine, over SSH"], json], ["splits", "splits --machine box-a"]),
+  agent("stop", "Stop one process of a session that runs twice", "stop <pid> --session <session id> [--machine <ssh-name>]", [["--session <id>", "The session the pid belongs to"], ["--machine <ssh-name>", "Stop it there, over SSH"]], ["stop 4242 --session 1a2d3c", "stop 4242 --session 1a2d3c --machine box-a"]),
+];
+
+const mcp = sub("mcp", "Agents");
+export const MCP_COMMANDS: readonly CliCommand[] = [
+  mcp("serve", "Serve the outline tools over HTTP for remote clients", "serve --http [--port <n>] [--bind <address>] [--ws <default outline>]", [["--http", "Serve over HTTP"], ["--port <n>", "Listen on this port"], ["--bind <address>", "Listen on this address"], ws], ["serve --http --port 8787", "serve --http --bind 127.0.0.1 --ws garden"]),
+  mcp("access", "Show or set who can read or write through MCP", "access [none|read|propose|full] [--matrix] [--cap <persona>[@<outline>[@<machine>]]=<level>]",
+    [...target, ["--matrix", "Every caller against every outline"], ["--cap <persona>[@<outline>[@<machine>]]=<level>", "Cap a named agent's access"], json], ["access --ws garden", "access propose --ws garden"]),
+  mcp("usage", "Measured MCP calls, or the outline's block census", "usage [--since <duration>] [--by tool|actor|outline] [--census]", [["--since <duration>", "The window (default: 24h)"], ["--by tool|actor|outline", "Group the calls"], ["--census", "Note totals by property instead"], ...target, json], ["usage --since 7d --by actor", "usage --census --ws garden"]),
+  mcp("queue", "The gateway's queued writes for other machines", "queue [status | drop <id>… [--why <words>]]", [["--why <words>", "Record why a dropped write was withdrawn"], json], ["queue", "queue drop 7f3a --why 'done by hand'"]),
+  mcp("pull", "Apply the writes queued for this machine's outlines", "pull [--from <ssh-name>]", [["--from <ssh-name>", "The gateway to pull from"]], ["pull", "pull --from hub"]),
+];
+
+const work = sub("work", "Agents");
+export const WORK_COMMANDS: readonly CliCommand[] = [
+  work("create", "File a ticket", "create --title <words> --project <p> --priority high|medium|low [--stage <s>] [--body-file <f>]", [["--title <words>", "The ask, as written"], ["--project <p>", "Its project"], ["--priority <level>", "high, medium or low"], ["--stage <s>", "Its first stage"], ["--body-file <f>", "Its body from a file (or --stdin)"], ["--attach PIE-n", "Add it to an open item instead"], ...target], ["create --title 'Gate sticks' --project garden --priority high --ws garden", "create --title 'Gate sticks' --attach GARDEN-12 --ws garden"]),
+  work("stage", "Move a ticket to a stage", "stage <item> <stage> [--expected <n>]", [["--expected <n>", "Refuse if the item's revision moved"], ...target], ["stage GARDEN-12 doing --ws garden", "stage GARDEN-12 review --ws garden"]),
+  work("set", "Set a ticket's property", "set <item> <key> <value> [--expected <n>]", [["--expected <n>", "Refuse if the item's revision moved"], ...target], ["set GARDEN-12 priority high --ws garden", "set GARDEN-12/door delivery-stage validate --ws garden"]),
+  work("deliver", "Record a pull request as a ticket's delivery and sync its state", "deliver [<item>] --repo <owner/name> --pr <n> [--key <name>]", [["--repo <owner/name>", "The repository"], ["--pr <n>", "The pull request"], ["--key <name>", "A second delivery's name"], ...target], ["deliver GARDEN-12 --repo acme/garden --pr 7 --ws garden", "deliver --repo acme/garden --pr 7 --ws garden"]),
+  work("complete", "Close a ticket with proof", "complete <item> --proof-file <f> | --stdin [--all-merged]", [["--proof-file <f>", "The proof, from a file"], ["--all-merged", "Every merged delivery counts"], ...target], ["complete GARDEN-12 --proof-file ./proof.md --ws garden", "complete GARDEN-12 --stdin --ws garden"]),
+  work("body", "Replace a ticket's body", "body <item> --file <f> | --stdin", [["--file <f>", "The new body"], ...target], ["body GARDEN-12 --file ./body.md --ws garden", "body GARDEN-12 --stdin --ws garden"]),
+  work("link", "Name a note's ticket", "link <note> <item>", target, ["link '[[gate-request]]' GARDEN-12 --ws garden", "link ((7f3a1c)) GARDEN-12 --ws garden"]),
+  work("groom", "Jev's pass over queued tickets: solved, superseded, duplicate or open", "groom [--repo <dir>] [--since <duration>] [--where <query>] [--park | --later] [--apply]",
+    [...target, ["--repo <dir>", "Read this repository's history"], ["--since <duration>", "The history window"], ["--where <query>", "Only these tickets"], ["--limit <n>", "Read at most n tickets"], ["--into <name>", "Keep the verdicts in this outline"], ["--park", "Move old queued tickets to later"], ["--older-than <duration>", "The parking age (default: 30d)"], ["--later", "Look for parked work wanted again"], ["--apply", "Write the changes"], ["--no-jev", "Code's measures alone"], actor, json],
+    ["groom --ws garden --no-jev", "groom --park --older-than 60d --apply --ws garden"]),
+  work("try", "What a validator would try for merged tickets, as journeys", "try <PIE-n>… [--into <name>] [--no-jev]", [...target, ["--into <name>", "Keep the plan as a note here"], ["--no-jev", "Code's measures alone"], json], ["try GARDEN-12 --ws garden", "try GARDEN-12 GARDEN-14 --into garden --ws garden"]),
+];
+
+const backup = sub("backup", "Install and health");
+export const BACKUP_COMMANDS: readonly CliCommand[] = [
+  backup("status", "The verdict first, then each outline, the mirrors and the history", "status [--json | --verbose]", [["--verbose", "Include raw reasons"], json], ["status", "status --verbose"]),
+  backup("run", "The backup job as its timer runs it: snapshot, mirror, announce", "run [--drill] [--verbose]", [["--drill", "Include a restore drill"], ["--verbose", "Include raw reasons"]], ["run", "run --drill"]),
+  backup("snapshot", "Snapshot the outlines that changed", "snapshot [--force] [--verbose]", [["--force", "Unchanged outlines too"], ["--verbose", "Include raw reasons"]], ["snapshot", "snapshot --force"]),
+  backup("mirror", "Refresh other machines' mirrors here", "mirror", [], ["mirror", "mirror --verbose"]),
+  backup("drill", "Restore the newest snapshot somewhere harmless and check it", "drill [--machine <name>]", [["--machine <name>", "That machine's repository, from here"]], ["drill", "drill --machine box-a"]),
+  backup("list", "An outline's snapshots", "list <outline> [--machine <name>]", [["--machine <name>", "Read that machine's repository"]], ["list garden", "list garden --machine box-a"]),
+  backup("restore", "Write a snapshot to a new file, never over an outline in use", "restore <outline> [--at <time>] --to <path>", [["--machine <name>", "Read that machine's repository"], ["--at <time>", "The newest at or before this time (ISO, 3h, 2d)"], ["--to <path>", "The new file"]], ["restore garden --to ./garden-restored.sqlite", "restore garden --at 2d --to ./garden-2d.sqlite"]),
+];
+
+const ext = sub("ext", "Extensions");
+export const EXT_COMMANDS: readonly CliCommand[] = [
+  ext("ls", "List the outline's extensions, what each serves and its schedules", "ls [--long] [--json]", [ws, ["--long", "Folders, arguments and schedules"], json], ["ls --ws garden", "ls --long --ws garden"]),
+  ext("add", "Install an extension by name or from a folder", "add <name|path> [--outline-folder <path>]", [ws, ["--outline-folder <path>", "Install into this outline's extensions folder"], json], ["add horoscope --ws garden", "add ./my-extension --ws garden"]),
+  ext("remove", "Uninstall an extension", "remove <name>", [ws, json], ["remove horoscope --ws garden", "remove my-extension --ws garden"]),
+  ext("act", "Run one of an extension's actions, as the extension", "act <name> <action> [--block <id>]", [ws, ["--block <id>", "Run it on this note"], json], ["act horoscope today --ws garden", "act horoscope today --block '[[seed-plan]]' --ws garden"]),
+  ext("run", "Run one of an extension's schedules now", "run <name> <action:id|handler:key>", [ws, json], ["run weather handler:refresh --ws garden", "run weather action:fetch --ws garden"]),
+];
+
 export const CLI_COMMANDS: readonly CliCommand[] = [
   { name: "", group: "Open", summary: "Open an outline here or on another machine", overview: "[--ws <name>]",
     synopsis: "[--ws <name>] [--machine <ssh-name> | --here] [--screen <name>]",
@@ -77,7 +162,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     examples: ["ep0ch init garden", "ep0ch init garden --machine box-a"] },
   { name: "outline", group: "Outlines", summary: "List, create, import or put away outlines",
     synopsis: "outline list | attach|create|stop|archive|unarchive|delete <name> | import <database.sqlite> <name>",
-    flags: [machine, ["--all", "List outlines on every known machine"], ["--archived", "Include archived outlines"], ["--lines", "Print tab-separated name, machine and problem"], ["--create", "Allow attach to create on another machine"], ["--yes", "Delete without asking"], json],
+    flags: [machine, json], children: OUTLINE_COMMANDS,
     examples: ["ep0ch outline list --all", "ep0ch outline create garden"] },
   { name: "show", group: "Notes", summary: "Read notes as the door draws them",
     synopsis: "show <id>… [--source | --markdown | --ansi | --cells | --site]",
@@ -97,7 +182,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     synopsis: "export [<id>… | --all] [--out <dir>|-]", flags: [...target, ["--all", "Read every live note"], ["--query <expression>", "Select by a view query"], ["--view <id>", "Export a saved view"], ["--under <id>", "Export a branch"], ["--children", "Include each note's descendants"], ["--format md|json", "Choose Markdown (default) or block records"], ["--out <dir>|-", "Write files here, or print to stdout"], ["--split", "Give descendants their own files"], ["--resolve-links", "Link exported notes with relative file paths"], ["--manifest", "Write manifest.json"], ["--source", "Keep figures as Blockdown source"]],
     examples: ["ep0ch export --all --out ./notes --ws garden", "ep0ch export '[[seed-plan]]' --children --ws garden"] },
   { name: "share", group: "Notes", summary: "Make or end a temporary public link",
-    synopsis: "share start [<ref>] | list | revoke <id>", flags: [...target, ["--only <ref>", "Share only this note"], ["--artifact <name>", "Share an artifact"], ["--ttl <duration>", "Set link lifetime (default: 1h)"], ["--no-comments", "Turn off reader comments"], ["--via edge|cloudflare", "Choose the public transport"], ["--allow-mail <email>", "Require sign-in with this email; repeat for more"], ["--all", "List ended links too, or revoke all"], actor, json],
+    synopsis: "share start [<ref>] | list | revoke <id>", flags: [...target, actor, json], children: SHARE_COMMANDS,
     examples: ["ep0ch share start '[[seed-plan]]' --ws garden", "ep0ch share list --ws garden"] },
   { name: "wait", group: "Notes", summary: "Wait until new notes match a query", moreOnly: true,
     synopsis: "wait <query> [--timeout <seconds>]", flags: [...target, ["--timeout <seconds>", "Exit 2 when no new match arrives in time"], ["--ids", "Print references only"], ["--lines", "Print tab-separated rows"], json],
@@ -118,11 +203,13 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     synopsis: "resource rebind <folder>", flags: [ws, json],
     examples: ["ep0ch resource rebind ./notes --ws garden", "ep0ch resource rebind ./images --ws garden --json"] },
   { name: "agent", group: "Agents", summary: "Start, find or manage an agent session",
-    synopsis: "agent [--program <name>] | ls | start <persona> | use <name> | restart <name> | splits | stop <pid>",
-    flags: [["--machine <ssh-name>", "Run ls, restart, splits or stop there over SSH"], ["--program <name>", "Choose an agent configuration or program"], ["--in <folder>", "Start or attach in this folder"], ["--persona <name>", "Name the agent's persona"], ["--new", "Start another session in the same folder"], ["--everywhere", "Use this drawer agent for every outline"], ["--on <machine>", "Start the named persona there"], ["--cwd <folder>", "Set the named persona's folder"], ["--outline <name>", "Bind the named persona to this outline"], ["--session <id>", "Select the session for splits or stop"], ["--all", "Restart every background session"], ["--if-update", "Restart only when behind the installed version"], ["--fresh-daemon", "Start with the current shell environment"], ["--check-env <VAR>", "Check the restarted process has this variable"], ["--now", "Restart without waiting between turns"], ["--dry-run", "Print the restart plan"], json],
+    synopsis: "agent [--program <name>] [--in <folder>] [--new] | ls | start <persona> | use <name> | restart <name> | splits | stop <pid>",
+    flags: [["--program <name>", "An agent configuration or program (claude, codex, pi)"], ["--in <folder>", "Start or attach in this folder"], ["--persona <name>", "Name the agent's persona"], ["--new", "Start another session in the same folder"], json], children: AGENT_COMMANDS,
+    note: "With no subcommand, agent starts (or attaches) an agent session in this folder, as a tab in the door's drawer.",
     examples: ["ep0ch agent --program codex --in ./garden", "ep0ch agent ls --machine box-a"] },
   { name: "mcp", group: "Agents", summary: "Serve outline tools and manage their access",
-    synopsis: "mcp [serve | access | usage | queue | pull]", flags: [...target, ["--http", "Serve over HTTP"], ["--port <n>", "Listen on this HTTP port"], ["--bind <address>", "Listen on this address"], ["--matrix", "Show access across machines and outlines"], ["--cap <persona>[@<outline>[@<machine>]]=<level>", "Set a named agent's access ceiling"], ["--since <duration>", "Choose the usage window"], ["--by tool|actor|outline", "Group usage"], ["--census", "List note totals by property"], ["--why <words>", "Record why a queued write was dropped"], ["--from <ssh-name>", "Pull queued writes from this gateway"], json],
+    synopsis: "mcp [serve | access | usage | queue | pull]", flags: [...target, json], children: MCP_COMMANDS,
+    note: "With no subcommand, mcp is the local stdio MCP server for this outline, gated by its access grant.",
     examples: ["ep0ch mcp --ws garden", "ep0ch mcp access --ws garden --json"] },
   { name: "peek", group: "Agents", summary: "Read what the running door shows",
     synopsis: "peek [<section>] [--json]", flags: [json, ["--xray", "Include the screen's structure"], ["--full", "Include each tile's whole description"], actor],
@@ -149,7 +236,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     synopsis: "review backfill [--since <duration>]", flags: [...target, ["--since <duration>", "Read notes from this window (default: 7d)"], ["--limit <n>", "Read at most n notes"], ["--into <name>", "Save findings in this outline"], ["--into-machine <ssh-name>", "Use this machine for the findings"], ["--no-jev", "Use code's measures alone"], json],
     examples: ["ep0ch review backfill --ws garden --no-jev", "ep0ch review backfill --since 12h --ws garden --json"] },
   { name: "work", group: "Agents", summary: "Manage tickets and their delivery",
-    synopsis: "work create|stage|set|deliver|complete|body|link|groom|try …", flags: [...target, ["--repo <dir>", "Read this repository's history"], ["--since <duration>", "Choose the history window"], ["--where <query>", "Select tickets with this query"], ["--limit <n>", "Read at most n tickets"], ["--into <name>", "Keep verdicts or a validation plan here"], ["--park", "Groom old queued tickets into later"], ["--older-than <duration>", "Set the parking age (default: 30d)"], ["--later", "Look for parked work wanted again"], ["--apply", "Write the grooming changes"], ["--no-jev", "Use code's measures alone"], actor, json],
+    synopsis: "work create|stage|set|deliver|complete|body|link|groom|try …", flags: [...target, actor, json], children: WORK_COMMANDS,
     examples: ["ep0ch work groom --ws garden --no-jev", "ep0ch work try GARDEN-12 --ws garden"] },
   { name: "search", group: "Agents", summary: "Collect and evaluate search examples", moreOnly: true,
     synopsis: "search harvest | eval", flags: [machine, ["--into <name>", "Keep cases or evaluations in this outline"], ["--logs <dir>", "Read agent logs here"], ["--dry-run", "Show harvest without saving"], ["--models <names>", "Compare these ranking models"], ["--variants <names>", "Compare state, deep or state+deep"], ["--snapshots <dir>", "Read copied databases here"], ["--cases <file>", "Read evaluation cases from this file"], ["--only <source>", "Evaluate this case source"], json],
@@ -180,7 +267,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     examples: ["ep0ch log --ws garden", "ep0ch log --ws garden --follow"] },
   { name: "ext", group: "Extensions", summary: "List, add, remove or run an extension",
     synopsis: "ext ls | add <name|path> | remove <name> | act <name> <action> | run <name> <action:id|handler:key>",
-    flags: [ws, ["--block <id>", "Run the extension action on this note"], ["--outline-folder <path>", "Install into this outline's extensions folder"], ["--long", "List folders, arguments and schedules"], json], guide: "ep0ch docs extensions",
+    flags: [ws, json], children: EXT_COMMANDS, guide: "ep0ch docs extensions",
     examples: ["ep0ch ext ls --ws garden", "ep0ch ext add horoscope --ws garden"] },
   { name: "library", group: "Extensions", summary: "Browse components and their examples",
     synopsis: "library [<component>…]", flags: [...target, ["--brief", "Read properties and a minimal example"], ["--guide", "Read what notes can hold"], ["--out <dir>", "Write illustrated Markdown reference pages"], ["--width 40|80|160", "Set the illustrated examples' width"], json],
@@ -210,7 +297,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   { name: "status", group: "Install and health", summary: "Show the outline host and its outlines",
     synopsis: "status [--json]", flags: [json], examples: ["ep0ch status", "ep0ch status --json"] },
   { name: "backup", group: "Install and health", summary: "Check, make or restore backups",
-    synopsis: "backup status|run|snapshot|mirror|drill | list|restore <outline>", flags: [["--machine <name>", "Read this machine's backup repository"], ["--drill", "Include a restore drill in the run"], ["--force", "Snapshot unchanged outlines too"], ["--verbose", "Include raw reasons"], ["--at <time>", "Restore at or before this time"], ["--to <path>", "Restore into this new file"], json],
+    synopsis: "backup status|run|snapshot|mirror|drill | list|restore <outline>", flags: [json], children: BACKUP_COMMANDS,
     examples: ["ep0ch backup status", "ep0ch backup restore garden --to ./garden-restored.sqlite"] },
   { name: "help", group: "Install and health", summary: "Read a command's synopsis, flags and examples", moreOnly: true,
     synopsis: "help [<command> [<subcommand>]] [--more]", flags: [],

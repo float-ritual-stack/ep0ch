@@ -34,8 +34,10 @@ export function renderHelp(path = "", more = false): string {
   const command = subcommand ? parent.children!.find(c => c.name === subcommand)! : parent;
   const lines = [`${path} — ${command.summary}`, "", ...rowLines(`Usage: ep0ch ${command.synopsis}`, columns(), Infinity, { hang: 7 })];
   if (command.children) {
+    // Each row: the subcommand, what it does, and its own flags (the ones the parent's table already lists are left out).
+    const shared = new Set(command.flags.map(([flag]) => flag));
     lines.push("", "Commands (help <command> <subcommand> explains each flag):",
-      ...table(command.children.map(c => [c.name, `${c.summary}\n${c.flags.map(([flag]) => flag).join("  ")}`])));
+      ...table(command.children.map(c => [c.name, [c.summary, c.flags.map(([flag]) => flag).filter(f => !shared.has(f)).join("  ")].filter(Boolean).join("\n")])));
   }
   if (command.note) lines.push("", ...rowLines(command.note, columns(), Infinity));
   lines.push("", "Flags:", ...flagTable(command.flags), "", "Examples:", ...command.examples.map(e => `  ${e}`));

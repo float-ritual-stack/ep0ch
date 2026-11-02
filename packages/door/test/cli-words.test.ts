@@ -119,20 +119,24 @@ describe("--help, -h and help, anywhere", () => {
       expect(r.out).not.toContain("ep0ch outline list");
     }
     expect(ep0ch("session", "end", "-h").out).toBe(ep0ch("help", "session", "end").out);
-    expect(ep0ch("outline", "attach", "fern", "--help").out).toContain("ep0ch outline list");
+    expect(ep0ch("outline", "attach", "fern", "--help").out).toContain("outline attach <name>");
+    expect(ep0ch("outline", "--help").out).toContain("delete     Move an outline to .deleted/, after asking");
     expect(ep0ch("act", "--help").out).toContain("act <action>");
   }, 60_000);
 });
 
 describe("the rule, without a process", () => {
   test("every command describes itself: a summary, two runnable examples and a rules section for --more", () => {
-    const paths = [...CLI_COMMANDS.map(c => c.name || "launch"), ...SESSION_COMMANDS.map(c => `session ${c.name}`)];
-    for (const path of paths) {
-      const command = path.startsWith("session ") ? SESSION_COMMANDS.find(c => c.name === path.slice(8))! : CLI_COMMANDS.find(c => (c.name || "launch") === path)!;
+    const paths = CLI_COMMANDS.flatMap(c => [[c.name || "launch", c] as const, ...(c.children ?? []).map(child => [`${c.name} ${child.name}`, child] as const)]);
+    expect(paths.length).toBeGreaterThan(CLI_COMMANDS.length + SESSION_COMMANDS.length);
+    for (const [path, command] of paths) {
       expect(command.summary.trim(), path).not.toBe("");
       expect(command.examples.length, path).toBe(2);
       for (const example of command.examples) expect(example, path).toMatch(/^ep0ch /);
       // --more reads the command's section of docs/cli.md; a missing or misnamed heading has to fail here, never in use.
+      const help = renderHelp(path);
+      expect(help.trimEnd().split("\n").length, path).toBeLessThanOrEqual(50);
+      for (const line of help.split("\n")) expect(line, path).not.toMatch(/\s$/);
       const more = renderHelp(path, true);
       expect(more, path).toContain(command.summary);
       expect(more.length, path).toBeGreaterThan(renderHelp(path).length);
