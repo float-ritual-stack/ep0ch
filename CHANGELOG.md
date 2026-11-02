@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The Trail remembers the notes and tiles you left (PIE-1234)
+
+- **Find a visit:** Alt+T opens the day's forest across tiles: what opened what, · flipped / ◐ read / ● held, closed tiles and attributed agent visits. Enter restores a visit where it was; o opens it here, s saves its branch, f folds flips, / searches, t changes view and a dims or hides agents. A click selects, a double-click reopens, and alt-click opens here; a selected visit stays selected as new visits arrive. Saved branches follow note routing, defaulting to the Inbox. Visits stay in per-outline session state for a configurable week; `trail.forget` clears a branch, day or all.
+- **Previews count:** Quick previews fold together until you linger, scroll, select or follow a link from them. Back/forward and layout undo retain their own histories. The kitchen sink's **trail** and **events** sections demonstrate the forest and its causes.
+- **Hear opens:** Each landing emits one `door.open` envelope locally; select previews reach the service once they qualify through linger or activity. The open-ended `door.event` ingress carries kinds such as `door.open` and `door.hover` with their own fields. Extensions subscribe by kind over their existing connection; rules and scripts receive `input.trigger.event` (`on.open` also supplies `input.trigger.open`). Agents read `door.opens since=0` and `trail.recent` without moving your view.
+- **Run:** `ep0ch install --apply` on float-2, float-box, the laptop and the mini, handing the host and every door over together. PROTOCOL 303, GRAMMAR 26, SCHEMA 8.
 ### Extension tiles draw rows; what-changed is an extension (PIE-1506, PIE-1507, PIE-1514)
 
 - An extension's tile can be rows drawn by the service (`render`) or a view (`view`), not only a terminal program. What changed (alt+o) is now the built-in extension `what-changed`, on by default with no install step; `d` still opens a change beside the note.

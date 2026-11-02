@@ -1,3 +1,4 @@
+import { treeRows } from "./figures/tree";
 import { clipText } from "./overflow";
 // mdxcn-style figures (https://mdxcn.dev): a dotted frame with + corners and a [ TITLE ],
 // charts made of characters, one accent. Two inputs render the same way:
@@ -264,16 +265,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     return [...marker, ...rows, fg(DIM) + axis + RESET];
   },
 
-  tree: (p, w) => {
-    const out: string[] = [];
-    const walk = (nodes: Props[], lead: string) => nodes.forEach((n, i) => {
-      const last = i === nodes.length - 1;
-      out.push(...rowLines(lead + (last ? "└─ " : "├─ ") + n.label + (n.meta ? "  " + n.meta : ""), w, undefined, { hang: vwidth(lead) + 3 }).map(line => fg(n.accent ? ACCENT : HI) + line + RESET));
-      if (n.children) walk(n.children, lead + (last ? "   " : "│  "));
-    });
-    walk(p.nodes ?? [], "");
-    return out;
-  },
+  tree: (p, w) => treeRows<Props>(p.nodes ?? [], n => n.children ?? []).flatMap(({ node: n, lead }) =>
+    rowLines(lead + n.label + (n.meta ? "  " + n.meta : ""), w, undefined, { hang: vwidth(lead) }).map(line => fg(n.accent ? ACCENT : HI) + line + RESET)),
 
   table: (p, w, link, ui) => {
     const expansion = ui?.expansion; if (expansion) w -= 2;

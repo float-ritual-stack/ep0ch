@@ -491,7 +491,7 @@ export const SHED_PAD = [
 export const TRAIL_STOPS = ["the gate", "the pond", "the orchard", "the shed", "the compost heap"] as const;
 export function trailStopText(i: number, next: string | null): string {
   const title = `Garden walk: ${TRAIL_STOPS[i]}`;
-  if (!next) return `${title}\nThe end of the walk.\n\n- **alt+T** (or the ≡ trail beside ← back, or the tile menu): every stop you've passed, by title.\n- Pick one and the reader goes straight there; ← back and forward → walk the same trail.`;
+  if (!next) return `${title}\nThe end of the walk.\n\n- **alt+T** (or the ≡ trail beside ← back, or the tile menu): the day's forest across tiles, with dwell and who opened each note.\n- Enter reopens a visit where it was, even after closing its tile; o opens it here, s saves its branch, f folds quick flips, t changes view. Back and forward keep each reader's own history.`;
   return `${title}\nStop ${i + 1} of ${TRAIL_STOPS.length}. Walk on: ((${next}|${TRAIL_STOPS[i + 1]})).`;
 }
 
