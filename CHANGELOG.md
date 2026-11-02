@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Keys and controls mean the same everywhere (PIE-1293, PIE-1173)
+
+- Enter on the trash box keeps the note. To trash it, press `d` again, Delete, or click the red row.
+- PgUp/PgDn page every list and collection by a screen. In completion they page the list, and shift+↑↓ scrolls the preview.
+- esc twice (discard) and ctrl+s twice (send anyway) only count within 5 s.
+- Hint rows read the screen's key tables, so a clicked hint runs the same action as its key.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
+- **Fix:** a built-in extension that fails to load no longer stops the default-on ones after it (PIE-1519).
+
 ### Agents reach the laptop's door; the glass is an extension (PIE-1242, PIE-1505)
 
 - A door on a machine with an outbound link (the laptop) is reachable from the machines that reach its server: `ep0ch session list --machine laptop` and `ep0ch peek|act --remote laptop --ws <outline>`, attributed, never taking the person's keys.
