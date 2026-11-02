@@ -1717,8 +1717,12 @@ it's the same process and the same conversation.
   the session, and resumes it, so it picks up a Claude Code update (`--all --if-update`) or a changed `~/.bashrc`
   (`--fresh-daemon --check-env VAR`). It prints the log's place and returns, so it is safe to fire from a laptop at the
   machine the sessions run on. A name that matches nothing or several is said at once with `ep0ch agent ls` as the way
-  out. An interactive session is refused (its terminal owns it: `/exit`, then `claude --continue` there) and `--all`
-  says how many it left out and which are behind. Only `--machine` names the machine, never `EP0CH_MACHINE` or a
+  out. An interactive session in a door terminal tile (`kitty-sr` in a gurgle tile) is restarted there, after the same
+  wait: the script finds its door (the terminal host's session folder, `door.sock`) and the tile that draws it
+  (`host.tileOf pid=`), then runs `tile.restart` (PIE-1280: `/exit` between turns, then the same command inside an
+  interactive login shell, so a changed `~/.bashrc` counts; `--now` passes `now=true`, which says what it dropped).
+  One in any other terminal (a Herdr pane, an ssh shell) is refused (`/exit`, then `claude --continue` there) and
+  `--all` says how many it left out and which are behind. Only `--machine` names the machine, never `EP0CH_MACHINE` or a
   `.ep0ch`, so a restart can't follow an outline to another machine by accident. The script is the one implementation;
   `ep0ch agent` is argument handling and the ssh hop (`src/agent-fleet.ts`).
 - **A session running twice (PIE-1369).** A `claude --continue` started while its session runs elsewhere (Remote

@@ -93,8 +93,12 @@ export function inLoginShell(cmd: readonly string[], shell: string, name = progr
   const line = cmd.map(shellQuote).join(" ");
   const say = `printf '\\033]2;%s\\007\\n%s\\n' ${shellQuote(`${name} exited · shell`)} "${name} exited ($c) · this is your shell, in $PWD"`;
   // The login shell reads the person's profile, then a POSIX sh runs the agent and says how it ended: fish, nu and
-  // elvish take `exec /bin/sh -c '…'` as their own line, never the sh syntax after it.
-  return [shell, "-l", "-c", `exec /bin/sh -c ${shellQuote(`${line}; c=$?; ${say}; exec ${shellQuote(shell)} -l`)}`];
+  // elvish take `exec /bin/sh -c '…'` as their own line, never the sh syntax after it. bash and zsh run interactive (-i)
+  // too: ~/.bashrc returns early for a non-interactive shell (its `case $-` guard), so its exports below the guard reach
+  // the agent only that way, and a restarted one (tile.restart, PIE-1280) gets a changed ~/.bashrc. EP0CH_IN_DOOR keeps
+  // a landing guard in it from opening a door.
+  const interactive = /^(bash|zsh)$/.test(basename(shell)) ? ["-i"] : [];
+  return [shell, "-l", ...interactive, "-c",`exec /bin/sh -c ${shellQuote(`${line}; c=$?; ${say}; exec ${shellQuote(shell)} -l`)}`];
 }
 
 /** The agents installed here, a shell first. */

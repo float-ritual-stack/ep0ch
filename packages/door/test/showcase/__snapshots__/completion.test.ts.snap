@@ -1,60 +1,42 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
 exports[`showcase: completion (PIE-1339) the popup reads and inserts the same at 120 and 80 columns, through keys, mouse and act (PIE-1478): reference popup at 120 1`] = `
-"│    detach                      │ ┌─  ───────────────────────────────────────────────────────────────────────────────┐ 
-│  9 zoom into part of a note: a…│ │ references 1/27  ((Gree▌                                                         │ 
-│    zoom                        │ │  » Greenhouse meeting, October            block █│  Greenhouse meeting, October …│ 
-│ 10 find the note in a tile you…│ │     Kitchen sink                                █│ ◆ line 1 · the line that link…│ 
-│    trail                       │ │      ^a10  We agreed to water the seedl… anchor █│                               │ 
-│ 11 see each note opening with …│ │     Greenhouse meeting, October                 █│   Present: Ana, Bo and Cy, in │ 
-│    events                      │ │      ^decision  # Decision               anchor █│   the greenhouse at ten.      │ 
-│ 12 go back in any tile to what…│ │     Greenhouse meeting, October                 █│                               │ 
-│    back-anywhere               │ │    Greenhouse plan for the spring         block █│   We agreed to water the      │ 
-│ 13 link to a passage of a note…│ │     Kitchen sink                                 │   seedlings every morning,    │ 
-│    deep-links                  │ │      ^water  Water the tomatoes at dawn… anchor  │   before the glass warms.     │ 
-│ 14 see what a completion row i…│ │     Greenhouse plan for the spring               │                               │ 
-│    completion                  │ │      # Glossary · adds ^glossary        heading  │ ▾ ▾ ## Decision               │ 
-│ 15 complete an action and its …│ │     Greenhouse plan for the spring               │   Buy a second water butt for │ 
-│    one-completer               │ │      - **soil pH**: how acid or swee… list-item  │   the north side.             │ 
-│ 16 ask an agent from one line:…│ │     Greenhouse plan for the spring               │                               │ 
-│    ask-agent                   │ │      - cold frame — a low glass box … list-item  │ ▾ ▾ ## Actions                │ 
-│ 17 complete from an extension'…│ │     Greenhouse plan for the spring               │   ∙ Ana mends the vent hinge  │ 
-│    sources                     │ │      - harden off: get a seedling us… list-item  │   ∙ Bo orders the shade       │ 
-│ 18 read any note an agent wrot…│ │     Greenhouse plan for the spring               │     netting                   │ 
-│    write-review                │ │    Greenhouse watering rota               block  │                               │ 
-│ 19 open a note as it was at a …│ │     Kitchen sink                                 │ ▾ ╭─ ▾ ❝ What Cy said ──────⧉╮│ 
-│    at-revision                 │ │                                                  │   │ The seedlings don't mind ││ 
-│ 20 write a comment, question o…│ │                                                  │   │ the cold.                ││ 
-│    composer                    │ │                                                  │   │ They mind the draught    ││ 
-│ 21 write a comment and still s…│ │ showing the first 20 matches · ↑↓ ⏎/tab esc                                      │ 
-│    comment-tile                │ └──────────────────────────────────────────────────────────────────────────────────┘ "
+"┌─  ────────────────────────────────────────────────────────────────────────────────┐
+│ » Greenhouse meeting, October  Kitchen … block █│  Greenhouse meeting, October · …│
+│     ^a10  We agreed to water the seedl… anchor █│ ◆ line 1 · the line that links …│
+│     ^decision  # Decision  Greenhouse … anchor █│                                 │
+│   Greenhouse plan for the spring  Kitch… block █│   Present: Ana, Bo and Cy, in   │
+│     ^water  Water the tomatoes at dawn… anchor  │   the greenhouse at ten.        │
+│     # Glossary · adds ^glossary  Gree… heading  │                                 │
+│     - **soil pH**: how acid or swee… list-item  │   We agreed to water the        │
+│     - cold frame — a low glass box … list-item  │   seedlings every morning,      │
+│     - harden off: get a seedling us… list-item  │   before the glass warms.       │
+│   Greenhouse watering rota  Kitchen sink block  │                                 │
+│───────────────────────────────────────────────────────────────────────────────────│
+│ references 1/27 · showing the first 20 matches                                    │
+└───────────────────────────────────────────────────────────────────────────────────┘"
 `;
 
 exports[`showcase: completion (PIE-1339) the popup reads and inserts the same at 120 and 80 columns, through keys, mouse and act (PIE-1478): reference popup at 80 1`] = `
-"│  9 zoom      │ ┌─  ─────────────────────────────────────────────────────────┐ 
-│              │ │ references 1/27  ((Gree▌                                   │ 
-│ 10 trail     │ │             » Greenhouse meeting, October            block █ 
-│              │ │                Kitchen sink                                █ 
-│ 11 events    │ │                 ^a10  We agreed to water the seedl… anchor │ 
-│              │ │                Greenhouse meeting, October                 │ 
-│ 12 back-anyw…│ │                 ^decision  # Decision               anchor │ 
-│              │ │                Greenhouse meeting, October                 │ 
-│ 13 deep-links│ │               Greenhouse plan for the spring         block │ 
-│              │ │                Kitchen sink                                │ 
-│ 14 completion│ │                 ^water  Water the tomatoes at dawn… anchor │ 
-│              │ │                Greenhouse plan for the spring              │ 
-│ 15 one-compl…│ │────────────────────────────────────────────────────────────│ 
-│              │ │ Greenhouse meeting, October · Kitchen sink · user          │ 
-│ 16 ask-agent │ │◆ line 1 · the line that links here · esc lets go           │ 
-│              │ │                                                            │ 
-│ 17 sources   │ │  Present: Ana, Bo and Cy, in the greenhouse at ten.        │ 
-│              │ │                                                            │ 
-│ 18 write-rev…│ │  We agreed to water the seedlings every morning, before the│ 
-│              │ │  glass warms.                                              │ 
-│ 19 at-revisi…│ │                                                            │ 
-│              │ │▾ ▾ ## Decision                                             │ 
-│ 20 composer  │ │  Buy a second water butt for the north side.               │ 
-│              │ │                                                            │ 
-│ 21 comment-t…│ │ showing the first 20 matches · ↑↓ ⏎/tab esc                │ 
-│              │ └────────────────────────────────────────────────────────────┘ "
+"┌─  ─────────────────────────────────────────────┐
+│ » Greenhouse meeting, October  Kitchen … block █
+│     ^a10  We agreed to water the seedl… anchor █
+│     ^decision  # Decision  Greenhouse … anchor █
+│   Greenhouse plan for the spring  Kitch… block █
+│     ^water  Water the tomatoes at dawn… anchor │
+│     # Glossary · adds ^glossary  Gree… heading │
+│     - **soil pH**: how acid or swee… list-item │
+│     - cold frame — a low glass box … list-item │
+│     - harden off: get a seedling us… list-item │
+│   Greenhouse watering rota  Kitchen sink block │
+│────────────────────────────────────────────────│
+│ Greenhouse meeting, October · Kitchen sink · u…│
+│◆ line 1 · the line that links here · esc lets …│
+│                                                │
+│  Present: Ana, Bo and Cy, in the greenhouse at │
+│  ten.                                          │
+│                                                │
+│────────────────────────────────────────────────│
+│ references 1/27 · showing the first 20 matches │
+└────────────────────────────────────────────────┘"
 `;

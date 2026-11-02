@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { componentBlocks } from "../src/component-block";
 import { componentReading } from "../src/component-warnings";
-import { BUILTIN_COMPONENT_SCHEMAS } from "../src/component-schema";
+import { BUILTIN_COMPONENT_SCHEMAS, VIEW } from "../src/component-schema";
 import { figureProps, figureSource, unknownFigureKeys } from "../src/figure-props";
 import { viewSpec } from "../src/view-spec";
 
@@ -30,5 +30,28 @@ describe("a live graph-table's layout (PIE-1513)", () => {
     expect(r.warnings[0]).toStartWith("the ::graph-table on line 2 doesn't take colour: it takes title");
     const read = figureProps("rank", figureSource(["---", "items: [{ label: a, value: 1 }]", "colour: red", "---"]));
     expect("warning" in read && read.warning).toStartWith("this ::graph-rank doesn't take colour: it takes title");
+  });
+  test("graph-table's layout is the view's one definition: several layouts are tabs over one source (PIE-1513 finding)", () => {
+    const table = BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === "graph-table")!.props.find(p => p.key === "layout")!;
+    const view = VIEW.props.find(p => p.key === "layout")!;
+    expect({ ...table, where: "note" }).toEqual(view);
+    expect(table.where).toBe("yaml");
+    expect(table.question).toEqual({ type: "toggle" });
+    expect(spec("::graph-table", "---", "query: type=bed", 'layout: "table, feed"', "---", "::")!.props.layout).toBe("table, feed");
+    expect(componentReading('Garden\n::graph-table\n---\nquery: type=bed\nlayout: "table, feed"\n---\n::', BUILTIN_COMPONENT_SCHEMAS).warnings).toEqual([]);
+    expect(componentReading("Garden\n::graph-table\n---\nquery: type=bed\nlayout: [table, feed]\n---\n::", BUILTIN_COMPONENT_SCHEMAS).warnings).toEqual([]);
+    expect(componentReading("Garden\n::graph-table\n---\nquery: type=bed\nlayout: table, cards\n---\n::", BUILTIN_COMPONENT_SCHEMAS).warnings[0]).toContain('layout "cards" is one of table, gallery, feed, board');
+  });
+  test("a key is unknown only when the figure reads it nowhere: its rows' YAML form, a live sort, a calendar's today (main red, #1197)", () => {
+    // The YAML form of a figure's rows is a key it takes (figureProps: the YAML wins over the Markdown).
+    expect(unknownFigureKeys("check", { title: "t", items: [{ label: "a", done: true }] })).toEqual([]);
+    expect(unknownFigureKeys("timeline", { events: [] })).toEqual([]);
+    expect(unknownFigureKeys("decision", { options: [], text: ["we chose"] })).toEqual([]);
+    // Every live figure's question reads sort and direction (figure-live's liveAsk), so each says it takes them.
+    expect(unknownFigureKeys("check", { query: "type=crate", sort: "title", direction: "asc" })).toEqual([]);
+    expect(unknownFigureKeys("tabs", { query: "type=crate", sort: "title", direction: "asc" })).toEqual([]);
+    // A calendar's day bracketed as today (figure-props' monthOf).
+    expect(unknownFigureKeys("calendar", { today: "2026-03-11" })).toEqual([]);
+    expect(unknownFigureKeys("calendar", { todya: "2026-03-11" })).toEqual(["doesn't take todya: did you mean today?"]);
   });
 });
