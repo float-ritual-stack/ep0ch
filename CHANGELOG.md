@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Keys and controls mean the same everywhere (PIE-1293, PIE-1173)
+
+- Enter on the trash box keeps the note. To trash it, press `d` again, Delete, or click the red row.
+- PgUp/PgDn page every list and collection by a screen. In completion they page the list, and shift+↑↓ scrolls the preview.
+- esc twice (discard) and ctrl+s twice (send anyway) only count within 5 s.
+- Hint rows read the screen's key tables, so a clicked hint runs the same action as its key.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
+- **Fix:** a built-in extension that fails to load no longer stops the default-on ones after it (PIE-1519).
 ### Facets narrow visits and extension rows as well as notes (PIE-1236)
 
 - **Find a visit:** open facets over the Trail from its menu or the power bar; pick dwell, day and source tile, then Enter reopens the visit where it was.
