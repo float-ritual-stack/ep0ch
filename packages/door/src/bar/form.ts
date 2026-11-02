@@ -92,7 +92,7 @@ export async function openActionForm(host: BarHost, req: ActRequest, actor: Acto
   return askInBar(host as never, info.name, fields.map(fieldQuestion), given, actor, run, {
     action: info.name, ...(fields.some(f => f.selector) ? { selector: SELECTOR } : {}),
     ...(info.examples?.length ? { examples: info.examples } : {}),
-    page: actionPage(info),
+    page: actionPage(info, { prompt: null }),
     check: answers => { try { callOf(info, answers); return null; } catch (e) { return e instanceof Error ? e.message : String(e); } },
   });
 }

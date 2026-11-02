@@ -472,7 +472,9 @@ describe.skipIf(!outliner)("the power bar", () => {
     await until(() => frame().join("\n").includes("[^W] [m]"), "layout.move's keys as keycaps", 3000);
     const drawn = frame().join("\n");
     // Its examples next, before its arguments: what a short preview shows first.
-    expect(drawn).toContain("ep0ch act layout.move tile=activity to=reader where=tabs");
+    // As the bar's line takes it (PIE-1502): no `ep0ch act` in front.
+    expect(drawn).toContain("layout.move tile=activity to=reader where=tabs");
+    expect(drawn).not.toContain("ep0ch act layout.move");
     expect(drawn).toContain("→ puts the activity tile");
   });
 
@@ -488,7 +490,8 @@ describe.skipIf(!outliner)("the power bar", () => {
     const examples = drawn.findIndex(l => l.includes("EXAMPLES"));
     expect(lead).toBeGreaterThanOrEqual(0);
     expect(examples).toBe(lead + 2);
-    expect(drawn.join("\n")).toContain("ep0ch act glass.mode set=sticky");
+    expect(drawn.join("\n")).toContain("glass.mode set=sticky");
+    expect(drawn.join("\n")).not.toContain("ep0ch act glass.mode");
     expect(drawn.join("\n")).not.toContain("hover a link to peek");
     // Tab puts the first example in the bar; tab again the next; the line's row then runs it as typed.
     key({ kind: "tab" });

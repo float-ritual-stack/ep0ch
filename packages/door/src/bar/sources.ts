@@ -328,7 +328,8 @@ const ACTIONS: BarSource = {
     const info = found && script ? { ...found, name: script.extension.name ?? found.name, summary: scriptSaid(script), args: Object.fromEntries(formFields(found).map(f => [f.name, f.spec])) } : found;
     // Its page (PIE-1032): the lead, its keys as keycaps, its arguments as a properties table, its examples.
     const page: ActionInfo = info ?? { name: d.action, summary: d.summary ?? "", ...(d.keys ? { keys: d.keys } : {}), args: {}, scope: "", touches: "nothing", replay: "ask" };
-    return { markdown: actionPage(page, { title: row.label, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action) } : {}) }) };
+    // Its examples read as the bar's line takes them (PIE-1502): what Tab or a click puts in it, with no `ep0ch act`.
+    return { markdown: actionPage(page, { title: row.label, prompt: null, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action) } : {}) }) };
   },
   command(row) {
     if (row.key.startsWith("line:")) return row.fill!;

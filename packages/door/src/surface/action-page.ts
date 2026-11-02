@@ -13,7 +13,7 @@ import { keyAlternatives } from "../figures/keys";
 import type { ActionExample, ActionInfo, ArgSpec } from "./actions";
 
 /** What the page says beside the declarations: a reason it can't run now (the bar's refused row), a hyper chord. */
-export interface PageExtras { refused?: string; hyper?: readonly string[]; title?: string }
+export interface PageExtras { refused?: string; hyper?: readonly string[]; title?: string; /** What an example line is typed after: `ep0ch act` for a shell (the default); `null` where the line is typed as it is (the power bar, PIE-1502). */ prompt?: string | null }
 
 /**
  * Text that stays words when the page is a note: a `::component`, a `[[page]]` or `((ref))` written in a summary is put
@@ -84,7 +84,8 @@ export function actionPage(info: ActionInfo, extras: PageExtras = {}): string {
   // The line to type first (PIE-1502): what the person came for.
   const examples = info.examples ?? [];
   if (examples.length) {
-    out.push("", figure("example", { title: "examples", prompt: "ep0ch act" }, examples.map(ex =>
+    const prompt = extras.prompt === undefined ? "ep0ch act" : extras.prompt;
+    out.push("", figure("example", { title: "examples", ...(prompt ? { prompt } : {}) }, examples.map(ex =>
       `- \`${ex.act}\` → ${inert(ex.does.replace(/ — /g, ", "), false)}${exampleSafe(info, ex) ? " (safe)" : ""}`)));
   }
   const keys = keyAlternatives(info.keys);
