@@ -9,6 +9,8 @@ export const LIST_KEYS = keyTable<ModeKey>("list", "While a list has the keys", 
   { key: "down", action: "list.step", args: { by: 1 }, label: "pick" },
   { key: "k", action: "list.step", args: { by: -1 }, label: "pick" },
   { key: "up", action: "list.step", args: { by: -1 }, label: "pick" },
+  { key: "pgdn", action: "list.step", args: { by: 1, page: true }, label: "page", says: "move the pick a page down (the rows shown, less one)" },
+  { key: "pgup", action: "list.step", args: { by: -1, page: true }, label: "page", says: "move the pick a page up (the rows shown, less one)" },
   { key: "home", action: "list.pick", args: { n: 1 }, label: "first", says: "pick the list's first row" },
   { key: "end", action: "list.pick", label: "last", says: "pick the list's last row" },
   { key: "enter", action: "list.open", label: "open" },
@@ -23,8 +25,6 @@ export const COLLECTION_KEYS = keyTable<ModeKey>("collection", "While a collecti
   { key: "right", action: "list.step", args: { by: 1, axis: "column" }, label: "column", says: "move the pick one column right in a gallery, or one lane right on a board" },
   { key: "H", action: "list.step", args: { by: -1, axis: "group" }, label: "group", says: "move the pick to the group before" },
   { key: "L", action: "list.step", args: { by: 1, axis: "group" }, label: "group", says: "move the pick to the next group" },
-  { key: "pgup", action: "list.page", args: { by: -1 }, label: "page", says: "turn the collection back a page" },
-  { key: "pgdn", action: "list.page", args: { by: 1 }, label: "page", says: "turn the collection on a page" },
   { key: ",", action: "list.tune", label: "tune", says: "open the collection's settings card" },
   { key: "s", action: "list.sort", label: "sort", says: "choose the property the collection sorts by" },
   { key: "g", action: "list.group", label: "group", says: "choose the property the collection groups by" },
@@ -32,7 +32,7 @@ export const COLLECTION_KEYS = keyTable<ModeKey>("collection", "While a collecti
 
 /** The keys of `action` in these tables, as one row of keycaps (`j ↓ k ↑`); `axis` narrows a step to its axis. */
 export const keysOf = (tables: readonly (readonly ModeKey[])[], action: string, axis?: string) =>
-  [...new Set(tables.flatMap(t => effective(t).filter(r => r.action === action && (axis === undefined ? r.args?.axis === undefined : r.args?.axis === axis)).map(r => keyCaption(r.key))))].join(" ");
+  [...new Set(tables.flatMap(t => effective(t).filter(r => r.action === action && (axis === "page" ? !!r.args?.page : !r.args?.page && (axis === undefined ? r.args?.axis === undefined : r.args?.axis === axis))).map(r => keyCaption(r.key))))].join(" ");
 
 export function listBinding(key: Key, collection: boolean, count: number): ModeKey | undefined {
   const b = (collection ? modeBinding(COLLECTION_KEYS, key) : undefined) ?? modeBinding(LIST_KEYS, key);

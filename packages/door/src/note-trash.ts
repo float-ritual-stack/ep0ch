@@ -4,7 +4,7 @@
 // The service moves a note and its subtree to Trash and keeps it there; what the door adds is what it will not do:
 // a system note (Inbox, Trash, Bookmarks) or the workspace root, a note already in the Trash, a note someone has a draft open on.
 import { width, drawEllipsized } from "./style";
-import { centred, ListPicker, pickRows, pickRow } from "./surface/picker";
+import { confirmPicker, ListPicker } from "./surface/picker";
 import { ch, type Key } from "./term";
 import { subject, type Msg } from "./board";
 import { openDraftIds, openDraftOf } from "./draft-session";
@@ -118,19 +118,15 @@ export async function untrashNote(board: SocketBoard, id: string | undefined, ac
 }
 
 /**
- * The person's first press (a key, a menu row, a click): what would go, as a two-row choice: `d` again (or Delete, ⏎,
- * a click on the first row) trashes it, anything else keeps it. The key and the mouse are the same two steps the board's
- * `d d` is; `trash` is what a yes runs (the confirmed `note.trash`).
+ * The person's first press (a key, a menu row, a click): what would go, as the one yes/no (confirmPicker): ⏎ keeps
+ * it (the safe row comes first), `d` again (or Delete, a click on the "trash it" row) trashes it. The key and the
+ * mouse are the same two steps the board's `d d` is; `trash` is what a yes runs (the confirmed `note.trash`).
  */
 export function trashConfirm<H>(o: { title: string; notesUnder: number; trash: (h: H) => void }): ListPicker<string, H> {
-  const rows = [`trash it${o.notesUnder ? ` and the ${o.notesUnder} note${o.notesUnder === 1 ? "" : "s"} under it` : ""}`, "keep it"];
-  const p: ListPicker<string, H> = new ListPicker<string, H>({
-    name: "trash", items: () => rows, clickChooses: true,
-    row: (r, _i, on, w) => [...pickRows(` ${r}`, on, w)],
-    choose: (_r, i, h) => { if (i === 0) o.trash(h); },
-    bindings: ["d", "delete"].map(key => ({ key, action: "note.trash", label: "trash" })),
-    dispatch: (_, h) => { p.close(h, "letter"); o.trash(h); },
-    frame: a => ({ rect: centred(a, Math.min(a.cols, Math.max(40, width(drawEllipsized(o.title, 40)) + 10, rows[0]!.length + 4)), 5), title: `trash "${drawEllipsized(o.title, 40)}"?` }),
+  const title = drawEllipsized(o.title, 40);
+  return confirmPicker<H>({
+    name: "trash", title: `trash "${title}"?`, safe: "keep it",
+    destructive: `trash it${o.notesUnder ? ` and the ${o.notesUnder} note${o.notesUnder === 1 ? "" : "s"} under it` : ""} · ctrl+z brings it back`,
+    keys: ["d", "delete"], action: "note.trash", label: "trash", go: o.trash, width: Math.max(40, width(title) + 10),
   });
-  return p;
 }

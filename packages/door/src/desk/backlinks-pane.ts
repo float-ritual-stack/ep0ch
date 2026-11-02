@@ -1,4 +1,5 @@
 import { filterLine } from "../surface/line";
+import { waitingText } from "../text";
 import { standsAsPerson } from "../surface/dispatch";
 import { NOBODY } from "../whereabouts";
 import { outlineBoards, readTarget } from "./outline-boards";
@@ -33,6 +34,7 @@ import {
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel } from "../surface/actions";
+import { modeHint, type ModeKey } from "../surface/modes";
 import { C, drawEllipsized, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView, type TileTrail } from "./panes";
@@ -112,6 +114,17 @@ const firstEntry = (rows: readonly LinkRow[]) => Math.max(0, rows.findIndex(r =>
 
 /** How a picked source opens: shown where the selection goes (moving), opened (⏎, a click), or fresh (alt+⏎). */
 export type PickHow = "show" | "open" | "fresh";
+
+/** The keys of a links tile's hint row that don't change with the tile (key() below runs them); its open and aim rows are made in hint(). */
+const LINKS_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "list.step", args: { by: 1 }, label: "preview" }, { key: "k", action: "list.step", args: { by: -1 }, label: "preview" },
+  { key: ".", action: "backlinks.fold", label: "fold" },
+  ...(["s", "K", "w", "h", "n"] as const).map((key, i) => ({ key, action: "backlinks.view", args: { step: ["sort", "kind", "stage", "resolved", "related"][i] }, label: "view" })),
+  { key: "v", action: "backlinks.groups", args: { choose: true }, label: "groups" },
+];
+const LINKS_FILTER_KEYS: readonly ModeKey[] = [
+  { key: "enter", action: "backlinks.view", label: "keep" }, { key: "esc", action: "backlinks.view", label: "undo" }, { key: "backspace", action: "backlinks.view", label: "erase" }, { key: "ctrl+u", action: "backlinks.view", label: "erase" },
+];
 
 export class BacklinksPane implements Pane {
   readonly kind = "backlinks" as const;
@@ -199,7 +212,17 @@ export class BacklinksPane implements Pane {
       chip: true as const, press: () => this.run(desk, "backlinks.groups", { choose: true }) }];
   }
   renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
-  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview${this.backs.length ? ` · alt+← back to ${subject(this.backs.at(-1)!)}` : ""} · ⏎ open ${((at?: string) => (at === "in place" ? at : `in ${at}`))(this.desk?.wireDescription?.(this.desk.nameOfPane?.(this), "open"))} · alt+⏎ ${this.desk?.wireDescription?.(this.desk.nameOfPane?.(this), "alt")} · b ${this.follows ? "aim" : "re-aim"} at ${this.sourceLabel()}'s note · . fold · s K w h n view · v groups`; }
+  hint() {
+    if (this.draft !== null) return "type to filter the links · " + modeHint(LINKS_FILTER_KEYS, () => undefined);
+    const wire = (verb: "open" | "alt") => this.desk?.wireDescription?.(this.desk.nameOfPane?.(this), verb);
+    return modeHint([
+      ...LINKS_KEYS.slice(0, 2),
+      ...(this.backs.length ? [{ key: "alt+left", action: "tile.travel", args: { dir: "back" }, label: `back to ${subject(this.backs.at(-1)!)}` }] : []),
+      { key: "enter", action: "list.open", args: { where: "home" }, label: `open ${((at?: string) => (at === "in place" ? at : `in ${at}`))(wire("open"))}` }, { key: "alt+enter", action: "list.open", args: { where: "new" }, label: String(wire("alt")) },
+      { key: "b", action: "backlinks", label: `${this.follows ? "aim" : "re-aim"} at ${this.sourceLabel()}'s note` },
+      ...LINKS_KEYS.slice(2),
+    ], () => undefined);
+  }
   spec() { return { source: this.source ? `tile:${this.source}` : "", ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const, ...(this.options.stages?.length ? { stages: this.options.stages.join(",") } : {}) }; }
 
   /**
@@ -416,7 +439,7 @@ export class BacklinksPane implements Pane {
     this.controls = [];
     if (!this.target) return { lines: [fg(C.dark) + pad(`the links of what ${this.sourceLabel()} shows land here`, w) + RESET] };
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
-    if (!this.data) return { lines: [fg(C.dark) + pad("asking the service…", w) + RESET] };
+    if (!this.data) return { lines: [fg(C.dark) + pad(waitingText(), w) + RESET] };
     const rows = this.rows();
     // The status is the first lines of the list, in slots that stay where they are (layoutLinksStatus).
     const st = layoutLinksStatus(this.statusParts(), w, Math.max(2, Math.floor(h / 2)), p => this.sgrOf(p));

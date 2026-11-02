@@ -13,9 +13,10 @@ import { fromWallClock, readDate } from "@ep0ch/outline-core/dates";
 import { type Actor, type SocketBoard } from "../socket";
 import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ago } from "../text";
+import { ago, waiting, waitingText } from "../text";
 import { newNoteOffer } from "../new-note";
 import { ActionRefused, actionSet, def, type ActRequest } from "../surface/actions";
+import { modeHint, type ModeKey } from "../surface/modes";
 import type { DeskApi, Pane, PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind } from "../desk/tile-kinds";
@@ -63,6 +64,14 @@ type Row = { head: WaitGroup } | { item: Msg; n: number };
 /** What `waiting.pick` answers: the item shown, and its place in the list (1 is the longest wait). */
 export type Picked = { n: number; of: number; id: string; who: string; title: string };
 
+/** The list's keys: the hint row is drawn from them. ⏎ gives the keys to the reader it shows. */
+const WAITING_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "waiting.pick", label: "pick", args: { by: 1 } },
+  { key: "k", action: "waiting.pick", label: "pick", args: { by: -1 } },
+  { key: "enter", action: "tile.focus", label: "read", args: { tile: "reader" } },
+  { key: "r", action: "waiting.reload", label: "reload" },
+];
+
 /** The list: a header per person, a row per item (how long, the ticket, the question). */
 export class WaitingPane implements Pane {
   readonly kind = "waiting";
@@ -75,12 +84,12 @@ export class WaitingPane implements Pane {
   private reload: Timer | null = null;
 
   title() {
-    if (!this.items) return "waiting on others · asking the outline…";
+    if (!this.items) return `waiting on others · ${waitingText()}`;
     if (!this.items.length) return "waiting on others · none";
     const people = new Set(this.items.map(m => waitingOn(m).who.toLowerCase())).size;
     return `outbox · ${this.items.length} waiting on ${people} ${people === 1 ? "person" : "people"}`;
   }
-  hint() { return "j k pick · ⏎ read · r reload"; }
+  hint() { return modeHint(WAITING_KEYS, () => undefined); }
   init(desk: DeskApi) { void this.load(desk); }
 
   /** The items in list order: by group, longest wait first. */
@@ -114,7 +123,7 @@ export class WaitingPane implements Pane {
 
   render(w: number, h: number, focused: boolean): PaneView {
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
-    if (!this.items) return { lines: [fg(C.dark) + "asking the outline…" + RESET] };
+    if (!this.items) return { lines: [waiting()] };
     if (!this.items.length) {
       const { line, spot } = newNoteOffer(4);
       return { lines: [fg(C.white) + "Nobody owes you an answer." + RESET, "", fg(C.grey) + pad("An outbox item waits while it has [type::outbox-item] [outbox::waiting].", w) + RESET, "", line], spots: [spot] };
@@ -167,11 +176,11 @@ export class WaitingPane implements Pane {
 }
 
 /** Show the item at `n` (1 is the longest wait) or with `id`, as `actor`; an agent's is said on screen. */
-function pick(list: WaitingPane, desk: DeskApi, which: { n?: number; id?: string }, actor: Actor): Picked {
+function pick(list: WaitingPane, desk: DeskApi, which: { n?: number; id?: string; by?: number }, actor: Actor): Picked {
   const items = list.ordered();
   if (!list.items) throw new ActionRefused("the waiting items are still being read");
   if (!items.length) throw new ActionRefused("nothing is waiting");
-  const i = which.id !== undefined ? items.findIndex(m => m.id === which.id) : (which.n ?? 0) - 1;
+  const i = which.id !== undefined ? items.findIndex(m => m.id === which.id) : which.by !== undefined ? Math.max(0, Math.min(items.length - 1, list.at + which.by)) : (which.n ?? 0) - 1;
   if (i < 0 || i >= items.length) throw new ActionRefused(which.id !== undefined ? `no waiting item ${which.id}` : `pick 1 to ${items.length}`);
   const m = items[i]!;
   list.at = i;
@@ -184,13 +193,13 @@ export const WAITING_ACTIONS = actionSet<KindHost>()("waiting", {
   "waiting.pick": def({
     summary: "show a waiting item in the reader: n (1 is the longest wait, as describe lists them) or id; refused to an agent while the person is typing here", keys: "j k ↑ ↓ click",
     touches: "screen", replay: "safe", says: r => `showed what ${r.who} owes (${r.n} of ${r.of})`,
-    args: { n: { type: "number", about: "its place in the list, from 1", optional: true }, id: { type: "string", about: "the item's block id", optional: true } },
+    args: { n: { type: "number", about: "its place in the list, from 1", optional: true }, id: { type: "string", about: "the item's block id", optional: true }, by: { type: "number", about: "1 the next, -1 the previous item from the one picked (j k)", optional: true } },
     examples: [
       { act: "waiting.pick n=1", does: "shows the item that has waited longest in the reader" },
       { act: "waiting.pick id=9a3f6d12-4b7e-4c80-b5a1-7e2c0d9f3b46", does: "shows that waiting item in the reader" },
     ],
     run(a, { pane, desk }, actor) {
-      if ((a.n === undefined) === (a.id === undefined)) throw new ActionRefused("waiting.pick takes n or id, one of them");
+      if ([a.n, a.id, a.by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("waiting.pick takes n, id or by, one of them");
       return pick(pane as WaitingPane, desk, a, actor);
     },
   }),

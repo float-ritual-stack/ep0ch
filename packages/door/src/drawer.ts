@@ -1,6 +1,7 @@
 import type { Reveal } from "./reveal";
 // One host desk: its tree occupies the drawer, its floats the glass. Both change through apply.
 // Quiet focus enters a glass tile without opening or rearranging the drawer.
+import { drawerFoot, drawerTitleHint } from "./hint-parts";
 import type { Ctx, Screen, Frame } from "./app";
 import { Canvas, type Rect } from "./canvas";
 import { DRAWER_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
@@ -1306,11 +1307,11 @@ export class AgentDrawer {
     const edge = this.dropHover || this.entered ? C.yellow : C.brown;
     const head = `══ ${this.chipText()}${this.folded ? "" : where + by}`;
     this.lockAt = lockChip && !this.dropHover ? { from: r.col + width(head) + 1, to: r.col + width(head) + 1 + width(lockChip) } : null;
-    const hint = this.folded ? "· + ⏎ or a click opens it · esc leaves" : `· ↕ drag this edge${lock ? "" : " · ⤓ drop a tile here"}`;
+    const hint = this.folded ? `· ${drawerTitleHint()}${fg(C.dark)}` : `· ↕ drag this edge${lock ? "" : " · ⤓ drop a tile here"}`;
     const title = this.dropHover ? `${chipStyle(C.yellow, C.black)} ⤓ release: ${this.dropHover} ${this.dropSays} ${bg(C.black)}` : head + lock + fg(C.dark) + " " + hint;
     // The fill runs to the edge and no further: a row that fits registers no cut-short value (PIE-1499).
     canvas.text(0, 0, fg(edge) + title + " " + "═".repeat(Math.max(0, cols - width(title) - 1)) + RESET, cols);
-    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + (this.entered ? "drawer · - folds it · esc steps out · esc again puts it away" : "drawer · esc puts it away") + RESET, cols - 2);
+    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + `drawer · ${drawerFoot(this.entered)}${fg(C.dark)}` + RESET, cols - 2);
     const placements = (this.hostFrame.placements ?? []).filter(pl => pl.row >= r.row + 1 && pl.row + pl.rows < r.row + r.rows);
     return { rect: r, lines: canvas.lines(), placements };
   }

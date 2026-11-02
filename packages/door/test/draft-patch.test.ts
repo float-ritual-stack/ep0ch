@@ -592,7 +592,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     reader.show(proposal, h);
     expect(reader.render(100, 40, h).lines.map(visible).join("\n")).toContain("[apply]");
     expect(reader.describeElements().filter(e => e.control).map(e => e.control)).toEqual(["apply", "dismiss"]);
-    expect(reader.hint()).not.toContain("r resolve");
+    expect(visible(reader.hint())).not.toContain("r resolve");
     expect(proposal.text).toContain("at the end of the block");
     reader.key(char("A"), h);
     await until(() => e.d.text.endsWith("\nA proposed addition."), "the append applied");
@@ -610,7 +610,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     // Apply anyway: A on the proposal, in another reader. It lands in the draft being typed, as the person's.
     const reader = new NoteSurface(), h = host();
     reader.show(proposal, h);
-    expect(reader.hint()).toContain("A apply anyway");
+    expect(visible(reader.hint())).toContain("A apply anyway");
     reader.key(char("A"), h);
     await until(() => e.d.text.includes("The peas climb the net."), "the proposal applied in the draft");
     expect(prop((await board.get(id))!, "proposal-status")).toBe("applied");
@@ -626,8 +626,8 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const header = reader.render(90, 30, h).lines.map(visible).slice(0, 8).join("\n");
     expect(header).toContain("proposal · [dismiss] [resolve]");
     expect(header).not.toContain("[apply]");
-    expect(reader.hint()).toContain("X dismiss · r resolve");
-    expect(reader.hint()).not.toContain("A apply");
+    expect(visible(reader.hint())).toContain("X dismiss · r resolve");
+    expect(visible(reader.hint())).not.toContain("A apply");
     flashes.length = 0;
     expect(reader.key(char("A"), h)).toBe(true);
     await until(() => flashes.length > 0, "A's refusal");
@@ -1059,7 +1059,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     const reader = new NoteSurface(), h = host();
     reader.show((await board.get(id))!, h);
     expect(reader.key(char("A"), h)).toBe(false);
-    expect(reader.hint()).not.toContain("apply anyway");
+    expect(visible(reader.hint())).not.toContain("apply anyway");
   }, 30_000);
 
   test("peek says the draft is held, where the cursor is, and which patches it can undo", async () => {
@@ -1068,6 +1068,6 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     const by = e.s.describe().editing!.patches[0]?.by ?? "";
     expect(["patch-demo", "tidy"]).toContain(by);                        // `patch-demo` since pi-herdr-outliner PIE-510
     expect(e.s.describe().editing).toMatchObject({ held: true, patches: [{ by }], lit: [`${by} · just now`] });
-    expect(e.s.hint()).toContain(`ctrl+z undo ${by}'s edit`);
+    expect(visible(e.s.hint())).toContain(`^Z undo ${by}'s edit`);
   }, 30_000);
 });

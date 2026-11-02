@@ -3,6 +3,7 @@
 // Folding is the reader's reading state: the note's text never changes, folds survive live refreshes and
 // edits elsewhere in the note, and reset when the reader shows another note. Keys, clicks and agents (the
 // action registry) all fold the same way. The service part runs against a throwaway outliner only.
+import { visible } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -118,7 +119,7 @@ describe("a reader's folds, without a service", () => {
     const s = new NoteSurface(), h = host();
     s.show(note(TEXT), h);
     expect(body(s, h)).toContain("dig the north bed");
-    expect(s.hint()).toContain("( ) sections");
+    expect(visible(s.hint())).toContain("(/) sections");
     s.key(char(")"), h);
     expect(s.describe().folds?.selected).toBe("## Beds");
     s.key(char("f"), h);

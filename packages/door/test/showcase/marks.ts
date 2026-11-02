@@ -4,8 +4,10 @@
 export const marks: Record<string, string[]> = {
   note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
   // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
-  detail: ["Allotment notebook", "Our plot at the Elm Row allotments.", "p pin", "↑↓ j k blocks"],
+  detail: ["Allotment notebook", "Our plot at the Elm Row allotments.", "p pin", "↑/↓/j/k blocks"],
   // A long note to scroll past the end of (PIE-622), a short one beside it.
+  // PIE-1293: the outline beside the Compost heap; the reader's hint drawn from its key table.
+  "same-keys": ["Compost heap", "Old leaves and kitchen peelings", "outline"],
   scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
   // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
   actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],

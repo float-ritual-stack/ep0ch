@@ -15,6 +15,7 @@ import { selectedRow, drawEllipsized, bg, C, fg, pad, RESET, width } from "../st
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, rule } from "../text";
 import { RowView } from "../scroll";
+import { modeBinding, modeHint, type ModeKey } from "./modes";
 import { LineField } from "./line";
 import type { SettingsCard } from "./settings-card";
 
@@ -93,6 +94,16 @@ export interface Field { row: PropRow; input: LineField; revision: number; savin
 
 export type PanelIntent = "copy" | "follow" | "edit" | "save" | "cancel" | "close" | "summary" | "full" | null;
 
+/** The panel's keys, one row per key: `key()` reads the intent off this table and the hint draws it. */
+type PanelKey = ModeKey & { intent?: Exclude<PanelIntent, null> };
+const PANEL_KEYS: readonly PanelKey[] = [
+  { key: "tab", action: "props.pick", args: { by: 1 }, label: "value" }, { key: "j", action: "props.pick", args: { by: 1 }, label: "value" }, { key: "k", action: "props.pick", args: { by: -1 }, label: "value" },
+  { key: "y", action: "props.copy", label: "copy", intent: "copy" }, { key: "o", action: "props.follow", label: "follow", intent: "follow" },
+  { key: "enter", action: "props.edit", label: "edit", intent: "edit" }, { key: "e", action: "props.edit", label: "edit", intent: "edit" },
+  { key: "s", action: "props.summary", label: "summary", intent: "summary" }, { key: "I", action: "props", args: { full: true }, label: "full", intent: "full" },
+  { key: "esc", action: "props.close", label: "close", intent: "close" }, { key: "i", action: "props.close", label: "close", intent: "close" }, { key: "q", action: "props.close", label: "close", intent: "close" },
+];
+
 export class PropertyPanel {
   sel = 0;
   view = new RowView();
@@ -123,13 +134,8 @@ export class PropertyPanel {
     const move = (d: number) => { if (rows) { this.sel = (this.sel + d + rows) % rows; this.note = ""; } };
     if (k.kind === "tab" || isDown(k)) move(1);
     else if (k.kind === "backtab" || isUp(k)) move(-1);
-    else if (c === "y") return "copy";
-    else if (c === "o") return "follow";
-    else if (k.kind === "enter" || c === "e") return "edit";
-    else if (c === "s") return "summary";
-    else if (c === "I") return "full";
-    else if (k.kind === "esc" || c === "i" || c === "q") return "close";
-    return null;
+    else return (modeBinding(PANEL_KEYS, k) as (typeof PANEL_KEYS)[number] | undefined)?.intent ?? null;
+    return null; // the move above
   }
 
   /**
@@ -143,7 +149,7 @@ export class PropertyPanel {
 
   hint(): string {
     if (this.field) return this.field.saving ? "saving…" : completionOf(this.field.input)?.items.length ? popupHint(completionOf(this.field.input)!) : "type the value · enter saves · esc cancels";
-    return "tab/j k value · y copy · o follow · enter/e edit · s summary · I full · esc close";
+    return modeHint(PANEL_KEYS, () => undefined);
   }
 
   /** The panel's lines, at most `h`, `w` wide. `summary` holds the keys the summary line shows. */

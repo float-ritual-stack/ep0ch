@@ -1,4 +1,5 @@
 import { viewWords } from "@ep0ch/outline-core/view-spec";
+import { moreRow } from "../text";
 import { modeHint, type ModeKey } from "../surface/modes";
 import { keyTable } from "../surface/keymap";
 import { clipText } from "../overflow";
@@ -100,6 +101,13 @@ export const QUESTION_KEYS = keyTable<ModeKey>("settings-question", "A toggle or
   { key: "J", action: "bar.question", args: { op: "move", by: 1 }, label: "later" },
   { key: "K", action: "bar.question", args: { op: "move", by: -1 }, label: "earlier" },
 ]);
+/** An action's form: ⏎ answers a field and goes on, alt+⏎ answers and runs, shift+tab goes back (the foot below is drawn from these). */
+const ASK_FORM_KEYS: readonly ModeKey[] = [
+  { key: "enter", action: "bar.pick", label: "pick and go on" },
+  { key: "alt+enter", action: "bar.pick", args: { alt: true }, label: "pick and run" },
+  { key: "shift+tab", action: "bar.form", args: { op: "back" }, label: "back a field" },
+  { key: "esc", action: "bar.close", label: "closes" },
+];
 export const liveQuestion = () => { const q = question(); return q && (q.type === "toggle" || q.type === "pick-order") ? q : null; };
 
 export function changedQuestionValue(type: BarQuestion["type"], current: string, value: string, by?: number): string {
@@ -246,7 +254,7 @@ function formHead(w: NonNullable<typeof waiting>, width_: number): string[] {
   headSpots = [null];
   let from = 0, to = qs.length;
   if (qs.length > FIELDS_SHOWN) { from = Math.max(0, Math.min(w.focus - Math.floor(FIELDS_SHOWN / 2), qs.length - FIELDS_SHOWN)); to = from + FIELDS_SHOWN; }
-  if (from > 0) { lines.push(fg(C.dark) + `   … ${from} more above` + RESET); headSpots.push(qs[from - 1]!.name); }
+  if (from > 0) { lines.push("   " + moreRow(from, { dir: "above" })); headSpots.push(qs[from - 1]!.name); }
   const valueW = Math.max(10, Math.min(28, Math.floor(width_ * 0.3)));
   for (let i = from; i < to; i++) {
     const q = qs[i]!, on = i === w.focus, v = w.answers[q.name];
@@ -256,7 +264,7 @@ function formHead(w: NonNullable<typeof waiting>, width_: number): string[] {
     lines.push(` ${name} ${shown}${RESET} ${fg(C.dark)}${clipText(q.description ?? "", Math.max(0, width_ - nameW - valueW - 6))}${RESET}`);
     headSpots.push(q.name);
   }
-  if (to < qs.length) { lines.push(fg(C.dark) + `   … ${qs.length - to} more below` + RESET); headSpots.push(qs[to]!.name); }
+  if (to < qs.length) { lines.push("   " + moreRow(qs.length - to, { dir: "below" })); headSpots.push(qs[to]!.name); }
   const why = f.check?.(w.answers), line = lineOf(w), on = w.focus >= qs.length;
   const tail = why ? `  ✕ ${why}` : "  ⏎ runs it";
   lines.push(` ${on ? fg(C.lcyan) + "▸ " : "  "}${fg(C.dark)}ep0ch act ${fg(why ? C.grey : C.lgreen)}${clipText(line, Math.max(10, width_ - 16 - Math.min(width(tail), 40)))}${fg(why ? C.lred : C.dark)}${clipText(tail, Math.max(0, width_ - width(line) - 16))}${RESET}`);
@@ -333,7 +341,7 @@ const ASK_SOURCE: BarSource = {
     void host.dispatch.press("bar.form", { op: "focus", field: at });
     return true;
   },
-  foot: () => liveQuestion() ? `${modeHint(QUESTION_KEYS, () => undefined)} · type to filter · esc closes` : (waiting?.form ? "⏎ pick and go on · alt+⏎ pick and run · ⇧⇥ back a field · a click on a field · esc closes" : null),
+  foot: () => liveQuestion() ? `${modeHint(QUESTION_KEYS, () => undefined)} · type to filter · esc closes` : (waiting?.form ? modeHint(ASK_FORM_KEYS, () => undefined) : null),
   state: () => formState(),
   rows(query, host) {
     if (waiting?.form) return formRows(waiting, query, host);

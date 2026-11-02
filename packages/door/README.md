@@ -1908,8 +1908,7 @@ queue, so the lane's `create-parent` doesn't apply (and `card.create parent=` is
   by where it starts at the read revision, and the service gives it one (`^task-…` appears in the note).
   The open steps list reads the note again when it changes. A key acts on the step the list showed;
   `step.set step=N` (or `^id`) always reads the steps fresh, so it means the note's step N as it is now.
-- **Trash** asks twice: the first `d` says what goes (`d again trashes "Fix the dripping tap" and the 3
-  notes under it`), any other key keeps it. The card must still be at the revision the board showed, and
+- **Trash** asks twice: the first `d` opens the one yes/no every trash uses (`trash "Fix the dripping tap"?`, "keep it" first, then "trash it and the 3 notes under it"): `d` again, Delete or a click on that row trashes it; ⏎, esc or a click on "keep it" keeps it. The card must still be at the revision the board showed, and
   not open for editing or commenting. A red `TRASHED … · u restores` banner stays on the hint line until you
   restore it or trash another. The service's `delete` takes no revision and records no author, so the
   door checks the revision just before and says on screen who did it. If the delete's answer is lost, the

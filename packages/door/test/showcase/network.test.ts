@@ -3,6 +3,7 @@
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
+import { visible } from "../../src/style";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -134,7 +135,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     const kept = tile("reader").showing.id, before = tiles().length;
     const reader = [...stage().panes.entries()].find(([id]: any) => stage().nameOf(id) === "reader")![1] as any;
     screen();
-    expect(reader.hint()).toContain("pinned · opens → reader2 · p unpins");
+    expect(visible(reader.hint())).toContain("pinned · opens → reader2 · p unpins");
     // The tree's ⏎ aimed at the pinned reader: the idle reader2 takes it, no split, said once.
     const idle = await app.act({ action: "open", args: { id: seeded.notes.shed.id, from: "tree" }, as: "test-agent" }) as any;
     expect(idle.name).toBe("reader2");
@@ -143,13 +144,13 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     // reader2 pinned too: a new reader beside the pinned one takes the next, and the hint row says so.
     await app.act({ action: "reader.pin", tile: "reader2", args: { on: true }, as: "test-agent" });
     screen();
-    expect(reader.hint()).toContain("pinned · opens → beside it · p unpins");
+    expect(visible(reader.hint())).toContain("pinned · opens → beside it · p unpins");
     const opened = await app.act({ action: "open", args: { id: seeded.notes.whiteboard.id, from: "tree" }, as: "test-agent" }) as any;
     expect(tiles().length).toBe(before + 1);
     expect(opened.name).not.toBe("reader");
     expect(tile("reader").showing.id).toBe(kept);
     screen();
-    expect(reader.hint()).toContain(`pinned · opens → ${opened.name}`);
+    expect(visible(reader.hint())).toContain(`pinned · opens → ${opened.name}`);
     await app.act({ action: "reader.pin", tile: "reader2", args: { on: false }, as: "test-agent" });
     expect(reader.headControls(40, stage())[0].text).toBe("▣ pinned");
     // Let go: the next ⏎ lands in it again.

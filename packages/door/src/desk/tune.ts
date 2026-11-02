@@ -1,3 +1,4 @@
+import { Again } from "../arm";
 import { declaredHints, HINT_SETTINGS } from "../surface/hints";
 import { tabStrip, type TabRow } from "../surface/chip-rows";
 import { wrap, rowLines } from "../text";
@@ -41,6 +42,21 @@ import { keyTable } from "../surface/keymap";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
+const TUNE_FIELD_KEYS: readonly ModeKey[] = [{ key: "enter", action: "tune.field", args: { op: "save" }, label: "save" }, { key: "esc", action: "tune.field", args: { op: "cancel" }, label: "cancel" }];
+const TUNE_HINTS_KEYS: readonly ModeKey[] = [
+  { key: "H", action: "tune.section", args: { section: "values" }, label: "values" }, { key: "j", action: "tune.hint.pick", label: "pick", click: false }, { key: "k", action: "tune.hint.pick", label: "pick", click: false },
+  ...([["c", "card"], ["s", "status"], ["o", "off"]] as const).map(([key, to]) => ({ key, action: "hints.set", args: { to }, label: to })),
+  { key: "R", action: "hints.reset", label: "reset all" },
+];
+const TUNE_VALUES_KEYS: readonly ModeKey[] = [
+  { key: "enter", action: "tune.group", label: "fold" }, { key: "f", action: "tune.filter", label: "set here" }, { key: "e", action: "tune.edit", label: "edit" },
+  { key: "j", action: "tune.pick", label: "pick", click: false }, { key: "k", action: "tune.pick", label: "pick", click: false },
+  { key: "+", action: "tune.nudge", args: { by: 1 }, label: "nudge" }, { key: "-", action: "tune.nudge", args: { by: -1 }, label: "nudge" },
+  { key: "v", action: "tune.level", label: "level" }, { key: "w", action: "tune.width", label: "width" }, { key: "s", action: "tune.save", label: "save" },
+  { key: "u", action: "tune.undo", label: "undo" }, { key: "U", action: "tune.redo", label: "redo" }, { key: "x", action: "tune.unset", label: "reset value" },
+  { key: "X", action: "tune.resetlevel", label: "reset level" }, { key: "R", action: "tune.revert", label: "revert all" },
+];
+const TUNE_RETIRED_KEYS: readonly ModeKey[] = [{ key: "D", action: "tune.retired.remove", label: "drop retired keys" }, { key: "M", action: "tune.retired.move", label: "move them to a hero line" }];
 /**
  * A Tune section an extension adds (PIE-1505): its own settings, each a whole number with a step and a floor, beside
  * values and Hints. The glass extension's delays and limits are the first (ext/glass). `tune` is the module's own action
@@ -173,8 +189,10 @@ export class TunePane implements Pane {
   scope: "all" | "this" = "all";
   /** A nudge held on a row where something nearer wins: the choices it offers (a, o, c, or a click). */
   offer: { row: string; by: number; shadow: Shadow } | null = null;
-  /** A reset of a level, or a revert, waiting for its confirmation (the same key again, or [confirm]). */
-  armed: Armed | null = null;
+  /** A reset of a level, or a revert, waiting for its confirmation (the same key again within its window, Again; or [confirm]). */
+  private readonly again = new Again<Armed>(undefined, (a, b) => a.action === b.action);
+  get armed(): Armed | null { return this.again.armed(); }
+  set armed(a: Armed | null) { if (a) this.again.arm(a); else this.again.clear(); }
   readonly view = new Inspector();
   private head = 0;
   private controls: { y: number; x: number; cols: number; action: string; args: Record<string, unknown> }[] = [];
@@ -191,7 +209,13 @@ export class TunePane implements Pane {
   unsaved() { return this.view.unsaved(); }
   keepDrafts() { return this.view.keep(); }
   dispose() { void this.view.field?.session.leave(); }
-  hint() { if (this.view.field) return "editing · Enter save · Esc cancel"; const sec = this.shown(); if (sec) return `${sec.key} values · ${modeHint(TUNE_SECTION_KEYS, () => undefined)}`; if (this.section === "hints") return "H values · j k pick · c card · s status · o off · R reset all"; return `Enter fold · f set here · e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all${this.retiredShown ? " · D drop retired keys · M move them to a hero line" : ""}`; }
+  hint() {
+    if (this.view.field) return "editing · " + modeHint(TUNE_FIELD_KEYS, () => undefined);
+    const sec = this.shown();
+    if (sec) return modeHint([{ key: sec.key, action: "tune.section", args: { section: "values" }, label: "values" }, ...TUNE_SECTION_KEYS], () => undefined);
+    if (this.section === "hints") return modeHint(TUNE_HINTS_KEYS, () => undefined);
+    return modeHint(this.retiredShown ? [...TUNE_VALUES_KEYS, ...TUNE_RETIRED_KEYS] : TUNE_VALUES_KEYS, () => undefined);
+  }
   spec() { return { source: `tile:${this.source}` }; }
 
   info(desk: DeskApi): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }
@@ -520,9 +544,11 @@ export class TunePane implements Pane {
     if (c === "f") return this.run(desk, "tune.filter", { set: !this.onlySet }), true;
     if (c === "e" || k.kind === "enter") { this.run(desk, "tune.edit", {}); return true; }
     // A step waiting in place: its own key again confirms; any other lets it go (and esc is only that).
-    if (this.armed) {
-      const again = (c === "X" && this.armed.action === "tune.resetlevel") || (c === "R" && this.armed.action === "tune.revert");
-      if (again) return this.run(desk, this.armed.action, { confirm: true }), true;
+    const armed = this.armed;
+    if (armed) {
+      // take() lets the first press go either way: the action is the one held, read before it.
+      const pressed = c === "X" ? "tune.resetlevel" : c === "R" ? "tune.revert" : null;
+      if (pressed && this.again.take({ action: pressed, words: "" })) return this.run(desk, armed.action, { confirm: true }), true;
       this.run(desk, "tune.cancel", {});
       if (k.kind === "esc") return true;
     }

@@ -5,6 +5,7 @@
 // that `[ ]` stops on, ⏎ and a click open (the ticket's page) and `y` copies. An older service is never
 // asked and nothing extra is drawn. Fictional tickets and notes only; the scratch service's tickets come
 // from a made-up extension (src/showcase/tickets) and nothing contacts a real provider.
+import { visible } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -202,7 +203,7 @@ describe("a projection in a reader", () => {
       r.s.key(char("]"), r.host);
       const lines = r.lines(120);
       expect(r.s.describe().elements!.current).toMatchObject({ kind: "resource", label: "Jira ACME-12", target: READY.externalUrl });
-      expect(r.s.hint()).toContain("⏎ open the ticket's page · y copy");
+      expect(visible(r.s.hint())).toContain("⏎ open the ticket's page · y copy");
       const ruled = lines.flatMap(l => (l.includes(RULER_BG) ? [plain(l).trim()] : []));
       expect(ruled.join("\n")).toContain("Jira ACME-12");
       expect(ruled.some(l => l.startsWith("▌∙ Jira ACME-12"))).toBe(true);
@@ -237,7 +238,7 @@ describe("a projection in a reader", () => {
         r.s.key(char("]"), r.host);
         r.lines();
         expect(r.s.describe().elements!.current).toMatchObject({ kind: "resource" });
-        expect(r.s.hint()).toContain("⏎ say why there's nothing to open");
+        expect(visible(r.s.hint())).toContain("⏎ say why there's nothing to open");
         r.s.key({ kind: "enter" }, r.host);
         await Bun.sleep(1);
         expect(r.flashes.at(-1)).toStartWith("nothing to open for Jira");

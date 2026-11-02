@@ -516,6 +516,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     /** The targeted actions a key or click ran alone, once each: replayed below as the act string would address the tile (PIE-1286). */
     const pointed = new Map<string, { key: Key; req: RunRequest }>();
     let prev: Key | null = null;
+    // The paging sweep (PIE-1293): PgUp and PgDn are one pair everywhere, so the actions one runs are the actions the other does.
+    const paging = new Map<"pgup" | "pgdn", string>();
     for (const k of [...PROBE_KEYS, ...await clicks()]) {
       // The probe before this one on the same screen (none on a screen built afresh).
       const before = dirty ? null : prev;
@@ -530,6 +532,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       overBudget(label, `key ${named(k)}`);
       const pressed = performance.now(), asked = A().redrawsAsked();
       try { await go(k); } finally { stop(); stopReqs(); timed(named(k), pressed); }
+      if (k.kind === "pgup" || k.kind === "pgdn") paging.set(k.kind, [...new Set(runs.map(r => `${r.scope}.${r.name}`))].sort().join(", "));
       const after = snap(mask);
       const req = reqs[0];
       // Pointed at a tile: it was named (`tile=`), or the action is a tile's own (its default is the focused one, so an id says the same).
@@ -560,6 +563,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       if (!changed) continue;
       findings.push({ screen: label, keys: named(k), problem: `${after.top !== base.top || after.depth !== base.depth ? "moved the screen stack without an action" : "changed the screen without an action"} (${changed})` });
     }
+    const [up, down] = [paging.get("pgup") ?? "", paging.get("pgdn") ?? ""];
+    if (up && down && up !== down) findings.push({ screen: label, keys: "pgup pgdn", problem: `PgUp runs ${up} but PgDn runs ${down}: one page step, one meaning (scroll.ts pageRows)` });
     if (log) require("node:fs").appendFileSync(log, `# ${label}: input states ${states.map(named).join(" ")}\n`);
     if (process.env.PARITY_DEPTH === "1") { await addressed(label, make, setup, pointed); return; }
     // The second key, from each input state: typing that keeps the state is the state's; a key that ends it

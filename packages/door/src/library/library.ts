@@ -23,6 +23,7 @@ import { ListView, listRowsOf, PERSON, selectable, type ListViewRow } from "../s
 import { Gesture, Selection, isCopyKey, rowsOf, wordAt, lineAt, paintRange, SELECT_BG, selectText, type Pos } from "../surface/selection";
 import { draftPreview } from "../surface/note";
 import { ActionRefused, actionSet, def } from "../surface/actions";
+import { modeHint, type ModeKey } from "../surface/modes";
 import { ch, type Key } from "../term";
 import { wrap } from "../text";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "../desk/panes";
@@ -38,6 +39,31 @@ export const PARTS = [
   { part: "space", key: "4", label: "every combination" },
 ] as const;
 export type Part = (typeof PARTS)[number]["part"];
+/** The keys a part adds to the page's own: the hint row is drawn from these and the page's (LIBRARY_KEYS). */
+const PART_KEYS: Record<Part, readonly ModeKey[]> = {
+  overview: [],
+  property: [{ key: "h", action: "library.axis", args: { by: -1 }, label: "property" }, { key: "l", action: "library.axis", args: { by: 1 }, label: "property" }],
+  grid: [{ key: "h", action: "library.grid", args: { by: -1 }, label: "grid" }, { key: "l", action: "library.grid", args: { by: 1 }, label: "grid" }],
+  space: [
+    { key: "[", action: "library.cursor", args: { rows: -1 }, label: "axis" }, { key: "]", action: "library.cursor", args: { rows: 1 }, label: "axis" },
+    { key: "h", action: "library.cursor", args: { by: -1 }, label: "value" }, { key: "l", action: "library.cursor", args: { by: 1 }, label: "value" },
+    { key: "space", action: "library.pick", label: "picks" }, { key: "x", action: "library.clear", label: "clears" },
+    { key: "n", action: "library.page", args: { by: 1 }, label: "page" }, { key: "p", action: "library.page", args: { by: -1 }, label: "page" },
+  ],
+};
+const COMPONENT_KEYS: readonly ModeKey[] = [{ key: ",", action: "library.component", args: { by: -1 }, label: "component" }, { key: ".", action: "library.component", args: { by: 1 }, label: "component" }];
+/** The rail is a list like every other (LIST_KEYS): j k step it, ← → cross its groups, / filters it. */
+const RAIL_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "list.step", args: { by: 1 }, label: "component" }, { key: "k", action: "list.step", args: { by: -1 }, label: "component" },
+  { key: "left", action: "list.step", args: { by: -1, axis: "group" }, label: "group" }, { key: "right", action: "list.step", args: { by: 1, axis: "group" }, label: "group" },
+  { key: "/", action: "list.filter", label: "filter" },
+];
+const LIBRARY_KEYS: readonly ModeKey[] = PARTS.map(p => ({ key: p.key, action: "library.part", args: { part: p.part }, label: "part" }));
+const VARIATION_KEYS: readonly ModeKey[] = [
+  { key: "J", action: "library.select", args: { by: 1 }, label: "variation" }, { key: "K", action: "library.select", args: { by: -1 }, label: "variation" },
+  { key: "y", action: "library.copy", label: "copy whole source" },
+  { key: "w", action: "library.width", label: "width" },
+];
 /** The widths a variation is drawn at: the narrow fallback, a reader, a wide screen. */
 export const WIDTHS = [40, 80, 160] as const;
 /** Variations of the whole space drawn at once. */
@@ -87,6 +113,8 @@ export class LibraryPane implements Pane {
   /** The rail: the one list, its rows the components under their groups. */
   readonly list = new ListView<ComponentSchema>("components");
   private view = new RowView();
+  /** Rows PgUp PgDn scroll (RowView.page: the rows shown, less one). */
+  pageStep(dir: 1 | -1) { return this.view.page(dir); }
   private desk: DeskApi | null = null;
   /** What the last paint laid out: the fixed rows, the scrolled ones. */
   private head: Row[] = [];
@@ -163,10 +191,9 @@ export class LibraryPane implements Pane {
     return `library · ${s.id}${s.origin && s.origin !== "built-in" ? ` · ${s.origin}` : ""} · ${PARTS.find(p => p.part === this.part)!.label}`;
   }
   hint() {
-    const own = this.part === "property" ? "h l property · " : this.part === "grid" ? "h l grid · " : this.part === "space" ? "[ ] axis · h l value · space picks · x clears · n p page · " : "";
     // Folded into the header, the rail's own keys come after , and . (the ones its ‹ › say).
-    const rail = this.pageX ? "j k component · ←→ group · / filter · , . component" : ", . component · j k component · ←→ group · / filter";
-    return `${rail} · 1-4 part · ${own}J K variation · y/copy whole source · drag copies text · w width`;
+    const keys = [...(this.pageX ? [...RAIL_KEYS, ...COMPONENT_KEYS] : [...COMPONENT_KEYS, ...RAIL_KEYS]), ...LIBRARY_KEYS, ...PART_KEYS[this.part], ...VARIATION_KEYS];
+    return modeHint(keys, () => undefined) + " · drag copies text";
   }
   init(desk: DeskApi) { this.desk = desk; }
   spec(): { component: string; part: Part } { return { component: this.component, part: this.part }; }
@@ -794,7 +821,7 @@ function pressed(p: LibraryPane, k: Key): { action: string; args?: Record<string
   if (c === "l") return own(1);
   if (c === "J") return { action: "library.select", args: { by: 1 } };
   if (c === "K") return { action: "library.select", args: { by: -1 } };
-  if (k.kind === "pgdn" || k.kind === "pgup") return { action: "library.scroll", args: { by: (k.kind === "pgdn" ? 1 : -1) * 10 } };
+  if (k.kind === "pgdn" || k.kind === "pgup") return { action: "library.scroll", args: { by: p.pageStep(k.kind === "pgdn" ? 1 : -1) } };
   if (c === "y") return { action: "library.copy" };
   if (isCopyKey(k)) return { action: "library.copy", args: { part: "selection" } };
   if (c === "w") return { action: "library.width" };

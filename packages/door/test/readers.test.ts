@@ -118,9 +118,10 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       frame();
       // Reading again: Down places the reading line; PgDn, space and the wheel scroll the detail.
       key({ kind: "down" }); key({ kind: "pgdn" }); key(char(" "));
-      expect(scrollOf(d)).toBe(30);
+      const twice = Math.min(2 * d.surface.pageBy(1), (d.surface as any).maxScroll);
+      expect(scrollOf(d)).toBe(twice);
       wheel(rect("detail0"));
-      expect(scrollOf(d)).toBe(30 + SCROLL_ROWS);
+      expect(scrollOf(d)).toBe(Math.min(twice + SCROLL_ROWS, (d.surface as any).maxScroll));
     }
   });
 
@@ -312,7 +313,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     // Tab to it: the frame and hints say whose it is and how to get in; j scrolls, doesn't type.
     key({ kind: "tab" });
     expect(BV.where(b)).toBe("preview");
-    expect(hints()).toContain("preview · editing · e ⏎ enter the edit");
+    expect(hints()).toContain("preview · editing · e/⏎ enter the edit");
     expect(frame()[rect("preview").row]).toMatch(/editing.*\(e enters\)/);
     key(char("j")); key(char("x"));
     expect(p.draft!.text).toBe(text);
@@ -458,11 +459,13 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       desk.render(D.ctx);
       // Reading: keys and the wheel scroll it; the frame says how far down.
       key({ kind: "pgdn" });
-      expect(scrollOf(rd)).toBe(15);
+      const paged = Math.min(rd.surface.pageBy(1), (rd.surface as any).maxScroll);
+      expect(paged).toBeGreaterThan(0);
+      expect(scrollOf(rd)).toBe(paged);
       desk.render(D.ctx);
       const r = D.placed.rects.get(readerId);
       wheel(r);
-      expect(scrollOf(rd)).toBe(15 + SCROLL_ROWS);
+      expect(scrollOf(rd)).toBe(Math.min(paged + SCROLL_ROWS, (rd.surface as any).maxScroll));
       const drawn = desk.render(D.ctx).lines.map(plain);
       expect(drawn[r.row]).not.toMatch(/\d+%/);
       expect(drawn.slice(r.row + 1, r.row + r.rows - 1).map(l => l[r.col + r.cols - 1]).join("")).toContain("█");

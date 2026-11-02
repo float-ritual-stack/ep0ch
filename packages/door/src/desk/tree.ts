@@ -3,7 +3,7 @@ import { NOBODY } from "../whereabouts";
 import { TREE_MOVE_KEYS } from "../surface/attached-keys";
 import { modeBinding, modeHint, modeActionKeys } from "../surface/modes";
 import { shortId } from "../refs";
-import { currentRowLimit, rowLines } from "../text";
+import { currentRowLimit, moreText, rowLines, waitingText } from "../text";
 // The outline tree (a desk tile, the board's outline dock), with the authored links the outliner's Tree
 // shows under a block (PIE-259, PIE-324, PIE-329): `L` (`tree.links`) opens, under the selected row, its
 // Outlinks and Resources (the service's `blocks.authored-links`) and its Backlinks (`references.backlinks`,
@@ -29,7 +29,7 @@ import { ActionRefused, actionSet, def } from "../surface/actions";
 import { width, drawEllipsized, C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { Fold } from "../fold";
 import { readView, type ViewRead } from "../views";
-import { RowView, type RowPress } from "../scroll";
+import { listMove, RowView, type RowPress } from "../scroll";
 import { ch, isUp, isDown, type Key } from "../term";
 import { askInBar } from "../bar/ask";
 import { lastTrashed } from "../note-trash";
@@ -120,9 +120,11 @@ export class TreePane implements Pane {
   subject() { const r = this.rows[this.sel]; return r?.kind === "block" ? r.m.id : null; }
   hint() {
     const r = this.rows[this.sel];
-    if (r?.kind === "branch-note") return r.role === "more" ? "⏎ read more matches · D depth" : "⏎ D change the depth · h back";
-    if (r && r.kind !== "block") return r.kind === "resource" ? "⏎ show the resource · h back" : r.kind === "group" || r.kind === "kind" ? "⏎ space fold · h back" : "⏎ open · l its links · h back";
-    return r?.kind === "block" && (isBranch(r.m) || r.via) ? "←→ fold · ⏎ read · L links · D depth" : "←→ fold · ⏎ read · L links · " + modeHint(TREE_MOVE_KEYS, action => TREE_ACTIONS.def(action));
+    const say = (rows: readonly [string, string, string][]) => modeHint(rows.map(([key, action, label]) => ({ key, action, label })), () => undefined);
+    if (r?.kind === "branch-note") return r.role === "more" ? say([["enter", "tree.pick", "read more matches"], ["D", "tree.depth", "depth"]]) : say([["enter", "tree.pick", "change the depth"], ["D", "tree.depth", "change the depth"], ["h", "tree.pick", "back"]]);
+    if (r && r.kind !== "block") return r.kind === "resource" ? say([["enter", "tree.pick", "show the resource"], ["h", "tree.pick", "back"]]) : r.kind === "group" || r.kind === "kind" ? say([["enter", "tree.pick", "fold"], ["space", "tree.fold", "fold"], ["h", "tree.pick", "back"]]) : say([["enter", "tree.pick", "open"], ["l", "tree.links", "its links"], ["h", "tree.pick", "back"]]);
+    const read = [["left", "tree.fold", "fold"], ["right", "tree.fold", "fold"], ["enter", "tree.pick", "read"], ["L", "tree.links", "links"]] as [string, string, string][];
+    return r?.kind === "block" && (isBranch(r.m) || r.via) ? say([...read, ["D", "tree.depth", "depth"]]) : say(read) + " · " + modeHint(TREE_MOVE_KEYS, action => TREE_ACTIONS.def(action));
   }
   /** The row it has selected: a preview tile following the tree starts there. */
   selected(): Msg | null {
@@ -198,14 +200,14 @@ export class TreePane implements Pane {
     const b = this.branches.get(view.id);
     const note = (role: "results" | "more" | "info", text: string): TreeRow => ({ kind: "branch-note", key: `n:${view.id}:${role}`, depth, view: view.id, role, text });
     if (!b) return;
-    if (b.read === "loading" && !b.items.length) return void out.push(note("info", "reading the view…"));
+    if (b.read === "loading" && !b.items.length) return void out.push(note("info", waitingText("the view")));
     const read = b.read === "loading" ? null : b.read;
     if (read && read.status !== "ready") return void out.push(note("info", `can't read this view (${read.status})${read.errors[0] ? `: ${read.errors[0]}` : ""}`));
     const total = read?.total ?? b.items.length;
     const d = this.depthOf(view.id);
     out.push(note("results", b.items.length ? `${total} ${total === 1 ? "match" : "matches"} · ${d === 0 ? "results only" : `children to depth ${d}`}${b.depth !== undefined ? " (D)" : ""}` : "no matches"));
     for (const m of b.items) this.emit(out, m, depth, `v:${view.id}>${m.id}`, `v:${view.id}>${m.id}`, { via: view.id, rel: 0 });
-    if (read?.nextOffset !== undefined) out.push(note("more", `… ${Math.max(0, total - b.items.length)} more · ⏎ reads the next ${read.limit}`));
+    if (read?.nextOffset !== undefined) out.push(note("more", moreText(Math.max(0, total - b.items.length), { hint: `⏎ reads the next ${read.limit}` })));
   }
 
   /** The groups under `owner` (a row's key) when its links are shown (the shared links model), and theirs beneath rows that show theirs. */
@@ -597,7 +599,7 @@ export class TreePane implements Pane {
 
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.drawnW = w; this.drawnH = h;
-    if (!this.roots) return { lines: [dim("dialing the outline…")] };
+    if (!this.roots) return { lines: [dim(waitingText())] };
     // The row whose note is shown where the tree's opens land is drawn bright (PIE-1207: a wire's target, not a hidden current note).
     const shown = desk.opensShow?.(this) ?? null;
     const draw = (r: TreeRow, on: boolean) => {
@@ -673,12 +675,8 @@ export class TreePane implements Pane {
   key(k: Key, desk: DeskApi): boolean {
     const row = this.rows[this.sel], n = this.rows.length;
     const pickTo = (i: number) => { const to = Math.max(0, Math.min(n - 1, i)); if (n && to !== this.sel) this.run(desk, "tree.pick", { n: to + 1 }); return true; };
-    if (isUp(k)) return pickTo(this.sel - 1);
-    if (isDown(k)) return pickTo(this.sel + 1);
-    if (k.kind === "pgup") return pickTo(this.sel - 15);
-    if (k.kind === "pgdn") return pickTo(this.sel + 15);
-    if (k.kind === "home") return pickTo(0);
-    if (k.kind === "end") return pickTo(n - 1);
+    const to = listMove(k, { at: this.sel, n, room: this.view.room });
+    if (to !== null) return pickTo(to);
     if (!row) return false;
     // alt+↑ alt+↓ put the note up or down among its siblings (as in a reader, the board's lanes and the Welcome list); K and J do
     // too, for a terminal that doesn't send Option+arrows (a Mac's); I moves it in under the note above, O out after its parent.

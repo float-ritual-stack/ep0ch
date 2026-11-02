@@ -10,7 +10,7 @@ import { rowLines } from "../text";
 // in it: a click places the cursor, a drag selects).
 import { listPreview, type PickerPreview } from "../bar/list-preview";
 import type { Canvas, Rect } from "../canvas";
-import { RowView, wheelRows } from "../scroll";
+import { pageRows, RowView, wheelRows } from "../scroll";
 import { bg, C, fg, pad, RESET, floatSelectedRow } from "../style";
 import { type Key } from "../term";
 import { LineField } from "./line";
@@ -155,7 +155,7 @@ export class ListPicker<T, H> implements Mode<H> {
     if (this.spec.keys?.(k, host)) return true;
     const was = input?.text;
     if (input?.take(k)) { if (input.text !== was) this.spec.typed?.(host); return true; }
-    const page = Math.max(1, Math.floor((this.view.room - 1) / this.per));
+    const page = Math.max(1, Math.floor(pageRows(this.view.room) / this.per));
     switch (binding?.action) {
       case "picker.move": this.move(binding.args!.by as number); break;
       case "picker.page": this.move((binding.args!.by as number) * page); break;
@@ -278,4 +278,28 @@ export function listFieldPicker(title: string, action: "list.sort" | "list.group
     row: (key, _i, on, w) => [pickRow(key || "no grouping", on, w)], choose,
     frame: (a, n) => ({ rect: centred(a, Math.min(50, a.cols - 2), Math.min(n + 2, a.rows)), title: `${action} · ${title}` }),
   });
+}
+
+/**
+ * The one yes/no over the screen (PIE-1293), for anything that can't be taken back at once: the safe choice is the
+ * first row, where the cursor starts, so ⏎ (or a stray Enter) keeps things as they are; the destructive row comes
+ * second, in the warning colour, and says what it does. Its own keys (`keys`: trash's `d` again and Delete, the
+ * board's `d d`) and a click on its row do it at once; esc, any closing click or the safe row let it go.
+ */
+export function confirmPicker<H>(o: {
+  name: string; title: string; destructive: string; safe?: string; keys?: readonly string[]; action?: string; label?: string;
+  go: (host: H) => void; width?: number;
+}): ListPicker<string, H> {
+  const rows = [o.safe ?? "keep it", o.destructive];
+  const p: ListPicker<string, H> = new ListPicker<string, H>({
+    name: o.name, items: () => rows, clickChooses: true,
+    row: (r, i, on, w) => [...pickRows(` ${r}`, on, w, i === 1 ? C.lred : C.grey)],
+    choose: (_r, i, h) => { if (i === 1) o.go(h); },
+    ...(o.keys?.length ? {
+      bindings: o.keys.map(key => ({ key, action: o.action ?? "confirm.yes", label: o.label ?? "yes" })),
+      dispatch: (_: ModeKey, h: H) => { p.close(h, "letter"); o.go(h); },
+    } : {}),
+    frame: a => ({ rect: centred(a, Math.min(a.cols - 2, Math.max(o.width ?? 40, ...rows.map(r => r.length + 4), o.title.length + 6)), 4), title: o.title }),
+  });
+  return p;
 }

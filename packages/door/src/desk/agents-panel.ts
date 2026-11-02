@@ -11,6 +11,7 @@ import { HomeSurface } from "../surface/home";
 import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ActionRefused, actionSet, def } from "../surface/actions";
+import { modeHint, type ModeKey } from "../surface/modes";
 import { RowView } from "../scroll";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
@@ -20,7 +21,12 @@ import { onStatusChange, statusMark } from "./program-status";
 export const AGENTS_KIND_NAME = "agents";
 
 /** The panel's row keys, in the order its hint says them. */
-export const AGENTS_HINT = "j k pick · ⏎ or click jumps · @ ask it · a into your drawer · d dock here · n new";
+export const AGENTS_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "agents.pick", label: "pick", click: false }, { key: "k", action: "agents.pick", label: "pick", click: false },
+  { key: "enter", action: "agents.go", label: "jumps" }, { key: "@", action: "agents.ask", label: "ask it" },
+  { key: "a", action: "agents.drawer", label: "into your drawer" }, { key: "d", action: "agents.dock", label: "dock here" }, { key: "n", action: "agents.new", label: "new" },
+];
+export const AGENTS_HINT = () => modeHint(AGENTS_KEYS, () => undefined);
 
 export class AgentsPane implements Pane {
   readonly kind = AGENTS_KIND_NAME;
@@ -34,7 +40,7 @@ export class AgentsPane implements Pane {
 
   rows(): AgentSession[] { return this.desk?.ctx.hostLayer?.sessions?.() ?? []; }
   title() { const n = this.rows().length; return n ? `agents · ${n}` : "agents · none"; }
-  hint() { return this.rows().length ? AGENTS_HINT : ""; }
+  hint() { return this.rows().length ? AGENTS_HINT() : ""; }
   init(desk: DeskApi) {
     this.desk = desk;
     this.off?.();

@@ -8,7 +8,7 @@ import { statSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { subject, type Msg } from "../board";
 import { C, fg, RESET } from "../style";
-import { wrap } from "../text";
+import { waiting, wrap } from "../text";
 import type { Key } from "../term";
 import { ReaderPane, type DeskApi, type PaneView, type SessionKind } from "./panes";
 import type { TileKindName } from "./tile-kinds";
@@ -124,7 +124,7 @@ export class PreviewPane extends ReaderPane {
       if (v) return v;
     }
     if (!this.msg) {
-      if (!("tile" in this.source)) return { lines: [fg(C.dark) + "reading…" + RESET] };
+      if (!("tile" in this.source)) return { lines: [waiting()] };
       // Where its notes come from: the tile it follows (gone from this screen: it says so) and any whose opens land here.
       if (!this.source.tile) return { lines: wrap("Selections sent here show in this preview · tile.link verb=select sets a source", Math.max(10, w - 1)).map(l => fg(C.dark) + l + RESET) };
       const id = this.source.tile, tile = desk?.pane?.(id), there = !desk?.pane || !!tile;

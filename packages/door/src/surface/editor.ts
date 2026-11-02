@@ -16,6 +16,7 @@ import type { LinkTarget } from "../refs";
 import { rule, words } from "../text";
 import { ownTerminal, type Handover, type TileExit, type TileProgram, type Key } from "../term";
 import { agentLabel, declaredKeys, keyCaption } from "./actions";
+import { modeHint, type ModeKey } from "./modes";
 import { popupHint, completerOf, completionOf } from "./completer";
 
 export interface EditFrame {
@@ -222,10 +223,13 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   return true;
 }
 
+/** A draft's keys as a hint row: each row names the action its key runs (the draft's own keys, edit.ts), drawn the way every mode's are. */
+const draftKeys = (rows: readonly ModeKey[]): string => modeHint(rows, () => undefined);
+
 /** The keys line for a draft, the same words everywhere: `ctrl+s save · esc done · ctrl+x ctrl+e $EDITOR · …`. */
 export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload?: string | null; close?: "done" | "back"; place?: string; move?: boolean; follow?: boolean }): string {
   const pop = completionOf(d);
-  if (pop) return `${popupHint(pop)} · ctrl+s ${o.save}`;
+  if (pop) return `${popupHint(pop)} · ${draftKeys([{ key: "ctrl+s", action: "edit.save", label: o.save }])}`;
   if (d.snippet) return `slot ${d.snippet.index + 1}/${d.snippet.slots.length} · ` +
     (["snippet.next", "snippet.previous", "snippet.end", "draft.undo"] as const).map(name => {
       const action = DRAFT_ACTIONS.def(name)!;
@@ -234,7 +238,16 @@ export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
   const last = d.undos.at(-1);
   const undo = last ? ` · ctrl+z undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}` : "";
-  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${o.follow && d.linkAtCursor() ? " · ctrl+l open link" : ""}${undo}${o.place ? ` · ctrl+o ${o.place}` : ""}${o.move ? " · ctrl+g move" : ""}${d.redos.length ? " · ctrl+y redo" : ""}${d.selection() ? " · alt+c copy" : ""} · ctrl+x ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
+  const row = (key: string, action: string, label: string): ModeKey => ({ key, action, label });
+  return draftKeys([
+    row("ctrl+s", "edit.save", o.save), row("esc", "edit.close", d.dirty ? "twice puts it aside" : o.close ?? "done"),
+    ...(o.follow && d.linkAtCursor() ? [row("ctrl+l", "edit.follow", "open link")] : []),
+    ...(last ? [row("ctrl+z", "draft.undo", `undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}`)] : []),
+    ...(o.place ? [row("ctrl+o", "draft.place", o.place)] : []), ...(o.move ? [row("ctrl+g", "comment.grip", "move")] : []),
+    ...(d.redos.length ? [row("ctrl+y", "draft.redo", "redo")] : []), ...(d.selection() ? [row("alt+c", "draft.copy", "copy")] : []),
+    row("ctrl+x ctrl+e", "edit.external", "$EDITOR"), ...(o.reload ? [row("ctrl+r", "edit.reload", o.reload)] : []),
+    row("ctrl+t", "edit.insert", "insert"), row("tab", "draft.indent", "indent"), row("shift+tab", "draft.outdent", "out"), row("ctrl+p", "draft.preview", "preview"),
+  ]);
 }
 
 /** A note draft's state, for its status line. */

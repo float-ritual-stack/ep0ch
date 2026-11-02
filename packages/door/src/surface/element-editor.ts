@@ -1,3 +1,4 @@
+import { modeHint, type ModeKey } from "./modes";
 import { PositionRows } from "../reader-position";
 // A rendered view of a Draft, never another text buffer. Adapters own source spans and structural
 // operations; Draft owns typing, selection, undo, revisions and incoming patches.
@@ -10,7 +11,7 @@ import { C, fg, RESET, pad, width } from "../style";
 import { SELECT_BG } from "./selection";
 import { type Actor } from "../socket";
 import type { Key } from "../term";
-import { lastTop, scrolled, follow } from "../scroll";
+import { lastTop, pageRows, scrolled, follow } from "../scroll";
 
 export interface ElementField { line: number; start: number; end: number; paddingEnd?: number; escapes?: RegExp; value: string; encode?: (value: string) => string; decode?: (source: string) => string }
 export type ElementOperation = "row.add" | "row.remove" | "column.add" | "column.remove" | "row.move" | "column.move";
@@ -157,6 +158,14 @@ registerElementEditor({
   },
 });
 
+/** A table or figure being edited as cells: the keys `key()` below handles, each on the action it runs. */
+export const ELEMENT_KEYS: readonly ModeKey[] = [
+  { key: "tab", action: "rich.move", args: { direction: "next" }, label: "cells" }, { key: "up", action: "rich.move", args: { direction: "up" }, label: "cells" }, { key: "down", action: "rich.move", args: { direction: "down" }, label: "cells" },
+  { key: "alt+r", action: "rich.change", args: { op: "row.add" }, label: "row" }, { key: "alt+d", action: "rich.change", args: { op: "row.remove" }, label: "row" },
+  { key: "alt+v", action: "rich.change", args: { op: "column.add" }, label: "column" }, { key: "alt+x", action: "rich.change", args: { op: "column.remove" }, label: "column" },
+  { key: "ctrl+s", action: "edit.save", label: "save" }, { key: "ctrl+o", action: "rich.toggle", label: "raw" },
+];
+
 export class ElementEdit {
   on = false;
   private positionRows: PositionRows;
@@ -273,7 +282,7 @@ export class ElementEdit {
     if (k.kind === "char" && k.ctrl && k.ch === "o") { run("rich.toggle"); return true; }
     if (!this.on) return false;
     if (this.draft.busy) return true;
-    if (k.kind === "pgup" || k.kind === "pgdn") { run("rich.scroll", { by: (k.kind === "pgup" ? -1 : 1) * this.room }); return true; }
+    if (k.kind === "pgup" || k.kind === "pgdn") { run("rich.scroll", { by: (k.kind === "pgup" ? -1 : 1) * pageRows(this.room) }); return true; }
     this.draft.follow = true;
     if (k.kind === "esc") { run("rich.toggle", { on: false }); return true; }
     if (!("pasted" in k) && ["tab", "backtab", "up", "down", "enter"].includes(k.kind)) { run("rich.move", { direction: k.kind === "backtab" ? "previous" : k.kind === "tab" || k.kind === "enter" ? "next" : k.kind }); return true; }
@@ -381,7 +390,7 @@ export class ElementEdit {
     this.spots = spots.map(s => ({ ...s, y: s.y - this.top + 2 }));
     d.leaveRawView();
     return [fg(C.lcyan) + pad(labels.map(l => l[0]).join(" "), w) + RESET,
-      fg(C.cyan) + pad(d.note || attribution || "Tab/↑↓ cells · alt+r/d row · alt+v/x column · ctrl+s save · ctrl+o raw", w) + RESET,
+      fg(C.cyan) + pad(d.note || attribution || modeHint(ELEMENT_KEYS, () => undefined), w) + RESET,
       ...body.slice(this.top, this.top + room)];
   }
 }

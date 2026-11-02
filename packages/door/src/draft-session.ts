@@ -1,4 +1,5 @@
 import type { ReaderPosition } from "./reader-position";
+import { Again } from "./arm";
 // One draft session (PIE-516): the lifecycle every draft goes through, whatever it's for. A draft opens
 // (bringing back the text put aside at its place), is typed in, is held on the service while it edits a
 // block, and ends in one of three ways: written (saved, sent or created), closed with nothing changed, or
@@ -796,7 +797,8 @@ export function commentTarget(o: {
   relocate?(): Promise<void>;
 }): DraftTarget {
   const w0 = o.where(), title = `“${subject(o.note)}”`;
-  let confirmNew = false;
+  // ctrl+s again sends a text that differs from a send with no answer (Again: the same key within its window).
+  const sendAnyway = new Again<string>();
   const no = (why: string, more: { stale?: boolean; again?: boolean } = {}): Outcome => { o.refused?.(why, !!more.stale); return { ok: false, why, ...more }; };
   const key = (t: NewCommentWhere, body: string) => JSON.stringify(t.kind === "quote" ? ["comment", t.blockId, t.revision, t.passage.start, t.passage.quote, body] : t.kind === "note" ? ["comment", t.blockId, t.revision, body] : ["reply", t.thread.id, body]);
   // A comment on a passage or on the whole note is put aside on the note: either brings it back.
@@ -813,11 +815,11 @@ export function commentTarget(o: {
       const body = d.text.trim();
       if (!body) { d.note = "write the comment first"; return { ok: false, why: d.note }; }
       const k = key(t, body);
-      if (o.out.peek(k).replacesUnsure && !confirmNew) {
-        confirmNew = true;
+      if (o.out.peek(k).replacesUnsure && !sendAnyway.take(k)) {
+        sendAnyway.arm(k);
         return no("the last send got no answer and may be saved; this text differs, so it would be a second comment · ctrl+s again sends it anyway", { again: true });
       }
-      confirmNew = false;
+      sendAnyway.clear();
       const requestId = o.out.begin(k);
       d.saving = true;
       try {

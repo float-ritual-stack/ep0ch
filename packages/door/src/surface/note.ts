@@ -8,8 +8,8 @@ import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
-import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
-import { modeBinding, modeHint, modeActionKeys } from "./modes";
+import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS, hintOf, rk, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, chooseKeys, PLACEMENT_KEYS, FIELD_KEYS, CHILDREN_KEYS, replyHint, figureKeys, LET_GO_KEYS, gripKeys, backKeys } from "./attached-keys";
+import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
 import { insertButton, insertNoteLine } from "./note-insert";
@@ -42,7 +42,7 @@ import { outlineState } from "../state";
 import { sourceDownload } from "@ep0ch/outline-core/sources";
 import { ReaderPosition, PositionRows } from "../reader-position";
 import { NoteForm, FORM_KEYS, FORM_CHOICE_KEYS } from "./note-form";
-import { elementEdit, type ElementOperation } from "./element-editor";
+import { elementEdit, ELEMENT_KEYS, type ElementOperation } from "./element-editor";
 // The note surface: one note, shown, edited and commented on the same way wherever it is hosted — the
 // board's preview, details and floats, the desk's reader, and (next) a river column. It owns the note's
 // rendering, links, the edit control (a Draft, with Ctrl+E handing it to $EDITOR), passage selection
@@ -56,7 +56,7 @@ import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { componentRowFields, listFieldsTuned, listTarget, lookFor, pageOf as lookPage, type Look } from "../look";
 import { fencedLines, LIST_ITEM, listLayers, listStart, type StyleLayer } from "@ep0ch/outline-core/style-cascade";
-import { onlyScrolled, overscrollRows, scrolled, wheelRows } from "../scroll";
+import { onlyScrolled, overscrollRows, pageRows, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
 import { headedTitle, subject, titleLine, type Msg } from "../board";
 import { editArmMs } from "../arm";
@@ -115,7 +115,7 @@ import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
 import { visible, headOf, tailFrom, BOLD, bgRgb, fgRgb, ellipsize, drawEllipsized, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ago, bbsDate, rowLines, rule, wrap } from "../text";
+import { ago, bbsDate, rowLines, rule, waitingText, wrap } from "../text";
 import { startShare, endsIn } from "../share-cli";
 import type { FragmentKind, ShareSession } from "@ep0ch/outline-core/protocol";
 import { startsTable, tableCells } from "@ep0ch/outline-core/table-shape";
@@ -745,8 +745,8 @@ export class NoteSurface {
   private positionRows = new PositionRows(this.position);
   get scroll() { return this.positionRows.top; }
   set scroll(value: number) { this.positionRows.top = value; }
-  /** The furthest the note scrolls, from its last render (keys and the wheel stop there). */
-  private maxScroll = Infinity;
+  /** The furthest the note scrolls (keys and the wheel stop there), and the body rows shown, from its last render: PgUp PgDn and space scroll those less one (pageBy, PIE-1293). */
+  private maxScroll = Infinity; private bodyRoom = 0; pageBy(dir: 1 | -1): number { return dir * pageRows(this.bodyRoom || 16); }
   /** Where End stops first, from its last render: the last line on the bottom edge (PIE-622). */
   private endScroll = Infinity;
   /** End was pressed (scrollEnd): the stop it goes to, placed at the next render. */
@@ -1227,8 +1227,8 @@ export class NoteSurface {
   /** Refusals name the draft that holds the note, even while its preview has the keys. */
   holdingHint(): string {
     const d = this.draft;
-    return d ? editHint(d, { save: "save", follow: true, reload: d.conflict || d.changedElsewhere ? "reload" : null })
-      : this.modes.all().find(mode => mode.editing())?.hint() ?? "";
+    // Plain: it goes into refusals, which an agent reads as text.
+    return visible(d ? editHint(d, { save: "save", follow: true, reload: d.conflict || d.changedElsewhere ? "reload" : null }) : this.modes.all().find(mode => mode.editing())?.hint() ?? "");
   }
 
   /** A selected element or active mode owns the hint before a host offers its reading shortcuts. */
@@ -1241,7 +1241,7 @@ export class NoteSurface {
     if (rows) return selectionHint(this.selection!, [...this.selection!.text(rows)].length);
     const points = this.msg && !this.msg.partial ? this.visibleFolds(this.msg) : [];
     const sel = this.selectedFold(), f = sel ? points.indexOf(sel) : -1;
-    if (f >= 0) { const p = points[f]!; return `fold ${f + 1}/${points.length} ${foldLabel(p)} · ⏎ f ${this.effectiveFolded(p) ? "unfold" : "fold"} · F all · ( ) next · [ ] elements`; }
+    if (f >= 0) { const p = points[f]!; return `fold ${f + 1}/${points.length} ${foldLabel(p)} · ${hintOf([rk("enter", "fold.toggle", this.effectiveFolded(p) ? "unfold" : "fold"), rk("f", "fold.toggle", this.effectiveFolded(p) ? "unfold" : "fold"), rk("F", "fold", "all"), ...SECTION_KEYS.map(r => ({ ...r, label: "next" })), ...ELEMENT_STEP_KEYS])}`; }
     // The current element, named (PIE-441); one an agent's mark scrolled away is named, but ⏎ waits for it.
     const away = !this.inView() && this.drawn ? this.elems.find(x => x.key === this.cur) : undefined;
     if (away) return `[ ] ${this.elems.indexOf(away) + 1}/${this.elems.length} · ${away.kind} ${printable(away.label)} · out of view · [ ] steps on from it`;
@@ -1250,9 +1250,9 @@ export class NoteSurface {
     // An extension's line or control: its keys go first, as a proposal's do.
     if (e?.link?.press?.act.startsWith("reader.crumb")) return "breadcrumb: show its links";
     if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label)} · ⏎ runs ${printable(e.link.press.act.replaceAll("\n", " -> "))}`;
-    if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
+    if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ${hintOf([rk("enter", "element.open", verbOf(e, false)), ...(e.kind === "resource" ? [rk("y", "block.copy", "copy")] : [])])}`;
     // A table row's label keeps its columns' gaps: one space each here, since two spaces part a hint row's keys (hintKeys).
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${collectionAtCursor(this) ? ` · ${collectionHint()}` : this.figureHint()} · ${this.zoomHint()}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ${hintOf([rk("enter", "element.open", verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))), ...(opens(e) ? [rk("alt+enter", "element.open", "new", { fresh: true })] : []), ...(e.kind === "resource" || e.kind === "block" ? [rk("y", "block.copy", "copy")] : []), ...(e.kind === "task" ? [rk("space", "task.status", "done/to do"), rk("ctrl+z", "task.undo", "undo")] : [])])}${collectionAtCursor(this) ? ` · ${collectionHint()}` : this.figureHint()} · ${this.zoomHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
@@ -1264,13 +1264,13 @@ export class NoteSurface {
     const context = this.contextualHint();
     if (context !== null) return context;
     // Back, and the trail (PIE-208) once there is somewhere to go either way.
-    const back = (this.peek(-1) ? "alt← back · " : "") + (this.peek(-1) || this.peek(1) ? "alt+T trail · " : "");
+    const back = backKeys(!!this.peek(-1), !!(this.peek(-1) || this.peek(1))), backPart = back ? `${back} · ` : "";
     // Zoomed into a part (PIE-780): the way back first; else W zooms (the keys from ZOOM_KEYS, the table that binds them).
     const zoom = this.zoomHint();
-    if (this.zoom) return `${extra}${zoom} · ${back}↑↓ j k blocks/rows · [ ] elements · f fold`;
+    if (this.zoom) return `${extra}${zoom} · ${backPart}${hintOf([...STEP_KEYS, ...ELEMENT_STEP_KEYS, READING_KEYS[0]!])}`;
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
     const proposal = this.msg && isOpenProposal(this.msg) ? this.proposalKeys(this.msg.id) : "";
-    return `${extra}${proposal}${back}↑↓ j k blocks/rows · ( ) sections · [ ] elements · ${zoom} · f fold · M comments mode · R reply · t thread · i properties · z callouts · u up · C comment · m comments`;
+    return `${extra}${proposal}${backPart}${hintOf([...STEP_KEYS, ...SECTION_KEYS, ...ELEMENT_STEP_KEYS])} · ${zoom} · ${hintOf(READING_KEYS)}`;
   }
 
   /** The zoom's keys (PIE-780) as the hint says them, read from ZOOM_KEYS: the way in, or while zoomed the way back. */
@@ -1559,7 +1559,7 @@ export class NoteSurface {
       press: (x, y, _host, drag) => { if (drag) this.listEditor.extend({ col: x, row: y }); else this.listEditor.begin({ col: x, row: y }); host.redraw(); return true; },
       leave: async () => { await this.listEditor.input("cancel"); return { left: "nothing" }; },
       unsaved: () => this.listEditor.unsaved(), keep: () => this.listEditor.keep(),
-      hint: () => "children · Enter/ctrl+s save · Esc keeps", state: () => "editing children", describe: () => ({ line: a + 1, endLine: b }),
+      hint: () => `children · ${hintOf(CHILDREN_KEYS)}`, state: () => "editing children", describe: () => ({ line: a + 1, endLine: b }),
     });
     if (actor.kind === "user") host.enterMode?.();
     host.redraw(); return { editing: true, line: a + 1, endLine: b };
@@ -1606,7 +1606,7 @@ export class NoteSurface {
     const shown = this.drawn?.heroRows ?? 0;
     if (hero && shown) {
       const cut = this.hero?.pinned ? 0 : Math.min(this.scroll, hero.box.rows), lines = Array.from({ length: shown }, () => "");
-      if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
+      if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · ${waitingText()}`, w));
       // A drag going on says what it will write (PIE-1361), on the header's bottom row.
       const dn = this.heroDrag?.now;
       if (dn) lines[shown - 1] = fg(C.yellow) + pad(`  ${dn.height !== undefined ? `↕ ${dn.height} rows` : `✥ focus ${dn.focus!.x},${dn.focus!.y}`} · let go to write it on the hero line`, w) + RESET;
@@ -2016,7 +2016,7 @@ export class NoteSurface {
       ...(open.length > OPEN_SHOWN ? [dim(`  and ${open.length - OPEN_SHOWN} more left open`)] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${agentWords(this.agent.id)}) ${this.agent.did}`, w) + RESET] : []),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
-      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · ${this.focusMark.says ?? "the line that links here"}${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · esc lets go` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
+      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · ${this.focusMark.says ?? "the line that links here"}${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · ${hintOf(LET_GO_KEYS)}` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · ${hintOf(LET_GO_KEYS)}` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
     if (this.panel?.card) {
       const card = this.panel.card;
@@ -2097,7 +2097,7 @@ export class NoteSurface {
       const over = body.length + extra - Math.max(1, roomFull);
       return !full || over >= full ? Math.max(0, over) : Math.max(0, Math.ceil((over + full) / 2));
     };
-    this.endScroll = reach(0);
+    this.endScroll = reach(0); this.bodyRoom = roomFull;
     // Never so far that the last body row leaves the view (a short note under a header image).
     this.maxScroll = Math.max(this.endScroll, Math.min(Math.max(0, body.length - 1), reach(overscrollRows(roomFull))));
     if (this.endWant) { this.scroll = this.endWant === "edge" ? this.endScroll : this.maxScroll; this.endWant = null; }
@@ -3129,8 +3129,8 @@ export class NoteSurface {
     // or the property list when it fills the reader and the note isn't drawn.
     const page = k.kind === "pgdn" || (ch(k) === " " && !P.field) ? 1 : k.kind === "pgup" ? -1 : 0;
     if (page) {
-      if (P.full && m && !m.partial) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + page * 15)); P.note = ""; }
-      else this.scroll = scrolled(this.scroll, page * 15, this.maxScroll);
+      if (P.full && m && !m.partial) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + this.pageBy(page))); P.note = ""; }
+      else this.scroll = scrolled(this.scroll, this.pageBy(page), this.maxScroll);
       host.redraw();
       return true;
     }
@@ -3926,7 +3926,7 @@ export class NoteSurface {
       },
       unsaved: () => s.dirty,
       keep: () => [s.keep()],
-      hint: () => d.preview && !completionOf(d) ? modeHint(EDIT_PREVIEW_READER_KEYS, action => NOTE_ACTIONS.def(action)) : this.replyParent ? `ctrl+s saves · Esc ${d.dirty ? "twice discards" : "discards"} · PgUp/PgDn scroll message · select then \" quotes` : (elementEdit(d).on ? "ctrl+o raw · Tab/↑↓ cells · alt+r/d row · alt+v/x column · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? "ctrl+v makes that path a picture · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
+      hint: () => d.preview && !completionOf(d) ? modeHint(EDIT_PREVIEW_READER_KEYS, action => NOTE_ACTIONS.def(action)) : this.replyParent ? replyHint(d.dirty) : (elementEdit(d).on ? hintOf(ELEMENT_KEYS.filter(r => r.action !== "edit.save")) + " · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? hintOf([rk("ctrl+v", "draft.image", "makes that path a picture")]) + " · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
       state: () => `editing${d.dirty ? " · unsaved" : ""}`,
       describe: () => ({ ...s.describe(), previewPlace: this.editPreview.place, previewSplit: this.splits["edit-preview"], rich: elementEdit(d).on, writtenBy: writtenBy(d, "save") }),
     };
@@ -4172,8 +4172,8 @@ export class NoteSurface {
       },
       rows: () => null,
       leave: async () => ({ left: "nothing" }),
-      hint: () => p.kind === "callout" ? "callout type · j k ⏎ choose · - start folded · + start open · esc cancel"
-        : `status · ${STEP_CHOICES.map(c => `${c.key} ${c.id === "copy-link" ? "copy link" : c.id === "address" ? "addressable" : statusWord(c.id)}`).join(" · ")} · j k ⏎ choose · esc cancel`,
+      hint: () => p.kind === "callout" ? `callout type · ${hintOf([...chooseKeys("callout.type").slice(0, 3), rk("-", "callout.start", "start folded", { folded: true }), rk("+", "callout.start", "start open"), ...chooseKeys("callout.type").slice(3)])}`
+        : `status · ${hintOf([...STEP_CHOICES.map(c => rk(c.key, "task.status", c.id === "copy-link" ? "copy link" : c.id === "address" ? "addressable" : statusWord(c.id), { status: c.id })), ...chooseKeys("task.status")])}`,
       state: () => null,
       describe: () => p.kind === "callout"
         ? { callout: this.elems.find(e => e.key === p.key)?.label ?? null, selected: p.list.items[p.list.sel]?.id, choices: p.list.items.map(c => c.id), note: p.note || null }
@@ -4286,7 +4286,7 @@ export class NoteSurface {
       click: () => { this.modes.drop("grip"); return undefined; },
       rows: () => null,
       leave: async () => { this.modes.drop("grip"); return { left: "nothing" }; },
-      hint: () => (tiled() ? "moving the attachment round its note · ← → ↑ ↓ or h j k l: that side · drag its border (or ^W < > + -) to size it · ⏎ done" : "moving the attachment · ← → ↑ ↓ or h j k l move · shift+arrows or H J K L size · 0 its usual place · ⏎ done"),
+      hint: () => (`${tiled() ? "moving the attachment round its note" : "moving the attachment"} · ${hintOf(gripKeys(tiled()))}`),
       state: () => "moving the comment",
       describe: () => ({ moving: true, float: cs.float }),
     };
@@ -4630,7 +4630,7 @@ export class NoteSurface {
       void this.runKey(last.name, {}, host, true);
       return true;
     }
-    if (k.kind === "pgdn" || c === " " || k.kind === "pgup") { void this.runKey("scroll", { by: k.kind === "pgup" ? -15 : 15 }, host); return true; }
+    if (k.kind === "pgdn" || c === " " || k.kind === "pgup") { void this.runKey("scroll", { by: this.pageBy(k.kind === "pgup" ? -1 : 1) }, host); return true; }
     // Home to the top; End or G to the last line, then (pressed again) past it to the middle (PIE-622).
     if (k.kind === "home" || k.kind === "end" || c === "G") { void this.runKey("scroll", { to: k.kind === "home" ? "top" : "end" }, host); return true; }
     // An image is current (PIE-532): its size, where it sits, the header (imageKey).
@@ -4997,7 +4997,7 @@ export class NoteSurface {
     // A draft or a comment session renders in place of the note, and its view follows its own cursor:
     // there is no note to scroll, so the keys aren't claimed (and the agent's cursor isn't moved).
     const c = ch(k);
-    const by = isUp(k) ? -1 : isDown(k) ? 1 : k.kind === "pgdn" || c === " " ? 15 : k.kind === "pgup" ? -15 : 0;
+    const by = isUp(k) ? -1 : isDown(k) ? 1 : k.kind === "pgdn" || c === " " ? this.pageBy(1) : k.kind === "pgup" ? this.pageBy(-1) : 0;
     const to = k.kind === "home" ? "top" : k.kind === "end" || c === "G" ? "end" : undefined;
     if (!by && !to) return false;
     if (!this.replyParent && (this.draft || this.session?.composer)) {
@@ -5323,7 +5323,7 @@ export class NoteSurface {
   /** The current element's figure's keys, for the hint: its tabs and its density. */
   private figureHint(): string {
     const f = this.currentFigure();
-    return f ? ` · ↑ ↓ row · esc out${f.tabs ? " · ← → tab · ⇥ ⇤" : ""} · ${modeHint(FIGURE_SIZE_KEYS, name => NOTE_ACTIONS.def(name))}` : "";
+    return f ? ` · ${hintOf(figureKeys(!!f.tabs))} · ${modeHint(FIGURE_SIZE_KEYS, name => NOTE_ACTIONS.def(name))}` : "";
   }
 
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
@@ -7332,7 +7332,7 @@ export class NoteSurface {
       },
       click: (x, y) => { list.key({ kind: "mouse", action: "down", button: 0, x: x - this.menuOffset.col, y: y - this.menuOffset.row }, host); host.redraw(); return true; },
       rows: () => null, leave: async () => { this.modes.drop("placement"); return { left: "nothing" }; },
-      hint: () => "placement · arrows select · Enter choose · Esc close", state: () => "placement", describe: () => ({ target, current: place }),
+      hint: () => `placement · ${hintOf(PLACEMENT_KEYS)}`, state: () => "placement", describe: () => ({ target, current: place }),
     });
     host.redraw();
     return { target, current: place };
@@ -7496,9 +7496,9 @@ export class NoteSurface {
   }
 
   /** Scroll the inspector's rows by `by` (a tall result or transform is read by scrolling; moving the focus scrolls it into view). */
-  scrollSources(host: SurfaceHost, by: number) {
+  scrollSources(host: SurfaceHost, by: number, page = false) {
     const mode = this.sourcesMode;
-    if (!mode) throw new ActionRefused("the Sources inspector isn't open here · S opens it");
+    if (!mode) throw new ActionRefused("the Sources inspector isn't open here · S opens it"); if (page) by = Math.sign(by) * pageRows(mode.room.h);
     mode.view.scroll(by);
     host.redraw();
     return { top: mode.view.top };
@@ -7773,7 +7773,7 @@ export class NoteSurface {
       },
       wheel: (dir, host, at) => { if (mode.place === "tile" && host.attachment !== "sources") return false; const r = mode.rect; if (!at || at.x < r.x || at.x >= r.x + r.w || at.y < r.y || at.y >= r.y + r.h) return false; run("sources.scroll", { by: wheelRows(dir) }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("sources"); return { left: "nothing" }; },
-      leaveRefusal: () => mode.view.field ? "finish the property field · Enter saves · Esc keeps" : null,
+      leaveRefusal: () => mode.view.field ? `finish the property field · ${hintOf(FIELD_KEYS)}` : null,
       unsaved: () => mode.view.unsaved(), keep: () => mode.view.keep(),
       hint: () => "sources has keys · " + modeHint(mode.keys!, action => NOTE_ACTIONS.def(action)), state: () => this.modes.active(mode) ? "sources" : null,
       describe: () => ({ keys: this.modes.active(mode) ? "sources" : "reader", selectedResult: (() => { const s = P.answer?.sources[P.open ?? -1]; const it = s && itemsOf(s, P.folds)[P.item]; return it?.kind === "result" ? it.block ?? null : null; })(), place: mode.place, block: P.block, view: P.open === null ? "list" : "source", ...(P.answer ? { readAt: P.answer.readAt, sources: P.answer.sources.map((s, i) => ({ n: i + 1, name: s.name, kind: s.kind, ...(i === P.open ? { open: true, folds: { ...P.folds }, item: P.item + 1 } : {}), ...(i === P.sel ? { selected: true } : {}) })) } : {}), ...(P.error ? { error: P.error } : {}), loading: P.loading }),
@@ -8770,7 +8770,7 @@ export class NoteSurface {
       return false;
     }
     const d = this.drawn!;
-    const r = modeKey(k, s, rows, Math.max(1, d.room - 1));
+    const r = modeKey(k, s, rows, d.room);
     if (r === null) return false;
     if (r === "done") { void this.runKey("select.clear", {}, host); return true; }
     else {
@@ -9290,7 +9290,7 @@ function pickerPanel(ref: StepRef, choices: readonly Choice[], sel: number, note
     lines.push(f.row((i === sel ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + pad(text, inner)));
   });
   if (note) lines.push(f.row(fg(busy ? C.dark : C.lred) + pad(` ${printable(note)}`, inner)));
-  const foot = ` ⏎ choose · esc cancel${ref.via ? ` · in ${ref.via}` : ""} `;
+  const foot = ` ${hintOf(chooseKeys("task.status").slice(2))}${ref.via ? ` · in ${ref.via}` : ""} `;
   lines.push(f.bottom(fg(C.dark) + foot));
   return { lines, rows };
 }
@@ -9317,7 +9317,7 @@ function calloutPanel(ref: CalloutRef, P: Picker, W: number): { lines: string[];
     lines.push(f.row(base + " " + icon + pad(label, Math.max(1, inner - 3 - (c.key ? 3 : 0))) + (c.key ? ` ${c.key} ` : "")));
   });
   if (P.note) lines.push(f.row(fg(P.busy ? C.dark : C.lred) + pad(` ${printable(P.note)}`, inner)));
-  const foot = " ⏎ choose · - folded · + open · esc cancel ";
+  const foot = ` ${hintOf([...chooseKeys("callout.type").slice(2, 3), rk("-", "callout.start", "folded", { folded: true }), rk("+", "callout.start", "open"), ...chooseKeys("callout.type").slice(3)])} `;
   lines.push(f.bottom(fg(C.dark) + foot));
   return { lines, rows };
 }
@@ -10380,11 +10380,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "revision.scroll": def({
     summary: "scroll the revision compare's rows", keys: modeActionKeys(ATTACHED_KEYS, "revision.scroll"),
-    touches: "tile", replay: "safe", args: { by: { type: "number", about: "rows, down when positive" } },
-    examples: [{ act: "revision.scroll by=8", does: "scrolls the compare down a page" }, { act: "revision.scroll by=-1", does: "scrolls it up a row" }],
-    run({ by }, { surface, host }) {
+    touches: "tile", replay: "safe", args: { by: { type: "number", about: "rows, down when positive" }, page: { type: "boolean", optional: true, about: "by= counts pages (the rows shown, less one: PgUp PgDn), not rows" } },
+    examples: [{ act: "revision.scroll by=1 page=true", does: "scrolls the compare down a page" }, { act: "revision.scroll by=-1", does: "scrolls it up a row" }],
+    run({ by, page }, { surface, host }) {
       const mode = surface.revisionMode;
-      if (!mode) throw new ActionRefused("open the revision compare first (revision.compare)");
+      if (!mode) throw new ActionRefused("open the revision compare first (revision.compare)"); if (page) by = Math.sign(by) * pageRows(mode.body || mode.rect.h);
       mode.view.top = Math.max(0, mode.view.top + by);
       host.redraw();
       return { top: mode.view.top };
@@ -12922,12 +12922,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "sources.scroll": def({
     summary: "scroll the Sources inspector's rows (a tall result or transform), by rows; moving the focus scrolls it into view too", keys: modeActionKeys(ATTACHED_KEYS, "sources.scroll"),
     touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads the rows in sources.open's answer",
-    args: { by: { type: "number", about: "rows; negative is up" } },
+    args: { by: { type: "number", about: "rows; negative is up" }, page: { type: "boolean", optional: true, about: "by= counts pages (the rows shown, less one: PgUp PgDn), not rows" } },
     examples: [
-      { act: "sources.scroll by=8", does: "scrolls the inspector's rows down eight rows" },
+      { act: "sources.scroll by=1 page=true", does: "scrolls the inspector's rows down a page" },
       { act: "sources.scroll by=-8", does: "scrolls the inspector's rows up eight rows" },
     ],
-    run: ({ by }, { surface, host }) => surface.scrollSources(host, by),
+    run: ({ by, page }, { surface, host }) => surface.scrollSources(host, by, page),
   }),
   "sources.undo": def({
     summary: "undo the last source edit or line insertion made in this reader while reading this note (an agent undoes its own, the person theirs); refused if that text changed again since",

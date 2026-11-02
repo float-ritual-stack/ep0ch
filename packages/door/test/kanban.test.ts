@@ -74,6 +74,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
   /** Who a block was created by, as the service stored it. */
   const createdBy = async (id: string) => { const m = await current(id); return [m.author, m.actorId]; };
   const hints = () => b.render(B().ctx).lines.at(-1)!.replace(/\x1b\[[\d;]*m/g, "");
+  const screen = () => b.render(B().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
 
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
@@ -480,12 +481,13 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await settled();
     await select("Review", cards.tap.id);
     press({ kind: "char", ch: "d" });
-    await until(() => message().startsWith("d again"), "the confirmation");
-    expect(message()).toBe('d again trashes "Fix the dripping tap" and the 3 notes under it · any other key keeps it');
-    press({ kind: "char", ch: "j" });                                     // any other key: kept
-    press({ kind: "char", ch: "k" });
+    await until(() => B().trashArm?.id === cards.tap.id, "the confirmation");
+    expect(screen()).toContain('trash "Fix the dripping tap"?');
+    expect(screen()).toContain("trash it and the 3 notes under it");
+    press({ kind: "enter" });                                             // ⏎ is the safe row: kept
+    expect(B().trashArm).toBeNull();
     press({ kind: "char", ch: "d" });
-    await until(() => B().trashArm !== null && message().startsWith("d again"), "armed again");
+    await until(() => B().trashArm !== null, "asked again");
     press({ kind: "char", ch: "d" });
     await until(() => B().trashed?.id === cards.tap.id, "the trash");
     expect(message()).toBe('trashed "Fix the dripping tap" and 3 notes under it · u restores it');
@@ -530,7 +532,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     const why = "the person has “Level the shelf” open in a draft with unsaved changes; an agent doesn't write it underneath";
     await expect(act("card.trash", { card: cards.shelf.id, confirm: cards.shelf.id })).rejects.toThrow(why);
     await expect(act("step.set", { card: cards.shelf.id, step: "2" })).rejects.toThrow(why);
-    const theirs = "it's open for editing with unsaved changes · ctrl+s save · esc twice puts it aside";
+    const theirs = "it's open for editing with unsaved changes · ^S save · esc twice puts it aside";
     await expect(B().dispatch.act({ action: "step.set", args: { card: cards.shelf.id, step: "2" } }, { kind: "user" })).rejects.toThrow(theirs);
     BV.at(b, `detail${B().details.findIndex((d: any) => d.editing)}`);
     press({ kind: "char", ch: "e" });                                     // back in the edit (the keys went away from it)

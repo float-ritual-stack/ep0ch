@@ -6,6 +6,7 @@
 // tile kind registers from `extensions.list`, opens by ^W o and `act`, saves its block and comes back after a
 // restart; and an extension removed while the door runs goes away (its tile says so) and comes back.
 // Fictional notes only; the extensions' content is made up.
+import { visible } from "../src/style";
 import { screenNote } from "../src/desk/screen-notes";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { completionOf } from "../src/surface/completer";
@@ -331,8 +332,8 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     let tries = 0;
     while (surface.describe().elements?.current?.label !== "Fancy Horror virgo" && tries++ < 30) { surface.key(char("]"), host); lines(); }
     expect(surface.describe().elements!.current).toMatchObject({ kind: "resource", label: "Fancy Horror virgo" });
-    expect(surface.hint()).toStartWith(`[ ] `);
-    expect(surface.hint()).toContain("w ward · r again · line Fancy Horror virgo · ⏎ ward off the next omen");
+    expect(visible(surface.hint())).toStartWith(`[ ] `);
+    expect(visible(surface.hint())).toContain("w ward · r again · line Fancy Horror virgo · ⏎ ward off the next omen");
     // Every key the hint names is declared by an action the screen takes (the parity rule, PIE-506), and the
     // key runs the action that declares it.
     const declared = new Set(app.actions().actions.flatMap(a => [...declaredKeys(a.keys)]));

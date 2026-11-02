@@ -108,7 +108,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     expect((top().pane("reader") as any).msg?.id).toBe(ada.id);
     await expect(app.act({ action: "waiting.pick", args: { n: 3 }, as: "test-agent" })).rejects.toThrow(/pick 1 to 2/);
     await expect(app.act({ action: "waiting.pick", args: { id: "nope" }, as: "test-agent" })).rejects.toThrow(/no waiting item nope/);
-    await expect(app.act({ action: "waiting.pick", args: {}, as: "test-agent" })).rejects.toThrow(/n or id/);
+    await expect(app.act({ action: "waiting.pick", args: {}, as: "test-agent" })).rejects.toThrow(/n, id or by/);
     // The person edits the note in the reader: an agent's pick would move it out from under them.
     ch("2");
     ch("e");

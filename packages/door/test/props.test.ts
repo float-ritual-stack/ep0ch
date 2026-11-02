@@ -505,16 +505,19 @@ describe("review: property actions", () => {
     const { s, h } = panelRig(`Card\n[priority::high]\n\n${body}`, () => [tok("priority", "high", 1, 0)]);
     s.key(char("i"), h);
     s.render(60, 30, h);
+    // A page is the rows the reader shows, less one (PIE-1293: pageRows).
+    const page = s.pageBy(1);
+    expect(page).toBeGreaterThan(10);
     s.key({ kind: "pgdn" }, h);
-    expect(s.scroll).toBe(15);
+    expect(s.scroll).toBe(page);
     s.key(char(" "), h);
-    expect(s.scroll).toBe(30);
+    expect(s.scroll).toBe(2 * page);
     s.key({ kind: "pgup" }, h);
-    expect(s.scroll).toBe(15);
+    expect(s.scroll).toBe(page);
     expect(s.panel).not.toBeNull();
     // While a value is typed, Space is text.
     s.key({ kind: "enter" }, h); s.key(char(" "), h);
-    expect([s.scroll, s.panel!.field!.input.text]).toEqual([15, "high "]);
+    expect([s.scroll, s.panel!.field!.input.text]).toEqual([page, "high "]);
   });
 });
 

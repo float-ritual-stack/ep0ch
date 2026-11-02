@@ -14,9 +14,10 @@ import { weekday } from "@ep0ch/outline-core/figure-props";
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type FacetAnswer } from "../socket";
 import { ActionRefused, actionSet, def, keysText } from "../surface/actions";
+import { modeHint, type ModeKey } from "../surface/modes";
 import { C, fg, pad, RESET, selectedRow, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
-import { ago, rowLines } from "../text";
+import { ago, rowLines, waiting, waitingText } from "../text";
 import { RowView, wheelRows, clamp, type RowPress } from "../scroll";
 import { LineField } from "../surface/line";
 import { COMPLETION_ACTIONS, lineCompleter } from "../surface/completer";
@@ -59,7 +60,21 @@ type Row =
   | { kind: "note"; note: Msg }
   | { kind: "more"; group: string };
 
-const HINT = "j k pick · ⏎ or click includes a value, again excludes it, again drops it · + − 0 · e edit the query · v save as a view · s sort · z zero · x clear · ctrl+o moves Matches · * pin · t tag · d today";
+const HINT_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "facets.pick", args: { by: 1 }, label: "pick" }, { key: "k", action: "facets.pick", args: { by: -1 }, label: "pick" },
+  { key: "enter", action: "facets.set", label: "includes a value, again excludes it, again drops it" },
+  { key: "+", action: "facets.set", args: { mode: "include" }, label: "include" }, { key: "-", action: "facets.set", args: { mode: "exclude" }, label: "exclude" }, { key: "0", action: "facets.set", args: { mode: "off" }, label: "drop" },
+  { key: "e", action: "facets.edit", label: "edit the query" }, { key: "v", action: "facets.save", label: "save as a view" }, { key: "s", action: "facets.sort", label: "sort" },
+  { key: "z", action: "facets.zero", label: "zero" }, { key: "x", action: "facets.clear", label: "clear" }, { key: "ctrl+o", action: "facets.place", label: "moves Matches" },
+  { key: "*", action: "facets.pin", label: "pin" }, { key: "t", action: "facets.tag", label: "tag" }, { key: "d", action: "facets.day", label: "today" },
+];
+/** The Matches list's keys when it is attached to the facets (key() below runs them). */
+const MATCHES_KEYS: readonly ModeKey[] = [
+  { key: "j", action: "facets.match", args: { by: 1 }, label: "pick" }, { key: "k", action: "facets.match", args: { by: -1 }, label: "pick" },
+  { key: "enter", action: "facets.open", label: "open" }, { key: "alt+enter", action: "facets.open", args: { fresh: true }, label: "beside" },
+  { key: "*", action: "facets.pin", label: "pin" }, { key: "t", action: "facets.tag", label: "tag" }, { key: "ctrl+o", action: "facets.place", label: "moves it" },
+];
+const QUERY_DRAFT_KEYS: readonly ModeKey[] = [{ key: "enter", action: "facets.query", label: "apply" }, { key: "esc", action: "facets.query", label: "undo" }];
 /** What the Matches list shows of a row unless the tile says (`show=`): its tags. Any key goes (properties are open). */
 const SHOW = ["tag"];
 /** A day picked on the calendar, as the views' grammar writes it (the service's day, as `updated >= YYYY-MM-DD` reads). */
@@ -190,7 +205,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   /** The pane whose wires a pick and an open go through: the Matches tile while there is one, else this. */
   source(): Pane { return this.place === "tile" && this.matchesPane ? this.matchesPane : this; }
   title() { const q = this.query(); return q ? `${this.kind} ${q}` : this.kind; }
-  hint() { return this.draft ? "type the query (the views' grammar: #tag key=value NOT … OR …) · ⏎ apply · esc undo" : `${HINT} · ${keysText(FACETS_ACTIONS.def("facets.resize")!.keys)}`; }
+  hint() { return this.draft ? "type the query (the views' grammar: #tag key=value NOT … OR …) · " + modeHint(QUERY_DRAFT_KEYS, () => undefined) : `${modeHint(HINT_KEYS, () => undefined)} · ${keysText(FACETS_ACTIONS.def("facets.resize")!.keys)}`; }
   headLabel() { return fg(C.dark) + (this.error ? "failed" : this.answer ? String(this.answer.facets.length) : "…") + RESET; }
   spine() { return { title: this.title() }; }
   typing() { return this.draft !== null; }
@@ -447,7 +462,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   matchLines(cols: number, room: number, focused: boolean): { lines: string[]; notes: (string | null)[] } {
     const a = this.answer, visible = this.list.visible();
     const d = this.list.draw({ cols, focused, selection: true, room,
-      empty: !a ? " loading…" : this.query() ? " No matching notes." : " No notes yet." });
+      empty: !a ? ` ${waitingText()}` : this.query() ? " No matching notes." : " No notes yet." });
     // Each line's row: a note's id, or a group's "more" row (MORE + its label); headings and spacing are null.
     const notes = d.rowAt.map(i => (i === null ? null : visible[i]?.source?.id ?? (visible[i]?.id.startsWith(MORE) ? visible[i]!.id : null)));
     return { lines: d.lines.map(l => pad(l, cols)), notes };
@@ -476,7 +491,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (completion) completion.drawn = ghost ? { row: 2, anchor: 8 + this.draft!.cursorCol, items: [] } : null;
     if (this.draft?.note) push(fg(C.yellow) + this.draft.note + RESET);
     if (this.error) push(fg(C.lred) + " " + this.error + RESET);
-    else if (!a) push(fg(C.dark) + " loading…" + RESET);
+    else if (!a) push(" " + waiting());
     if (a?.hint) push(fg(C.yellow) + " " + a.hint + RESET);
     const top = lines.length;
     this.bodyRoom = Math.max(0, h - top - 1);
@@ -580,7 +595,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (ch(k) === "/") { this.listHost(desk).type(this.listHost(desk).lists()[0]!); return true; }
     // Every list's keys (PIE-1457): Home and g to the first note, End and G to the last; space opens, as it does on a
     // note in the facets tile's own Matches.
-    const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8
+    const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? this.list.pageBy(1) : k.kind === "pgup" ? this.list.pageBy(-1)
       : k.kind === "home" || c === "g" ? -PAST_END : k.kind === "end" || c === "G" ? PAST_END : 0;
     const run = (name: string, args: Record<string, unknown> = {}) => { void desk.press?.(this, FACETS_ACTIONS, name, args); return true; };
     if (by) return run("facets.match", { by });
@@ -638,7 +653,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   }
 
   attachedTitle(): string { return `matches ${this.answer?.matched ?? "…"}${this.query() ? ` · ${this.query()}` : ""}`; }
-  attachedHint(): string { return "j k pick · ⏎ open · alt+⏎ beside · * pin · t tag · ctrl+o moves it"; }
+  attachedHint(): string { return modeHint(MATCHES_KEYS, () => undefined); }
   attachedSide(_a: Attachment, side: AttachedSide, desk: DeskApi) { void this.placeMatches("tile", desk, side); }
   attachedSideWords(): string { return "beside the facets"; }
   attachedTileIs(_a: Attachment, tile: Pane | null) { this.matchesPane = tile; }
@@ -693,7 +708,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   key(k: Key, desk: DeskApi): boolean {
     if (this.draft !== null && k.kind !== "mouse") return this.draftKey(k, desk);
     const n = this.rows().length, c = ch(k), row = this.current();
-    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : k.kind === "home" || c === "g" ? -PAST_END : k.kind === "end" || c === "G" ? PAST_END : 0;
+    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? this.view.page(1) : k.kind === "pgup" ? this.view.page(-1) : k.kind === "home" || c === "g" ? -PAST_END : k.kind === "end" || c === "G" ? PAST_END : 0;
     if (by) { if (n) this.act(desk, "facets.pick", { by }); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "o") { this.act(desk, "facets.place"); return true; }
     if (k.kind === "enter" || c === " ") {

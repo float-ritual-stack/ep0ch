@@ -69,7 +69,7 @@ import type { AgentLevel } from "../surface/agent-level";
 type Notes = Partial<Record<SeedName, Msg>>;
 const details = new WeakSet<ReaderPane>();
 /** A reader named `detail` on its stage: it keeps the note the exhibit opens into it. */
-const detailPane = (): ReaderPane => { const r = new ReaderPane(true); details.add(r); return r; };
+export const detailPane = (): ReaderPane => { const r = new ReaderPane(true); details.add(r); return r; };
 
 export const STATUS_DEMO = [
   `s() { printf '\\033]7501;%s\\033\\\\' "$1"; }`,
@@ -738,7 +738,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "trash", need: "trash a note from wherever it is seen, and bring it back", part: "note.trash and note.untrash (PIE-878, TILE_ACTIONS over src/note-trash.ts): d on a reader, a links list, the tree or a query tile says what would go (the note and the notes under it) and d again, Delete or a click on the first row trashes it, recorded as the actor's; ctrl+z (with nothing of the tile's own to undo) or the tile menu's row brings back the one the actor trashed last. A system note, the workspace root, a note in the Trash and a note with a draft open on it are refused with why; an agent says confirm=<the note's id>", files: "src/note-trash.ts, src/desk/tile-actions.ts, src/desk/desk.ts (subjectOf, the d and ctrl+z keys), Pane.subject in src/desk/panes.ts",
+    key: "trash", need: "trash a note from wherever it is seen, and bring it back", part: "note.trash and note.untrash (PIE-878, TILE_ACTIONS over src/note-trash.ts): d on a reader, a links list, the tree or a query tile says what would go (the note and the notes under it) and d again, Delete or a click on its red row trashes it (⏎ keeps it: the safe row comes first, confirmPicker), recorded as the actor's; ctrl+z (with nothing of the tile's own to undo) or the tile menu's row brings back the one the actor trashed last. A system note, the workspace root, a note in the Trash and a note with a draft open on it are refused with why; an agent says confirm=<the note's id>", files: "src/note-trash.ts, src/desk/tile-actions.ts, src/desk/desk.ts (subjectOf, the d and ctrl+z keys), Pane.subject in src/desk/panes.ts",
     aside: "the detail holds the Compost heap, its links tile lists the two notes under it · press d in the detail: the choice names the heap and the 2 notes that go with it · d again trashes them (the detail says it is in the Trash) · ctrl+z brings them back · Tab to the links tile, j to Lid, d and d trashes just that one · the tile menu (the ⋯) has the same row, an agent passes confirm=",
     stage(n, show) {
       const d = detailPane(), links = new BacklinksPane("detail", true);

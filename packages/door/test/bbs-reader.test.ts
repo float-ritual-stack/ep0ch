@@ -4,6 +4,7 @@
 // comments (`m`, and a comment mark's thread inline), `e` edits, a drag or `v` selects and `y` copies, and
 // an agent drives it through `act`. The BBS keys still work: n p ⏎ next and previous, t thread, U up, q back.
 // Fictional notes, against a throwaway outliner service only.
+import { visible } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -113,7 +114,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(t).toContain("Bring the kettle to the hut.");
     expect(t).not.toContain("[season::autumn]");
     expect(t).toContain("n next · p prev");
-    expect(r.surface.hint()).toContain("t thread");
+    expect(visible(r.surface.hint())).toContain("t thread");
   }, 20_000);
 
   test("links: [ ] steps to one (the ruler under its block), ⏎ opens it as the next reader, q comes back", async () => {
