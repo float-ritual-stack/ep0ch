@@ -107,6 +107,8 @@ export const SEED = {
   testPlan: "Shed door test plan",
   figureCells: "Links in figure cells",
   templateMeeting: "Meeting note template",
+  templateDayPlan: "Day plan sections",
+  templatePlan: "Garden day plan",
   templateDaily: "Daily note template",
   dailyNotes: "Daily notes",
   meetingSowing: "Sowing meeting",

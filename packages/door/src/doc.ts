@@ -215,6 +215,8 @@ export interface DocMedia { path: string; kind: string; row: number; line: numbe
  */
 export interface Doc {
   lines: string[]; images: DocImage[]; media: DocMedia[]; links: LinkRange[]; source: number[]; heads: { key: string; row: number; cols: number; rows?: number }[];
+  /** Fold points, including inserted documents, in this body's source coordinates. */
+  folds?: FoldPoint[];
   /**
    * Where a figure, a table or a heading was drawn (PIE-780), in reading order: the row it starts on, the body line it was
    * written on and the cell its zoom control goes in. Where parts start only: which lines a part covers is the service's.
@@ -245,7 +247,7 @@ export interface Doc {
  * Rows `env.after` inserts, with where the generated regions among them are (PIE-956): `at` is the row of `rows` a region's
  * first row is, `rows` how many it spans (its body and the panel under it). The reader draws each one's mark in the gutter.
  */
-export interface AfterRows { rows: string[]; regions?: { key: string; at: number; rows: number }[] }
+export interface AfterRows { rows: string[]; regions?: { key: string; at: number; rows: number }[]; heads?: Doc["heads"]; folds?: FoldPoint[] }
 /** A generated region as drawn: where its rows are in `lines`, and the key the reader knows it by. */
 export interface DocRegion { key: string; row: number; rows: number }
 
@@ -283,7 +285,15 @@ export interface DocBlock { kind: "code" | "quote" | "callout" | "span"; row: nu
  * one, else its kind, level and text (without a step's box) with how many identical headings or items
  * come before it, folding or not.
  */
-export interface FoldPoint { list?: { key: string; line: number; preview: boolean }; key: string; kind: "heading" | "list" | "callout"; level: number; text: string; line: number; end: number; hidden: number; start?: "folded" }
+export interface FoldPoint { list?: { key: string; line: number; preview: boolean }; key: string; kind: "heading" | "list" | "callout"; level: number; text: string; line: number; end: number; hidden: number; start?: "folded";
+  /** Inserted documents keep their order and containment inside the call, while line/end still address its source. */
+  order?: { line: number[]; end: number[] };
+}
+
+export function compareFoldPosition(a: readonly number[], b: readonly number[]): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i]! - b[i]!;
+  return a.length - b.length;
+}
 
 // Inline Markdown (bold, italic, strikethrough) arrives as style marks from presentLinks, placed before the
 // text was wrapped; colourBody turns them into SGR.
@@ -476,6 +486,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     });
     for (const [r, j] of sub.wraps ?? []) wraps.set(base + r, j);
     for (const r of sub.regions ?? []) regions.push({ ...r, row: base + r.row });
+    for (const p of sub.folds ?? []) if (!folds.some(own => own.key === p.key)) folds.push({ ...p, line: off + p.line, end: off + p.end, ...(p.order ? { order: { line: [off + p.order.line[0]!, ...p.order.line.slice(1)], end: [off + p.order.end[0]!, ...p.order.end.slice(1)] } } : {}) });
     // A child's full width stays inside its parent's inset.
     for (const p of sub.parts ?? []) parts.push({ ...p, row: base + p.row, line: off + p.line, col: dx + p.col, full: false });
     for (const b of sub.blocks) if (b.kind !== "span") blocks.push({ ...b, row: base + b.row, line: b.line + off, end: b.end + off, inner: [b.inner[0] + off, b.inner[1] + off], strip: b.strip + quoted, col: b.col + dx });
@@ -497,13 +508,21 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   // Inserted rows (env.after) for each body line before `to`, once: they belong to the line they follow.
   let inserted = 0;
   const regions: DocRegion[] = [];
+  const folds = [...(env.folds?.points ?? [])];
+  const insertedRows = (got: string[] | AfterRows, line: number) => {
+    if (!Array.isArray(got)) {
+      for (const r of got.regions ?? []) regions.push({ key: r.key, row: out.length + r.at, rows: r.rows });
+      for (const h of got.heads ?? []) heads.push({ ...h, row: out.length + h.row });
+      // The inserted text is read here; editing still belongs to the line that inserted it.
+      for (const p of got.folds ?? []) folds.push({ ...p, line, end: line + 1, order: { line: [line, ...(p.order?.line ?? [p.line])], end: [line, ...(p.order?.end ?? [p.end])] } });
+    }
+    out.push(...(Array.isArray(got) ? got : got.rows));
+  };
   const insert = (to: number) => {
     for (; inserted < to; inserted++) {
       const got = env.after?.(inserted, W) ?? [];
-      const rows = Array.isArray(got) ? got : got.rows;
-      if (!Array.isArray(got)) for (const r of got.regions ?? []) regions.push({ key: r.key, row: out.length + r.at, rows: r.rows });
-      out.push(...rows);
-      for (const _ of rows) source.push(Math.max(0, inserted));
+      insertedRows(got, Math.max(0, inserted));
+      while (source.length < out.length) source.push(Math.max(0, inserted));
     }
   };
   if (env.after) inserted = -1;
@@ -686,9 +705,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // `::use` (src/template-use.ts): a template drawn live in place of its line.
     const used = env.use ? useCallAt(src, i) : null;
     if (used) {
-      const drawn = env.use!(used, i, W);
-      if (!Array.isArray(drawn)) for (const r of drawn.regions ?? []) regions.push({ key: r.key, row: out.length + r.at, rows: r.rows });
-      out.push(...(Array.isArray(drawn) ? drawn : drawn.rows));
+      insertedRows(env.use!(used, i, W), i);
       continue;
     }
 
@@ -1005,7 +1022,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const finish = (lines: string[]) => { blocks.push(...codeSpans(lines, source)); blocks.sort((a, b) => a.row - b.row || a.col - b.col); return blocks; };
   // A glyph the drawing adds after a link (the ↗ of a link to the web) is marked ADORN: its cell is a cut, drawn and never copied.
   out.forEach((row, r) => { for (let at = row.indexOf(ADORN); at >= 0; at = row.indexOf(ADORN, at + 1)) { const col = vwidth(row.slice(0, at)); cut(r, [col, col + 1]); } });
-  const z = { ...(tints.length ? { tints } : {}), ...(wraps.size ? { wraps } : {}) };
+  const z = { ...(folds.length ? { folds } : {}), ...(tints.length ? { tints } : {}), ...(wraps.size ? { wraps } : {}) };
   if (env.keepTags) { const lines = out.map(stripMarks); return { lines, images, media: mediaRefs, links: [], source, heads, trims, blocks: finish(lines), ...(parts.length ? { parts } : {}), ...(regions.length ? { regions } : {}), ...(hero ? { hero } : {}), ...z }; }
   const { lines, ranges } = extractLinks(out.map(stripMarks));
   return { lines, images, media: mediaRefs, links: ranges, source, heads, trims, blocks: finish(lines), ...(parts.length ? { parts } : {}), ...(regions.length ? { regions } : {}), ...(hero ? { hero } : {}), ...z };
