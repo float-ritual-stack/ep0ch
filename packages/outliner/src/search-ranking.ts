@@ -98,7 +98,9 @@ export function certaintyOf(top: { title: string; score: number } | undefined, e
   return { verdict: "weak", label: "no strong match", said: `no strong match: the closest is ${quoted(top.title)} (${figure(top.score)} of 3)`, ...(exists !== undefined ? { exists } : {}), top: top.score };
 }
 
-const TITLE_RUNGS = new Set<SearchMatchKind>(["exact-title", "title-prefix", "title-contains"]);
+/** The title rungs, as they lead a ranked list: the words equal, start, then are held by the title. */
+const TITLE_LEAD: Partial<Record<SearchMatchKind, number>> = { "exact-title": 3, "title-prefix": 2, "title-contains": 1 };
+const TITLE_RUNGS = new Set<SearchMatchKind>(Object.keys(TITLE_LEAD) as SearchMatchKind[]);
 /**
  * The rung the words reach in a title alone, as the one matcher reads them (exact-title, title-prefix, title-contains),
  * or null: the words aren't in the title. A hit by title is the note the person is jumping to; no verdict is read on it.
@@ -110,11 +112,12 @@ export function titleMatch(query: string, title: string): SearchMatchKind | null
 }
 
 /**
- * A title holds the words: sure, with no label to draw (the footer stays quiet, PIE-1497), said for `ep0ch find`; a
- * strong verdict keeps the deep pass off and lets `[[` take the cursor to the page (PIE-1409).
+ * The top is a title hit: said for `ep0ch find`, with no label to draw (the footer stays quiet, PIE-1497). A title the
+ * words equal or start is sure: the deep pass stays off and `[[` takes the cursor to the page (PIE-1409). One that only
+ * holds them is weak: `//words` still reads every note.
  */
-function titledCertainty(match: { title: string; score: number }, exists: number | undefined): SearchCertainty {
-  return { verdict: "strong", said: `title match: ${quoted(match.title)}`, top: match.score, ...(exists !== undefined ? { exists } : {}) };
+function titledCertainty(match: { title: string; score: number }, sure: boolean, exists: number | undefined): SearchCertainty {
+  return { verdict: sure ? "strong" : "weak", said: `title match: ${quoted(match.title)}`, top: match.score, ...(exists !== undefined ? { exists } : {}) };
 }
 
 /** HTTP and model output stay outside the synchronous SQLite read transaction. */
@@ -141,18 +144,18 @@ export async function rankSearchWithJev<T extends SearchExcerpt>(
     const asked = await askJev(request.state, request.questions, prompt.revisions, { timeoutMs: 2200, ...options, apiKey });
     if ("unavailable" in asked) throw new Error(asked.unavailable);
     const read = readSearchAnswers(candidates.matches.length, asked.answers);
-    // A title that starts with the words is the note asked for (a jump to `pie` lists the PIE tickets, PIE-1497): it
-    // stays above what Jev read in bodies, Jev's order within. Any title holding the words settles the search: no verdict.
+    // A title holding the words is a note asked for by name (a jump to `pie` lists the PIE tickets, PIE-1497): titles
+    // stay above what Jev read in bodies (equal, then starting with, then holding the words), Jev's order within.
     const titled = candidates.matches.map(match => titleMatch(query, match.title));
-    const scored = candidates.matches.map((match, index) => ({ match: { ...match, score: read.scores[index]! }, index, lead: titled[index] === "exact-title" || titled[index] === "title-prefix" }));
-    scored.sort((a, b) => Number(b.match.exact) - Number(a.match.exact) || Number(b.lead) - Number(a.lead) || b.match.score - a.match.score || a.index - b.index);
+    const scored = candidates.matches.map((match, index) => ({ match: { ...match, score: read.scores[index]! }, index, lead: (titled[index] && TITLE_LEAD[titled[index]!]) ?? 0 }));
+    scored.sort((a, b) => Number(b.match.exact) - Number(a.match.exact) || b.lead - a.lead || b.match.score - a.match.score || a.index - b.index);
     const top = scored[0]?.match;
     const usage = asked.reading.usage;
     return { ...candidates, matches: scored.map(({ match }) => match), semantic: {
       status: "ranked", model: asked.reading.model, elapsedMs: Math.round(performance.now() - started),
       candidateCount: scored.length, promptRevisions,
       ...(usage ? { inputTokens: usage.input, outputTokens: usage.output } : {}),
-      ...(titled.some(Boolean) ? titledCertainty(scored.find(s => s.lead || titled[s.index])!.match, read.exists) : certaintyOf(top ? { title: top.title, score: top.score } : undefined, read.exists)),
+      ...(scored[0]?.lead ? titledCertainty(scored[0].match, scored[0].lead >= TITLE_LEAD["title-prefix"]!, read.exists) : certaintyOf(top ? { title: top.title, score: top.score } : undefined, read.exists)),
     } };
   } catch (error) {
     // Provider error bodies can echo request content. Keep them out of UI/logs.

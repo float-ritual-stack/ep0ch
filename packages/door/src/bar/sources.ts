@@ -28,7 +28,6 @@ import { actionLead, actionPage } from "../surface/action-page";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, QUERY_SCOPE, registerBarSource } from "./source";
-import { readsAsQuery } from "@ep0ch/outline-core/query-words";
 import { extensionList, extensionParts, PART_KINDS, partKind, scriptActions, scriptNamed, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
 import { AGENTS } from "./ask-agent";
@@ -232,8 +231,8 @@ const NOTES: BarSource = {
 
 /**
  * `=`: a query line over the notes (PIE-1497). Typed first in the main list or in /notes, its words get the query-words
- * offer on every keystroke (`grammar: "query"`: Tab accepts, the line becomes the query) and a line that parses lists the
- * notes it selects, the notes source's rows; one that doesn't yet lists none. It's the opt-in Evan asked for ("maybe if
+ * offer on every keystroke (`grammar: "query"`: Tab accepts, the line becomes the query) and the line is run as a query, the
+ * notes it selects as the notes source's rows; one the service refuses says why on the line. It's the opt-in Evan asked for ("maybe if
  * i was leading the input with a ?"): plain words in /notes search titles with nothing over them.
  */
 const QUERY: BarSource = {
@@ -241,10 +240,10 @@ const QUERY: BarSource = {
   about: "the notes a query in the views' grammar selects (type=job AND work-stage=doing); words typed here are offered as a query (Tab accepts), so = is how to ask for query words instead of a title search",
   main: { empty: false, typed: false },
   async rows(q, host, _scope, signal) {
+    // Anything typed is sent as the query (`#frost-jobs` is one): what the service refuses is said on the bar's line.
     const where = q.trim();
-    if (!where || !readsAsQuery(where)) return [];
-    try { return (await host.ctx.board.queryNotes(where, 30, undefined, signal)).notes.map(noteRow); }
-    catch { return []; }
+    if (!where) return [];
+    return (await host.ctx.board.queryNotes(where, 30, undefined, signal)).notes.map(noteRow);
   },
   preview: (row, host) => NOTES.preview(row, host),
   pick: (row, host, how) => NOTES.pick(row, host, how),

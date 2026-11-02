@@ -113,6 +113,18 @@ test("a jump to a title: notes whose titles start with the words stay first, and
   expect(deep.semantic.deep).toMatchObject({ status: "skipped" });
 });
 
+test("a title that only holds the words leads too, but is weak: // still reads every note (PIE-1497)", async () => {
+  const { store, client } = await setup({ best: "Compost turning", exists: 0.1 });
+  store.create("The dock overview\nsegments by title");
+  store.create("Compost turning schedule\nTurn the heap by the dock.");
+  const r = await client.request<GotoSearchCollection>({ action: "tree.search", query: "dock", semantic: true });
+  expect(r.matches.slice(0, 2).map(m => m.title)).toEqual(["The dock overview", "Compost turning schedule"]);
+  expect(r.semantic).toMatchObject({ status: "ranked", verdict: "weak", said: "title match: “The dock overview”" });
+  expect(r.semantic.label).toBeUndefined();
+  const deep = await client.request<GotoSearchCollection>({ action: "tree.search", query: "dock", semantic: true, deep: true });
+  expect(deep.semantic.deep?.status).not.toBe("skipped");
+});
+
 test("deep: a note none of whose words were asked is found by meaning, scored and said sure (PIE-1200)", async () => {
   const { store, client, asked } = await setup({ best: "Compost turning", exists: 0.1 });
   const target = store.create("Compost turning schedule\nTurn the heap every two weeks in summer.");
