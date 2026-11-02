@@ -16,6 +16,30 @@ are its record. The outliner's entries from then are kept below, under
 - A note's button that lifts a tile (`tile.zoom tile={target} reach=column`, the pop it button) now drops it on the next click or ⏎. The click outside the lift dropped it and the press lifted it again; the status bar's buttons were already fixed this way.
 - **Run:** `ep0ch install --apply`. GRAMMAR moves by one (a button line reads differently); no protocol or schema change.
 
+### The Trail remembers the notes and tiles you left (PIE-1234)
+
+- **Find a visit:** Alt+T opens the day's forest across tiles: what opened what, · flipped / ◐ read / ● held, closed tiles and attributed agent visits. Enter restores a visit where it was; o opens it here, s saves its branch, f folds flips, / searches, t changes view and a dims or hides agents. A click selects, a double-click reopens, and alt-click opens here; a selected visit stays selected as new visits arrive. Saved branches follow note routing, defaulting to the Inbox. Visits stay in per-outline session state for a configurable week; `trail.forget` clears a branch, day or all.
+- **Previews count:** Quick previews fold together until you linger, scroll, select or follow a link from them. Back/forward and layout undo retain their own histories. The kitchen sink's **trail** and **events** sections demonstrate the forest and its causes.
+- **Hear opens:** Each landing emits one `door.open` envelope locally; select previews reach the service once they qualify through linger or activity. The open-ended `door.event` ingress carries kinds such as `door.open` and `door.hover` with their own fields. Extensions subscribe by kind over their existing connection; rules and scripts receive `input.trigger.event` (`on.open` also supplies `input.trigger.open`). Agents read `door.opens since=0` and `trail.recent` without moving your view.
+- **Run:** `ep0ch install --apply` on float-2, float-box, the laptop and the mini, handing the host and every door over together. PROTOCOL 303, GRAMMAR 26, SCHEMA 8.
+### Extension tiles draw rows; what-changed is an extension (PIE-1506, PIE-1507, PIE-1514)
+
+- An extension's tile can be rows drawn by the service (`render`) or a view (`view`), not only a terminal program. What changed (alt+o) is now the built-in extension `what-changed`, on by default with no install step; `d` still opens a change beside the note.
+- An action can answer `{ insert }`: Run lens inserts its line through lens itself, and the door's lens special case is gone.
+- An extension's tile can name the built-in kind it `replaces`, so a desk saved with the old kind opens the extension's tile.
+- **Run:** `ep0ch install --apply` on every machine. PROTOCOL 302.
+
+### Tuned styles stay out of the text you read (PIE-1510, PIE-1512)
+
+- A list's `[style.list.…]` settings, written by the tune inspector on its first item, are hidden while reading and shown while editing that line, the same rule as a heading's `heading-*` settings (outline-core's `stylingTokensInLine`).
+- A tune save after an undo in the same door lands.
+- **Run:** `ep0ch install --apply`. GRAMMAR 26.
+
+### A terminal that stops answering steps down (PIE-1500)
+
+- When a terminal misses three frame checks in a row, the door draws it with less (kitty+crt, then kitty, then cells) and says so; alt+v steps it back up. `peek` shows each terminal's bytes, frames, video and `steppedFrom`.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### Tile edges have room to breathe (PIE-1282)
 
 - The screen saves `gap` (0–8) and `inset` in cells. Set them with `^W P` on screen, or `act layout.policy gap=1 inset=1`; the layout places every tile inside that spacing. The kitchen sink’s **spacing** section shows 0, 1 and 2 by key, click and act.

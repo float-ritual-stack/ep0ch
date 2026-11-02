@@ -225,6 +225,24 @@ test("moon (data): a record put into a block as if copied in, queryable, owned, 
 
 // ── Kind 2: inline output ────────────────────────────────────────────────
 
+test("refresh during a line's first render returns its error instead of reporting an unfinished line as success", async () => {
+  const { extensionsFolder, list, client, create } = await setup();
+  writeExtension(extensionsFolder, "waiting", { run: ["bun", "main.ts"], handlers: [{ key: "waiting", kind: "output", effects: "read" }] }, `
+await Bun.stdin.json();
+await Bun.write("started", "yes");
+while (!await Bun.file("release").exists()) await Bun.sleep(10);
+process.stdout.write(JSON.stringify({ ok: false, code: "invalid-config" }));`);
+  await list(true);
+  const block = await create("Garden report\nwaiting::");
+  await until("the saved line rendering", () => existsSync(join(extensionsFolder, "waiting", "started")));
+  const refreshed = client.request<ResourceProjectionReadResult>({ action: "resources.projection.refresh", blockId: block.id, line: 1 });
+  // Hold the real extension across the refresh request, as a render that has not answered yet.
+  await Bun.sleep(100);
+  writeFileSync(join(extensionsFolder, "waiting", "release"), "yes");
+  const result = await refreshed;
+  expect(result.projections.find(p => p.anchor.line === 1)).toMatchObject({ status: "unavailable", reason: "configuration is invalid" });
+});
+
 test("horoscope (inline output): runs on save, is shown under its line, kept as a block on keep, and refreshed on r", async () => {
   const { store, client, create, projection, events } = await setup({ install: ["horoscope"] });
   const block = await create("Morning\nhoroscope:: virgo\nhoroscope:: virgo --short\nhoroscope:: leo --day=tomorrow");

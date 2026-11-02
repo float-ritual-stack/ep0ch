@@ -1,3 +1,4 @@
+import { wrapReturn, type ReturnShell } from "./return-place";
 import { landing } from "./landing";
 import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
@@ -208,11 +209,11 @@ export const SCREEN_SELF: LayoutSelf = { name: "the screen", chip: "screen" };
 /** A locked layout's ▣ chip, padded as a chip is drawn (the hint row's, the drawer frame's): what its refusals tell the person to click. */
 export const lockChipText = (self: LayoutSelf): string => ` ▣ ${self.chip ?? self.name} locked `;
 
-/** Where a new or moved tile goes. A drag's places, plus: into a named line (`in`), the next column of a flow, a float. */
-export type At<I = number> = Place<I>
+/** A new or moved tile's place, with any containers lost on close. */
+export type At<I = number> = (Place<I>
   | { kind: "in"; key: string; node?: string; index?: number; weight?: number }
   | { kind: "next"; from: I }
-  | { kind: "float"; rect?: Rect; near?: I };
+  | { kind: "float"; rect?: Rect; near?: I }) & { restore?: ReturnShell[] };
 
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */
 export type Op<I = number> =
@@ -745,7 +746,6 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   }
   return result;
 }
-
 /** Tree `t` with leaf `id` put at a place: beside a tile, into its tabs, along an outer edge, into a named line, or the next column. */
 function putAt<I>(t: LNode<I>, id: I, at: At<I>): LNode<I> {
   if (!leaves(t).length && at.kind === "edge") t = leaf(id);
@@ -760,7 +760,7 @@ function putAt<I>(t: LNode<I>, id: I, at: At<I>): LNode<I> {
     const f = flowHolding(t, at.from)!;
     f.flow.kids.splice(f.ci + 1, 0, leaf(id)); f.flow.weights.splice(f.ci + 1, 0, 1);
   }
-  return normalise(t);
+  return normalise(wrapReturn(t, id, at.restore));
 }
 
 /**

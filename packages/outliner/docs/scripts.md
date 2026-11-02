@@ -174,7 +174,7 @@ The code is the body of an async function: `await` and `return` work at the top.
 | Global | Is | Source |
 |---|---|---|
 | `this` | The note the run is about, as a record (see [Record shapes](#record-shapes)). A rule-fired script gets the matched note; a key or power-bar run, the note in front of the person; `act ext.<id>.run block=<id>` names one. With none, every read of `this.x` throws "this run has no note; pass at= or run it from a note". Frozen (an assignment is ignored without an error). | `packages/outliner/src/script-runtime.ts:50` |
-| `input` | The previous value in a button sequence; initially `undefined`. A script return replaces it, including `undefined`; action steps pass it through. | `packages/outliner/src/script-runtime.ts:55` |
+| `input` | The previous value in a button sequence; initially `undefined`. In a rule run, `{ trigger: { rule, event?, open? } }`; door rules supply the envelope in `input.trigger.event`, and `on.open` also supplies `input.trigger.open`. A script return replaces it, including `undefined`; action steps pass it through. | `packages/outliner/src/script-runtime.ts:55` |
 | `self` | The note containing the script fence, as a record (`null` for a file script, which has no note). Frozen. | `packages/outliner/src/script-runtime.ts:50` |
 | `caller` | `{ block, line? }`: where it was invoked (the matched note of a rule, the handler line of a render). Set only when a note is in play and the run came from a rule's trigger or a line (`act ext.<id>.run line=`, a handler line); `null` for a key, the power bar, `@name` and an MCP run, even when `this` exists. | `packages/outliner/src/script-runtime.ts:51` |
 | `props` | The slots, **every key a list of strings**: `week=42` is `props.week[0]`, an absent slot is `undefined`. Render lines and `of=` buttons keep repeats (`tag=a tag=b` is two values); other action run paths give one value per key. Runbook’s `\| as name` formatter calls supply `props.lines` (previous output lines) and `props.cwd[0]`; return the next stage’s text. | `packages/outliner/src/script-runtime.ts:27` |
@@ -359,7 +359,7 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `BlockRecord` | `packages/outline-core/src/block-record.ts:14` |
-| `textRecord` | `packages/outliner/src/block-records.ts:35` |
+| `textRecord` | `packages/outliner/src/block-records.ts:38` |
 | `ScriptSiteGlobals` | `packages/outliner/src/script-runtime.ts:54` |
 | `bind` | `packages/outliner/src/script-runs.ts:138` |
 
@@ -465,7 +465,7 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 | Entry | Source |
 |---|---|
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:323` |
-| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:813` |
+| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:787` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1839` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:221` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4803` |
