@@ -17,6 +17,11 @@ describe.skipIf(!outliner)("the showcase screen: a Claude session running twice"
   let app!: typeof h.app;
   beforeAll(() => { ({ app } = h); });
   const bar = () => plain((app as any).statusBar(h.sc, 200) as string);
+  const choices = async () => {
+    (app as any).paint(true);
+    const more = await app.dispatch.act({ action: "strip.more", args: { strip: "status" } }, AGENT) as { rows: { label: string }[] };
+    return more.rows.map(row => row.label).join(" · ");
+  };
 
   test("the chip shows while the split lasts; a click lists the processes; a stop asks, then the chip goes", async () => {
     await app.dispatch.act({ action: "section", args: { name: "split-brain" } }, USER);
@@ -54,7 +59,7 @@ describe.skipIf(!outliner)("the showcase screen: a Claude session running twice"
     press({ kind: "char", ch: "s" });
     await until(() => screen().includes("stop pid 28521 of fern-sr on garden-box?"), "the stop's question, by key");
     press({ kind: "esc" });
-    expect(bar()).toContain("⚠ fern-sr ×2");
+    expect(await choices()).toContain("⚠ fern-sr ×2");
 
     // The background job attaches in a terminal tile (made up here: it says the command a real one runs).
     const attached = await app.dispatch.act({ action: "claude.attach", args: { pid: 28521 } }, AGENT) as { cmd: string; tile?: string; name?: string };
@@ -71,12 +76,12 @@ describe.skipIf(!outliner)("the showcase screen: a Claude session running twice"
     expect(asked.armed).toBe(28521);
     await until(() => screen().includes("stop pid 28521 of fern-sr on garden-box?"), "the stop's question");
     press({ kind: "esc" });
-    expect(bar()).toContain("⚠ fern-sr ×2");
+    expect(await choices()).toContain("⚠ fern-sr ×2");
 
     const done = await app.dispatch.act({ action: "claude.stop", args: { pid: 28521, confirm: 28521 } }, AGENT) as { stopped: number; said: string };
     expect(done.stopped).toBe(28521);
     expect(done.said).toContain("garden-box: stopped pid 28521 (fern-sr, session 7c41e2a0)");
-    expect(bar()).not.toContain("⚠ fern-sr");
+    expect(await choices()).not.toContain("⚠ fern-sr");
     await expect(app.dispatch.act({ action: "claude.stop", args: { pid: 28521, confirm: 28521 } }, AGENT)).rejects.toThrow("isn't a process of a session running twice now");
   });
 });

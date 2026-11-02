@@ -87,14 +87,14 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(shape()).toMatch(/^row\(dock<left>\(tree\),/);
     expect(tile("tree").dock).toBe("shut");                       // an agent's dock starts shut: the person's keys stay put
     expect(message()).toContain("an agent (container-agent-505) docked tree to the left edge");
-    // The person drags claude's header onto the dock's handle on the hint row: it goes in, with the tree.
+    // The person drags claude's header onto the dock's segment on the left edge (a shut dock is a strip there): it goes in, with the tree.
     render();
-    const h = D().handles.find((x: any) => x.id === idOf("tree"));
+    const h = D().dockHits.find((x: any) => x.id === idOf("tree"));
     expect(h).toBeTruthy();
     const c = rect("claude");
-    render(); mouse("down", c.col + 4, c.row); mouse("drag", c.col + 6, c.row); render(); mouse("drag", h.from + 1, HINT); render();
+    render(); mouse("down", c.col + 4, c.row); mouse("drag", c.col + 6, c.row); render(); mouse("drag", h.from, h.row); render();
     expect(D().describe().dragging.drop).toMatchObject({ kind: "tabs", target: "tree" });
-    mouse("up", h.from + 1, HINT); render();
+    mouse("up", h.from, h.row); render();
     expect(shape()).toMatch(/^row\(dock<left>\(tabs\(tree,claude\)\),/);
     expect(tile("claude").dock).toBe("open");                     // the person's drop opens it on what they dropped
     // A detail moved beside claude lives in the dock too.
@@ -106,7 +106,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     key({ kind: "tab" });
     expect(tile("now").dock).toBe("shut");
     render();
-    expect(D().render(D().ctx).lines[HINT]!.replace(/\x1b\[[\d;]*m/g, "")).toContain("\u2190 claude+now");                // what it shows: claude's tab, and now
+    expect(new Set(D().dockHits.map((x: any) => x.id))).toEqual(new Set([idOf("tree"), idOf("claude"), idOf("now")]));   // the edge strip names all three
     for (let i = 0; i < 6; i++) { key({ kind: "tab" }); expect(["tree", "claude", "now"]).not.toContain(get().focus); }
   });
 
@@ -114,8 +114,8 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     // A board-like shape: middle and side as two columns beside each other.
     await mine("layout.move", { to: "middle", where: "right" }, "side");
     render();
-    expect(D().render(D().ctx).lines[HINT]!.replace(/\x1b\[[\d;]*m/g, "")).toContain("□ lock");
-    mouse("down", D().lockChip.from + 1, HINT);
+    const chipAt = (text: string) => { const row = D().render(D().ctx).lines[HINT]!.replace(/\x1b\[[\d;]*m/g, ""); expect(row).toContain(text); return row.indexOf(text); };
+    mouse("down", chipAt("□ lock") + 1, HINT);                                   // the lock is a segment of the hint strip
     await until(() => get().locked === true, "the chip locks the screen");
     expect(message()).toBe("locked the screen · a click on ▣ screen locked (or ^W P) unlocks it");
     render();
@@ -160,8 +160,8 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     for (const p of again.panes.values()) p?.dispose?.();
     // The chip: a click unlocks (layout.lock, as the person).
     render();
-    const chip = D().lockChip;
-    mouse("down", chip.from + 1, HINT);
+    const row = D().render(D().ctx).lines[HINT]!.replace(/\x1b\[[\d;]*m/g, "");
+    mouse("down", row.indexOf("▣ screen locked") + 1, HINT);                    // the lock is a segment of the hint strip
     await until(() => get().locked === false, "the chip unlocks the screen");
     expect(message()).toBe("unlocked the screen");
   });

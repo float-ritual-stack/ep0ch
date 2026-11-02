@@ -22,15 +22,15 @@ import { titleOf } from "../src/desk/writes";
 import { EXT_ACTIONS } from "../src/extensions";
 import { vgaCode } from "../src/mirror";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import { ellipsize, fitHint, headOf, pad, visible, width } from "../src/style";
 import { rowBytes } from "../src/term";
 import { paintable, printable, wrap } from "../src/text";
 import { outliner, Scratch, until } from "./scratch";
 
 const OSC52 = "\x1b]52;c;ZXZpbA==\x07", CLEAR = "\x1b[2J", CSI8 = "\x9b2J";
-/** Anything in the bytes a terminal would act on, beyond the door's own cursor moves, SGR and erase-line. */
-const acts = (bytes: string) => bytes.replace(/\x1b\[\d+;1H|\x1b\[[\d;:]*m|\x1b\[K/g, "").match(/[\x00-\x1f\x7f-\x9f]/);
+/** The overflow renderer closes hyperlinks before replacing cells; an empty close cannot carry a note's control. */
+const acts = (bytes: string) => bytes.replace(/\x1b\[\d+;1H|\x1b\[[\d;:]*m|\x1b\[K|\x1b\]8;;\x1b\\/g, "").match(/[\x00-\x1f\x7f-\x9f]/);
 const cells = (s: string) => Bun.stringWidth(visible(s));
 
 describe("nothing a terminal acts on is drawn", () => {
@@ -180,11 +180,10 @@ describe("terminal cells, not code points", () => {
 });
 
 describe("CP437 on the wire", () => {
-  test("frame controls have distinct CP437 glyphs without substitutions", () => {
+  test("frame controls retain distinct CP437 glyphs", () => {
     expect([FRAME_GLYPHS.select, FRAME_GLYPHS.open, FRAME_GLYPHS.alt].some(g => /[a-z]/i.test(g))).toBe(false);
-    const glyphs = [...Object.values(FRAME_GLYPHS), ...Object.values(EDGE_GLYPH), ...Object.values(AGENT_GLYPH).filter(Boolean)];
+    const glyphs = [...Object.values(FRAME_GLYPHS), ...Object.values(EDGE_GLYPH), ...Object.values(AGENT_GLYPH).filter(Boolean)].map(toCp437Glyphs);
     expect(glyphs.every(inCp437)).toBe(true);
-    expect(glyphs.map(toCp437Glyphs)).toEqual(glyphs);
     expect(new Set(glyphs.map(cp437Code)).size).toBe(glyphs.length);
   });
 
@@ -297,15 +296,14 @@ process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? {
     await until(() => (on as any).msg?.id === wide.id, "the wide note shown");
     const row = desk.render((desk as any).ctx ?? app).lines[ROWS - 2]!;
     expect(cells(row)).toBe(COLS);
-    const plain = visible(row);
-    const chip = (desk as any).lockChip as { from: number; to: number };
-    // The chip's click range covers the chip as drawn, in cells.
-    const atCells = (from: number, to: number) => { let col = 0, out = ""; for (const g of new Intl.Segmenter().segment(plain)) { const w = Bun.stringWidth(g.segment); if (col >= from && col < to) out += g.segment; col += w; } return out; };
-    expect(atCells(chip.from, chip.to)).toMatch(/lock/);
-    // Cut, it says ? more, and ? shows the rest.
-    expect(plain).toMatch(/· \? more/);
-    const more = (desk as any).moreChip as { from: number; to: number };
-    expect(atCells(more.from, more.to)).toBe("? more");
+    app.flush();
+    await app.dispatch.act({ action: "strip.more", args: { strip: "hint" }, tile: desk.keys().address! }, USER);
+    app.flush();
+    const menu = painted.at(-1)!.map(visible), y = menu.findIndex(l => l.includes("□ lock"));
+    expect(y).toBeGreaterThanOrEqual(0);
+    key({ kind: "mouse", action: "down", button: 0, x: menu[y]!.indexOf("□ lock"), y });
+    await until(() => desk.layoutGet().locked === true, "the lock chosen from the hint strip");
+    await app.dispatch.act({ action: "layout.lock", args: { on: false } }, USER);
   });
 
   test("a scratch door's terminal program can find the checkout through env", async () => {

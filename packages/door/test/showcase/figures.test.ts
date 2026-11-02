@@ -1,5 +1,6 @@
 import type { Desk } from "../../src/desk/desk";
 import { USER } from "../../src/socket";
+import type { ActRequest } from "../../src/surface/actions";
 import { visible } from "../../src/style";
 // PIE-439: the showcase screen, figures: steps, tabs and Markdown kinds. One of the showcase's test files (split from the one file, so a
 // section's test is a file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it.
@@ -39,6 +40,34 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
 
   const sizingSurfaces: NoteSurface[] = [];
   afterEach(() => { for (const surface of sizingSurfaces.splice(0)) surface.dispose(); });
+  test("a hidden graph tab chosen from +N changes the figure", async () => {
+    await sc.dispatch.press("section", { name: "tabs" });
+    await sc.dispatch.press("section.try");
+    const cols = app.t.cols;
+    let restore: ActRequest | undefined;
+    const paint = () => { app.redraw(); app.flush(); };
+    try {
+      (app as any).term.info.cols = 60;
+      await until(() => { paint(); return [...app.strips.state.rows.values()].some(r => r.tabs.some(t => t.hit?.action === "figure.tab")); }, "the graph tabs strip");
+      const row = [...app.strips.state.rows.values()].find(r => r.tabs.some(t => t.hit?.action === "figure.tab"))!;
+      restore = { ...row.tabs.find(t => t.on)!.hit!, tile: row.tile };
+      let more: { x: number; y: number } | undefined;
+      for (let y = 0; y < app.t.rows; y++) for (let x = 0; x < app.t.cols; x++) {
+        const hit = app.overflow.stripAt(x, y);
+        if (hit?.id === row.id && hit.n === -1) more = { x, y };
+      }
+      expect(more).toBeDefined();
+      press({ kind: "mouse", action: "down", button: 0, ...more! }); paint();
+      expect(h.painted.map(visible).join("\n")).toContain("all choices");
+      await app.dispatch.press("strip.pick", { strip: row.id, n: row.tabs.length });
+      const figures = await app.act({ action: "figures", tile: row.tile, as: "figure-reader" }) as any;
+      expect(figures.figures[0].tab).toBe(row.tabs.at(-1)!.hit!.args!.tab);
+    } finally {
+      app.strips.close(); (app as any).term.info.cols = cols;
+      if (restore) await app.dispatch.act(restore, USER);
+      press({ kind: "esc" });
+    }
+  });
   test("one garden report expands cut table cells and decision rows through selection and act", async () => {
     const surface = new NoteSurface(); sizingSurfaces.push(surface);
     const host: SurfaceHost = { ctx: app, redraw() {}, navigate() {} };
@@ -283,7 +312,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
       screen();
       return ((await app.act({ action: "elements", tile: "1", as: "figure-reader" })) as any).elements;
     };
-    ch("]");
+    await untilAsync(async () => { ch("]"); return (await elements()).some((e: any) => e.current && e.kind === "figure"); }, "the first figure tab selected");
     press({ kind: "down" });
     expect((await elements()).find((e: any) => e.current)?.label).toContain("Rebuild the leaning");
     press({ kind: "down" });
@@ -773,7 +802,10 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect(narrow).not.toMatch(/\[\[|\(\(/);
     // By keys: into the stage, [ ] to the table's greenhouse (a reference by its short id), ⏎ opens it; back.
     press({ kind: "enter" });
-    for (let i = 0; i < 60 && !(await els()).find(e => e.current && e.n === greenhouse.n); i++) ch("]");
+    await untilAsync(async () => {
+      ch("]");
+      return (await els()).some(e => e.current && e.kind === "link" && e.label === greenhouse.label);
+    }, "the table's greenhouse link selected");
     press({ kind: "enter" });
     await until(() => screen().includes("once they have two leaves"), "the greenhouse open by ⏎", 5000);
     press({ kind: "backspace" });
@@ -848,11 +880,14 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
       expect(cells.join(" ")).not.toContain("…");
     }
     await expect(app.act({ action: "figure.density", tile: "1", args: { to: "roomy" }, as: "test-agent" })).rejects.toThrow(/compact, cozy, comfortable/);
-    // The person, by keys: into the stage (the left reader), [ ] onto the first element (a tab), → and tab step on.
+    // The person, by keys: into the stage (the left reader), [ ] onto a figure tab, → and tab step on.
     await app.act({ action: "figure.density", tile: "1", args: { to: "compact" }, as: "test-agent" });
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
-    ch("]");
+    await untilAsync(async () => {
+      ch("]"); screen();
+      return ((await app.act({ action: "elements", tile: "1", as: "test-agent" })) as any).elements.some((e: any) => e.current && e.kind === "figure");
+    }, "the figure tab selected");
     press({ kind: "right" });
     expect(((await app.act({ action: "figures", tile: "1", as: "test-agent" })) as any).figures[0].tab).toBe("validate");
     await until(() => half().includes("nothing in validate"), "the empty validate tab, listed in order");

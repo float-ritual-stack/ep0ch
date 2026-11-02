@@ -1,5 +1,5 @@
 import { Canvas } from "../src/canvas";
-import { Overflow } from "../src/overflow";
+import { fullText, Overflow } from "../src/overflow";
 // wrap() at widths a narrow pane or deep indentation can hand it: it always ends, and its callers keep
 // their rows inside the width. Fictional text only.
 import { expect, test } from "bun:test";
@@ -7,6 +7,25 @@ import { renderDoc } from "../src/doc";
 import { pad, visible, width } from "../src/style";
 import { presentLinks } from "../src/refs";
 import { colourBody, wrap } from "../src/text";
+
+test("vertical dock titles with wide glyphs keep every row and its neighbours within the canvas", () => {
+  for (const col of [0, 2, 4]) for (const title of ["菜園A", "🌱🌻A"]) {
+    const canvas = new Canvas(5, 5);
+    for (let y = 0; y < 5; y++) canvas.text(0, y, ".....");
+    canvas.column(col, 0, fullText(title, title, undefined, { id: "desk:docks-left", n: 0 }), 5);
+    const overflow = new Overflow();
+    overflow.draw(canvas.lines(), 5, 0); overflow.hover(col, 0);
+    for (const lines of [canvas.lines(), overflow.draw(canvas.lines(), 5, 4000).lines]) {
+      expect(lines.map(width)).toEqual([5, 5, 5, 5, 5]);
+      for (const line of lines.map(visible)) {
+        expect(line.slice(0, col)).toBe(".".repeat(col));
+        expect(line.slice(col + 1)).toBe(".".repeat(4 - col));
+      }
+      expect(visible(lines[4]!)[col]).toBe("A");
+    }
+    expect(overflow.reveal().text).toBe(title);
+  }
+});
 
 test("single tildes in paths and approximations stay literal; only double tildes strike (PIE-899)", () => {
   for (const text of ["copies of ~/.claude/~/projects/x at the same paths", "~178 orphaned … ~", "~single~", "inline ~~~triple~~~"]) {
