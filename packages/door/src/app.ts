@@ -1696,9 +1696,9 @@ export class App implements Ctx {
     if (expired) this.message = "";
     if (this.toast && Date.now() > this.toast.until) { this.toast = null; expired = true; }
     const drawerChanged = this.drawer.made?.tick() ?? false;
-    if (s?.tick?.(this) || drawerChanged || expired || this.overflow.tick(Date.now())) this.redraw();
-    // An idle door still keeps time: once the clock or the uptime turns over, the status bar alone is
-    // repainted (no screen render, no Kitty sync), so nothing being edited, selected or dragged moves.
+    if (s?.tick?.(this) || drawerChanged || expired) this.redraw();
+    else if (this.overflow.tick(Date.now())) { if (s && this.overflow.describe().reading?.y === this.term.info.rows - 1) this.paintStatus(s); else this.redraw(); }
+    // Only the status row changes: no screen render or Kitty sync moves what's being edited, selected or dragged.
     else if (s && this.timeShown() !== this.shownTime) this.paintStatus(s);
   }
 
@@ -1718,8 +1718,8 @@ export class App implements Ctx {
   private paintStatus(s: Screen) {
     if (this.closed) return;
     const { cols, rows } = this.term.info;
-    const status = this.overflow.updateRow(withStrips(this.strips.state, () => this.statusBar(s, cols)), rows - 1);
-    if (status.reading || !this.display.showRow(rows - 1, status.line)) this.redraw();
+    const status = this.overflow.updateRow(withStrips(this.strips.state, () => this.statusBar(s, cols)), rows - 1, Date.now());
+    if (!this.display.showRow(rows - 1, status)) this.redraw();
   }
 
   /**

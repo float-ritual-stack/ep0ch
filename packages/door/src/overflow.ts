@@ -118,9 +118,11 @@ export class Overflow {
     const step = Math.max(0, Math.floor((now - this.since - 900) / 100));
     return step !== this.step;
   }
-  updateRow(line: string, y: number): { line: string; reading: boolean } {
+  updateRow(line: string, y: number, now: number): string {
     this.cuts = this.cuts.filter(c => c.y !== y);
-    return { line: this.readRow(line, y), reading: this.active.startsWith(`${y}:`) };
+    const clean: string[] = [];
+    clean[y] = this.readRow(line, y);
+    return this.active.startsWith(`${y}:`) ? this.render(clean, now).lines[y]! : clean[y];
   }
   private readRow(line: string, y: number): string {
     if (!line.includes("\x1b[777;")) return line;
@@ -141,6 +143,9 @@ export class Overflow {
   draw(lines: string[], cols: number, now: number): { lines: string[]; overlay?: { col: number; row: number; cols: number; rows: number } } {
     this.cuts = [];
     const clean = lines.map((line, y) => this.readRow(line, y));
+    return this.render(clean, now);
+  }
+  private render(clean: string[], now: number): { lines: string[]; overlay?: { col: number; row: number; cols: number; rows: number } } {
     const p = this.pointer;
     const cut = p ? this.cutAt(p.x, p.y)
       : this.chosen ? this.cuts.find(c => c.text === this.chosen) : [...this.cuts].reverse().find(c => c.selected && (c.strip ? width(c.text) > this.available(c) : this.keyboard));
