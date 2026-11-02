@@ -24,7 +24,7 @@ export type ShelfLayout = "list" | "grid";
 export type ShelfColour = keyof typeof TONE_INDEX;
 const across = COLLECTION_KEYS.filter(k => k.action === "list.step" && k.args?.axis === "column");
 export const SHELF_KEYS = keyTable("shelf", "arrange the post-its on a shelf", [
-  { key: "v", action: "shelf.layout", label: "list/grid" },
+  { key: "v", action: "shelf.layout", label: "list/grid", says: "switch the shelf between a list and a grid" },
   { key: "c", action: "shelf.colour", label: "colour" },
 ] satisfies ModeKey[]);
 
@@ -143,11 +143,13 @@ export const SHELF_ACTIONS = actionSet<KindHost>()("shelf", {
   "shelf.layout": def({
     summary: "draw this shelf's refs as a list or a grid", keys: "v, click list grid", touches: "tile", replay: "safe",
     args: { set: { type: "string", optional: true, choices: ["list", "grid"], about: "list or grid; left out switches" } },
+    examples: [{ act: "shelf.layout set=grid", does: "draws the shelf's refs as a grid" }],
     run({ set }, { pane, desk }) { const s = pane as Shelf; s.layout = (set ?? (s.layout === "list" ? "grid" : "list")) as ShelfLayout; desk.keepLayout?.(); desk.redraw(); return { layout: s.layout }; },
   }),
   "shelf.colour": def({
     summary: "colour this shelf's header", keys: "c, click the header colour", touches: "tile", replay: "safe",
     args: { set: { type: "string", optional: true, choices: Object.keys(TONE_INDEX), about: "colour family; left out cycles" } },
+    examples: [{ act: "shelf.colour set=violet", does: "colours the shelf's header violet" }],
     run({ set }, { pane, desk }) { const s = pane as Shelf, colours = Object.keys(TONE_INDEX) as ShelfColour[]; s.colour = set as ShelfColour ?? colours[(colours.indexOf(s.colour) + 1) % colours.length]!; desk.keepLayout?.(); desk.redraw(); return { colour: s.colour }; },
   }),
 });
