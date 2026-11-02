@@ -439,6 +439,89 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(again.disposed).toBe(true);
   }, 40_000);
 
+  test("rota: a tile that is drawn rows (render) and one that is a view (PIE-1506) open like any tile, pick rows by keys, mouse and act, open a row where opens land, and bind the extension's action to the picked row", async () => {
+    // A made-up extension: a render script lists the chores, a view tile queries them, and `done` stamps the picked one.
+    const dir = join(extDir, "rota");
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    writeFileSync(join(dir, "scripts", "rota-list.js"), [
+      "// ep0ch-script mode=render",
+      "const { rows } = await query({ where: props.which?.[0] ?? 'type=chore', sort: 'title' });",
+      "return view.list({ rows: rows.map(r => ({ id: r.id, label: r.title, detail: r.props.stage?.[0] ?? 'open', do: { open: r.id } })) });",
+    ].join("\n"));
+    writeFileSync(join(dir, "main.ts"), [
+      "const request = await Bun.stdin.json();",
+      "const id = request.input.target?.blockId;",
+      "if (request.operation === 'act' && request.input.action === 'done' && id) process.stdout.write(JSON.stringify({ ok: true, value: { message: 'done', writes: [{ op: 'create', parentId: id, text: 'done by rota' }] } }));",
+      "else process.stdout.write(JSON.stringify({ ok: false, code: 'invalid-config' }));",
+    ].join("\n"));
+    writeFileSync(join(dir, "extension.json"), JSON.stringify({
+      contract: 2, id: "rota", version: 1, name: "Rota", run: ["bun", "main.ts"],
+      scripts: [{ name: "rota-list", file: "scripts/rota-list.js", about: "the chores, as a list" }],
+      actions: [{ id: "done", label: "Mark it done", on: "block", key: "x", effects: "write" }],
+      tiles: [
+        { kind: "list", name: "Rota", description: "the chores, drawn by the service", render: "rota-list", actions: ["done"], args: { which: { type: "string", description: "which notes" } } },
+        { kind: "due", name: "Due", view: "type=chore", actions: ["done"] },
+      ],
+    }));
+    const hens = await board.createBlock(null, "Feed the hens [type::chore] [stage::open]");
+    const yard = await board.createBlock(null, "Sweep the yard [type::chore] [stage::done]");
+    await app.loadExtensions(true);
+    await until(() => !!tileKind("rota.list") && !!tileKind("rota.due"), "the rota kinds", 15_000);
+    expect(tileKind("rota.list")!.about).toContain("drawn by the service");
+    // A desk of this test's own: the file's `desk` stays the tarot tests'.
+    const mine = new Desk(undefined, { layout: "desk" }), M = () => mine as any;
+    app.push(mine);
+    mine.render(M().ctx);
+    const tiles = () => M().layoutGet().tiles as any[];
+    // The drawn tile: its rows are the script's, selectable, the first picked.
+    const opened = await app.act({ action: "tile.open", args: { kind: "rota.list", name: "rota" }, as: AS }) as any;
+    expect(opened.tile).toBeDefined();
+    const pane = () => M().pane("rota");
+    const drawn = () => (pane().render(60, 12, true, mine) as { lines: string[] }).lines.map(plain);
+    await until(() => drawn().some(l => l.includes("Feed the hens")) && drawn().some(l => l.includes("Sweep the yard")), "the rows drawn", 15_000);
+    const listed = await app.act({ action: "list.blocks", args: {}, tile: "rota", as: AS }) as any;
+    expect(listed.lists[0].rows.map((r: any) => [r.text, r.detail])).toEqual([["Feed the hens", "open"], ["Sweep the yard", "done"]]);
+    expect(listed.lists[0].rows[0].selected).toBe(true);
+    // j moves the pick; so does a click on the second row; act list.pick too.
+    M().focusTile("rota", { kind: "user" });
+    keyIn(char("j"));
+    await until(() => pane().subject() === yard.id, "j picked the yard");
+    keyIn({ kind: "up" });
+    await until(() => pane().subject() === hens.id, "up picked the hens again");
+    const row = drawn().findIndex(l => l.includes("Sweep the yard"));
+    pane().mouse({ kind: "mouse", action: "down", button: 0, x: 2, y: row }, 2, row, mine);
+    await until(() => pane().subject() === yard.id, "a click picked the yard");
+    await app.act({ action: "list.pick", args: { n: 1 }, tile: "rota", as: "you" });
+    expect(pane().subject()).toBe(hens.id);
+    // The extension's action binds to the picked row: done stamps the hens.
+    const done = await app.act({ action: "ext.rota.done", args: {}, tile: "rota", as: AS }) as any;
+    expect(done.extension).toBe("rota");
+    for (let i = 0; i < 100 && !(await board.children(hens.id)).some(m => m.author === "ext:rota"); i++) await Bun.sleep(100);
+    expect((await board.children(hens.id)).some(m => m.author === "ext:rota")).toBe(true);
+    // The rows draw again by themselves once the outline changed: the hens' stage is done now.
+    const m = (await board.get(hens.id))!;
+    await board.update(hens.id, m.text.replace("[stage::open]", "[stage::done]"), m.revision!, { kind: "user" });
+    await until(() => drawn().some(l => /Feed the hens.*done/.test(l)), "the rows drawn again", 15_000);
+    // ⏎ opens the picked row where opens land: a reader on the desk shows it.
+    await app.act({ action: "list.open", args: { n: 2 }, tile: "rota", as: "you" });
+    await until(() => M().namedReaders().some((r: any) => r.pane.msg?.id === yard.id), "the yard opened in a reader");
+    // Saved with its kind and its args.
+    await app.act({ action: "tile.open", args: { kind: "rota.list", name: "rota-open", with: '{"which":"type=chore stage=open"}' }, as: AS });
+    expect(tiles().find((t: any) => t.name === "rota-open")).toMatchObject({ kind: "rota.list", args: { which: "type=chore stage=open" } });
+    // The view tile: a query tile of the extension's kind, its cards the query's, the action on the picked card.
+    await app.act({ action: "tile.open", args: { kind: "rota.due", name: "due" }, as: AS });
+    const due = () => M().pane("due");
+    await until(() => due()?.items?.length === 2, "the due tile's cards", 15_000);
+    expect(tiles().find((t: any) => t.name === "due")).toMatchObject({ kind: "rota.due" });
+    await app.act({ action: "query.pick", args: { n: 2 }, tile: "due", as: "you" });
+    const stamped = await app.act({ action: "ext.rota.done", args: {}, tile: "due", as: AS }) as any;
+    expect(stamped.extension).toBe("rota");
+    for (let i = 0; i < 100 && !(await board.children(due().card()!.id)).some(m => m.author === "ext:rota"); i++) await Bun.sleep(100);
+    expect((await board.children(due().card()!.id)).some(m => m.author === "ext:rota")).toBe(true);
+    app.pop();
+    mine.dispose();
+  }, 60_000);
+
   test("who asked goes with an extension's action (requestedBy); a block action a tile lists runs without the tile; ext: is the service's", async () => {
     const since = board.lastSequence ?? 0;
     const spot = await board.createBlock(note.id, "A second spot for readings");

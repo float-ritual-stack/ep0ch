@@ -445,6 +445,42 @@ process.stdout.write(JSON.stringify({ ok: true, value: { writes } }));`);
 
 // ── Kind 4: a whole tile ─────────────────────────────────────────────────
 
+test("a tile that is drawn rows or a view (PIE-1506): render names a shipped render script, view a query; the door's list carries them, and scripts.render draws the script with no note", async () => {
+  const { extensionsFolder, list, client, create } = await setup();
+  await create("Feed the hens [type::chore]");
+  await create("Sweep the yard [type::chore]");
+  mkdirSync(join(extensionsFolder, "rota", "scripts"), { recursive: true });
+  writeFileSync(join(extensionsFolder, "rota", "scripts", "rota-list.js"), [
+    "// ep0ch-script mode=render",
+    "const { rows } = await query({ where: props.where?.[0] ?? 'type=chore' });",
+    "return view.list({ rows: rows.map(r => ({ id: r.id, label: r.title, do: { open: r.id } })) });",
+  ].join("\n"));
+  writeExtension(extensionsFolder, "rota", {
+    scripts: [{ name: "rota-list", file: "scripts/rota-list.js", about: "the chores, as a list" }],
+    tiles: [
+      { kind: "list", name: "Rota", description: "the chores, drawn by the service", render: "rota-list" },
+      { kind: "due", name: "Due", view: "type=chore" },
+    ],
+  });
+  await until("rota to load", async () => (await list(true)).extensions.find((entry) => entry.id === "rota" && entry.state === "active"));
+  const { tileKinds } = await list();
+  const drawn = tileKinds.find((kind) => kind.kind === "rota.list")!;
+  expect(drawn).toMatchObject({ extension: "rota", name: "Rota", render: "rota-list", save: "args" });
+  expect(drawn.command).toBeUndefined();
+  expect(tileKinds.find((kind) => kind.kind === "rota.due")).toMatchObject({ name: "Due", view: "type=chore" });
+  // Drawn with no note: the tile's state is its props.
+  const frame = await client.request<{ view?: { type: string; rows: { label: string }[] } }>({ action: "scripts.render", of: "rota-list", props: { where: ["type=chore"] }, deadlineMs: 5000 });
+  expect(frame.view?.type).toBe("list");
+  expect(frame.view?.rows.map((r) => r.label).sort()).toEqual(["Feed the hens", "Sweep the yard"]);
+  // Exactly one of run, render and view; render names a script the extension ships.
+  writeExtension(extensionsFolder, "rota2", { tiles: [{ kind: "list", name: "Rota" }] });
+  await until("rota2 to fail", async () => (await list(true)).extensions.find((entry) => entry.id === "rota2" && entry.state === "failed"));
+  expect((await list()).extensions.find((entry) => entry.id === "rota2")?.error).toMatch(/tiles\/0 needs one of run, render or view/);
+  writeExtension(extensionsFolder, "rota3", { tiles: [{ kind: "list", name: "Rota", render: "nowhere" }] });
+  await until("rota3 to fail", async () => (await list(true)).extensions.find((entry) => entry.id === "rota3" && entry.state === "failed"));
+  expect((await list()).extensions.find((entry) => entry.id === "rota3")?.error).toMatch(/tiles\/0\/render names nowhere, which scripts\[\] doesn't declare/);
+});
+
 test("tarot (a tile kind): listed for the door's registry; its program keeps a reading through the service's action, attributed", async () => {
   // The card is seeded by the date the service tells the call: pinned, so the answer is the same every day.
   const { store, client, create, list } = await setup({ install: ["tarot"], now: () => Date.parse("2026-01-01T12:00:00Z") });
@@ -457,7 +493,7 @@ test("tarot (a tile kind): listed for the door's registry; its program keeps a r
     args: { block: { type: "block" } },
     actions: [{ name: "ext.tarot.draw", key: "d", on: "tile:reading" }, { name: "ext.tarot.keep", key: "k", on: "block" }],
   });
-  expect(tile.command[0]).toBe(process.execPath);
+  expect(tile.command![0]).toBe(process.execPath);
   expect(tile.env.EP0CH_SOCKET).toBeDefined();
 
   // An agent draws without a tile.
@@ -466,7 +502,7 @@ test("tarot (a tile kind): listed for the door's registry; its program keeps a r
 
   // The tile program, run as the door would run it (its command, cwd, env and saved args), keeps a reading.
   const journal = await create("Journal");
-  const program = Bun.spawn([...tile.command, `--block=${journal.id}`], { cwd: tile.cwd, env: { ...process.env, ...tile.env }, stdin: "pipe", stdout: "pipe" });
+  const program = Bun.spawn([...tile.command!, `--block=${journal.id}`], { cwd: tile.cwd, env: { ...process.env, ...tile.env }, stdin: "pipe", stdout: "pipe" });
   await Bun.sleep(300);
   program.stdin.write("k");
   await program.stdin.flush();

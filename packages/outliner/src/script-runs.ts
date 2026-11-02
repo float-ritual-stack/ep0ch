@@ -171,7 +171,7 @@ export class ScriptRuns {
    * notes it read and their revisions then (what it must be drawn again for). No run note, no undo step, and nothing
    * written: the API is read-only, and a refused write says so. Called by ExtensionCalls' one producer path.
    */
-  async render(source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number; hidden?: string[]; site?: Pick<SiteAnswerRequest, "chain" | "props">; onCandidates?: (ids: string[]) => void }): Promise<ScriptRendered> {
+  async render(source: ScriptSource, input: { blockId?: string; line?: number; argument: string | null; signal?: AbortSignal; deadlineMs: number; hidden?: string[]; site?: Pick<SiteAnswerRequest, "chain" | "props">; onCandidates?: (ids: string[]) => void }): Promise<ScriptRendered> {
     const reads = new Map<string, number | null>();
     const queries: ScriptRendered["queries"] = [];
     let untracked = false;
@@ -245,7 +245,7 @@ export class ScriptRuns {
   }
 
   /** A formatter is an ordinary script called through the existing read-only renderer. */
-  async format(input: { of: string; blockId: string; line: number; props: Record<string, string[]>; deadlineMs: number }) {
+  async format(input: { of: string; blockId?: string; line?: number; props: Record<string, string[]>; deadlineMs: number }) {
     await this.registry.reload();
     const entries = scriptsAt(this.store, this.registry.list().extensions, input).filter(e => e.script);
     const entry = entries.find(e => e.name === input.of);
@@ -256,7 +256,7 @@ export class ScriptRuns {
     }
     const source = this.registry.extension(entry.id)?.script;
     if (!source) throw new Error(entry.error ?? `${input.of} has no runnable script`);
-    return this.render(source, { blockId: input.blockId, line: input.line, argument: null, site: { props: input.props }, deadlineMs: Math.min(input.deadlineMs, source.deadlineMs ?? MAX_DEADLINE_MS) });
+    return this.render(source, { ...(input.blockId !== undefined ? { blockId: input.blockId } : {}), ...(input.line !== undefined ? { line: input.line } : {}), argument: null, site: { props: input.props }, deadlineMs: Math.min(input.deadlineMs, source.deadlineMs ?? MAX_DEADLINE_MS) });
   }
 
   /**

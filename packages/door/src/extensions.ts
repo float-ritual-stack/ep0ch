@@ -35,7 +35,7 @@ import { ActionRefused, ActionSet, actionSet, asActor, def, FREE_ARGS, shownLine
 import { explainNotInstalled, nameAlso } from "./surface/dispatch";
 import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/screen-layout";
-import type { DeskApi } from "./desk/panes";
+import type { DeskApi, Pane } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
 import { barSources, openNote, registerBarSource, unregisterBarSource, type BarSource } from "./bar/source";
 import { askInBar, type BarQuestion } from "./bar/ask";
@@ -110,7 +110,9 @@ export interface ExtensionScheduleEntry {
 /** A tile kind ready to register (`extensions.list`'s `tileKinds`). */
 export interface ExtensionTileKind {
   kind: string; extension: string; name: string; description?: string;
-  command: string[]; cwd: string; host?: string; env: Record<string, string>;
+  /** A program in a terminal tile (`run`); or the render script the service draws it with (`render`), or the query its rows are (`view`): PIE-1506. */
+  command?: string[]; render?: string; view?: string;
+  cwd: string; host?: string; env: Record<string, string>;
   actions: ExtensionAction[];
   policy?: Policy;
   accepts?: string[];
@@ -804,14 +806,15 @@ function tileAction(t: ExtensionTileKind, a: ExtensionAction): ActionDef<ExtArgs
     // In the tile its program has the keys: the key is the program's own, which runs this same action.
     ...(keyOf(a.key) ? { keys: keyOf(a.key)! } : {}),
     // Its row in the tile's menu (tile.menu), under the kind's name.
-    menu: { label: a.label, group: t.name, ...(keyOf(a.key) ? { key: keyOf(a.key)! } : {}) },
+    menu: { label: a.label, group: t.extension, ...(keyOf(a.key) ? { key: keyOf(a.key)! } : {}) },
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     // On a block: which one (the tile's own by default). On the tile: nothing to say.
     args: (onBlock ? { block: { type: "string", optional: true, about: "the block it acts on; default the tile's own (where it was opened)" } } : {}) as ActionDef<ExtArgs, ExtTileOn>["args"],
     run({ block }, { pane, desk }, actor) {
-      const own = pane instanceof ProgramTile ? pane.state.block : undefined;
+      // A program's tile acts on its block arg; a drawn or view tile (PIE-1506) on its picked row's note.
+      const own = pane instanceof ProgramTile ? pane.state.block : typeof (pane as Pane).subject === "function" ? (pane as Pane).subject!() : undefined;
       const blockId = onBlock ? block ?? (typeof own === "string" ? own : undefined) : undefined;
-      if (onBlock && !blockId) throw new ActionRefused(`${a.name} acts on a block: this ${t.name} tile was opened on none; say block=<id>, or open the tile from a note`);
+      if (onBlock && !blockId) throw new ActionRefused(`${a.name} acts on a block: ${pane instanceof ProgramTile ? `this ${t.name} tile was opened on none; say block=<id>, or open the tile from a note` : `no row is picked in this ${t.name} tile; pick one, or say block=<id>`}`);
       return runExtensionAction(desk.ctx, a, t.extension, { ...(blockId ? { blockId } : {}) }, actor);
     },
   };
@@ -823,19 +826,35 @@ function unavailableHere(t: ExtensionTileKind): string | null {
   return null;
 }
 
-/** The registry entry for one of the service's tile kinds: a program in a terminal tile (serviceKind). */
-function kindEntry(t: ExtensionTileKind): TileKind {
+/** A tile's args as a render script's props: each string arg one value (`where=type=chore` is `props.where[0]`). */
+const propsOf = (state: Record<string, unknown>): Record<string, string[]> => Object.fromEntries(Object.entries(state).flatMap(([k, v]) => (typeof v === "string" && v ? [[k, [v]]] : [])));
+
+/**
+ * The registry entry for one of the service's tile kinds (serviceKind): a program in a terminal tile (`command`), rows
+ * the service draws with the extension's render script (`render`: `scripts.render` with the tile's args as props, PIE-1506),
+ * or a query listed as the door's query tile (`view`).
+ */
+function kindEntry(t: ExtensionTileKind, actions: ActionSet<Record<string, ExtArgs>, ExtTileOn>): TileKind {
   const { key } = kindKey(t.name, t.kind);
-  const actions = new ActionSet<Record<string, ExtArgs>, ExtTileOn>(t.kind, Object.fromEntries(t.actions.map(a => [a.name, tileAction(t, a)])));
+  const keyHint = t.actions.flatMap(a => (keyOf(a.key) ? [`${keyOf(a.key)} ${a.id}`] : []));
+  const shared = { kind: t.kind, noun: t.name, ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}), ...(t.policy ? { policy: t.policy } : {}), accepts: { notes: false, tiles: t.accepts ?? [] }, actions };
+  if (t.render) {
+    const of = t.render;
+    return serviceKind({
+      ...shared,
+      about: `${t.description ?? t.name} (extension ${t.extension}; drawn by the service from its ${of} script${Object.keys(t.args ?? {}).length ? `; ${Object.keys(t.args!).map(k => `${k}=`).join(" ")} are its props` : ""})`,
+      args: t.args ?? {}, keyHint,
+      render: async req => {
+        const r = await req.desk.ctx.board.request<{ markdown: string; view?: unknown }>("scripts.render", { of, props: propsOf(req.state), deadlineMs: 15_000 }, 20_000);
+        return { title: t.name, ...(r.view !== undefined ? { view: r.view } : { lines: r.markdown.split("\n") }) };
+      },
+    });
+  }
+  if (t.view) return serviceKind({ ...shared, about: `${t.description ?? t.name} (extension ${t.extension}; the notes ${t.view} lists, as a query tile: view=<a saved view's id> lists that instead)`, view: t.view });
   return serviceKind({
-    kind: t.kind,
-    noun: t.name,
+    ...shared,
     about: `${t.description ?? t.name} (extension ${t.extension}; its program runs in a terminal tile${t.args?.block ? "; note=<id> is its block, default the note shown where it's opened" : ""})`,
-    program: { command: t.command, cwd: t.cwd, env: t.env, args: t.args ?? {}, unavailable: unavailableHere(t), label: t.name, keys: t.actions.flatMap(a => (keyOf(a.key) ? [`${keyOf(a.key)} ${a.id}`] : [])) },
-    ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}),
-    ...(t.policy ? { policy: t.policy } : {}),
-    accepts: { notes: false, tiles: t.accepts ?? [] },
-    actions,
+    program: { command: t.command ?? [], cwd: t.cwd, env: t.env, args: t.args ?? {}, unavailable: unavailableHere(t), label: t.name, keys: keyHint },
   });
 }
 
@@ -948,6 +967,14 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   for (const [name, def] of want) { EXT_ACTIONS.define(name, def); boundActions.add(name); }
   // Tile kinds: registered through serviceKind; one whose entry changed is registered again, one gone is taken out.
   const kinds = new Map(tiles.map(t => [t.kind, t] as const));
+  // An extension's tile actions are one set for every tile kind of it (PIE-1506: a drawn tile and a view tile share
+  // `done`): the dispatcher binds an action's name once, and runs it in whichever of the kinds' tiles is named.
+  const tileSets = new Map<string, ActionSet<Record<string, ExtArgs>, ExtTileOn>>();
+  for (const t of tiles) {
+    if (!tileSets.has(t.extension)) tileSets.set(t.extension, new ActionSet<Record<string, ExtArgs>, ExtTileOn>(`ext:${t.extension}`, {}));
+    const set = tileSets.get(t.extension)!;
+    for (const a of t.actions) if (!set.has(a.name)) set.define(a.name, tileAction(t, a));
+  }
   let changed = false;
   for (const [kind] of boundKinds) {
     if (kinds.has(kind)) continue;
@@ -965,7 +992,7 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
     const { clash } = kindKey(t.name, kind);
     if (clash && !again) problems.push(`${kind} has no key under ^W o (${clash}); act tile.open kind=${kind} opens it`);
     // One kind the registry refuses (a name it can't take) never stops the others.
-    try { registerTileKind(kindEntry(t)); } catch (e) { problems.push(`${t.extension}'s tile kind ${oneLine(kind)} isn't registered: ${oneLine(e instanceof Error ? e.message : String(e))}`); continue; }
+    try { registerTileKind(kindEntry(t, tileSets.get(t.extension)!)); } catch (e) { problems.push(`${t.extension}'s tile kind ${oneLine(kind)} isn't registered: ${oneLine(e instanceof Error ? e.message : String(e))}`); continue; }
     boundKinds.set(kind, print);
     changed = true;
   }
