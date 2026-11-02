@@ -5,7 +5,7 @@
 // (`machines.json` in the state dir, for `ep0ch doctor`), and the remote door.
 //
 // EP0CH_SSH names the ssh to run (tests give a fake one); ssh is the default.
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { type Forward, type ForwardState, forwardState } from "@ep0ch/outline-core/machine";
@@ -74,7 +74,12 @@ export function forgetMachine(name: string): boolean {
  * (`*`, `?`, `!`). What the home base offers to add; ssh itself is what reaches them.
  */
 export function sshConfigNames(env: Env = process.env): string[] {
-  const home = env.HOME || homedir(), names = new Set<string>(), seen = new Set<string>();
+  return [...new Set(sshConfigHosts(env).flat())].sort();
+}
+
+/** One Host line's aliases name one candidate; ssh still owns how any alias connects. */
+function sshConfigHosts(env: Env): string[][] {
+  const home = env.HOME || homedir(), hosts: string[][] = [], seen = new Set<string>();
   const read = (file: string, depth: number) => {
     if (depth > 4 || seen.has(file)) return;
     seen.add(file);
@@ -84,7 +89,7 @@ export function sshConfigNames(env: Env = process.env): string[] {
       const m = /^\s*(host|include)(?:\s*=\s*|\s+)(.+?)\s*$/i.exec(raw.replace(/#.*$/, ""));
       if (!m) continue;
       const words = m[2]!.split(/\s+/).map(w => w.replace(/^"|"$/g, ""));
-      if (m[1]!.toLowerCase() === "host") { for (const w of words) if (isMachineName(w)) names.add(w); continue; }
+      if (m[1]!.toLowerCase() === "host") { const names = words.filter(isMachineName); if (names.length) hosts.push(names); continue; }
       for (const w of words) {
         const pattern = w.replace(/^~(?=\/)/, home), abs = isAbsolute(pattern) ? pattern : join(home, ".ssh", pattern);
         try { for (const f of new Bun.Glob(basename(abs)).scanSync({ cwd: dirname(abs), absolute: true, onlyFiles: true })) read(f, depth + 1); }
@@ -93,18 +98,33 @@ export function sshConfigNames(env: Env = process.env): string[] {
     }
   };
   read(join(home, ".ssh", "config"), 0);
-  return [...names].sort();
+  return hosts;
+}
+
+/** MagicDNS peers are candidates too; a machine only joins the home base once its outline host answers. */
+async function tailnetNames(env: Env): Promise<string[]> {
+  const app = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
+  const cli = Bun.which("tailscale", { PATH: env.PATH }) ?? (process.platform === "darwin" && existsSync(app) ? app : null);
+  if (!cli) return [];
+  const r = await options({ ...env, TAILSCALE_BE_CLI: "1" }).io.run([cli, "status", "--json"], 3000);
+  if (r.code) return [];
+  try {
+    const status = JSON.parse(r.out);
+    return Object.values(status.Peer ?? {}).flatMap((peer: any) => {
+      const name = typeof peer?.DNSName === "string" ? peer.DNSName.split(".")[0] : "";
+      return isMachineName(name) ? [name] : [];
+    });
+  } catch { return []; }
 }
 
 // ── every outline the person can open from here ──
 
-/** The machines with a shared forward (or a machine file) in this machine's `.remote/`, by name: `<machine>.sock` and `<machine>.json`. */
+/** The machines with SSH forwards, machine files or outbound links in this machine's `.remote/`. */
 export function forwardedMachines(env: Env = process.env): string[] {
   try {
     const names = new Set<string>();
     for (const f of readdirSync(outlineLayout(outlinesDir(env)).remoteDir)) {
-      if (f.endsWith(".link.sock") || f.endsWith(".link.json")) continue;
-      const m = /^(.+)\.(sock|json)$/.exec(f)?.[1];
+      const m = /^(.+?)(?:\.link)?\.(sock|json)$/.exec(f)?.[1];
       if (m && isMachineName(m)) names.add(m);
     }
     return [...names].sort();
@@ -114,8 +134,20 @@ export function forwardedMachines(env: Env = process.env): string[] {
 /** An outline someone can open from here (`machine`: none is this machine), or a machine whose outlines can't be read now (no `name`, a `problem`). */
 export interface KnownOutline { name?: string; machine?: string; problem?: string }
 
+/** Keep a link's or a previously opened alias when folding one SSH Host line into one machine. */
+export async function knownMachines(env: Env = process.env): Promise<string[]> {
+  const hosts = sshConfigHosts(env), seen = new Set<string>();
+  const names = [...forwardedMachines(env), ...usedMachines(env.EP0CH_STATE).map(m => m.name), ...hosts.map(h => h[0]!), ...await tailnetNames(env)];
+  return names.filter(name => {
+    const aliases = hosts.find(h => h.includes(name)) ?? [name];
+    if (aliases.some(a => seen.has(a))) return false;
+    for (const alias of aliases) seen.add(alias);
+    return true;
+  });
+}
+
 /**
- * This machine's host's outlines, then each machine the person has opened (the most recent first) with its outlines,
+ * This machine's host's outlines, then known machines (history, forwards, links, SSH config and tailnet) with their outlines,
  * read as the home base and `ep0ch doctor` read them (`hostLive`, `machineStatus`): no forward is started, so a machine
  * not connected now is one row saying so.
  */
@@ -123,10 +155,7 @@ export async function everyOutline(socket: string, env: Env = process.env): Prom
   const here = hostLive(socket, 3000).then((live): KnownOutline[] => live
     ? live.outlines.map(name => ({ name }))
     : [{ problem: `no outline host answers at ${socket}` }]);
-  // The machines opened before, then any whose shared forward is in `.remote/` (another state dir's, a program's): the
-  // forward is the proof a machine is reachable from here, whoever started it.
-  const used = usedMachines(env.EP0CH_STATE).map(m => m.name);
-  const machines = [...used, ...forwardedMachines(env).filter(m => !used.includes(m))];
+  const machines = await knownMachines(env);
   const there = machines.map(async (machine): Promise<KnownOutline[]> => {
     try {
       const s = await machineStatus(machine, env);

@@ -33,7 +33,7 @@ const fmt = n => Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 
 // (`[default::yes]` on one row must not stop every computed column compiling).
 const RESERVED_WORDS = new Set("break case catch class const continue debugger default delete do else enum export extends false finally for function if import in instanceof new null return super switch this throw true try typeof var void while with yield let static await arguments eval row".split(" "));
 const ident = key => { const name = key.replace(/[^A-Za-z0-9_$]/g, "_").replace(/^(\d)/, "_$1"); return RESERVED_WORDS.has(name) ? `${name}_` : name; };
-const bad = (what, detail) => view.text({ text: `${what}: ${detail}`, tone: "bad" });
+const bad = (what, detail) => { throw new Error(`${what}: ${detail}`); };
 
 // --- the rows ------------------------------------------------------------------------------------------------------
 let query = one("query");

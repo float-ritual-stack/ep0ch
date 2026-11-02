@@ -187,10 +187,18 @@ Bare `ep0ch` where nothing names an outline opens the home base: a screen like a
 - **This machine**: its host's outlines, then `+ new outline…` (the folder's or repository's name offered) and
   `↧ import a database…` (a new outline holding an older database's notes, properties, pages and work ids; the
   file is only read).
-- **Other machines**: the ones opened from here (`machines.json` in the state dir), each with its outlines once its
-  forward is up (⏎ on a machine connects; nothing is started by just looking), and `+ add a machine…`, which lists
-  the `Host` names in `~/.ssh/config` (and the files it includes) not added yet; a name typed that isn't there is
-  offered too. `x` takes a machine off the list.
+- **Other machines**: saved machines, machine-link endpoints, the `Host` names in `~/.ssh/config` (including
+  included files), and MagicDNS peers from `tailscale status --json`. Aliases on one `Host` line share one row.
+  Home connects through the shared forward and lists each host's outlines as it answers, even before an outline
+  there has been opened; candidates without an answering host are left out. `+ add a machine…` accepts another
+  SSH name and says why if it cannot connect. `x` removes a saved machine; a configured machine is discovered again
+  on reload or the next launch.
+- **The first local outline**: `n`, a name and Enter install and start this machine's outline host when needed,
+  then create and open the outline. `ep0ch --ws garden` does the same. macOS uses `io.ep0ch.outliner-host` under
+  launchd; Linux uses `outliner-host.service` under systemd. A failed start says why on the status line. Home's
+  recovery command names this platform's service manager, or `ep0ch install --apply` when no unit is installed.
+  If the installed unit serves another folder, the refusal names it and gives the foreground host command for
+  this folder: run it in another terminal, then create again. The existing unit stays as it is.
 - **Choosing an outline** opens the door on it. Started in a folder that can be named (not `$HOME`, `/` or one
   right under `/`), the home base offers to write its `.ep0ch` (`ws`, and `machine` for one on another machine), so
   the next `ep0ch` there opens it directly, or to open it this time only.
@@ -595,7 +603,8 @@ macOS; it does not write the Keychain. `keys list` and `keys check` read the sha
    through its unit, `launchctl kickstart -k gui/<uid>/<label>` on macOS (`io.ep0ch.outliner-host`) or
    `systemctl --user restart <unit>` on Linux, then waits for a new process to answer and checks it speaks the
    checkout's protocol. The doors and panes on it reconnect by themselves. A host that's set up but not answering
-   is started the same way (`launchctl bootstrap` when launchd hasn't loaded it). A host outside any unit, a unit
+   is started the same way (`launchctl bootstrap` when launchd hasn't loaded it). With no host or unit, install
+   writes and starts one, ready for the first outline. A host outside any unit, a unit
    the unit doesn't run (another process answers its socket), or a unit that needs changing (another checkout's
    `host-main.ts`, settings from before outlines by name) is left to you, with the change. Only a unit whose
    `EP0CH_OUTLINES` (default `~/outlines`) is this outlines folder counts as its unit.
@@ -628,8 +637,9 @@ macOS; it does not write the Keychain. `keys list` and `keys check` read the sha
 
 A checkout that isn't on `main`, has diverged, is behind with local changes, or couldn't be fetched is left
 for you, with what to do. Install never writes a database directly except through a migration script (it copies them first), never creates an outline,
-never edits Herdr's config or registry or Claude's settings, and never writes a systemd or launchd unit (it only
-asks one to restart, start or stop the host): a missing unit, a unit to change, the keys and the Claude mod are reported.
+never edits Herdr's config or registry or Claude's settings, and leaves existing host units intact. It creates a
+missing host unit and asks the service manager to restart, start or stop it; existing units that need changes,
+the keys and the Claude mod are reported.
 It stops at the first failure, with the recovery. `--json` gives agents the same report or plan.
 
 Each `--apply` run appends attributed machinery records under **Records**, created on first use. The usual
@@ -1314,6 +1324,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `^W P` | Pin (a reader's), Select shows in, ⏎ opens in, alt opens: click or Enter picks on screen; × or `x` clears that row's wire. A select with no target says nowhere. |
 | ctrl-click or alt-click a link | open it beside, not in the link target |
 | click a dock's handle (`⇤ tree`, hint row) | slide it open |
+| `,` over a saved view or inline `::view`, or its `≡ settings` control | open and enter its settings card. Enter edits the selected field and Esc closes the card, even with a collection row picked beneath it. In a field's choices, Space toggles, J/K reorders, typing filters and Tab completes; each choice writes the view's source and redraws it (kitchen sink: `collection-tune`) |
 | click the `⤢` before a collection peek's title | land the peek beside its view (`tile.float on=false where=right`); Enter enters the peek, Esc closes it and returns the keys to the view |
 | click the `⧉` before a float's title | put it back in the layout (`tile.float`, as `^W f` and the board's `o`); the cell either side of it counts |
 | click the `⧉` in the focused tile's top right corner | float it (`tile.float`, as `^W f`) |
@@ -3026,6 +3037,7 @@ Drawings of the book and of align left, centre and right: [UI-GRAMMAR, Spines](d
 | `changes.machinery` | `include=true\|false` (default: toggle). Whether "what changed" (the status bar's `+N new`, the new scan) includes machinery: what tools wrote for their own bookkeeping (notes stamped `[machine::…]`: tosses, file touches, deliveries, backup runs) and what extensions wrote, such as a refreshed ticket. Off by default; the person's only | a click on the status bar's `+N machine` |
 | `backlinks.groups` | `tile=<backlinks tile>`; `show=` (outlinks, resources, backlinks, children, comma-separated, or all), `toggle=<group>`, `choose=true` (yours: the list of groups). At least one group stays; saved with the layout | `v`, a click on the counters |
 | `list.blocks`, `list.pick`, `list.step`, `list.open`, `list.filter`, `list.enter` | one set for every list (PIE-747): `tile=<a reader or a links tile>`, `list=` (its number, `^name` or title; left out, the one you are in or the only one); `n=` (as `list.blocks` numbers the rows that can be picked) or `id=`; `by=` (step); `where=home\|new` (open); `words=` (filter); `on=` (enter, yours only). An agent's pick, step and filter are its own, drawn in its tint | `j k Home End`, `⏎`, `alt+⏎`, `/`, esc, clicks |
+| `settings`, `list.tune`, `settings.set`, `settings.toggle`, `binding.set` | `list=^name` selects an inline view; `key= value=` sets or toggles a field. `binding.set` also takes the `revision=` read by settings. An agent reads the same schema and writes as itself without entering the person's card | `,`; Enter on a card field; Space/Enter or a second click toggles; J/K or arrow rows order |
 | `list.page`, `list.step axis=column\|group` | a collection keeps each actor's own page and occurrence pick; `list.page by=1\|-1` turns pages without editing its note, `list.step by=1\|-1` steps the chosen axis | PgUp/PgDn or ◀ ▶; `h l` across gallery columns and board lanes; `H L` across groups |
 | `backlinks.view` | `tile=<backlinks tile>`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `s K w h n` |
 | `focus` | `tile=<tile>` or `tile=lanes`. An agent's is refused while you're typing, and within 2s of your last key. On the desk it is `tile.focus` | `Tab`, `Shift+Tab`, a click, `esc`/`q` back to the lanes |

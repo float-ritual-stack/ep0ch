@@ -303,7 +303,7 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
     const state = mkdtempSync(join(tmpdir(), "ep0ch-every-"));
     writeFileSync(join(state, "machines.json"), JSON.stringify({ machines: [{ name: "box-a", at: 1 }] }));
     try {
-      const every = await everyOutline(host.sock, { ...host.env, EP0CH_STATE: state, EP0CH_SSH: "/bin/false" });
+      const every = await everyOutline(host.sock, { ...host.env, PATH: process.env.PATH, EP0CH_STATE: state, EP0CH_SSH: "/bin/false" });
       expect(every.filter(o => !o.machine).map(o => o.name)).toEqual(expect.arrayContaining(["bob", "fred"]));
       expect(every.at(-1)).toEqual({ machine: "box-a", problem: "not connected" });
       const lines = await run(host.root, "outline", "list", "--lines");
