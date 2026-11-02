@@ -1395,7 +1395,7 @@ written over the clause being typed (`type=job AND seed sw` becomes `type=job AN
   "insert": { "snippet": "::button{label=\"{label}\"}\nopen id={note}\n::" } }] }
 ```
 
-A source that hears its picks, answering what's typed and writing each outcome to a log of its own:
+A source that hears its picks (a demo log here; state it keeps belongs in the outline, as [below](#where-an-extension-keeps-its-state)):
 
 ```ts
 const { operation, input } = await Bun.stdin.json();

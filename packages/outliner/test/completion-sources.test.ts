@@ -474,3 +474,19 @@ test("picks without triggers, and a grammar on a source the bar never lists, are
   expect(listed.extensions.find(e => e.id === "lineless")?.error).toContain("grammar is how its power bar line completes");
   expect(listed.barSources).toContainEqual(expect.objectContaining({ name: "ext.barred.z", grammar: "query" }));
 });
+
+test("Detail tells an extension's source its row was chosen, with what was typed (PIE-1508)", async () => {
+  const { client, list } = await setup(["issues"]);
+  await list(true);
+  const told: unknown[][] = [];
+  const provider = referenceCompletionProvider(client, "told-test");
+  const real = provider.completionPicked!;
+  provider.completionPicked = (...a) => { told.push(a); return real(...a); };
+  const buffer = new TextBuffer("[[seed"); buffer.moveEnd();
+  const session = new ReferenceCompletionSession(provider, () => buffer, () => {}, () => true);
+  await session.refresh();
+  const n = session.state!.items.findIndex(i => i.from === "ext.issues.issues");
+  expect(n).toBeGreaterThanOrEqual(0);
+  expect(await session.accept(n)).toBe(true);
+  expect(told).toContainEqual(["[[", pickId("[issue::#15]"), { source: "ext.issues.issues", outcome: "accepted", query: "seed", row: { id: "#15", label: "#15 Seed swap sign-up sheet", insertion: "[issue::#15]" } }]);
+});
