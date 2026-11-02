@@ -679,6 +679,23 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     expect(a.text()[0]).toBe("frame 4");               // and it shows the latest frame throughout
   });
 
+  // Codex on #1194: a key takes the frames in flight (proofOfLife), so the answers that follow it find none to match.
+  // They are answers all the same: the terminal is alive, and three separate slow moments must not step it down.
+  test("an answer that comes after a key took its frame still counts: the terminal keeps its video", async () => {
+    const { term, make } = counting();
+    term.ackStaleMs = 40;
+    const a = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true, kitty: true }));
+    for (let round = 1; round <= STEP_DOWN_AFTER + 1; round++) {
+      make(round * 3);                                    // the window fills
+      await until(() => term.speed()[0]!.ackTimeouts >= round, "a slow moment given up on", 2000);
+      term.input(ca, "j");                                // a key: what was in flight is taken
+      term.input(ca, answer);                             // then the late answer lands, with nothing left to match
+    }
+    expect(ca.painter.video).toBe("kitty+crt");
+    expect(term.speed()[0]!.steppedFrom).toBeNull();
+  });
+
   test("a terminal that answers, even late now and then, keeps its video: only answers lost in a row step it down", async () => {
     const { term, make } = counting();
     term.ackStaleMs = 40;

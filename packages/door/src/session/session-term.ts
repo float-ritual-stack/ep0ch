@@ -465,11 +465,12 @@ export class SessionTerm implements Display {
     // be taken as theirs, the window full again, and the client frozen for another stale wait, forever (PIE-1500: the
     // mini's tab at 81 timeouts with 2 unanswered). A late answer takes the oldest in flight instead: at worst one more
     // frame goes out early.
+    // Any answer says the terminal is alive, matched or not (one a key already took the frame of): no step down for it.
+    c.lostInARow = 0;
     const sent = c.inflight.shift();
     if (sent === undefined) return;           // none was asked (an old answer after a handoff, or one given up on)
     const ms = performance.now() - sent;
     c.ackMs = c.ackMs === null ? ms : c.ackMs * 0.7 + ms * 0.3;
-    c.lostInARow = 0;
     if (!c.inflight.length) { const w = c.settled; c.settled = []; for (const f of w) f(); }
     if (c.waiting && !c.full) { c.waiting = false; this.paintClient(c); }
   }
