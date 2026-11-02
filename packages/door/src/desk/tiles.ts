@@ -105,10 +105,11 @@ export interface TileSpec {
   label?: string;
   /** A river column's filter (its clauses, as `/` takes them). */
   filter?: string;
+  /** The glass extension's post-it and shelf (ext/glass): sticky, from a hover, pinned by; a shelf's refs, layout and colour. */
   sticky?: boolean; hover?: boolean; by?: string | null;
-  refs?: import("./shelf").ShelfRef[];
-  shelfLayout?: import("./shelf").ShelfLayout;
-  colour?: import("./shelf").ShelfColour;
+  refs?: { ref: string; title: string; by: string | null }[];
+  shelfLayout?: "list" | "grid";
+  colour?: keyof typeof import("../theme").TONE_INDEX;
   /** A backlinks tile whose groups start open (the welcome's). */
   groups?: "open";
   /** The link groups a backlinks tile lists (PIE-693), comma-separated (`children`: the thread tile's replies); left out, every group. */

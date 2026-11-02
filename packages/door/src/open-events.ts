@@ -1,4 +1,4 @@
-import type { DoorOpen } from "@ep0ch/outline-core/door-open";
+import type { DoorEvent, DoorOpen } from "@ep0ch/outline-core/door-open";
 import type { Ctx, ViewEvent, Screen, ViewState } from "./app";
 import { Trail, type Visit } from "./trail";
 import { traceRequests } from "./surface/dispatch";
@@ -26,8 +26,10 @@ export class OpenEvents {
       timer.unref?.(); this.pending.set(event.target.visit, { ctx, timer });
     }
   }
-  private deliver(event: DoorOpen, ctx: Ctx) {
-    void ctx.board.request("door.event", { body: event }).catch(error => ctx.flash(`Open event: ${String(error)}`));
+  private deliver(event: DoorOpen, ctx: Ctx) { this.post(event, ctx); }
+  /** Any door kind onto the door event wire (`door.event`): `door.open` here, `door.hover` from the hover primitive. */
+  post(event: DoorEvent, ctx: Ctx) {
+    void ctx.board.request("door.event", { body: event }).catch(error => ctx.flash(`${event.kind} event: ${String(error)}`));
   }
   private qualify(v: Visit) {
     const pending = this.pending.get(v.open.target.visit); if (!pending) return;

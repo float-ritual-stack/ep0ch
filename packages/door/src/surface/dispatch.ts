@@ -378,6 +378,12 @@ export class Dispatcher {
     if (host.tiles) this.regs.push({ set: POINTER_ACTIONS, takes: "screen", on: at => ({ dispatcher: this, at }) });
   }
 
+  /** Add a set while the door runs (a door module's, src/door-modules.ts); answers the function that takes it out. */
+  add(reg: Registration): () => void {
+    this.regs.push(reg);
+    return () => { this.regs = this.regs.filter(r => r !== reg); };
+  }
+
   /** A dispatcher for one set with nothing to resolve (a reader outside any screen, a test's): the same path. */
   static of<On>(set: ActionSet<any, On>, on: On, ctx: () => DispatchCtx | null | undefined, title = set.scope): Dispatcher {
     return new Dispatcher({ title, ctx }, [{ set, takes: "none", on: () => on }]);

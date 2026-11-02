@@ -90,7 +90,6 @@ import { AttachedTilePane } from "./attached-tile";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ptyBackend } from "./pty-backend";
-import { PostIt } from "./post-it";
 import { PreviewPane } from "./preview";
 import { fileOpenNote } from "./file-open";
 import { isOutlineNote, openResource, resourceRefTarget } from "../authored";

@@ -80,7 +80,7 @@ describe("an action's page", () => {
   });
 
   test("glass.mode's summary is one sentence; its status messages live only where they're said (PIE-1502)", async () => {
-    const { GLASS_MODES } = await import("../src/glass");
+    const { GLASS_MODES } = await import("../ext/glass/glass");
     const mode = builtIns().find(a => a.name === "glass.mode")!;
     expect(mode.summary).not.toContain(GLASS_MODES.on);
     expect(actionLead(mode.summary)).toBe(mode.summary);
@@ -159,6 +159,8 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
       if (page.scope === "tune") {
         await act("tile.open", { kind: "tune", name: "tune", source: "tile:reader" }, "reader");
         d.render(h.app);
+        // An extension's section (PIE-1505): the glass's, which the showcase's host serves.
+        if (page.name.startsWith("tune.setting.")) await act("tune.section", { section: "glass" }, "tune");
         if (page.name === "tune.resetlevel") {
           await act("tune.level", { level: "screen" }, "tune");
           await act("tune.set", { row: "measure", value: "72" }, "tune");

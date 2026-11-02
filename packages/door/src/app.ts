@@ -1,7 +1,7 @@
 import type { Trail } from "./trail";
 import { OpenEvents } from "./open-events";
 import { TRAIL_QUERIES } from "./trail-actions";
-import type { DoorOpen } from "@ep0ch/outline-core/door-open";
+import type { DoorEvent, DoorOpen } from "@ep0ch/outline-core/door-open";
 import { Canvas, type Rect } from "./canvas"; import { doorLocation } from "./session/place";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { pressEnded } from "./surface/button";
@@ -59,7 +59,10 @@ import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme"
 import { stateDir, writeState } from "./state";
 import { alertMark, readAlert } from "./backup/alert";
 import type { AgentSession } from "./desk/agent-sessions";
-import { Glass, GLASS_ACTIONS } from "./glass";
+import { FloatLayer } from "./float-layer";
+import { Hover } from "./hover";
+import { statusChips } from "./status-chips";
+import { hostDoorModules, releaseDoorModules, runningModules } from "./door-modules";
 import { AgentDrawer, DRAWER_ACTIONS, overlay, type DrawerRun } from "./drawer";
 import { type ResolveOpts } from "./desk/tile-address";
 import { layerOrder, type HostMode } from "./desk/screen-layout";
@@ -181,7 +184,10 @@ export interface Ctx {
   readonly trail?: Trail;
   opened?(event: DoorOpen): void;
   lastOpen?(tile: string): DoorOpen | undefined;
-  readonly glass?: Glass;
+  /** The float layer above every screen (src/float-layer.ts). */
+  readonly glass?: FloatLayer;
+  /** What is under the pointer (src/hover.ts). */
+  readonly hover?: Hover;
   /** Where a framed screen sits in a desk's undo order (the desk's `layoutUndoSeq`/`untrash`), so a reader in a tile hands ctrl+z on as one on the desk does (PIE-1470). */
   layoutUndoSeq?(): number | undefined;
   untrash?(board: object): boolean;
@@ -600,7 +606,8 @@ export class App implements Ctx {
   }
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
   readonly drawer: AgentDrawer;
-  readonly glass: Glass;
+  readonly glass: FloatLayer;
+  readonly hover: Hover;
 
   /** The power bar while it's open (PIE-656): over every screen and the drawer, with the person's keys. */
   bar: PowerBar | null = null;
@@ -672,7 +679,10 @@ export class App implements Ctx {
       const hit = this.statusBoxes.find(h => h.item.id === "drawer");
       return hit ? { from: hit.from, to: hit.to, row: this.term.info.rows - 1 } : null;
     }, redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });
-    this.glass = new Glass(this, this.drawer);
+    this.hover = new Hover(this, this.drawer);
+    this.glass = new FloatLayer(this, this.drawer, this.hover);
+    // The door modules the outline's extensions name run on this door (src/door-modules.ts): the glass is one.
+    hostDoorModules(this);
     // The drawer's keys and clicks run the host layer's actions as the person, through the App's dispatcher.
     this.drawerRun = (name, args) => { void this.dispatch.pressIn(DRAWER_ACTIONS, name, args); };
     this.drawer.run = (name, args) => this.dispatch.pressIn(DRAWER_ACTIONS, name, args);
@@ -726,7 +736,8 @@ export class App implements Ctx {
    */
   retire(): void {
     this.closed = true;
-    this.glass.dispose();
+    releaseDoorModules(this);
+    this.hover.dispose();
     stopCompletion(this.board);
     this.offResize();
     this.offStatus();
@@ -944,6 +955,17 @@ export class App implements Ctx {
   private readonly openEvents = new OpenEvents();
   get trail() { return this.openEvents.trail; }
   opened(e: DoorOpen) { this.openEvents.opened(e, this); }
+  /** Any other door kind onto the door event wire (`door.hover`, from the hover primitive). */
+  doorEvent(e: DoorEvent) { this.openEvents.post(e, this); }
+  /**
+   * `describe`'s glass (the float layer's tiles) with what each running door module says of itself, under its id: the
+   * glass extension's mode, settings and pinned count join the layer's tiles as `glass`.
+   */
+  private moduleState(): Record<string, Record<string, unknown>> {
+    const out: Record<string, Record<string, unknown>> = { glass: this.glass.describe() };
+    for (const [id, m] of runningModules()) { const d = m.describe?.(); if (d) out[id] = { ...out[id], ...d }; }
+    return out;
+  }
   lastOpen(tile: string) { return this.openEvents.last(tile); }
   doorOpens(since = 0) { return this.openEvents.since(since); }
   subscribe(f: (e: ViewEvent) => void): () => void { this.catchUp(); return this.openEvents.subscribe(f, this.stack.at(-1)); }
@@ -1110,7 +1132,7 @@ export class App implements Ctx {
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}),
       nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
-      ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), glass: this.glass.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
+      ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...this.moduleState(), ...(this.bar ? { bar: this.bar.describe() } : {}),
       messages: this.messages.rows,
       pointers: this.agentPointers.list(),
       // How the door is keeping up (a475084a): frames drawn against reports handled, the hover reports a busier moment folded into the newest, and the settle: the last input of a burst to the frame that shows it.
@@ -1219,7 +1241,6 @@ export class App implements Ctx {
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
     { set: TRAIL_QUERIES, takes: "none", on: () => this },
     { set: STRIP_ACTIONS, takes: "screen", claims: req => STRIP_ACTIONS.has(req.action), on: at => ({ strips: this.strips, tile: at.tile?.id ?? (at.name ? (this.screenDesk() ?? this.hostLayer.desks()[0])?.dispatch.tile(at.name)?.id : undefined) }) },
-    { set: GLASS_ACTIONS, takes: "none", on: () => this.glass },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => this.drawer.agentRef(), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>, tile?: string) => this.dispatch.act({ action: name, args, ...(tile ? { tile } : {}) }, how.actor) }) },
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing ? this.keysScreen() : this.stack.at(-1) }) },
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: this.stack.at(-1) }) },
@@ -1433,7 +1454,7 @@ export class App implements Ctx {
   private route(k: Key, w: KeyLayers): void {
     if (k.kind === "alt" && k.ch === "?") { void this.dispatch.press("text.reveal"); return; }
     if (k.kind === "mouse" && isHover(k)) void this.dispatch.press("text.hover", { x: k.x, y: k.y, alt: !!((k.mods ?? 0) & 8) });
-    else if (k.kind === "mouse") { this.overflow.clear(); this.glass.mouse(k); }
+    else if (k.kind === "mouse") { this.overflow.clear(); this.hover.mouse(k); }
     else this.overflow.keys();
     if (k.kind === "modifier") {
       if (w.over !== "bar" && this.dispatch.has("xray")) void this.dispatch.press("xray", k.event === "tap" ? {} : { on: k.event === "press" });
@@ -1495,7 +1516,7 @@ export class App implements Ctx {
     // A menu opened over the screen while the person is in the drawer (a status-bar group's) has the keys before the drawer
     // and a tile of it lifted over the screen: Esc closes it, never the agent's (PIE-1431).
     if (k.kind !== "mouse" && w.over === "menu") { this.stack.at(-1)!.key(k, this); return; }
-    if (this.drawer.menuInput(k) || this.glass.key(k) || this.drawer.glassInput(k)) return;
+    if (this.drawer.menuInput(k) || runningModules().some(([, m]) => m.key?.(k)) || this.drawer.glassInput(k)) return;
     const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
     if (lifted?.liftInput(k, () => {
       if (this.drawer.made?.liftedDesk === lifted) this.drawerRun("host.enter", {});
@@ -1792,7 +1813,7 @@ export class App implements Ctx {
     let placements = this.graphics ? [...(frame.placements ?? [])] : [];
     // Paint and hit-testing share layerOrder; host floats stay above every screen.
     const screen = lines, screenPlacements = placements;
-    const host = this.drawer.render(cols, rows, s.title); this.glass.painted();
+    const host = this.drawer.render(cols, rows, s.title); for (const [, m] of runningModules()) m.painted?.();
     const covers = this.drawer.covers(s).paint;
     // The screen's own cells and pictures in `rects` put back on top: its floats or menus, as it drew them.
     const raise = (rects: readonly Rect[], source = screen, pictures = screenPlacements) => {
@@ -1886,7 +1907,8 @@ export class App implements Ctx {
       { id: "machine", text: this.location, place: "left", click: { action: "status.log" }, ...(this.machine ? { short: doorLocation(this).short } : {}) },
       right("docks", this.screenDesk()?.dockChoices().length ? "docks" : "", "strip.more", { strip: `${this.screenDesk()?.name}:docks` }),
       right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
-      { ...right("glass", this.glass.chip(), "glass.toggle"), tiny: `◇${this.glass.mode === "off" ? "×" : this.glass.mode === "sticky" ? "◆" : ""}${this.glass.floats().length || ""}`, keep: true, alt: { action: "glass.clear" } },
+      // An extension's chips (src/status-chips.ts): the glass's ◇ when it runs.
+      ...statusChips().map((c): StatusItem => ({ ...right(c.id, c.text(), c.click, c.args), ...(c.tiny ? { tiny: c.tiny() } : {}), ...(c.keep ? { keep: true } : {}), ...(c.alt ? { alt: { action: c.alt } } : {}) })),
       right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
       { ...right("drawer", chip?.whole ?? "", "host.toggle"), alt: { action: "host.agent" }, keep: true, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}), ...(chip ? { short: chip.short, tiny: chip.tiny } : {}) },
       { ...right("waiting", waiting.styled, "host.waiting"), ...(waiting.short ? { short: waiting.short } : {}) },

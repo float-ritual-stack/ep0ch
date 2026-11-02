@@ -6,8 +6,9 @@ import { join, resolve } from "node:path";
 import { startControl } from "../../src/control";
 import { Desk } from "../../src/desk/desk";
 import { ReaderPane } from "../../src/desk/panes";
-import { PostIt } from "../../src/desk/post-it";
-import { Shelf } from "../../src/desk/shelf";
+import { PostIt } from "../../ext/glass/post-it";
+import { glass as ext, running } from "../../ext/glass/glass";
+import { Shelf } from "../../ext/glass/shelf";
 import { Mirror } from "../../src/mirror";
 import { SECTIONS } from "../../src/showcase/showcase";
 import { traceActions } from "../../src/surface/actions";
@@ -251,7 +252,7 @@ describe("showcase: the glass", () => {
     expect(floats().find(f => f.tile === pin.tile)?.rect).toEqual(before.rect);
     expect(p.list.pickedId()).toBe(selected);
     expect(p.refs.find(r => r.ref === h.seeded.notes.glassTitle.id)?.by).toBe("gardener");
-    expect(h.app.glass.describe().pinned).toBe(2);
+    expect(ext().describe().pinned).toBe(2);
     h.app.flush(); expect(lines().join("\n")).toContain("gardener");
     click({ x: 85, y: 22 });
     await agent("glass.clear", []);
@@ -277,7 +278,7 @@ describe("showcase: the glass", () => {
     const bar = await act("status.bar.items"), glyph = bar.items.find((i: any) => i.id === "glass");
     expect(glyph.from).toBeDefined();
     click({ x: glyph.from, y: h.app.terminalSize.rows - 1 });
-    await until(() => h.app.glass.mode === "on", "click turns hover on");
+    await until(() => ext().mode === "on", "click turns hover on");
     const ran: string[] = [], untrace = traceActions(r => ran.push(r.name));
     const origin = cell("tool shed"), focus = stage().focusName(), drawer = h.app.drawer.open;
     hover(origin);
@@ -350,19 +351,19 @@ describe("showcase: the glass", () => {
     hover({ x: 0, y: 0 });
     await until(() => !post(), "leaving closes after the close delay");
     h.press({ kind: "alt", ch: "u" });
-    await until(() => h.app.glass.mode === "sticky", "the mode key cycles on to sticky");
+    await until(() => ext().mode === "sticky", "the mode key cycles on to sticky");
     hover(cell("tool shed")); await until(() => !!post(), "sticky mode opens");
     hover({ x: 0, y: 0 }); await Bun.sleep(350);
     expect(paper().sticky).toBe(true);
     const bar = await act("status.bar.items"), glyph = bar.items.find((i: any) => i.id === "glass");
     click({ x: glyph.from, y: 59 });
-    await until(() => h.app.glass.mode === "off" && !post(), "the glyph cycles sticky to off and dismisses");
+    await until(() => ext().mode === "off" && !post(), "the glyph cycles sticky to off and dismisses");
   }, 20_000);
 
   test("cut-off text and links inside a pinned post-it use the same reader and bounded stack", async () => {
     await setup();
     h.press({ kind: "alt", ch: "u" });
-    await until(() => h.app.glass.mode === "on", "the hover key");
+    await until(() => ext().mode === "on", "the hover key");
     hover(cell("The spring planting"));
     await until(() => !!post(), "the cut-off title's post-it");
     expect(paper().msg?.text).toContain("before the afternoon rain arrives");
@@ -378,7 +379,7 @@ describe("showcase: the glass", () => {
     expect(pin.pane instanceof PostIt && pin.pane.title()).toBe("post-it 2/2");
     await act("glass.tune", { name: "limit", value: 1 });
     await act("glass.pin", { ref: "Remember the seed trays" }); h.app.flush();
-    expect(h.app.glass.chip()).toContain("2!");
+    expect(ext().chip()).toContain("2!");
     const bar = await act("status.bar.items"), glyph = bar.items.find((i: any) => i.id === "glass");
     click({ x: glyph.from, y: 59 }, true);
     await until(() => !floats().length, "alt-click clears the counted pins");
@@ -575,11 +576,11 @@ describe("showcase: the glass", () => {
     await act("tile.focus", {}, tune.tile);
     h.ch("G");
     await until(() => lines().some(l => l.includes("open delay (ms):")), "the Glass settings tab");
-    const before = h.app.glass.settings.open;
+    const before = ext().settings.open;
     h.ch("+");
-    await until(() => h.app.glass.settings.open === before + 50, "the Tune key changes the delay");
+    await until(() => ext().settings.open === before + 50, "the Tune key changes the delay");
     h.app.flush(); click(cell("[−]"));
-    await until(() => h.app.glass.settings.open === before, "the Tune minus button");
+    await until(() => ext().settings.open === before, "the Tune minus button");
     await act("glass.tune", { name: "open", value: 125 }); h.app.flush();
     expect(lines().some(l => l.includes("open delay (ms): 125"))).toBe(true);
     await act("tile.close", {}, tune.tile);
@@ -618,7 +619,7 @@ describe("showcase: the glass", () => {
     expect(edge()).toBeLessThan(y);
     hover({ x, y: edge() }); await Bun.sleep(300); h.app.flush();
     expect(postIts()).toHaveLength(0);
-    expect(h.app.glass.describe().mode).toBe("sticky");
+    expect(ext().describe().mode).toBe("sticky");
     // The glass still works once the button is up: a link makes a post-it.
     hover(cell("tool shed")); await until(() => !!post(), "a link after the drag");
     expect(paper().msg?.id).toBe(h.seeded.notes.shed.id);
@@ -652,13 +653,41 @@ describe("showcase: the glass", () => {
     };
     const bar = await act("status.bar.items"), glyph = bar.items.find((i: any) => i.id === "glass");
     click({ x: glyph.from, y: 59 });
-    await until(() => h.app.glass.mode === "on", "a click on ◇ turns the glass on");
+    await until(() => ext().mode === "on", "a click on ◇ turns the glass on");
     expect(await said("glass on · hover a link to peek"), "the status line says on").toBe(true);
     h.press({ kind: "alt", ch: "u" });
-    await until(() => h.app.glass.mode === "sticky", "alt+u makes it sticky");
+    await until(() => ext().mode === "sticky", "alt+u makes it sticky");
     expect(await said("glass sticky · each hover stays as a post-it"), "the status line says sticky").toBe(true);
-    expect(h.app.glass.chip()).toContain("sticky");
+    expect(ext().chip()).toContain("sticky");
     h.press({ kind: "alt", ch: "u" });
     expect(await said("glass off"), "the status line says off").toBe(true);
   }, 20_000);
+
+  test("the glass is an extension (PIE-1505): uninstalled, hover does nothing and ◇ is gone; installed again, both are back with its mode", async () => {
+    await setup();
+    await act("glass.mode", { set: "on" });
+    const items = async () => { h.app.flush(); return ((await act("status.bar.items")).items as { id: string; text: string }[]).map(i => ({ ...i, text: visible(i.text) })); };
+    expect((await items()).find(i => i.id === "glass")?.text).toContain("◇ on");
+    try {
+      await h.app.act({ action: "extensions.uninstall", args: { id: "glass", demo: "keep" }, as: "glass-tester" });
+      await h.app.loadExtensions(true);
+      await until(() => !running(), "the door module stops with its extension");
+      expect((await items()).some(i => i.id === "glass")).toBe(false);
+      hover(cell("tool shed")); await Bun.sleep(400);
+      expect(floats().some(f => f.pane.kind === "post-it")).toBe(false);
+      await expect(act("glass.mode", { set: "on" })).rejects.toThrow(/extensions\.install id=glass/);
+      // The float layer is core: any tile still floats onto the glass.
+      const lifted = await stage().dispatch.act({ action: "tile.float", args: { to: "glass" }, tile: "title" }, { kind: "user" }) as { tile: string };
+      expect(floats().some(f => f.tile === lifted.tile)).toBe(true);
+      await act("tile.dock", { on: true, edge: "right" }, lifted.tile);
+    } finally {
+      await h.app.act({ action: "extensions.install", args: { id: "glass" }, as: "glass-tester" });
+      await h.app.loadExtensions(true);
+    }
+    await until(() => !!running(), "the door module starts again");
+    expect(ext().mode).toBe("on");
+    expect((await items()).find(i => i.id === "glass")?.text).toContain("◇ on");
+    hover({ x: 0, y: 0 }); hover(cell("tool shed"));
+    await until(() => !!post(), "a hover opens a post-it again");
+  }, 30_000);
 });

@@ -1,26 +1,37 @@
-// The glass's hover behaviour (post-its, the stack, peel, drop, shelves) is core today and moves to an extension on two new
-// primitives, a hover event and an extension's status chip (PIE-1505, docs/adr/0008-extension-first.md); the float layer it
-// draws on stays core. Don't grow it here: add to the primitive or the extension.
-import type { App, Screen } from "./app";
-import type { Msg } from "./board";
-import type { Rect } from "./canvas";
-import type { AgentDrawer } from "./drawer";
-import { Desk } from "./desk/desk";
-import { makeTile } from "./desk/tiles";
-import { readTarget } from "./desk/outline-boards";
-import { PostIt, textNote, readPostIt } from "./desk/post-it";
-import { Shelf, type ShelfColour } from "./desk/shelf";
-import type { DeskApi } from "./desk/panes";
-import { TONE_INDEX } from "./theme";
-import type { TileDone } from "./desk/tile-actions";
-import { keepOnScreen, type Dir } from "./desk/screen-layout";
-import { USER, type Actor } from "./socket";
-import { actionSet, def, ActionRefused, keyName } from "./surface/actions";
-import { type ModeKey } from "./surface/modes";
-import { effective, keyTable } from "./surface/keymap";
-import { outlineState, readState, writeState } from "./state";
-import type { Key } from "./term";
-import type { ListView } from "./surface/list-view";
+// The glass extension (PIE-1505, docs/adr/0008-extension-first.md): hover a link and its note shows in a post-it on the
+// glass; ◇ on the status bar says the mode and cycles it (off → on → sticky). It is a door module (src/door-modules.ts)
+// that the `glass` extension's manifest names (packages/outliner/extensions/glass), on by default and uninstalled like
+// any other from the extensions screen. It stands on the door's primitives only:
+//
+// - the hover event (src/hover.ts): what is under the pointer, never while a button is down or over chrome;
+// - an extension's status chip (src/status-chips.ts): ◇, its click and alt-click;
+// - the float layer (src/float-layer.ts, `app.glass`): where its post-its and shelves are put, docked and tucked;
+// - a Tune section (src/desk/tune.ts): its delays and limits, beside values and Hints;
+// - tile kinds (post-it, shelf) and an action set (`glass.*`), which go when it stops.
+//
+// Turned off, nothing of it runs: hover does nothing, ◇ is gone, and `glass.*` says how to install it again. The float
+// layer stays: `tile.float to=glass` still lifts any tile onto it.
+import type { App } from "../../src/app";
+import type { Msg } from "../../src/board";
+import type { Desk } from "../../src/desk/desk";
+import { readTarget } from "../../src/desk/outline-boards";
+import type { DeskApi } from "../../src/desk/panes";
+import type { TileDone } from "../../src/desk/tile-actions";
+import { registerTileKind, tileKind, unregisterTileKind } from "../../src/desk/tile-kinds";
+import { registerTuneSection } from "../../src/desk/tune";
+import type { ActiveModule, DoorModule } from "../../src/door-modules";
+import { inside, type HoverMove, type Point } from "../../src/hover";
+import type { Rect } from "../../src/canvas";
+import { USER, type Actor } from "../../src/socket";
+import { outlineState, readState, writeState } from "../../src/state";
+import { registerStatusChip } from "../../src/status-chips";
+import { actionSet, def, ActionRefused, keyName } from "../../src/surface/actions";
+import { effective, keyTable } from "../../src/surface/keymap";
+import type { ModeKey } from "../../src/surface/modes";
+import type { Key } from "../../src/term";
+import { TONE_INDEX } from "../../src/theme";
+import { PostIt, POST_IT_KIND, textNote, readPostIt } from "./post-it";
+import { Shelf, SHELF_KIND, type ShelfColour } from "./shelf";
 
 export type GlassMode = "off" | "on" | "sticky";
 /** Each mode in a few words: what the status line says when it changes, and what the ◇ chip's title reads. */
@@ -42,16 +53,21 @@ export const GLASS_KEYS = keyTable("glass", "hover above every screen", [
   { key: "alt+U", action: "glass.clear", label: "clear glass" },
 ] satisfies ModeKey[]);
 type HoverTrail = { msg: Msg; nav: ReturnType<PostIt["surface"]["saveNav"]> };
-type Point = { x: number; y: number; alt: boolean };
-const inside = (p: Point, r: Rect) => p.x >= r.col && p.x < r.col + r.cols && p.y >= r.row && p.y < r.row + r.rows;
 const distance = (p: Point, r: Rect) => Math.hypot(Math.max(r.col - p.x, 0, p.x - r.col - r.cols), Math.max(r.row - p.y, 0, p.y - r.row - r.rows));
 
-/** Timing and gestures only. Tiles, their rectangles and their order belong to the host desk's LayoutState. */
+let current: Glass | null = null;
+/** The glass while the extension runs (a post-it's peel and shelve, its stack length). */
+export const running = (): Glass | null => current;
+export function glass(): Glass {
+  if (!current) throw new ActionRefused("the glass extension is off here · ep0ch act extensions.install id=glass turns it on");
+  return current;
+}
+
+/** Timing and gestures only. Tiles, their rectangles and their order belong to the host desk's LayoutState (the float layer). */
 export class Glass {
   mode: GlassMode = "off";
   settings: Record<GlassSetting, number> = Object.fromEntries(Object.entries(GLASS_SETTINGS).map(([k, v]) => [k, v.base])) as Record<GlassSetting, number>;
   private size = { cols: 56, rows: 16 };
-  private pointer: Point | null = null;
   private source: Rect | null = null;
   private target = "";
   private opening: ReturnType<typeof setTimeout> | null = null;
@@ -59,17 +75,16 @@ export class Glass {
   private closeAt = 0;
   private generation = 0;
   private hover: PostIt | null = null;
-  private collection: ListView | undefined;
   private saved: HoverTrail | null = null;
-  /** A mouse button is down (a drag of an edge, a title, a selection): no hover resolves until it comes up. */
-  private held = false;
 
-  constructor(private readonly app: App, private readonly host: AgentDrawer) {
+  constructor(private readonly app: App) {
     const saved = readState<{ mode: GlassMode; settings: Record<GlassSetting, number>; size: { cols: number; rows: number }; trail: HoverTrail | null }>("glass.json", outlineState());
     if (saved) { this.mode = saved.mode; this.settings = { ...this.settings, ...saved.settings }; this.size = saved.size; this.saved = saved.trail; }
   }
+  private get layer() { return this.app.glass; }
+  private get host() { return this.app.drawer; }
   private save() { writeState("glass.json", { mode: this.mode, settings: this.settings, size: this.size, trail: this.saved }, outlineState()); }
-  floats() { return this.host.made?.floatingTiles() ?? []; }
+  floats() { return this.layer.floats(); }
   private current() {
     const f = this.floats().find(f => f.pane instanceof PostIt && f.pane.hover);
     if (f && f.pane instanceof PostIt && this.hover !== f.pane) this.watch(f.pane);
@@ -84,15 +99,16 @@ export class Glass {
     if (f && (this.size.cols !== f.rect.cols || this.size.rows !== f.rect.rows)) { this.size = { cols: f.rect.cols, rows: f.rect.rows }; this.save(); }
   }
   private pinnedCount() { return this.floats().filter(f => !(f.pane instanceof PostIt) || !f.pane.hover || f.pane.sticky).length; }
-  describe() { return { mode: this.mode, settings: { ...this.settings }, pinned: this.pinnedCount(), tiles: this.floats().map(({ pane: _p, ...f }) => f) }; }
+  describe() { return { mode: this.mode, settings: { ...this.settings }, pinned: this.pinnedCount() }; }
   chip() {
     const count = this.floats().length;
     return `◇ ${this.mode}${count ? ` ${count}${this.pinnedCount() > this.settings.limit ? "!" : ""}` : ""}`;
   }
+  tiny() { return `◇${this.mode === "off" ? "×" : this.mode === "sticky" ? "◆" : ""}${this.floats().length || ""}`; }
   set(mode: GlassMode, actor: Actor) {
     this.mode = mode; this.cancelOpen(); this.cancelClose();
     if (mode === "off") this.dismiss(actor);
-    this.save(); this.app.redraw(); return this.describe();
+    this.save(); this.app.redraw(); return { ...this.describe(), tiles: this.layer.describe().tiles };
   }
   tune(name: GlassSetting, value: number) {
     const setting = GLASS_SETTINGS[name];
@@ -103,22 +119,10 @@ export class Glass {
   private cancelClose() { if (this.closing) clearTimeout(this.closing); this.closing = null; this.closeAt = 0; }
   dispose() { this.cancelOpen(); this.cancelClose(); }
 
-  /** Every button report, before it is routed (App.route): a button down holds the glass until it comes up; a hover report (no button) releases it in `motion`. */
-  mouse(k: Extract<Key, { kind: "mouse" }>) {
-    if (k.action === "down" || k.action === "drag") { this.held = true; this.cancelOpen(); }
-    else if (k.action === "up") this.held = false;
-  }
-  motion(x: number, y: number, alt = false) {
-    const point = { x, y, alt }, before = this.pointer, held = this.held;
-    this.pointer = point; this.held = false;
-    if (held || before && before.x === x && before.y === y && before.alt === alt) return;
-    const collection = this.hit(point)?.collection;
-    if (collection !== this.collection) {
-      if (this.collection) this.collection.hovered = false;
-      if (collection) collection.hovered = true;
-      this.collection = collection;
-      this.app.redraw();
-    }
+  /** A button went down: what was about to open waits for the next move (the hover primitive's press). */
+  pressed() { this.cancelOpen(); }
+  /** A distinct move with no button down (the hover primitive's): close what the pointer left, open what it rests on. */
+  moved({ point, before }: HoverMove) {
     this.cancelOpen();
     const current = this.current(), over = current && inside(point, current.rect);
     if (current && current.pane instanceof PostIt && !current.pane.sticky) {
@@ -131,24 +135,15 @@ export class Glass {
         this.closing = setTimeout(() => { this.closing = null; this.closeAt = 0; if (!this.host.glassHasKeys(current.tile) && !(current.pane instanceof PostIt && current.pane.editing)) this.dismiss(USER); }, Math.max(0, this.closeAt - now));
       }
     }
-    if (this.mode === "off" && !alt || this.source && inside(point, this.source)) return;
+    if (this.mode === "off" && !point.alt || this.source && inside(point, this.source)) return;
     const generation = this.generation;
     this.opening = setTimeout(() => {
       this.opening = null;
       void this.resolve(point, generation).catch(e => this.app.flash((e as Error).message));
     }, this.settings.open);
   }
-  private hit(point: Point) {
-    const over = this.floats().findLast(f => inside(point, f.rect));
-    // Inside the open drawer, the screen under it is covered: only the host desk answers there, unless a float or menu
-    // of the screen is drawn over that cell (the drawer's own layer answer, `covers`). Chrome (the drawer's bar, hint
-    // rows, the status bar) belongs to no tile, so it never answers: a tile's content and its title are the targets.
-    const inDrawer = !over && this.host.shown && this.host.rect && inside(point, this.host.rect) && !this.host.coveredAt(point.x, point.y);
-    const desks = over || inDrawer ? [this.host.made!] : this.host.desks().filter(d => !this.host.isDrawer(d));
-    return desks.map(d => d.hoverAt(point.x - d.screenOrigin.col, point.y - d.screenOrigin.row)).find(Boolean);
-  }
   private async resolve(point: Point, generation: number) {
-    const over = this.floats().findLast(f => inside(point, f.rect)), hit = this.hit(point);
+    const over = this.floats().findLast(f => inside(point, f.rect)), hit = this.app.hover.hitAt(point);
     const text = hit?.text, key = hit?.target ? JSON.stringify(hit.target) : text;
     if (!hit || !key) return;
     this.cancelClose();
@@ -158,12 +153,6 @@ export class Glass {
     this.target = key; this.source = hit.rect;
     if (await hit.desk.hoverInto(hit.tile, m)) return;
     this.show(m, USER, true, point.alt || this.mode === "sticky", over?.pane instanceof PostIt ? over.pane : undefined);
-  }
-  private rectangle(pin = false) {
-    const { cols, rows } = this.app.terminalSize, p = this.pointer ?? { x: 0, y: 0 };
-    const size = { cols: Math.min(cols, this.size.cols), rows: Math.min(rows - 2, this.size.rows) };
-    const n = pin ? this.floats().length : 0;
-    return keepOnScreen({ ...size, col: p.x < cols / 2 ? cols - size.cols - 1 - n * 3 : 1 + n * 3, row: p.y < rows / 2 ? rows - size.rows - 2 - n * 2 : 1 + n * 2 }, { col: 0, row: 0, cols, rows: rows - 1 });
   }
   private show(m: Msg, actor: Actor, hover: boolean, sticky: boolean, into?: PostIt): TileDone {
     const d = this.host.desk!;
@@ -181,9 +170,8 @@ export class Glass {
       if (this.saved.nav) p.surface.restoreNav(this.saved.nav);
     }
     p.show(m, d, actor);
-    const done = d.bringIn({ pane: p, name: hover ? "hover" : "post-it", spec: { t: "leaf", kind: "post-it" }, from: "glass", typing: false }, undefined, undefined, actor, this.rectangle(!hover));
     if (hover) this.watch(p);
-    d.save(); this.app.redraw(); return done;
+    return this.layer.put(p, hover ? "hover" : "post-it", { t: "leaf", kind: "post-it" }, actor, this.layer.rectangle(this.size, !hover));
   }
   async pin(ref: string, actor: Actor, shelf?: string) {
     const m = await readPostIt(this.app, ref);
@@ -192,7 +180,7 @@ export class Glass {
   }
   peel(p: PostIt, desk: DeskApi, actor: Actor): TileDone {
     if (!this.floats().some(f => f.pane === p)) {
-      const done = this.float(desk as Desk, desk.nameOfPane!(p), actor);
+      const done = this.layer.float(desk as Desk, desk.nameOfPane!(p), actor);
       p.hover = false; p.sticky = true; desk.keepLayout?.();
       return done;
     }
@@ -200,8 +188,8 @@ export class Glass {
     return this.show(p.msg, actor, false, true);
   }
   shelf(name: string, colour: ShelfColour, actor: Actor) {
-    const d = this.host.desk!, p = new Shelf([], "list", colour);
-    const done = d.bringIn({ pane: p, name: "shelf", spec: { t: "leaf", kind: "shelf" }, from: "glass", typing: false }, undefined, undefined, actor, this.rectangle(true));
+    const d = this.host.desk!;
+    const done = this.layer.put(new Shelf([], "list", colour), "shelf", { t: "leaf", kind: "shelf" }, actor, this.layer.rectangle(this.size, true));
     const named = d.titleTile(done.tile, name, false, actor);
     d.save(); this.app.redraw(); return named;
   }
@@ -226,52 +214,6 @@ export class Glass {
     if (entered) this.host.restoreGlassKeys();
     return done;
   }
-  dock(name: string, pin: boolean | undefined, edge: Dir | "other" | undefined, actor: Actor, container?: string): TileDone {
-    const landed = this.host.take(name, undefined, undefined, actor);
-    return this.host.resolveTile(landed.tile)!.desk.dockTile(landed.tile, pin, edge, actor, container);
-  }
-  tuck(name: string, actor: Actor): TileDone {
-    const done = this.host.made!.floatTile(name, actor, false);
-    if (this.host.glassHasKeys(done.tile)) this.host.restoreGlassKeys();
-    this.app.redraw(); return { ...done, inDrawer: true };
-  }
-  menuInput(k: Extract<Key, { kind: "mouse" }>, own: Rect[], behind: Rect[], screen?: Screen): boolean {
-    const point = { x: k.x, y: k.y, alt: false };
-    if (!this.host.glassHasKeys() && !this.floats().some(f => inside(point, f.rect))) return false;
-    const owner = own.some(r => inside(point, r)) ? this.host.made : behind.some(r => inside(point, r)) ? screen : null;
-    owner?.key(k, this.app);
-    return !!owner;
-  }
-  dragFloat(k: Extract<Key, { kind: "mouse" }>, screen: Desk | null): boolean {
-    const d = this.host.made, moving = d?.draggedFloat();
-    if (!d || !moving || k.action !== "drag" && k.action !== "up") return false;
-    if (k.action === "drag") d.key(k, this.app);
-    const pane = d.pane(moving)!, chip = this.host.chipAt;
-    const tuck = !!chip && k.y === chip.row && k.x >= chip.from && k.x < chip.to;
-    const target = !d.floatDrop()?.receive && screen ? screen.foreignAt(k.x - screen.screenOrigin.col, k.y - screen.screenOrigin.row, { name: moving, kind: pane.kind, pane }, true) : null;
-    if (!target) screen?.cancelDrag();
-    if (k.action === "up") {
-      if (tuck || target) {
-        d.cancelDrag(); screen?.cancelDrag();
-        if (target?.refused) this.app.flash(`not moved: ${target.refused}`);
-        else if (target?.receive && !tuck) void d.perform(target.receive.action, target.receive.args ?? {}, USER, moving);
-        else void d.perform("tile.drawer", tuck ? { on: true } : { on: false, to: target!.to, where: target!.where }, USER, moving);
-      } else d.key(k, this.app);
-    }
-    return true;
-  }
-  float(from: Desk, name: string, actor: Actor) {
-    const d = this.host.desk!;
-    if (from === d) return d.floatTile(name, actor, true);
-    const heir = from.tileCount() === 1 ? makeTile({ t: "leaf", kind: "blank" }) : undefined;
-    const why = from.takeRefusal(name, actor, !!heir);
-    if (why) throw new ActionRefused(why);
-    const admission = d.bringRefusal({ name, spec: { t: "leaf", kind: from.pane(name)!.kind } }, undefined, undefined, actor, this.rectangle());
-    if (admission) throw new ActionRefused(admission);
-    const moved = from.takeOut(name, actor, heir);
-    const done = d.bringIn(moved, undefined, undefined, actor, this.rectangle());
-    this.app.redraw(); return { ...done, floated: true, to: "glass" };
-  }
   dismiss(actor: Actor) {
     this.cancelOpen(); this.cancelClose();
     const current = this.current() ?? this.floats().find(f => this.host.glassHasKeys(f.tile) && f.pane instanceof PostIt) ?? this.floats().findLast(f => f.pane instanceof PostIt);
@@ -286,18 +228,10 @@ export class Glass {
   }
   clear(actor: Actor) {
     this.cancelOpen(); this.cancelClose();
-    const kept: { tile: string; why: string }[] = [], d = this.host.made;
-    for (const f of this.floats()) {
-      // Closing a shelf also closes its unentered preview.
-      if (!d!.floatingTiles().some(t => t.tile === f.tile)) continue;
-      const why = d!.tileNow(f.tile, actor).refused("close");
-      if (why) kept.push({ tile: f.tile, why }); else d!.closeTile(f.tile, actor);
-    }
-    if (!this.floats().some(f => this.host.glassHasKeys(f.tile))) this.host.restoreGlassKeys();
-    this.target = ""; this.source = null; this.app.redraw(); return { ...this.describe(), kept };
+    const { kept } = this.layer.clear(actor);
+    this.target = ""; this.source = null; return { ...this.describe(), tiles: this.layer.describe().tiles, kept };
   }
   key(k: Key): boolean {
-    if (k.kind === "mouse" && k.action === "down") { this.pointer = { x: k.x, y: k.y, alt: !!((k.mods ?? 0) & 8) }; this.cancelOpen(); }
     const bound = effective(GLASS_KEYS).find(b => b.key === keyName(k));
     if (bound && !this.app.person().program) { void this.app.dispatch.press(bound.action); return true; }
     const current = this.current() ?? this.floats().findLast(f => f.pane instanceof PostIt);
@@ -322,6 +256,36 @@ export const GLASS_ACTIONS = actionSet<Glass>()("glass", {
     examples: [{ act: "glass.shelve ref=7d9a1f40 shelf=chores", does: "puts that note on the chores shelf, the focus where it was" }], says: r => `shelved on ${r.name}`, run: ({ ref, shelf }, glass, actor) => glass.pin(ref, actor, shelf) }),
   "glass.dismiss": def({ summary: "dismiss the hover post-it and return its keys", keys: "esc, click ×", touches: "nothing", replay: "safe", args: {}, run: (_, glass, actor) => glass.dismiss(actor) }),
   "glass.clear": def({ summary: "clear the glass: close its floats, keeping any tile the person is working in when an agent asks", keys: "alt+U, alt-click the ◇ status glyph", touches: "nothing", replay: "safe", args: {}, says: r => `cleared the glass${r.kept.length ? ` · kept ${r.kept.map((k: { why: string }) => k.why).join("; ")}` : ""}`, run: (_, glass, actor) => glass.clear(actor) }),
-  "glass.tune": def({ keys: "+ - = h l left right (Tune Glass), click", summary: "read or change the glass's delays, hover stack length and pinned soft limit; also in Tune's Glass section", touches: "nothing", replay: "safe", args: { name: { type: "string", optional: true, choices: Object.keys(GLASS_SETTINGS), about: "setting" }, value: { type: "number", optional: true, about: "new value" } },
+  "glass.tune": def({ keys: [{ via: "Tune → Glass (G): + − and its [+] [−] buttons" }], summary: "read or change the glass's delays, hover stack length and pinned soft limit; also in Tune's Glass section", touches: "nothing", replay: "safe", args: { name: { type: "string", optional: true, choices: Object.keys(GLASS_SETTINGS), about: "setting" }, value: { type: "number", optional: true, about: "new value" } },
     examples: [{ act: "glass.tune", does: "reads every delay and limit as it is", safe: true }, { act: "glass.tune name=open value=150", does: "opens a hover 150 ms after the pointer rests" }], run: ({ name, value }, glass) => name !== undefined && value !== undefined ? glass.tune(name as GlassSetting, value) : glass.describe() }),
 });
+
+/** The module the `glass` extension's manifest names (`"door": "glass"`): what starts when it's served, and goes when it isn't. */
+export const GLASS_MODULE: DoorModule = {
+  id: "glass",
+  activate(app: App): ActiveModule {
+    const g = new Glass(app);
+    current = g;
+    const kinds = [POST_IT_KIND, SHELF_KIND].filter(k => !tileKind(k.kind));
+    for (const k of kinds) registerTileKind(k);
+    const stops = [
+      app.hover.subscribe({ moved: m => g.moved(m), pressed: () => g.pressed() }),
+      registerStatusChip({ id: "glass", text: () => g.chip(), tiny: () => g.tiny(), click: "glass.toggle", alt: "glass.clear", keep: true }),
+      registerTuneSection({ id: "glass", label: "Glass", key: "G", settings: GLASS_SETTINGS, value: n => g.settings[n as GlassSetting], tune: "glass.tune" }),
+      app.dispatch.add({ set: GLASS_ACTIONS, takes: "none", on: () => g }),
+    ];
+    app.redraw();
+    return {
+      dispose() {
+        for (const stop of stops) stop();
+        for (const k of kinds) unregisterTileKind(k.kind, "the glass extension is off here: ep0ch act extensions.install id=glass turns it on");
+        g.dispose();
+        if (current === g) current = null;
+        app.redraw();
+      },
+      key: k => g.key(k),
+      painted: () => g.painted(),
+      describe: () => g.describe(),
+    };
+  },
+};
