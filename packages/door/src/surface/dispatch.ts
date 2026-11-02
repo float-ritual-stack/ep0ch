@@ -380,7 +380,7 @@ export class Dispatcher {
 
   /** Add a set while the door runs (a door module's, src/door-modules.ts); answers the function that takes it out. */
   add(reg: Registration): () => void {
-    this.regs.push(reg);
+    this.register([reg]);
     return () => { this.regs = this.regs.filter(r => r !== reg); };
   }
 

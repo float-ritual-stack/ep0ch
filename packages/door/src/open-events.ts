@@ -27,9 +27,9 @@ export class OpenEvents {
     }
   }
   private deliver(event: DoorOpen, ctx: Ctx) { this.post(event, ctx); }
-  /** Any door kind onto the door event wire (`door.event`): `door.open` here, `door.hover` from the hover primitive. */
-  post(event: DoorEvent, ctx: Ctx) {
-    void ctx.board.request("door.event", { body: event }).catch(error => ctx.flash(`${event.kind} event: ${String(error)}`));
+  /** Any door kind onto the door event wire (`door.event`): `door.open` here, `door.hover` from the hover primitive (`quiet`: a lost one is never said). */
+  post(event: DoorEvent, ctx: Ctx, quiet = false) {
+    void ctx.board.request("door.event", { body: event }).catch(error => { if (!quiet) ctx.flash(`${event.kind} event: ${String(error)}`); });
   }
   private qualify(v: Visit) {
     const pending = this.pending.get(v.open.target.visit); if (!pending) return;

@@ -1621,11 +1621,21 @@ extensions screen's install and uninstall, `defaultOn`. Its manifest names the m
   date). Writing a new one is a change to the door; a behaviour that can live a socket away is an extension program on
   `door.hover` instead.
 
-An extension's status chip, worked: the glass's ◇ is
+The two primitives the glass added, as it uses them (`packages/door/ext/glass/glass.ts`, `GLASS_MODULE`): the hover
+event, every distinct move with what is under the pointer (`hit`: the tile, its link target or cut-off text, its
+rectangle; null over chrome) and every press,
+
+```ts
+app.hover.subscribe({ moved: m => g.moved(m), pressed: () => g.pressed() });
+```
+
+and an extension's status chip, the glass's ◇:
 
 ```ts
 registerStatusChip({ id: "glass", text: () => g.chip(), tiny: () => g.tiny(), click: "glass.toggle", alt: "glass.clear", keep: true });
 ```
+
+Each answers the function that takes it away; the module calls them all when it stops.
 
 ## Extensions as programs
 

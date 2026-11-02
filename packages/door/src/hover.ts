@@ -101,7 +101,8 @@ export class Hover {
     if (key === this.sent) return;
     this.resting = setTimeout(() => {
       this.resting = null; this.sent = key;
-      this.app.openEvents.post({ ...e, at: Date.now() }, this.app);
+      // Best effort: a hover is sent as the pointer moves, so an offline door sends none and a lost one says nothing.
+      if (!this.app.offline) this.app.openEvents.post({ ...e, at: Date.now() }, this.app, true);
     }, HOVER_REST_MS);
     this.resting.unref?.();
   }
