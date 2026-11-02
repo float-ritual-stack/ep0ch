@@ -95,6 +95,24 @@ test("a search with nothing that answers it says no strong match instead of a co
   expect(await until(async () => (await records("jev-run")).some(run => run.experiment === "search-live" && run.suggested === "1"))).toBe(true);
 });
 
+test("a jump to a title: notes whose titles start with the words stay first, and no verdict is read on them (PIE-1497)", async () => {
+  // Jev backs the body hit (a compost note that mentions pies); the titles the words start are the ones wanted.
+  const { store, client } = await setup({ best: "Compost turning", exists: 0.1 });
+  store.create("PIE-101 Builder report for the dock strip\nthe segments by title");
+  store.create("PIE-102 Narrow strips keep their names\nbreadcrumbs show links");
+  store.create("Compost turning schedule\nTurn the heap; bake the pies after.");
+  const r = await client.request<GotoSearchCollection>({ action: "tree.search", query: "pie", semantic: true });
+  expect(r.matches.slice(0, 2).map(m => m.title)).toEqual(["PIE-101 Builder report for the dock strip", "PIE-102 Narrow strips keep their names"]);
+  expect(r.matches[2]!.title).toBe("Compost turning schedule");
+  expect(r.matches[2]!.score).toBe(2.8);
+  expect(r.semantic.status).toBe("ranked");
+  expect(r.semantic.verdict).toBeUndefined();
+  expect(r.semantic.label).toBeUndefined();
+  // Settled by title: the deep pass isn't asked either.
+  const deep = await client.request<GotoSearchCollection>({ action: "tree.search", query: "pie", semantic: true, deep: true });
+  expect(deep.semantic.deep).toMatchObject({ status: "skipped" });
+});
+
 test("deep: a note none of whose words were asked is found by meaning, scored and said sure (PIE-1200)", async () => {
   const { store, client, asked } = await setup({ best: "Compost turning", exists: 0.1 });
   const target = store.create("Compost turning schedule\nTurn the heap every two weeks in summer.");

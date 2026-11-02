@@ -1,6 +1,7 @@
 import type { RequestInput } from "./client";
 import { listLiveClients, requireUniqueClientId, sendClientCommand } from "./client-target";
 import { blockDisplayTitle } from "./references";
+import { headedTitle, workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { prepareSearchQuery, scoreSearchDocument, searchMemo, type SearchMatchKind, type SearchQuery } from "@ep0ch/outline-core/search-match";
 import type { Block, WorkspaceSnapshot } from "./types";
 
@@ -31,8 +32,9 @@ export interface BlockFocusResult {
   focused: boolean;
 }
 
-// A note's title is derived from its text alone, so it is cached by the text.
-const displayTitle = searchMemo(text => blockDisplayTitle({ id: "", text } as Block));
+// A note's title is derived from its text alone, so it is cached by the text. It is the title as drawn: a work id
+// heads it (`PIE-1162 · A dock…`), so `pie` or `PIE-11` reaches the tickets by title (PIE-1497).
+const displayTitle = searchMemo(text => { const b = { id: "", text } as Block; return headedTitle(blockDisplayTitle(b), workIdOf(b)); });
 // `blockDisplayTitle` falls back to the id for a note without a first line.
 const titleOf = (block: Block) => displayTitle(block.text) || block.id;
 

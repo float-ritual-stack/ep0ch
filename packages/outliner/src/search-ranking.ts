@@ -2,6 +2,7 @@
 // and one Noul over the list: "is the note the person means among these?"), and code decides what the answer says.
 // The request is built and read here for the service and for the search eval alike (scripts/evals/search.ts), so the
 // eval measures exactly what search asks.
+import { prepareSearchQuery, scoreSearchDocument, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
 import { loadGotoPrompt, PromptFileError, type ExistsQuestion, type PromptRevision } from "./ai-prompts";
 import { askJev, jevKey, type JevAnswer, type JevOptions } from "./jev";
 import { jevOff } from "./work-jev";
@@ -97,6 +98,17 @@ export function certaintyOf(top: { title: string; score: number } | undefined, e
   return { verdict: "weak", label: "no strong match", said: `no strong match: the closest is ${quoted(top.title)} (${figure(top.score)} of 3)`, ...(exists !== undefined ? { exists } : {}), top: top.score };
 }
 
+const TITLE_RUNGS = new Set<SearchMatchKind>(["exact-title", "title-prefix", "title-contains"]);
+/**
+ * The rung the words reach in a title alone, as the one matcher reads them (exact-title, title-prefix, title-contains),
+ * or null: the words aren't in the title. A hit by title is the note the person is jumping to; no verdict is read on it.
+ */
+export function titleMatch(query: string, title: string): SearchMatchKind | null {
+  const q = prepareSearchQuery(query);
+  const m = q && scoreSearchDocument({ id: "", title, text: "" }, q);
+  return m && TITLE_RUNGS.has(m.kind) ? m.kind : null;
+}
+
 /** HTTP and model output stay outside the synchronous SQLite read transaction. */
 export async function rankSearchWithJev<T extends SearchExcerpt>(
   query: string,
@@ -121,15 +133,18 @@ export async function rankSearchWithJev<T extends SearchExcerpt>(
     const asked = await askJev(request.state, request.questions, prompt.revisions, { timeoutMs: 2200, ...options, apiKey });
     if ("unavailable" in asked) throw new Error(asked.unavailable);
     const read = readSearchAnswers(candidates.matches.length, asked.answers);
-    const scored = candidates.matches.map((match, index) => ({ match: { ...match, score: read.scores[index]! }, index }));
-    scored.sort((a, b) => Number(b.match.exact) - Number(a.match.exact) || b.match.score - a.match.score || a.index - b.index);
+    // A title that starts with the words is the note asked for (a jump to `pie` lists the PIE tickets, PIE-1497): it
+    // stays above what Jev read in bodies, Jev's order within. Any title holding the words settles the search: no verdict.
+    const titled = candidates.matches.map(match => titleMatch(query, match.title));
+    const scored = candidates.matches.map((match, index) => ({ match: { ...match, score: read.scores[index]! }, index, lead: titled[index] === "exact-title" || titled[index] === "title-prefix" }));
+    scored.sort((a, b) => Number(b.match.exact) - Number(a.match.exact) || Number(b.lead) - Number(a.lead) || b.match.score - a.match.score || a.index - b.index);
     const top = scored[0]?.match;
     const usage = asked.reading.usage;
     return { ...candidates, matches: scored.map(({ match }) => match), semantic: {
       status: "ranked", model: asked.reading.model, elapsedMs: Math.round(performance.now() - started),
       candidateCount: scored.length, promptRevisions,
       ...(usage ? { inputTokens: usage.input, outputTokens: usage.output } : {}),
-      ...certaintyOf(top ? { title: top.title, score: top.score } : undefined, read.exists),
+      ...(titled.some(Boolean) ? {} : certaintyOf(top ? { title: top.title, score: top.score } : undefined, read.exists)),
     } };
   } catch (error) {
     // Provider error bodies can echo request content. Keep them out of UI/logs.

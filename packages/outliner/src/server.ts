@@ -1591,7 +1591,7 @@ export class OutlinerServer {
    * search isn't sure, the ids Jev found that the words didn't (`have`), or why it wasn't asked. Counted on the day's run.
    */
   private async deepFinds(query: string, semantic: GotoSearchCollection["semantic"], exact: boolean | undefined, have: ReadonlySet<string>, where?: (b: Block) => boolean): Promise<{ ids: string[]; deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> } | NonNullable<GotoSearchCollection["semantic"]["deep"]>> {
-    if (query.trim().length < 3 || exact || semantic.verdict === "strong") return { status: "skipped" };
+    if (query.trim().length < 3 || exact || semantic.verdict === "strong" || (semantic.status === "ranked" && !semantic.verdict)) return { status: "skipped" }; // ranked, no verdict: a title held the words (titleMatch), settled
     const found = await deepCandidates(this.store.searchPool(), query, { ...(where ? { where } : {}), jev: { promptDirectory: this.promptDirectory } });
     if ("unavailable" in found) return { status: "unavailable", message: found.unavailable };
     if (found.reading) this.tallySearch({ status: "ranked", model: found.reading.model, promptRevisions: found.reading.prompt, candidateCount: found.windows, ...(found.reading.usage ? { inputTokens: found.reading.usage.input, outputTokens: found.reading.usage.output } : {}) });
