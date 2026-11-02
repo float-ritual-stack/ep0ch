@@ -89,7 +89,7 @@ describe("--help, -h and help, anywhere", () => {
     expect(sessions.trimEnd().split("\n").length).toBeLessThanOrEqual(50);
     for (const command of SESSION_COMMANDS) expect(sessions).toContain(command.name);
     expect(ep0ch("help", "session", "list").out).toContain("--machine <ssh-name>");
-    expect(sessions).toContain("Only list accepts --machine");
+    expect(sessions).toContain("list --machine lists that machine's sessions");
     expect(ep0ch("help", "ext").out).toContain("ep0ch ext add");
   });
 

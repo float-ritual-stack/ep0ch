@@ -67,12 +67,11 @@ describe("ep0ch command", () => {
       expect(down.err).toContain("Connection refused");
       expect(down.err).toContain("ssh box-a");
       expect(down.out).not.toContain("garden");
-      for (const command of ["attach", "end", "upgrade", "restart", "serve", "pty-host"]) {
-        const r = await run(["session", command, "--machine", "box-a", "--all", "--yes"], env, cwd);
-        expect(r.code, command).toBe(2);
-        expect(r.err, command).toContain("--machine");
-        expect(r.err, command).toContain("ssh -t box-a");
-      }
+      // Every other session command keeps --machine as the outline's machine: the daemon itself starts as
+      // `session serve --ws <name> --machine <ssh-name>` (Nov 2: refusing it stopped every remote outline's session).
+      const status = await run(["session", "status", "--ws", "orchard", "--machine", "box-a"], env, cwd);
+      expect(status.err).not.toContain("does not accept --machine");
+      expect(status.out).not.toContain("Sessions on box-a");
       for (const [env, name] of [[local, "garden"], [remote, "orchard"]] as const) {
         const r = await run(["session", "list", "--json"], env, cwd);
         expect(JSON.parse(r.out).map((s: { place: { outline: string } }) => s.place.outline)).toContain(name);

@@ -262,7 +262,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     examples: ["ep0ch loki lease --ttl 1h", "ep0ch loki lease --revoke"] },
   { name: "session", group: "Sessions", summary: "List sessions here or over SSH; attach or end here",
     synopsis: "session [list|attach|end|upgrade|restart]", flags: [], children: SESSION_COMMANDS,
-    note: "Only list accepts --machine. Other commands manage sessions here; run them there with: ssh -t <ssh-name> ep0ch session <command>",
+    note: "list --machine lists that machine's sessions over ssh; for the other commands --machine names where the session's outline lives, as it does for ep0ch itself",
     examples: ["ep0ch session list --machine box-a", "ep0ch session attach --ws garden"] },
   { name: "log", group: "Sessions", summary: "Read or follow session messages",
     synopsis: "log [--follow]", flags: [...target, ["--follow", "Follow new messages as JSON lines"]],

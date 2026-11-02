@@ -116,18 +116,16 @@ export function formatSessions(running: readonly Running[], waiting: readonly st
 /** `ep0ch session …`. */
 export async function sessionCommand(args: string[]): Promise<number> {
   const machineAt = args.indexOf("--machine");
-  if (machineAt >= 0) {
+  // Only `list --machine` runs on that machine; for every other session command --machine keeps naming where the
+  // session's outline lives (the daemon starts as `session serve --ws pie --machine float-2`).
+  const first = args.find(a => !a.startsWith("-") && a !== args[machineAt + 1]);
+  if (machineAt >= 0 && (first === undefined || first === "list")) {
     const machine = args[machineAt + 1];
     if (!machine || !isMachineName(machine)) {
       console.error("ep0ch: --machine needs an ssh config name · ep0ch session list --machine <ssh-name>");
       return 2;
     }
     const there = args.filter((_, i) => i !== machineAt && i !== machineAt + 1);
-    const command = there[0]?.startsWith("-") ? "list" : there[0] ?? "list";
-    if (command !== "list") {
-      console.error(`ep0ch: session ${command} does not accept --machine; it manages sessions on this machine. Run it there: ssh -t ${shellWord(machine)} ${shellWord(["ep0ch", "session", ...there].map(shellWord).join(" "))}`);
-      return 2;
-    }
     const remote = ["ep0ch", "session", "list", ...(there[0] === "list" ? there.slice(1) : there)].map(shellWord).join(" ");
     try {
       const { ssh } = await import("../mcp-netmail");
