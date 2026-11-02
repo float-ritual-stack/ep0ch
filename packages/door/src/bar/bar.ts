@@ -40,7 +40,7 @@ import "./sources";
 import { tabKeys, tabStrip, type TabRow } from "../surface/chip-rows";
 import { modeBinding } from "../surface/modes";
 import { JEV_PAUSE_MS, SearchSchedule, TYPING_PAUSE_MS } from "../search-schedule";
-import { compactQuestion, formOpen, formLine, maskedQuestion, questionCompletion, clearPrivateForm } from "./ask";
+import { liveQuestion, QUESTION_KEYS, compactQuestion, formOpen, formLine, maskedQuestion, questionCompletion, clearPrivateForm } from "./ask";
 
 /** One row of the list, with the source it's from and the heading drawn above it (a source's title, a tile's screen). */
 export interface BarItem { source: BarSource; row: BarRow; heading?: string }
@@ -180,6 +180,10 @@ export class PowerBar {
    * lit row's words, the bar stays open), a prefix typed first, alt+⏎.
    */
   private ownKey(k: Key): boolean {
+    if (this.scope === "ask" && liveQuestion() && !this.input.text) {
+      const binding = modeBinding(QUESTION_KEYS, k);
+      if (binding) { void this.host.dispatch.press(binding.action, binding.args); return true; }
+    }
     if (this.compact()?.choice && k.kind === "char" && !k.ctrl && (k.ch === "j" || k.ch === "k")) return false;
     const scoping = modeBinding(SCOPE_KEYS, k);
     if (scoping) { void this.host.dispatch.press(scoping.action, scoping.args); return true; }
@@ -743,7 +747,7 @@ export class PowerBar {
   keepsRun(n: number): boolean {
     const it = this.items[n - 1];
     if (!it) return false;
-    if (it.source.id === "runs" || it.row.holds) return true;
+    if (it.source.id === "runs" || it.row.holds || it.row.stays) return true;
     if (it.source.id !== "actions") return false;
     const d = it.row.data as { action: string; form?: boolean };
     // Only a typed act line stays with its answer; a picked action row runs and closes, as it always has.
@@ -766,7 +770,8 @@ export class PowerBar {
     const it = this.items[n - 1];
     if (!it) throw new Error(this.items.length ? `pick 1 to ${this.items.length}` : "the bar lists nothing to pick");
     this.picker.sel = n - 1;
-    const keep = actor.kind === "user" && this.keepsRun(n), holds = keep && !!it.row.holds;
+    const stays = actor.kind === "user" && !!it.row.stays;
+    const keep = actor.kind === "user" && !stays && this.keepsRun(n), holds = keep && !!it.row.holds;
     const line = holds ? this.query : keep ? this.commandLine(n) : "";
     if (keep && !holds) { this.input.splice(0, this.query.length, line); this.refresh(); }
     try {
@@ -775,6 +780,7 @@ export class PowerBar {
       const row = holds && it.source.named ? it.source.named(line, this.host) ?? it.row : it.row;
       probe("bar.run");
       const result = await it.source.pick(row, this.host, { alt, actor }) ?? null;
+      if (stays) { this.refresh(true); this.host.ctx.redraw(); }
       // A held line is sent: the bar's done with it (an answer of its own said what happened).
       if (holds) { this.host.runs.push({ line, answer: runAnswer(this.commandLine(n), result), refused: false }); if (this.host.runs.length > 8) this.host.runs.shift(); void this.host.dispatch.press("bar.close"); }
       else if (keep) this.recordRun(line, result, false);

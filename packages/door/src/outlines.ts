@@ -12,6 +12,7 @@ import { dirname, join, resolve } from "node:path";
 import { isMachineName, mayCreate, missingOutline, tooBroadToName } from "@ep0ch/outline-core/outline-location";
 import { homedir, hostname } from "node:os";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget, type Target } from "./discover";
+import { ensureLocalHost, localHostHelp } from "./setup/host";
 import { hostRequest, type HostedOutline, OUTLINE_NAME } from "./socket";
 import type { OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { actorLabel } from "@ep0ch/outline-core/attribution";
@@ -168,8 +169,14 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
     catch (e) { err(`ep0ch: ${outlineHostProblem(path, machine)}; ${(e as Error).message}`); return 1; }
   }
   cmd = machine ? { ...cmd, machine } : cmd;
+  if (!machine && (cmd.op === "create" || cmd.op === "import" || cmd.op === "init")) {
+    try { await ensureLocalHost(path); } catch (e) { err(`ep0ch: ${(e as Error).message}`); return 1; }
+  }
   const status = await hostLive(path);
-  if (!status) { err(`ep0ch: ${outlineHostProblem(path, machine)}`); return 1; }
+  if (!status) {
+    err(`ep0ch: ${outlineHostProblem(path, machine)}${machine ? "" : `\n${await localHostHelp(path)}`}`);
+    return 1;
+  }
   const on = cmd.machine ? ` on ${cmd.machine}` : "";
   const print = (value: unknown, text: string) => out(cmd.json ? JSON.stringify(value, null, 2) : text);
   try {
@@ -341,6 +348,7 @@ export async function outlinesAt(path: string): Promise<string[] | null> {
  * has is refused with what to run (missingOutline), and nothing is made.
  */
 export async function attachOutline(path: string, name: string, o: { machine?: string; create: boolean; how?: How; via?: string }): Promise<{ outline: HostedOutline; created: boolean }> {
+  if (o.create && !o.machine) await ensureLocalHost(path);
   if (!o.create) {
     const has = await outlinesAt(path);
     if (has && !has.includes(name)) {

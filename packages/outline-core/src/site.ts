@@ -158,7 +158,7 @@ export interface FieldRow {
 
 /** What a producer's question answered. Blocks are the service's wire blocks (the questions' own shape). */
 export type SiteProduced =
-  | { kind: "view"; view: import("./list-row").ListPrimitive; title: string; layout: string; layouts: string[]; question: import("./protocol").QuestionFields; groups?: QuestionGroup[]; facets?: import("./protocol").QuestionFacet[]; hint?: string; error?: string; truncated: boolean }
+  | { kind: "view"; config: Record<string, unknown>; view: import("./list-row").ListPrimitive; title: string; layout: string; layouts: string[]; question: import("./protocol").QuestionFields; groups?: QuestionGroup[]; facets?: import("./protocol").QuestionFacet[]; hint?: string; error?: string; truncated: boolean }
   | {
     kind: "figure";
     blocks: unknown[];
