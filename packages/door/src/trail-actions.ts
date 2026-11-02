@@ -16,6 +16,12 @@ const queries = Object.fromEntries(["recent", "children", "visits", "branch", "c
 ]));
 export const TRAIL_QUERIES = actionSet<App>()("trail", {
   ...queries,
+  "facets.trail": def({
+    summary: "Facets over the trail: pick dwell, day and source tile to find a visit",
+    touches: "shape", replay: "safe", args: {},
+    examples: [{ act: "facets.trail", does: "opens facets over the trail" }],
+    run(_, app, actor) { return app.dispatch.act({ action: "tile.open", args: { kind: "facets", source: "trail", name: "trail-facets", where: "right" } }, actor); },
+  }),
   "door.opens": def({ summary: "Read recent door.open envelopes, since a timestamp in milliseconds", touches: "nothing", replay: "safe",
     examples: [{ act: "door.opens since=0", does: "lists the recent open envelopes with their causes", safe: true }],
     args: { since: { type: "number", optional: true, about: "milliseconds since the epoch" } }, run({ since }, app) { return app.doorOpens(since); } }),

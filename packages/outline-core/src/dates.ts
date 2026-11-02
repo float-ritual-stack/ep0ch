@@ -251,6 +251,8 @@ export function valueHolds(value: string, op: DateComparison, bound: Bound, now 
     const c = item.trim().toLowerCase().localeCompare(bound.value.toLowerCase());
     return op === "<" ? c < 0 : op === "<=" ? c <= 0 : op === ">" ? c > 0 : op === ">=" ? c >= 0 : c === 0;
   };
+  // Text always parses, so split its authored list before comparing it with the bound.
+  if (bound.kind === "text") return splitPropertyValue(value).some(item => read(item) === true);
   const whole = read(value);
   if (whole !== null) return whole;
   const items = splitPropertyValue(value);

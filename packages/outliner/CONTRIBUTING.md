@@ -56,6 +56,8 @@ Pi/OMP users can invoke `/outliner`; supported coding clients can use the projec
 
 ## Source boundaries
 
+- outline-core’s `query-expression.ts`, `query-properties.ts`, `query-order.ts` and `query-facets.ts` own the pure query grammar, evaluation, ordering and facet/group counts. The service’s `block-query.ts` normalizes requests and supplies relations; the door’s local facet sources call the same pure owners.
+
 - Door events use outline-core `src/door-open.ts`: `server.ts` carries `door.event` envelopes unchanged on its event stream, filtered by kind. `extension-rules.ts` matches a target note and calls the existing extension/script runtime (`input.trigger.event`); the service keeps no visit history.
 
 - `src/program-env.ts` owns the running checkout's source paths and revision and `programEnv`, the environment
