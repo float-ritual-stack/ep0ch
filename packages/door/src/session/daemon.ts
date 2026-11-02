@@ -192,10 +192,14 @@ export async function serve(args: string[]): Promise<never> {
   app.quitWarning = () => { const n = host.unadopted().length; return n ? `${n} program${n === 1 ? "" : "s"} kept in the terminal host for a screen not opened since the handoff · ending the session ends ${n === 1 ? "it" : "them"} · again within 3s ends it` : null; };
   host.onLost = () => { if (!over) app.flash("the terminal host went away: the programs in the session's tiles ended (⏎ on a tile runs its program again)", 20_000); };
   if (endedOld) app.flash(`the terminal host was older than this door: its ${endedOld} program${endedOld === 1 ? "" : "s"} ended, and the tiles start them again`, 20_000);
-  // Said once the screens have been drawn (their tiles adopt their programs as they are).
+  // Said once the screens have been drawn (their tiles adopt their programs as they are). With no terminal attached
+  // (a deploy's handover finds the session alone, PIE-1498) it is held for the first terminal that attaches: a
+  // notice flashed to nobody is gone before the person logs on again.
+  let heldNotice: string | null = null;
   if (restored || keptPrograms) setTimeout(() => {
     const adopted = keptPrograms - host.unadopted().length;
-    app.flash(restoredSaying(restored ?? { screens: 0, held: [], reopened: 0, errors: [] }, handedOver ? "upgrade" : "crash", adopted, app.drawer.untiled().length), 15_000);
+    const saying = restoredSaying(restored ?? { screens: 0, held: [], reopened: 0, errors: [] }, handedOver ? "upgrade" : "crash", adopted, app.drawer.untiled().length);
+    if (term.all().some(c => !c.watch)) app.flash(saying, 15_000); else heldNotice = saying;
   }, 400);
 
   /** Every terminal starts again on the code in the checkout and attaches again: the session goes on as it is. */
@@ -307,6 +311,7 @@ export async function serve(args: string[]): Promise<never> {
           }
           const others = term.all().filter(c => !c.watch).length;
           client = term.attach(link, h);
+          if (heldNotice && !h.watch) { app.flash(heldNotice, 15_000); heldNotice = null; }
           // The person logs on again: their last call is when they last left, and "new since" counts from it.
           if (!others && !h.watch) { app.lastCall = readLastCall() || app.lastCall; loggedOnAt = Date.now(); }
           let appliedScreen = false;
