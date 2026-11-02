@@ -9,6 +9,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import "../../../scripts/fake-ssh-owner";
+import "../../../scripts/host-free-guard";
 
 for (const k of Object.keys(process.env)) if (k.startsWith("EP0CH_") && k !== "EP0CH_OUTLINER") delete process.env[k];
 // No test asks the real Jev for a figure suggestion (the outliner's figure-fit.ts, run by the gateway's writes).

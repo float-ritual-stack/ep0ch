@@ -43,7 +43,12 @@ and no note or tickets. Inventory writing and #hydra ticket filing belong to lok
 
 Before a PR claims a change works:
 
-1. `bun run check` passes at the root (each package's `tsc --noEmit`).
+1. `bun run check` passes at the root: each package's `tsc --noEmit`, the health ratchet, and the **agreement
+   tests** (PIE-1504): the fast, host-free tests that only check two things agree (a doc and the code, a key row and
+   its action, a package and its imports), listed once in `scripts/agreement-tests.txt` and run by
+   `scripts/agreement-tests.ts` in about ten seconds (`bun scripts/agreement-tests.ts` runs them alone). Add a test of
+   that kind to the list, a file a line with an optional `-t <regex>` for the tests whose names match; a listed file
+   that starts a host or a process fails the run (`scripts/host-free-guard.ts`), so it belongs in step 2 instead.
 2. The focused tests pass: the files you touched and their neighbours. That and step 1 are the whole gate
    ([AGENTS.md](AGENTS.md#machines-checkouts-and-processes)). The door's tests start their own scratch outline host from
    `../outliner` (`test/scratch.ts`; `EP0CH_OUTLINER` overrides it). outline-core's tests are pure. The Claude mod's
