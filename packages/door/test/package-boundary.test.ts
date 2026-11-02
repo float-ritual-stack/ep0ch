@@ -62,7 +62,7 @@ test("only placement applies note opens", () => {
         // The function the call is written in: a declaration, a method, a property's value, or a module-level `const f = () => …`.
         const moduleConst = (n: ts.Node) => ts.isVariableDeclaration(n) && ts.isSourceFile(n.parent.parent.parent);
         while (owner && !ts.isFunctionDeclaration(owner) && !ts.isMethodDeclaration(owner) && !ts.isPropertyAssignment(owner) && !moduleConst(owner)) owner = owner.parent;
-        const name = owner && "name" in owner ? owner.name?.getText(source) : undefined;
+        const name = owner && "name" in owner ? (owner.name as ts.Node | undefined)?.getText(source) : undefined;
         const declaration = checker.getResolvedSignature(node)?.declaration;
         const declaredIn = declaration?.getSourceFile().fileName ?? "";
         const method = declaration && "name" in declaration ? (declaration.name as ts.Node | undefined)?.getText() : undefined;

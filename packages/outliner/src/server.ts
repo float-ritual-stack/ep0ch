@@ -373,10 +373,8 @@ export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "p
  */
 const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "artifacts.show", "artifacts.list", "artifacts.versions", "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list",
   // A snapshot is a read (PIE-1091): made from the copy, downloaded once from this machine's web client, listed and
-  // revoked here; and what its pages here have in front of them. Starting a share stays the outline's own machine's.
-  "outline.snapshot", "shares.snapshot.take", "shares.snapshot.finish", "shares.list", "shares.revoke", "reader.report", "reader.view",
-  // The copy's change log is a read too: a query brackets its pages with it to catch a shift (SocketBoard.queryIds, PIE-1420).
-  "changes.since"]);
+  // revoked here; and what its pages have in front of them. Starting a share stays the outline's own machine's. The copy's change log is a read too: a query brackets its pages with changes.since (SocketBoard.queryIds).
+  "outline.snapshot", "shares.snapshot.take", "shares.snapshot.finish", "shares.list", "shares.revoke", "reader.report", "reader.view", "changes.since"]);
 
 export class OutlinerServer {
   private completions?: CompletionRequests;
