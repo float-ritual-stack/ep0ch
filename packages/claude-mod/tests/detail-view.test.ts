@@ -91,7 +91,7 @@ describe('the detail pane, pure', () => {
   })
 
   test('only an ep0ch whose help lists export is asked for it', () => {
-    expect(knowsExport('  ep0ch export [<id>…] [--query "<expression>"] [--view <id>]')).toBe(true)
-    expect(knowsExport('  ep0ch show <id> [--ansi | --cells] [--width <n>] [--rows <n>]')).toBe(false)
+    expect(knowsExport('  ep0ch export  Write notes as Markdown or JSON files')).toBe(true)
+    expect(knowsExport('  ep0ch show    Read notes as the door draws them')).toBe(false)
   })
 })

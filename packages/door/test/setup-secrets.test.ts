@@ -1,11 +1,13 @@
 import { afterAll, expect, test } from "bun:test";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setupCommand } from "../src/setup/apply";
+import { fakeServiceManager } from "./fake-service-manager";
+import { stopUnder } from "./scratch";
 
 const scratch = mkdtempSync(join(tmpdir(), "setup-secrets-"));
-afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+afterAll(() => { stopUnder(scratch); rmSync(scratch, { recursive: true, force: true }); });
 const source = resolve(import.meta.dir, "../scripts/with-secrets");
 
 for (const platform of ["linux", "darwin"]) for (const state of ["missing", "old", "current", "newer", "wrong-mode"]) {
@@ -17,6 +19,8 @@ for (const platform of ["linux", "darwin"]) for (const state of ["missing", "old
     copyFileSync(source, shipped);
     const mod = join(repo, "packages/outliner/scripts/install-claude-mod.ts");
     mkdirSync(dirname(mod), { recursive: true }); writeFileSync(mod, "process.exit(0);\n");
+    // Install starts a host from this checkout's host-main.ts (the fake service manager runs the unit it writes).
+    symlinkSync(resolve(import.meta.dir, "../../outliner/src"), join(repo, "packages/outliner/src"));
     if (state === "current") { copyFileSync(source, installed); chmodSync(installed, 0o755); }
     if (state === "old") writeFileSync(installed, "#!/bin/bash\necho 'usage: with-secrets group -- command' >&2\nexit 2\n", { mode: 0o755 });
     if (state === "newer") writeFileSync(installed, readFileSync(source, "utf8").replace("# with-secrets v1", "# with-secrets v2"), { mode: 0o755 });
@@ -24,7 +28,7 @@ for (const platform of ["linux", "darwin"]) for (const state of ["missing", "old
     if (state === "wrong-mode") { copyFileSync(source, installed); chmodSync(installed, 0o644); }
     const before = state === "current" || state === "newer" ? statSync(installed).mtimeMs : undefined;
     const lines: string[] = [];
-    const io = { repoRoot: repo, cwd: home, platform, env: { HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, EP0CH_OUTLINES: join(home, "outlines"), EP0CH_STATE: join(home, "state"), XDG_CONFIG_HOME: join(home, ".config") }, out: (s: string) => lines.push(s), err: (s: string) => lines.push(s) };
+    const io = { repoRoot: repo, cwd: home, platform, env: { HOME: home, PATH: `${fakeServiceManager(home).bin}:${dirname(process.execPath)}:/usr/bin:/bin`, EP0CH_OUTLINES: join(home, "outlines"), EP0CH_STATE: join(home, "state"), XDG_CONFIG_HOME: join(home, ".config") }, out: (s: string) => lines.push(s), err: (s: string) => lines.push(s) };
     await setupCommand(["doctor", "--json"], io);
     const checks = JSON.parse(lines.at(-1)!).checks;
     lines.length = 0;

@@ -11,7 +11,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { dividerLine, listSlots, zebraRow } from "../list-look";
 import { RowView, type RowGesture, type RowPress } from "../scroll";
 import type { Actor } from "../socket";
-import { BOLD, C, ellipsize, fg, pad, RESET, selectedRow, tint, width } from "../style";
+import { BOLD, C, ellipsize, fg, LINK_END, pad, RESET, selectedRow, tint, width } from "../style";
 import { primitiveLines } from "../components";
 import { tier } from "../figures/palette";
 import { rowLines } from "../text";
@@ -460,7 +460,8 @@ export class ListView<S = unknown> {
       const lines = [f.top(), ...content.map(f.row), f.bottom()];
       if (!o.tag) return lines;
       const [before, after] = o.tag(row, "\u0000").split("\u0000");
-      return lines.map(line => before + line + after);
+      // A link inside a card's body closes the row's tag where it ends; the row opens again after it, so a click past the link still picks the card.
+      return lines.map(line => before + (before ? line.split(LINK_END).join(LINK_END + before) : line) + after);
     };
     const combine = (parts: string[][], cols: number) => Array.from({ length: Math.max(0, ...parts.map(p => p.length)) }, (_, line) => parts.map(p => pad(p[line] ?? "", cols)).join("  "));
     const drawRows = (own: readonly ListViewRow<S>[], cols: number, arrange: ListPrimitive["arrange"]): string[] => {

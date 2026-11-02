@@ -107,7 +107,7 @@ export function sourceCalls(text: string): SourceCall[] {
       continue;
     }
     const block = blocks.get(i), kind = block && graphKind(block);
-    const view = block?.name === "view" && viewSpec(block, lines);
+    const view = block && (block.name === "view" || block.name === "graph-table") && viewSpec(block, lines);
     if (block && view) {
       out.push({ kind: "view", line: i, endLine: block.end, name: "Collection", params: [], text: lines.slice(i, block.end + 1).join("\n"), view });
       i = block.end;

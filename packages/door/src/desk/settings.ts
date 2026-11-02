@@ -30,7 +30,7 @@ export const SETTINGS_TILE: TileKind = {
   defaults: (spec, at) => at.pane instanceof ReaderPane ? { note: at.pane.msg?.id, view: at.pane.surface.listHost().current() ?? undefined, ...spec } : spec,
   make: spec => { if (spec.source?.startsWith("tile:")) return new AttachedTilePane(spec.source.slice(5), "settings"); const pane = new SettingsPane(spec.view); pane.want = spec.note ?? null; return pane; },
   accepts: { notes: true }, shows: p => (p as SettingsPane).msg,
-  take: (p, m, desk, by) => { (p as SettingsPane).hold(m, desk, by); return null; },
+  take: (p, m, desk, by) => { if (!(p instanceof SettingsPane)) return "this settings tile follows its reader; open the note in a reader"; p.hold(m, desk, by); return null; },
   start: async (p, env) => {
     const pane = p as SettingsPane;
     await componentsReady({ board: env.desk.ctx.board, redraw: () => env.desk.redraw() });

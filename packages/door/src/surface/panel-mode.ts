@@ -28,7 +28,7 @@ export function panelMode(surface: NoteSurface, P: PropertyPanel, key: (k: Key, 
         if (P.field) return completerOf(P.field.input)?.click(y, x) ?? false;
         if (P.card) {
           if (P.card.place === "tile" && host.attachment !== "settings") return undefined;
-          const hit = P.card.hit(x, y + offset(host));
+          const hit = P.card.hit(x, y + (P.card.place === "inline" ? 0 : offset(host)));
           void surface.runKey("settings.focus", { on: hit !== null }, host);
           if (hit === null) return undefined;
           if (hit === "place") void surface.runKey("settings.place", {}, host);

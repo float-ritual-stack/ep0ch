@@ -25,7 +25,7 @@ function cellsOf(rows: string[], columns: number, fg = 0xff8800): string {
 
 const SHOWN = (rows: string[], columns = 12, uri = URI) => JSON.stringify({ id: BLOCK, uri, columns, rows: rows.length, cells: cellsOf(rows, columns), replaced: 0 })
 
-const HELP = `ep0ch: a BBS door\n  ep0ch show <id> [--ansi | --cells] [--width <n>] [--rows <n>] [--ws <name>]\n`
+const HELP = `ep0ch: a BBS door into an outline\n\nNotes:\n  ep0ch show  Read notes as the door draws them\n  ep0ch find  Find notes by words, properties or a view\n`
 
 /** Elements as a surface's table builds them: plain data, enough to read back. */
 const UI = {
@@ -53,7 +53,7 @@ describe('BlockView', () => {
     expect(drawn.props).toEqual({ key: 'p1', columns: 12, rows: 2, cells: cellsOf(['Chain oil', ''], 12) })
   })
 
-  test('without a usable ep0ch (not on PATH, or older than --cells): the block\'s text as Markdown, never a door opened', async () => {
+  test('without a usable ep0ch (not on PATH, or with no show): the block\'s text as Markdown, never a door opened', async () => {
     resetBlockViewProbe()
     const missing = await loadBlockView(async () => { throw Error('ep0ch: command not found') }, BLOCK, 40)
     expect(missing.kind).toBe('text')
@@ -62,9 +62,9 @@ describe('BlockView', () => {
     const noHelp = await loadBlockView(async argv => { ancient.push(argv); return result(1, '', 'ep0ch: no carrier on /nonexistent/ep0ch-cells-probe.sock') }, BLOCK, 40)
     expect([noHelp.kind, ancient]).toEqual(['text', [['ep0ch', 'help']]])
     const old: (readonly string[])[] = []
-    const tooOld = await loadBlockView(async argv => { old.push(argv); return result(0, '  ep0ch show <id> [--ansi] [--width <n>]\n') }, BLOCK, 40)
+    const tooOld = await loadBlockView(async argv => { old.push(argv); return result(0, 'ep0ch: a BBS door\n  ep0ch find  Find notes\n') }, BLOCK, 40)
     expect(tooOld.kind).toBe('text')
-    // Only the help probe ran: `show` was never asked for cells it can't draw.
+    // Only the help probe ran: a help with no `show` row never has `show` asked for cells.
     expect(old).toEqual([['ep0ch', 'help']])
 
     const drawn = BlockView(UI, { key: 'p1', data: missing, surface: 'terminal', maxRows: 2, text: 'Chain oil\nThe wax one.\nBike shed' }) as any
@@ -91,6 +91,7 @@ describe('BlockView', () => {
     expect(clipRows(two, 1)).toEqual({ ...two, rows: 1, cells: cellsOf(['a'], 12) })
     expect(clipRows(two, 9)).toBe(two)
     expect(knowsCells(HELP)).toBe(true)
+    expect(knowsCells('ep0ch: a BBS door\n  ep0ch find  Find notes\n')).toBe(false)
     // A drawing is kept per block, revision and width: an edit or a resize draws it again.
     expect(blockViewId(BLOCK, 3, 40)).not.toBe(blockViewId(BLOCK, 4, 40))
     expect(blockViewId(BLOCK, 3, 40)).not.toBe(blockViewId(BLOCK, 3, 41))

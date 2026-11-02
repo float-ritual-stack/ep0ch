@@ -92,7 +92,7 @@ import { HEADINGS, LOOKS_LAB, OLD_LOOK, SPACING_LAB, SINGLE_LIST, STYLE_MIDDLE_L
 import { seedAccess } from "./seed/access";
 import { scriptExamples } from "@ep0ch/outliner/script-examples";
 import { VENT_PERSON, VENT_PROJECT, VENT_RECIPE, ventRailText } from "./seed/values";
-import { DAILY_NOTES, DAILY_TEMPLATE, MEETING_ACTIONS, MEETING_PAGES, MEETING_TEMPLATE } from "./seed/templates";
+import { DAILY_NOTES, DAILY_TEMPLATE, DAY_PLAN, DAY_PLAN_JOBS, DAY_PLAN_TEMPLATE, MEETING_ACTIONS, MEETING_PAGES, MEETING_TEMPLATE } from "./seed/templates";
 
 // The seed's notes and fixtures live beside it, by area (seed/*.ts); the tests and the screen import them from here.
 export * from "./seed/names";
@@ -699,6 +699,9 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.meetingPotting = await make(notes.root.id, `${potting.title} [project::${potting.project}]\n\n${potting.call}`);
   notes.meetingUnfinished = await make(notes.root.id, `${unfinished.title} [project::${unfinished.project}]\n\n${unfinished.call}`);
   for (const a of MEETING_ACTIONS) await make(notes.root.id, `${a.title} [type::action] [project::${a.project}]`);
+  notes.templateDayPlan = await make(notes.root.id, DAY_PLAN_TEMPLATE);
+  notes.templatePlan = await make(notes.root.id, DAY_PLAN);
+  for (const job of DAY_PLAN_JOBS) await make(notes.templatePlan.id, `${job.title} [type::day-plan-job] [day::2026-10-14] [slot::${job.slot}]`);
   notes.ventProject = await make(notes.root.id, VENT_PROJECT);
   notes.ventPerson = await make(notes.root.id, VENT_PERSON);
   notes.ventRecipe = await make(notes.root.id, VENT_RECIPE);

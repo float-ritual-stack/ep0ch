@@ -43,3 +43,43 @@ export const MEETING_ACTIONS = [
   { title: "Sow the carrots", project: "sowing" },
   { title: "Pot up the tomatoes", project: "potting" },
 ] as const;
+
+export const DAY_PLAN_TEMPLATE = `Day plan sections [page::day-plan-sections] [type::template]
+
+## Morning
+Check the garden before starting.
+
+::graph-tabs
+---
+title: Day jobs
+query: type=day-plan-job day={{this.day}}
+group: slot
+order: [morning, afternoon]
+columns: [title]
+lines: 1
+---
+::
+
+::graph-table
+---
+title: Day details
+headers: [Reminder]
+lines: 1
+rows: [["Carry the seed trays from the potting shed to the greenhouse before the afternoon rain, then leave the watering can beside the blue gate."]]
+---
+::
+
+## Evening
+Leave the tools ready for tomorrow.`;
+
+export const DAY_PLAN = `Garden day plan [page::template-day-plan] [day::2026-10-14]
+
+::use{of=[[day-plan-sections]]}
+
+## After the plan
+Close the gate.`;
+
+export const DAY_PLAN_JOBS = [
+  { title: "Carry the seed trays from the potting shed to the greenhouse before the afternoon rain reaches the garden", slot: "morning" },
+  { title: "Water the beans", slot: "afternoon" },
+] as const;

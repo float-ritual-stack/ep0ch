@@ -739,6 +739,16 @@ See [machine-link installation](../outliner/docs/machine-link.md#installing-over
 | `ep0ch session list`, `attach [--watch]`, `end [--yes] [--all]`, `upgrade [--clients] [--all]`, `restart` | the door sessions, one per outline (see [Sessions](#sessions-quit-is-detach)): every one listed with who's attached and what runs; attach to this folder's (or `--ws`'s), end it, hand it to a new daemon on this checkout's code (its programs keep running); `--all` for every session |
 | `ep0ch peek [<section>] [--json] [--xray]`, `actions`, `snap <png>`, `open <id>`, `act <action> key=value …` | drive a running door (`peek` is the compact text by default; `--json` one JSON object; `peek speed`, `peek person` … one part of it) (see [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)); `EP0CH_CONTROL` names which door |
 
+`ep0ch --help` gives a one-screen index of everyday commands, grouped by what you do.
+`ep0ch help <command>` (or `<command> --help`) gives a synopsis, flag table and two examples.
+`ep0ch help launch` explains opening an outline; `ep0ch help session list` explains just that
+subcommand. `ep0ch help --more` lists every command and `help <command> --more` reads its
+[detailed rules and environment](docs/cli.md). Help works without an outline or a running door.
+
+For shell completion, source the script from `ep0ch completions bash`, `zsh` or `fish`.
+For example, Bash: `source <(ep0ch completions bash)`. Command names, session subcommands
+and flag names come from the same registry as help and typo suggestions.
+
 `bun src/main.ts …` still works the same way, and `ep0ch-door` is the same command.
 
 | Env | Meaning |
@@ -1202,12 +1212,20 @@ GitHub on Clerk's page. The first try is refused while `EP0CH_MCP_ALLOWED_SUBJEC
     ep0ch                      # this folder's outline's session: started when none runs, then attached
     ep0ch --ws garden          # garden's session (another outline's runs beside it); --machine for another machine's
     ep0ch --no-daemon          # the door in this terminal only (quitting ends it)
-    ep0ch session list         # every session: outline, machine, pid, code, who's attached, what runs in its tiles
+    ep0ch session list --machine box-a  # sessions running on box-a, over SSH
+    ep0ch session list         # every local session: outline, machine, pid, code, who's attached, what runs in its tiles
     ep0ch session attach --watch
     ep0ch session end          # asks while programs run in its tiles or a draft is unsaved; --yes doesn't
     ep0ch session end --all    # every session, after asking
     ep0ch session upgrade      # hand it to a new daemon on this checkout's code: programs keep running
     ep0ch session upgrade --all
+
+`session list --machine <ssh-name>` lists sessions running on that machine and names it above
+the list; `--json` keeps the JSON array. Only an explicit `--machine` selects a remote session
+list, as for `agent ls`. Other session commands manage local sessions and refuse `--machine`
+with a command to run there, for example `ssh -t box-a ep0ch session attach --ws garden`.
+To select a local session whose outline is elsewhere, keep the outline's machine in `.ep0ch`
+or `EP0CH_MACHINE`.
 
 A **session** (PIE-418) is the door kept running without a terminal, as Herdr and tmux keep theirs; `ep0ch` runs the
 door as one. One runs per outline, like `herdr --session <name>`: naming an outline (`--ws`, `EP0CH_WS`, the folder's
@@ -2358,6 +2376,7 @@ unfolded.
 |---|---|
 | `(` / `)` | select the previous / next heading, list item or callout that folds (`▾`, yellow); the hint names it |
 | `f`, `⏎` | fold or unfold the selected one; `f` with none selected folds the section at the top of the view. `⏎` folds only while a selected one is in view |
+| `[ ]` / `( )` on a page using `::use` | `[ ]` steps headings, figure controls and rows; `( )` stops at each fold point, including headings from the same call. Tab/Shift+Tab and arrows switch a selected tabs figure; Enter folds a heading or uses the selected control. `folds` gives each heading its `n`; use that when several share one source `line`. Each call keeps its own list-preview mode. Try kitchen-sink section `template-steps` |
 | `esc`, scrolling, `u` | let go of the selected one, so `⏎` means what it did before (the preview opens a detail); `[ ]` steps on to the next element |
 | `F` | fold every outermost section and list item; with anything folded, unfold everything |
 | `←` `→`, `Tab` `Shift+Tab` | while a live tabs figure's tab or row is the `[ ]` position: its previous / next tab (`figure.tab`); otherwise they do what they did (`Tab` focuses the next tile, `←` `→` step a river's columns or a message reader's messages) |

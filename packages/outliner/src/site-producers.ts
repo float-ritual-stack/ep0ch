@@ -209,7 +209,7 @@ export function collectionSource(answer: Extract<SiteProduced, { kind: "view" }>
     query: { text: answer.question.where ?? "", params: Object.entries({ ...answer.config, layout: answer.layout }).map(([key, value]) => ({ key, value: Array.isArray(value) ? value.join(", ") : String(value) })), editable: false },
     transform: { kind: "none", label: `Collection · ${answer.layout}` },
     result: { rows: table.length, columns: ["id", "title"], table, text: table.map(row => row.join("\t")).join("\n") },
-    ...(answer.error || answer.hint ? { problem: answer.error ?? answer.hint } : {}) };
+    ...(answer.error || answer.hint || answer.truncated ? { problem: [answer.error ?? answer.hint, answer.truncated ? "more matches than shown: the rows here are the first page" : undefined].filter(Boolean).join(" · ") } : {}) };
 }
 
 function collection(store: ProducerStore, bound: Bound, tools: SiteTools, written: Props, state: Props = {}): Extract<SiteProduced, { kind: "view" }> {

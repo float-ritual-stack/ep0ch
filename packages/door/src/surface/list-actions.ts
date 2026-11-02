@@ -206,7 +206,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.layout": def({
     summary: "choose a collection's layout; without layout=, cycle its tabs. lane= selects a narrow board's lane",
-    keys: "tab in a collection; click a layout or lane", touches: "nothing", replay: "safe",
+    keys: "click a layout or lane; act list.layout layout=", touches: "nothing", replay: "safe",
     args: { list: LIST_ARG, layout: { type: "string", optional: true, about: "a layout offered by this collection" }, lane: { type: "number", optional: true, about: "lane number, from zero" } },
     async run({ list, layout, lane }, { host, standing }, actor) {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
