@@ -10695,7 +10695,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "edit.insert": def({
     summary: "insert text on its own line at the note cursor; a reader saves it, an open draft keeps it unsaved; either is one undo step",
     touches: "draft", draft: "type", replay: "ask",
-    args: { text: { type: "string", about: "the line to insert" } },
+    args: { text: { type: "string", about: "the line to insert" } }, examples: [{ act: 'edit.insert text="Order the seed potatoes"', does: "puts that line into the note at the cursor, saved unless a draft is open" }],
     run: ({ text }, { surface, host }, actor) => insertNoteLine(text, surface, host, actor),
   }),
   "edit.text": def({

@@ -5,15 +5,15 @@
 // (PIE-985). The rows are written out, never `actions:` asked of the registry, so the page draws where there is none.
 //
 //   **layout.move** · move a tile beside another, into its tabs, or to an edge
+//   ::graph-example    its examples as act lines first, what each does, `safe` on one an agent may run (figures/example.ts)
 //   ::graph-keys       its keys as keycaps, every way to press it (figures/keys.ts keyAlternatives)
-//   ::graph-example    its examples as act lines, what each does, `safe` on one an agent may run (figures/example.ts)
 //   ::graph-props      its arguments: name, values, default or needed, what each means (figures/props.ts)
 //   - one fact a line, the rest of the summary, last: what a short preview cuts first
 import { keyAlternatives } from "../figures/keys";
 import type { ActionExample, ActionInfo, ArgSpec } from "./actions";
 
 /** What the page says beside the declarations: a reason it can't run now (the bar's refused row), a hyper chord. */
-export interface PageExtras { refused?: string; hyper?: readonly string[]; title?: string }
+export interface PageExtras { refused?: string; hyper?: readonly string[]; title?: string; /** What an example line is typed after: `ep0ch act` for a shell (the default); `null` where the line is typed as it is (the power bar, PIE-1502). */ prompt?: string | null }
 
 /**
  * Text that stays words when the page is a note: a `::component`, a `[[page]]` or `((ref))` written in a summary is put
@@ -51,6 +51,10 @@ export const valuesOf = (s: ArgSpec): string => {
   return kind ?? (s.type === "number" ? "a number" : s.type === "boolean" ? "true or false" : "text");
 };
 
+/** The line to type, as the bar's top row says it (PIE-1502): `shown`, then each missing argument as `name=a|b|c` (its choices, `true|false`), else `name=…`. */
+export const typeLine = (shown: string, missing: readonly string[], args: Record<string, ArgSpec>): string =>
+  [shown, ...missing.map(k => { const s = args[k]; return `${k}=${s?.choices?.length ? s.choices.join("|") : s?.type === "boolean" ? "true|false" : "…"}`; })].join(" ");
+
 /** What a left-out optional argument means, when it says: its `default`, or a short "(default x)" ending what it means. */
 export function argDefault(s: ArgSpec): { value?: string; about: string } {
   const said = s.default === undefined ? /\s*\(default ([^()]{1,24})\)\s*$/.exec(s.about) : null;
@@ -77,14 +81,16 @@ export function actionPage(info: ActionInfo, extras: PageExtras = {}): string {
   if (info.personAlways) out.push("", "> [!note] The person's alone", `> An agent's is refused, on the person's press too: ${info.personAlways}.`);
   else if (info.person) out.push("", "> [!note] The person's own", `> An agent's is refused (a script the person pressed may): ${info.person}.`);
   else if (info.personVaries) out.push("", "> [!note] Partly the person's own", "> Some of its arguments are the person's alone; an agent asking for them is told why.");
+  // The line to type first (PIE-1502): what the person came for.
+  const examples = info.examples ?? [];
+  if (examples.length) {
+    const prompt = extras.prompt === undefined ? "ep0ch act" : extras.prompt;
+    out.push("", figure("example", { title: "examples", ...(prompt ? { prompt } : {}) }, examples.map(ex =>
+      `- \`${ex.act}\` → ${inert(ex.does.replace(/ — /g, ", "), false)}${exampleSafe(info, ex) ? " (safe)" : ""}`)));
+  }
   const keys = keyAlternatives(info.keys);
   for (const h of extras.hyper ?? []) keys.push({ keys: h, action: "hyper" });
   if (keys.length) out.push("", figure("keys", { title: "keys" }, keys.map(k => `- ${k.keys}:${k.action ? ` ${inert(k.action, false)}` : ""}`)));
-  const examples = info.examples ?? [];
-  if (examples.length) {
-    out.push("", figure("example", { title: "examples", prompt: "ep0ch act" }, examples.map(ex =>
-      `- \`${ex.act}\` → ${inert(ex.does.replace(/ — /g, ", "), false)}${exampleSafe(info, ex) ? " (safe)" : ""}`)));
-  }
   const args = Object.entries(info.args);
   if (args.length) {
     out.push("", figure("props", { title: "arguments" }, args.map(([name, s]) => {

@@ -22,6 +22,24 @@ are its record. The outliner's entries from then are kept below, under
 - Binding and outline reads distinguish a down host from a missing outline, with the machine, socket paths and retry command (PIE-1325).
 - Sources describes a written figure as “Written in the note · N items” and shows its text once, in the door and on the web (PIE-1226).
 - The first part dropped into an empty new note starts on line 1; later drops keep one blank line between parts (PIE-1381).
+### A list view reads as a list again (PIE-1491, #1166)
+
+- **At rest:** a saved or inline view shows its rows, each with its note's title, and a count; its layout, sort, group and settings controls wait until you're in it.
+- **Feed cards** draw their note as the reader does: callouts, bold, `{{ }}` filled in, heading styles.
+- **Settings** open on the attached surface (inline, float, split, popup, own tile); split beside the view redraws it as you change a field. **Sources** lists the collection.
+- **Run:** `ep0ch install --apply` on every machine. PROTOCOL 300.
+
+### `ep0ch --help` fits one screen (PIE-1495, PIE-1494, #1170)
+
+- **Top level:** commands grouped, one line each; `ep0ch help <command>` lists its subcommands in plain words with their flags and two examples; `--more` keeps the long rules.
+- **Sessions elsewhere:** `ep0ch session list --machine <ssh-name>` lists that machine's sessions over ssh.
+- **Run:** `ep0ch install --apply`. No protocol or schema change.
+
+### A deploy brings your session back where you left it (PIE-1498, #1174)
+
+- **Handover:** a session with no terminal attached keeps its screens through `install --apply` and comes back on them, not the main menu.
+- **Run:** `ep0ch install --apply`.
+
 ### Dragging the drawer's edge makes no post-it, and ◇ says its mode (PIE-1499)
 
 - **Drag:** resting on or dragging the drawer's top edge with the glass on no longer opens a post-it holding the edge row's own text. No hover resolves while a mouse button is down, and chrome (the drawer's bar, hint rows, the status bar, a tile's bottom border) is never a glass target; a note's links, cut-off text in a tile and a tile's cut-off title still are. `glass.clear` (alt+U, alt-click ◇) removes post-its already made.
