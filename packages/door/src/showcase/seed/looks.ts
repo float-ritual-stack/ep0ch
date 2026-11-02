@@ -27,7 +27,7 @@ export const SPACING_LAB = [
   "- Peppers, pricked out in May",
   "",
   "## Hardy ones [style.list.gap::0] [style.list.divider::none]",
-  "This list is tight: its own heading says so (this list), whatever the lab style gives the page's other lists.",
+  "This list is tight: its heading says so (this list). Its tokens leave the text you read; e, x-ray and the tune show them.",
   "- Kale",
   "- Leeks",
   "",
@@ -140,7 +140,7 @@ export const OLD_LOOK = [
 
 export const SINGLE_LIST = [
   SEED.singleList + " [style.list.gap::0] [style.list.divider::none] [style.list.zebra::off]",
-  "Press the middle list's button to style it and save.",
+  "Press the middle list's button to style it and save. The save lands on the list's first item as style tokens you read past: edit the item to see them.",
   "## Supplies",
   "",
   "- First oats",

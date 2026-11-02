@@ -4,10 +4,11 @@
 // Fictional notes, against a scratch outline only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { TUNE_ROWS } from "../src/desk/tune";
 import { Mirror } from "../src/mirror";
 import { rowBytes } from "../src/term";
 import { App } from "../src/app";
+// After the app: tune.ts is in the tiles' import cycle, and entering it first leaves TUNE_ACTIONS uninitialized.
+import { TUNE_ROWS } from "../src/desk/tune";
 import type { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { exportFiles, readRecords } from "../src/export";
@@ -91,8 +92,8 @@ describe("the doc renderer's list rows and soft wraps (no service)", () => {
     expect(text).toContain("Herbs:");
     const at = (x: string) => d.lines.map(plain).findIndex(l => l.includes(x));
     expect(at("thyme") - at("clover")).toBe(4);                       // the first item's own: 2 blank rows and a divider
-    expect(at("sage") - at("thyme")).toBe(5);                         // the empty third item keeps its row between them
-    expect(copy(d, 40)).toBe(["Beds", "- clover [who::sam]", "- thyme", "- ", "- sage", "", "Herbs:", "- mint"].join("\n"));
+    expect(at("sage") - at("thyme")).toBe(8);                         // the empty third item keeps its row, with the gaps either side
+    expect(copy(d, 40)).toBe(["Beds", "- clover [who::sam]", "- thyme", "-", "- sage", "", "Herbs:", "- mint"].join("\n"));
     // Without a look (an export, a digest) the same words: the rule is the renderer's, not the look's.
     expect(renderDoc(body, env()).lines.map(plain).join("\n")).not.toContain("style.");
   });
