@@ -5,6 +5,8 @@
 import { describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
 import { USER } from "../../src/socket";
+import { ReaderPane } from "../../src/desk/panes";
+import { Desk } from "../../src/desk/desk";
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
 
@@ -17,8 +19,39 @@ describe.skipIf(!outliner)("showcase: detach (PIE-1247)", () => {
   };
   const mouse = (action: "down" | "drag" | "up", x: number, y: number) => h.press({ kind: "mouse", action, button: 0, x, y, mods: 8 } as never);
 
+  test("ctrl+n then alt+drag starts the draft on line one; another drop separates the parts (PIE-1381)", async () => {
+    await h.app.dispatch.press("section", { name: "detach" });
+    await until(() => h.screen().includes("order the felt"), "the plan", 15_000);
+    h.press({ kind: "enter" });
+    h.press({ kind: "char", ch: "n", ctrl: true });
+    const stage = () => h.S().stages.get(h.S().sel).top as Desk;
+    const writing = () => stage().layoutGet().tiles.map(t => stage().pane(t.name)).find(p => p instanceof ReaderPane && p.surface.draft) as ReaderPane | undefined;
+    await until(() => !!writing(), "the empty new note");
+    const pane = writing()!, draft = pane.surface.draft!;
+    const tile = stage().layoutGet().tiles.find(t => t.showing?.id === draft.blockId)!.name;
+    const plan = h.seeded.notes.shedPlan.id;
+    try {
+      expect(draft.text).toBe("");
+      for (const [part, anchor] of [["order the felt", "order-the-felt"], ["borrow a ladder", "borrow-a-ladder"]]) {
+        const rows = h.screen().split("\n");
+        const y = rows.findIndex(l => l.includes(part!)), x = rows[y]!.indexOf(part!) + 2;
+        const header = rows.findIndex(l => l.includes("whole text: subject"));
+        const x2 = rows[header]!.indexOf("whole text: subject") + 8, y2 = header + 3;
+        mouse("down", x, y); mouse("drag", x + 3, y); mouse("drag", x2, y2); mouse("up", x2, y2);
+        await until(() => h.screen().includes("embed it: a reference"), "the drop choice");
+        h.press({ kind: "enter" });
+        await until(() => draft.text.includes(`^${anchor}))`), "the dropped part");
+        expect(draft.text).toBe(anchor === "order-the-felt" ? `((${plan}^order-the-felt))` : `((${plan}^order-the-felt))\n\n((${plan}^borrow-a-ladder))`);
+      }
+    } finally {
+      await stage().dispatch.press("edit.close", { discard: true }, tile);
+      await stage().dispatch.press("tile.close", {}, tile);
+      for (let i = 0; i < 4 && h.S().focus === "stage"; i++) h.press({ kind: "esc" });
+    }
+  }, 30_000);
+
   test("the person's own edit takes a dropped part as one undoable edit, no proposal; a drop line shows where before release; a blank line around each (PIE-1357)", async () => {
-    await h.app.act({ action: "section", args: { name: "detach" }, as });
+    await h.app.dispatch.press("section", { name: "detach" });
     await until(() => h.screen().includes("Shed rebuild plan"), "the detach section", 15_000);
     const stage = () => h.S().stages.get(h.S().sel).top;
     const pad = h.seeded.notes.shedPad.id, padBefore = (await h.board.get(pad))!;

@@ -12,10 +12,8 @@ import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-bl
 import { siteBlockAt, type SiteBlock } from "@ep0ch/outline-core/site-blocks";
 import { askProps, asksPerItem, CHILDREN_QUERY, figureQuestion, keepGroups, liveAsk, liveMark, liveProps, liveStatus, NONE, type FigureAnswer, type FigureItem } from "@ep0ch/outline-core/figure-live";
 import type { SiteAnswer, SiteProduced, SiteProducer } from "@ep0ch/outline-core/site";
-import { figureProps, figureSource, graphKind, type Props, type Row } from "@ep0ch/outline-core/figure-props";
-import { figureRow } from "@ep0ch/outline-core/figure-markdown";
+import { figureChildRows, figureProps, figureSource, graphKind, type Props, type Row } from "@ep0ch/outline-core/figure-props";
 import { recordProperties } from "@ep0ch/outline-core/block-record";
-import { headerLine } from "@ep0ch/outline-core/header-line";
 import { blockGroups, LINK_GROUPS, linkBlockAt, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import type { AuthoredLinksSnapshot } from "./authored-links";
@@ -201,12 +199,9 @@ export async function liveRowMark(host: Pick<LiveHost, "request">, note: { id: s
 /** A note's child bullets as figure rows (each standing for its note), in the note's order. */
 async function childRows(host: LiveHost, note: string): Promise<Row[]> {
   const found = await produced(host, note, { kind: "children" }) as Extract<SiteProduced, { kind: "children" }>;
-  const blocks = found.blocks as { id: string; text?: string }[];
+  const blocks = found.blocks as { id: string; text: string }[];
   const shown = await host.shown(blocks.map(block => block.id));
-  return blocks.flatMap(block => {
-    const prose = shown.has(block.id) ? headerLine(block.text ?? "").prose.trim() : "";
-    return prose ? [{ ...figureRow(prose), block: block.id }] : [];
-  });
+  return figureChildRows(blocks.filter(block => shown.has(block.id)));
 }
 
 /** What a producer in a note asks of its Site, answered by the service (`site.answer`): the one orchestration, here and in the door. */

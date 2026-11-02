@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "5917760b", "outliner": "5917760b", "on": "2026-11-02" },
+  "verified": { "door": "c2718ad8", "outliner": "c2718ad8", "on": "2026-11-02" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -133,7 +133,7 @@
     {"id": "door.overflow", "name": "Readable clipped text", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": [], "does": "Keeps a cut-short value readable by hover, keyboard selection or Alt+?, without changing focus or a click.", "built": "Shared text helpers retain full values as drawing marks; Canvas carries them independently of style and hyperlinks. Overflow composes one-line reveals and marquees after screens and floats.", "refs": [{"r": "door", "p": "src/overflow.ts", "l": 67, "m": "export class Overflow"}, {"r": "door", "p": "src/style.ts", "l": 293, "m": "function shortened("}]},
     {"id": "door.inspector", "name": "Property inspector surface", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Scrolls and selects inspector content and edits a property in place for tune, Sources and the element panel.", "built": "Inspector extends RowView and uses Selection, DraftSession and Draft; schemas and the service's row properties supply choices. Source YAML writes use draft.patch and withFigureProp.", "refs": [{"r": "door", "p": "src/surface/inspector.ts", "l": 24, "m": "export class Inspector"}]},
     {"id": "door.hint-card", "name": "Hint cards", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Explains modes and reveals frame controls without taking keys or focus.", "built": "ActionDef hints and Dispatcher.menu rows, drawn in the desk float layer with Canvas.box, RowView and keycaps. X-ray shows the same cards together; peek reads their rows.", "refs": [{"r": "door", "p": "src/surface/hint-card.ts", "l": 21, "m": "export class HintCard"}]},
-    {"id": "door.list-view", "name": "The one list", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Draws a selectable, filterable list with a preview and one activation per row for the links tile, an inline ::links and an extension's list view, with each actor's own pick and filter.", "built": "outline-core's ListRow and the list view primitive are the wire; ListView wraps RowView and keeps each actor's pick and filter; listRowLines is the one row drawer (the links model reaches it through linkListRow); LISTVIEW_ACTIONS (list.blocks, pick, step, open, filter, enter) run over the ListHost the reader and the links tile lend.", "refs": [{"r": "door", "p": "src/surface/list-view.ts", "l": 157, "m": "export class ListView"}, {"r": "door", "p": "src/surface/list-actions.ts", "l": 71, "m": "export const LISTVIEW_ACTIONS"}, {"r": "door", "p": "src/links.ts", "l": 438, "m": "export function linkListRow"}]},
+    {"id": "door.list-view", "name": "The one list", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Draws a selectable, filterable list with a preview and one activation per row for the links tile, an inline ::links and an extension's list view, with each actor's own pick and filter.", "built": "outline-core's ListRow and the list view primitive are the wire; ListView wraps RowView and keeps each actor's pick and filter; listRowLines is the one row drawer (the links model reaches it through linkListRow); LISTVIEW_ACTIONS (list.blocks, pick, step, open, filter, enter) run over the ListHost the reader and the links tile lend.", "refs": [{"r": "door", "p": "src/surface/list-view.ts", "l": 159, "m": "export class ListView"}, {"r": "door", "p": "src/surface/list-actions.ts", "l": 71, "m": "export const LISTVIEW_ACTIONS"}, {"r": "door", "p": "src/links.ts", "l": 438, "m": "export function linkListRow"}]},
     {"id": "door.outline-boards", "name": "Readers across outlines", "group": "door", "chapter": "socket", "ladder": "shared", "dependsOn": ["door.socketboard"], "does": "Keeps one board per outline and machine so a reader edits another outline without leaving its screen.", "built": "OutlineBoards shares connections and contexts between desk readers and EchoNet. Reader specs retain outline and machine; NoteSurface and DraftSession use that board.", "refs": [{"r": "door", "p": "src/desk/outline-boards.ts", "l": 16, "m": "export class OutlineBoards"}]},
     {"id": "svc.artifacts", "name": "Artifact folders", "group": "service", "chapter": "outline", "ladder": "shared", "dependsOn": ["svc.host"], "does": "Keeps live synced folders and snapshots outside notes; CLI and MCP put through the outline service, note frames load it from a grant on the static listener (PIE-1266), and door cards open its page in the web client.", "built": "ArtifactStore reuses ArtifactCompiler for lone React sources at put or watcher time. The separate static listener reads files only, on its own origin, and opens a path only for a grant the publisher made for the reader (artifact-grants.ts).", "refs": [{"r": "outliner", "p": "src/artifact-store.ts", "l": 72, "m": "export class ArtifactStore"}, {"r": "outliner", "p": "src/artifact-server.ts", "l": 63, "m": "export async function artifactResponse"}]},
     {
@@ -201,7 +201,7 @@
       "built": "outline-core's block-record.ts is the shape and its one builder; the service builds records from its own reads (blocks.records), backlinks in one pass for the whole request.",
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/block-record.ts", "l": 124, "m": "export function blockRecord" },
-        { "r": "outliner", "p": "src/block-records.ts", "l": 53, "m": "export function readBlockRecords" },
+        { "r": "outliner", "p": "src/block-records.ts", "l": 54, "m": "export function readBlockRecords" },
         { "r": "outliner", "p": "src/server.ts", "l": 2919, "m": "case \"blocks.records\"" }
       ]
     },
@@ -311,14 +311,14 @@
       "does": "The one reader: render, fold, elements and the ruler, links and history, comments, steps, selection, edit. Hosted by the board, the desk, the river, the BBS reader and the hub screens.",
       "built": "NoteSurface behind the SurfaceHost seam; inline views, links, backlinks, tables and tabs lend their tagged rows to InlineList over RowView (PIE-1035), with wheel handoff and element selection; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
       "refs": [
-        { "r": "door", "p": "src/surface/note.ts", "l": 804, "m": "export class NoteSurface" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 807, "m": "export class NoteSurface" },
         { "r": "door", "p": "src/surface/inline-list.ts", "l": 12, "m": "export class InlineList" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 149, "m": "export class ModeStack" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 63, "m": "export const PRECEDENCE" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 188, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 10077, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1354, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1371, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 190, "m": "export interface SurfaceHost" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 10004, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1357, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1374, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -845,7 +845,7 @@
       "does": "Outliner tools inside Claude Code; `show` opens a note in the door from Claude's own tile, where that tile's opens land.",
       "built": "register.ts registers the tools; door-open --from $EP0CH_TILE.",
       "refs": [
-        { "r": "outliner", "p": "../claude-mod/hooks/register.ts", "l": 1897, "m": "['--from', from]" },
+        { "r": "outliner", "p": "../claude-mod/hooks/register.ts", "l": 1889, "m": "['--from', from]" },
         { "r": "outliner", "p": "src/door-control.ts", "l": 67, "m": "export async function openInDoor" }
       ]
     },
@@ -963,7 +963,7 @@
       "refs": [
         { "r": "door", "p": "src/bar/bar.ts", "l": 62, "m": "export class PowerBar" },
         { "r": "door", "p": "src/bar/source.ts", "l": 78, "m": "export interface BarSource" },
-        { "r": "door", "p": "src/bar/sources.ts", "l": 603, "m": "export const BUILT_IN_SOURCES" },
+        { "r": "door", "p": "src/bar/sources.ts", "l": 623, "m": "export const BUILT_IN_SOURCES" },
         { "r": "door", "p": "src/bar/actions.ts", "l": 48, "m": "export const BAR_ACTIONS" },
         { "r": "door", "p": "src/bar/form.ts", "l": 83, "m": "export async function openActionForm" },
         { "r": "door", "p": "src/bar/arg-kinds.ts", "l": 25, "m": "export function registerArgKind" }

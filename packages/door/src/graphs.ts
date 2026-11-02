@@ -47,7 +47,7 @@ const rep = (s: string, n: number) => s.repeat(Number.isFinite(n) ? Math.max(0, 
 /** A figure's warning, wrapped to the frame's inside: read whole however narrow (PIE-1428), never cut short. */
 function errorLines(text: string, W: number): string[] { return wrap(text, Math.max(16, W) - 4).map(l => fg(C.lred) + l + RESET); }
 
-export function frame(title: string, body: string[], W: number, footer = "", control = ""): string[] {
+export function frame(title: string, body: string[], W: number, footer = "", control = "", header = ""): string[] {
   const w = Math.max(16, W);
   const inner = w - 4;
   // The title shrinks before the frame does: keep at least one dot each side.
@@ -63,7 +63,7 @@ export function frame(title: string, body: string[], W: number, footer = "", con
   const foot = shown || tail ? ` ${shown}${tail} ` : "";
   const fl = vwidth(foot);
   const bottom = fg(DIM) + "+" + rep("·", Math.max(0, w - 4 - fl)) + fg(ACCENT) + foot + fg(DIM) + "··+" + RESET;
-  return [top, side(""), ...body.map(side), side(""), foot ? bottom : fg(DIM) + "+" + rep("·", w - 2) + "+" + RESET];
+  return [top, side(header), ...body.map(side), side(""), foot ? bottom : fg(DIM) + "+" + rep("·", w - 2) + "+" + RESET];
 }
 
 const num = (v: unknown) => (typeof v === "number" ? v : Number(String(v).replace(/[^\d.-]/g, "")) || 0);
@@ -421,9 +421,9 @@ export function figureFrame(kind: string, props: Props, width: number, figures?:
   const size = readContentSize({ ...props, ...chosen?.size });
   if (size.width === "full") width = figures?.fullWidth ?? width;
   const density = chosen?.density ?? (isDensity(props.density) ? props.density : "cozy");
-  const finish = (body: string[], footer = "", control = "", extra: Partial<FigureInfo> = {}, displayTitle = String(props.title ?? "")) => {
+  const finish = (body: string[], footer = "", control = "", extra: Partial<FigureInfo> = {}, displayTitle = String(props.title ?? ""), header = "") => {
     const sizing = figures?.tag?.({ figure: key, size: true }, `↔ ${size.width}`) ?? "";
-    const drawn = frame(displayTitle, [...body, ...size.problems.map(problem => fg(C.yellow) + problem + RESET)], width, footer, [control, sizing].filter(Boolean).join(" · "));
+    const drawn = frame(displayTitle, [...body, ...size.problems.map(problem => fg(C.yellow) + problem + RESET)], width, footer, [control, sizing].filter(Boolean).join(" · "), header);
     const lines = figures?.viewport?.(key, drawn, width, size.height ?? (kind === "timeline" ? body.length : undefined)) ?? drawn;
     figures?.seen?.({ key, n, kind, title, density, size, cols: width, rows: lines.length, note, line: figures.line, ...extra });
     return lines;

@@ -77,20 +77,62 @@ describe.skipIf(!outliner)("the power bar", () => {
   /** Some tile on the desk shows note `id` (where an open landed). */
   const shows = (id: string) => (desk.layoutGet().tiles as any[]).some(t => t.showing?.id === id);
   // Each test starts with the bar put away, whatever the one before left.
-  const closeBar = () => { if (peek().bar?.query) key({ kind: "esc" }); if (peek().bar) key({ kind: "esc" }); };
+  const closeBar = () => { for (let i = 0; i < 4 && peek().bar; i++) key({ kind: "esc" }); };
   beforeEach(closeBar);
   afterAll(async () => {
     app?.drawer.tile?.kill(); board?.close(); await scratch.dispose();
     for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   });
 
-  test("Tab accepts a query ghost and lists the notes its grammar selects", async () => {
+  test("plain words in the bar search titles with nothing over them: ⏎ opens the first note (PIE-1497)", async () => {
+    const allotment = await board.createBlock(null, "Notes from the allotment\nwhat grew");
+    key(ctrlK); type("notes");
+    await until(() => peek().bar?.rows.some((r: any) => r.source === "notes" && r.key === allotment.id), "the title hit in the main list", 5000);
+    // No completion list opened over the rows: the query-words offer waits for a line that reads as a query.
+    expect(lineCompleter((app as any).bar.input)?.shown ?? null).toBeNull();
+    expect(frame().some(line => line.includes("query words") || line.includes("finding references"))).toBe(false);
+    closeBar();
+    key(ctrlK); type("/notes");
+    // The titles the word starts come first (the seeded "Notes" page, then this one); the first row is what ⏎ opens.
+    await until(() => peek().bar?.rows.length >= 2 && peek().bar.rows[1]?.key === allotment.id, "the title hits first in /notes", 5000);
+    const first = peek().bar.rows[0];
+    expect(first.source).toBe("notes"); expect(first.label).toBe("Notes");
+    expect(lineCompleter((app as any).bar.input)?.shown ?? null).toBeNull();
+    key({ kind: "enter" });
+    await until(() => shows(first.key), "the first note opened", 5000);
+    expect(peek().bar).toBeUndefined();
+    // The reader back on the garden: the tests after read it there.
+    showIn(desk, notes.garden!);
+  });
+
+  test("a line that reads as a query still gets the query-words offer in /notes (PIE-1497)", async () => {
+    key(ctrlK); type("/type=job AND");
+    await until(() => !!lineCompleter((app as any).bar.input)?.shown?.items.length, "the query grammar's completions", 10_000);
+    expect(lineCompleter((app as any).bar.input)!.shown!.target.kind).toBe("query");
+    closeBar();
+  });
+
+  test("one letter lists the notes whose titles start with it (PIE-1497)", async () => {
+    const quince = await board.createBlock(null, "Quince jelly\nset by noon");
+    key(ctrlK); type("/Q");
+    await until(() => peek().bar?.rows[0]?.key === quince.id, "the one-letter title hit", 5000);
+    closeBar();
+  });
+
+  test("= is a query line: Tab accepts a query ghost and lists the notes its grammar selects", async () => {
     await board.createBlock(null, 'Query words [type::rule] [rule-name::query-words]\n[alias::stakedbeans=text~"Runner beans"]');
-    await app.dispatch.press("bar.open", { scope: "notes" });
+    // `=` typed first in /notes enters the query scope, as it does from the main list.
+    key(ctrlK); type("/");
+    await until(() => peek().bar?.scope === "notes", "the notes scope");
+    type("=");
+    await until(() => peek().bar?.scope === "query", "the query scope");
+    expect(peek().bar.query).toBe("");
     type("stakedbeans");
-    await until(() => frame().some(line => line.includes("Tab accepts")), "the learned query ghost");
+    // The ghost listed and settled (not a re-ask under way), as the query-words showcase waits for it.
+    await until(() => { const c = lineCompleter((app as any).bar.input)?.shown; return !!c && !c.loading && !!c.items[0]?.querySuggestion; }, "the learned query ghost", 10_000);
+    expect(frame().some(line => line.includes("Tab accepts"))).toBe(true);
     key({ kind: "tab" });
-    await until(() => peek().bar.rows.some((row: any) => row.source === "notes" && row.key === notes.beans!.id), "the query's matching note");
+    await until(() => peek().bar.rows.some((row: any) => row.source === "query" && row.key === notes.beans!.id), "the query's matching note");
     expect(peek().bar.query).toBe('(text~"Runner beans")');
     expect(frame().some(line => line.includes("Runner beans"))).toBe(true);
     await app.dispatch.press("bar.close");

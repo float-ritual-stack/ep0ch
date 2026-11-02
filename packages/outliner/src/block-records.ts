@@ -16,6 +16,7 @@ import type { Block } from "./types";
 export const MAX_BLOCK_RECORD_IDS = 200;
 
 export interface BlockRecordSource extends AuthoredLinksDataSource {
+  textSaved(block: Block): Pick<Block, "author" | "actorId">;
   children(parentId: string | null): Block[];
   backlinkSources(ids: readonly string[]): Map<string, string[]>;
 }
@@ -50,7 +51,7 @@ const tasksOf = (text: string, properties: PropertyRecord[]): BlockRecord["tasks
   text: (text.slice(item.markerStart + 3).split("\n")[0] ?? "").replace(/[ \t]+\^[0-9A-Za-z_-]+[ \t]*$/, "").trim(),
 }));
 
-export function readBlockRecords(source: BlockRecordSource, ids: unknown): BlockRecordRead {
+export function readBlockRecords(source: BlockRecordSource, ids: unknown, includeTrashed = false): BlockRecordRead {
   if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_BLOCK_RECORD_IDS || ids.some(id => typeof id !== "string" || !id)) {
     throw new Error(`Block records need ids: 1 through ${MAX_BLOCK_RECORD_IDS} block IDs`);
   }
@@ -62,7 +63,7 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
   for (const id of asked) {
     const block = source.get(id);
     if (!block) { unavailable.push({ id, status: "missing" }); continue; }
-    if (block.effectiveDeletedRootId) { unavailable.push({ id, status: "trashed" }); continue; }
+    if (block.effectiveDeletedRootId && !includeTrashed) { unavailable.push({ id, status: "trashed" }); continue; }
     const text = block.text;
     const properties = parsePropertyRecords(maskOutputRegions(text));
     const truncated: string[] = [];
@@ -111,8 +112,9 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
       });
     }
     links.push(...byTarget.values());
+    const saved = source.textSaved(block);
     records.push(blockRecord({
-      block,
+      block: { ...block, author: saved.author, actorId: saved.actorId },
       title: blockDisplayTitle(block),
       path: ancestorPath(block, source),
       properties,

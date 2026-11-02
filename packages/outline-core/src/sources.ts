@@ -10,9 +10,11 @@ import { figureProps, figureSource, graphKind } from "./figure-props";
 import { siteBlockAt } from "./site-blocks";
 import { findOutputRegions } from "./output-region";
 import { useCallAt } from "./template-use";
+import { parsePropertyRecords } from "./property-parse";
+import { viewSpec, type ViewSpec } from "./view-spec";
 
 /** What produced the region: a handler line (`weekly:: week=42`), a `::=` line, a `::use`, a `::graph-*` figure, `::fields`, `::if`, or a written `[!output]` callout. */
-export type SourceKind = "button" | "handler" | "expr" | "use" | "figure" | "fields" | "if" | "output";
+export type SourceKind = "button" | "handler" | "expr" | "use" | "figure" | "fields" | "if" | "output" | "view";
 
 export interface SourceParam { key: string; value: string }
 
@@ -40,6 +42,9 @@ export interface SourceEntry {
   problem?: string;
 }
 
+/** A source with no read of its own presents its producer's description and text once. */
+export const sourceIsWritten = (s: SourceEntry): boolean => !s.live && !s.query.text && !s.query.params.length;
+
 /** `site.sources`' question. */
 export interface SourcesRequest { blockId: string; hidden?: string[] }
 
@@ -62,6 +67,8 @@ export interface SourceCall {
   /** For a figure: its kind (`table` of `graph-table`) and where its YAML is (the lines between `---`). */
   figure?: { kind: string; yaml: string };
   button?: ButtonCall;
+  /** An inline collection's record; absent on a saved view's own collection. */
+  view?: ViewSpec;
   /** For a `::use`: the template as written. For `::fields`: the key. For `::if`: the query. For an output region: its producer's block id. */
   of?: string;
   /** For an output region: its anchor and whether its person edited it. */
@@ -74,6 +81,8 @@ const pairsOf = (attrs: string | undefined) => (attrs ? componentAttrs(attrs.rep
 export function sourceCalls(text: string): SourceCall[] {
   const lines = text.split("\n");
   const out: SourceCall[] = [];
+  if (parsePropertyRecords(text).some(p => p.scope === "block" && p.key === "type" && p.value.toLowerCase() === "virtual-branch"))
+    out.push({ kind: "view", line: 0, endLine: 0, name: "Collection", params: [], text: lines[0]! });
   const fenced = new Set<number>();
   // By the fence grammar over every line: code inside a component's body is still code.
   for (const f of codeBlocks(lines).fences) for (let j = f.start; j <= f.end; j++) fenced.add(j);
@@ -101,7 +110,11 @@ export function sourceCalls(text: string): SourceCall[] {
       continue;
     }
     const block = blocks.get(i), kind = block && graphKind(block);
-    if (block && kind) {
+    const view = block && (block.name === "view" || block.name === "graph-table") && viewSpec(block, lines);
+    if (block && view) {
+      out.push({ kind: "view", line: i, endLine: block.end, name: "Collection", params: [], text: lines.slice(i, block.end + 1).join("\n"), view });
+      i = block.end;
+    } else if (block && kind) {
       const body = lines.slice(i + 1, block.end);
       const yaml = figureSource(body).yaml;
       out.push({ kind: "figure", line: i, endLine: block.end, name: `graph-${kind}`, params: pairsOf(block.attrs), text: lines[i]!, figure: { kind, yaml } });
