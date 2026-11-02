@@ -1068,6 +1068,6 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     const by = e.s.describe().editing!.patches[0]?.by ?? "";
     expect(["patch-demo", "tidy"]).toContain(by);                        // `patch-demo` since pi-herdr-outliner PIE-510
     expect(e.s.describe().editing).toMatchObject({ held: true, patches: [{ by }], lit: [`${by} · just now`] });
-    expect(e.s.hint()).toContain(`ctrl+z undo ${by}'s edit`);
+    expect(visible(e.s.hint())).toContain(`^Z undo ${by}'s edit`);
   }, 30_000);
 });

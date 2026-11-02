@@ -418,7 +418,7 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
       const where = line ? `“${line.snippet}”${line.anchor && !line.snippet.includes(`^${line.anchor}`) ? ` ^${line.anchor}` : ""}` : "";
       return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: (r.source.outline ? `${r.source.outline} · ` : "") + r.source.title, context: backlinkRowSuffix(r.source, where) };
     }
-    case "fold": return { mark: "┄", text: moreText(r.count, { what: r.what }), context: "⏎ shows them" };
+    case "fold": return { mark: "┄", text: moreText(r.count, { what: r.what, inline: true }), context: "⏎ shows them" };
     case "child": case "match": {
       const b = r.child.block, f = r.child.facets;
       // A post in the thread tree (PIE-944): the note being read is marked, each post says who wrote it and how long ago.

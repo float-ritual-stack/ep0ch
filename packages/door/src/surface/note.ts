@@ -1226,8 +1226,8 @@ export class NoteSurface {
   /** Refusals name the draft that holds the note, even while its preview has the keys. */
   holdingHint(): string {
     const d = this.draft;
-    return d ? editHint(d, { save: "save", follow: true, reload: d.conflict || d.changedElsewhere ? "reload" : null })
-      : this.modes.all().find(mode => mode.editing())?.hint() ?? "";
+    // Plain: it goes into refusals, which an agent reads as text.
+    return visible(d ? editHint(d, { save: "save", follow: true, reload: d.conflict || d.changedElsewhere ? "reload" : null }) : this.modes.all().find(mode => mode.editing())?.hint() ?? "");
   }
 
   /** A selected element or active mode owns the hint before a host offers its reading shortcuts. */

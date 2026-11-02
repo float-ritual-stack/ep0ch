@@ -2,6 +2,7 @@
 // it, long lines wrap at words under the item's text, the wheel scrolls without moving the cursor, and a click
 // places it (no way out of a draft loses the text: test/draft-session.test.ts). Pure model tests: no service, no terminal; the
 // state dir is a temp dir (test/preload.ts and EP0CH_STATE below).
+import { visible } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -239,7 +240,7 @@ describe("the mouse: the wheel scrolls, a click places the cursor", () => {
     void DRAFT_ACTIONS.run("draft.preview", {}, d, USER);
     const shown = renderEditor(d, { title: "comment · Lantern", status: ["ok"], preview: t => ({ lines: [`preview of ${t}`], links: [], source: [0] }) }, 60, 12).map(l => cellsOf(l).join(""));
     expect(shown.some(l => l.includes("preview of - a"))).toBe(true);
-    expect(editHint(d, { save: "send" })).toContain("tab indent");
+    expect(visible(editHint(d, { save: "send" }))).toContain("tab indent");
   });
 });
 

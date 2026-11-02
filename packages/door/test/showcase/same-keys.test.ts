@@ -23,7 +23,7 @@ describe.skipIf(!outliner)("the showcase screen: same keys (PIE-1293)", () => {
     const heap = seeded.notes.heap;
     await until(() => stage().layoutGet().tiles.find((t: any) => t.name === "detail")?.showing?.id === heap.id && tree().rows?.length > 3, "the outline and the heap", 8000);
     press({ kind: "enter" });
-    await app.act({ action: "tile.focus", tile: "tree", args: {} });
+    await stage().dispatch.act({ action: "tile.focus", tile: "tree" }, { kind: "user" });
     screen();
     const from = tree().sel, n = tree().rows.length, step = pageRows(tree().view.room);
     press({ kind: "pgdn" });
@@ -31,7 +31,7 @@ describe.skipIf(!outliner)("the showcase screen: same keys (PIE-1293)", () => {
     press({ kind: "pgup" });
     await until(() => tree().sel === from, "back where it was");
     // The yes/no: keep it first, so ⏎ keeps the heap.
-    await app.act({ action: "tile.focus", tile: "detail", args: {} });
+    await stage().dispatch.act({ action: "tile.focus", tile: "detail" }, { kind: "user" });
     ch("d");
     await until(() => screen().includes('trash "Compost heap"?'), "the yes/no");
     const rows = screen().split("\n");

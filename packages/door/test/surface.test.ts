@@ -17,7 +17,7 @@ import { startControl } from "../src/control";
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
 import { ACTOR_ID, SocketBoard, type Actor } from "../src/socket";
-import { width } from "../src/style";
+import { visible, width } from "../src/style";
 import { ActionRefused, ActionSet, asActor, lineWords, parseActArgs, traceActions, type ActionRun } from "../src/surface/actions";
 import { editHint } from "../src/surface/editor";
 import { NOTE_ACTIONS, NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -108,12 +108,12 @@ describe("the surface without a service", () => {
     const s = new NoteSurface();
     s.show(note("A\nb"), host());
     const d = s.startDraft({ ...s.msg!, revision: 1, text: "hello" }, host()).draft, c = new Draft("comment", 0, "");
-    expect(editHint(d, { save: "save" })).toBe("ctrl+s save · esc done · ctrl+x ctrl+e $EDITOR · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview");
-    expect(editHint(c, { save: "send", close: "back" })).toBe("ctrl+s send · esc back · ctrl+x ctrl+e $EDITOR · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview");
+    expect(visible(editHint(d, { save: "save" }))).toBe("^S save · esc done · ^X ^E $EDITOR · ^T insert · tab indent · shift+tab out · ^P preview");
+    expect(visible(editHint(c, { save: "send", close: "back" }))).toBe("^S send · esc back · ^X ^E $EDITOR · ^T insert · tab indent · shift+tab out · ^P preview");
     d.key(char("!")); c.key(char("?"));
-    for (const h of [editHint(d, { save: "save" }), editHint(c, { save: "send", reload: "find quote", close: "back" })]) expect(h).toContain(" · esc twice puts it aside · ");
+    for (const h of [editHint(d, { save: "save" }), editHint(c, { save: "send", reload: "find quote", close: "back" })]) expect(visible(h)).toContain(" · esc twice puts it aside · ");
     // The reader shows the same hint the edit control makes.
-    expect(s.hint()).toBe(editHint(d, { save: "save" }));
+    expect(visible(s.hint())).toBe(visible(editHint(d, { save: "save" })));
   });
 
   test("a passage is picked by its exact words, nearest the offset given, or refused with why", () => {

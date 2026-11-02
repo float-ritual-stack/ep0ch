@@ -15,7 +15,7 @@ import { ActionRefused, actionSet, def, agentLabel, agentWords, asActor } from "
 import { Dispatcher } from "../surface/dispatch";
 import { armsEdit, draftPreviewDoc, leaveSaid, sessionStart } from "../surface/note";
 import { viewSummaryKeys, prop } from "../props";
-import { bg, C, chip, drawEllipsized, fg, pad, paint, RESET } from "../style";
+import { bg, C, chip, drawEllipsized, fg, pad, paint, RESET, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, waiting, waitingText } from "../text";
 import { applyMove, describeChanges, NO_PLAN, planMoves, type MovePlan } from "../move";
@@ -700,10 +700,10 @@ export class Lanes implements SourceModel {
     // An open draft of this card keeps it where it is: the draft's base revision would go stale under
     // it. Saving or closing the edit first lets the revision checks decide in order.
     const r = openDraftOf(this.host.ctx.board, card.id);
-    if (r) return `it's open for editing${r.dirty ? " with unsaved changes" : ""} · ${editHint(r.draft, { save: "save" })}`;
+    if (r) return `it's open for editing${r.dirty ? " with unsaved changes" : ""} · ${visible(editHint(r.draft, { save: "save" }))}`;
     // A comment names the revision its passage was read at; a write under it would make the send fail.
     const c = this.readers().find(p => p.session?.blockId === card.id);
-    if (c) return `it's open for commenting${c.session!.dirty ? " with an unsent comment" : ""} · ${c.session!.hint()}`;
+    if (c) return `it's open for commenting${c.session!.dirty ? " with an unsent comment" : ""} · ${visible(c.session!.hint())}`;
     return null;
   }
 
@@ -866,7 +866,7 @@ export class Lanes implements SourceModel {
     if (name !== undefined) this.lane = this.lanes.indexOf(this.laneFor(name));
     const lane = this.lanes[this.lane];
     if (!lane) throw new ActionRefused("no lane here to write a card in");
-    if (this.composer) throw new ActionRefused(`a new ${this.composer.kind === "card" ? "card" : "note"} is open already · ${editHint(this.composer.session.draft, { save: "create", close: "back" })}`);
+    if (this.composer) throw new ActionRefused(`a new ${this.composer.kind === "card" ? "card" : "note"} is open already · ${visible(editHint(this.composer.session.draft, { save: "create", close: "back" }))}`);
     this.openCardComposer();
     return { lane: lane.name, composing: !!this.composer };
   }

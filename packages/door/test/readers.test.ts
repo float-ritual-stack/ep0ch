@@ -313,7 +313,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     // Tab to it: the frame and hints say whose it is and how to get in; j scrolls, doesn't type.
     key({ kind: "tab" });
     expect(BV.where(b)).toBe("preview");
-    expect(hints()).toContain("preview · editing · e ⏎ enter the edit");
+    expect(hints()).toContain("preview · editing · e/⏎ enter the edit");
     expect(frame()[rect("preview").row]).toMatch(/editing.*\(e enters\)/);
     key(char("j")); key(char("x"));
     expect(p.draft!.text).toBe(text);
