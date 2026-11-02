@@ -86,6 +86,21 @@ describe("row containers", () => {
     expect(loneCollection(drawn().world())).toBeNull();
   });
 
+  test("an extension's list view (rows that are no inline list): from its control into its rows, then its view steps them", () => {
+    const d = drawn(), w = d.world();
+    const tools = new ListView("#2");
+    tools.set(["Spade", "Fork"].map(label => ({ id: label, label, do: { copy: label } })));
+    const list: ListHandle<any> = { n: 2, key: "#2", title: "list 2", view: tools, entered: false };
+    const elems = [...w.elems, { key: "in", kind: "control", row: 7, link: { listRow: { key: "#2" } } }, ...["Spade", "Fork"].map(id => ({ key: id, kind: "row", row: 7, link: { listRow: { key: "#2", row: id } } }))];
+    let cursor = elems.find(e => e.key === "in");
+    const picked: string[] = [];
+    const world = () => ({ ...w, elems, lists: [...w.lists, list], cursor, pick: (l: ListHandle<any>, row: { id: string; label: string; group?: string }) => { l.view.pick(PERSON, row.id, row.group); cursor = elems.find(e => e.key === row.id); picked.push(row.label); } });
+    expect(rowContainerAt(world())!.step(1)).toBe("moved");
+    expect(rowContainerAt(world())!.step(1)).toBe("moved");
+    expect(rowContainerAt(world())!.step(1)).toBe("edge");
+    expect(picked).toEqual(["Spade", "Fork"]);
+  });
+
   test("off every container there is none; a figure drawing no rows keeps its control", () => {
     const d = drawn();
     expect(rowContainerAt(d.world())).toBeNull();
