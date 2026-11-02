@@ -529,6 +529,8 @@ export class DraftSession {
       id: d.blockId, place: this.target.place, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy, note: d.note || null,
       openedBy: actorIdOf(this.openedBy), writers: d.writers.map(actorIdOf), held: this.held,
       cursor: { line: d.row + 1, col: d.col + 1 }, patches: d.patches.map(u => ({ id: u.patchId, by: actorIdOf(u.by) })), lit: d.flashes.map(f => f.label),
+      // The open completion popup, as the last frame placed it (PIE-1511): under the caret, above it, or the sheet.
+      completion: (c => c?.shown ? { rows: c.shown.items.length, lit: c.shown.items[c.shown.index]?.label ?? null, layout: c.drawn?.layout ?? null } : null)(completerOf(d)),
     };
   }
 }

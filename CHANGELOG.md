@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Completion drops under the cursor, beside its preview, sized to its rows (PIE-1511)
+
+- Type `[[`, `((`, `::` or a `[key::`: the matches open right under the cursor, at its column, with the preview a column beside them, only as tall as the rows. Near the right edge it moves left.
+- Where it won't fit under the cursor, it opens as a short sheet along the bottom, list left and preview right, about a third of the screen. With the cursor in the bottom rows it goes above it. Every source uses this one placement.
+- The key hints are in the status bar only, not in the box.
+- A click lights a row and previews it; a second click inserts it. The wheel moves through the rows.
+- The kitchen sink's **completion-place** section shows both, by keys, mouse and act.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### A misread button says the one-action-per-line form; a lift button drops on the next press (PIE-1298)
 
 - A `::button` whose `act=` a nested quote cuts short runs nothing and says what to write: `::button{label="zoom"}`, the action on its own line as you meant it, then `::`. This also catches a quote that cut off a word the button reads (`tone=red"`), which ran a shortened action before. The kitchen sink's **pick-a-tile** section shows the form beside the misread button.
