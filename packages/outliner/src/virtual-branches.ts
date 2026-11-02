@@ -6,9 +6,9 @@ import {
   normalizePropertyQueryScope,
   parsePropertyFilterClause,
   parsePropertyFilterExpression,
-  normalizeSortField,
+  normalizeSort,
+  sortText,
   parseSearchExpression,
-  sortFieldProblem,
 } from "./block-query";
 import { matchesFilters, patchPropertyText } from "./properties";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -85,7 +85,7 @@ export interface VirtualBranchConfig {
   filters: PropertyFilter[];
   /** Present when the query uses OR, NOT, groups or created/updated ranges. */
   where?: QueryExpression;
-  sort: BlockQuerySort | null;
+  sort: BlockQuerySort | string | null;
   group?: string;
   /** The view's `[sort::]` and `[direction::]` as written, for the refusal that names them (handOrderRefusal). */
   sortWritten?: string[];
@@ -280,19 +280,20 @@ export function parseVirtualBranchConfig(
 
   const sortProperty = singleProperty(definition, "sort", false, configurationErrors);
   const directionProperty = singleProperty(definition, "direction", false, configurationErrors);
-  let sort: BlockQuerySort | null = null;
+  let sort: BlockQuerySort | string | null = null;
   if (!sortProperty && directionProperty) {
     configurationErrors.push("Virtual branch direction requires a sort property");
   }
   if (sortProperty) {
-    const written = /^(.*?)\s+(asc|desc)$/i.exec(sortProperty.value);
-    const field = normalizeSortField(written?.[1] ?? sortProperty.value);
-    const direction = written?.[2]?.toLowerCase() ?? directionProperty?.value.trim().toLowerCase() ?? "desc";
-    if (field === null) configurationErrors.push(`sort: ${sortProperty.value} · ${sortFieldProblem(sortProperty.value)}`);
-    if (direction !== "asc" && direction !== "desc") {
+    const direction = directionProperty?.value.trim().toLowerCase() ?? "desc";
+    const validDirection = direction === "asc" || direction === "desc";
+    try {
+      sort = normalizeSort(sortProperty.value, validDirection ? direction : "desc");
+    } catch (error) { configurationErrors.push(`sort: ${sortProperty.value} · ${(error as Error).message}`); }
+    if (!validDirection) {
       configurationErrors.push(`direction: ${directionProperty?.value} · Sort direction is asc or desc, not ${directionProperty?.value}: write [direction::asc] or [direction::desc]`);
+      sort = null;
     }
-    if (field !== null && (direction === "asc" || direction === "desc")) sort = { field, direction };
   }
   const sortWritten = sort ? [sortProperty!, ...(directionProperty ? [directionProperty] : [])].map(p => `[${p.key}::${p.value}]`) : undefined;
 
@@ -1108,7 +1109,7 @@ export async function planVirtualChild<T extends ProjectionBlock>(
  */
 export function handOrderRefusal(config: Pick<VirtualBranchConfig, "viewId" | "sort" | "sortWritten">): string | null {
   if (!config.sort) return null;
-  const written = config.sortWritten ?? [`[sort::${config.sort.field}]`];
-  return `This view sorts by ${config.sort.field} ${config.sort.direction}, so it has no hand-set order: remove ` +
+  const written = config.sortWritten ?? [`[sort::${sortText(config.sort)}]`];
+  return `This view sorts by ${sortText(config.sort)}, so it has no hand-set order: remove ` +
     `${written.join(" and ")} from ((${config.viewId})) to order it by hand`;
 }

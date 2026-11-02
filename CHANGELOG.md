@@ -16,6 +16,11 @@ are its record. The outliner's entries from then are kept below, under
 - **Find other machines:** home discovers SSH-configured machines, machine links, previously opened machines and tailnet names, then lists the hosts that answer without requiring an earlier visit. One SSH Host line's aliases share a row; candidates that never answer are omitted.
 - **An installed host serving another folder:** creation names that folder on the status line and gives the foreground host command for the requested folder. The existing service unit is kept.
 - **Run:** `ep0ch install --apply`, then open `ep0ch` from an unbound folder. No protocol, grammar or schema change.
+### Run lens keeps its live table in the note at your cursor (PIE-1488)
+
+- **Put it here:** choose Run lens in the power bar and fill its slots. The `lens::` line goes at the note cursor and draws there; an open draft keeps it unsaved. One Ctrl+Z takes the insertion back in a reader or a draft, as the run's status says. Without a note, the action says to open one.
+- **See what it needs:** the preview lists the script's declared slots and its form uses the script's name. A missing query or view reports failure, with the inserted line kept for editing.
+- **Run:** try Run lens in the kitchen sink's **lens** section. No protocol, grammar or schema change.
 
 ### The drawer attaches to a named agent and offers recovery when it ends (PIE-1487)
 
@@ -48,6 +53,12 @@ are its record. The outliner's entries from then are kept below, under
 - **Above every screen:** `tile.float to=glass` (`^W U`) keeps any tile above screen changes, with ordinary float movement, resizing and closing. `glass.pin ref=…` leaves an attributed post-it without taking keys. The glyph counts the glass; alt-click it or press `alt+U` to clear it.
 - **Wire and tune:** `tile.link verb=hover to=…` routes a hover into an existing tile. Tune → Glass adjusts the open, close and grace delays, history cap and pinned soft limit.
 - **Run:** open the kitchen sink's **glass** section (`ep0ch try --showcase`). Door only; no protocol, grammar or schema change.
+
+### Collections can be tuned over the view (PIE-1483)
+
+- **Tune in place:** press `,` over a saved view or inline `::view` to open its settings card. Toggle layouts, order sort keys, choose groups and show or hide summary properties; the view redraws as each choice saves.
+- **Use the rows' own fields:** choices and completion come from the component schema and the matched rows' facets. Unknown keys name their nearest matches. Changes write the view's own source, check its revision and retain agent attribution without moving your keys.
+- **Run:** try **collection-tune** in the kitchen sink. The `settings` tile hosts the same card. Grammar **22 → 23** covers the VIEW schema's ordered sort list; protocol stays **299** (from #1150), with no new wire request or database schema. The deployer installs host and clients together with `ep0ch install --apply`.
 
 ### Completion shows the example and saves the chosen query (PIE-1479)
 

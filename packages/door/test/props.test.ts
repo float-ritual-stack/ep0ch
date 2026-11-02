@@ -260,7 +260,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     ids.plan = await create(null, "Garden plan [page::garden]\nBeans along the fence.\n\n## Beds ^beds\nTwo raised beds.");
     ids.shed = await create(null, "Old shed notes");
     await board.request("delete", { blockId: ids.shed, author: "agent" });
-    ids.chores = await create(null, "Queued chores\n[type::virtual-branch]\n[query::type=chore stage=queued]\n[summary-properties::priority]");
+    ids.chores = await create(null, "Queued chores\n[type::virtual-branch]\n[query::type=chore stage=queued]\n[summary-properties::title,priority]");
     await create(null, "Plant the beans [type::chore] [stage::queued] [priority::high]");
     ids.nested = await create(null, `Nested note\nIt embeds the plan: !((${ids.plan}))`);
     ids.card = await create(null, [
@@ -294,7 +294,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
   });
 
   test("title, the lane's summary line, then the body: no metadata lines, links by title, every embed state", async () => {
-    await until(() => { const s = shown(120); return s.includes("≡ Queued chores · 1 result") && s.includes("MISSING FRAGMENT") && s.includes("» Nested note") && !s.includes("reading…"); }, "the embeds", 8000);
+    await until(() => { const s = shown(120); return s.includes("Plant the beans") && s.includes("MISSING FRAGMENT") && s.includes("» Nested note") && !s.includes("reading…"); }, "the embeds", 8000);
     const s = shown(120), lines = s.split("\n");
     expect(lines[1]!.trim()).toBe("GDN-12 Build the compost bin");
     expect(lines[2]!).toContain("i 8 properties · priority high · track soil, tools");     // the lane's [summary-properties::]
@@ -302,8 +302,9 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     expect(s).toContain("Beside the beds in Garden plan, sized for garden. See GDN-99 ◌.");
     expect(s).toContain("owner:: the allotment group");                                   // a line-scope property is body text
     for (const want of ["» Garden plan", "» Garden plan ^beds",
-      "MISSING FRAGMENT", "∙ Plant the beans · priority high", "IN TRASH · Old shed notes", "!((0badc0de…)) ◌",
+      "MISSING FRAGMENT", "QUEUED CHORES", "IN TRASH · Old shed notes", "!((0badc0de…)) ◌",
       `EMBED LIMIT · maximum 16`]) expect(s).toContain(want);
+    expect(s).toMatch(/Plant the beans\s+high/);
     expect(s.match(/EMBED LIMIT/g)).toHaveLength(1);                                         // 17 embeds: the 17th is refused
     // The fragment is its slice (the section, not the note's first line); the nested note's embed is expanded in it.
     const at = lines.findIndex(l => l.includes("» Garden plan ^beds"));
@@ -388,7 +389,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
       counts[k] = (counts[k] ?? 0) + 1;
       return request(action, params);
     };
-    const settled = async (what: string) => { await until(() => { const s = shown(120); return s.includes("≡ Queued chores") && !s.includes("reading…"); }, what, 8000); await Bun.sleep(300); shown(120); await Bun.sleep(200); };
+    const settled = async (what: string) => { await until(() => { const s = shown(120); return s.includes("Plant the beans") && !s.includes("reading…"); }, what, 8000); await Bun.sleep(300); shown(120); await Bun.sleep(200); };
     try {
       await mine("open", { id: ids.card });
       await act("props.close");
