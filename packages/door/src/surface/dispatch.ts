@@ -569,8 +569,14 @@ export class Dispatcher {
   /** Whether some set here takes this request (a set may take only requests naming a tile). */
   takes(req: ActRequest, actor?: Actor): boolean { return !!this.owner(this.pointed(req, actor), actor); }
 
-  /** An authored press defaults tile actions to its own reader; screen and host actions keep their scope. */
-  requestIn(req: ActRequest, tile: string | undefined): ActRequest {
+  /**
+   * An authored press defaults tile actions to its own reader; screen and host actions keep their scope. A press made in
+   * no reader (`button.press note=`, a status-bar button) has `press`, the note its button is written in and who pressed
+   * (PIE-1517): its tile actions go to a reader showing that note. Where none does, they act where the presser stands: the
+   * person's own press at their focus; anyone else's is refused with "open it first", never landing in the person's reader.
+   */
+  requestIn(req: ActRequest, tile: string | undefined, press?: { note?: string; actor: Actor }): ActRequest {
+    if (tile === undefined && press?.note && (this.tile(press.note) || !this.standing(press.actor, "tile"))) tile = press.note;
     if (req.tile !== undefined || tile === undefined) return req;
     const there = { ...req, tile };
     return this.tileAction(there) ? there : req;

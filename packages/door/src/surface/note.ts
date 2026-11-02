@@ -4739,7 +4739,7 @@ export class NoteSurface {
       if (button && note && (button.empty.length || (repick && button.slots.length))) return this.askSlots(note.id, button, repick ? button.slots.map(s => s.key) : button.empty, host, actor, !repick);
       if (button?.sequence && p.act === button.act) {
         // Its first step refused now (no tile it names, PIE-1418): said before anything runs, in the presser's words.
-        const first = sequenceStart(button), no = first ? d.refusedNow(actRequestOf(lineWords(first)), actor) : null;
+        const first = sequenceStart(button), no = first ? d.refusedNow(d.requestIn(actRequestOf(lineWords(first)), messageContext.getStore()?.tile, { note: p.block, actor }), actor) : null;
         if (no) throw new ActionRefused(`${button.label} can't run here: ${no}`);
         const invitation = actor.kind === "user" ? INVITES.mint("you") : undefined;
         const r = await host.ctx.board.request<import("../extensions").ExtensionActResult>("scripts.sequence", {
@@ -4757,7 +4757,7 @@ export class NoteSurface {
       if (req.as !== undefined) throw new ActionRefused(`${p.act}: a press runs as ${actor.kind === "user" ? "you" : "its presser"}; leave out as=`);
       const args: Record<string, unknown> = { ...(req.args ?? {}) };
       let action = req.action;
-      if (!d.takes(d.requestIn(req, messageContext.getStore()?.tile))) {
+      if (!d.takes(d.requestIn(req, messageContext.getStore()?.tile, { note: p.block, actor }))) {
         const { listed, scripts } = await this.scriptsNamed(action, p.block || this.msg?.id, p.line, host);
         if (!scripts.length) {
           throw new ActionRefused(installWords(action, listed.available) ?? d.unknownAction(action));
@@ -4777,7 +4777,7 @@ export class NoteSurface {
         const home = p.block || this.msg?.id;
         if (home) args.via ??= `${home}:${p.line}`;
       }
-      const result: unknown = await d.act(d.requestIn({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, messageContext.getStore()?.tile), actor);
+      const result: unknown = await d.act(d.requestIn({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, messageContext.getStore()?.tile, { note: p.block, actor }), actor);
       host.redraw();
       return result;
     };
@@ -10945,7 +10945,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       alt: { type: "boolean", optional: true, about: "run the button's alt= action, as alt+click does" },
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them), when it is a pressable one" },
       line: { type: "number", optional: true, about: "source line from 1, with note=, to press a specific button when labels repeat" },
-      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters, a Work ID or a [[page]]): a ::button, a link, or a control its render script drew; the button's script acts on that note" },
+      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters, a Work ID or a [[page]]): a ::button, a link, or a control its render script drew; the button's script acts on that note, and a reader's action (comment.note) in a reader showing it, else at the person's own press their focus, else refused: open it first" },
     },
     examples: [
       { act: "button.press label=Water", does: "presses the Water button of this note, as whoever asks" },
