@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { HOME_ACTIONS } from "../src/home";
 import { hostRequest } from "../src/socket";
 import { declaredKeys } from "../src/surface/actions";
+import { fakeServiceManager } from "./fake-service-manager";
 import { outliner, ScratchHost, scratchDir, stopUnder, until, wholeEnv } from "./scratch";
 
 const DOOR = resolve(import.meta.dir, "..");
@@ -99,9 +100,9 @@ describe.skipIf(!outliner)("the home base", () => {
     writeFileSync(join(home, "bin/ssh"), `#!/bin/sh\nwhile [ ! -f '${home}/release-ssh' ]; do sleep 0.1; done\nexit 255\n`, { mode: 0o755 });
     writeFileSync(join(home, "platform.ts"), `Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)} });`);
     // Only the OS service manager is substituted. It executes the installed unit against a real scratch host.
-    for (const tool of ["systemctl", "launchctl"]) writeFileSync(join(home, "bin", tool), `#!/bin/sh\nexec '${process.execPath}' '${join(import.meta.dir, "fake-host-manager.ts")}' ${tool} "$@"\n`, { mode: 0o755 });
+    const services = fakeServiceManager(home);
     const h = new Home(work, [], {
-      HOME: home, PATH: `${home}/bin:${dir}/bin:${process.env.PATH}`, EP0CH_OUTLINES: join(home, "outlines"),
+      HOME: home, PATH: `${services.bin}:${home}/bin:${dir}/bin:${process.env.PATH}`, EP0CH_OUTLINES: join(home, "outlines"),
       EP0CH_STATE: join(home, "state"), EP0CH_CONTROL: join(home, "door.sock"),
       XDG_CONFIG_HOME: join(home, "config"),
       EP0CH_SSH: join(home, "bin/ssh"),
