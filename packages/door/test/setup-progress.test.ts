@@ -11,9 +11,10 @@ import { drain, run } from "../src/setup/facts";
 import { ASCII_SPINNER, bar, elapsed, FRAME_MS, Progress, progressMode, size, SPINNER, spinnerFor, type Terminal } from "../src/setup/progress";
 import { visible, width } from "../src/style";
 import { fakeServiceManager } from "./fake-service-manager";
+import { stopUnder } from "./scratch";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-progress-"));
-afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+afterAll(() => { stopUnder(scratch); rmSync(scratch, { recursive: true, force: true }); });
 
 const ESC = /\x1b/;
 
