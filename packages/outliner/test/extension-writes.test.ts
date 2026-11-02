@@ -201,7 +201,7 @@ test("tarot's tile says the person at its keys asked", async () => {
   const { tileKinds } = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
   const tile = tileKinds.find((kind) => kind.kind === "tarot.reading")!;
   const journal = await client.request<Block>({ action: "create", text: "Journal", author: "user" });
-  const program = Bun.spawn([...tile.command, `--block=${journal.id}`], { cwd: tile.cwd, env: { ...process.env, ...tile.env }, stdin: "pipe", stdout: "pipe" });
+  const program = Bun.spawn([...tile.command!, `--block=${journal.id}`], { cwd: tile.cwd, env: { ...process.env, ...tile.env }, stdin: "pipe", stdout: "pipe" });
   await Bun.sleep(300);
   program.stdin.write("k");
   await program.stdin.flush();

@@ -21,7 +21,8 @@ lens:: view="[[open-jobs]]" group=priority edit=stage choices-stage="todo|doing|
   - Jobs are grouped by priority with a pressable stage.
 - **Your own notes:** write a `lens::` line anywhere.
   - The power bar (`lens`, or **Run lens**) offers its slots.
-  - Run it with Alt+Enter: the `lens::` line is saved at the note cursor and the table draws there.
+  - Run it with Alt+Enter: lens answers with the `lens::` line (an action's `insert`, PIE-1507), the door puts it at
+    the note cursor, and the table draws there; one ctrl+z takes it back.
   - In an open draft the line is one unsaved edit; save the draft to keep it.
   - Open a note first. Missing settings report failure and keep the line editable.
   - `columns=`, `edit=`, `sort=` and `group=` pick from the properties the outline has.

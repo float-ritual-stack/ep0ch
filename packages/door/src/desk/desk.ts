@@ -8601,12 +8601,10 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
       file: { type: "string", optional: true, conflicts: ["id", "from", "fresh", "resource", "fragment"], about: "a file on this machine (an absolute path) in place of id: Markdown drawn as a preview draws it, any other file through the file Resource reader (PIE-602)" },
       diff: { type: "boolean", optional: true, implies: [{ file: null }], about: "with file=: its changes (git's diff against its last commit, else against=)" },
       against: { type: "string", optional: true, implies: [{ file: null, diff: true }], about: "with file= diff=true: a copy of the file from before the change, for a file outside git" },
-      resource: { type: "string", optional: true, conflicts: ["id", "from", "fresh", "fragment"], about: "a Resource in place of id (PIE-754): file:/path, web:https://… or resource:<id>, registered first when it isn't yet, its stored text shown as a note (as the links tile opens one)" } },
-    examples: [
-      { act: "open id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=reader", does: "shows that note in the reader (beside it, when it's pinned)" },
-      { act: "open file=/tmp/garden-plan.md", does: "shows the Markdown file as a preview draws it, where opens land" },
-    ],
-    async run({ id, from, fresh, fragment, file, diff, against, resource }, ctx, actor) {
+      resource: { type: "string", optional: true, conflicts: ["id", "from", "fresh", "fragment"], about: "a Resource in place of id (PIE-754): file:/path, web:https://… or resource:<id>, registered first when it isn't yet, its stored text shown as a note (as the links tile opens one)" },
+      revision: { type: "number", optional: true, implies: [{ id: null }], about: "with id=: show the note at this revision beside how it is now (the reader's revision compare, PIE-1433)" }, compare: { type: "boolean", optional: true, implies: [{ id: null }], about: "with id=: show its last change beside it (revision.compare: the revision before the note now, marked against it); what-changed's d" } },
+    examples: [{ act: "open id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=reader", does: "shows that note in the reader (beside it, when it's pinned)" }, { act: "open file=/tmp/garden-plan.md", does: "shows the Markdown file as a preview draws it, where opens land" }, { act: "open id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 compare=true", does: "shows that note with its last change beside it" }],
+    async run({ id, from, fresh, fragment, file, diff, against, resource, revision, compare }, ctx, actor) {
       // A Resource an extension named (a bar row, a view's link, an action's open): registered if it must be, then shown.
       if (resource !== undefined) {
         const board = ctx.d.ctx?.board;
@@ -8625,6 +8623,8 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
       if (id === undefined) throw new ActionRefused("open needs id=<block id> or file=<absolute path>");
       const r = await openNote({ id, from, fresh }, ctx, actor);
       if (fragment) ctx.d.revealIn(r.tile, fragment, actor);
+      const at = (revision !== undefined || compare) && r.tile ? ctx.d.resolveTile(r.tile) : null, pane = at ? at.desk.pane(at.tile.name) : undefined;   // the change beside the note (PIE-1433): the landing reader's revision compare
+      if (pane instanceof ReaderPane) await pane.surface.openRevision(pane.host(at!.desk), revision, "next").catch((e: Error) => { throw new ActionRefused(`${subject(pane.msg!)}: ${e.message}`); });
       return fragment ? { ...r, fragment } : r;
     },
   }),

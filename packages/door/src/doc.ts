@@ -30,7 +30,7 @@ import { codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
 import { embedOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
-import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
+import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutStylingTokens, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
 import { BORDER_BOXES, borderGlyphs, stringFrame } from "./canvas";
 import { dividerLine, gapSlots } from "./list-look";
@@ -1353,6 +1353,10 @@ function headingWords(text: string, level: number, style: Pick<HeadingStyle, "to
  */
 function prose(line: string, W: number, fold?: Disclosure, literal = false, task?: (box: string) => string | null, joins?: (string | undefined)[], cuts?: Cuts[]): string[] {
   const inline = (s: string) => inlineOf(s, literal);
+  // A styling property isn't content (PIE-1510, outline-core's stylingTokensInLine): a list's `[style.list.zebra::on]` on
+  // its first item styles the list and leaves the drawn text, as a heading's `[heading-pattern::dots]` does. The editor,
+  // the property panel (i, the service's own tokens) and the tune show it; a source copy and an export keep it.
+  if (!literal) line = withoutStylingTokens(line);
   if (/^\s*>/.test(line)) {
     const body = line.replace(/^\s*> ?/, ""), item = /^(\s*)([-*]) /.exec(body);
     const rows = wrap(body, W - 2, BODY);

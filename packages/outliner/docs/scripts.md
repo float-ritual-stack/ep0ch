@@ -330,6 +330,7 @@ The returned value becomes text, the same way in a run note and a drawn line:
 | `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:58` |
 | `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:61` |
 | `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:329` |
+| `{ insert: "<line>" \| { text }, message? }` | an action run only (PIE-1507): the text goes at the person's cursor in the note the run is about, through the door's one insertion, one ctrl+z; `message` is the run's word, else `<script title> done`. The run note records `insert: <its first line>`. Checked as an action's `insert` is (text up to 8000 characters) | `packages/outliner/src/script-runs.ts:61` |
 | `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:58` |
 
 ## Record shapes

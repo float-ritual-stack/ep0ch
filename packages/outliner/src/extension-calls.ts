@@ -217,6 +217,10 @@ export interface ExtensionActResult {
   readonly copy?: string;
   /** What the client opens where opens land (PIE-754): a block id, or a Resource ref (`file:`, `web:`, `resource:`). */
   readonly open?: string;
+  /** Text the client puts at the person's cursor in the note the action was about (PIE-1507), one undo step: a line, or lines. */
+  readonly insert?: { text: string };
+  /** With `open` (a block): show its last change beside it, the reader's revision compare (PIE-1506: what-changed's d). */
+  readonly compare?: boolean;
   /** The passage it acted on, as the service checked it (moved, when the text moved since it was read). */
   readonly passage?: Passage;
   /**
@@ -401,8 +405,15 @@ export function validateRecord(value: unknown, fallbackTitle = "Collection"): Ex
   return { record, members: { records, complete: answer.complete === true } };
 }
 
-function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string; runbook?: RunbookPlan; answer?: string; confirmation?: ExtensionActResult["confirmation"] } {
-  if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy?, open?, answer? }");
+/** An action's `insert` (PIE-1507) checked: `{ text }`, text up to 8000 characters. */
+export function validateInsert(insert: unknown): { text: string } {
+  if (!isObject(insert) || typeof insert.text !== "string" || !insert.text.trim()) throw new Error("insert must be { text }: the line (or lines) to put at the person's cursor");
+  if (insert.text.length > 8_000) throw new Error("insert.text must be text up to 8000 characters");
+  return { text: cleanExtensionText(insert.text, true) };
+}
+
+function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string; compare?: boolean; insert?: { text: string }; runbook?: RunbookPlan; answer?: string; confirmation?: ExtensionActResult["confirmation"] } {
+  if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy?, open?, insert?, answer? }");
   // What the client opens once the action answers (PIE-754): a block, or a Resource by its ref.
   if (value.open !== undefined) {
     if (typeof value.open !== "string") throw new Error("open must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
@@ -411,6 +422,7 @@ function validateAct(value: unknown, blockOk: (id: string) => boolean): { messag
       if ("problem" in parsed) throw new Error(`open: ${parsed.problem}`);
     } else if (!blockOk(value.open)) throw new Error(`open: ${value.open.slice(0, 60)} is no block here (a Resource is file:/path, web:https://… or resource:<id>)`);
   }
+  if (value.compare !== undefined && (typeof value.compare !== "boolean" || typeof value.open !== "string" || isResourceRef(value.open))) throw new Error("compare goes with open: a block id, shown with its last change beside it");
   if (value.message !== undefined && (typeof value.message !== "string" || value.message.length > 500)) throw new Error("message must be text up to 500 characters");
   if (value.copy !== undefined && (typeof value.copy !== "string" || value.copy.length > 8_000)) throw new Error("copy must be text up to 8000 characters");
   // What it answers its caller whole (a script's `act("ext.…")`), when one line of `message` can't hold it.
@@ -424,6 +436,8 @@ function validateAct(value: unknown, blockOk: (id: string) => boolean): { messag
     ...(typeof value.message === "string" ? { message: cleanExtensionText(value.message) } : {}),
     ...(typeof value.copy === "string" ? { copy: cleanExtensionText(value.copy, true) } : {}),
     ...(typeof value.open === "string" ? { open: value.open } : {}),
+    ...(value.compare === true ? { compare: true } : {}),
+    ...(value.insert !== undefined ? { insert: validateInsert(value.insert) } : {}),
     ...(value.runbook ? { runbook: value.runbook as RunbookPlan } : {}),
     ...(typeof value.answer === "string" ? { answer: value.answer } : {}),
     writes: writes.map((write, index) => {
@@ -1420,6 +1434,8 @@ export class ExtensionCalls {
       ...(parsed.answer !== undefined ? { answer: parsed.answer } : {}),
       ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}),
       ...(parsed.open !== undefined ? { open: parsed.open } : {}),
+      ...(parsed.compare ? { compare: true } : {}),
+      ...(parsed.insert !== undefined ? { insert: parsed.insert } : {}),
       ...(parsed.runbook ? { runbook: parsed.runbook } : {}),
       ...(applied.proposalId ? { proposalId: applied.proposalId } : {}),
       ...(applied.undo ? { undo: applied.undo } : {}), ...(applied.undoNote ? { undoNote: applied.undoNote } : {}) };

@@ -2522,7 +2522,7 @@ export type OutlinerRequestAction =
   /** A note's text as its live draft has it now, or as saved when no door holds one (capability `drafts.read`). */
   | { id: string; action: "drafts.read"; blockId: string }
   | ({ id: string; action: "outputs.place" } & import("./place").PlaceInput)
-  | { id: string; action: "scripts.render"; of: string; blockId: string; line: number; props: Record<string, string[]>; deadlineMs: number }
+  | { id: string; action: "scripts.render"; of: string; /** A line's (`blockId`, `line`), or a tile's with no note (PIE-1506: `props` are the tile's args). */ blockId?: string; line?: number; props: Record<string, string[]>; deadlineMs: number }
   | ({ id: string; action: "extensions.list"; reload?: boolean } & Pick<import("@ep0ch/outline-core/site").SiteAnswerRequest, "blockId" | "line" | "draft" | "chain">)
   | ({ id: string; action: "query.suggest" } & import("@ep0ch/outline-core/query-words").QuerySuggestRequest)
   /** Sources answer on outline-core's row contract with shared picks; a turn can be cancelled when its popup closes. */

@@ -113,12 +113,16 @@ export interface ExtensionTileKind {
   readonly extension: string;
   readonly name: string;
   readonly description?: string;
-  /** What to run in the tile's pty, and where. Only on `host`: a door elsewhere shows it as unavailable. */
-  readonly command: readonly string[];
+  /** What to run in the tile's pty, and where (a `run` tile). Only on `host`: a door elsewhere shows it as unavailable. */
+  readonly command?: readonly string[];
   readonly cwd: string;
   readonly host: string;
   /** Set for the program; the door adds its own `EP0CH_CONTROL`. */
   readonly env: Readonly<Record<string, string>>;
+  /** A drawn tile (PIE-1506): the render script the service draws it with (`scripts.render` with the tile's args as props). */
+  readonly render?: string;
+  /** A list tile (PIE-1506): the query its rows are, drawn as the door's query tile. */
+  readonly view?: string;
   readonly actions: readonly ExtensionActionEntry[];
   readonly policy: NonNullable<ExtensionTile["policy"]>;
   readonly accepts: readonly string[];
@@ -511,7 +515,9 @@ export class ExtensionRegistry {
       extension: extension.id,
       name: tile.name,
       ...(tile.description ? { description: tile.description } : {}),
-      command: tile.run[0] === "bun" ? [process.execPath, ...tile.run.slice(1)] : [...tile.run],
+      ...(tile.run ? { command: tile.run[0] === "bun" ? [process.execPath, ...tile.run.slice(1)] : [...tile.run] } : {}),
+      ...(tile.render ? { render: tile.render } : {}),
+      ...(tile.view ? { view: tile.view } : {}),
       cwd: extension.directory,
       host: hostname(),
       env: programEnv({

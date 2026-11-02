@@ -221,8 +221,15 @@ const Tile = Type.Object(
     kind: ID,
     name: Type.String({ minLength: 1, maxLength: 60 }),
     description: Type.Optional(Type.String({ maxLength: 300 })),
-    /** The terminal program the tile runs, from the extension's folder. `bun` means the service's own Bun. */
-    run: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 20 }),
+    /**
+     * What fills the tile: exactly one of `run` (a terminal program, from the extension's folder; `bun` means the
+     * service's own Bun), `render` (the name of a render script the extension ships in `scripts[]`: the service draws
+     * its view, with the tile's args as props, PIE-1506) or `view` (a query in the views' grammar, drawn as the door's
+     * query tile: rows selectable, ⏎ opens).
+     */
+    run: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 20 })),
+    render: Type.Optional(ID),
+    view: Type.Optional(Type.String({ minLength: 1, maxLength: 2000 })),
     /** Action ids (from `actions[]`) the tile offers; the door binds them like its own. */
     actions: Type.Optional(Type.Array(ID, { maxItems: 16 })),
     /** The container policy a tile of this kind starts with (the layout design's per-node settings). */
@@ -432,6 +439,11 @@ const ManifestV2 = Type.Object(
      * extension's page when it's installed, once (src/extension-pages.ts). Usually `"demo"`.
      */
     demo: Type.Optional(Type.String({ pattern: "^[a-z0-9][a-z0-9._-]{0,63}$" })),
+    /**
+     * A built-in that is on wherever the service runs (PIE-1506: what-changed, once a door built-in): installed by the
+     * host at start when no copy is installed and nobody uninstalled it here (`extensions.uninstall` keeps that choice).
+     */
+    defaultOn: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
@@ -651,9 +663,13 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     if (actionDeadline !== undefined && actionDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: actions/${index}/deadline is longer than 5m`);
   }
   const tileKinds = new Set<string>();
+  const shippedScripts = new Set((manifest.scripts ?? []).map((script) => script.name));
   for (const [index, tile] of (manifest.tiles ?? []).entries()) {
     if (tileKinds.has(tile.kind)) throw new ExtensionLoadError(`extension.json: tiles/${index}/kind ${tile.kind} is declared twice`);
     tileKinds.add(tile.kind);
+    const fills = [tile.run, tile.render, tile.view].filter((x) => x !== undefined).length;
+    if (fills !== 1) throw new ExtensionLoadError(`extension.json: tiles/${index} needs one of run, render or view${fills ? ", not several" : ""}`);
+    if (tile.render !== undefined && !shippedScripts.has(tile.render)) throw new ExtensionLoadError(`extension.json: tiles/${index}/render names ${tile.render}, which scripts[] doesn't declare`);
     for (const id of tile.actions ?? []) {
       if (!actionIds.has(id)) throw new ExtensionLoadError(`extension.json: tiles/${index}/actions names ${id}, which actions[] doesn't declare`);
     }

@@ -104,6 +104,8 @@ export async function addExtension(nameOrPath: string, options: { from?: string;
   const root = options.root ?? targetRoot(options.outlineFolder);
   const target = join(root, id);
   if (resolve(source) === resolve(target)) throw new Error(`${source} is already installed there`);
+  // Installed on purpose: a default-on built-in taken out before is wanted again.
+  if (existsSync(offMark(root, id))) await rm(offMark(root, id), { force: true });
   const lines: string[] = [];
   const updating = existsSync(join(target, "extension.json"));
   await mkdir(target, { recursive: true });
@@ -157,6 +159,46 @@ export async function addExtension(nameOrPath: string, options: { from?: string;
 }
 
 /** Deletes an installed extension's folder. Its records stay as blocks; the service drops what it declared. */
+/** Where a root keeps the person's choice to leave a default-on built-in off: `<root>/.off/<id>`. */
+const offMark = (root: string, id: string) => join(root, ".off", id);
+
+/** The repo's built-ins marked `defaultOn` (their manifests say so). */
+export async function defaultOnBuiltIns(builtInsDir = BUILT_INS): Promise<string[]> {
+  const ids: string[] = [];
+  for (const id of await builtIns(builtInsDir)) {
+    try { if (JSON.parse(await Bun.file(join(builtInsDir, id, "extension.json")).text()).defaultOn === true) ids.push(id); } catch { /* a broken manifest is said when it's loaded */ }
+  }
+  return ids;
+}
+
+/**
+ * A default-on built-in is on wherever the service runs (PIE-1506): at start the host installs each one into `root`
+ * (the user folder, or the outline's own) unless a copy is installed in any of `roots` already, or `.off/<id>` under
+ * `root` says it was uninstalled here (`removeExtension` writes it; `addExtension` takes it back). Answers the ids installed.
+ */
+export async function ensureDefaultOn(root: string, roots: readonly string[], builtInsDir = BUILT_INS): Promise<string[]> {
+  const done: string[] = [];
+  for (const id of await defaultOnBuiltIns(builtInsDir)) {
+    if (existsSync(offMark(root, id)) || roots.some((r) => existsSync(join(r, id, "extension.json")))) continue;
+    await addExtension(join(builtInsDir, id), { from: join(builtInsDir, id), root, builtIns: builtInsDir });
+    done.push(id);
+  }
+  return done;
+}
+
+/**
+ * The default-on built-ins for the outline at `workspaceRoot`, as the host runs it before the outline is served: into
+ * the user folder when one is in use (every outline this host serves), else the outline's own. A refusal is said on
+ * stderr once and never stops the host; answers the ids put in place.
+ */
+export async function ensureDefaultOnFor(workspaceRoot: string, readOnly = false): Promise<string[]> {
+  if (readOnly) return [];
+  try {
+    const own = join(workspaceRoot, "extensions"), roots = userExtensionsFolderInUse() ? [userExtensionsDirectory(), own] : [own];
+    return await ensureDefaultOn(roots[0]!, roots);
+  } catch (error) { console.error(`default-on extensions: ${error instanceof Error ? error.message : String(error)}`); return []; }
+}
+
 export async function removeExtension(id: string, options: { outlineFolder?: string } = {}): Promise<string[]> {
   if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("ext remove expects an extension name such as horoscope");
   const root = targetRoot(options.outlineFolder);
@@ -166,6 +208,8 @@ export async function removeExtension(id: string, options: { outlineFolder?: str
   }
   if (existsSync(BUILT_INS) && realpathSync(target).startsWith(`${realpathSync(BUILT_INS)}/`)) throw new Error("That is the repo's built-in source, not an install");
   await rm(target, { recursive: true, force: true });
+  // A default-on built-in taken out stays out: the host won't put it back at its next start (ext add does).
+  if ((await defaultOnBuiltIns()).includes(id)) { await mkdir(join(root, ".off"), { recursive: true }); await writeFile(offMark(root, id), `${new Date().toISOString()}\n`); }
   return [
     `removed ${target}`,
     "The service drops its handlers, actions and tiles now. --demo remove also trashes unchanged demos and marked output; lines that used it say no extension handles them.",
@@ -258,8 +302,8 @@ export async function updateExtensions(name: string | undefined, options: Update
   return done;
 }
 
-async function builtIns(): Promise<string[]> {
-  return existsSync(BUILT_INS) ? (await readdir(BUILT_INS)).filter((name) => existsSync(join(BUILT_INS, name, "extension.json"))).sort() : [];
+async function builtIns(dir = BUILT_INS): Promise<string[]> {
+  return existsSync(dir) ? (await readdir(dir)).filter((name) => existsSync(join(dir, name, "extension.json"))).sort() : [];
 }
 
 /** Rows laid out in columns: each column as wide as its longest cell, the last one left ragged. */
