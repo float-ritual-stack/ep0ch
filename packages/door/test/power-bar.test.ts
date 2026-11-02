@@ -476,6 +476,29 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(drawn).toContain("→ puts the activity tile");
   });
 
+  test("an action's name alone: the top row says the line to type, the preview opens with its examples, and tab puts the first in the bar (PIE-1502)", async () => {
+    closeBar();
+    key(ctrlK); type("glass.mode");
+    // The row reads as an instruction: the line, each missing argument with its values, and what ⏎ does.
+    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "type glass.mode set=off|on|sticky", detail: "⏎ for a form" });
+    await until(() => frame().join("\n").includes("EXAMPLES"), "glass.mode's examples", 3000);
+    const drawn = frame();
+    // The examples block is the first thing under the lead; the summary is one sentence, its status messages not in it.
+    const lead = drawn.findIndex(l => l.includes("set hover off, on or sticky"));
+    const examples = drawn.findIndex(l => l.includes("EXAMPLES"));
+    expect(lead).toBeGreaterThanOrEqual(0);
+    expect(examples).toBe(lead + 2);
+    expect(drawn.join("\n")).toContain("ep0ch act glass.mode set=sticky");
+    expect(drawn.join("\n")).not.toContain("hover a link to peek");
+    // Tab puts the first example in the bar; tab again the next; the line's row then runs it as typed.
+    key({ kind: "tab" });
+    expect(peek().bar.query).toBe("glass.mode set=sticky");
+    key({ kind: "tab" });
+    await until(() => peek().bar.query === "glass.mode set=off", "the next example", 3000);
+    expect(peek().bar.rows[0]).toMatchObject({ label: "run glass.mode set=off" });
+    closeBar();
+  });
+
   test("an action that takes arguments opens its form: a field each, the tiles to pick from, the act line under them; ⏎ on it runs (PIE-1031)", async () => {
     const outline = desk.tileOutline().filter(t => t.shown && !t.float && !t.docked);
     const [mover, beside] = [outline.find(t => !t.focused)!, outline.find(t => t.focused)!];
@@ -606,9 +629,8 @@ describe.skipIf(!outliner)("the power bar", () => {
     closeBar();
     // The name alone of one that needs arguments says what it needs, and ⏎ opens its form there (PIE-1031).
     key(ctrlK); type("tile.open");
-    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open" });
+    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "type tile.open kind=…", detail: "⏎ for a form" });
     expect(peek().bar.rows[0].refused).toBeUndefined();
-    expect(peek().bar.rows[0].detail).toContain("needs kind=");
     closeBar();
     // An argument the bar asks for takes a paste the same way.
     let answered: Record<string, string> | null = null;

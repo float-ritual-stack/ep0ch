@@ -46,8 +46,8 @@ const TUNE_GLASS_KEYS = keyTable("tune glass", "the glass's delays and limits", 
   { key: "G", action: "tune.section", args: { section: "values" }, label: "values" },
   ...["k", "up"].map(key => ({ key, action: "tune.glass.pick", args: { by: -1 }, label: "pick" })),
   ...["j", "down"].map(key => ({ key, action: "tune.glass.pick", args: { by: 1 }, label: "pick" })),
-  ...["+", "=", "l", "right"].map(key => ({ key, action: "glass.tune", args: { by: 1 }, label: "increase" })),
-  ...["-", "h", "left"].map(key => ({ key, action: "glass.tune", args: { by: -1 }, label: "decrease" })),
+  ...["+", "=", "l", "right"].map(key => ({ key, action: "glass.tune", args: { by: 1 }, label: "increase", says: "raise the picked Glass setting a step" })),
+  ...["-", "h", "left"].map(key => ({ key, action: "glass.tune", args: { by: -1 }, label: "decrease", says: "lower the picked Glass setting a step" })),
   ...["e", "enter"].map(key => ({ key, action: "tune.glass.edit", label: "edit" })),
 ] satisfies ModeKey[]);
 
@@ -773,8 +773,8 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     args: { set: { type: "boolean", about: "only values set here" } },
     run({ set }, { pane, desk }) { pane.onlySet = set; desk.redraw(); return { set }; },
   }),
-  "tune.glass.pick": def({ summary: "pick a Glass setting in Tune", keys: "j k up down, click, wheel", touches: "tile", replay: "safe", args: { name: { type: "string", choices: Object.keys(GLASS_SETTINGS), about: "setting" } }, run({ name }, { pane, desk }) { pane.glassSel = name as GlassSetting; desk.redraw(); return { name }; } }),
-  "tune.glass.edit": def({ summary: "edit a Glass delay or limit in Tune", keys: "e enter, click edit", touches: "tile", replay: "safe", args: { name: { type: "string", optional: true, choices: Object.keys(GLASS_SETTINGS), about: "setting; picked when omitted" } }, async run({ name }, { pane, desk }) {
+  "tune.glass.pick": def({ summary: "pick a Glass setting in Tune", keys: "j k up down, click, wheel", touches: "tile", replay: "safe", args: { name: { type: "string", choices: Object.keys(GLASS_SETTINGS), about: "setting" } }, examples: [{ act: "tune.glass.pick name=close", does: "lights the close delay in Tune's Glass section" }], run({ name }, { pane, desk }) { pane.glassSel = name as GlassSetting; desk.redraw(); return { name }; } }),
+  "tune.glass.edit": def({ summary: "edit a Glass delay or limit in Tune", keys: "e enter, click edit", touches: "tile", replay: "safe", args: { name: { type: "string", optional: true, choices: Object.keys(GLASS_SETTINGS), about: "setting; picked when omitted" } }, examples: [{ act: "tune.glass.edit name=open", does: "opens the open delay's field in Tune, its value filled in" }], async run({ name }, { pane, desk }) {
     const field = (name ?? pane.glassSel) as GlassSetting;
     pane.glassSel = field;
     await pane.view.edit(field, String(desk.ctx.glass?.settings[field] ?? GLASS_SETTINGS[field].base), [], false, `glass:${field}`, value => desk.ctx.press!("glass.tune", { name: field, value: Number(value) }), { redraw: () => desk.redraw(), said: text => desk.ctx.flash(text) });

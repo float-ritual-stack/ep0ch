@@ -172,6 +172,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     touches: "nothing", replay: "ask", person: "the question in the bar is the person's · an agent uses settings.set or settings.toggle",
     args: { op: { type: "string", choices: ["toggle", "move"], about: "toggle a choice or move it" },
       value: { type: "string", optional: true, about: "the choice; left out, the selected row" }, by: { type: "number", optional: true, about: "-1 earlier, 1 later" } },
+    examples: [{ act: "bar.question op=toggle value=due", does: "shows or hides the due choice in the open question" }, { act: "bar.question op=move by=-1", does: "moves the selected choice one earlier" }],
     async run({ op, value, by }, { on }) {
       const b = on.bar();
       if (!b || !liveQuestion()) throw new ActionRefused("no toggle or pick-order question is open");

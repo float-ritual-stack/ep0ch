@@ -88,7 +88,7 @@ export const EDIT_PREVIEW_READER_KEYS = EDIT_PREVIEW_KEYS.filter(row => row.acti
 export const SETTINGS_KEYS: readonly ModeKey[] = keyTable("settings", "the settings card, comma over a configurable note or a collection", [
   ...["tab", "j", "down"].map(key => say(row(key, "settings.pick", "field", { by: 1 }), "select the next field of the card")),
   ...["backtab", "k", "up"].map(key => say(row(key, "settings.pick", "field", { by: -1 }), "select the previous field of the card")),
-  row("enter", "settings.set", "edit"), row("e", "settings.set", "edit"),
+  say(row("enter", "settings.set", "edit"), "edit the selected field's value"), say(row("e", "settings.set", "edit"), "edit the selected field's value"),
   row("x", "settings.clear", "clear"), row("delete", "settings.clear", "clear"),
   row("i", "props", "every property"),
   ...["esc", "q", ","].map(key => row(key, "props.close", "close")),
