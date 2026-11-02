@@ -1,4 +1,3 @@
-import { GLASS_SETTINGS, type GlassSetting } from "../glass";
 import { declaredHints, HINT_SETTINGS } from "../surface/hints";
 import { tabStrip, type TabRow } from "../surface/chip-rows";
 import { wrap, rowLines } from "../text";
@@ -42,13 +41,32 @@ import { keyTable } from "../surface/keymap";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
-const TUNE_GLASS_KEYS = keyTable("tune glass", "the glass's delays and limits", [
-  { key: "G", action: "tune.section", args: { section: "values" }, label: "values" },
-  ...["k", "up"].map(key => ({ key, action: "tune.glass.pick", args: { by: -1 }, label: "pick" })),
-  ...["j", "down"].map(key => ({ key, action: "tune.glass.pick", args: { by: 1 }, label: "pick" })),
-  ...["+", "=", "l", "right"].map(key => ({ key, action: "glass.tune", args: { by: 1 }, label: "increase", says: "raise the picked Glass setting a step" })),
-  ...["-", "h", "left"].map(key => ({ key, action: "glass.tune", args: { by: -1 }, label: "decrease", says: "lower the picked Glass setting a step" })),
-  ...["e", "enter"].map(key => ({ key, action: "tune.glass.edit", label: "edit" })),
+/**
+ * A Tune section an extension adds (PIE-1505): its own settings, each a whole number with a step and a floor, beside
+ * values and Hints. The glass extension's delays and limits are the first (ext/glass). `tune` is the module's own action
+ * that takes `name=` and `value=`; Tune reads the values through `value` and never keeps a copy.
+ */
+export interface TuneSection {
+  id: string;
+  label: string;
+  /** The key that brings it up (and, pressed again, goes back to values). */
+  key: string;
+  settings: Record<string, { step: number; min: number; about: string }>;
+  value(name: string): number;
+  tune: string;
+}
+const SECTIONS = new Map<string, TuneSection>();
+/** Add a section to Tune; answers the function that takes it away. */
+export function registerTuneSection(sec: TuneSection): () => void {
+  SECTIONS.set(sec.id, sec);
+  return () => { if (SECTIONS.get(sec.id) === sec) SECTIONS.delete(sec.id); };
+}
+const TUNE_SECTION_KEYS = keyTable("tune section", "an extension's settings in Tune", [
+  ...["k", "up"].map(key => ({ key, action: "tune.setting.pick", args: { by: -1 }, label: "pick" })),
+  ...["j", "down"].map(key => ({ key, action: "tune.setting.pick", args: { by: 1 }, label: "pick" })),
+  ...["+", "=", "l", "right"].map(key => ({ key, action: "tune.setting.nudge", args: { by: 1 }, label: "increase", says: "raise the picked setting a step" })),
+  ...["-", "h", "left"].map(key => ({ key, action: "tune.setting.nudge", args: { by: -1 }, label: "decrease", says: "lower the picked setting a step" })),
+  ...["e", "enter"].map(key => ({ key, action: "tune.setting.edit", label: "edit" })),
 ] satisfies ModeKey[]);
 
 /** The levels the inspector offers: where each value comes from, or one level for every nudge. */
@@ -144,9 +162,13 @@ export class TunePane implements Pane {
    * applies: a named style, the page, the tile's kind…; the tile's kind for a built-in), or one picked.
    */
   level: TuneLevel = "auto";
-  section: "values" | "hints" | "glass" = "values";
+  /** values, hints, or a registered section's id. */
+  section = "values";
   hintSel = 0;
-  glassSel: GlassSetting = "open";
+  /** The setting picked in each registered section, by its id. */
+  settingSel: Record<string, string> = {};
+  shown(): TuneSection | undefined { return SECTIONS.get(this.section); }
+  picked(sec: TuneSection): string { const names = Object.keys(sec.settings); return names.includes(this.settingSel[sec.id] ?? "") ? this.settingSel[sec.id]! : names[0]!; }
   /** A nudge is for every width, or for the width the tile is in now (its breakpoint's variant). */
   scope: "all" | "this" = "all";
   /** A nudge held on a row where something nearer wins: the choices it offers (a, o, c, or a click). */
@@ -169,7 +191,7 @@ export class TunePane implements Pane {
   unsaved() { return this.view.unsaved(); }
   keepDrafts() { return this.view.keep(); }
   dispose() { void this.view.field?.session.leave(); }
-  hint() { if (this.view.field) return "editing · Enter save · Esc cancel"; if (this.section === "glass") return modeHint(TUNE_GLASS_KEYS, () => undefined); if (this.section === "hints") return "H values · j k pick · c card · s status · o off · R reset all"; return `Enter fold · f set here · e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all${this.retiredShown ? " · D drop retired keys · M move them to a hero line" : ""}`; }
+  hint() { if (this.view.field) return "editing · Enter save · Esc cancel"; const sec = this.shown(); if (sec) return `${sec.key} values · ${modeHint(TUNE_SECTION_KEYS, () => undefined)}`; if (this.section === "hints") return "H values · j k pick · c card · s status · o off · R reset all"; return `Enter fold · f set here · e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all${this.retiredShown ? " · D drop retired keys · M move them to a hero line" : ""}`; }
   spec() { return { source: `tile:${this.source}` }; }
 
   info(desk: DeskApi): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }
@@ -302,15 +324,15 @@ export class TunePane implements Pane {
     return { lines: [...section.map(r => r.text), fg(C.cyan) + "[reset all]" + RESET, ...lines.slice(top, top + h - head)] };
   }
 
-  private renderGlass(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
-    const section = this.sectionTabs(w), lines = section.map(r => r.text);
+  private renderSection(sec: TuneSection, w: number, h: number, focused: boolean): PaneView {
+    const section = this.sectionTabs(w), lines = section.map(r => r.text), sel = this.picked(sec);
     this.controls = section.flatMap((r, y) => controlsOf(r, y));
-    for (const name of Object.keys(GLASS_SETTINGS) as GlassSetting[]) {
-      const setting = GLASS_SETTINGS[name], value = desk.ctx.glass?.settings[name] ?? setting.base;
-      const y = lines.length, label = `${name === this.glassSel ? ">" : " "} ${setting.about}: ${value}`;
-      lines.push(...rowLines(label, w).map(l => name === this.glassSel ? selectedRow(l, w, focused) : l));
-      for (let row = y; row < lines.length; row++) this.controls.push({ y: row, x: 0, cols: w, action: "tune.glass.pick", args: { name } });
-      const buttons = tabStrip([{ label: "[−]", hit: { action: "glass.tune", args: { name, value: Math.max(setting.min, value - setting.step) } } }, { label: "[+]", hit: { action: "glass.tune", args: { name, value: value + setting.step } } }, { label: "[edit]", hit: { action: "tune.glass.edit", args: { name } } }], { width: w });
+    for (const [name, setting] of Object.entries(sec.settings)) {
+      const value = sec.value(name);
+      const y = lines.length, label = `${name === sel ? ">" : " "} ${setting.about}: ${value}`;
+      lines.push(...rowLines(label, w).map(l => name === sel ? selectedRow(l, w, focused) : l));
+      for (let row = y; row < lines.length; row++) this.controls.push({ y: row, x: 0, cols: w, action: "tune.setting.pick", args: { name } });
+      const buttons = tabStrip([{ label: "[−]", hit: { action: sec.tune, args: { name, value: Math.max(setting.min, value - setting.step) } } }, { label: "[+]", hit: { action: sec.tune, args: { name, value: value + setting.step } } }, { label: "[edit]", hit: { action: "tune.setting.edit", args: { name } } }], { width: w });
       for (const r of buttons) { this.controls.push(...controlsOf(r, lines.length)); lines.push(r.text); }
     }
     return { lines: lines.slice(0, h) };
@@ -318,11 +340,12 @@ export class TunePane implements Pane {
 
   /** Each settings owner supplies the values its section adjusts. */
   private sectionTabs(w: number): TabRow[] {
-    return tabStrip([{ label: "[values]", on: this.section === "values", hit: { action: "tune.section", args: { section: "values" } } }, { label: "[Hints] H", on: this.section === "hints", hit: { action: "tune.section", args: { section: "hints" } } }, { label: "[Glass] G", on: this.section === "glass", hit: { action: "tune.section", args: { section: "glass" } } }], { width: w });
+    return tabStrip([{ label: "[values]", on: this.section === "values", hit: { action: "tune.section", args: { section: "values" } } }, { label: "[Hints] H", on: this.section === "hints", hit: { action: "tune.section", args: { section: "hints" } } }, ...[...SECTIONS.values()].map(sec => ({ label: `[${sec.label}] ${sec.key}`, on: this.section === sec.id, hit: { action: "tune.section", args: { section: sec.id } } }))], { width: w });
   }
 
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
-    if (this.section === "glass" && !this.view.field) return this.renderGlass(w, h, focused, desk);
+    const sec = this.shown();
+    if (sec && !this.view.field) return this.renderSection(sec, w, h, focused);
     if (this.section === "hints") return this.renderHints(w, h, focused, desk);
     if (this.view.field) {
       const field = this.view.fieldDraw(w), top = this.view.place(field.focus, field.lines.length, h);
@@ -471,16 +494,19 @@ export class TunePane implements Pane {
     const intent = this.view.intent(k);
     if (intent) { this.run(desk, "tune.field", intent); return true; }
     const c = ch(k);
-    if (c === "G" && this.section !== "glass") { this.run(desk, "tune.section", { section: "glass" }); return true; }
+    const sec = this.shown();
+    const other = [...SECTIONS.values()].find(s => s.key === c && s !== sec);
+    if (other) { this.run(desk, "tune.section", { section: other.id }); return true; }
+    if (sec && c === sec.key) { this.run(desk, "tune.section", { section: "values" }); return true; }
     if (c === "H") { this.run(desk, "tune.section", { section: this.section === "hints" ? "values" : "hints" }); return true; }
-    if (this.section === "glass") {
-      const names = Object.keys(GLASS_SETTINGS) as GlassSetting[], at = names.indexOf(this.glassSel), setting = GLASS_SETTINGS[this.glassSel];
-      const bound = modeBinding(TUNE_GLASS_KEYS, k);
+    if (sec) {
+      const names = Object.keys(sec.settings), at = names.indexOf(this.picked(sec));
+      const bound = modeBinding(TUNE_SECTION_KEYS, k);
       if (!bound) return false;
       const by = bound.args?.by as number;
-      const args = bound.action === "tune.glass.pick" ? { name: names[Math.max(0, Math.min(names.length - 1, at + by))] }
-        : bound.action === "glass.tune" ? { name: this.glassSel, value: Math.max(setting.min, (desk.ctx.glass?.settings[this.glassSel] ?? setting.base) + by * setting.step) } : bound.args ?? {};
-      this.run(desk, bound.action, args); return true;
+      if (bound.action === "tune.setting.pick") this.run(desk, "tune.setting.pick", { name: names[Math.max(0, Math.min(names.length - 1, at + by))] });
+      else this.run(desk, bound.action, bound.args ?? {});
+      return true;
     }
     if (this.section === "hints") {
       const rows = this.hintRows(desk);
@@ -527,7 +553,7 @@ export class TunePane implements Pane {
 
   /** A click on a control runs its action; on a row picks it; the wheel over a value nudges it, elsewhere moves the pick. */
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
-    if (this.section === "glass" && !this.view.field) {
+    if (this.shown() && !this.view.field) {
       if (k.action === "wheel-up" || k.action === "wheel-down") this.key({ kind: k.action === "wheel-up" ? "up" : "down" }, desk);
       else if (k.action === "down") { const hit = this.controls.find(c => c.y === y && x >= c.x && x < c.x + c.cols); if (hit) this.run(desk, hit.action, hit.args); }
       return true;
@@ -565,7 +591,8 @@ export class TunePane implements Pane {
     return true;
   }
 
-  run(desk: DeskApi, name: string, args: Record<string, unknown>) { if (name.startsWith("glass.")) { void desk.ctx.press!(name, args); return; } if (name.startsWith("hints.")) { void desk.perform?.(name, args); return; } runOwn(TUNE_ACTIONS, name, args, { pane: this, desk }); }
+  /** Its own actions run here; `hints.*` on the desk; a section's `tune` action on the door's dispatcher, where its module put it. */
+  run(desk: DeskApi, name: string, args: Record<string, unknown>) { if (name.startsWith("hints.")) { void desk.perform?.(name, args); return; } if (!TUNE_ACTIONS.has(name)) { void desk.ctx.press!(name, args); return; } runOwn(TUNE_ACTIONS, name, args, { pane: this, desk }); }
 
   /**
    * What `peek` and `act` read: the tile tuned, its width, every value with its source (and, with a level or a width
@@ -744,6 +771,13 @@ const problemsOf = (t: TuneTargetInfo, desk: DeskApi) => [...new Set([...t.look.
 /** The step words for the status line and the result. */
 const stepSaid = (actor: Actor, desk: DeskApi, words: string) => { desk.ctx.flash(says(actor, words)); return words; };
 
+/** The registered section the inspector shows, or why there is none. */
+function sectionShown(pane: TunePane): TuneSection {
+  const sec = pane.shown();
+  if (!sec) throw new ActionRefused(`Tune shows ${pane.section}, not an extension's section: tune.section section=<${[...SECTIONS.keys()].join("|") || "none installed"}> first`);
+  return sec;
+}
+
 export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   "tune.group.pick": def({
     summary: "pick a token group heading", keys: [{ keys: "j k ← ↑ ↓ →", does: "pick a group heading" }, { keys: "wheel", does: "pick a group heading" }], touches: "tile", replay: "safe",
@@ -774,15 +808,26 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     args: { set: { type: "boolean", about: "only values set here" } },
     run({ set }, { pane, desk }) { pane.onlySet = set; desk.redraw(); return { set }; },
   }),
-  "tune.glass.pick": def({ summary: "pick a Glass setting in Tune", keys: "j k up down, click, wheel", touches: "tile", replay: "safe", args: { name: { type: "string", choices: Object.keys(GLASS_SETTINGS), about: "setting" } }, examples: [{ act: "tune.glass.pick name=close", does: "lights the close delay in Tune's Glass section" }], run({ name }, { pane, desk }) { pane.glassSel = name as GlassSetting; desk.redraw(); return { name }; } }),
-  "tune.glass.edit": def({ summary: "edit a Glass delay or limit in Tune", keys: "e enter, click edit", touches: "tile", replay: "safe", args: { name: { type: "string", optional: true, choices: Object.keys(GLASS_SETTINGS), about: "setting; picked when omitted" } }, examples: [{ act: "tune.glass.edit name=open", does: "opens the open delay's field in Tune, its value filled in" }], async run({ name }, { pane, desk }) {
-    const field = (name ?? pane.glassSel) as GlassSetting;
-    pane.glassSel = field;
-    await pane.view.edit(field, String(desk.ctx.glass?.settings[field] ?? GLASS_SETTINGS[field].base), [], false, `glass:${field}`, value => desk.ctx.press!("glass.tune", { name: field, value: Number(value) }), { redraw: () => desk.redraw(), said: text => desk.ctx.flash(text) });
+  "tune.setting.pick": def({ summary: "pick a setting in the Tune section shown (an extension's: the glass's delays and limits)", keys: "j k up down, click, wheel", touches: "tile", replay: "safe", args: { name: { type: "string", about: "the setting's name, as the section lists it" } }, examples: [{ act: "tune.setting.pick name=close", does: "lights the close delay in Tune's Glass section" }], run({ name }, { pane, desk }) {
+    const sec = sectionShown(pane);
+    if (!(name in sec.settings)) throw new ActionRefused(`${sec.label} has no setting ${name}: ${Object.keys(sec.settings).join(", ")}`);
+    pane.settingSel[sec.id] = name; desk.redraw(); return { name };
+  } }),
+  "tune.setting.nudge": def({ summary: "raise or lower the picked setting of the Tune section shown by its step, never under its floor", keys: [{ keys: "+ = l right", does: "raise it a step" }, { keys: "- h left", does: "lower it a step" }, { via: "its [+] and [−]" }], touches: "nothing", replay: "safe", args: { by: { type: "number", about: "steps: 1 up, -1 down" } }, examples: [{ act: "tune.setting.nudge by=1", does: "raises the picked Glass delay by 50 ms" }], async run({ by }, { pane, desk }) {
+    const sec = sectionShown(pane), name = pane.picked(sec), setting = sec.settings[name]!;
+    const value = Math.max(setting.min, sec.value(name) + by * setting.step);
+    await desk.ctx.press!(sec.tune, { name, value });
+    desk.redraw(); return { name, value };
+  } }),
+  "tune.setting.edit": def({ summary: "edit a setting of the Tune section shown, its value filled in", keys: "e enter, click edit", touches: "tile", replay: "safe", args: { name: { type: "string", optional: true, about: "the setting; picked when omitted" } }, examples: [{ act: "tune.setting.edit name=open", does: "opens the open delay's field in Tune's Glass section, its value filled in" }], async run({ name }, { pane, desk }) {
+    const sec = sectionShown(pane), field = name ?? pane.picked(sec);
+    if (!(field in sec.settings)) throw new ActionRefused(`${sec.label} has no setting ${field}: ${Object.keys(sec.settings).join(", ")}`);
+    pane.settingSel[sec.id] = field;
+    await pane.view.edit(field, String(sec.value(field)), [], false, `${sec.id}:${field}`, value => desk.ctx.press!(sec.tune, { name: field, value: Number(value) }), { redraw: () => desk.redraw(), said: text => desk.ctx.flash(text) });
     desk.redraw(); return { editing: field };
   } }),
-  "tune.section": def({ summary: "show values, the personal Hints list or Glass settings in the tune inspector", keys: "H G, click", touches: "tile", replay: "safe", args: { section: { type: "string", about: "values, hints or glass" } }, examples: [{ act: "tune.section section=hints", does: "shows every hint and its setting" }], run: (a, { pane, desk }) => {
-    if (a.section !== "hints" && a.section !== "values" && a.section !== "glass") throw new ActionRefused("section is values, hints or glass");
+  "tune.section": def({ summary: "show values, the personal Hints list or an extension's settings (Glass) in the tune inspector", keys: "H G, click", touches: "tile", replay: "safe", args: { section: { type: "string", about: "values, hints, or an extension's section (glass)" } }, examples: [{ act: "tune.section section=hints", does: "shows every hint and its setting" }], run: (a, { pane, desk }) => {
+    if (a.section !== "hints" && a.section !== "values" && !SECTIONS.has(a.section)) throw new ActionRefused(`section is ${["values", "hints", ...SECTIONS.keys()].join(", ")}`);
     pane.section = a.section; pane.view.top = 0; desk.redraw(); return { section: pane.section };
   } }),
   "tune.hint.pick": def({ summary: "select a hint in the inspector", keys: "j, k, up, down, wheel, click", touches: "tile", replay: "safe", args: { id: { type: "string", about: "hint id" } }, examples: [{ act: "tune.hint.pick id=tile.collapse", does: "selects the folding hint" }], run: (a, { pane, desk }) => {

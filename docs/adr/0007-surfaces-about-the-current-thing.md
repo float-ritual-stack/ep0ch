@@ -1,6 +1,6 @@
 # 0007: Surfaces about the current thing are shared parts: the attached surface, the glass and the strip
 
-Status: accepted, 2026-10-21; the glass's hover behaviour amended by [ADR 0008](0008-extension-first.md) (2026-11-02): it moves to an extension, the float layer stays core.
+Status: accepted, 2026-10-21; the glass's hover behaviour amended by [ADR 0008](0008-extension-first.md) (2026-11-02): it is the `glass` extension (PIE-1505: `outliner/extensions/glass`, its door module `packages/door/ext/glass`) on the door's hover event and status chip; the float layer (`src/float-layer.ts`) stays core.
 Originally: accepted, 2026-10-21 (Evan's framing and calls, Oct 20 and 21; the designs linked below).
 
 ## Context

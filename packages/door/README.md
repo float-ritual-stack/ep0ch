@@ -49,6 +49,8 @@ the isometric map as one page, `out/architecture-map.html` (open it in a browser
 ## The glass
 
 Click ◇ in the status bar (`alt+u`) to turn hover on. Links and cut-off titles open in a post-it above every screen.
+The hover behaviour is the **glass** extension (on by default; `ext/glass`, its page in the outline's Extensions hub):
+`ep0ch act extensions.uninstall id=glass demo=keep` turns hover and ◇ off, `extensions.install id=glass` brings them back.
 Its header's **peel** (`alt+E`, `postit.peel`) pins the shown entry separately and keeps the hover stack;
 **drop** (`alt+X`, `postit.drop`) removes that entry. Its arrows and title wheel use the reader's saved
 back/forward history. Every reader has `alt+←` / `alt+→` (`back` / `forward`).
