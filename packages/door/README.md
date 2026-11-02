@@ -1311,7 +1311,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `^W P` | Pin (a reader's), Select shows in, ⏎ opens in, alt opens: click or Enter picks on screen; × or `x` clears that row's wire. A select with no target says nowhere. |
 | ctrl-click or alt-click a link | open it beside, not in the link target |
 | click a dock's handle (`⇤ tree`, hint row) | slide it open |
-| `,` over a saved view or inline `::view` | open and enter its settings card; layout toggles, ordered sort/group/summary choices from the matched rows. Space toggles, J/K reorders, typing filters and Tab completes; each choice writes the view's source and redraws it (kitchen sink: `collection-tune`) |
+| `,` over a saved view or inline `::view`, or its `≡ settings` control | open and enter its settings card. Enter edits the selected field and Esc closes the card, even with a collection row picked beneath it. In a field's choices, Space toggles, J/K reorders, typing filters and Tab completes; each choice writes the view's source and redraws it (kitchen sink: `collection-tune`) |
 | click the `⤢` before a collection peek's title | land the peek beside its view (`tile.float on=false where=right`); Enter enters the peek, Esc closes it and returns the keys to the view |
 | click the `⧉` before a float's title | put it back in the layout (`tile.float`, as `^W f` and the board's `o`); the cell either side of it counts |
 | click the `⧉` in the focused tile's top right corner | float it (`tile.float`, as `^W f`) |

@@ -813,7 +813,9 @@ The service supplies the rows and groups. A click picks a card and gives the lis
 `surface/list-keys.ts` and dispatch `list.*`, as clicks and `act` do. Card edges use `BORDER_BOXES`; the pick
 has a bright, bold frame and title, with no cell background. Small and large keep their cover sizes.
 
-Comma (`list.tune` / `settings`) opens and enters the existing settings card over the collection.
+Comma (`list.tune` / `settings`) or the collection's `≡ settings` control opens and enters the existing settings card.
+Its rows show each key and value; the selected field's hint describes how to edit it. The card takes the keys ahead
+of the picked collection row: Enter edits the lit field, Esc closes the card, then the collection resumes.
 `layout` is a **toggle** question: Space, Enter or a second click shows/hides a choice, with a newly shown
 layout first. `group`, `sort` and `summary-properties` are **pick-order** questions: Space toggles,
 J/K moves a shown choice later/earlier, and the arrow rows do the same by mouse. Type to filter;

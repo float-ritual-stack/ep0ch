@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "1853637f", "outliner": "1853637f", "on": "2026-11-01" },
+  "verified": { "door": "584e3c84", "outliner": "584e3c84", "on": "2026-11-02" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -132,7 +132,7 @@
     {"id": "door.overflow", "name": "Readable clipped text", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": [], "does": "Keeps a cut-short value readable by hover, keyboard selection or Alt+?, without changing focus or a click.", "built": "Shared text helpers retain full values as drawing marks; Canvas carries them independently of style and hyperlinks. Overflow composes one-line reveals and marquees after screens and floats.", "refs": [{"r": "door", "p": "src/overflow.ts", "l": 65, "m": "export class Overflow"}, {"r": "door", "p": "src/style.ts", "l": 293, "m": "function shortened("}]},
     {"id": "door.inspector", "name": "Property inspector surface", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Scrolls and selects inspector content and edits a property in place for tune, Sources and the element panel.", "built": "Inspector extends RowView and uses Selection, DraftSession and Draft; schemas and the service's row properties supply choices. Source YAML writes use draft.patch and withFigureProp.", "refs": [{"r": "door", "p": "src/surface/inspector.ts", "l": 24, "m": "export class Inspector"}]},
     {"id": "door.hint-card", "name": "Hint cards", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Explains modes and reveals frame controls without taking keys or focus.", "built": "ActionDef hints and Dispatcher.menu rows, drawn in the desk float layer with Canvas.box, RowView and keycaps. X-ray shows the same cards together; peek reads their rows.", "refs": [{"r": "door", "p": "src/surface/hint-card.ts", "l": 21, "m": "export class HintCard"}]},
-    {"id": "door.list-view", "name": "The one list", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Draws a selectable, filterable list with a preview and one activation per row for the links tile, an inline ::links and an extension's list view, with each actor's own pick and filter.", "built": "outline-core's ListRow and the list view primitive are the wire; ListView wraps RowView and keeps each actor's pick and filter; listRowLines is the one row drawer (the links model reaches it through linkListRow); LISTVIEW_ACTIONS (list.blocks, pick, step, open, filter, enter) run over the ListHost the reader and the links tile lend.", "refs": [{"r": "door", "p": "src/surface/list-view.ts", "l": 157, "m": "export class ListView"}, {"r": "door", "p": "src/surface/list-actions.ts", "l": 70, "m": "export const LISTVIEW_ACTIONS"}, {"r": "door", "p": "src/links.ts", "l": 433, "m": "export function linkListRow"}]},
+    {"id": "door.list-view", "name": "The one list", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Draws a selectable, filterable list with a preview and one activation per row for the links tile, an inline ::links and an extension's list view, with each actor's own pick and filter.", "built": "outline-core's ListRow and the list view primitive are the wire; ListView wraps RowView and keeps each actor's pick and filter; listRowLines is the one row drawer (the links model reaches it through linkListRow); LISTVIEW_ACTIONS (list.blocks, pick, step, open, filter, enter) run over the ListHost the reader and the links tile lend.", "refs": [{"r": "door", "p": "src/surface/list-view.ts", "l": 157, "m": "export class ListView"}, {"r": "door", "p": "src/surface/list-actions.ts", "l": 71, "m": "export const LISTVIEW_ACTIONS"}, {"r": "door", "p": "src/links.ts", "l": 433, "m": "export function linkListRow"}]},
     {"id": "door.outline-boards", "name": "Readers across outlines", "group": "door", "chapter": "socket", "ladder": "shared", "dependsOn": ["door.socketboard"], "does": "Keeps one board per outline and machine so a reader edits another outline without leaving its screen.", "built": "OutlineBoards shares connections and contexts between desk readers and EchoNet. Reader specs retain outline and machine; NoteSurface and DraftSession use that board.", "refs": [{"r": "door", "p": "src/desk/outline-boards.ts", "l": 16, "m": "export class OutlineBoards"}]},
     {"id": "svc.artifacts", "name": "Artifact folders", "group": "service", "chapter": "outline", "ladder": "shared", "dependsOn": ["svc.host"], "does": "Keeps live synced folders and snapshots outside notes; CLI and MCP put through the outline service, note frames load it from a grant on the static listener (PIE-1266), and door cards open its page in the web client.", "built": "ArtifactStore reuses ArtifactCompiler for lone React sources at put or watcher time. The separate static listener reads files only, on its own origin, and opens a path only for a grant the publisher made for the reader (artifact-grants.ts).", "refs": [{"r": "outliner", "p": "src/artifact-store.ts", "l": 72, "m": "export class ArtifactStore"}, {"r": "outliner", "p": "src/artifact-server.ts", "l": 63, "m": "export async function artifactResponse"}]},
     {
@@ -180,7 +180,7 @@
         { "r": "outliner", "p": "../outline-core/src/header-line.ts", "l": 54, "m": "export function headerLine" },
         { "r": "outliner", "p": "../outline-core/src/property-parse.ts", "l": 267, "m": "headerLine(text, literalRanges)" },
         { "r": "outliner", "p": "src/properties.ts", "l": 3, "m": "@ep0ch/outline-core/property-grammar" },
-        { "r": "outliner", "p": "src/block-query.ts", "l": 10, "m": "@ep0ch/outline-core/property-grammar" }
+        { "r": "outliner", "p": "src/block-query.ts", "l": 11, "m": "@ep0ch/outline-core/property-grammar" }
       ]
     },
     {
@@ -188,10 +188,10 @@
       "does": "A saved view is a block whose query picks other blocks: the board's lanes, Tree's virtual branches. views.read evaluates it; query.expression and query.matches answer ad-hoc questions.",
       "built": "block-query.ts parses property filters and hands the relation and text atoms (#tag, links:, under:, title~, text~) to outline-core's query-atoms.ts; the server answers views.read and query.matches from the store. The door's port of this language is deleted: its query tiles ask views.read.",
       "refs": [
-        { "r": "outliner", "p": "src/block-query.ts", "l": 331, "m": "export function parsePropertyFilterExpression" },
+        { "r": "outliner", "p": "src/block-query.ts", "l": 332, "m": "export function parsePropertyFilterExpression" },
         { "r": "outliner", "p": "src/server.ts", "l": 2968, "m": "case \"views.read\"" },
         { "r": "outliner", "p": "src/server.ts", "l": 2987, "m": "case \"query.matches\"" },
-        { "r": "outliner", "p": "src/block-query.ts", "l": 7, "m": "@ep0ch/outline-core/query-atoms" }
+        { "r": "outliner", "p": "src/block-query.ts", "l": 8, "m": "@ep0ch/outline-core/query-atoms" }
       ]
     },
     {
@@ -310,14 +310,14 @@
       "does": "The one reader: render, fold, elements and the ruler, links and history, comments, steps, selection, edit. Hosted by the board, the desk, the river, the BBS reader and the hub screens.",
       "built": "NoteSurface behind the SurfaceHost seam; inline views, links, backlinks, tables and tabs lend their tagged rows to InlineList over RowView (PIE-1035), with wheel handoff and element selection; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
       "refs": [
-        { "r": "door", "p": "src/surface/note.ts", "l": 808, "m": "export class NoteSurface" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 807, "m": "export class NoteSurface" },
         { "r": "door", "p": "src/surface/inline-list.ts", "l": 12, "m": "export class InlineList" },
-        { "r": "door", "p": "src/surface/modes.ts", "l": 145, "m": "export class ModeStack" },
-        { "r": "door", "p": "src/surface/modes.ts", "l": 59, "m": "export const PRECEDENCE" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 188, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 10134, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1354, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1371, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/modes.ts", "l": 143, "m": "export class ModeStack" },
+        { "r": "door", "p": "src/surface/modes.ts", "l": 57, "m": "export const PRECEDENCE" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 187, "m": "export interface SurfaceHost" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 10077, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1353, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1370, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -532,7 +532,7 @@
         { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 474, "m": "export function serviceKind" },
         { "r": "door", "p": "src/desk/query.ts", "l": 107, "m": "export class QueryPane" },
         { "r": "door", "p": "src/desk/lanes.ts", "l": 1805, "m": "export const HUB_SOURCE" },
-        { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 265, "m": "export function registerBuiltinTiles" },
+        { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 267, "m": "export function registerBuiltinTiles" },
         { "r": "door", "p": "src/desk/tune.ts", "l": 131, "m": "export class TunePane" },
         { "r": "door", "p": "src/library/library.ts", "l": 603, "m": "export const LIBRARY_KIND" }
       ],
@@ -898,7 +898,7 @@
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/query-atoms.ts", "l": 160, "m": "export function parseQueryAtom" },
         { "r": "outliner", "p": "../outline-core/src/query-atoms.ts", "l": 59, "m": "export const QUERY_ATOM_HELP" },
-        { "r": "outliner", "p": "src/block-query.ts", "l": 7, "m": "parseQueryAtom" }
+        { "r": "outliner", "p": "src/block-query.ts", "l": 8, "m": "parseQueryAtom" }
       ]
     },
     {
@@ -940,8 +940,8 @@
       "does": "Each component says what its properties are once, as data: the heading style, callout, rule, meter, spark, the figures and the block components. The door's completion, its design-system pages and an agent's brief all read that instead of restating it.",
       "built": "outline-core's component-schema.ts holds the built-ins and mergeComponentSchemas; the service answers the merged list (components.schemas): the built-ins, the values the outline declares (a [heading-style::plot] note makes plot a value) and the schemas extensions ship. checkValue can validate a value.",
       "refs": [
-        { "r": "outliner", "p": "../outline-core/src/component-schema.ts", "l": 324, "m": "export const BUILTIN_COMPONENT_SCHEMAS" },
-        { "r": "outliner", "p": "../outline-core/src/component-schema.ts", "l": 349, "m": "export function mergeComponentSchemas" },
+        { "r": "outliner", "p": "../outline-core/src/component-schema.ts", "l": 327, "m": "export const BUILTIN_COMPONENT_SCHEMAS" },
+        { "r": "outliner", "p": "../outline-core/src/component-schema.ts", "l": 352, "m": "export function mergeComponentSchemas" },
         { "r": "outliner", "p": "src/server.ts", "l": 3834, "m": "case \"components.schemas\"" }
       ]
     },
@@ -961,9 +961,9 @@
       "built": "PowerBar is a list picker the App holds over whatever screen is shown, taking every key while open. It owns no list: each scope is a BarSource (sources.ts), asking the layout tree, the service's one search, the dispatcher's actions, the what-changed store and the screen list, and a pick goes through the shared paths. bar.open, bar.pick and bar.close are actions; an agent's pick runs as the agent and never touches the person's bar. An action that takes arguments opens its form (PIE-1031): its ArgSpecs as fields in the one action-argument prompt (askInBar, the ask scope), each field's values from its kind (arg-kinds.ts, a registry like the sources) or its choices, the act line under them, moved and run by bar.form.",
       "refs": [
         { "r": "door", "p": "src/bar/bar.ts", "l": 62, "m": "export class PowerBar" },
-        { "r": "door", "p": "src/bar/source.ts", "l": 76, "m": "export interface BarSource" },
+        { "r": "door", "p": "src/bar/source.ts", "l": 78, "m": "export interface BarSource" },
         { "r": "door", "p": "src/bar/sources.ts", "l": 603, "m": "export const BUILT_IN_SOURCES" },
-        { "r": "door", "p": "src/bar/actions.ts", "l": 47, "m": "export const BAR_ACTIONS" },
+        { "r": "door", "p": "src/bar/actions.ts", "l": 48, "m": "export const BAR_ACTIONS" },
         { "r": "door", "p": "src/bar/form.ts", "l": 83, "m": "export async function openActionForm" },
         { "r": "door", "p": "src/bar/arg-kinds.ts", "l": 25, "m": "export function registerArgKind" }
       ]

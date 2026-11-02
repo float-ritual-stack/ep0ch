@@ -208,7 +208,8 @@ export class SettingsCard {
     const out = [rule(w, drawEllipsized(title, Math.max(2, w - 8)))];
     this.sel = Math.max(0, Math.min(this.sel, fields.length - 1));
     const sel = fields[this.sel];
-    const about = sel ? `${sel.prop.key} · ${sel.prop.question?.type ?? sel.prop.type} · ${sel.prop.meaning}` : "";
+    const edit = sel?.prop.question ? (sel.prop.question.type === "toggle" ? "show or hide choices" : "choose and reorder") : sel?.prop.values ? "choose a value" : "edit the value";
+    const about = sel ? `${sel.prop.key} · ${edit} · ${sel.prop.meaning}` : "";
     const foot = this.note || about;
     const room = Math.max(1, h - 1 - (foot ? 1 : 0));
     // The rows: a section's heading (only with more than one), then its fields.
@@ -223,7 +224,7 @@ export class SettingsCard {
       const f = r.field;
       const value = f.value !== null ? fg(C.yellow) + printable(f.value)
         : f.prop.default !== undefined ? fg(C.dark) + `${f.prop.default} (default)` : fg(C.dark) + "—";
-      return rowLines("  " + fg(C.brown) + f.prop.key + "  " + value + " " + fg(C.dark) + (f.prop.question?.type ?? f.prop.type) + RESET, w, undefined, { hang: 2 }).map(text => ({ text, n: f.n }));
+      return rowLines("  " + fg(C.brown) + f.prop.key + "  " + value + RESET, w, undefined, { hang: 2 }).map(text => ({ text, n: f.n }));
     });
     const at = drawn.findIndex(r => r.n - 1 === this.sel), end = drawn.findLastIndex(r => r.n - 1 === this.sel);
     this.view.place(at < 0 ? null : at, drawn.length, room, at < 0 ? null : [at, end]);

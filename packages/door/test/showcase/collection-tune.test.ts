@@ -38,6 +38,49 @@ describe("showcase: tune the collection's own record (PIE-1483)", () => {
     expect((await h.board.get(note.id))!.text).toBe(note.text);
   }, 20_000);
 
+  test("round two: clicking the view's settings opens its card", async () => {
+    await show();
+    await act("list.enter", { on: true });
+    const lines = h.screen().split("\n");
+    const y = lines.findIndex(line => line.includes("≡ settings"));
+    expect(y).toBeGreaterThan(-1);
+    const x = lines[y]!.indexOf("≡ settings") + 2;
+    h.press({ kind: "mouse", action: "down", button: 0, x, y });
+    h.press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => !!surface().panel?.card, "the clicked view's settings card", 1500);
+    expect(h.screen()).toContain("settings · Views");
+  }, 20_000);
+
+  test("round two: settings rows show values without internal editor types", async () => {
+    await show();
+    h.ch(",");
+    await until(() => !!surface().panel?.card, "the view's settings card", 1500);
+    const screen = h.screen();
+    expect(screen).toMatch(/layout\s+table\s*[│║]/m);
+    expect(screen).toMatch(/group\s+area\s*[│║]/m);
+    expect(screen).toMatch(/card\s+small\s*[│║]/m);
+    expect(screen).toMatch(/sort\s+owner asc\s*[│║]/m);
+  }, 20_000);
+
+  test("round two: an open settings card owns Enter and Esc over the picked collection row", async () => {
+    const note = await show();
+    await act("list.enter", { on: true });
+    h.ch(",");
+    await until(() => !!surface().panel?.card, "the active collection's card", 1500);
+    const tiles = stage().layoutGet().tiles.map((tile: any) => tile.name);
+    const layoutAt = surface().settingFields(surface().msg!, surface().panel!.card!.schemas).findIndex((f: any) => f.prop.key === "layout");
+    for (let i = 0; i < layoutAt; i++) h.press({ kind: "down" });
+    h.press({ kind: "enter" });
+    await until(() => bar()?.items.some(i => i.row.key === "toggle:board") ?? false, "Enter edits layout instead of opening the picked note", 1500);
+    expect(stage().layoutGet().tiles.map((tile: any) => tile.name)).toEqual(tiles);
+    h.press({ kind: "esc" });
+    await until(() => !h.app.bar, "Esc closes the layout question", 1500);
+    expect(surface().panel?.card).toBeDefined();
+    h.press({ kind: "esc" });
+    await until(() => !surface().panel, "Esc closes the settings card", 1500);
+    expect(surface().msg?.id).toBe(note.id);
+  }, 20_000);
+
   test("a toggle redraws the board and writes only the inline view's keys", async () => {
     const note = await show();
     await act("settings.toggle", { key: "layout", value: "board" });
