@@ -1,3 +1,4 @@
+import { programEnv } from "./program-env";
 import { keychainItem } from "./keychain";
 import { plainText, secretForms, scrubCredentials as scrub } from "@ep0ch/outline-core/secret-scrub";
 import { StringDecoder } from "node:string_decoder";
@@ -665,7 +666,7 @@ export class ResourceExtensionRuntime {
       const value = process.env[name];
       if (value !== undefined && !RESERVED_EXTENSION_ENV.has(name)) passed[name] = value;
     }
-    const env: Record<string, string> = {
+    const env = programEnv({
       ...passed,
       ...secretEnv,
       ...baseEnv(),
@@ -678,7 +679,7 @@ export class ResourceExtensionRuntime {
       // same host and folder, and the mod knows the socket is this machine's.
       ...(outlinesOfHostSocket(connection.socket) ? { EP0CH_OUTLINES: outlinesOfHostSocket(connection.socket)! } : {}),
       ...(callFor.agent ? { EP0CH_AGENT: callFor.agent } : {}),
-    };
+    });
     let output: string, replyTail = "";
     const deliverReply = async (chunk: string, final = false) => {
       signal!.throwIfAborted();

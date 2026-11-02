@@ -1,4 +1,4 @@
-import { Canvas, type Rect } from "./canvas";
+import { Canvas, type Rect } from "./canvas"; import { doorLocation } from "./session/place";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { pressEnded } from "./surface/button";
 import { StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, type StatusItem, type StatusHit } from "./status-bar";
@@ -1455,7 +1455,7 @@ export class App implements Ctx {
   private route(k: Key, w: KeyLayers): void {
     if (k.kind === "alt" && k.ch === "?") { void this.dispatch.press("text.reveal"); return; }
     if (k.kind === "mouse" && isHover(k)) void this.dispatch.press("text.hover", { x: k.x, y: k.y, alt: !!((k.mods ?? 0) & 8) });
-    else if (k.kind === "mouse") this.overflow.clear();
+    else if (k.kind === "mouse") { this.overflow.clear(); this.glass.mouse(k); }
     else this.overflow.keys();
     if (k.kind === "modifier") {
       if (w.over !== "bar" && this.dispatch.has("xray")) void this.dispatch.press("xray", k.event === "tap" ? {} : { on: k.event === "press" });
@@ -1884,8 +1884,8 @@ export class App implements Ctx {
     this.schedulePublish();
   }
 
-  /** Where the door is: `host · outline` on an outline host, else `host:workspace root`. */
-  get location(): string { return this.outline ? `${this.host} · ${this.outline}` : `${this.host}:${this.workspace}`; }
+  /** Where the door is (`doorLocation`, src/session/place.ts): `host · outline`, or `pie on float-2 · session on float-box` for an outline on another machine (PIE-1498). */
+  get location(): string { return doorLocation(this).text; }
 
   /** The built-ins declare their text and the existing ActionDefs their gestures press. */
   get terminalSize() { return this.term.info; }
@@ -1905,7 +1905,7 @@ export class App implements Ctx {
       { id: "power", text: `${fg(C.yellow)}^K`, place: "left", keep: true, ...(!s?.noDrawer ? { click: { action: "bar.open" } } : {}) },
       { id: "macro", text: `${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : "⇧⌥Q"}`, place: "left", ...(!s?.noDrawer ? { click: { action: this.recording.active ? "macro.stop" : "macro.record" } } : {}) },
       { id: "screen", text: s?.title ?? "", place: "left", click: { action: "status.log" } },
-      { id: "machine", text: this.location, place: "left", click: { action: "status.log" } },
+      { id: "machine", text: this.location, place: "left", click: { action: "status.log" }, ...(this.machine ? { short: doorLocation(this).short } : {}) },
       right("docks", this.screenDesk()?.dockChoices().length ? "docks" : "", "strip.more", { strip: `${this.screenDesk()?.name}:docks` }),
       right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
       { ...right("glass", this.glass.chip(), "glass.toggle"), tiny: `◇${this.glass.mode === "off" ? "×" : this.glass.mode === "sticky" ? "◆" : ""}${this.glass.floats().length || ""}`, keep: true, alt: { action: "glass.clear" } },

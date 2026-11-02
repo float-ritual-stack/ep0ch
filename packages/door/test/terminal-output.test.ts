@@ -5,7 +5,7 @@
 // tile opened is said as the kind's word, to agents' credit only. Scratch services and fictional notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { CP437_NEAREST, cp437Code, inCp437, toCp437Glyphs } from "../src/ansi";
 import { App } from "../src/app";
 import { Canvas } from "../src/canvas";
@@ -304,6 +304,15 @@ process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? {
     key({ kind: "mouse", action: "down", button: 0, x: menu[y]!.indexOf("□ lock"), y });
     await until(() => desk.layoutGet().locked === true, "the lock chosen from the hint strip");
     await app.dispatch.act({ action: "layout.lock", args: { on: false } }, USER);
+  });
+
+  test("a scratch door's terminal program can find the checkout through env", async () => {
+    const program = join(scratch.root, "source-env.sh");
+    writeFileSync(program, "env | sed -n '/^EP0CH_SOURCE=/p'\necho ORIENT_ENV_DONE\n");
+    await app.act({ action: "tile.open", args: { kind: "pty", cmd: `sh ${program}`, name: "source-env" }, as: "orient" });
+    const terminal = (screen() as Desk).paneNamed("source-env") as PtyPane;
+    await until(() => terminal.text().some(line => line.includes("ORIENT_ENV_DONE")), "env in the terminal tile");
+    expect(terminal.text().join("")).toContain(`EP0CH_SOURCE=${resolve(import.meta.dir, "../../..")}`);
   });
 
   test("a tile an agent opens is said as its kind's word; the person's own open isn't said at all", async () => {

@@ -599,4 +599,66 @@ describe("showcase: the glass", () => {
     expect(measured.frames).toBeLessThan(20);
     expect(floats()).toHaveLength(0);
   });
+  test("the drawer's edge row is never a glass target: resting on it, dragging it and a hover mid-drag make no post-it", async () => {
+    await setup();
+    await act("glass.mode", { set: "sticky" });
+    await act("host.toggle", { open: true }); h.app.flush();
+    const edge = () => h.app.drawer.rect!.row;
+    const postIts = () => floats().filter(f => f.pane instanceof PostIt);
+    const y = edge(), x = lines()[y]!.indexOf("drag this edge");
+    expect(x, lines()[y]).toBeGreaterThan(-1);
+    expect(h.app.overflow.targetAt(x, y), "the edge row that fits is no cut-short value").toBeNull();
+    // Resting on the edge before grabbing it (longer than the open delay).
+    hover({ x, y }); await Bun.sleep(300); h.app.flush();
+    expect(postIts()).toHaveLength(0);
+    // Dragging it up, with a hover report over a link arriving while the button is down.
+    sgr(0, x, y); sgr(32, x, y - 3);
+    const shed = cell("tool shed"); sgr(35, shed.x, shed.y); await Bun.sleep(300);
+    sgr(32, x, y - 5); sgr(0, x, y - 5, true); h.app.flush();
+    expect(edge()).toBeLessThan(y);
+    hover({ x, y: edge() }); await Bun.sleep(300); h.app.flush();
+    expect(postIts()).toHaveLength(0);
+    expect(h.app.glass.describe().mode).toBe("sticky");
+    // The glass still works once the button is up: a link makes a post-it.
+    hover(cell("tool shed")); await until(() => !!post(), "a link after the drag");
+    expect(paper().msg?.id).toBe(h.seeded.notes.shed.id);
+    await act("host.toggle", { open: false });
+  }, 20_000);
+
+  test.each([80])("chrome rows make no post-it at %i columns: the hint row and the status bar, while a link still does", async cols => {
+    await setup(cols);
+    await act("glass.mode", { set: "sticky" });
+    const rows = h.app.terminalSize.rows, hintY = rows - 2, statusY = rows - 1;
+    const cutOn = (y: number) => { for (let x = 0; x < cols; x++) if (h.app.overflow.targetAt(x, y)) return x; return -1; };
+    const hx = cutOn(hintY);
+    expect(hx, `the hint row has a cut-short value to hover:\n${lines()[hintY]}`).toBeGreaterThan(-1);
+    hover({ x: hx, y: hintY }); await Bun.sleep(300); h.app.flush();
+    expect(floats()).toHaveLength(0);
+    const sx = cutOn(statusY);
+    if (sx > -1) { hover({ x: sx, y: statusY }); await Bun.sleep(300); h.app.flush(); expect(floats()).toHaveLength(0); }
+    hover(cell("tool shed")); await until(() => !!post(), "the link's post-it");
+    expect(paper().msg?.id).toBe(h.seeded.notes.shed.id);
+  }, 20_000);
+
+  test("◇ and alt+u say the new mode on the status line, in the mode's own words", async () => {
+    await setup();
+    const said = async (words: string) => {
+      for (let i = 0; i < 40; i++) {
+        const log = (await h.app.act({ action: "status.list", as: "glass-reader" })) as { messages: { message: string }[] };
+        if (log.messages.some(m => m.message.includes(words))) return true;
+        await Bun.sleep(50);
+      }
+      return false;
+    };
+    const bar = await act("status.bar.items"), glyph = bar.items.find((i: any) => i.id === "glass");
+    click({ x: glyph.from, y: 59 });
+    await until(() => h.app.glass.mode === "on", "a click on ◇ turns the glass on");
+    expect(await said("glass on · hover a link to peek"), "the status line says on").toBe(true);
+    h.press({ kind: "alt", ch: "u" });
+    await until(() => h.app.glass.mode === "sticky", "alt+u makes it sticky");
+    expect(await said("glass sticky · each hover stays as a post-it"), "the status line says sticky").toBe(true);
+    expect(h.app.glass.chip()).toContain("sticky");
+    h.press({ kind: "alt", ch: "u" });
+    expect(await said("glass off"), "the status line says off").toBe(true);
+  }, 20_000);
 });

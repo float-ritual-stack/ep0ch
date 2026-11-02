@@ -35,7 +35,10 @@ Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-
 [AGENTS.md](../../AGENTS.md) has the workflow for agents, and [CONTRIBUTING.md](../../CONTRIBUTING.md) has
 verification and the review checklist. Agents load the stack's skills (`ep0ch --skill` lists them):
 `ep0ch` to drive a door, `ep0ch-outline` to work in an outline for someone, `ep0ch-core` to change this
-code or the outliner's, `daily-brief` for the morning brief. The [architecture map](docs/architecture/map.json) records every
+code or the outliner's, `daily-brief` for the morning brief, and `whats-moving` for recent activity.
+MCP serves these as `ep0ch://skills/<name>` and prompts; `list_outlines` lists their pointers.
+`ep0ch where` names the running checkout, its AGENTS.md, docs, skills and SHA (`--json` for the record;
+`--source` for just the path). Programs ep0ch starts get that path as `EP0CH_SOURCE`. The [architecture map](docs/architecture/map.json) records every
 structure in the door and the outliner, its ladder position and its open questions. Each citation is a file, a
 marker (a snippet of the cited code) and a line: in packages/door, `bun scripts/architecture-map.ts --sync` moves
 every line to where its marker is now and stamps the commit (it lists the markers the code no longer has, for a
@@ -1276,6 +1279,12 @@ drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
   command and lets the remaining installation steps run. Every attached
   terminal attaches again by itself, in the same terminal and the same ssh login. On a session already on this code,
   or with `--clients`, only the terminals start again; `ep0ch session restart` hands over whatever code it runs.
+- **A handover with nobody attached** (how `ep0ch install --apply` finds a session at night) keeps the screen too: the
+  checkpoint is written as the screens change, not when a terminal looks, and the "handed over to a new daemon · N
+  screens reopened" notice waits for the first terminal that attaches instead of flashing to nobody (PIE-1498). The
+  status line names the session's place: `float-2 · pie` for an outline on this machine's host, and for one on another
+  machine `pie on float-2 · session on float-box`, so two sessions on one outline (the ssh door's on float-box, the
+  machine's own) are told apart at a glance (`pie on float-2` when the bar is narrow).
 - **A daemon that dies** (a crash, `kill -9`) comes back the same way at the next `ep0ch`: the programs are still in
   the terminal host. Text typed into a draft since it was last put aside was only in the daemon's memory, and is lost
   then; drafts put aside come back. `ep0ch session list` says when a terminal host runs without a daemon.

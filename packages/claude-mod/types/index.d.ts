@@ -79,6 +79,7 @@ export type DetailSource =
 /** Where this Claude is bound (hooks/binding.ts, PIE-546). */
 /** What the card reads from `ep0ch where --json`; null fields: not known. */
 export type WhereFacts = {
+  source: { path: string; agentsMd: string; docs: string; skills: string; sha: string | null } | null
   inDoor: boolean
   /**
    * Which door this Claude reaches and by which rule (`ep0ch where`, PIE-715): `control` (EP0CH_CONTROL or its outline's

@@ -92,6 +92,7 @@ export const SHARE_COMMANDS: readonly CliCommand[] = [
 
 const agent = sub("agent", "Agents");
 export const AGENT_COMMANDS: readonly CliCommand[] = [
+  agent("exec", "Run a program with this machine's EP0CH_SOURCE", "exec -- <program> [args…]", [], ["exec -- printenv EP0CH_SOURCE", "exec -- codex"]),
   agent("ls", "List the Claude sessions here or on another machine", "ls [--machine <ssh-name>] [--json]", [["--machine <ssh-name>", "List the sessions running there, over SSH"], json], ["ls", "ls --machine box-a"]),
   agent("start", "Start a persona's terminal, or say it is already live", "start <persona> [--on <machine>] [--cwd <folder>] [--program <cmd>] [--outline <name>]",
     [["--on <machine>", "Start it there"], ["--cwd <folder>", "Its folder"], ["--program <cmd>", "The program it runs"], ["--outline <name>", "Bind it to this outline"]], ["start gardener", "start gardener --on box-a --outline garden"]),
@@ -243,8 +244,10 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   { name: "search", group: "Agents", summary: "Collect and evaluate search examples", moreOnly: true,
     synopsis: "search harvest | eval", flags: [machine, ["--into <name>", "Keep cases or evaluations in this outline"], ["--logs <dir>", "Read agent logs here"], ["--dry-run", "Show harvest without saving"], ["--models <names>", "Compare these ranking models"], ["--variants <names>", "Compare state, deep or state+deep"], ["--snapshots <dir>", "Read copied databases here"], ["--cases <file>", "Read evaluation cases from this file"], ["--only <source>", "Evaluate this case source"], json],
     examples: ["ep0ch search harvest --dry-run --into garden", "ep0ch search eval --cases ./cases.json --json"] },
-  { name: "where", group: "Machines", summary: "Show where this terminal and its keys are",
-    synopsis: "where [--json]", flags: [json], examples: ["ep0ch where", "ep0ch where --json"] },
+  { name: "where", group: "Machines", summary: "Show the source checkout, terminal and keys",
+    synopsis: "where [--json|--source]", flags: [json, ["--source", "Print only the source checkout path"]],
+    note: "Names the checkout, AGENTS.md, docs, skills and SHA, plus this terminal's layers and where the person's keys are. Read-only.",
+    examples: ["ep0ch where --json", "ep0ch where --source"] },
   { name: "clients", group: "Machines", summary: "List clients connected to an outline",
     synopsis: "clients [--ws <name>] [--machine <ssh-name>]", flags: target,
     examples: ["ep0ch clients --ws garden", "ep0ch clients --ws garden --machine box-a"] },

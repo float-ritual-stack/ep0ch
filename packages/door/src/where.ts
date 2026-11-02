@@ -5,6 +5,7 @@
 //
 // It answers with no door ("not in a door"), with a door gone, and with a door older than the fields it reads
 // (`pid`, `nest`, tile ids): it says what it couldn't check instead of guessing.
+import { sourceCheckout, sourcePath, NO_SOURCE, type SourceCheckout } from "@ep0ch/outliner/program-env";
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { ask } from "./jsonl";
@@ -24,6 +25,8 @@ export interface WhereLayer { kind: Layer["kind"] | "tile"; label: string; raw: 
 export interface AgentLimit { level: AgentLevel; by: string }
 export interface WhereKeys { mine: boolean | null; typing: boolean | null; tile: string | null; text: string }
 export interface Where {
+  source: SourceCheckout | null;
+  sourceNote?: string;
   /** This process runs in a door's tile (or its drawer/shell): it has the door's variables. See `reach` for a door it can use anyway. */
   inDoor: boolean;
   /** Which door this reaches and by which rule (PIE-715): the nest's door answered, or the folder's outline's, or the only one; `none` with the command to start one. */
@@ -271,7 +274,8 @@ export async function where(d: WhereDeps): Promise<Where> {
   const innerHerdr = herdrs.at(-1);
   const pane = innerHerdr ? herdrPane(innerHerdr.pane) : null;
   const herdr = innerHerdr ? { pane: innerHerdr.pane, label: typeof pane?.label === "string" && pane.label ? pane.label : null } : null;
-  return { inDoor, reach, recorded, nest, here, herdr, layers, door, keys, summary };
+  const source = sourceCheckout();
+  return { source, ...(!source ? { sourceNote: NO_SOURCE } : {}), inDoor, reach, recorded, nest, here, herdr, layers, door, keys, summary };
 }
 
 function tileLayer(id: string | null, name: string, t: NonNullable<Where["door"]>["tile"], peek: any, desk: any, moved: boolean): WhereLayer {
@@ -348,10 +352,19 @@ export function formatWhere(w: Where): string {
   }
   if (w.here.machine || w.here.folder) out.push(`this runs on ${w.here.machine ?? "this machine"}${w.here.folder ? ` in ${w.here.folder}` : ""}`);
   if (w.here.persona) out.push(`an agent here writes as ${w.here.persona.name} (${w.here.persona.source === "file" ? `agent in ${w.here.persona.file}` : w.here.persona.source})`);
+  if (w.source) {
+    const s = w.source;
+    out.push(`source: ${s.path}`, `  AGENTS.md: ${s.agentsMd}`, `  docs: ${s.docs}`, `  skills: ${s.skills}`, `  sha: ${s.sha ?? "unknown (no Git revision)"}`);
+  } else out.push(NO_SOURCE);
   return out.join("\n");
 }
 
 export async function whereCommand(args: string[], deps = realDeps()): Promise<number> {
+  if (args.includes("--source")) {
+    const path = sourcePath();
+    (path ? console.log : console.error)(path ?? NO_SOURCE);
+    return path ? 0 : 1;
+  }
   const w = await where(deps);
   console.log(args.includes("--json") ? JSON.stringify(w, null, 2) : formatWhere(w));
   return 0;

@@ -9,6 +9,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./program-env": "./src/program-env.ts",
     "./client-code": "./src/client-code.ts",
     "./with-secrets": "./src/with-secrets.ts",
     "./env-file": "./src/env-file.ts",

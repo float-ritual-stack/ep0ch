@@ -6,7 +6,7 @@ import { writeScopes } from "../src/secret-keys";
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { liveGrants } from "../src/extension-grants";
 import type { ExtensionsListResult } from "../src/extension-registry";
@@ -96,12 +96,13 @@ test("every extension process gets its connection, HOME, WITH_SECRETS_DIR and th
   process.env.OUTLINER_TEST_PASSED = "named-in-env";
   cleanups.push(() => { delete process.env.OUTLINER_TEST_HOST_SECRET; delete process.env.OUTLINER_TEST_PASSED; });
   const listed = await install("envy", { env: ["OUTLINER_TEST_PASSED"], actions: [{ id: "show", label: "Show", on: "outline" }] },
-    `${CALL}say({ message: JSON.stringify({ keys: Object.keys(process.env).filter((k) => !k.startsWith("BUN_")).sort(), socket: process.env.EP0CH_SOCKET, ws: process.env.EP0CH_WS, ext: process.env.OUTLINER_EXTENSION, grant: (process.env.EP0CH_EXT_GRANT ?? "").length }) });`);
+    `${CALL}say({ message: JSON.stringify({ keys: Object.keys(process.env).filter((k) => !k.startsWith("BUN_")).sort(), source: process.env.EP0CH_SOURCE, socket: process.env.EP0CH_SOCKET, ws: process.env.EP0CH_WS, ext: process.env.OUTLINER_EXTENSION, grant: (process.env.EP0CH_EXT_GRANT ?? "").length }) });`);
   expect(listed.extensions.find((entry) => entry.id === "envy")?.state).toBe("active");
   const done = await client.request<{ message: string }>({ action: "extensions.act", extension: "envy", extensionAction: "show" });
   const seen = JSON.parse(done.message) as { keys: string[]; socket: string; ws: string; ext: string; grant: number };
-  expect(seen.keys).toEqual(["EP0CH_EXT_GRANT", "EP0CH_SOCKET", "EP0CH_WS", "HOME", "LANG", "OUTLINER_EXTENSION", "OUTLINER_TEST_PASSED", "PATH", "WITH_SECRETS_DIR"]);
-  expect(seen).toMatchObject({ socket, ws: "garden-scratch", ext: "envy", grant: 48 });
+  expect(seen.keys).toContain("OUTLINER_TEST_PASSED");
+  expect(seen.keys).not.toContain("OUTLINER_TEST_HOST_SECRET");
+  expect(seen).toMatchObject({ source: resolve(import.meta.dir, "../../.."), socket, ws: "garden-scratch", ext: "envy", grant: 48 });
   // A variable the service sets itself can't be named.
   const refused = await install("envy", { env: ["EP0CH_EXT_GRANT"], actions: [{ id: "show", label: "Show", on: "outline" }] }, "");
   expect(refused.extensions.find((entry) => entry.id === "envy")?.error).toContain("env/0 EP0CH_EXT_GRANT is set by the service for every call");

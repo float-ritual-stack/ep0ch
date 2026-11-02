@@ -2,8 +2,8 @@ import { tabStrip, stripControls } from "./chip-rows";
 import { panelMode } from "./panel-mode";
 import { HISTORY, NAV_VERSION, savedPlace, placeOf, readNav, type Place, type Zoom, type FigureChoice, type SavedNav } from "./navigation";
 export { HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
-import { listBinding } from "./list-keys";
-import { listMode, collectionAtReading, collectionTextStop, enterCollectionRow, type ListMode } from "./list-mode";
+import { collectionHint, listBinding } from "./list-keys";
+import { listMode, collectionAtReading, collectionAtCursor, collectionBinding, collectionKey, collectionTextStop, type ListMode } from "./list-mode";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
@@ -922,6 +922,10 @@ export class NoteSurface {
    * current at the next layout, unless the selection moved meanwhile.
    */
   private linkUnlaid: number | null = null;
+  /** A collection row picked before its element is drawn (a page turn, a row off the viewport): the [ ] position lands on it at the next layout (PIE-1501). */
+  private pendingRow: { key: string; row: string; group?: string } | null = null;
+  /** The collection row the [ ] position is about to land on (pendingRow), for what asks between the pick and the layout. */
+  rowWanted(): { key: string; row: string; group?: string } | null { return this.pendingRow; }
   /** Bring the current element into view on the next render (after `[ ]`, `( )` or a fold). */
   private reveal = false;
   /**
@@ -1317,7 +1321,7 @@ export class NoteSurface {
     if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label)} · ⏎ runs ${printable(e.link.press.act.replaceAll("\n", " -> "))}`;
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
     // A table row's label keeps its columns' gaps: one space each here, since two spaces part a hint row's keys (hintKeys).
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()} · ${this.zoomHint()}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${collectionAtCursor(this) ? ` · ${collectionHint()}` : this.figureHint()} · ${this.zoomHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
@@ -2147,6 +2151,8 @@ export class NoteSurface {
     }
     this.elems.sort((a, b) => a.row - b.row || a.from - b.from);
     if (unsentHead.elems.length) this.elems = [...this.elems, ...unsentHead.elems].sort((a, b) => a.row - b.row || a.from - b.from);
+    // A collection row picked before this layout drew it (a page turn): the [ ] position lands on it now (PIE-1501).
+    if (this.pendingRow) { const at = this.linkRowElement(this.pendingRow.key, this.pendingRow.row, this.pendingRow.group); if (at) { this.setElem(at.e); this.pendingRow = null; this.reveal = true; } }
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show). A header
     // image above it (PIE-532) gives a row back for each row scrolled, so the scroll that has the last body row
     // `extra` rows above the bottom is S ≥ body + extra − (roomFull − (full − S)) while the image shows, and
@@ -4152,14 +4158,18 @@ export class NoteSurface {
   selectListRow(l: ListHandle<any>, row: string, group?: string) {
     l.view.pick(PERSON, row, group);
     const at = this.linkRowElement(l.key, row, group);
-    if (at) this.setElem(at.e);
+    if (at) { this.setElem(at.e); this.pendingRow = null; }
+    else this.pendingRow = { key: l.key, row, group };
     this.reveal = true;
   }
 
-  /** The person goes into list `l` (its rows take j k ⏎ / esc), or comes out of it; `at` picks its first or last row (a walk by j or k, PIE-1491). */
+  /**
+   * The person goes into list `l` (a ::links list: its rows take j k ⏎ / esc), or comes out of it; `at` picks its first or
+   * last row (a walk by j or k, PIE-1491). A collection has no mode (PIE-1501): going in is the [ ] position on its row.
+   */
   enterList(l: ListHandle<any>, on: boolean, at?: "first" | "last") {
     if (!on) { this.leaveList(l.key); this.letGo(); return; }
-    if (this.listIn !== l.key) this.modes.push(listMode(this, l.key, l.title));
+    if (this.listIn !== l.key && !l.collection) this.modes.push(listMode(this, l.key, l.title));
     const rows = l.view.pickable();
     const first = at ? (at === "first" ? rows[0] : rows.at(-1)) : l.view.picked(PERSON) ?? l.view.visible().find(selectable);
     if (first) this.selectListRow(l, first.id, first.group);
@@ -4187,10 +4197,11 @@ export class NoteSurface {
         return this.listIn ?? link?.listRow?.key ?? (link?.inlineList && this.inlineLists.get(link.inlineList.key)?.rows.find(r => r.target.listRow)?.target.listRow?.key) ?? null;
       },
       none: "this note draws no list (a ::links component, or an extension's list view)",
-      picked: (l, row) => { this.selectListRow(l, row.id, row.group); if (l.change) this.enterList(l, true); const target = listOpenTarget(row); return this.previewRow(here(), target ? { ...target, listRow: { key: l.key, row: row.id, group: row.group } } : undefined); },
+      picked: (l, row) => { this.selectListRow(l, row.id, row.group); const target = listOpenTarget(row); return this.previewRow(here(), target ? { ...target, listRow: { key: l.key, row: row.id, group: row.group } } : undefined); },
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
       enter: (l, on) => { if (on || this.listIn === l.key) { this.enterList(l, on); if (!on) here().retirePeeks?.(USER); } },
-      type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(filterLine); },
+      // Typing a filter is the one mode a collection has: the letters are its until ⏎ keeps or esc clears them (list-mode.ts).
+      type: l => { if (this.listIn !== l.key) { this.enterList(l, true); if (l.collection) this.modes.push(listMode(this, l.key, l.title)); } l.view.startTyping(filterLine); },
       tune: (l, actor, standing) => this.run("settings", { list: l.key }, here(), actor, standing),
       choose: (l, action, keys) => here().overlay?.(listFieldPicker(l.title, action, keys, by => { void this.runList(action, { list: l.key, by }, here()); })),
       redraw: () => host?.redraw(),
@@ -4662,11 +4673,11 @@ export class NoteSurface {
     // W zooms into the part the [ ] position or the reading line is in; esc then returns to the whole note (PIE-780).
     const zk = modeBinding(ZOOM_KEYS, k);
     if (zk && (zk.args?.on !== false || this.zoom) && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("element.zoom", zk.args ?? {}, host); return true; }
+    // The [ ] position on a collection's row (PIE-1501): its list keys, as a figure's rows have theirs; no mode.
+    if (collectionKey(this, k, host)) return true;
     const fk = this.figureKey(k);
     if (fk) { void this.runKey(fk.name, fk.args as never, host); return true; }
     if (isUp(k) || isDown(k)) { void this.runKey("reading.step", { by: isUp(k) ? -1 : 1 }, host); return true; }
-    // Tab on a collection's block goes into it (tab or esc inside come out, list-keys.ts), PIE-1491.
-    if (k.kind === "tab") { const l = collectionAtReading(this); if (l) { void this.runList("list.enter", { list: l.key, on: true }, host); return true; } }
     // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
     // ctrl+z undoes the last step change made here.
     if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: stepClosed(e.task.step.status) ? "todo" : "done" }, host, true); return true; } }
@@ -5276,11 +5287,23 @@ export class NoteSurface {
     else if (rows[1] > this.scroll + d.room) this.scroll = Math.min(rows[0], rows[1] - d.room);
   }
 
-  stepReading(by: 1 | -1, through = false) {
-    const here = this.listIn ? null : collectionAtReading(this);
-    if (here && !through && by > 0) { this.enterList(here, true, "first"); return; }
-    if (here && through && by < 0 && collectionTextStop(this)) return;
+  stepReading(by: 1 | -1, through = false, host?: SurfaceHost) {
     const current = this.selectedElement();
+    // The [ ] position on a collection's row (PIE-1501): the collection steps its own rows (down or up a grid, along a
+    // lane); past an edge the walk goes on through the note, as it came in. No mode: this is the one row step for a
+    // collection, as the inline branch below is for a figure's or a ::links' rows. The pick lands as a click's does
+    // (listHost.picked: the [ ] position, and the preview following it).
+    const onRow = collectionAtCursor(this);
+    const land = (l: ListHandle<any>, row: ListViewRow<any>) => { if (host) void this.listHost(host).picked(l, row); else this.selectListRow(l, row.id, row.group); };
+    if (onRow && !through) {
+      const row = onRow.view.step(PERSON, by);
+      if (row) { land(onRow, row); return; }
+      // k from its first row, with the block's own text above the rows (a saved view's last body line): onto that text.
+      if (by < 0 && collectionTextStop(this)) { this.letGo(); return; }
+      through = true;
+    }
+    const here = onRow ? null : collectionAtReading(this);
+    if (here && !through && by > 0) { this.enterList(here, true, "first"); return; }
     const figure = current?.link?.figure?.figure;
     const links = current?.link?.listRow?.key;
     if (figure || (links && !current.link?.inlineList && !this.listsDrawn.some(l => l.key === links && l.collection))) {
@@ -5301,7 +5324,7 @@ export class NoteSurface {
       if (row >= 0 && row < list.rows.length) { this.selectInlineRow(current!, row); return; }
     }
     // Leaving a collection's block (its rows scrolled by their own picks): walk on, never a screen of it at a time.
-    const leaving = !!here;
+    const leaving = !!here || !!onRow;
     this.letGo();
     const d = this.drawn;
     if (!d) return;
@@ -5336,6 +5359,12 @@ export class NoteSurface {
       }
       row += by;
     }
+    // Nothing that way. From a row (the collection ends or starts the note): the walk stays on its edge row. From off
+    // one (a saved view opened as its own note is only its rows, which no source line names): j lands on the kept pick,
+    // else its first row; k on its last.
+    if (onRow) { const edge = by > 0 ? onRow.view.pickable().at(-1) : onRow.view.pickable()[0]; if (edge) land(onRow, edge); return; }
+    const only = this.listsDrawn.find(l => l.collection);
+    if (only) { const row = (by > 0 ? only.view.picked(PERSON) : null) ?? (by > 0 ? only.view.pickable()[0] : only.view.pickable().at(-1)); if (row) land(only, row); }
   }
 
   sourceLineAt(y: number): number | null {
@@ -5367,7 +5396,7 @@ export class NoteSurface {
   }
 
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
-  letGo() { this.cur = null; this.link = -1; this.linkUnlaid = null; }
+  letGo() { this.cur = null; this.link = -1; this.linkUnlaid = null; this.pendingRow = null; }
   /** The generated regions the last layout drew (src/output-region.ts): what `[ ]` stops on at each one's gutter mark. */
   private regionInfo = new Map<string, { label: string; target: LinkTarget }>();
   /** Their rows in the reader's content rows (header included), for `openRegionKey`. */
@@ -5927,7 +5956,7 @@ export class NoteSurface {
    */
   claims(k: Key): boolean {
     const list = this.listsDrawn.find(l => l.key === this.listIn);
-    return !!list && (!!list.collection || !!list.view.typing || !!listBinding(k, !!list.change, list.view.pickable().length)) || (k.kind === "tab" && !!collectionAtReading(this)) || this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H");
+    return !!list && (!!list.view.typing || !!listBinding(k, !!list.change, list.view.pickable().length)) || !!collectionBinding(this, k) || this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H");
   }
 
   /**
@@ -10695,7 +10724,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "edit.insert": def({
     summary: "insert text on its own line at the note cursor; a reader saves it, an open draft keeps it unsaved; either is one undo step",
     touches: "draft", draft: "type", replay: "ask",
-    args: { text: { type: "string", about: "the line to insert" } },
+    args: { text: { type: "string", about: "the line to insert" } }, examples: [{ act: 'edit.insert text="Order the seed potatoes"', does: "puts that line into the note at the cursor, saved unless a draft is open" }],
     run: ({ text }, { surface, host }, actor) => insertNoteLine(text, surface, host, actor),
   }),
   "edit.text": def({
@@ -10946,10 +10975,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     ],
     async run({ n, by, row }, { surface, host }, actor) {
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("say n= (an element, 0 lets go) or by=1 / by=-1");
-      if (n === 0) { surface.letGo(); host.redraw(); return { current: null }; }
+      // Letting go of a collection's row (esc) ends the peek that followed it, as leaving a list did (PIE-849, PIE-1501).
+      if (n === 0) { if (collectionAtCursor(surface)) host.retirePeeks?.(USER); surface.letGo(); host.redraw(); return { current: null }; }
       if (by !== undefined) {
         if (!surface.step(by < 0 ? -1 : 1)) throw new ActionRefused("nothing to step to: this note has no links, folds, figure rows, embeds, resource projections or comments");
-        enterCollectionRow(surface);
         surface.previewRow(host);
         host.redraw();
         return surface.describeElements().find(e => e.current) ?? null;
@@ -12164,7 +12193,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run({ by, through }, { surface, host }) {
       surface.requireNote();
       if (by !== 1 && by !== -1) throw new ActionRefused("by is 1 or -1");
-      surface.stepReading(by, !!through); surface.previewRow(host); host.redraw();
+      surface.stepReading(by, !!through, host); surface.previewRow(host); host.redraw();
       return { position: surface.position.reading };
     },
   }),

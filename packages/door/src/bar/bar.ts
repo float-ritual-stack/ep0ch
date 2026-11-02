@@ -270,7 +270,7 @@ export class PowerBar {
     if (this.scope !== "ask" && this.host.dispatch.has(before.split(/\s/)[0]!) && /\s/.test(before)) {
       const completed = await completeCommand(before, this.host);
       if (before !== this.query || this.done) return;
-      if (completed !== null) { this.input.splice(0, this.query.length, completed); this.refresh(); this.host.ctx.redraw(); return; }
+      if (completed !== null && completed !== before) { this.input.splice(0, this.query.length, completed); this.refresh(); this.host.ctx.redraw(); return; }
     }
     if (this.scope === "ask" && maskedQuestion()) return;
     const it = this.items[this.picker.sel];
@@ -289,9 +289,28 @@ export class PowerBar {
     // A lone long title advances a word at a time; multiple rows can agree on a longer prefix.
     const fill = fills.length > 1 && extendsTyped(prefix) ? prefix : lit.startsWith(typed)
       ? typed + (lit.slice(typed.length).match(/^\s*\S+\s*/)?.[0] ?? "") : lit;
-    if (fill === typed) return;
+    // Nothing left to complete: the lit action's examples, the first then the next (PIE-1502), the arguments selected.
+    if (fill === typed) { this.exampleFill(it, typed); return; }
     const start = fill.startsWith(typed) ? typed.length : 0;
     this.input.splice(0, typed.length, fill, {}, undefined, { start, end: fill.length });
+    this.refresh();
+  }
+
+  /** The lit row's action's examples (ActionDef.examples), when it has them. */
+  private litExamples(it = this.items[this.picker.sel]) {
+    const action = (it?.row.data as { action?: string } | undefined)?.action;
+    return action ? this.host.dispatch.list().actions.find(a => a.name === action)?.examples ?? [] : [];
+  }
+  /** The line is one of the lit action's examples, with another to turn to: tab turns to it rather than completing the line's last word. */
+  private atExample() { const ex = this.litExamples(); return ex.length > 1 && ex.some(e => e.act === this.query); }
+  /** The lit row's action's examples put in the line in turn: the line to type, when the name alone (or an example) is typed. */
+  private exampleFill(it: BarItem, typed: string) {
+    const examples = this.litExamples(it);
+    if (!examples.length) return;
+    const next = examples[(examples.findIndex(ex => ex.act === typed) + 1) % examples.length]!.act;
+    if (next === typed) return;
+    const name = next.split(/\s/)[0]!.length;
+    this.input.splice(0, typed.length, next, {}, undefined, { start: Math.min(name + 1, next.length), end: next.length });
     this.refresh();
   }
 
@@ -615,7 +634,7 @@ export class PowerBar {
     const keys = listed && ["up", "down", "tab", "enter", "esc", "pgup", "pgdn"].includes(k.kind);
     // → at the line's end asks as tab does (the shell's), so one completion answers both.
     const target = c.target();
-    const asks = (k.kind === "tab" || k.kind === "right" && this.input.cursor === this.query.length) && !!target && target.kind !== "query";
+    const asks = (k.kind === "tab" || k.kind === "right" && this.input.cursor === this.query.length) && !!target && target.kind !== "query" && !(k.kind === "tab" && this.atExample());
     if (!keys && !asks) return false;
     this.input.take(asks && !keys ? { kind: "tab" } : k);
     return true;

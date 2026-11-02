@@ -1,3 +1,4 @@
+import { programEnv } from "@ep0ch/outliner/program-env";
 import { createInterface } from "node:readline";
 import { mintCallId } from "@ep0ch/outline-core/attribution";
 import { installedRules, newerRules } from "@ep0ch/outliner/client-code";
@@ -17,7 +18,7 @@ export async function mcpStdio(args: string[]): Promise<number> {
   let silent = false;
   const start = () => {
     const child = Bun.spawn([process.execPath, new URL("./mcp-worker.ts", import.meta.url).pathname, ...args], {
-      stdin: "ignore", stdout: "ignore", stderr: "inherit", env: { ...process.env },
+      stdin: "ignore", stdout: "ignore", stderr: "inherit", env: programEnv(process.env),
       ipc(message: WorkerReply) {
         if ("line" in message) { if (!silent) process.stdout.write(message.line + "\n"); }
         else if ("adopt" in message) adopted.add(message.adopt);

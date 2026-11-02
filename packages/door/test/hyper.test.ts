@@ -105,7 +105,13 @@ describe("hyper chords as a terminal sends them", () => {
     useHyper(true);
     const on = describeKey(reportKey(parseReport("\x1b[107;16u")!)!, "\x1b[107;16u");
     expect(on).toContain("hyper+k (✦k, the hyper layer)");
-    expect(describeKey({ kind: "char", ch: "a" }, "a")).toContain("legacy (no key report");
+    expect(describeKey({ kind: "char", ch: "a" }, "a")).toContain("a plain key (no Kitty key report");
+    // Without the bytes (a key a tile program handed on), the probe says what reached the door and nothing about the protocol.
+    const handed = describeKey({ kind: "hyper", ch: "a" } as never, "");
+    expect(handed).toStartWith("✦ probe · hyper+a");
+    expect(handed).toContain("reached the door");
+    expect(handed).not.toContain("no key report");
+    expect(handed).not.toContain("bytes");
   });
 });
 

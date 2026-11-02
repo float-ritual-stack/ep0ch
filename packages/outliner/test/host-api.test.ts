@@ -3,7 +3,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { hostApi } from "../src/host-api";
 import { runScript } from "../src/script-runtime";
@@ -481,14 +481,26 @@ test("a render has no sh or fetch, and below full MCP access they are refused in
   expect((await full.sh(["true"])).exit).toBe(0);
 });
 
-test("a block script's sh is a step on its run note", async () => {
+test("a block script's sh finds the checkout instructions and records a step on its run note", async () => {
   const { client, store } = await setup();
+  const inheritedSource = process.env.EP0CH_SOURCE;
+  delete process.env.EP0CH_SOURCE;
+  cleanups.push(async () => {
+    if (inheritedSource === undefined) delete process.env.EP0CH_SOURCE;
+    else process.env.EP0CH_SOURCE = inheritedSource;
+  });
   const api = hostApi(client, { actorId: "seed-author" });
-  await api.call("outline_create", { parent: "root", text: `Seed echo [script::seed-echo] [results::keep]\n\`\`\`js\nconst out = await sh(${JSON.stringify([process.execPath, "-e", "console.log('two trays')"])});\nreturn out.stdout.trim();\n\`\`\`` });
+  const inspectSource = `const source = process.env.EP0CH_SOURCE; console.log(JSON.stringify({ source: source ?? null, instructions: source ? (await Bun.file(source + '/AGENTS.md').text()).length > 0 : false }));`;
+  await api.call("outline_create", { parent: "root", text: `Seed echo [script::seed-echo] [results::keep]\n\`\`\`js
+const out = await sh(${JSON.stringify([process.execPath, "-e", "console.log('two trays')"])});
+const source = await sh(${JSON.stringify([process.execPath, "-e", inspectSource])});
+return JSON.stringify({ echo: out.stdout.trim(), ...JSON.parse(source.stdout) });
+\`\`\`` });
   const listed = await client.request<{ extensions: { id: string; name?: string }[] }>({ action: "extensions.list", reload: true });
   const extension = listed.extensions.find(e => e.name === "seed-echo")!;
   const run = await client.request<{ written: string[]; message: string; state: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
-  expect(run).toMatchObject({ message: "two trays", state: "done" });
+  expect(run.state).toBe("done");
+  expect(JSON.parse(run.message)).toEqual({ echo: "two trays", source: resolve(import.meta.dir, "../../.."), instructions: true });
   const log = store.get(run.written[0]!)!.text;
   // A person reads it: the command, how it ended, its size, and its first lines in a fence.
   expect(log).toContain(`1. sh ${process.execPath} -e console.log('two trays') → exit 0, 10 B`);

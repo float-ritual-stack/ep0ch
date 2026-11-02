@@ -24,6 +24,7 @@ test("the named CLI keeps its configured program and outline when --cwd override
   const read = await core.hc("read", "fern");
   expect(read.out).toContain("Fern ready: garden / fern / fern");
   expect(read.out).toContain("Door binding: unbound");
+  expect(read.out).toContain(`Source: ${resolve(import.meta.dir, "../../..")}`);
   expect((await core.ep0ch("agent", "start", "fern")).code).toBe(0);
   expect(JSON.parse((await core.hc("get", "fern")).out).address).toBe(t.address);
   await core.hc("send", "fern", "quit");
