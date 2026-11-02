@@ -105,9 +105,9 @@ export const ATTACHED_KEYS = [SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPL
 export const hintOf = (rows: readonly ModeKey[]): string => modeHint(rows, () => undefined);
 export const rk = (key: string, action: string, label: string, args?: Record<string, unknown>): ModeKey => ({ key, action, label, ...(args ? { args } : {}) });
 /** Reading a note: the keys the hint row names, on the actions they run (NOTE_ACTIONS). */
-export const STEP_KEYS = ["up", "down", "j", "k"].map(key => rk(key, "reading.step", "blocks/rows"));
-export const ELEMENT_STEP_KEYS = ["[", "]"].map(key => rk(key, "element.select", "elements"));
-export const SECTION_KEYS = ["(", ")"].map(key => rk(key, "fold.select", "sections"));
+export const STEP_KEYS = ["up", "down", "j", "k"].map(key => rk(key, "reading.step", "blocks/rows", { by: key === "up" || key === "k" ? -1 : 1 }));
+export const ELEMENT_STEP_KEYS = ["[", "]"].map(key => rk(key, "element.select", "elements", { by: key === "[" ? -1 : 1 }));
+export const SECTION_KEYS = ["(", ")"].map(key => rk(key, "fold.select", "sections", { by: key === "(" ? -1 : 1 }));
 export const READING_KEYS: readonly ModeKey[] = [
   rk("f", "fold.toggle", "fold"), rk("M", "margin", "comments mode"), rk("R", "note.reply", "reply"), rk("t", "note.thread", "thread"), rk("i", "props", "properties"),
   rk("z", "callouts", "callouts"), rk("u", "up", "up"), rk("C", "passage.select", "comment"), rk("m", "threads", "comments"),
@@ -121,7 +121,7 @@ export const FIELD_KEYS: readonly ModeKey[] = [rk("enter", "edit.save", "saves")
 export const CHILDREN_KEYS: readonly ModeKey[] = [rk("enter", "edit.save", "save"), rk("ctrl+s", "edit.save", "save"), rk("esc", "edit.close", "keeps")];
 /** Writing a reply: save, the ways out, scrolling the message and quoting from it. */
 export const replyHint = (dirty: boolean): string => {
-  const own = hintOf([rk("ctrl+s", "edit.save", "saves"), rk("esc", "edit.close", dirty ? "twice discards" : "discards"), rk("pgup", "draft.scroll", "scroll message"), rk("pgdn", "draft.scroll", "scroll message")]);
+  const own = hintOf([rk("ctrl+s", "edit.save", "saves"), rk("esc", "edit.close", dirty ? "twice discards" : "discards"), { ...rk("pgup", "scroll", "scroll message"), click: false }, { ...rk("pgdn", "scroll", "scroll message"), click: false }]);
   return [own, "select then " + hintOf([rk('"', "note.quote", "quotes")])].join(" · ");
 };
 /** A selected figure: its rows, esc out of it and, when it has tabs, the tab keys. */

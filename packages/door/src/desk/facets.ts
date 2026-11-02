@@ -61,7 +61,7 @@ type Row =
   | { kind: "more"; group: string };
 
 const HINT_KEYS: readonly ModeKey[] = [
-  { key: "j", action: "facets.pick", label: "pick" }, { key: "k", action: "facets.pick", label: "pick" },
+  { key: "j", action: "facets.pick", args: { by: 1 }, label: "pick" }, { key: "k", action: "facets.pick", args: { by: -1 }, label: "pick" },
   { key: "enter", action: "facets.set", label: "includes a value, again excludes it, again drops it" },
   { key: "+", action: "facets.set", args: { mode: "include" }, label: "include" }, { key: "-", action: "facets.set", args: { mode: "exclude" }, label: "exclude" }, { key: "0", action: "facets.set", args: { mode: "off" }, label: "drop" },
   { key: "e", action: "facets.edit", label: "edit the query" }, { key: "v", action: "facets.save", label: "save as a view" }, { key: "s", action: "facets.sort", label: "sort" },
@@ -70,7 +70,7 @@ const HINT_KEYS: readonly ModeKey[] = [
 ];
 /** The Matches list's keys when it is attached to the facets (key() below runs them). */
 const MATCHES_KEYS: readonly ModeKey[] = [
-  { key: "j", action: "facets.pick", label: "pick" }, { key: "k", action: "facets.pick", label: "pick" },
+  { key: "j", action: "facets.match", args: { by: 1 }, label: "pick" }, { key: "k", action: "facets.match", args: { by: -1 }, label: "pick" },
   { key: "enter", action: "facets.open", label: "open" }, { key: "alt+enter", action: "facets.open", args: { fresh: true }, label: "beside" },
   { key: "*", action: "facets.pin", label: "pin" }, { key: "t", action: "facets.tag", label: "tag" }, { key: "ctrl+o", action: "facets.place", label: "moves it" },
 ];

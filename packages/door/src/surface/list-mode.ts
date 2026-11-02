@@ -97,7 +97,7 @@ export function collectionKey(surface: NoteSurface, k: Key, host: SurfaceHost): 
   const found = collectionBinding(surface, k);
   if (!found) return false;
   const { list, binding } = found;
-  if (binding.action === "list.step" && (binding.args?.axis ?? "row") === "row") void surface.runKey("reading.step", { by: (binding.args?.by as number) > 0 ? 1 : -1 }, host);
+  if (binding.action === "list.step" && (binding.args?.axis ?? "row") === "row" && !binding.args?.page) void surface.runKey("reading.step", { by: (binding.args?.by as number) > 0 ? 1 : -1 }, host);
   else void surface.runList(binding.action as ListActionName, { list: list.key, ...binding.args } as never, host);
   return true;
 }

@@ -194,17 +194,17 @@ export type CommentMode = "select" | "compose" | "threads";
  * these. Moving has no action of its own, so a row names the nearest (the one that picks the passage, or opens the thread).
  */
 const SELECT_KEYS: readonly ModeKey[] = [
-  ...["j", "k"].map(key => ({ key, action: "passage.select", label: "line" })),
-  ...["J", "K"].map(key => ({ key, action: "passage.select", label: "extend" })),
-  ...["h", "l"].map(key => ({ key, action: "passage.select", label: "start" })),
-  ...["H", "L"].map(key => ({ key, action: "passage.select", label: "end" })),
-  { key: "enter", action: "comment.write", label: "write" },
+  ...["j", "k"].map(key => ({ key, action: "passage.select", label: "line", click: false as const })),
+  ...["J", "K"].map(key => ({ key, action: "passage.select", label: "extend", click: false as const })),
+  ...["h", "l"].map(key => ({ key, action: "passage.select", label: "start", click: false as const })),
+  ...["H", "L"].map(key => ({ key, action: "passage.select", label: "end", click: false as const })),
+  { key: "enter", action: "comment.write", label: "write", click: false },
   { key: "esc", action: "comment.escape", label: "back" },
 ];
 const THREAD_KEYS: readonly ModeKey[] = [
-  ...["j", "k"].map(key => ({ key, action: "thread.toggle", label: "thread" })),
-  ...["pgup", "pgdn"].map(key => ({ key, action: "scroll", label: "scroll" })),
-  { key: "r", action: "comment.write", label: "reply" },
+  ...["j", "k"].map(key => ({ key, action: "thread.toggle", label: "thread", click: false as const })),
+  ...["pgup", "pgdn"].map(key => ({ key, action: "scroll", label: "scroll", click: false as const })),
+  { key: "r", action: "comment.write", label: "reply", click: false },
   { key: "e", action: "comment.edit", label: "edit" }, { key: "s", action: "thread.seen", label: "seen" },
   { key: "p", action: "thread.keep", label: "keep" }, { key: "t", action: "thread.tldr", label: "TL;DR" },
   { key: "q", action: "quote", label: "quote" },

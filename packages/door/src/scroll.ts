@@ -72,6 +72,9 @@ export const scrollOff = (room: number) => Math.min(3, Math.floor(room / 4));
  */
 export const pageRows = (room: number) => Math.max(1, Math.floor(room) - 1);
 
+/** Of `steps` drawn over `drawn` rows, how many a view of `view` rows shows (an arrangement's page: cards and table rows). */
+export const stepsShown = (steps: number, drawn: number, view = drawn) => Math.min(steps, Math.floor(Math.max(1, view) * steps / Math.max(1, drawn)));
+
 /** A key's step through a list, or null when `k` isn't one: ↑ ↓ j k a row, PgUp PgDn a page, Home End the ends. */
 export function listStep(k: { kind: string; ch?: string; ctrl?: boolean; alt?: boolean }): { by: number } | { page: 1 | -1 } | { edge: "first" | "last" } | null {
   const c = k.kind === "char" && !k.ctrl && !k.alt ? k.ch : undefined;

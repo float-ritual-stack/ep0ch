@@ -371,6 +371,18 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
 
 // Every set made in this process (held weakly): the table test checks every action's declarations (PIE-514).
 const everySet = new Set<WeakRef<ActionSet<any, any>>>();
+/**
+ * Whether a press of `action` with `args` runs as given (PIE-1293): some set has the action, and every argument it
+ * requires (not optional, not the host's context) is there. A hint row's segment is a click only when this holds, so
+ * a click never runs an action short of what its key gives it.
+ */
+export function executable(action: string, args: Readonly<Record<string, unknown>> = {}): boolean {
+  return allActionSets().some(set => {
+    const spec = set.argsOf(action);
+    return !!spec && Object.entries(spec).every(([name, a]) => (a as ArgSpec).optional || (a as ArgSpec).context || args[name] !== undefined);
+  });
+}
+
 /** Every action set that exists now: the built-ins, each tile kind's, an extension's while it's bound. */
 export function allActionSets(): ActionSet<any, any>[] {
   const out: ActionSet<any, any>[] = [];

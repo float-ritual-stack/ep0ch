@@ -35,4 +35,11 @@ describe("the page step", () => {
     const shown = new Set(drawn.rowAt.filter(r => r !== null)).size;
     expect(l.pageBy(1)).toBe(pageRows(shown));
   });
+  test.each(["table", "grid", "rows"] as const)("ListView: PgDn in a %s collection moves the rows it shows less one, not one row", arrange => {
+    const rows = Array.from({ length: 60 }, (_, i) => ({ id: `r${i}`, label: `row ${i}`, cells: [`row ${i}`], do: { open: `r${i}` } }));
+    const l = new ListView("t");
+    l.set(rows);
+    l.draw({ cols: 80, room: 20, focused: true, selection: true, primitive: { type: "list", rows, arrange, columns: ["title"] } } as any);
+    expect(l.pageBy(1)).toBeGreaterThan(1);
+  });
 });

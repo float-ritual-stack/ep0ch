@@ -855,7 +855,7 @@ export class Entered {
 
 /** The keys of the last-callers list's hint row (key() below runs them). */
 const ACTIVITY_KEYS: readonly ModeKey[] = [
-  { key: "j", action: "activity.pick", label: "pick" }, { key: "k", action: "activity.pick", label: "pick" },
+  { key: "j", action: "activity.pick", label: "pick", click: false }, { key: "k", action: "activity.pick", label: "pick", click: false },
   { key: "enter", action: "activity.pick", args: { open: true }, label: "open" }, { key: "r", action: "activity.reload", label: "reload" },
 ];
 

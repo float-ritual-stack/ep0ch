@@ -45,13 +45,13 @@ import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
 const TUNE_FIELD_KEYS: readonly ModeKey[] = [{ key: "enter", action: "tune.field", args: { op: "save" }, label: "save" }, { key: "esc", action: "tune.field", args: { op: "cancel" }, label: "cancel" }];
 const TUNE_HINTS_KEYS: readonly ModeKey[] = [
-  { key: "H", action: "tune.section", args: { section: "values" }, label: "values" }, { key: "j", action: "tune.hint.pick", label: "pick" }, { key: "k", action: "tune.hint.pick", label: "pick" },
+  { key: "H", action: "tune.section", args: { section: "values" }, label: "values" }, { key: "j", action: "tune.hint.pick", label: "pick", click: false }, { key: "k", action: "tune.hint.pick", label: "pick", click: false },
   ...([["c", "card"], ["s", "status"], ["o", "off"]] as const).map(([key, to]) => ({ key, action: "hints.set", args: { to }, label: to })),
   { key: "R", action: "hints.reset", label: "reset all" },
 ];
 const TUNE_VALUES_KEYS: readonly ModeKey[] = [
   { key: "enter", action: "tune.group", label: "fold" }, { key: "f", action: "tune.filter", label: "set here" }, { key: "e", action: "tune.edit", label: "edit" },
-  { key: "j", action: "tune.pick", label: "pick" }, { key: "k", action: "tune.pick", label: "pick" },
+  { key: "j", action: "tune.pick", label: "pick", click: false }, { key: "k", action: "tune.pick", label: "pick", click: false },
   { key: "+", action: "tune.nudge", args: { by: 1 }, label: "nudge" }, { key: "-", action: "tune.nudge", args: { by: -1 }, label: "nudge" },
   { key: "v", action: "tune.level", label: "level" }, { key: "w", action: "tune.width", label: "width" }, { key: "s", action: "tune.save", label: "save" },
   { key: "u", action: "tune.undo", label: "undo" }, { key: "U", action: "tune.redo", label: "redo" }, { key: "x", action: "tune.unset", label: "reset value" },
@@ -517,9 +517,11 @@ export class TunePane implements Pane {
     if (c === "f") return this.run(desk, "tune.filter", { set: !this.onlySet }), true;
     if (c === "e" || k.kind === "enter") { this.run(desk, "tune.edit", {}); return true; }
     // A step waiting in place: its own key again confirms; any other lets it go (and esc is only that).
-    if (this.armed) {
+    const armed = this.armed;
+    if (armed) {
+      // take() lets the first press go either way: the action is the one held, read before it.
       const pressed = c === "X" ? "tune.resetlevel" : c === "R" ? "tune.revert" : null;
-      if (pressed && this.again.take({ action: pressed, words: "" })) return this.run(desk, this.armed.action, { confirm: true }), true;
+      if (pressed && this.again.take({ action: pressed, words: "" })) return this.run(desk, armed.action, { confirm: true }), true;
       this.run(desk, "tune.cancel", {});
       if (k.kind === "esc") return true;
     }

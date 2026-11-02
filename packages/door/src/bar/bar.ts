@@ -56,7 +56,7 @@ const SCOPE_KEYS = tabKeys("bar.open", { prev: ["alt+left", "alt+b"], next: ["al
 /** The bar's own keys, as its foot says them. Up and down move the lit row, which bar.pick then takes. */
 const BAR_KEYS: readonly ModeKey[] = [
   { key: "esc", action: "bar.close", label: "clear/close" },
-  { key: "up", action: "bar.pick", label: "pick" }, { key: "down", action: "bar.pick", label: "pick" },
+  { key: "up", action: "bar.pick", label: "pick", click: false }, { key: "down", action: "bar.pick", label: "pick", click: false },
   { key: "enter", action: "bar.pick", label: "run" },
   { key: "tab", action: "bar.edit", args: { op: "complete" }, label: "complete" },
   { key: "alt+o", action: "bar.command", args: { op: "copy" }, label: "copy" },
@@ -74,7 +74,7 @@ const DOCS_KEYS: readonly ModeKey[] = [
 ];
 /** A compact question: a choice is picked with j k and ⏎, anything else typed and run. */
 const COMPACT_KEYS = (choice: boolean): readonly ModeKey[] => choice
-  ? [{ key: "j", action: "bar.pick", label: "choose" }, { key: "k", action: "bar.pick", label: "choose" }, { key: "enter", action: "bar.pick", label: "choose" }, { key: "esc", action: "bar.close", label: "cancel" }]
+  ? [{ key: "j", action: "bar.pick", label: "choose", click: false }, { key: "k", action: "bar.pick", label: "choose", click: false }, { key: "enter", action: "bar.pick", label: "choose" }, { key: "esc", action: "bar.close", label: "cancel" }]
   : [{ key: "enter", action: "bar.pick", label: "run" }, { key: "esc", action: "bar.close", label: "cancel" }];
 /** The columns a row's words keep before its kind chip is drawn beside them. */
 const CHIP_ROOM = 32;

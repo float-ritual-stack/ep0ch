@@ -22,7 +22,7 @@ export const AGENTS_KIND_NAME = "agents";
 
 /** The panel's row keys, in the order its hint says them. */
 export const AGENTS_KEYS: readonly ModeKey[] = [
-  { key: "j", action: "agents.pick", label: "pick" }, { key: "k", action: "agents.pick", label: "pick" },
+  { key: "j", action: "agents.pick", label: "pick", click: false }, { key: "k", action: "agents.pick", label: "pick", click: false },
   { key: "enter", action: "agents.go", label: "jumps" }, { key: "@", action: "agents.ask", label: "ask it" },
   { key: "a", action: "agents.drawer", label: "into your drawer" }, { key: "d", action: "agents.dock", label: "dock here" }, { key: "n", action: "agents.new", label: "new" },
 ];

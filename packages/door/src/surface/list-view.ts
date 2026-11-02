@@ -9,7 +9,7 @@ import { BORDER_BOXES, stringFrame } from "../canvas";
 import { listCellText, filterListRows, listHead, listSections, type ListPreviewSide, type ListPrimitive, type ListRow, type ListTone } from "@ep0ch/outline-core/list-row";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { dividerLine, listSlots, zebraRow } from "../list-look";
-import { pageRows, RowView, type RowGesture, type RowPress } from "../scroll";
+import { pageRows, RowView, stepsShown, type RowGesture, type RowPress } from "../scroll";
 import type { Actor } from "../socket";
 import { BOLD, C, ellipsize, fg, LINK_END, pad, RESET, selectedRow, tint, width } from "../style";
 import { primitiveLines } from "../components";
@@ -351,14 +351,16 @@ export class ListView<S = unknown> {
    * host decides: `tag` turns a row's text into the reader's link, `preview.of` draws the row's note.
    */
   draw(o: ListDrawOpts<S>): ListDrawn<S> {
-    const drawn = this.drawList(o);
-    this.shownRows = new Set(drawn.rowAt.filter(at => at !== null)).size;
+    const drawn = this.drawList(o), shown = new Set(drawn.rowAt.filter(at => at !== null)).size;
+    if (shown || !o.primitive?.arrange) { this.shownRows = shown; this.wholePage = 0; }   // an arrangement (table, grid, lanes) counts its own (arranged)
     return drawn;
   }
   /** Rows the last draw showed: a page's step (pageBy). */
   private shownRows = 0;
   /** Rows a page moves the pick (PgUp -1, PgDn 1, PIE-1293): the rows last shown, less one (pageRows), at least one. */
-  pageBy(dir: 1 | -1): number { return dir * pageRows(Math.max(2, this.shownRows)); }
+  pageBy(dir: 1 | -1): number { return dir * (this.wholePage || pageRows(Math.max(2, this.shownRows))); }
+  /** An arrangement whose whole page is in view: its steps, so PgDn lands on the next page; else 0. */
+  private wholePage = 0;
 
   private drawList(o: ListDrawOpts<S>): ListDrawn<S> {
     this.selectionStyle = o.primitive?.arrange ? "frame" : "row";
@@ -526,6 +528,12 @@ export class ListView<S = unknown> {
     const pages = this.pageCount(PERSON);
     if (pages > 1) lines.push(`${o.pageControl?.(-1, "◀") ?? "◀"} ${this.page + 1}/${pages} ${o.pageControl?.(1, "▶") ?? "▶"}`);
     for (const other of this.others()) if (other.row || other.filter) lines.push(fg(C.lmagenta) + `${other.who}: page ${this.pageOf(other.who) + 1}/${this.pageCount(other.who)} · ${other.row?.label ?? ""}${other.filter ? ` / ${other.filter}` : ""}` + RESET);
+    // A page here (PgUp PgDn) is the steps the room shows: a table's rows, a grid's rows of cards, a lane's longest run.
+    const per = Math.max(1, this.columns), many = ordered.length, drawn = lines.length, longest = Math.max(0, ...this.lanes.map(l => ordered.filter(r => l.some(x => x.id === r.id)).length));
+    const steps = node.arrange === "grid" ? Math.ceil(many / per) : node.arrange === "lanes" && longest ? longest : many;
+    this.shownRows = stepsShown(steps, drawn, o.room);
+    // The whole page in view: a page further is the next page's same place (PgDn turns it), not one row on.
+    this.wholePage = steps > 0 && this.shownRows >= steps && pages > 1 ? steps : 0;
     return { lines, rowAt: lines.map(() => null), previewed: null, beside: false, listCols: o.cols };
   }
 }
