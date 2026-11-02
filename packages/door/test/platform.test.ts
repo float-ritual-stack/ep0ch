@@ -78,6 +78,8 @@ describe("review fixes without a service", () => {
     const board = {
       get: async () => { if (fail) throw new Error("socket closed"); return full; },
       comments: async () => [], ancestors: async () => [],
+      // A partial note asks for its projections too (#1137); none here.
+      readResourceProjections: async () => ({ projections: [] }),
       // The board's outline dock reads its lists again on the reconnect (#182).
       roots: async () => [], children: async () => [],
     };

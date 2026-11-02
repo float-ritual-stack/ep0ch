@@ -247,7 +247,10 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     b.render(B().ctx);                                                  // lays out lane rectangles for the mouse
     const from = BV.rectOf(b, "Queued");
     const to = BV.rectOf(b, "Doing");
-    const y = from.row + 1 + (B().lanes[laneIndex("Queued")].sel - B().lanes[laneIndex("Queued")].cursor.top) * 2;
+    // A card takes one or two rows since lanes draw through the shared ListView (#1134): the drawn rows say where it is.
+    const queued = B().lanes[laneIndex("Queued")];
+    const y = from.row + 1 + queued.drawnItems.indexOf(queued.sel);
+    expect(y).toBeGreaterThan(from.row);
     const mouse = (action: "down" | "drag" | "up", x: number, yy: number) => press({ kind: "mouse", action, button: 0, x, y: yy });
     mouse("down", from.col + 3, y);
     mouse("drag", to.col + 4, to.row + 3);
