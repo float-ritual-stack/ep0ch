@@ -90,6 +90,19 @@ async function setup(options: { now?: () => number; secrets?: string } = {}) {
 
 // ── A connection to the service ──────────────────────────────────────────
 
+test("PIE-1234 probe: an extension can subscribe over its existing connection", async () => {
+  const { client, install } = await setup();
+  await install("trail-probe", { actions: [{ id: "listen", label: "Listen", on: "outline" }] },
+    `${CALL}
+try {
+  await call({ action: "events.subscribe", client: { clientId: "trail-probe", contextId: "garden", role: "observer" } });
+  say({ message: "subscribed" });
+} catch (error) { say({ message: error.message }); }
+`);
+  const answer = await client.request<{ message: string }>({ action: "extensions.act", extension: "trail-probe", extensionAction: "listen" });
+  expect(answer.message).toBe("subscribed");
+});
+
 test("every extension process gets its connection, HOME, WITH_SECRETS_DIR and the host variables its manifest names, nothing else", async () => {
   const { socket, client, install } = await setup();
   process.env.OUTLINER_TEST_HOST_SECRET = "not-for-extensions";
