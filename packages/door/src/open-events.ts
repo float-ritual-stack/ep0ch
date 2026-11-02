@@ -19,7 +19,7 @@ export class OpenEvents {
   opened(event: DoorOpen, ctx: Ctx) {
     this.events.push(event); if (this.events.length > 500) this.events.shift();
     queueMicrotask(() => { for (const f of this.viewers) { try { f(event as unknown as ViewEvent); } catch { /* Subscribers own their errors. */ } } });
-    void ctx.board.request("door.open", { body: event }).catch(error => ctx.flash(`Open event: ${String(error)}`));
+    void ctx.board.request("door.event", { body: event }).catch(error => ctx.flash(`Open event: ${String(error)}`));
   }
   last(tile: string) { return this.events.findLast(e => e.target.tile === tile); }
   since(at = 0) { return this.events.filter(e => e.at >= at); }

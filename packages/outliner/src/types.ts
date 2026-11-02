@@ -2062,7 +2062,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "tree.search"; query: string; limit?: number; semantic?: boolean; deep?: boolean; contextBlockId?: string; machinery?: import("@ep0ch/outline-core/machinery").MachineryMode }
   | { id: string; action: "tree.focus"; query: string }
   | { id: string; action: "events.subscribe"; client: OutlinerClientRegistration; kinds?: readonly string[] }
-  | { id: string; action: "door.open"; body: import("@ep0ch/outline-core/door-open").DoorOpen }
+  | { id: string; action: "door.event"; body: import("@ep0ch/outline-core/door-open").DoorEvent }
   | { id: string; action: "clients.list"; role?: OutlinerClientRole }
   | {
       id: string;
@@ -2897,7 +2897,7 @@ export type OutlinerEventDomain = "door"
   | "queries";
 
 export interface OutlinerEvent {
-  open?: import("@ep0ch/outline-core/door-open").DoorOpen;
+  door?: import("@ep0ch/outline-core/door-open").DoorEvent;
   ask?: import("@ep0ch/outline-core/protocol").AskProgress;
   id: string; domain: OutlinerEventDomain;
   action: string; sequence: number;

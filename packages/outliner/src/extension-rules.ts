@@ -1,4 +1,4 @@
-import type { DoorOpen } from "@ep0ch/outline-core/door-open";
+import type { DoorEvent } from "@ep0ch/outline-core/door-open";
 import { cellBlockId } from "@ep0ch/outline-core/figure-live";
 import { displayTitleOfText } from "./references";
 import { createHash } from "node:crypto";
@@ -43,7 +43,7 @@ import type { ExtensionOutputRow, OutlinerStore } from "./store";
 import type { Block, MutationProvenance, PropertyRecord } from "./types";
 
 /** A rule's trigger keys and the key each becomes when its extension is removed (back again on reinstall). */
-export const RULE_TRIGGER_KEYS = { "rule-on": "rule-was-on", "rule-on-stop": "rule-was-on-stop", "rule-on-change": "rule-was-on-change", "rule-on-open": "rule-was-on-open" } as const;
+export const RULE_TRIGGER_KEYS = { "rule-on": "rule-was-on", "rule-on-stop": "rule-was-on-stop", "rule-on-change": "rule-was-on-change", "rule-on-open": "rule-was-on-open", "rule-on-event": "rule-was-on-event" } as const;
 export type RuleTriggerState = "on" | "was-on";
 /** The trigger keys in one state: the live ones, or the switched-off ones. */
 export function ruleTriggerKeys(state: RuleTriggerState): string[] {
@@ -116,7 +116,7 @@ export interface RuleEntry {
   readonly match: RuleMatch;
   readonly decorate?: { readonly place?: Place; readonly builtIn?: BuiltInSpec; readonly code: boolean; readonly deadline?: string };
   readonly on?: {
-    readonly start?: ActionRef; readonly stop?: ActionRef; readonly change?: ActionRef; readonly open?: ActionRef; readonly quietMs: number;
+    readonly start?: ActionRef; readonly stop?: ActionRef; readonly change?: ActionRef; readonly open?: ActionRef; readonly events?: Readonly<Record<string, ActionRef>>; readonly quietMs: number;
     readonly from?: readonly RuleWriter[]; readonly batchMs?: number; readonly cap?: number; readonly skip?: string;
   };
 }
@@ -134,7 +134,7 @@ export interface RuleListEntry {
    * writers it hears, and its guards.
    */
   readonly on?: {
-    readonly start?: string; readonly stop?: string; readonly change?: string; readonly open?: string; readonly quiet: string;
+    readonly start?: string; readonly stop?: string; readonly change?: string; readonly open?: string; readonly events?: Readonly<Record<string, string>>; readonly quiet: string;
     readonly from: readonly string[]; readonly batch?: string; readonly cap?: number; readonly skip?: string;
   };
   /** How many blocks match it now (a trigger rule's count; absent for one without `on`). */
@@ -142,7 +142,7 @@ export interface RuleListEntry {
   /** How many times its trigger called its action today (against its cap). */
   readonly ranToday?: number;
   /** The last trigger that ran, and what came of it. */
-  readonly lastRun?: { readonly at: string; readonly blockId: string; readonly when: "start" | "stop" | "change" | "open"; readonly blocks?: number; readonly message?: string; readonly error?: string };
+  readonly lastRun?: { readonly at: string; readonly blockId: string; readonly when: string; readonly blocks?: number; readonly message?: string; readonly error?: string };
   /** Why it matches nothing (a pattern or a kind that can't be used). */
   readonly problem?: string;
 }
@@ -221,7 +221,7 @@ function extensionRule(extension: LoadedExtension, rule: ExtensionRule): RuleEnt
 
 /** A trigger's `on`, from a manifest's (its actions by id, in `extension`) or a rule note's (actions by `<extension>/<action>`). */
 function triggerOn(on: {
-  start?: string | ActionRef; stop?: string | ActionRef; change?: string | ActionRef; open?: string | ActionRef; extension?: string;
+  start?: string | ActionRef; stop?: string | ActionRef; change?: string | ActionRef; open?: string | ActionRef; events?: Readonly<Record<string, string | ActionRef>>; extension?: string;
   quiet?: string; from?: string | readonly string[]; batch?: string; cap?: string | number; skip?: string;
 }): NonNullable<RuleEntry["on"]> {
   const ref = (value: string | ActionRef | undefined): ActionRef | undefined =>
@@ -232,7 +232,7 @@ function triggerOn(on: {
   const wait = (raw: string | undefined) => { const ms = raw === undefined ? undefined : ruleWaitMs(raw); return typeof ms === "number" ? ms : undefined; };
   const batchMs = wait(on.batch);
   return {
-    ...(start ? { start } : {}), ...(stop ? { stop } : {}), ...(change ? { change } : {}), ...(open ? { open } : {}),
+    ...(start ? { start } : {}), ...(stop ? { stop } : {}), ...(change ? { change } : {}), ...(open ? { open } : {}), ...(on.events ? { events: Object.fromEntries(Object.entries(on.events).map(([kind, action]) => [kind, ref(action)!])) } : {}),
     quietMs: wait(on.quiet) ?? DEFAULT_QUIET_MS,
     ...(from?.length ? { from } : {}), ...(batchMs ? { batchMs } : {}), ...(typeof cap === "number" ? { cap } : {}), ...(on.skip ? { skip: on.skip } : {}),
   };
@@ -335,7 +335,7 @@ export class ExtensionRules {
       return {
         key: rule.key, name: rule.name, ...(rule.description ? { description: rule.description } : {}), source: rule.source, match: rule.match,
         ...(rule.decorate ? { decorate: { ...(rule.decorate.place ? { place: rule.decorate.place } : {}), ...(rule.decorate.builtIn ? { use: rule.decorate.builtIn.use } : {}), code: rule.decorate.code } } : {}),
-        ...(on ? { on: { ...(on.start ? { start: named(on.start) } : {}), ...(on.stop ? { stop: named(on.stop) } : {}), ...(on.change ? { change: named(on.change) } : {}), ...(on.open ? { open: named(on.open) } : {}), quiet: `${Math.round(on.quietMs / 100) / 10}s`,
+        ...(on ? { on: { ...(on.start ? { start: named(on.start) } : {}), ...(on.stop ? { stop: named(on.stop) } : {}), ...(on.change ? { change: named(on.change) } : {}), ...(on.open ? { open: named(on.open) } : {}), ...(on.events ? { events: Object.fromEntries(Object.entries(on.events).map(([kind, ref]) => [kind, named(ref)!])) } : {}), quiet: `${Math.round(on.quietMs / 100) / 10}s`,
           from: [...(on.from ?? DEFAULT_RULE_FROM)], ...(on.batchMs ? { batch: durationText(on.batchMs) } : {}), ...(on.cap ? { cap: on.cap } : {}), ...(on.skip ? { skip: on.skip } : {}) },
           matching: this.matching.get(rule.key)?.size ?? 0, ranToday: this.ranToday(rule.key) } : {}),
         ...(last ? { lastRun: last } : {}),
@@ -348,7 +348,7 @@ export class ExtensionRules {
   /** Why a rule's trigger can't run: an action that isn't installed or doesn't act on a block, a skip query that doesn't parse. */
   private triggerProblem(rule: RuleEntry): string | undefined {
     if (!rule.on) return undefined;
-    for (const [when, ref] of [["rule-on", rule.on.start], ["rule-on-stop", rule.on.stop], ["rule-on-change", rule.on.change], ["rule-on-open", rule.on.open]] as const) {
+    for (const [when, ref] of [["rule-on", rule.on.start], ["rule-on-stop", rule.on.stop], ["rule-on-change", rule.on.change], ["rule-on-open", rule.on.open], ...Object.entries(rule.on.events ?? {})] as const) {
       if (!ref) continue;
       const name = `${ref.extension}/${ref.action}`;
       if (!this.registry.extension(ref.extension)) return `${when} names ${name}, but ${ref.extension} isn't installed here (ep0ch ext ls lists what is)`;
@@ -730,15 +730,17 @@ export class ExtensionRules {
   }
 
   /** Opens carry their cause into the same action runtime as changes, without delaying the door. */
-  opened(open: DoorOpen): void {
+  doorEvent(event: DoorEvent): void {
     if (!this.started || this.stopped) return;
-    const block = open.target.note;
-    const writer = open.actor.kind === "user" ? "user" : "agent";
+    const block = event.target.note;
+    if (!block) return;
+    const writer = event.actor.kind === "user" ? "user" : "agent";
     for (const rule of this.triggerRules()) {
-      if (!rule.on?.open || !(rule.on.from ?? DEFAULT_RULE_FROM).includes(writer) || !this.matchesNow(rule, block)) continue;
-      if (rule.on.skip && this.skips(rule.on.skip, block)) continue;
-      this.queue(block, () => this.stopped ? Promise.resolve() : this.call(rule, "open", [block],
-        open.actor.kind === "agent" ? { author: "agent", actorId: open.actor.id } : { author: "user" }, false, open));
+      const action = rule.on?.events?.[event.kind] ?? (event.kind === "door.open" ? rule.on?.open : undefined);
+      if (!action || !(rule.on!.from ?? DEFAULT_RULE_FROM).includes(writer) || !this.matchesNow(rule, block)) continue;
+      if (rule.on!.skip && this.skips(rule.on!.skip, block)) continue;
+      this.queue(block, () => this.stopped ? Promise.resolve() : this.call(rule, event.kind, [block],
+        event.actor.kind === "agent" ? { author: "agent", actorId: event.actor.id } : { author: "user" }, false, event, action));
     }
   }
 
@@ -825,8 +827,7 @@ export class ExtensionRules {
   }
 
   /** Runs a rule's action once for `blocks` (one, or a batch's, the first acted on), within its daily cap. */
-  private async call(rule: RuleEntry, when: "start" | "stop" | "change" | "open", blocks: readonly string[], requestedBy: MutationProvenance | undefined, batch = false, open?: DoorOpen): Promise<void> {
-    const action = rule.on![when]!;
+  private async call(rule: RuleEntry, when: string, blocks: readonly string[], requestedBy: MutationProvenance | undefined, batch = false, event?: DoorEvent, action = rule.on![when as "start" | "stop" | "change"]!): Promise<void> {
     const blockId = blocks[0]!;
     const at = new Date(this.now).toISOString();
     const cap = rule.on!.cap;
@@ -846,7 +847,7 @@ export class ExtensionRules {
     try {
       const result = await this.options.act!({
         extension: action.extension, action: action.action, blockId, ...(requestedBy ? { requestedBy } : {}),
-        trigger: { rule: rule.name, ...(batch ? { blocks } : {}), ...(open ? { open } : {}) },
+        trigger: { rule: rule.name, ...(batch ? { blocks } : {}), ...(event ? { event, ...(event.kind === "door.open" ? { open: event } : {}) } : {}) },
       });
       this.lastRun.set(rule.key, { at, blockId, when, ...(batch ? { blocks: blocks.length } : {}), ...(result.message ? { message: result.message } : {}) });
     } catch (error) {

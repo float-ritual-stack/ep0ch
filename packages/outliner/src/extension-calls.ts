@@ -180,7 +180,7 @@ export interface ExtensionActRequest {
    * A rule's trigger runs it (PIE-786): the rule's name, and with a batch (`rule-batch`) every block the burst gathered
    * (`blockId` the first). Its writes carry the trigger's marks, so no rule is set off by them.
    */
-  readonly trigger?: { readonly rule: string; readonly blocks?: readonly string[]; readonly open?: import("@ep0ch/outline-core/door-open").DoorOpen };
+  readonly trigger?: { readonly rule: string; readonly blocks?: readonly string[]; readonly event?: import("@ep0ch/outline-core/door-open").DoorEvent; readonly open?: import("@ep0ch/outline-core/door-open").DoorEvent };
   /**
    * The script runs whose `act("ext.…")` started this one, outermost first (their extension ids): a run's `ext.*` call
    * is refused past MAX_ACT_DEPTH or when it would start one already in the chain, so scripts can't start runs without end.
@@ -1338,7 +1338,7 @@ export class ExtensionCalls {
       const block = this.store.get(id);
       return block && !block.effectiveDeletedRootId ? [{ blockId: block.id, revision: block.revision, text: block.text.slice(0, 16_000) }] : [];
     });
-    return { rule: trigger.rule, ...(trigger.blocks ? { blocks } : {}), ...(trigger.open ? { open: trigger.open } : {}) };
+    return { rule: trigger.rule, ...(trigger.blocks ? { blocks } : {}), ...(trigger.open ? { open: trigger.open } : {}), ...(trigger.event ? { event: trigger.event } : {}) };
   }
 
   /** The refusal for an extension that isn't served here; a script or extension the repo offers names its install. */

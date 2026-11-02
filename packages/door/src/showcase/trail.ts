@@ -16,7 +16,7 @@ export const TRAIL_SECTIONS: Section[] = [
   },
   {
     key: "events", need: "see each note opening with who opened it, its source, destination and method",
-    part: "Desk.applyPlacement emits door.open on App.subscribe and sends the same typed envelope to the service. Extensions subscribe to door.open; on.open rules and scripts receive input.trigger.open.",
+    part: "Desk.applyPlacement emits door.open on App.subscribe and sends the same envelope through door.event. Extensions subscribe by kind; on.events rules and scripts receive input.trigger.event (on.open also gives input.trigger.open).",
     files: "src/desk/open-event.ts, src/open-events.ts, outline-core/src/door-open.ts, outliner/src/extension-rules.ts",
     aside: "Follow links by click or ] and Enter, go back/forward, or use act open. The timeline beside the walk shows the method, source tile and actor. act door.opens since=0 returns the envelopes, including source and target visit ids. A select-wire preview is an open too; the Trail decides which previews were read. Select the Trail and press f to show the quick flips; t returns to its forest.",
     stage(n, show) {

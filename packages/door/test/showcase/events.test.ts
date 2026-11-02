@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { DoorOpen } from "@ep0ch/outline-core/door-open";
 import { visible } from "../../src/style";
 import { KeyDecoder } from "../../src/term";
+import { extensionList } from "../../src/extensions";
 import { USER } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -24,7 +25,7 @@ describe.skipIf(!outliner)("showcase: open events", () => {
           const n = buffer.indexOf("\n"); if (n < 0) break;
           const message = JSON.parse(buffer.slice(0, n)); buffer = buffer.slice(n + 1);
           if (message.result?.subscribed) resolve();
-          if (message.event?.open) remote.push(message.event.open);
+          if (message.event?.door) remote.push(message.event.door);
         }
       });
       observer.write(JSON.stringify({ id: "subscribe", action: "events.subscribe", client: { clientId: "trail-observer", contextId: "garden", role: "observer" } }) + "\n");
@@ -65,17 +66,32 @@ describe.skipIf(!outliner)("showcase: open events", () => {
       expect(hy).toBeGreaterThan(-1);
       const hx = drawn[hy]!.indexOf("the shed") + 2;
       const decoder = new KeyDecoder(h.app.terminalSize); decoder.keyHandler = h.press;
+      decoder.feed(`\x1b[<35;${hx + 1};${hy + 2}M`);
       decoder.feed(`\x1b[<35;${hx + 1};${hy + 1}M`);
-      await h.app.dispatch.act({ action: "text.hover", args: { x: hx, y: hy } }, USER);
-      await until(() => local.at(-1)?.method === "hover", "hovering follows its wire with a hover cause").catch(e => { console.log({ hit: desk.hoverAt(hx - desk.screenOrigin.col, hy - desk.screenOrigin.row), events: local.slice(-2), mouse: h.app.glass.describe() }); throw e; });
+      await until(() => local.at(-1)?.method === "hover", "hovering follows its wire with a hover cause");
       expect(local.at(-1)?.source?.visit).toBe(beforeHover.target.visit);
       expect(local.at(-1)?.target.tile).not.toBe(beforeHover.target.tile);
       await h.app.dispatch.act({ action: "glass.mode", args: { set: "off" } }, USER);
       await desk.dispatch.act({ action: "open", args: { id: first.target.note, from: "walk", fresh: true } }, { kind: "agent", id: "garden-helper" });
       expect(local.at(-1)?.actor).toEqual({ kind: "agent", id: "garden-helper" });
+      const searchNote = await h.board.createBlock(null, "The violet seed packet\nAn unmistakable search result.");
+      await h.app.act({ action: "bar.pick", args: { scope: "notes", query: "violet seed packet", n: 1 }, as: "garden-helper" });
+      expect(local.at(-1)?.target.note).toBe(searchNote.id);
+      expect(local.at(-1)?.method).toBe("search");
+      await desk.dispatch.act({ action: "open", args: { id: first.target.note }, tile: "walk" }, USER);
+      await desk.dispatch.act({ action: "tile.focus", tile: "walk" }, USER);
+      await until(() => { h.screen(); h.ch("]"); return walk().describeElements().some((e: { current: boolean; kind: string }) => e.current && e.kind === "link"); }, "the alternate link selected");
+      h.press({ kind: "alt-enter" });
+      await until(() => local.at(-1)?.method === "alt", "the alternate open's cause");
+      await h.board.createBlock(null, `Trail script [script::trail-script] [results::keep] [effects::write]\n\`\`\`js\nawait act('open', {id: '${first.target.note}'});\n\`\`\``);
+      await h.board.request("extensions.list", { reload: true });
+      await h.app.loadExtensions(true);
+      const script = extensionList()!.extensions.find(e => e.name === "trail-script")!;
+      await h.app.act({ action: `ext.${script.id}.run`, as: "garden-helper" });
+      await until(() => local.at(-1)?.method === "script", "the script's open cause");
       await until(() => remote.at(-1)?.target.visit === local.at(-1)?.target.visit, "all openings delivered");
       expect(remote.slice(remote.findIndex(e => e.target.visit === first.target.visit))).toEqual(local.slice(local.indexOf(first)));
 
     } finally { off(); observer.destroy(); }
-  });
+  }, 20_000);
 });

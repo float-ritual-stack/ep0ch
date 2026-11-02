@@ -385,7 +385,7 @@ export class OutlinerServer {
   private captureTransfer?: {token: string; clientId: string; requestId: string; revision: number; deadline: number};
   private server: Server | null = null;
   private readonly navigationLinks = new Map<string, OutlinerViewAddress>();
-  private readonly eventKinds = new WeakMap<Socket, readonly string[]>();
+  private readonly eventKinds = new WeakMap<Socket, { kinds?: readonly string[]; doorOnly: boolean }>();
   private readonly subscribers = new Map<Socket, OutlinerClientRegistration>();
   /** The live drafts doors hold (PIE-501), and the requests to them waiting for an answer. */
   private readonly draftHolds = new DraftHolds();
@@ -3030,11 +3030,10 @@ export class OutlinerServer {
           if (request.semantic) throw new Error("Semantic search requires asynchronous dispatch");
           result = visibleGotoResults(readGoto(this.store, request), request.limit);
           break;
-        case "door.open":
-          this.broadcast({ id: request.body.target.visit, domain: "door", action: "door.open", sequence: this.store.sequence, open: request.body });
-          this.extensionRules.opened(request.body);
-          result = { received: true };
-          break;
+        case "door.event":
+          this.broadcast({ id: request.id, domain: "door", action: request.body.kind, sequence: this.store.sequence, door: request.body });
+          this.extensionRules.doorEvent(request.body);
+          result = { received: true }; break;
         case "events.subscribe": result = { subscribed: true, client: subscribedClient ?? request.client }; break;
         case "changes.since":
           result = // The feed is also how a client catches up on what it missed, so it holds everything unless asked: `hide`/`only` are for readers.
@@ -4466,7 +4465,8 @@ export class OutlinerServer {
       : line;
     for (const [subscriber, client] of this.subscribers) {
       if (subscriber.destroyed || subscriber.readableEnded || subscriber.writableEnded) continue;
-      if (this.eventKinds.get(subscriber)?.length && !this.eventKinds.get(subscriber)!.includes(event.action)) continue;
+      const filter = this.eventKinds.get(subscriber);
+      if (filter?.doorOnly && event.domain !== "door" || filter?.kinds && !filter.kinds.includes(event.action)) continue;
       if (event.domain === "ui" && event.command?.targetClientId !== client.clientId) {
         continue;
       }
@@ -4716,7 +4716,7 @@ export class OutlinerServer {
     // EchoNet's mail is a node's, never an agent's (ADR 0005): it writes no block, and the access level doesn't hold it.
     if (ECHONET_MAIL_ACTIONS.has(action)) return rest as OutlinerRequest;
     if (action !== "secrets.group" && action !== "mcp.access.status") this.crossOutlineAccess(action, grant);
-    if (rest.action === "events.subscribe") return { ...rest, kinds: rest.kinds ?? ["door.open"] };
+    if (rest.action === "events.subscribe") return rest;
     if (!EXTENSION_WRITES.has(action)) {
       if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action) || action === "secrets.group") return rest as OutlinerRequest;
       throw new Error(`${actor.actorId} can read, create, update, move, trash, comment and annotate over its connection; ${action} isn't one of them` +
@@ -4938,7 +4938,7 @@ export class OutlinerServer {
       const subscribedClient = request.action === "events.subscribe"
         ? this.registerSubscriber(socket, request.client)
         : undefined;
-      if (request.action === "events.subscribe") this.eventKinds.set(socket, grant && this.grantedLevel(grant) !== "full" ? ["door.open"] : request.kinds ?? []);
+      if (request.action === "events.subscribe") this.eventKinds.set(socket, { kinds: request.kinds, doorOnly: !!grant && (!request.kinds || this.grantedLevel(grant) !== "full") });
       const current = request;
       if (grant && String(current.action) === "secrets.group") {
         response = { id: request.id, ok: true, result: await this.grantSecrets(current, grant), sequence: this.store.sequence } as OutlinerResponse;

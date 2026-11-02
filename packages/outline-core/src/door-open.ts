@@ -1,5 +1,16 @@
+/** The service transports door kinds unchanged; each producer owns its extra fields. */
+export interface DoorEvent {
+  kind: `door.${string}`;
+  actor: { kind: "user" } | { kind: "agent"; id: string };
+  target: { tile: string; note?: string };
+  source?: { tile: string; note?: string };
+  method: string;
+  [field: string]: unknown;
+}
+
 /** One landing, shared by the door's local feed and the outline's event stream. */
-export interface DoorOpen {
+export interface DoorOpen extends DoorEvent {
+  kind: "door.open";
   type: "door.open";
   at: number;
   actor: { kind: "user" } | { kind: "agent"; id: string };

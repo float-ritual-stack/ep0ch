@@ -951,17 +951,29 @@ figures' narrow width (48 columns) a band is its plain heading. Their text targe
 - `extensions.list`'s `rules` says how many blocks match each trigger rule, and its last run (`lastRun`: when,
   which block, start, stop or change, its message or error).
 
-A door landing emits `door.open` locally and posts the same envelope to the service without waiting. An
-extension can send `events.subscribe` over its existing connection; that connection receives only `door.open`
-by default. `kinds` selects event action names; receiving the outline's writes requires an existing full grant.
-The stream uses the same service connection and machine forward as other requests.
+A door landing emits `door.open` locally and posts the same envelope without waiting through
+`{ action: "door.event", body: envelope }`. This one ingress carries every door kind: `kind`, `actor`,
+`target`, optional `source` and `method` are shared; each kind owns its other fields. No new wire action
+is needed for `door.hover` or another kind. Door events are transient, not outline writes or change-feed records.
 
-`on.open` runs immediately for each opened note that matches the rule, with `input.trigger.open` carrying
-`{ type: "door.open", at, actor, target: { tile, note, visit }, source?: { tile, note?, visit? }, method }`.
-`at` is milliseconds since the epoch. `method` is link, search, back, forward, select, open, alt, hover, action,
-agent or script. `from`, `skip` and `cap` still apply; `quiet` and `batch` concern saves, not open events.
-Script actions use the same trigger (`[rule-on-open::script:arrival]`, then `input.trigger.open` in the script).
-Visits themselves stay in the door's per-outline state; only a deliberate save or a rule writes notes.
+An extension sends `events.subscribe` over its existing connection, with `kinds: ["door.open"]` (or
+`["door.hover"]`, or both) to select event kinds. The response stream carries
+`{ event: { domain: "door", action: envelope.kind, door: envelope, ... } }`. Omitting `kinds` on an
+extension connection hears all door kinds. Outline events are included only when explicitly named and
+its existing grant covers writes. The stream uses the same service connection and machine forward as other requests.
+
+A manifest rule's `on: { events: { "door.hover": "remember" } }` runs its `remember` action for that kind
+when the target note matches. `input.trigger.event` is the unchanged envelope. `on.open` is the short form
+for `door.open` and also supplies `input.trigger.open`. An open's envelope is
+`{ kind: "door.open", type: "door.open", at, actor, target: { tile, note, visit }, source?: { tile, note?, visit? }, method }`;
+`type` is the local view feed's discriminator and `at` is milliseconds since the epoch. Methods are link,
+search, back, forward, select, open, alt, hover, action, agent and script. A rule without a target note does
+not run a block action. `from`, `skip` and `cap` apply; `quiet` and `batch` concern saves.
+
+Rule notes use `[rule-event::door.hover] [rule-on-event::script:arrival]` (one kind per rule), or
+`[rule-on-open::script:arrival]` for opens. Scripts receive the same `input.trigger.event` through the usual
+runtime. Removing an extension switches `rule-on-event` to `rule-was-on-event`, retaining its kind for reinstall.
+Visits stay in the door's per-outline state; only a deliberate save or a rule writes notes.
 
 ### Rule notes: the no-code tier
 
