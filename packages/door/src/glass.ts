@@ -20,6 +20,12 @@ import type { Key } from "./term";
 import type { ListView } from "./surface/list-view";
 
 export type GlassMode = "off" | "on" | "sticky";
+/** Each mode in a few words: what the status line says when it changes, and what the ◇ chip's title reads. */
+export const GLASS_MODES: Record<GlassMode, string> = {
+  off: "glass off",
+  on: "glass on · hover a link to peek",
+  sticky: "glass sticky · each hover stays as a post-it",
+};
 export const GLASS_SETTINGS = {
   open: { base: 300, step: 50, min: 0, about: "open delay (ms)" },
   close: { base: 600, step: 50, min: 0, about: "close delay (ms)" },
@@ -52,6 +58,8 @@ export class Glass {
   private hover: PostIt | null = null;
   private collection: ListView | undefined;
   private saved: HoverTrail | null = null;
+  /** A mouse button is down (a drag of an edge, a title, a selection): no hover resolves until it comes up. */
+  private held = false;
 
   constructor(private readonly app: App, private readonly host: AgentDrawer) {
     const saved = readState<{ mode: GlassMode; settings: Record<GlassSetting, number>; size: { cols: number; rows: number }; trail: HoverTrail | null }>("glass.json", outlineState());
@@ -92,10 +100,15 @@ export class Glass {
   private cancelClose() { if (this.closing) clearTimeout(this.closing); this.closing = null; this.closeAt = 0; }
   dispose() { this.cancelOpen(); this.cancelClose(); }
 
+  /** Every button report, before it is routed (App.route): a button down holds the glass until it comes up; a hover report (no button) releases it in `motion`. */
+  mouse(k: Extract<Key, { kind: "mouse" }>) {
+    if (k.action === "down" || k.action === "drag") { this.held = true; this.cancelOpen(); }
+    else if (k.action === "up") this.held = false;
+  }
   motion(x: number, y: number, alt = false) {
-    const point = { x, y, alt }, before = this.pointer;
-    this.pointer = point;
-    if (before && before.x === x && before.y === y && before.alt === alt) return;
+    const point = { x, y, alt }, before = this.pointer, held = this.held;
+    this.pointer = point; this.held = false;
+    if (held || before && before.x === x && before.y === y && before.alt === alt) return;
     const collection = this.hit(point)?.collection;
     if (collection !== this.collection) {
       if (this.collection) this.collection.hovered = false;
@@ -124,22 +137,23 @@ export class Glass {
   }
   private hit(point: Point) {
     const over = this.floats().findLast(f => inside(point, f.rect));
-    const desks = over ? [this.host.made!] : this.host.desks().filter(d => !this.host.isDrawer(d));
-    if (!over && this.host.shown && this.host.rect && inside(point, this.host.rect)) desks.unshift(this.host.made!);
+    // Inside the open drawer, the screen under it is covered: only the host desk answers there, unless a float or menu
+    // of the screen is drawn over that cell (the drawer's own layer answer, `covers`). Chrome (the drawer's bar, hint
+    // rows, the status bar) belongs to no tile, so it never answers: a tile's content and its title are the targets.
+    const inDrawer = !over && this.host.shown && this.host.rect && inside(point, this.host.rect) && !this.host.coveredAt(point.x, point.y);
+    const desks = over || inDrawer ? [this.host.made!] : this.host.desks().filter(d => !this.host.isDrawer(d));
     return desks.map(d => d.hoverAt(point.x - d.screenOrigin.col, point.y - d.screenOrigin.row)).find(Boolean);
   }
   private async resolve(point: Point, generation: number) {
     const over = this.floats().findLast(f => inside(point, f.rect)), hit = this.hit(point);
-    const cut = this.app.overflow.targetAt(point.x, point.y), text = hit?.text ?? cut?.text;
-    const source = hit?.target || hit?.text ? hit : cut;
-    const key = hit?.target ? JSON.stringify(hit.target) : text;
-    if (!key) return;
+    const text = hit?.text, key = hit?.target ? JSON.stringify(hit.target) : text;
+    if (!hit || !key) return;
     this.cancelClose();
-    if (key === this.target) { this.source = source!.rect; return; }
-    const m = hit?.target ? await readTarget(this.app, hit.target) : text ? textNote(text) : null;
+    if (key === this.target) { this.source = hit.rect; return; }
+    const m = hit.target ? await readTarget(this.app, hit.target) : text ? textNote(text) : null;
     if (!m || generation !== this.generation) return;
-    this.target = key; this.source = source!.rect;
-    if (hit && await hit.desk.hoverInto(hit.tile, m)) return;
+    this.target = key; this.source = hit.rect;
+    if (await hit.desk.hoverInto(hit.tile, m)) return;
     this.show(m, USER, true, point.alt || this.mode === "sticky", over?.pane instanceof PostIt ? over.pane : undefined);
   }
   private rectangle(pin = false) {
@@ -294,8 +308,8 @@ export class Glass {
 }
 
 export const GLASS_ACTIONS = actionSet<Glass>()("glass", {
-  "glass.mode": def({ summary: "set hover off, on (closes after leaving), or sticky (stays until dismissed)", touches: "nothing", replay: "safe", args: { set: { type: "string", choices: ["off", "on", "sticky"], about: "hover mode" } }, says: r => `hover ${r.mode}`, run: ({ set }, glass, actor) => glass.set(set as GlassMode, actor) }),
-  "glass.toggle": def({ summary: "cycle hover off → on → sticky → off", keys: "alt+u, click the ◇ status glyph", touches: "nothing", replay: "safe", args: {}, says: r => `hover ${r.mode}`, run: (_, glass, actor) => glass.set(glass.mode === "off" ? "on" : glass.mode === "on" ? "sticky" : "off", actor) }),
+  "glass.mode": def({ summary: `set hover off, on (closes after leaving), or sticky (stays until dismissed): ${Object.values(GLASS_MODES).join("; ")}`, touches: "nothing", replay: "safe", confirms: true, args: { set: { type: "string", choices: Object.keys(GLASS_MODES), about: "hover mode" } }, says: r => GLASS_MODES[r.mode as GlassMode], run: ({ set }, glass, actor) => glass.set(set as GlassMode, actor) }),
+  "glass.toggle": def({ summary: "cycle hover off → on → sticky → off, saying the new mode", keys: "alt+u, click the ◇ status glyph", touches: "nothing", replay: "safe", confirms: true, args: {}, says: r => GLASS_MODES[r.mode as GlassMode], run: (_, glass, actor) => glass.set(glass.mode === "off" ? "on" : glass.mode === "on" ? "sticky" : "off", actor) }),
   "glass.pin": def({ summary: "put a note reference or text in a sticky post-it, or on shelf=, without taking focus", touches: "nothing", replay: "safe", args: { ref: { type: "string", about: "a note reference, or text to keep" }, shelf: { type: "string", optional: true, kind: "tile", about: "a shelf's name or id" } }, says: (r, a) => `pinned ${r.name ?? "a post-it"}${a.shelf ? " on the shelf" : " on the glass"}`, run: ({ ref, shelf }, glass, actor) => glass.pin(ref, actor, shelf) }),
   "glass.shelf": def({ summary: "make a named, coloured shelf on the glass; drag post-its onto it or glass.shelve ref= shelf=", touches: "nothing", replay: "safe", args: { name: { type: "string", about: "the shelf's name" }, colour: { type: "string", optional: true, choices: Object.keys(TONE_INDEX), about: "header colour; amber by default" } }, says: r => `made shelf ${r.name}`, run: ({ name, colour }, glass, actor) => glass.shelf(name, (colour ?? "amber") as ShelfColour, actor) }),
   "glass.shelve": def({ summary: "put a reference on a shelf without taking focus or moving a post-it", touches: "nothing", replay: "safe", args: { ref: { type: "string", about: "a note reference or text" }, shelf: { type: "string", kind: "tile", about: "the shelf's name or id" } }, says: r => `shelved on ${r.name}`, run: ({ ref, shelf }, glass, actor) => glass.pin(ref, actor, shelf) }),
