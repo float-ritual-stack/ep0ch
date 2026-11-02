@@ -68,7 +68,7 @@ import type { AgentLevel } from "../surface/agent-level";
 type Notes = Partial<Record<SeedName, Msg>>;
 const details = new WeakSet<ReaderPane>();
 /** A reader named `detail` on its stage: it keeps the note the exhibit opens into it. */
-const detailPane = (): ReaderPane => { const r = new ReaderPane(true); details.add(r); return r; };
+export const detailPane = (): ReaderPane => { const r = new ReaderPane(true); details.add(r); return r; };
 
 export const STATUS_DEMO = [
   `s() { printf '\\033]7501;%s\\033\\\\' "$1"; }`,
@@ -750,11 +750,6 @@ export const SECTIONS: Section[] = [
       const d = detailPane(), links = new BacklinksPane("detail", true);
       return deskOf({ title: "showcase · trash", panes: [d, links], names: ["detail", "links"], layout: ([a, b]) => pair("col", 0.5, leaf(a!), leaf(b!)) }, show, [], dsk => { if (n.heap) d.hold(n.heap, dsk); });
     },
-  },
-  {
-    key: "same-keys", need: "press PgDn, ⏎ on a yes/no, or read a hint row in any tile and have it mean the same thing", part: "the door's one page step and one confirm rule (PIE-1293): pageRows, listMove and RowView.page in src/scroll.ts (PgUp PgDn move the rows shown, less one, in every list and reader: ListView.pageBy, the tree, the board's lanes, a picker, the completion list); confirmPicker in src/surface/picker.ts (every yes/no: the safe row first, so ⏎ keeps, the destructive row second and red; trash's d d, the board's d d and a Claude split's stop all ask through it); Again in src/arm.ts (press-it-again: the same key within 5 s, any other key lets it go); hint rows drawn from key tables (modeHint, partsHint), held by test/hint-literals.test.ts; waiting() and moreRow() in src/text.ts", files: "src/scroll.ts, src/surface/picker.ts, src/arm.ts, src/surface/list-view.ts, src/text.ts, test/hint-literals.test.ts",
-    aside: "the outline on the left, the Compost heap on the right · Enter on the outline, then PgDn: the pick moves the rows shown less one, as it does in every list here; PgUp comes back · Tab to the detail, press d: the yes/no comes up with \"keep it\" first, so ⏎ keeps the heap; d again (or Delete, or a click on the red row) would trash it · each tile's hint row is drawn from its key table, so a rebind shows on it",
-    stage(n, show) { const tree = new TreePane(), d = detailPane(); return deskOf({ title: "showcase · same keys", panes: [tree, d], names: ["tree", "detail"], layout: ([a, b]) => pair("row", 0.45, leaf(a!), leaf(b!)) }, show, [], dsk => { if (n.heap) d.hold(n.heap, dsk); }); },
   },
   {
     key: "tree-views", need: "see a virtual branch's matches in the outline tree beside the notes under it, and choose how far they open", part: "the tree's virtual branches (PIE-882, src/desk/tree.ts): a block with [type::virtual-branch] opened shows its physical children, then its matches as the service answers them (views.read: members in branch order within the view's limit, its child-depth), each match a row of its own opened to its children down to that depth; D (tree.depth) sets the depth for the view (results only, 1 to 8, or the view's own) and writes nothing; a more row reads the next page; the matches follow the outline's changes", files: "src/desk/tree.ts (TreePane: emit, branchRows, loadBranch, setDepth; TREE_ACTIONS tree.depth), src/views.ts (readView), outliner src/store.ts (readSavedView: childDepth)",

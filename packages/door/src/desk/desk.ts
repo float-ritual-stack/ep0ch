@@ -1,9 +1,10 @@
 import { returnPlace, mapPlace } from "./return-place";
+import { AGAIN_PART, LEAVE_PART, readerHeldParts } from "../hint-parts";
 import type { Visit } from "../trail";
 import { openCause, openMethod, opening, landed as openLanded } from "./open-event";
 import type { DoorOpen } from "@ep0ch/outline-core/door-open";
 import { drawCompletionFloat } from "../surface/completion-float";
-import { hintKey, modeBinding, modeHint, partsHint, type HintPart, type ModeKey } from "../surface/modes";
+import { hintKey, modeBinding, modeHint, Modes, partsHint, type HintPart, type ModeKey } from "../surface/modes";
 import { tabStrip } from "../surface/chip-rows";
 import { stripHint, stripSegments, stripsRecorded, withStripOwner } from "../surface/strip-state";
 import { ZOOM_WHEEL } from "./wkeys";
@@ -61,7 +62,6 @@ import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
 import { armsEdit, headerShown, isTileHeader, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList, type TileHeader, type TrailStop } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
-import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRows, pickRow } from "../surface/picker";
 import { outlineState, readState, writeState } from "../state";
 import { readdirSync, readFileSync } from "node:fs";
@@ -185,9 +185,6 @@ export const LINK_PART: HintPart = { action: "tile.link", key: "alt+l", label: "
 export const NEW_PART: HintPart = { action: "note.new", key: "ctrl+n", label: "new" };
 export const SEARCH_PART: HintPart = { action: "search", key: "/", label: "search" };
 export const MENU_PART: HintPart = { action: "screen.back", key: "q", label: "menu" };
-/** A held reader's hint parts (e or ⏎ go in, j k scroll it when it can), and an exited program's (⏎ again, the chord back): they follow a rebind. */
-const readerHeldParts = (scrolls: boolean, name = ""): HintPart[] => [{ key: "e", action: "tile.enter", label: `enter${name ? " " + name : ""}`, also: "⏎" }, ...(scrolls ? [{ key: "j", action: "element.scroll", label: "scroll", args: { by: 1 }, also: "k" }] : [])];
-export const AGAIN_PART: HintPart = { action: "tile.enter", key: "enter", label: "runs it again" }, LEAVE_PART: HintPart = { action: "tile.leave", key: ESCAPE_CHORD, label: "back to the door" };
 export const KEYS_PART: HintPart = { action: "keys.open", key: "?", label: "keys" };
 const modeKeyParts = (rows: readonly ModeKey[]): HintPart[] => withKeymap(rows).map(r => ({ action: r.action, key: r.key, label: r.label ?? r.action, ...(r.args ? { args: r.args } : {}) }));
 const DAILY_LAYOUT_KEYS: readonly ModeKey[] = [{ key: "alt+d", action: "layout.load", args: { name: "daily" }, label: "daily", says: "lay this screen out as the daily layout" }];

@@ -36,7 +36,7 @@ export const COMPLETION_DEFINITION = {
 
 export const COMPLETION_MOVE = {
   summary: "light another row of the open completion list (PIE-1339): by= rows, negative up; the docs beside it follow the lit row",
-  keys: "up/down, ctrl+n, ctrl+p, PgUp/PgDn (a page), hover, wheel over the list", touches: "draft", draft: "type", replay: "safe",
+  keys: "up/down, ctrl+n, ctrl+p, PgUp/PgDn, hover, wheel over the list", touches: "draft", draft: "type", replay: "safe",
   args: { by: { type: "number", about: "rows to move; negative goes up" } },
   examples: [{ act: "complete.move by=2", does: "lights the row two below the lit one" }],
 } as const;

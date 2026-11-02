@@ -744,8 +744,8 @@ export class NoteSurface {
   private positionRows = new PositionRows(this.position);
   get scroll() { return this.positionRows.top; }
   set scroll(value: number) { this.positionRows.top = value; }
-  /** The furthest the note scrolls, from its last render (keys and the wheel stop there). */
-  private maxScroll = Infinity;
+  /** The furthest the note scrolls (keys and the wheel stop there), and the body rows shown, from its last render: PgUp PgDn and space scroll those less one (pageBy, PIE-1293). */
+  private maxScroll = Infinity; private bodyRoom = 0; pageBy(dir: 1 | -1): number { return dir * pageRows(this.bodyRoom || 16); }
   /** Where End stops first, from its last render: the last line on the bottom edge (PIE-622). */
   private endScroll = Infinity;
   /** End was pressed (scrollEnd): the stop it goes to, placed at the next render. */
@@ -1263,8 +1263,7 @@ export class NoteSurface {
     const context = this.contextualHint();
     if (context !== null) return context;
     // Back, and the trail (PIE-208) once there is somewhere to go either way.
-    const back = backKeys(!!this.peek(-1), !!(this.peek(-1) || this.peek(1)));
-    const backPart = back ? `${back} · ` : "";
+    const back = backKeys(!!this.peek(-1), !!(this.peek(-1) || this.peek(1))), backPart = back ? `${back} · ` : "";
     // Zoomed into a part (PIE-780): the way back first; else W zooms (the keys from ZOOM_KEYS, the table that binds them).
     const zoom = this.zoomHint();
     if (this.zoom) return `${extra}${zoom} · ${backPart}${hintOf([...STEP_KEYS, ...ELEMENT_STEP_KEYS, READING_KEYS[0]!])}`;
@@ -2097,8 +2096,7 @@ export class NoteSurface {
       const over = body.length + extra - Math.max(1, roomFull);
       return !full || over >= full ? Math.max(0, over) : Math.max(0, Math.ceil((over + full) / 2));
     };
-    this.endScroll = reach(0);
-    this.bodyRoom = roomFull;
+    this.endScroll = reach(0); this.bodyRoom = roomFull;
     // Never so far that the last body row leaves the view (a short note under a header image).
     this.maxScroll = Math.max(this.endScroll, Math.min(Math.max(0, body.length - 1), reach(overscrollRows(roomFull))));
     if (this.endWant) { this.scroll = this.endWant === "edge" ? this.endScroll : this.maxScroll; this.endWant = null; }
@@ -3123,11 +3121,6 @@ export class NoteSurface {
     host.ctx.flash(said);
     return { keys: next, source: "yours" };
   }
-
-  /** The body rows the reader showed last: a page's step. */
-  private bodyRoom = 0;
-  /** Rows PgUp PgDn and space scroll the note (PIE-1293): the body rows shown, less one (pageRows). */
-  pageBy(dir: 1 | -1): number { return dir * pageRows(this.bodyRoom || 16); }
 
   private panelKey(k: Key, host: SurfaceHost): boolean {
     const P = this.panel!, m = this.msg;
@@ -7504,8 +7497,7 @@ export class NoteSurface {
   /** Scroll the inspector's rows by `by` (a tall result or transform is read by scrolling; moving the focus scrolls it into view). */
   scrollSources(host: SurfaceHost, by: number, page = false) {
     const mode = this.sourcesMode;
-    if (!mode) throw new ActionRefused("the Sources inspector isn't open here · S opens it");
-    if (page) by = Math.sign(by) * pageRows(mode.room.h);
+    if (!mode) throw new ActionRefused("the Sources inspector isn't open here · S opens it"); if (page) by = Math.sign(by) * pageRows(mode.room.h);
     mode.view.scroll(by);
     host.redraw();
     return { top: mode.view.top };
@@ -10392,8 +10384,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     examples: [{ act: "revision.scroll by=1 page=true", does: "scrolls the compare down a page" }, { act: "revision.scroll by=-1", does: "scrolls it up a row" }],
     run({ by, page }, { surface, host }) {
       const mode = surface.revisionMode;
-      if (!mode) throw new ActionRefused("open the revision compare first (revision.compare)");
-      if (page) by = Math.sign(by) * pageRows(mode.body || mode.rect.h);
+      if (!mode) throw new ActionRefused("open the revision compare first (revision.compare)"); if (page) by = Math.sign(by) * pageRows(mode.body || mode.rect.h);
       mode.view.top = Math.max(0, mode.view.top + by);
       host.redraw();
       return { top: mode.view.top };

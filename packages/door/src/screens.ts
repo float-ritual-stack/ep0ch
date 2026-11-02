@@ -1,4 +1,5 @@
 import { drawCompletionFloat } from "./surface/completion-float";
+import { BACK_KEY, hotParts, listKeys } from "./hint-parts";
 import { LIST_MOVE_KEYS } from "./surface/attached-keys";
 import { modeBinding, modeHint, modeActionKeys, Modes, type ModeKey } from "./surface/modes";
 import { effective } from "./surface/keymap";
@@ -141,16 +142,6 @@ function hotLine(p: Pointer, y: number, w: number, parts: (string | [string, Key
   return out;
 }
 
-/** Hot line parts drawn from key rows (the keymap's, so a rebind shows): one part per label, its keys joined, a click on it sending the first. */
-const sendOf = (key: string): Key => key === "enter" ? ENTER : key === "up" || key === "down" ? { kind: key } : char(key);
-function hotParts(rows: readonly ModeKey[]): (string | [string, Key])[] {
-  const groups = new Map<string, ModeKey[]>();
-  for (const r of effective(rows)) groups.set(r.label ?? r.action, [...(groups.get(r.label ?? r.action) ?? []), r]);
-  return [...groups].flatMap(([label, g], i): (string | [string, Key])[] => [...(i ? [" · "] : []), [`|15${g.map(r => keyCaption(r.key)).join("/")}|08 ${label}`, sendOf(g[0]!.key)]]);
-}
-/** The lists' own keys on their hot line: the lit row moves, ⏎ takes it, q goes back. */
-const listKeys = (enter: string, then: readonly ModeKey[] = []): readonly ModeKey[] => [{ key: "up", action: "list.select", label: "select" }, { key: "down", action: "list.select", label: "select" }, { key: "enter", action: "list.open", label: enter }, ...then];
-const BACK_KEY: readonly ModeKey[] = [{ key: "q", action: "screen.back", label: "back" }];
 
 const screenArt = artNamed;
 

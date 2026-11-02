@@ -196,7 +196,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
     },
   }),
   "list.page": def({
-    summary: "turn a collection's page without changing its note", keys: [{ keys: "click", does: "the ◀ ▶ page controls" }, { keys: "PgUp PgDn", does: "page the pick (list.step page=true), which turns the collection's page at its edge" }], touches: "nothing", replay: "safe",
+    summary: "turn a collection's page without changing its note", keys: [{ keys: "click", does: "the ◀ ▶ page controls" }], touches: "nothing", replay: "safe",
     args: { list: LIST_ARG, by: { type: "number", optional: true, about: "pages to turn, default 1" } },
     examples: [{ act: "list.page by=1", does: "turns the collection on a page; an agent's turn is its own" }],
     async run({ list, by }, { host, standing }, actor) {

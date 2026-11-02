@@ -1,6 +1,7 @@
 import type { Reveal } from "./reveal";
 // One host desk: its tree occupies the drawer, its floats the glass. Both change through apply.
 // Quiet focus enters a glass tile without opening or rearranging the drawer.
+import { drawerFoot, drawerTitleHint } from "./hint-parts";
 import type { Ctx, Screen, Frame } from "./app";
 import { Canvas, type Rect } from "./canvas";
 import { DRAWER_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
@@ -40,7 +41,6 @@ import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, layerOrder, lay
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, preset, agentLabel, type ActRequest, type Again } from "./surface/actions";
-import { partsHint, type HintPart } from "./surface/modes";
 import { layoutStanding, standsAsPerson, stepRule, type Dispatcher, type TileRef } from "./surface/dispatch";
 import { HOST_AGENT, HOST_TILES, NOBODY, type Whereabouts } from "./whereabouts";
 import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
@@ -107,9 +107,6 @@ export interface DrawerHost {
 const clamp = (share: number) => Math.max(MIN_SHARE, Math.min(MAX_SHARE, share));
 const isAlt = (k: Key, ch: string) => k.kind === "alt" && k.ch === ch;
 
-/** The drawer's own hint parts: its title row (folded) and its foot (entered) name these, so a rebind shows on them. */
-const DRAWER_OPEN_PART: HintPart = { action: "tile.collapse", args: { on: false }, key: "+", also: "⏎", label: "opens it, or a click" }, DRAWER_FOLD_PART: HintPart = { action: "tile.collapse", args: { on: true }, key: "-", label: "folds it" };
-const DRAWER_LEAVE_PART: HintPart = { action: "host.leave", key: "esc", label: "leaves" }, DRAWER_AWAY_PART: HintPart = { action: "host.toggle", args: { open: false }, key: "esc", label: "again puts it away" };
 export class AgentDrawer {
   /**
    * The host layer: a slot for the screen shown beside a drawer of tabs (the agent its first). One value on the layout
@@ -1310,11 +1307,11 @@ export class AgentDrawer {
     const edge = this.dropHover || this.entered ? C.yellow : C.brown;
     const head = `══ ${this.chipText()}${this.folded ? "" : where + by}`;
     this.lockAt = lockChip && !this.dropHover ? { from: r.col + width(head) + 1, to: r.col + width(head) + 1 + width(lockChip) } : null;
-    const hint = this.folded ? `· ${partsHint([DRAWER_OPEN_PART, DRAWER_LEAVE_PART])}${fg(C.dark)}` : `· ↕ drag this edge${lock ? "" : " · ⤓ drop a tile here"}`;
+    const hint = this.folded ? `· ${drawerTitleHint()}${fg(C.dark)}` : `· ↕ drag this edge${lock ? "" : " · ⤓ drop a tile here"}`;
     const title = this.dropHover ? `${chipStyle(C.yellow, C.black)} ⤓ release: ${this.dropHover} ${this.dropSays} ${bg(C.black)}` : head + lock + fg(C.dark) + " " + hint;
     // The fill runs to the edge and no further: a row that fits registers no cut-short value (PIE-1499).
     canvas.text(0, 0, fg(edge) + title + " " + "═".repeat(Math.max(0, cols - width(title) - 1)) + RESET, cols);
-    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + (this.entered ? `drawer · ${partsHint([DRAWER_FOLD_PART, { ...DRAWER_LEAVE_PART, label: "steps out" }, DRAWER_AWAY_PART])}${fg(C.dark)}` : `drawer · ${partsHint([{ ...DRAWER_AWAY_PART, label: "puts it away" }])}${fg(C.dark)}`) + RESET, cols - 2);
+    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + `drawer · ${drawerFoot(this.entered)}${fg(C.dark)}` + RESET, cols - 2);
     const placements = (this.hostFrame.placements ?? []).filter(pl => pl.row >= r.row + 1 && pl.row + pl.rows < r.row + r.rows);
     return { rect: r, lines: canvas.lines(), placements };
   }
