@@ -2,7 +2,7 @@
 // right edge with a dim detail, the lit row's docs wrap beside the list at 120 columns and under it at 80, and the
 // popup's keys are actions: the person's keys and `act` run the same ones. Scratch service, fictional notes.
 import { describe, expect, test } from "bun:test";
-import { completionOf } from "../../src/surface/completer";
+import { completerOf, completionOf } from "../../src/surface/completer";
 import { until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
@@ -36,9 +36,13 @@ describe("showcase: completion (PIE-1339)", () => {
       h.app.t.cols = cols;
       let p = await ask();
       let lines = rows(cols);
-      const header = lines.findIndex(l => l.includes("references "));
-      const end = lines.findIndex((l, i) => i > header && l.includes("↑↓"));
-      expect(lines.slice(header - 1, end + 2).join("\n")).toMatchSnapshot(`reference popup at ${cols}`);
+      // The popup alone (PIE-1511): from its frame's top to its bottom, its own columns; the status row last, no key hints.
+      const status = lines.findIndex(l => /references \d+\/\d+/.test(l));
+      const top = lines.slice(0, status).findLastIndex(l => l.includes("┌─  ")), left = lines[top]!.indexOf("┌─  ");
+      const bottom = lines.findIndex((l, i) => i > status && l.slice(left).startsWith("└"));
+      const box = lines.slice(top, bottom + 1).map(l => l.slice(left, left + completerOf(d()!)!.drawn!.cols!));
+      expect(box.join("\n")).not.toContain("↑↓");
+      expect(box.join("\n")).toMatchSnapshot(`reference popup at ${cols}`);
       if (cols === 120) expect(p.previewRect!.col).toBeGreaterThanOrEqual(p.listWidth!);
       else { expect(p.previewRect!.col).toBeLessThanOrEqual(1); expect(p.previewRect!.row).toBeGreaterThan(2); }
       const text = d()!.text, first = p.index;
@@ -68,7 +72,11 @@ describe("showcase: completion (PIE-1339)", () => {
       expect(d()!.text).toBe(text);
       press({ kind: "mouse", action: "down", button: 0, x, y });
       press({ kind: "mouse", action: "up", button: 0, x, y });
-      await until(() => d()!.text.endsWith(item.insertion) && !pop(), "one click inserts", 8000);
+      expect(pop()!.index).toBe(index);                                    // a click lights it and previews it (PIE-1511)
+      expect(d()!.text).toBe(text);
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "up", button: 0, x, y });
+      await until(() => d()!.text.endsWith(item.insertion) && !pop(), "a second click inserts", 8000);
       await ask();
       press({ kind: "esc" });
       expect(pop()).toBeNull();

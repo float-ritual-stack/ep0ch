@@ -17,6 +17,12 @@ export type CompletionLayout = "anchored" | "sheet";
 export const previewColumn = (w: number) => Math.max(40, Math.min(60, Math.floor(w / 3)));
 /** When the width has no room for the preview beside the list, it goes under the list, at most this tall. */
 export const PREVIEW_UNDER_ROWS = 6;
+/**
+ * A component's or a value's docs beside a short list stretch the popup to this many rows, when they have them: a
+ * card's drawing and its source don't fit in three rows. A note's reader beside it stays as tall as the rows.
+ */
+export const DOCS_BESIDE_ROWS = 12;
+const docsRows = (s: CompletionState) => { const it = s.items[s.index]; return it && !(it.blockId && it.preview) ? DOCS_BESIDE_ROWS : 0; };
 
 /**
  * The popup as lines, one frame, two layouts (PIE-1511; completion-float chooses). `anchored` (A, the default): the
@@ -96,7 +102,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   const status = !sheet && h >= 4;
   const bodyRows = sheet ? h - 1 : status ? h - 2 : h;
   const need = picker.lines(labelWidth, bodyRows, 0).length;
-  const height = sheet ? bodyRows : beside ? Math.min(bodyRows, need) : Math.min(bodyRows, need + 1 + PREVIEW_UNDER_ROWS);
+  const height = sheet ? bodyRows : beside ? Math.min(bodyRows, Math.max(need, docsRows(s))) : Math.min(bodyRows, need + 1 + PREVIEW_UNDER_ROWS);
   const drawn = listPreview(picker, inner, height, preview, 0, inner, { col: 0, width: labelWidth }, { list: labelWidth, ...(sheet ? {} : { under: PREVIEW_UNDER_ROWS }) });
   if (drawn.preview) s.previewRect = { ...drawn.preview, row: drawn.preview.row + Number(sheet) };
   s.listCol = drawn.listCol;
@@ -129,7 +135,7 @@ export function anchoredRows(s: CompletionState, w: number, h: number): number {
   const picker = completionPicker(s);
   picker.sel = s.index;
   const need = picker.lines(listColumns(s, inner), bodyRows, 0).length;
-  const body = previewBeside(s, inner) ? need : Math.min(bodyRows, need + 1 + PREVIEW_UNDER_ROWS);
+  const body = previewBeside(s, inner) ? Math.min(bodyRows, Math.max(need, docsRows(s))) : Math.min(bodyRows, need + 1 + PREVIEW_UNDER_ROWS);
   return Math.min(h, body + 4);
 }
 

@@ -23,7 +23,7 @@ export const marks: Record<string, string[]> = {
   snippets: ["::graph-stat", "component"],
   completion: ["Ask about the beds, see ((Gree", "block"],
   // The sowing calendar's edit with [[sow- typed on Bed 1, its weeks dropped under the cursor (PIE-1511).
-  "completion-place": ["Bed 1: plan [[sow-", "Sowing week 1"],
+  "completion-place": ["Bed 1: plan [[sow-", "Sowing calendar, completion practice"],
   // A comment ending in [[seed: the pages and an extension's issues in one list (PIE-1340).
   sources: ["Which issue is the swap, see [[seed", "issue"],
   // A note's edit open with a / line, the actions that apply here asked for at it (PIE-1076).
