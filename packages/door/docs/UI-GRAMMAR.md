@@ -817,6 +817,7 @@ properties omit it. A single-layout view without grouping or sorting shows its r
 Hovering it or moving the cursor into it reveals one control row. At narrow widths its layout control cycles
 the layouts and `≡` opens settings. In every layout, arrows or j/k pick, Enter opens, Tab or Esc leaves,
 and comma tunes. The entered collection's hint shows only these keys, from `list-keys.ts` (`↑↓ pick · ⏎ open · tab esc leave · , tune`, whole at 44 columns).
+Getting in is the reading walk itself (`stepReading`, `collectionAtReading`): j onto a collection's block stops on its text when there is some (a saved view's last body line), then goes in at its first row; k from below goes in at its last row; j or k past an edge row leaves and walks on (`reading.step through=true`; at the note's end it stays on the edge row); Tab on the block goes in, Tab or Esc inside comes out; `]` onto a row is in it too (`enterCollectionRow`).
 Feed bodies use the reader's embed renderer without a duplicate title: callouts, headings, bold and values
 are drawn against each card's own note. The kitchen sink's **quiet-collection** section shows this with a type/ticket view.
 

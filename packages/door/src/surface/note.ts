@@ -1,7 +1,8 @@
 import { panelMode } from "./panel-mode";
 import { HISTORY, NAV_VERSION, savedPlace, placeOf, readNav, type Place, type Zoom, type FigureChoice, type SavedNav } from "./navigation";
 export { HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
-import { LIST_KEYS, collectionHint, listBinding } from "./list-keys";
+import { listBinding } from "./list-keys";
+import { listMode, collectionAtReading, collectionTextStop, enterCollectionRow, type ListMode } from "./list-mode";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
@@ -795,7 +796,6 @@ const LEAVE_SAYS: Record<LeaveChoice, string> = {
   discard: "discard (a copy stays on disk)",
 };
 type PanelMode = ReturnType<typeof panelMode>;
-type ListMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { list: string; describe(): { list: string; title: string | null; selected: string | null; typing: string | null } };
 type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; reveal: boolean; place: AttachedPlace; float: FloatRect | null; frame: FloatRect | null; room: { w: number; h: number; col?: number; row?: number }; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; view: Inspector; footer: number; describe(): unknown };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
 
@@ -915,7 +915,7 @@ export class NoteSurface {
   /** The link `[ ]` or a click selected, as an index into `links` (the river steps these; it draws its own body). */
   private link = -1;
   /** The elements the last reading render drew, in reading order; empty until one (and in the river). */
-  private elems: Element[] = [];
+  elems: Element[] = [];
   /** The current element (its key): where `[ ]` is, what ⏎ acts on, what the ruler tints (PIE-441). */
   private cur: string | null = null;
   /**
@@ -1011,7 +1011,7 @@ export class NoteSurface {
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   /** What the last render drew: `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
-  private drawn: { w: number; h: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number; titleRows: [number, number] } | null = null;
+  drawn: { w: number; h: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number; titleRows: [number, number] } | null = null;
   /** The last render brought the current element in (reveal), so it's brought in again once the header's rows are known. */
   private lastReveal = false;
   /** The last draw was a host's digest (`digest`): its elements are current, whole, with no scroll of the surface's own. */
@@ -4125,7 +4125,7 @@ export class NoteSurface {
     return null;
   }
 
-  private selectedElement(): Element | undefined {
+  selectedElement(): Element | undefined {
     const drawn = this.elems.find(e => e.key === this.cur);
     if (drawn) return drawn;
     // Several key reports may arrive before a repaint exposes the newly selected row.
@@ -4154,61 +4154,21 @@ export class NoteSurface {
     this.reveal = true;
   }
 
-  /** The person goes into list `l` (its rows take j k ⏎ / esc), or comes out of it. */
-  enterList(l: ListHandle<any>, on: boolean) {
+  /** The person goes into list `l` (its rows take j k ⏎ / esc), or comes out of it; `at` picks its first or last row (a walk by j or k, PIE-1491). */
+  enterList(l: ListHandle<any>, on: boolean, at?: "first" | "last") {
     if (!on) { this.leaveList(l.key); this.letGo(); return; }
-    this.modes.push(this.listMode(l.key, l.title));
-    const first = l.view.picked(PERSON) ?? l.view.visible().find(selectable);
+    if (this.listIn !== l.key) this.modes.push(listMode(this, l.key, l.title));
+    const rows = l.view.pickable();
+    const first = at ? (at === "first" ? rows[0] : rows.at(-1)) : l.view.picked(PERSON) ?? l.view.visible().find(selectable);
     if (first) this.selectListRow(l, first.id, first.group);
   }
+
   /** Out of the list the person is in (any, or only `key`): its typed filter goes with it. */
-  private leaveList(key?: string) {
+  leaveList(key?: string) {
     const was = this.listIn;
     if (!was || (key && key !== was)) return;
     this.modes.drop("list");
     this.listViews.get(was)?.stopTyping(false);
-  }
-
-  private listMode(list: string, title: string): ListMode {
-    return {
-      name: "list", of: { list }, list, word: "list",
-      // Not a session: it holds no note. Its keys come first while it's open; the screen's (Tab, ^W, digits) stay the screen's.
-      holdsKeys: false, editing: () => false, covers: () => false,
-      key: (k, host) => this.listKey(list, k, host),
-      click: (x, y) => {
-        const h = this.hitAt(x, y);
-        // A click in its own rows or its control is reading's (a row selects, the control comes out); anywhere else leaves it.
-        if (!(h && "link" in h && h.link.listRow?.key === list)) this.leaveList();
-        return undefined;
-      },
-      rows: () => null,
-      leave: async () => { this.leaveList(); return { left: "nothing" }; },
-      hint: () => this.listViews.get(list)?.typing ? "type to filter the list · ⏎ keep · esc clear" : this.listsDrawn.find(l => l.key === list)?.collection ? collectionHint() : `${title} · ${modeHint(LIST_KEYS, name => LISTVIEW_ACTIONS.def(name))}`,
-      state: () => "in a list",
-      describe: () => ({ list, title, selected: this.listViews.get(list)?.picked(PERSON)?.id ?? null, typing: this.listViews.get(list)?.typing?.text ?? null }),
-    };
-  }
-
-  private listKey(list: string, k: Key, host: SurfaceHost): boolean {
-    const l = this.listsDrawn.find(x => x.key === list);
-    if (!l) { this.leaveList(); return this.key(k, host); }
-    const view = l.view, T = view.typing;
-    if (T) {
-      // Typing a filter: letters go into it and the list follows; ⏎ keeps it, esc goes back to what it was.
-      if (k.kind === "enter") view.stopTyping(true);
-      else if (k.kind === "esc") view.stopTyping(false);
-      else if (!T.take(k)) return true;
-      if (l.change) void l.change({ where: view.filter() }, PERSON).then(() => host.redraw());
-      host.redraw();
-      return true;
-    }
-    const binding = listBinding(k, !!l.change, view.pickable().length);
-    if (binding) { void this.runList(binding.action as ListActionName, { list, ...binding.args } as never, host); return true; }
-    if (l.collection) return true;
-    // Any other key: out of the list, and the key does what it does in the reader.
-    this.leaveList();
-    host.redraw();
-    return this.key(k, host);
   }
 
   /** A list action (list.pick, list.open, …), through the host's dispatcher, else the reader's own. */
@@ -4642,7 +4602,7 @@ export class NoteSurface {
   }
 
   /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
-  private hitAt(x: number, y: number): Hit | undefined {
+  hitAt(x: number, y: number): Hit | undefined {
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
     return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "crumbs" in h || "start" in h || ("follow" in h && h.follow)) ?? at[0];
   }
@@ -4703,6 +4663,8 @@ export class NoteSurface {
     const fk = this.figureKey(k);
     if (fk) { void this.runKey(fk.name, fk.args as never, host); return true; }
     if (isUp(k) || isDown(k)) { void this.runKey("reading.step", { by: isUp(k) ? -1 : 1 }, host); return true; }
+    // Tab on a collection's block goes into it (tab or esc inside come out, list-keys.ts), PIE-1491.
+    if (k.kind === "tab") { const l = collectionAtReading(this); if (l) { void this.runList("list.enter", { list: l.key, on: true }, host); return true; } }
     // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
     // ctrl+z undoes the last step change made here.
     if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: stepClosed(e.task.step.status) ? "todo" : "done" }, host, true); return true; } }
@@ -5288,7 +5250,7 @@ export class NoteSurface {
     this.position.reading = (this.msg?.text ?? "").split("\n").slice(0, line).reduce((n, l) => n + l.length + 1, 0);
   }
 
-  private readingSourceLine() { return lineAtOffset(this.msg?.text ?? "")(this.position.reading); }
+  readingSourceLine() { return lineAtOffset(this.msg?.text ?? "")(this.position.reading); }
 
   /** All wrapped rows of one source block, shared by navigation and ruler paint. */
   private blockRows(doc: Doc, row: number): [number, number] {
@@ -5299,7 +5261,7 @@ export class NoteSurface {
     return [a, b];
   }
 
-  private readingRows(): [number, number] | null {
+  readingRows(): [number, number] | null {
     const d = this.drawn;
     if (!d) return null;
     const line = this.readingSourceLine();
@@ -5314,11 +5276,14 @@ export class NoteSurface {
     else if (rows[1] > this.scroll + d.room) this.scroll = Math.min(rows[0], rows[1] - d.room);
   }
 
-  stepReading(by: 1 | -1) {
+  stepReading(by: 1 | -1, through = false) {
+    const here = this.listIn ? null : collectionAtReading(this);
+    if (here && !through && by > 0) { this.enterList(here, true, "first"); return; }
+    if (here && through && by < 0 && collectionTextStop(this)) return;
     const current = this.selectedElement();
     const figure = current?.link?.figure?.figure;
     const links = current?.link?.listRow?.key;
-    if (figure || (links && !current.link?.inlineList)) {
+    if (figure || (links && !current.link?.inlineList && !this.listsDrawn.some(l => l.key === links && l.collection))) {
       const entries = this.elems.filter(e => figure ? e.kind === "row" && e.link?.figure?.figure === figure : e.link?.listRow?.key === links && e.link?.listRow?.row !== undefined);
       const entry = entries[0];
       const inline = current.link?.inlineList ?? entry?.link?.inlineList;
@@ -5335,12 +5300,14 @@ export class NoteSurface {
       const row = inline.row + by;
       if (row >= 0 && row < list.rows.length) { this.selectInlineRow(current!, row); return; }
     }
+    // Leaving a collection's block (its rows scrolled by their own picks): walk on, never a screen of it at a time.
+    const leaving = !!here;
     this.letGo();
     const d = this.drawn;
     if (!d) return;
     const rows = this.readingRows();
     const visible = rows && rows[1] > this.scroll && rows[0] < this.scroll + d.room;
-    if (visible && (by > 0 ? rows[1] > this.scroll + d.room : rows[0] < this.scroll)) {
+    if (!leaving && visible && (by > 0 ? rows[1] > this.scroll + d.room : rows[0] < this.scroll)) {
       this.scroll = by > 0 ? Math.min(rows[1] - 1, this.scroll + d.room) : Math.max(rows[0], this.scroll - d.room);
       return;
     }
@@ -5359,6 +5326,9 @@ export class NoteSurface {
           const list = this.inlineLists.get(entry.link!.inlineList!.key)!;
           this.selectInlineRow(entry, by > 0 ? 0 : list.rows.length - 1);
         }
+        // A collection drawn in this block: the walk goes into it, at its first row going down, its last going up (PIE-1491).
+        const collection = collectionAtReading(this);
+        if (collection && !(by > 0 && collectionTextStop(this))) this.enterList(collection, true, by > 0 ? "first" : "last");
         this.revealReading();
         const block = this.readingRows();
         if (by < 0 && visible && block && block[1] - block[0] > d.room) this.scroll = Math.max(block[0], block[1] - d.room);
@@ -5957,7 +5927,7 @@ export class NoteSurface {
    */
   claims(k: Key): boolean {
     const list = this.listsDrawn.find(l => l.key === this.listIn);
-    return !!list && (!!list.collection || !!list.view.typing || !!listBinding(k, !!list.change, list.view.pickable().length)) || this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H");
+    return !!list && (!!list.collection || !!list.view.typing || !!listBinding(k, !!list.change, list.view.pickable().length)) || (k.kind === "tab" && !!collectionAtReading(this)) || this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H");
   }
 
   /**
@@ -9765,7 +9735,7 @@ export const SESSION_ACTIONS: Record<SessionKind, { name: "note.thread" | "note.
 
 /** Each action's arguments. */
 export type NoteActionArgs = ArgsOfSet<typeof NOTE_ACTIONS>;
-type ListActionName = keyof ArgsOfSet<typeof LISTVIEW_ACTIONS> & string;
+export type ListActionName = keyof ArgsOfSet<typeof LISTVIEW_ACTIONS> & string;
 
 const STEP_ARGS = {
   n: { type: "number", optional: true, about: "which step, from 1, as tasks lists them (in the note and inside its embeds)" },
@@ -10979,6 +10949,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (n === 0) { surface.letGo(); host.redraw(); return { current: null }; }
       if (by !== undefined) {
         if (!surface.step(by < 0 ? -1 : 1)) throw new ActionRefused("nothing to step to: this note has no links, folds, figure rows, embeds, resource projections or comments");
+        enterCollectionRow(surface);
         surface.previewRow(host);
         host.redraw();
         return surface.describeElements().find(e => e.current) ?? null;
@@ -12185,15 +12156,15 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "reading.step": def({
     summary: "move within a live figure or links list by rows, keeping its boundary until Esc; elsewhere move the reading line by logical blocks, a screen at a time in a tall block",
     touches: "tile", replay: "safe", person: "the reading position belongs to the person", keys: "↑ ↓ j k",
-    args: { by: { type: "number", about: "1 next block, -1 previous block" } },
+    args: { by: { type: "number", about: "1 next block, -1 previous block" }, through: { type: "boolean", optional: true, about: "on a collection's block: walk past it instead of into it (j or k at its edge)" } },
     examples: [
       { act: "reading.step by=1", does: "moves the reading line to the next block of the note" },
       { act: "reading.step by=-1", does: "moves the reading line back to the previous block" },
     ],
-    run({ by }, { surface, host }) {
+    run({ by, through }, { surface, host }) {
       surface.requireNote();
       if (by !== 1 && by !== -1) throw new ActionRefused("by is 1 or -1");
-      surface.stepReading(by); surface.previewRow(host); host.redraw();
+      surface.stepReading(by, !!through); surface.previewRow(host); host.redraw();
       return { position: surface.position.reading };
     },
   }),

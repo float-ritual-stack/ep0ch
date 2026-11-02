@@ -290,6 +290,12 @@ export class ListView<S = unknown> {
   }
   /** Move `who`'s pick `by` rows among those that can be selected; null where there's no row that way. */
   step(who: string, by: number, axis: "row" | "column" | "group" = "row"): ListViewRow<S> | null {
+    const row = this.stepTarget(who, by, axis);
+    if (row) this.setPick(who, row.id, row.group);
+    return row;
+  }
+  /** The row `step` would pick, or null at the edge, without picking it (a collection leaves at its edge, PIE-1491). */
+  stepTarget(who: string, by: number, axis: "row" | "column" | "group" = "row"): ListViewRow<S> | null {
     const rows = this.pickable(who), picked = this.picked(who), at = rows.indexOf(picked!);
     const shape = this.shapes.get(who) ?? this.shapes.get(PERSON);
     let to = (at < 0 ? (by > 0 ? -1 : rows.length) : at) + Math.trunc(by);
@@ -308,7 +314,6 @@ export class ListView<S = unknown> {
     if (to === at) return null;
     const row = rows[Math.max(0, Math.min(rows.length - 1, to))];
     if (!row || (to < 0 || to >= rows.length) && at >= 0 && rows[at] === row) return null;
-    this.setPick(who, row.id, row.group);
     return row;
   }
   /** Forget `who`'s pick (their own, not the rows). */

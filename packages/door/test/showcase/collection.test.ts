@@ -66,6 +66,42 @@ describe("showcase: a collection record (PIE-1281)", () => {
     }
   }, 20_000);
 
+  test.each([120, 44])("round two j alone walks into the collection, through it and out, in every layout at %s columns", async cols => {
+    for (const title of ["Mend the fence", "Oil the gate", "Sweep the shed"]) await h.board.createBlock(null, `${title} [collection::walk-${cols}] [stage::ready]`);
+    const note = await show(`Needs a hand [type::virtual-branch] [query::collection=walk-${cols}] [layout::table, feed, board] [sort::title asc]\n\nA line before the list.\n\nAnother line before it.`, cols);
+    const surface = () => stage().pane("garden").surface;
+    const entered = () => lists()[0]?.entered === true;
+    const picked = () => lists()[0].view.picked().label as string;
+    const hint = () => surface().contextualHint() ?? "";
+    for (const layout of ["table", "feed", "board"]) {
+      await act("list.layout", { layout });
+      await until(() => lists()[0].detail.layout === layout, `${layout} drawn`);
+      await act("reading.place", { line: 1 });
+      // j alone: the first body lines, then the collection's first row, with the collection's own hint.
+      for (let i = 0; i < 4 && !entered(); i++) { h.ch("j"); await new Promise(r => setTimeout(r, 120)); }
+      await until(entered, `${layout}: j walks into the collection`);
+      expect(picked()).toBe("Mend the fence");
+      expect(hint()).toContain("pick");
+      expect(hint()).toContain("leave");
+      h.ch("j"); await until(() => picked() === "Oil the gate", `${layout}: j moves to the second row`);
+      h.ch("j"); await until(() => picked() === "Sweep the shed", `${layout}: j moves to the last row`);
+      // The collection ends the note: j past its last row stays on that row. k walks back up and out to the line before; j walks back in.
+      h.ch("j"); await new Promise(r => setTimeout(r, 250));
+      expect(entered()).toBe(true); expect(picked()).toBe("Sweep the shed");
+      h.ch("k"); h.ch("k"); await until(() => picked() === "Mend the fence", `${layout}: k moves back to the first row`);
+      h.ch("k"); await until(() => !entered(), `${layout}: k before the first row leaves the collection`);
+      expect(hint()).not.toContain("leave");
+      expect(surface().msg.text.slice(surface().position.reading)).toStartWith("Another line before it.");
+      h.ch("j"); await until(() => entered() && picked() === "Mend the fence", `${layout}: j walks back in at the first row`);
+      // Esc leaves the collection and stays on the note; Tab on the collection goes back in.
+      h.press({ kind: "esc" }); await until(() => !entered(), `${layout}: esc leaves the collection`);
+      expect(surface().msg.id).toBe(note.id);
+      h.press({ kind: "tab" }); await until(entered, `${layout}: tab enters the collection`);
+      expect(hint()).toContain("pick");
+      h.press({ kind: "tab" }); await until(() => !entered(), `${layout}: tab leaves it again`);
+    }
+  }, 30_000);
+
   test("round two Sources describes and asks the saved collection again", async () => {
     await h.board.createBlock(null, "Check the gate [collection::source-garden]");
     await show("Needs a gardener [type::virtual-branch] [query::collection=source-garden] [layout::feed]");
