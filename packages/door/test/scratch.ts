@@ -37,8 +37,18 @@ export const showIn = (desk: { paneNamed(name: string): unknown }, m: { id: stri
   r.hold(m, desk);
 };
 
+/**
+ * How much longer every wait may take than written: EP0CH_TEST_SLACK (default 1), a multiplier `scripts/agent-env
+ * --test` sets to 2 when the machine's load at start is over 6 (PIE-1504), so a red under load means the change
+ * broke something, never that the box was busy. Read at each call: a test may set it for one wait.
+ */
+export const testSlack = () => {
+  const n = Number(process.env.EP0CH_TEST_SLACK);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+};
+
 export const until = async (ok: () => boolean, what: string, ms = 5000) => {
-  const end = Date.now() + ms;
+  const end = Date.now() + ms * testSlack();
   while (!ok()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(20); }
 };
 

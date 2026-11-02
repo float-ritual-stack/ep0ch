@@ -1,9 +1,11 @@
 #!/bin/sh
 # Each test file alone, in its own process: a file that only passes because another file loaded a module first (an
 # import cycle, a shared global) fails here. `bun test` loads every file into one process, which hides that: #204's
-# cycle left 13 files unable to load alone for a day. Parity and showcase files are slow; pass file names to run
-# only those. TEST_EACH_JOBS runs that many at once (default 1: one after another; scripts/box-test runs one per
-# vCPU in a boxd box, 8 on float-box). Prints only the files that fail, then exits 1 if any did.
+# cycle left 13 files unable to load alone for a day. The default is every file, test/*.test.ts and the showcase's
+# test/showcase/*.test.ts (PIE-1504); parity and showcase files are slow, so pass file names to run only those.
+# `--list` prints the files a run would take, one a line, and runs none. TEST_EACH_JOBS runs that many at once
+# (default 1: one after another; scripts/box-test runs one per vCPU in a boxd box, 8 on float-box). Prints only the
+# files that fail, then exits 1 if any did.
 self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 cd "$(dirname "$self")/.." || exit 2
 if [ "$1" = --one ]; then
@@ -13,5 +15,7 @@ if [ "$1" = --one ]; then
   printf '✗ %s\n%s\n' "$2" "$(printf '%s\n' "$out" | sed 's/\x1b\[[0-9;]*m//g' | grep -E '^(error|✗)|Error:' | head -5)"
   exit 1
 fi
-files=${*:-$(ls test/*.test.ts)}
+if [ "${1:-}" = --list ]; then shift; list=1; else list=0; fi
+files=${*:-$(ls test/*.test.ts test/showcase/*.test.ts)}
+[ $list = 0 ] || { printf '%s\n' $files; exit 0; }
 printf '%s\n' $files | xargs -P "${TEST_EACH_JOBS:-1}" -n 1 sh "$self" --one || exit 1

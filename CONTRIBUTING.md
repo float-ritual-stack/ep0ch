@@ -60,8 +60,14 @@ Before a PR claims a change works:
      your commit (unpushed goes up as a bundle) in a private dir it removes, exits with the first failing suite's
      code, and logs each run in `~/.local/state/ep0ch/box-test.tsv`. On float-box `scripts/box-test-guard` owns each
      run (PIE-998): one per worktree (`--replace` stops the old one), at most `EP0CH_BOX_SLOTS` (default 2) at once,
-     each killed whole on exit, a leaked process fails it (exit 97). `--each` runs the door's files each alone: a file
-     that loads only because another loaded a module first passes in one process and fails alone (#204).
+     each killed whole on exit, a leaked process fails it (exit 97). `--each` runs the door's files each alone, the
+     showcase's `test/showcase/*.test.ts` included (`sh scripts/test-each.sh --list` names them): a file that loads
+     only because another loaded a module first passes in one process and fails alone (#204).
+   - **A focused run under load waits longer, never goes red for it** (PIE-1504): `scripts/agent-env --test` sets
+     `EP0CH_TEST_SLACK=2` when float-box's load at start is over 6, and the tests' `until` (the door's
+     `test/scratch.ts`, the outliner's `test/script-harness.ts`) scales every deadline by it. Each run leaves one row
+     in `~/.agent-env/test-runs.tsv` (when, worktree, files, seconds, slot wait, exit, load): read it before calling a
+     red "flaky".
    - **A door test file leaves nothing for the next** (PIE-1412). Between files the door's preload
      (`packages/door/test/preload.ts`) retires the earlier file's Apps (which unbinds the extensions they read), stops
      its scratch hosts, puts the environment back and unbinds an extension list it bound itself; a scratch host still
