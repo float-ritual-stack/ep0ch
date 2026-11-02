@@ -63,7 +63,7 @@ export interface SessionInfo {
   host?: number;
 }
 
-export interface ClientInfo { id: number; pid: number; tty?: string; nest?: string; clientHost?: { kind: string; pane: string }; cols: number; rows: number; video: string; active: boolean; watch: boolean; since: number; idle: number; away: string | null }
+export interface ClientInfo { id: number; pid: number; tty?: string; nest?: string; clientHost?: { kind: string; pane: string }; cols: number; rows: number; video: string; steppedFrom?: string; active: boolean; watch: boolean; since: number; idle: number; away: string | null }
 
 /** Client → daemon. */
 export type ClientMsg =

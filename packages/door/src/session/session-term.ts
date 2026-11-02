@@ -14,7 +14,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 //   aimed at the frame drawn for the other size), the next one clicks.
 // - **A watcher** (`ep0ch session attach --watch`, an agent or a spare screen) is shown the session and never given
 //   the person's keys: q or ctrl+c leaves, anything else is ignored.
-import { Painter, type Display, type Video } from "../display";
+import { Painter, stepVideoDown, type Display, type Video } from "../display";
 import type { Placement } from "../kitty";
 import { Mirror } from "../mirror";
 import { C, bg, fg, pad, RESET, visible, headOf } from "../style";
@@ -61,6 +61,13 @@ export const ACK_STALE_MS = 5000;
  * can't cross that link either, so nobody is looking at it yet).
  */
 export const HANDOVER_SETTLE_MS = 2000;
+/**
+ * A terminal that loses this many frame checks in a row (nothing answered between them) is shown less: its video steps
+ * down by itself, kitty+crt to kitty to cells, said on screen, and `video.cycle` (alt+v) steps it back up (PIE-1500: the
+ * mini's kitty at 218×63 under kitty+crt stopped answering and sending keys; the MacBook's lost none). An answer, late or
+ * not, starts the count again, so a terminal that loses one now and then keeps its tube.
+ */
+export const STEP_DOWN_AFTER = 3;
 
 /** One attached client: its terminal, its rows and images, its keys. */
 /** How long the client with the keys may go untouched before a terminal attaching takes the session from it. */
@@ -84,6 +91,12 @@ export class SessionClient {
   waiting = false;
   /** What the window did, for `peek`: frames skipped, answers given up on, the smoothed round trip of an answer (ms). */
   skipped = 0; ackTimeouts = 0; ackMs: number | null = null;
+  /** Answers given up on since its terminal last answered: at STEP_DOWN_AFTER its video steps down. */
+  lostInARow = 0;
+  /** The video mode it was stepped down from (the first step's), until `video.cycle` puts it back; null while it is where it was set. */
+  steppedFrom: Video | null = null;
+  /** What its link has been sent since it attached: bytes, and frames among them (`peek` divides: what a frame costs this terminal). */
+  bytesSent = 0; framesSent = 0;
   staleTimer: Timer | null = null;
   /** The end of a chunk that was answers only, cut mid-answer (`ESC [ 0` then `n` in the next read): the rest isn't the person either. */
   answerTail = "";
@@ -94,7 +107,12 @@ export class SessionClient {
   constructor(readonly id: number, readonly hello: Hello, readonly link: Link) {
     this.info = { cols: clamp(hello.cols, 80), rows: clamp(hello.rows, 25), cellW: clamp(hello.cellW, 9), cellH: clamp(hello.cellH, 18), kitty: !!hello.kitty, pst: !!hello.pst, tree: !!hello.tree, sized: !!hello.sized };
     this.acks = !!hello.acks;
-    this.rows = new ClientRows(s => { if (this.sending) this.link.send({ t: "output", text: s }); }, this.info);
+    this.rows = new ClientRows(s => {
+      if (!this.sending) return;
+      this.bytesSent += Buffer.byteLength(s);
+      this.framesSent += s.split("\x1b[?2026h").length - 1;
+      this.link.send({ t: "output", text: s });
+    }, this.info);
     // A frame that goes out is followed by the query its terminal answers once it has taken the frame (never one that doesn't go out).
     if (this.acks) this.rows.afterFrame = () => { if (!this.sending) return ""; this.inflight.push(performance.now()); return STATUS_QUERY; };
     this.painter = new Painter(this.rows);
@@ -202,11 +220,26 @@ export class SessionTerm implements Display {
   get video(): Video { return this.active?.painter.video ?? this.mirrorPainter.video; }
   set video(v: Video) { if (this.active) this.active.painter.video = v; this.mirrorPainter.video = v; this.invalidate(); }
   cycleVideo(): string | null {
-    if (!this.active) return "no terminal is attached";
-    const no = this.active.painter.cycleVideo();
-    if (!no) this.mirrorPainter.video = this.active.painter.video;
+    const c = this.active;
+    if (!c) return "no terminal is attached";
+    // Stepped down for answers it lost: the one key puts it back where it was, and the next press cycles from there.
+    if (c.steppedFrom) { this.setVideo(c, c.steppedFrom); c.steppedFrom = null; return null; }
+    const no = c.painter.cycleVideo();
+    if (!no) this.mirrorPainter.video = c.painter.video;
     return no;
   }
+  /** `c` drawn in `v` from now, painted whole; the session's mirror follows when `c` has the keys. */
+  private setVideo(c: SessionClient, v: Video): void {
+    c.painter.video = v;
+    c.lostInARow = 0;
+    c.rows.invalidate();
+    if (c === this.active) this.mirrorPainter.video = v;
+  }
+  /** The video mode the active client was stepped down from (its terminal stopped answering), or null. */
+  steppedDown(): Video | null { return this.active?.steppedFrom ?? null; }
+  /** Said when the session steps a terminal's video down by itself: the App flashes it. */
+  onNotice(f: (text: string) => void) { this.noticeHandler = f; }
+  private noticeHandler: (text: string) => void = () => {};
 
   show(lines: string[], placements: Placement[]): void {
     this.last = { lines, placements };
@@ -359,7 +392,7 @@ export class SessionTerm implements Display {
     return this.clients.map(c => ({
       id: c.id, pid: c.hello.pid, ...(c.hello.tty ? { tty: c.hello.tty } : {}), ...(c.hello.nest ? { nest: c.hello.nest } : {}),
       ...(c.hello.clientHost ? { clientHost: c.hello.clientHost } : {}),
-      cols: c.info.cols, rows: c.info.rows, video: c.painter.video, active: c === this.active, watch: c.watch,
+      cols: c.info.cols, rows: c.info.rows, video: c.painter.video, ...(c.steppedFrom ? { steppedFrom: c.steppedFrom } : {}), active: c === this.active, watch: c.watch,
       since: c.since, idle: c.lastInput ? now - c.lastInput : now - c.since, away: c.away,
     }));
   }
@@ -436,6 +469,7 @@ export class SessionTerm implements Display {
     if (sent === undefined) return;           // none was asked (an old answer after a handoff, or one given up on)
     const ms = performance.now() - sent;
     c.ackMs = c.ackMs === null ? ms : c.ackMs * 0.7 + ms * 0.3;
+    c.lostInARow = 0;
     if (!c.inflight.length) { const w = c.settled; c.settled = []; for (const f of w) f(); }
     if (c.waiting && !c.full) { c.waiting = false; this.paintClient(c); }
   }
@@ -473,7 +507,7 @@ export class SessionTerm implements Display {
   staleFor(c: SessionClient): number {
     return c.ackMs === null ? this.ackStaleMs : Math.min(this.ackStaleMs, Math.max(ACK_STALE_FLOOR_MS, c.ackMs * ACK_STALE_TRIPS));
   }
-  /** A client waiting on an answer that never comes is painted again after `staleFor` it, once, and it is counted. */
+  /** A client waiting on an answer that never comes is painted again after `staleFor` it, once, and it is counted (and, once one was lost, each frame after until one is answered). */
   private watchStale(c: SessionClient): void {
     if (c.staleTimer || !c.inflight.length) return;
     const wait = Math.max(1, this.staleFor(c) - (performance.now() - c.inflight[0]!));
@@ -482,20 +516,42 @@ export class SessionTerm implements Display {
       if (!this.clients.includes(c) || !c.inflight.length) return;
       if (performance.now() - c.inflight[0]! < this.staleFor(c)) return this.watchStale(c);
       c.ackTimeouts++;
+      const stepped = ++c.lostInARow >= STEP_DOWN_AFTER && this.stepDown(c);
       const skipped = c.waiting;
       this.forgetWindow(c);
-      if (skipped) this.paintClient(c);
+      if (skipped || stepped) this.paintClient(c);
+      // After a lost answer the next frame is watched too, whether or not a paint waits on it, and when no frame is
+      // on its way the check goes alone (the query, no rows): a terminal that has stopped answering is found, and
+      // stepped down, without the door having to paint again and again.
+      if (c.lostInARow && !c.away && !c.behind) {
+        if (!c.inflight.length) { c.inflight.push(performance.now()); c.link.send({ t: "output", text: STATUS_QUERY }); }
+        this.watchStale(c);
+      }
     }, wait);
     c.staleTimer.unref?.();
   }
 
   /**
-   * How each client's window stands, for `peek`'s `speed` (the daemon sees its socket; the terminal's answers say the
-   * link): frames unanswered, skipped, the round trip, answers given up on, and `ackJoined`, answers that reached the
-   * session cut in two (evidence for a terminal or link that splits them, PIE-1500).
+   * `c`'s terminal lost STEP_DOWN_AFTER frame checks in a row: shown less from now (kitty+crt to kitty, kitty to cells),
+   * said on screen with the key back. False when there is nothing under its mode (cells, or a terminal without Kitty graphics).
    */
-  speed(): { id: number; acks: boolean; unacked: number; skipped: number; ackMs: number | null; ackTimeouts: number; ackJoined: number }[] {
-    return this.clients.map(c => ({ id: c.id, acks: c.acks, unacked: c.inflight.length, skipped: c.skipped, ackMs: c.ackMs === null ? null : Math.round(c.ackMs * 10) / 10, ackTimeouts: c.ackTimeouts, ackJoined: c.decoder.answersJoined }));
+  private stepDown(c: SessionClient): boolean {
+    const from = c.painter.video, to = c.info.kitty ? stepVideoDown(from) : null;
+    if (!to) { c.lostInARow = 0; return false; }
+    c.steppedFrom ??= from;
+    this.setVideo(c, to);
+    this.noticeHandler(`terminal #${c.id} stopped answering ${STEP_DOWN_AFTER} frame checks in a row: its video stepped down from ${from} to ${to} · alt+v steps it back up`);
+    return true;
+  }
+
+  /**
+   * How each client's window stands, for `peek`'s `speed' (the daemon sees its socket; the terminal's answers say the
+   * link): frames unanswered, skipped, the round trip, answers given up on, and `ackJoined`, answers that reached the
+   * session cut in two (evidence for a terminal or link that splits them, PIE-1500); `bytes` and `frames` sent it since
+   * it attached (what a frame costs it), its `video` and `steppedFrom`, the mode it was stepped down from when it was.
+   */
+  speed(): { id: number; acks: boolean; unacked: number; skipped: number; ackMs: number | null; ackTimeouts: number; ackJoined: number; bytes: number; frames: number; video: Video; steppedFrom: Video | null }[] {
+    return this.clients.map(c => ({ id: c.id, acks: c.acks, unacked: c.inflight.length, skipped: c.skipped, ackMs: c.ackMs === null ? null : Math.round(c.ackMs * 10) / 10, ackTimeouts: c.ackTimeouts, ackJoined: c.decoder.answersJoined, bytes: c.bytesSent, frames: c.framesSent, video: c.painter.video, steppedFrom: c.steppedFrom }));
   }
 
   private paintClient(c: SessionClient): void {

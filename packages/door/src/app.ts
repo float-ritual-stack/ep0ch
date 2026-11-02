@@ -704,7 +704,7 @@ export class App implements Ctx {
     term.onResize(() => { resizing(); this.redraw(); });
     this.offResize = onResizeEnd(() => this.redraw());
     this.timer = setInterval(() => this.tick(), 33);
-    this.display.onSeen?.(() => this.catchUp());
+    this.display.onSeen?.(() => this.catchUp()); this.display.onNotice?.(text => { this.flash(text, 12_000, { kind: "warning" }); this.redraw(); });
     // The test run's registry (test/preload.ts), when there is one: an App a test file leaves running is retired once
     // the next file starts, so it never paints against that file's boards. Nothing outside tests sets it.
     (globalThis as { [TEST_APPS]?: { add(app: App): void } })[TEST_APPS]?.add(this);
@@ -1918,7 +1918,7 @@ export class App implements Ctx {
       right("backup", backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text}` : "", "backups.alert"),
       right("new", count ? `${fg(C.yellow)}+${count} new` : "", "changes.open"),
       { ...right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"), ...(held ? { short: `${fg(C.dark)}+${held}` } : {}) },
-      right("video", this.video, "video.cycle"),
+      right("video", this.display.steppedDown?.() ? `${this.video}↓` : this.video, "video.cycle"),   // ↓: stepped down by the session, alt+v puts it back (PIE-1500)
       right("theme", theme().name, "theme.cycle"),
       { ...right("uptime", `on ${mins}m`, "status.log"), short: `${mins}m` },
       { ...right("clock", clock ?? "", "status.log"), keep: true },
