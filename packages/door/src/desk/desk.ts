@@ -734,9 +734,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A tile's door-wide stable id, kept through moves, tabs and saves; never given to another tile. */
   private tileAnswer(id: number) { return { tile: this.tileId(id), name: this.nameOf(id) }; }
 
-  private tileId(id: number): string { return tileRegistry.idOf(this.panes.get(id)!); }
-  /** The focused tile's id, or nothing on a desk with no tiles (a saved desk can be empty: its hint row still draws). */
-  private focusId(): string | undefined { return this.panes.has(this.focus) ? this.tileId(this.focus) : undefined; }
+  private tileId(id: number): string { return tileRegistry.idOf(this.panes.get(id)!); } private focusId(): string | undefined { return this.panes.has(this.focus) ? this.tileId(this.focus) : undefined; } // none on an emptied desk
   private readonly restoredIds = new Map<string, string>();
   private claimIds(door = this.ctx?.hostLayer ?? this.ctx) {
     if (!door) return;
