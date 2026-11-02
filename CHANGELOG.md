@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The door keeps painting on the mini: a lost frame answer never freezes the screen (PIE-1500)
+
+- **Keys show at once:** a key or a click from a terminal proves it is alive: whatever frames it hasn't answered are taken and the latest paints right then. Mouse motion doesn't count, so a drag over a slow link still gets the latest frame and never a queue (PIE-1163 stands).
+- **A lost answer costs a few round trips, not 5 s:** a frame is given up on after four of that terminal's own measured round trips (never under 300 ms, never over 5 s), and a late answer is never set against a frame given up on: before, two answers truly lost froze the terminal for another 5 s every two frames, forever (the mini's tab at 81 timeouts).
+- **An answer cut in two by the reads counts:** `ESC [ 0` in one read and `n` in the next was dropped as an unknown sequence and the frame went unanswered; and half an answer no longer takes the keys from the other terminal. `ep0ch peek --json` shows `speed.clients[].ackJoined`, how often it happened, as evidence for the terminal that splits them.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### Words in the power bar jump to a note again (PIE-1497)
 
 - **Search:** in the main list and `/notes`, words search titles with nothing drawn over the results: ↑↓ ⏎ are the list's. One letter lists the titles that start with it.
