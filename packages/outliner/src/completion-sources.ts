@@ -573,12 +573,26 @@ const callouts: ServiceSource = {
 };
 
 /** The service's sources, in the order their rows come among equals. */
+/**
+ * The ask is for a query (PIE-1508): a query line (a view's, the power bar's `=`), or the value of a prop that completes
+ * as one (`[query::`, a figure's `query:`, a component's `query="`). Query words and the extensions' `query` sources answer it.
+ */
+async function asksQuery(ask: Asked, svc: CompletionService): Promise<boolean> {
+  if (ask.kind === "query") return true;
+  if (ask.kind !== "value" && ask.kind !== "yaml-value" && ask.kind !== "attribute-value") return false;
+  return (await schemasOf(svc)).some(s => (!ask.component || componentName(s) === ask.component || s.id === ask.component) && s.props.some(p => p.key === ask.key && p.complete === "query"));
+}
+/** The query as typed in its place: a YAML value's quotes taken off. */
+const queryText = (ask: Asked) => ask.kind === "yaml-value" ? yamlQuoted(ask.query) : ask.query;
+/** A query written into its place: a property's value closed with `]`, a YAML or attribute value quoted as it needs. */
+const queryInsert = (ask: Asked, where: string) => ask.kind === "value" ? `${where}]` : ask.kind === "yaml-value" ? yamlScalar(where) : ask.kind === "attribute-value" ? attributeScalar(where, ask.quote) : where;
+
 const queryWords: ServiceSource = {
   decl: { id: "query-words", title: "query words", triggers: ["query", "key::", "yaml-value", "attribute-value"], priority: 20, ranked: true, by: "service" },
   async rows(ask, svc) {
-    if (ask.kind !== "query" && !(await schemasOf(svc)).some(s => (!ask.component || componentName(s) === ask.component || s.id === ask.component) && s.props.some(p => p.key === ask.key && p.complete === "query"))) return null;
-    const text = ask.kind === "yaml-value" ? yamlQuoted(ask.query) : ask.query;
-    const insert = (where: string) => ask.kind === "value" ? `${where}]` : ask.kind === "yaml-value" ? yamlScalar(where) : ask.kind === "attribute-value" ? attributeScalar(where, ask.quote) : where;
+    if (!(await asksQuery(ask, svc))) return null;
+    const text = queryText(ask);
+    const insert = (where: string) => queryInsert(ask, where);
     const grammar = ask.kind === "query" ? (await querySuggestions(text, (key, prefix) => catalogOf(svc, key ? { key } : {}, prefix))).map(r => ({ label: r.value, insert: r.value, detail: r.detail, kind: "query" })) : [];
     const answer = await svc.request<QuerySuggestAnswer>("query.suggest", { text, where: ask.where, zone: ask.zone, semantic: ask.semantic ?? false });
     if ("unavailable" in answer) return { rows: grammar, problem: answer.unavailable };
@@ -623,11 +637,19 @@ export async function completionRows(svc: CompletionService, request: Completion
     // A source that fails says so in its own answer: the others' rows still come.
     asks.push(s.rows(ask, svc).then(a => a && ({ source: s.decl, ...a }), error => ({ source: s.decl, rows: [], problem: `${s.decl.title}: ${error instanceof Error ? error.message : String(error)}` })));
   }
-  for (const e of extensions) if (sourceAnswers(e, ask)) {
-    const decl = { id: e.name, title: e.title, priority: 0, by: e.extension };
+  // A query, wherever it's typed (a query line, `[query::`, a figure's `query:`), is the `query` trigger's (PIE-1508): an
+  // extension's source answers the query's words and its rows write the query, fitted here to the place it goes.
+  const query = extensions.some(e => e.triggers.includes("query")) && await asksQuery(ask, svc);
+  for (const e of extensions) {
+    const asQuery = query && e.triggers.includes("query");
+    if (!asQuery && !sourceAnswers(e, ask)) continue;
+    // A query line is no name to match letters against: under `query` the source's own order stands, as query words' does.
+    const decl = { id: e.name, title: e.title, priority: 0, by: e.extension, ...(asQuery ? { ranked: true } : {}) };
+    const asked: Asked = asQuery ? { ...ask, trigger: "query", query: queryText(ask) } : ask;
+    const fit = (rows: SourceRow[]) => asQuery && ask.kind !== "query" ? rows.map(r => typeof r.insert === "string" ? { ...r, insert: queryInsert(ask, r.insert) } : r) : rows;
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(new Error("took too long")), EXTENSION_SOURCE_MS);
-    asks.push(askExtension(e, ask, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal).then(
-      rows => ({ source: decl, rows }),
+    asks.push(askExtension(e, asked, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal).then(
+      rows => ({ source: decl, rows: fit(rows) }),
       error => ({ source: decl, rows: [], problem: `${e.title}: ${controller.signal.aborted ? `no answer in ${EXTENSION_SOURCE_MS / 1000}s` : error instanceof Error ? error.message : String(error)}` }),
     ).finally(() => clearTimeout(timer)));
   }

@@ -10269,7 +10269,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const spend = invitation !== undefined ? () => ds!.spend(invitation, actor) : undefined;
         if (!await insertCompletion(board, d, target, item, own, still, actor, spend)) throw new Error("the draft changed while the reference was checked; ask again");
       } catch (e) { throw new ActionRefused(`not inserted: ${e instanceof Error ? e.message : String(e)}`); }
-      if (r.pickKey) await recordCompletionPick(board, r.pickKey, item.insertion);
+      if (r.pickKey) await recordCompletionPick(board, r.pickKey, item, target.query);
       surface.noteAgent(actor, `inserted ${item.insertion}`);
       host.redraw();
       return { ...out, inserted: item.insertion, dirty: d.dirty };

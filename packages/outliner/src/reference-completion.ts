@@ -1,7 +1,7 @@
 import {completionTargetAtCursor,type CompletionTarget} from "@ep0ch/outline-core/completion-triggers";
 import {insertSelection,insertSlots,insertText,mergeSourceAnswers,pickId,pickKey,triggerOf,type SourceRow} from "@ep0ch/outline-core/completion-source";
 import type {SnippetSlot} from "@ep0ch/outline-core/completion-snippet";
-import type {CompletionRowsRequest,CompletionRowsResult} from "@ep0ch/outline-core/protocol";
+import type {CompletionPickedRequest,CompletionRowsRequest,CompletionRowsResult} from "@ep0ch/outline-core/protocol";
 import type {OutlinerRequester} from "./client-target";
 import {resolveFragment} from './fragments';
 import {blockDisplayTitle} from './references';
@@ -55,7 +55,7 @@ export interface ReferenceCompletionProvider {
   /** The service's completion sources for the token (`completion.rows`). */
   completionRows(request:CompletionRowsRequest,signal?:AbortSignal):Promise<CompletionRowsResult>;
   /** Count a pick, so every client ranks it higher next time (`completion.picked`). */
-  completionPicked?(key:string,insert:string):Promise<unknown>;
+  completionPicked?(key:string,insert:string,told?:Omit<CompletionPickedRequest,"key"|"insert">):Promise<unknown>;
   queryPageAddresses(query:string|undefined,limit:number):Promise<PageAddressCollection>;
   readContext(blockId:string):Promise<SelectionContext>;
   updateBlock(input:{blockId:string;text:string;expectedRevision:number}):Promise<Block>;
@@ -205,7 +205,9 @@ export class ReferenceCompletionSession {
       b.replaceCurrentLine(state.start,state.end,item.insertion);
       });
       if(item.slots?.length)b.startSnippet(item.slots,offset);
-      if(state.pickKey)void this.provider.completionPicked?.(state.pickKey,pickId(item.insertion)).catch(()=>{});
+      // An extension's row also tells its source it was chosen (PIE-1508); the host tells only one that declares picks.
+      const from=(item as {from?:string}).from;
+      if(state.pickKey)void this.provider.completionPicked?.(state.pickKey,pickId(item.insertion),from?.startsWith("ext.")?{source:from,outcome:"accepted",query:state.query,row:{...(item.id?{id:item.id}:{}),label:item.label,insertion:item.insertion}}:{}).catch(()=>{});
       if(item.querySuggestion){this.accepted={suggestion:item.querySuggestion,text:b.text};await this.provider.querySuggest?.({text:item.querySuggestion.input,outcome:item.queryOutcome??'accepted',suggestion:item.querySuggestion,corrections:item.queryCorrections}).catch(error=>{state.message=String(error);});}
       this.dismiss();return true;
     }catch(error){if(this.current(generation)){state.message=error instanceof Error?error.message:String(error);this.changed();}return false;}finally{this.accepting=false;if(!this.state&&item.kind==="property")void this.refresh();}
@@ -216,7 +218,7 @@ export function referenceCompletionProvider(client:OutlinerRequester,actorId:str
   return {
     querySuggest:input=>client.request({action:'query.suggest',...input,mutation:{author:'user'}}),
     completionRows:(request,signal)=>requestCompletionRows(client,request,signal),
-    completionPicked:(key,insert)=>client.request({action:"completion.picked",key,insert}),
+    completionPicked:(key,insert,told={})=>client.request({action:"completion.picked",key,insert,...told}),
     ensureFragment:input=>client.request({action:"fragments.ensure",...input,mutation:{author:"user",actorId}}),
     queryPageAddresses:(query,limit)=>client.request({action:"pages.complete",query,limit}),
     readContext:blockId=>client.request({action:"blocks.context",blockId}),

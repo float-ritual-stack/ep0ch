@@ -20,7 +20,7 @@ import { connect, type Socket } from "node:net";
 import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import type { PartAt, PropertyMatch, TwinAnswer } from "@ep0ch/outline-core/protocol";
-import type { CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
+import type { CompletionPickedRequest, CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionArgChoice, ExtensionBarResult, ExtensionInstalled, ExtensionList, ExtensionUninstalled } from "./extensions";
@@ -1698,9 +1698,12 @@ export class SocketBoard implements Board {
       .finally(() => signal?.removeEventListener("abort", cancel));
   }
 
-  /** A completion row was chosen: the host counts the pick, so it ranks higher next time on every client. */
-  completionPicked(key: string, insert: string): Promise<unknown> {
-    return this.request("completion.picked", { key, insert });
+  /**
+   * A completion row was chosen: the host counts the pick, so it ranks higher next time on every client. With `told`
+   * (PIE-1508) its source hears it too: accepted, edited or ignored (no `insert`, nothing counted).
+   */
+  completionPicked(key: string, insert: string | undefined, told: Omit<CompletionPickedRequest, "key" | "insert"> = {}): Promise<unknown> {
+    return this.request("completion.picked", { key, ...(insert !== undefined ? { insert } : {}), ...told });
   }
 
   /** Workspace paths starting with `prefix`. */

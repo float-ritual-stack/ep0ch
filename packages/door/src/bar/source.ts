@@ -89,6 +89,11 @@ export interface BarSource {
   from?: readonly string[];
   /** What it lists, for `bar.open`'s answer and the bar's foot. */
   about: string;
+  /**
+   * What its line completes as while the bar is scoped to it (PIE-1508): `query` is a query line (query words and every
+   * `query`-trigger source on what's typed, Tab accepts; `=` is one); `act` (the default) act lines and references.
+   */
+  grammar?: "query" | "act";
   /** Its rows join the main list (no scope chosen): with nothing typed (`empty`), and as the person types (`typed`). */
   main: { empty: boolean; typed: boolean; most?: number };
   /** Its rows ask the service (the notes search, an extension's process): asked once typing pauses, not on every key. */

@@ -898,7 +898,7 @@ function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
     return { action: a.name, args: { ...(r.block ? { block: r.block } : {}), ...(r.args ? { with: JSON.stringify(r.args) } : {}) } };
   };
   return {
-    id: b.name, title: b.title, prefix, by: b.extension, asks: true,
+    id: b.name, title: b.title, prefix, by: b.extension, asks: true, ...(b.grammar ? { grammar: b.grammar } : {}),
     about: `${b.description ?? b.title} (extension ${b.extension})`,
     main: { empty: b.main, typed: b.main, most: 6 },
     async rows(q, host, _scope, signal) {
