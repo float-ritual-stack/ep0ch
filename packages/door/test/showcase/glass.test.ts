@@ -668,10 +668,17 @@ describe("showcase: the glass", () => {
     await act("glass.mode", { set: "on" });
     const items = async () => { h.app.flush(); return ((await act("status.bar.items")).items as { id: string; text: string }[]).map(i => ({ ...i, text: visible(i.text) })); };
     expect((await items()).find(i => i.id === "glass")?.text).toContain("◇ on");
+    // A shelf on the glass, with a ref on it: its tile says the kind went while the glass is off, and comes back with it.
+    const shelf = await act("glass.shelf", { name: "spare seeds", colour: "green" });
+    await act("glass.shelve", { ref: h.seeded.notes.shed.id, shelf: shelf.tile });
+    const shelfPane = () => floats().find(f => f.tile === shelf.tile)?.pane;
+    expect(shelfPane()).toBeInstanceOf(Shelf);
     try {
       await h.app.act({ action: "extensions.uninstall", args: { id: "glass", demo: "keep" }, as: "glass-tester" });
       await h.app.loadExtensions(true);
       await until(() => !running(), "the door module stops with its extension");
+      await until(() => !!shelfPane() && !(shelfPane() instanceof Shelf), "the shelf's tile says its kind went");
+      await expect(h.app.dispatch.act({ action: "shelf.layout", args: { set: "grid" }, tile: shelf.tile }, { kind: "user" })).rejects.toThrow();
       expect((await items()).some(i => i.id === "glass")).toBe(false);
       hover(cell("tool shed")); await Bun.sleep(400);
       expect(floats().some(f => f.pane.kind === "post-it")).toBe(false);
@@ -686,6 +693,9 @@ describe("showcase: the glass", () => {
       await h.app.loadExtensions(true);
     }
     await until(() => !!running(), "the door module starts again");
+    await until(() => shelfPane() instanceof Shelf, "the shelf comes back with its kind");
+    expect((shelfPane() as Shelf).refs.map(r => r.ref)).toEqual([h.seeded.notes.shed.id]);
+    await act("tile.close", {}, shelf.tile);
     expect(ext().mode).toBe("on");
     expect((await items()).find(i => i.id === "glass")?.text).toContain("◇ on");
     hover({ x: 0, y: 0 }); hover(cell("tool shed"));

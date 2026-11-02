@@ -17,7 +17,7 @@ import type { Desk } from "../../src/desk/desk";
 import { readTarget } from "../../src/desk/outline-boards";
 import type { DeskApi } from "../../src/desk/panes";
 import type { TileDone } from "../../src/desk/tile-actions";
-import { registerTileKind, tileKind, unregisterTileKind } from "../../src/desk/tile-kinds";
+import { kindsChanged, registerTileKind, tileKind, unregisterTileKind } from "../../src/desk/tile-kinds";
 import { registerTuneSection } from "../../src/desk/tune";
 import type { ActiveModule, DoorModule } from "../../src/door-modules";
 import { inside, type HoverMove, type Point } from "../../src/hover";
@@ -268,6 +268,8 @@ export const GLASS_MODULE: DoorModule = {
     current = g;
     const kinds = [POST_IT_KIND, SHELF_KIND].filter(k => !tileKind(k.kind));
     for (const k of kinds) registerTileKind(k);
+    // A post-it or shelf a layout saved while the glass was off is made as its kind now (and goes when it stops).
+    if (kinds.length) kindsChanged();
     const stops = [
       app.hover.subscribe({ moved: m => g.moved(m), pressed: () => g.pressed() }),
       registerStatusChip({ id: "glass", text: () => g.chip(), tiny: () => g.tiny(), click: "glass.toggle", alt: "glass.clear", keep: true }),
@@ -279,6 +281,7 @@ export const GLASS_MODULE: DoorModule = {
       dispose() {
         for (const stop of stops) stop();
         for (const k of kinds) unregisterTileKind(k.kind, "the glass extension is off here: ep0ch act extensions.install id=glass turns it on");
+        if (kinds.length) kindsChanged();
         g.dispose();
         if (current === g) current = null;
         app.redraw();
