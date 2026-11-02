@@ -3,11 +3,23 @@
 // is refused mid-turn unless now=true, which says what it dropped; the person's press never waits. The tile menu and
 // ^W R name it. Scratch service, the showcase's fictional seed.
 import { describe, expect, test } from "bun:test";
+import { resumeCommand } from "../../src/desk/agent-sessions";
 import { Desk } from "../../src/desk/desk";
+import { ReaderPane } from "../../src/desk/panes";
+import { FAKE_CLAUDE_SESSION, fakeClaude } from "../../src/showcase/restart";
+import { scratchDir } from "../scratch";
+import { join } from "node:path";
 import { PtyPane } from "../../src/desk/pty";
 import { W_KEYS } from "../../src/desk/wkeys";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
+
+test("a restarted Claude resumes its own session by id, its other flags kept (PIE-1280)", () => {
+  expect(resumeCommand(["claude", "--continue"], "5eed")).toEqual(["claude", "--resume", "5eed"]);
+  expect(resumeCommand(["/opt/bin/claude", "--resume", "old1", "--plugin-dir", "/mods/garden", "-c"], "5eed")).toEqual(["/opt/bin/claude", "--plugin-dir", "/mods/garden", "--resume", "5eed"]);
+  // An interpreter's own -c stays: only what follows the program is Claude's.
+  expect(resumeCommand(["node", "-c", "/opt/lib/claude.js", "--resume=old1", "--model", "sonnet"], "5eed")).toEqual(["node", "-c", "/opt/lib/claude.js", "--model", "sonnet", "--resume", "5eed"]);
+});
 
 describe.skipIf(!outliner || process.platform !== "linux")("the restart section (PIE-1280)", () => {
   const h = useShowcaseScreen();
@@ -59,5 +71,36 @@ describe.skipIf(!outliner || process.platform !== "linux")("the restart section 
       expect(theirs).toMatchObject({ ended: "signal", dropped: "the turn in progress" });
       await until(() => pidOf() > 0 && pidOf() !== third, "claude again after the person's restart", 15_000);
     } finally { d.dispose(); }
+  }, 90_000);
+
+  test("a claude typed in a shell tile on a screen not shown: found, restarted there with --resume, Evan's screen and focus stay; one that doesn't come back fails loudly", async () => {
+    const fake = fakeClaude(join(scratchDir("ep0ch-restart-shell-"), "claude"));
+    const shell = new PtyPane({ cmd: ["sh"], label: "bench", own: { CLAUDE_CONFIG_DIR: fake.config } });
+    const bench = new Desk({ name: "bench", title: "Bench", layout: { root: { t: "leaf", kind: "pty", name: "bench" } } }, { given: new Map([["bench", shell]]) });
+    const letters = new Desk({ name: "letters", title: "Letters", layout: { root: { t: "leaf", kind: "reader", name: "letters" } } }, { given: new Map([["letters", new ReaderPane(true)]]) });
+    h.app.push(bench); bench.render(h.app as any); shell.render(100, 20, false, bench as any);
+    const text = () => { shell.render(100, 20, false, bench as any); return shell.text().join("\n"); };
+    try {
+      await until(() => shell.running, "the shell runs");
+      shell.input(`${fake.cmd}\r`);
+      await until(() => shell.claude()?.status === "idle", "a claude typed in the shell", 15_000);
+      const first = shell.claude()!.pid;
+      // Another screen is shown on top: the bench is behind it.
+      h.app.push(letters); letters.render(h.app as any);
+      const top = () => h.app.screens().at(-1);
+      expect(top()).toBe(letters);
+      const found = await h.app.act({ action: "host.tileOf", args: { pid: first }, as: AS }) as { tile: string | null };
+      expect(found.tile).toMatch(/^t-/);
+      const done = await h.app.act({ action: "tile.restart", args: { pid: first }, tile: found.tile!, as: AS }) as Record<string, unknown>;
+      expect(done).toMatchObject({ name: "bench", restarted: true, ended: "exit", program: "claude" });
+      // The agent came back in the bench's shell, resumed by its session id; Evan is still on letters.
+      await until(() => !!shell.claude() && shell.claude()!.pid !== first, "claude back in the bench", 15_000);
+      expect(text()).toContain(`args:--resume ${FAKE_CLAUDE_SESSION}:`);
+      expect(top()).toBe(letters);
+      // One that won't come back: refused with what happened, never said as done.
+      const again = shell.claude()!.pid;
+      shell.run.own = { ...shell.run.own, FAKE_CLAUDE_REFUSE: "1" };
+      await expect(h.app.act({ action: "tile.restart", args: { pid: again }, tile: found.tile!, as: AS })).rejects.toThrow(/claude didn't come back in bench/);
+    } finally { h.app.pop(); h.app.pop(); letters.dispose(); bench.dispose(); }
   }, 90_000);
 });

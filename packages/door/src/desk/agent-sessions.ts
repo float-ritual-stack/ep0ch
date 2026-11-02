@@ -134,15 +134,33 @@ export function agentIn(pid: number | undefined, proc = "/proc", now = Date.now(
 }
 
 /**
- * What a Claude Code process says it's doing, from the file it keeps for itself (`<config>/sessions/<pid>.json`, the one
- * `claude agents --json` reads): `idle` between turns, `busy` mid-turn, `waiting` on a dialog; null when it keeps none
- * (an older Claude, another machine's). scripts/agent-restart's idle rule reads the same through `claude agents`.
+ * What a Claude Code process says of itself, from the file it keeps (`<config>/sessions/<pid>.json`, the one `claude
+ * agents --json` reads): its status (`idle` between turns, `busy` mid-turn, `waiting` on a dialog) and its session id;
+ * null when it keeps none (an older Claude, another machine's). scripts/agent-restart's idle rule reads the same through
+ * `claude agents`.
  */
-export function claudeStatus(pid: number, env: Record<string, string | undefined> = process.env): string | null {
+export function claudeSessionOf(pid: number, env: Record<string, string | undefined> = process.env): { status: string | null; sessionId: string | null } | null {
   try {
     const s = JSON.parse(readFileSync(join(env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude"), "sessions", `${pid}.json`), "utf8"));
-    return typeof s?.status === "string" ? s.status : null;
+    return { status: typeof s?.status === "string" ? s.status : null, sessionId: typeof s?.sessionId === "string" ? s.sessionId : null };
   } catch { return null; }
+}
+
+/**
+ * A Claude's command again, resuming session `id` (PIE-1280): its own `--continue`, `-c` and `--resume <x>` taken out
+ * (after the program itself: an interpreter's own flags stay), `--resume <id>` added. A restart comes back to the same
+ * conversation even when another ran in that folder since.
+ */
+export function resumeCommand(argv: readonly string[], id: string): string[] {
+  const at = Math.max(0, argv.findIndex(a => basename(a) === "claude" || basename(a) === "claude.js" || /claude-code/.test(a)));
+  const out = argv.slice(0, at + 1);
+  for (let i = at + 1; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--continue" || a === "-c" || a.startsWith("--resume=")) continue;
+    if (a === "--resume" || a === "-r") { if (argv[i + 1] !== undefined && !argv[i + 1]!.startsWith("-")) i++; continue; }
+    out.push(a);
+  }
+  return [...out, "--resume", id];
 }
 
 /** Process `pid` is `root` or runs under it (its parents, read from /proc); false without /proc. */

@@ -14,6 +14,7 @@ export const FAKE_CLAUDE_SESSION = "5eed5eed-0000-4000-8000-000000000001";
 const SCRIPT = `#!/bin/sh
 d="\${CLAUDE_CONFIG_DIR:?}/sessions"; mkdir -p "$d"; f="$d/$$.json"
 st() { printf '{"pid":%s,"sessionId":"%s","kind":"interactive","name":"%s","status":"%s"}\\n' $$ "\${FAKE_CLAUDE_SESSION:-${FAKE_CLAUDE_SESSION}}" "\${FAKE_CLAUDE_NAME:-kitty}" "$1" > "$f"; }
+case " $* " in *" --resume "*) [ -n "\${FAKE_CLAUDE_REFUSE:-}" ] && { echo "a made-up claude that won't resume"; exit 1; } ;; esac
 st idle
 trap 'rm -f "$f"; echo "SIGTERM: gone mid-turn"; exit 143' TERM
 trap 'rm -f "$f"; exit 129' HUP

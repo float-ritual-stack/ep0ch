@@ -38,7 +38,10 @@ function restartTerminal(d: Desk, name: string, p: PtyPane, actor: Actor, o: { n
       if (c && c.status !== "idle" && !o.now) throw new ActionRefused(`${name}'s Claude is ${what[0]} · try again between turns, or now=true ends it anyway (it drops ${what[1]})`);
     }
     d.ctx.flash(`restarting ${p.statusName()}${p.claude() ? " · the conversation is kept" : ""}`, 6000);
-    return { restarted: true, ...(await p.restartRunning()) };
+    const r = await p.restartRunning();
+    // Never said as done when it isn't: the tile shows what it printed instead.
+    if (r.back === false) throw new ActionRefused(`claude didn't come back in ${name}: ${p.text().map(l => l.trim()).filter(Boolean).slice(-2).join(" · ") || "its tile is empty"} · its tile is a shell now; claude --continue there starts it by hand`);
+    return { restarted: true, ...r };
   });
 }
 

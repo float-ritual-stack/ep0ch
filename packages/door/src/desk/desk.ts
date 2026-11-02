@@ -1453,7 +1453,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return found(hit.desk, hit.id);
     }
     if (address.kind !== "name") {
-      const hit = resolveAddress(address, this.addressable())?.value;
+      const hit = resolveAddress(address, this.addressable())?.value ?? (address.kind === "id" && this.ctx?.hostLayer?.everyDesk ? resolveAddress(address, this.addressable(this.ctx.hostLayer.everyDesk()))?.value : undefined); // an id names a tile on any screen, shown or not (PIE-1280): it acts on its own desk
       return hit ? found(hit.desk, hit.id) : null;
     }
     // `program`: the tile a program runs in (`open from=`), which it names by what it was told (EP0CH_TILE_ID): a program

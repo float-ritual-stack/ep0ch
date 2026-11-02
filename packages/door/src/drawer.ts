@@ -714,6 +714,8 @@ export class AgentDrawer {
     const screen = [...(this.host.ctx?.()?.screens?.() ?? [])].reverse().map(tilesOf).find(Boolean) ?? tilesOf(this.host.screen?.());
     return [...(this.d ? [this.d] : []), ...(screen && screen !== this.d ? [screen] : [])];
   }
+  /** Every desk with tiles (HostLayer.everyDesk): the drawer's, every screen on the stack and every one kept in the background. */
+  everyDesk(): Desk[] { const c = this.host.ctx?.(); return [...new Set([...this.desks(), ...[...(c?.screens?.() ?? []), ...(c?.kept?.() ?? [])].map(tilesOf).filter((d): d is Desk => !!d)])]; }
   /** What `tile=` names across layers (HostLayer.resolveTile): an id, `drawer.agent`, a path, a drawer tab's name; a bare name on a screen is that screen's own. */
   resolveTile(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
     // An id, a role (`role:agent`, `drawer.agent`) and a slot are the tile's identity: the one resolver (Desk.resolveTile),
@@ -732,11 +734,10 @@ export class AgentDrawer {
     if (address.kind !== "role" || address.role !== ROLE_AGENT || (address.scope !== undefined && address.scope !== "drawer")) return whyNone(address, asking.addressable());
     return NO_AGENT;
   }
-  /** The terminal tile a process is drawn in, on the drawer or the screen shown (`host.tileOf`, PIE-1043). */
+  /** The terminal tile a process is drawn in, on the drawer or any screen, shown or not (`host.tileOf`, PIE-1043, PIE-1280): every terminal of every desk, groups and mounts too, as the resolver reads them. */
   tileOf(q: { mark?: string; pid?: number; port?: number }): TileOfAnswer {
-    // Every terminal of the family (the drawer's, the screen's, and those in their groups and mounts), as the resolver reads them.
     const tiles: TileProc[] = [];
-    for (const t of this.asking()?.addressable() ?? []) {
+    for (const t of this.asking()?.addressable(this.everyDesk()) ?? []) {
       const p = t.value.pane;
       if (p instanceof PtyPane) tiles.push({ id: t.id, name: t.name, pid: p.pid ?? 0, saw: token => p.status.saw(token) });
     }
@@ -963,8 +964,8 @@ export class AgentDrawer {
     const run = async (): Promise<RestartDone> => {
       const was = this.knows?.state ?? null;
       if (p.named) { await p.named.refresh(); return { restarted: true, was }; }
-      // The one way a running terminal's program is restarted (tile.restart's too): /exit for a Claude between turns.
-      if (p.running) await p.restartRunning({ keep: true }); else p.restart(true);
+      // The one way a running terminal's program is restarted (tile.restart's too): /exit for a Claude between turns, and it must come back.
+      if (p.running) { if ((await p.restartRunning({ keep: true })).back === false) throw new ActionRefused(`${this.agentName()} didn't come back in its tab · claude --continue there starts it by hand`); } else p.restart(true);
       this.knowledge.delete(p);
       return { restarted: true, was };
     };
