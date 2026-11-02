@@ -7,7 +7,7 @@ import { fixOutlineFiles, outlineFiles } from "../src/setup/outline-files";
 import { ep0ch } from "../src/session/place";
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { backupDatabase, formatPlan, handoverLines, hostReady, hostVerb, linkSummary, migrationRecovery, outlinesToMigrate, setupCommand, tilde } from "../src/setup/apply";
@@ -292,10 +292,9 @@ describe("the plan", () => {
     expect(fetchRace("fatal: unable to access 'https://example.invalid/': Could not resolve host")).toBe(false);
   });
 
-  test("no unit for the host: a note says what one runs (install doesn't create units)", () => {
+  test("no unit for the host: install offers to create and start it", () => {
     const f = { ...float2(), host: host({ folder: "/home/evan/outlines", socket: "/home/evan/outlines/.host/host.sock", running: false, outlines: [], unit: null }) };
-    expect(buildPlan(f, opts()).steps[4]).toMatchObject({ status: "manual", title: "Start the outline host" });
-    expect(buildPlan(f, opts()).notes.join("\n")).toContain("ExecStart=bun /home/evan/projects/ep0ch/packages/outliner/src/host-main.ts");
+    expect(hostStep(f, false)).toMatchObject({ status: "do", title: "Install and start the outline host" });
   });
 });
 
@@ -1372,7 +1371,7 @@ test("the binding backup survives its migration install and is retired by the ne
 });
 
 for (const platform of ["darwin", "linux"]) for (const kind of ["link", "backup"]) test(`${platform}: repeated install leaves the ${kind} running without reloading it`, async () => {
-  const { scratchDir, until } = await import("./scratch");
+  const { scratchDir, ScratchHost, until } = await import("./scratch");
   const home = scratchDir("units-"), bin = join(home, ".local/bin"), repo = join(home, "repo");
   const outlines = join(home, "outlines");
   for (const dir of [bin, join(outlines, ".host"), join(home, ".config/secrets"), join(repo, "packages/door/src")]) mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -1392,9 +1391,14 @@ for (const platform of ["darwin", "linux"]) for (const kind of ["link", "backup"
   symlinkSync(join(import.meta.dir, "../scripts"), join(repo, "packages/door/scripts"));
   mkdirSync(join(repo, "packages/outliner/scripts"), { recursive: true });
   writeFileSync(join(repo, "packages/outliner/scripts/install-claude-mod.ts"), "process.exit(0);\n");
+  mkdirSync(join(repo, "packages/outliner/src"), { recursive: true });
+  writeFileSync(join(repo, "packages/outliner/src/host-main.ts"), `await import(${JSON.stringify(join(import.meta.dir, "../../outliner/src/host-main.ts"))});\n`);
   if (kind === "backup") {
-    const db = new Database(join(outlines, "garden.sqlite"));
-    db.run("CREATE TABLE notes (text TEXT)"); db.close();
+    const seed = new ScratchHost();
+    try {
+      await seed.start(); await seed.create("garden"); await seed.stop();
+      copyFileSync(join(seed.outlines, "garden.sqlite"), join(outlines, "garden.sqlite"));
+    } finally { await seed.dispose(); }
     symlinkSync(join(import.meta.dir, "../../../scripts"), join(repo, "scripts"));
     symlinkSync(join(import.meta.dir, "../scripts/with-secrets"), join(bin, "with-secrets"));
     writeFileSync(join(bin, "restic"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
@@ -1404,6 +1408,11 @@ for (const platform of ["darwin", "linux"]) for (const kind of ["link", "backup"
 import { existsSync, writeFileSync, unlinkSync, appendFileSync } from 'node:fs';
 const args = process.argv.slice(2), home = process.env.HOME, state = home + '/loaded', pending = home + '/unloading', enabled = home + '/enabled';
 const command = args[0] === '--user' ? args[1] : args[0];
+if (args.some(a => a.includes('outliner-host')) || command === 'daemon-reload') {
+  const manager = process.argv[1].endsWith('launchctl') ? 'launchctl' : 'systemctl';
+  const child = Bun.spawn([process.execPath, ${JSON.stringify(join(import.meta.dir, "fake-host-manager.ts"))}, manager, ...args], { env: process.env, stdio: ['ignore', 'inherit', 'inherit'] });
+  process.exit(await child.exited);
+}
 appendFileSync(home + '/commands', command + '\\n');
 if (existsSync(home + '/fail') && ['bootout', 'restart', 'kickstart'].includes(command)) { console.error('Permission denied'); process.exit(1); }
 if (process.env.TEST_LINK_ENTRY && ['bootout', 'restart', 'kickstart'].includes(command) && existsSync(home + '/link-pid')) {
@@ -1446,7 +1455,7 @@ if (process.env.TEST_LINK_ENTRY && !existsSync(home + '/service-down') && ['boot
   if (kind === "link") {
     expect(result.steps.find((s: any) => s.id === "host").status).toBe("skip");
     expect(result.steps.some((s: any) => s.id === "backups")).toBe(false);
-    expect(lines.join('\n')).toContain("this machine serves no outlines; nothing to host or back up");
+    expect(existsSync(join(home, "host-pid"))).toBe(true);
   }
   const unit = platform === "darwin" ? join(home, `Library/LaunchAgents/io.ep0ch.${kind}.plist`) : join(home, `.config/systemd/user/ep0ch-${kind}.${kind === "backup" ? "timer" : "service"}`);
   if (platform === "darwin") {
@@ -1502,6 +1511,7 @@ if (process.env.TEST_LINK_ENTRY && !existsSync(home + '/service-down') && ['boot
         try { process.kill(pid, "SIGTERM"); } catch {}
       }
     }
+    stopUnder(home);
     rmSync(home, { recursive: true, force: true });
   }
 }, 100_000);

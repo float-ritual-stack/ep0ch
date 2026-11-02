@@ -305,7 +305,7 @@ const ACTIONS: BarSource = {
     const found = host.dispatch.list().actions.find(a => a.name === d.action);
     // A script reads as itself (PIE-1405): its name, as it's typed, and its own words, never its action's id.
     const script = scriptActions().find(s => s.action.name === d.action);
-    const info = found && script ? { ...found, name: script.extension.name ?? found.name, summary: scriptSaid(script) } : found;
+    const info = found && script ? { ...found, name: script.extension.name ?? found.name, summary: scriptSaid(script), args: Object.fromEntries(formFields(found).map(f => [f.name, f.spec])) } : found;
     // Its page (PIE-1032): the lead, its keys as keycaps, its arguments as a properties table, its examples.
     const page: ActionInfo = info ?? { name: d.action, summary: d.summary ?? "", ...(d.keys ? { keys: d.keys } : {}), args: {}, scope: "", touches: "nothing", replay: "ask" };
     return { markdown: actionPage(page, { title: row.label, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action) } : {}) }) };
@@ -320,7 +320,7 @@ const ACTIONS: BarSource = {
     const d = row.data as { action: string; args: Record<string, unknown>; tile?: string; form?: boolean; bare?: boolean; missing?: string[] };
     if (row.key.startsWith("w:")) return pickW(row, host, how);
     // One that takes arguments opens its form (PIE-1031), a line typed with some of them answered; alt+⏎ runs one that needs none as it is.
-    if (d.form && !(how.alt && d.bare)) {
+    if (d.form && !scriptActions().some(s => s.action.name === d.action) && !(how.alt && d.bare)) {
       if (how.actor.kind === "agent") {
         if (d.missing?.length || !d.bare) throw new ActionRefused(`${d.action} needs ${(d.missing?.length ? d.missing : Object.entries(actionArgs(host, d.action)).filter(([, s]) => !s.optional).map(([k]) => k)).map(k => `${k}=`).join(" ")}: an agent runs it with them (ep0ch act ${d.action} …; bar.form op=open action=${d.action} answers its fields)`);
       } else return openActionForm(host, { action: d.action, args: d.args, ...(d.tile !== undefined ? { tile: d.tile } : {}) }, how.actor);

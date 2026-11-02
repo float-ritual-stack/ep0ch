@@ -116,6 +116,8 @@ process.exit(await p.exited);
 `);
   writeFileSync(join(clientBin, "ep0ch"), `#!/bin/sh\nexec '${bun}' '${root}/client-install.ts' "$@"\n`);
   chmodSync(join(clientBin, "ep0ch"), 0o755);
+  // The freshly installed client now owns a local host too; its service manager executes its own written unit.
+  writeFileSync(join(clientBin, "systemctl"), `#!/bin/sh\nexec '${bun}' '${top}/packages/door/test/fake-host-manager.ts' systemctl "$@"\n`, { mode: 0o755 });
   writeFileSync(join(clientOutlines, ".host/clients"), "must-not-recurse\n");
 
   // The host's unit, and a systemctl that runs it: start, stop (waiting for it to go), restart, show.

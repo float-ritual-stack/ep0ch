@@ -173,7 +173,7 @@ export interface ExtensionActResult {
 }
 
 /** What an extension action needs from where it runs: the outline, and somewhere to say what happened. */
-export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; dispatch?: { act(req: { action: string; args?: Record<string, unknown> }, actor: Actor): Promise<unknown> }; noteInFront?(): string | null } }
+export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; dispatch?: { act(req: { action: string; args?: Record<string, unknown>; tile?: string }, actor: Actor): Promise<unknown> }; noteInFront?(): string | null } }
 /** `block`, `line`, `with`, and the action's declared arguments by name. */
 export interface ExtArgs { block?: string; line?: number; with?: string; [declared: string]: string | number | undefined }
 
@@ -599,6 +599,7 @@ export async function passageByQuote(board: Pick<SocketBoard, "get">, block: str
 function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, ExtOn> {
   if (a.on === "passage") return passageAction(e, a);
   const handler = a.on?.startsWith("handler:") ? a.on.slice(8) : null, bar = a.on === "bar", outline = a.on === "outline";
+  const render = e.script && a.id === "run" ? e.handlers.find(h => h.kind === "output") : undefined;
   const k = keyOf(a.key);
   const key = k && handler && !READER_OWN_KEYS.has(k) ? k : undefined;
   const unbound = a.key && !key ? ` Its key ${a.key} isn't bound here (${!keyOf(a.key) ? "the door binds one printable character" : "the reader keeps it"}): a click on its control, or act.` : "";
@@ -606,8 +607,8 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
     words: a.label,
     summary: `${e.name ?? e.id}: ${a.label}${a.description ? `. ${a.description}` : ""}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : outline ? " (on the outline: no block)" : " (on block=<id>)"}. The service runs it and attributes its writes${a.effects === "write" ? "" : " (it only answers)"}.${a.fieldsFrom === "block" ? ` It also asks for the fields the note writes as [form-field::<name> <type> …] (read the note for them): give them as with='{"<field>":"<value>"}'.` : ""}${unbound}`,
     ...(e.script?.keys.length ? { keys: `${e.script.keys.join(", ")}, click` } : key ? { keys: `${key}, click` } : { keys: "click" }),
-    // The service runs it and writes as the extension: nothing of the person's moves. Replaying it writes again.
-    touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
+    // Render scripts insert through the note's draft action; other scripts run in the service.
+    touches: "nothing", replay: render || a.effects === "write" ? "ask" : "safe",
     args: {
       block: { type: "string", optional: true, context: true, about: handler ? `the note with the ${handler}:: line` : e.script ? "the note the script is about, its `this` (the person's: default the note in front of them)" : `the block it acts on${!bar && !outline ? " (the person's: default the note in front of them)" : ""}` },
       line: { type: "number", optional: true, context: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
@@ -623,17 +624,20 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       // The person's run on a block names none: the note in front of them. An agent always names its block.
       // A script is an action on the outline that is still about a note: the one in front of the person is its `this`.
       const block = named ?? (actor.kind === "user" && !handler && !bar && (!outline || !!e.script) ? on.ctx.noteInFront?.() ?? undefined : undefined);
+      if (render && !via && !block) throw new ActionRefused(`open a note first, then run ${e.name}: its ${render.key}:: line goes at the note cursor`);
       if (!block && !bar && !outline) throw new ActionRefused(`${a.name} acts on ${handler ? `a ${handler}:: line: say block=<the note's id>` : "a block: say block=<id>"}`);
       // A `motion=` on a script's press (a button's `motion=fantasia`) is the script's to read: props.motion, and it passes it on to its own acts.
       const hint = TXN.getStore()?.motion;
       const given = { ...withArgs(w), ...givenArgs(a, rest), ...(e.script && hint ? { motion: hint } : {}) };
-      // The script reads its slots whole from what was written (a repeat is a list, as a button's line reads it).
-      const slots = e.script ? slotWords(Object.fromEntries(Object.entries({ ...withArgs(w), ...rest }).filter(([k, v]) => v !== undefined && !(k === "motion")).map(([k, v]) => [k, Array.isArray(v) ? v.map(String) : String(v)]))) : "";
       // The person's own run of a script (the power bar's row, a key, their act) invites it as their button's press does
       // (src/surface/invite.ts, PIE-1186): it acts as them on their screen. Runs nobody pressed carry none (PIE-1403).
       // Minted when it runs, never for a form left unanswered.
       const invite = () => typeof invitation === "string" && invitation ? invitation : e.script && actor.kind === "user" ? INVITES.mint("you") : undefined;
-      return askingFirst(on.ctx, e, a, block, given, actor, args => {
+      return askingFirst(on.ctx, e, a, block, given, actor, async args => {
+        // Include the form's answers; typed repeated slots remain lists, as on a button's line.
+        const props = e.script ? Object.fromEntries(Object.entries({ ...withArgs(w), ...args, ...rest }).filter(([k, v]) => v !== undefined && k !== "motion").map(([k, v]) => [k, Array.isArray(v) ? v.map(String) : [String(v)]])) : {};
+        if (render && !via) return insertScriptLine(on.ctx, render.key, block!, props, actor);
+        const slots = slotWords(props);
         const invited = invite();
         return runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(args).length ? { args } : {}),
           ...(slots ? { slots } : {}),
@@ -641,9 +645,28 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
           ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor)
           // The run it started: the invitation belongs to it from here (and is spent when it ends).
           .then(r => { if (invited && r.undo) INVITES.bind(invited, r.undo); return r; });
-      }, !!asked, !via && !slots && !Object.keys(given).length);
+      }, !!asked, !via && !Object.keys(rest).length && !Object.keys(given).length);
     },
   };
+}
+
+/** A render script's Run keeps its caller in the note; the service owns the drawing and its errors. */
+async function insertScriptLine(ctx: ExtOn["ctx"], name: string, block: string, props: Record<string, string[]>, actor: Actor) {
+  const slots = slotWords(props);
+  const inserted = await ctx.dispatch!.act({ action: "edit.insert", tile: block, args: { text: `${name}::${slots ? ` ${slots}` : ""}` } }, actor) as { block: string; line: number; dirty: boolean };
+  if (inserted.dirty) {
+    // The draft stays unsaved; the same read-only renderer still reports a bad call before Run says it worked.
+    try { await ctx.board.request("scripts.render", { of: name, blockId: inserted.block, line: inserted.line, props, deadlineMs: 15_000 }, 20_000); }
+    catch (error) { throw new ActionRefused(`${name} failed · line kept in the draft: ${error instanceof Error ? error.message : String(error)}`); }
+  } else {
+    const read = await ctx.board.refreshProjections(inserted.block, inserted.line, actor);
+    const problem = read.projections.find(p => p.anchor.line === inserted.line && p.status === "unavailable");
+    if (problem) throw new ActionRefused(`${name} failed · line kept in the note: ${problem.reason}`);
+  }
+  const said = scriptPressMessage(`${name} inserted in ${inserted.dirty ? "the draft · save to draw it" : "the note"}`, true);
+  asActor(ctx, actor).flash(said);
+  ctx.redraw();
+  return { ...inserted, said };
 }
 
 /** An action's declared arguments as its def's (PIE-784): `act ext.<id>.<action> by=price`, listed with their choices. */
@@ -706,7 +729,7 @@ export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: Ex
   // In a form anything typed is an answer, except to a fixed list of choices (src/bar/form.ts, fieldQuestion).
   const questions = ask.map(x => asQuestion({ ...x, ...specs.find(y => y.name === x.name) })).map(q => form && !("free" in q) && !(q as { choices?: string[] }).choices?.length ? { ...q, free: true } : q);
   const r = form
-    ? await askInBar(ctx, a.label, questions, given, actor, args => run(Object.fromEntries(Object.entries(args).filter(([, v]) => v !== ""))), { action: a.name, check: () => null })
+    ? await askInBar(ctx, a.label, questions, given, actor, args => run(Object.fromEntries(Object.entries(args).filter(([, v]) => v !== ""))), { action: e.script ? e.name! : a.name, check: () => null })
     : await askInBar(ctx, a.label, questions, given, actor, run);
   return r && typeof r === "object" && "asking" in r ? { asking: (r as { asking: string }).asking, action: a.name } : r;
 }

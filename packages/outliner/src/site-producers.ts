@@ -1,3 +1,4 @@
+import { sortText } from "./block-query";
 // What a producer in a note asks of its Site (PIE-533 S3), answered once for every client: a `::graph-*` figure's
 // question (its query or view, groups, `done:`/`now:` subsets, a stat's per-item counts), a figure block's child
 // bullets, `::fields` (one row per occurrence of a key) and `::if` (does `this` match). The door's watched reads and the
@@ -203,7 +204,7 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
 /** The collection record compiles here; clients receive rows, groups and cells, never a query to interpret. */
 function collection(store: ProducerStore, bound: Bound, tools: SiteTools, written: Props, state: Props = {}): Extract<SiteProduced, { kind: "view" }> {
   let p: Props = { sort: "updated", ...written }, title = "Collection", source: string | undefined;
-  const empty = (error: string): Extract<SiteProduced, { kind: "view" }> => ({ kind: "view", title, layout: "table", layouts: ["table"], question: {}, view: { type: "list", rows: [], empty: error }, truncated: false, error });
+  const empty = (error: string): Extract<SiteProduced, { kind: "view" }> => ({ kind: "view", config: p, title, layout: "table", layouts: ["table"], question: {}, view: { type: "list", rows: [], empty: error }, truncated: false, error });
   try {
     if (written.of) {
       const ref = String(written.of);
@@ -250,8 +251,7 @@ function collection(store: ProducerStore, bound: Bound, tools: SiteTools, writte
     const titles = cellTitles(tools, found.blocks, columns);
     const bodyLines = Number(p.body ?? (layout === "feed" ? 6 : 0));
     const rowValue = (block: VisibleBlock, key: string, label: string, body: string[]) => {
-      if (key === "description") return valuesOf(block, key).join(", ") || body[0] || "";
-      const raw = itemField({ ...block, properties: recordProperties(block.properties), author: block.author ?? null, title: label, createdAt: Date.parse(block.createdAt), updatedAt: Date.parse(block.updatedAt) }, key);
+      const raw = itemField({ ...block, properties: recordProperties(block.properties), author: block.author ?? null, title: label, createdAt: Date.parse(block.createdAt), updatedAt: Date.parse(block.updatedAt) }, key, body);
       const named = cellBlockId(raw);
       return named && titles?.[named] ? { text: titles[named], link: named } : raw;
     };
@@ -273,7 +273,8 @@ function collection(store: ProducerStore, bound: Bound, tools: SiteTools, writte
       ...(group.groups ? { groups: groups(group.groups, `${parent}/${group.value ?? "\u0000"}`) } : {}),
     }));
     const arrange: Record<string, NonNullable<ListPrimitive["arrange"]>> = { table: "table", gallery: "grid", feed: "rows", board: "lanes" };
-    return { kind: "view", title, layout, layouts, question: { ...question, where: compiled.config.query, ...(compiled.config.sort ? { sort: `${compiled.config.sort.field} ${compiled.config.sort.direction}` } : {}) }, view: {
+    const config = { ...p, layout: layouts, "summary-properties": columns, card: p.card ?? "small", body: bodyLines, page: Number(p.page ?? 200), ...(compiled.config.sort ? { sort: sortText(compiled.config.sort) } : {}) };
+    return { kind: "view", config, title, layout, layouts, question: { ...question, where: compiled.config.query, ...(compiled.config.sort ? { sort: sortText(compiled.config.sort) } : {}) }, view: {
       type: "list", rows, arrange: arrange[layout], size: p.card ?? "small", columns, headers: table.headers, page: Number(p.page ?? 200),
       ...(found.groups ? { groups: groups(found.groups) } : {}), empty: found.hint ?? "No matching notes",
     }, ...(found.groups ? { groups: found.groups } : {}), ...(found.facets ? { facets: found.facets } : {}),

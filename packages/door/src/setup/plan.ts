@@ -1,11 +1,12 @@
 import { linkInstallStep } from "./link";
+import { hostInstall } from "./host";
 // `ep0ch install`'s plan: from the facts (model.ts), which steps run, in order, and which are already current.
 // Pure: the dry run prints it, `--apply` runs it (apply.ts), the tests check it against described machines.
 //
 // One checkout (the ep0ch repo) is fast-forwarded, its workspace installed, `ep0ch` linked, the Herdr plugin
 // checked to be that checkout's packages/outliner, and the outline host, the MCP gateway and the publishers restarted
-// through their units only when the code each one runs changed (RUNS in model.ts). Every `<outlines>/*.sqlite` is backed up first. Units and Herdr's config are never edited:
-// what they need is said.
+// through their units only when the code each one runs changed (RUNS in model.ts). Every `<outlines>/*.sqlite` is backed up first.
+// A missing host unit is installed; changes to existing units and Herdr's config are said.
 import { basename, dirname, join, resolve } from "node:path";
 import { copyName } from "@ep0ch/outliner/extension-update";
 import { ep0ch, sessionFlags } from "../session/place";
@@ -320,7 +321,6 @@ export function unchangedSaid(m: CodeMove | null, who: string, kept = "no restar
 export function hostStep(f: Facts, codeUpdates: boolean, stopped = false): Step {
   const title = "Restart the outline host on the new code";
   const h = f.host, u = h.unit;
-  if (!f.databases.length && !h.running) return { id: "host", title: "Host and back up local outlines", status: "skip", why: "this machine serves no outlines; nothing to host or back up", commands: [] };
   // The schema step stops it to migrate the outlines (its unit runs it, or it wouldn't): this starts it again.
   if (stopped && u) {
     const after = u.kind === "launchd" ? { ...u, state: { active: false, detail: "not loaded in launchd" } } : u;
@@ -332,7 +332,12 @@ export function hostStep(f: Facts, codeUpdates: boolean, stopped = false): Step 
   const after = changed || (missing.length ? `it runs old code (${missing.join(", ")})` : "");
   const quiet = unchangedSaid(moved, "host");
   if (!u) {
-    if (!h.running) return { id: "host", title: "Start the outline host", status: "manual", why: `nothing answers at ${h.socket}, and there's no ${f.platform === "macos" ? "launchd agent" : "systemd user unit"} for it; see the note below`, commands: [] };
+    if (!h.running) {
+      const install = hostInstall({ platform: f.platform, home: f.home, bun: f.bun.path, program: hostMainOf(f), outlines: h.folder, path: f.pathDirs.join(":") });
+      return install
+        ? { id: "host", title: "Install and start the outline host", status: "do", why: `ready for the first local outline (${install.unit.name})`, writes: [{ path: install.unit.path, text: install.text }], commands: install.commands }
+        : { id: "host", title: "Start the outline host", status: "manual", why: `no available service unit for ${h.folder}; run bun ${sh(hostMainOf(f))}`, commands: [] };
+    }
     if (!after) return { id: "host", title, status: "skip", why: quiet ?? "the host runs the current code", commands: [] };
     return { id: "host", title, status: "manual", why: `${after}, and it runs outside a ${f.platform === "macos" ? "launchd agent" : "systemd user unit"}; restart that process when it's quiet`, commands: [] };
   }
@@ -518,12 +523,12 @@ export function publishersStep(f: Facts, codeUpdates: boolean): Step | null {
 export function planNotes(f: Facts): string[] {
   const notes: string[] = [];
   const h = f.host;
-  if (!h.unit && (f.databases.length || h.running)) {
+  if (!h.unit && h.running) {
     const run = `bun ${hostMainOf(f)}`;
     notes.push(f.platform === "linux"
-      ? `No systemd user unit runs the outline host for ${h.folder}; install doesn't create units. One with ExecStart=${run} (WorkingDirectory=${f.repo.outliner}, Restart=always) serves every outline there.`
+      ? `The host for ${h.folder} runs outside systemd; stop that process, then ep0ch install --apply installs its user unit running ${run}.`
       : f.platform === "macos"
-        ? `No launchd agent (io.ep0ch.outliner-host) runs the outline host for ${h.folder}; install doesn't create agents. Its ProgramArguments run ${run}.`
+        ? `The host for ${h.folder} runs outside launchd; stop that process, then ep0ch install --apply installs io.ep0ch.outliner-host running ${run}.`
         : `Nothing runs the outline host for ${h.folder}; run ${run} under your service manager.`);
   }
   const missingKeys = KEYED_ACTIONS.filter(a => !f.herdr.keys[a]);

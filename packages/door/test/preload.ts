@@ -5,7 +5,7 @@
 // start scratch services from, stays.
 import { plugin } from "bun";
 import { afterAll, beforeEach, setDefaultTimeout } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import "../../../scripts/fake-ssh-owner";
@@ -48,6 +48,9 @@ process.env.EP0CH_PACKS = join(import.meta.dir, "fixtures/packs");
 
 const dir = mkdtempSync(join(tmpdir(), "ep0ch-test-state-"));
 process.env.XDG_STATE_HOME = dir;
+// Home discovery must never read the person's tailnet; a discovery test puts its own peers first on PATH.
+writeFileSync(join(dir, "tailscale"), '#!/bin/sh\nprintf \'{"Peer":{}}\\n\'\n', { mode: 0o755 });
+process.env.PATH = `${dir}:${process.env.PATH}`;
 // What the agent chip compares an agent with (the Claude mod Claude loads, src/desk/agent-env.ts) is never the
 // person's: an empty Claude config here, and no plugin dirs from the shell.
 process.env.CLAUDE_CONFIG_DIR = join(dir, "claude");

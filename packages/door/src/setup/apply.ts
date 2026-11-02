@@ -1,9 +1,10 @@
 import { publishLinkInstall, linkInstallResult, linkInstallSummary, linkStates, reconcileLinkInstall } from "@ep0ch/outliner/link";
 import { withSecretsFacts } from "@ep0ch/outliner/with-secrets";
 import { fixOutlineFiles, outlineFiles } from "./outline-files";
+import { hostInstall, installHost } from "./host";
 // `ep0ch doctor` and `ep0ch install [--apply]` (PIE-450). The dry run (the default) prints the plan; --apply runs
 // its steps in order, each saying what it did, and stops at the first failure with the recovery. Deploy notes go
-// through the host; no outline is created; no unit, Herdr config or plugin link is changed.
+// through the host; no outline is created. Missing host units are installed; existing host units are left intact.
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -152,7 +153,7 @@ export const hostVerb = (f: Facts): "restart" | "start" => (f.host.running || (f
  * the steps after it, the MCP gateway's among them, still run). `probe` and `pidOf` are the host's socket and its
  * unit's pid, for tests.
  */
-export async function hostReady(f: Facts, verb: "restart" | "start", was: number | undefined, ms: number,
+export async function hostReady(f: { host: Pick<Facts["host"], "socket" | "unit"> }, verb: "restart" | "start", was: number | undefined, ms: number,
   probe: (socket: string) => Promise<unknown> = hostLive, pidOf: () => Promise<number | undefined> = async () => (await unitState(f.host.unit!)).pid,
   grace = 10, graceMs = 1000): Promise<boolean> {
   const needNewPid = f.host.unit?.kind === "launchd" && verb === "restart" && was !== undefined;
@@ -516,6 +517,15 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       return;
     }
     case "host": {
+      if (!f.host.unit) {
+        const install = hostInstall({ platform: f.platform, home: f.home, bun: f.bun.path, program: hostMainOf(f), outlines: f.host.folder, path: f.pathDirs.join(":") });
+        if (!install) throw new StepFailed("no available service unit for the outline host", `run bun ${sh(hostMainOf(f))}`);
+        await installHost(install, env);
+        if (!await hostReady({ host: { socket: f.host.socket, unit: install.unit } }, "start", undefined, 30_000))
+          throw new StepFailed(`the host doesn't answer at ${f.host.socket}`, hostUnitCommand(install.unit, "start"));
+        say(`installed and started ${install.unit.name}; ready for local outlines`);
+        return;
+      }
       const planned = f.host.unit!;
       const u = { ...planned, state: await unitState(planned, undefined, env) };
       // A unit whose job runs is restarted, answering or not: starting it would do nothing.

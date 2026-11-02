@@ -252,9 +252,10 @@ export function herdrKeys(configPath: string): Record<string, string> {
  * A unit that runs the outline host (host-main.ts): a systemd user unit on Linux, a launchd agent on macOS.
  * Only one serving `outlines`, the outlines folder being asked about (its EP0CH_OUTLINES, else ~/outlines): a
  * unit for another folder is another host, and install never restarts it for this one (a scratch host in a test
- * must never restart the person's). What it still sets from before outlines by name is listed in `stale`.
+ * must never restart the person's). `outlines: null` finds an installed host for a refusal naming its folder.
+ * What it still sets from before outlines by name is listed in `stale`.
  */
-export function hostUnit(platform: Facts["platform"], home: string, outlines = join(home, "outlines")): HostFacts["unit"] {
+export function hostUnit(platform: Facts["platform"], home: string, outlines: string | null = join(home, "outlines")): HostFacts["unit"] {
   const [kind, dir, ext] = platform === "linux" ? ["systemd", join(home, ".config/systemd/user"), ".service"] as const
     : platform === "macos" ? ["launchd", join(home, "Library/LaunchAgents"), ".plist"] as const : [null, "", ""] as const;
   if (!kind || !existsSync(dir)) return null;
@@ -263,7 +264,7 @@ export function hostUnit(platform: Facts["platform"], home: string, outlines = j
     try { text = readFileSync(join(dir, file), "utf8"); } catch { continue; /* unreadable: not ours */ }
     if (!text.includes("host-main.ts")) continue;
     const served = resolve(unitEnv(kind, text, "EP0CH_OUTLINES", home) ?? join(home, "outlines"));
-    if (served !== resolve(outlines)) continue;
+    if (outlines !== null && served !== resolve(outlines)) continue;
     const label = kind === "launchd" ? /<key>\s*Label\s*<\/key>\s*<string>([^<]+)<\/string>/.exec(text)?.[1]?.trim() : undefined;
     const program = /[^\s<>"'=]*host-main\.ts/.exec(text)?.[0];
     const stale = (["OUTLINER_STATE_DIR", "OUTLINER_DEFAULT_OUTLINE"] as const).filter(k => unitEnv(kind, text, k, home) !== null);
