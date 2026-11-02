@@ -5271,7 +5271,9 @@ export class OutlinerStore {
 
   /** Notes, per connection, which blocks a write touched: what `loadGraph` reads again (TEMP, never in the file). */
   private noteGraphWrites(): void {
-    const note = (id: string) => `INSERT OR IGNORE INTO temp.graph_dirty (block_id) VALUES (${id});`;
+    // Unqualified on purpose: inside a trigger body macOS's system SQLite (3.51.0) refuses `temp.graph_dirty`
+    // ("qualified table names are not allowed … within triggers"), and a TEMP trigger finds the TEMP table first anyway.
+    const note = (id: string) => `INSERT OR IGNORE INTO graph_dirty (block_id) VALUES (${id});`;
     this.database.exec(`
       CREATE TEMP TABLE IF NOT EXISTS graph_dirty (block_id TEXT PRIMARY KEY) WITHOUT ROWID;
       CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_block_insert AFTER INSERT ON main.blocks BEGIN ${note("NEW.id")} END;
