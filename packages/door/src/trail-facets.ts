@@ -5,6 +5,7 @@ import { ActionRefused } from "./surface/actions";
 
 registerFacetSource({
   id: "trail", title: "Trail",
+  subscribe: (desk, changed) => desk.ctx.trail!.subscribe(changed),
   async query(request, desk) {
     const trail = desk.ctx.trail!, now = Date.now();
     const rows: FacetRow[] = trail.query("recent").map(v => {

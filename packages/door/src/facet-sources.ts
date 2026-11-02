@@ -11,6 +11,8 @@ export interface FacetSource {
   /** Notes alone expose the note-writing actions (pin and tag). */
   notes?: boolean;
   query(request: FacetRequest, desk: DeskApi): Promise<FacetResult<SourceRow>>;
+  /** Local changes invalidate an open tile just as outline events do. */
+  subscribe?(desk: DeskApi, changed: () => void): () => void;
   open(row: SourceRow, desk: DeskApi, pane: Pane, actor: Actor, fresh?: boolean): Promise<unknown>;
   preview?(row: SourceRow, desk: DeskApi, pane: Pane, actor: Actor): void;
 }

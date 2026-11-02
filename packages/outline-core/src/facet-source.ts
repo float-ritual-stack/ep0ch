@@ -1,4 +1,4 @@
-import { compileQueryExpression, expressionPropertyKeys, parseQueryExpression } from "./query-expression";
+import { bindThis, compileQueryExpression, expressionPropertyKeys, parseQueryExpression } from "./query-expression";
 import { questionFacets, questionGroups } from "./query-facets";
 import { missingPropertyHint } from "./property-hint";
 import type { QuestionFacet, QuestionGroup } from "./protocol";
@@ -25,7 +25,7 @@ export interface FacetResult<T extends FacetRow = FacetRow> {
 
 /** Local sources and service-backed sources share the views' expression evaluator and facet counter. */
 export function facetRows<T extends FacetRow>(all: readonly T[], request: FacetRequest, now = Date.now()): FacetResult<T> {
-  const expression = request.where.trim() ? parseQueryExpression(request.where) : undefined;
+  const expression = request.where.trim() ? bindThis(parseQueryExpression(request.where), undefined) : undefined;
   const holds = expression && compileQueryExpression(expression, now);
   const values = (row: T, key: string) => [...(row.properties[key] ?? []), ...(key === "tag" ? row.properties.tags ?? [] : [])];
   const matched = all.filter(row => !holds || holds({ ...row, text: row.title }, Object.entries(row.properties).flatMap(([key, vs]) => vs.map(value => ({ key, value })))));

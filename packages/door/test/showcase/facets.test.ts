@@ -1,12 +1,67 @@
 import { describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
 import { FacetsPane } from "../../src/desk/facets";
-import { facetSources } from "../../src/facet-sources";
+import { facetSource, facetSources } from "../../src/facet-sources";
 import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
 
 describe.skipIf(!outliner)("showcase: facets over sources", () => {
   const h = useShowcaseScreen(177);
+
+  test("text comparisons agree for multi-value notes and extension rows", async () => {
+    await h.app.act({ action: "section", args: { name: "facets" }, as: "facet-builder" });
+    const desk = h.S().stages.get(h.S().sel).top;
+    const note = await h.board.createBlock(null, 'Runner beans [family::beans/runner] [colour::["red","green"]]');
+    for (const [comparison, matches] of [["colour > blue", true], ["NOT colour > blue", false], ["colour < blue", false], ["NOT colour < blue", true]] as const) {
+      const where = `family=beans/runner ${comparison}`;
+      for (const [source, id] of [["ext.facet-garden.seeds", "bean-runner"], ["notes", note.id]]) {
+        const answer = await facetSource(source!).query({ where, limit: 200 }, desk);
+        expect(answer.rows.some(row => row.id === id), `${source}: ${where}`).toBe(matches);
+      }
+    }
+  }, 60_000);
+
+  test("an unbound operand says it needs context on every source", async () => {
+    await h.app.act({ action: "section", args: { name: "facets" }, as: "facet-builder" });
+    const desk = h.S().stages.get(h.S().sel).top;
+    for (const source of ["notes", "ext.facet-garden.seeds", "trail"]) {
+      await expect(facetSource(source).query({ where: "family={{this.family}}", limit: 200 }, desk))
+        .rejects.toThrow("{{this.family}} reads the note this query sits in; this query has none (pass this=<block id>)");
+    }
+  }, 60_000);
+
+  test("a saved view restores its source as well as its query", async () => {
+    await h.app.act({ action: "section", args: { name: "facets" }, as: "facet-builder" });
+    const desk = h.S().stages.get(h.S().sel).top;
+    const act = (action: string, args: Record<string, unknown> = {}) => desk.dispatch.act({ action, args, tile: "tags" }, USER);
+    const pane: FacetsPane = desk.paneNamed("tags");
+    await act("facets.source", { source: "ext.facet-garden.seeds" });
+    await act("facets.query", { text: "family=beans/runner" });
+    const saved = await act("facets.save", { name: "Runner seed search" });
+    await act("facets.source", { source: "notes" });
+    await act("facets.view", { id: saved.id });
+    expect(pane.sourceId).toBe("ext.facet-garden.seeds");
+    expect(pane.notes().map(n => n.id)).toEqual(["bean-runner"]);
+    const notesView = await h.board.createBlock(null, 'Notebook search [type::virtual-branch] [query::title~"Allotment notebook"]');
+    await act("facets.view", { id: notesView.id });
+    expect(pane.sourceId).toBe("notes");
+    expect(pane.notes().some(n => n.id === h.seeded.notes.notebook.id)).toBe(true);
+  }, 60_000);
+
+  test("trail facets beside a reader refresh when a new visit lands", async () => {
+    await h.app.act({ action: "section", args: { name: "facets" }, as: "facet-builder" });
+    const desk = h.S().stages.get(h.S().sel).top;
+    const act = (action: string, args: Record<string, unknown> = {}, tile = "tags") => desk.dispatch.act({ action, args, tile }, USER);
+    await act("facets.source", { source: "trail" });
+    await act("facets.query", { text: "" });
+    await act("open", { id: h.seeded.notes.trailGate.id }, "reader");
+    const visit = h.app.trail.current(desk.tileIdOfPane(desk.paneNamed("reader")))!;
+    const pane: FacetsPane = desk.paneNamed("tags");
+    await until(() => pane.notes().some(n => n.id === visit.open.target.visit), "new visit in the open facets tile", 3000);
+    await act("tile.open", { kind: "trail", name: "visit-history", where: "down" });
+    await act("trail.forget", { visit: visit.open.target.visit }, "visit-history");
+    await until(() => !pane.notes().some(n => n.id === visit.open.target.visit), "forgotten visit removed from facets", 3000);
+  }, 60_000);
 
   test("trail facets keep visits distinct and reopen a held visit where it was", async () => {
     await h.app.act({ action: "section", args: { name: "facets" }, as: "facet-builder" });

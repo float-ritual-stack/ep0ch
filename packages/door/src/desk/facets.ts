@@ -93,9 +93,9 @@ export class FacetsPane implements Pane, AttachedOwner {
   requireNotes() {
     if (!facetSource(this.sourceId).notes) throw new ActionRefused("pin and tag edit notes · facets.source source=notes switches to notes");
   }
-  async changeSource(id: string, desk: DeskApi) {
+  async changeSource(id: string, desk: DeskApi, query = "") {
     facetSource(id);
-    this.sourceId = id; this.raw = ""; this.clauses = []; this.day = null; this.open.clear(); this.sourceRows.clear();
+    this.sourceId = id; this.raw = query; this.clauses = []; this.day = null; this.open.clear(); this.sourceRows.clear();
     this.views = []; this.extra.clear(); this.extraMore.clear(); this.extraFor = null;
     await this.load(desk); desk.keepLayout?.(); desk.redraw();
     return this.describe();
@@ -127,6 +127,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   private width = 0;
   private asked = 0;
   private reload: Timer | null = null;
+  private stopSource?: () => void;
   /** The query being typed (`e`): applied on ⏎, dropped on esc. */
   draft: LineField | null = null;
   private wordPicks: Clause[] = [];
@@ -235,7 +236,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => { this.reload = null; void this.refresh(desk); }, 400);
   }
-  dispose() { if (this.reload) clearTimeout(this.reload); }
+  dispose() { this.stopSource?.(); if (this.reload) clearTimeout(this.reload); }
 
   /** Ask the service for the selection's facets and notes (and, to dim the ones it leaves at 0, every note's facets). */
   /** A refresh (an outline change, `r`, `z`): in turn with the selection's own reads, so none supersedes another. */
@@ -244,6 +245,8 @@ export class FacetsPane implements Pane, AttachedOwner {
   async load(desk: DeskApi): Promise<boolean> {
     const n = ++this.asked, board = desk.ctx.board, q = this.query();
     try {
+      this.stopSource?.();
+      this.stopSource = facetSource(this.sourceId).subscribe?.(desk, () => this.onEvent(desk));
       // Pinned: the notes the pins page links to, and any that carry the pin key itself.
       if (facetSource(this.sourceId).notes && !this.pinsPage && Date.now() - this.pinsMissAt > 30_000) {
         const r = await board.resolvePage(this.pins).catch(() => null);
@@ -1230,7 +1233,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     },
   }),
   "facets.view": def({
-    summary: "set the selection to a saved view's query (a shortcut: the views listed at the top of the tile): id= the view's block id. The picks are replaced; v saves a selection back as a view",
+    summary: "set the source and selection to a saved view (a shortcut: the views listed at the top of the tile): id= the view's block id. The picks are replaced; v saves a selection back as a view",
     keys: "⏎ or a click on a view", touches: "tile", replay: "safe", says: r => `the view's query: ${String(r.query)}`,
     args: { id: { type: "string", kind: "view", about: "the saved view's block id" } },
     examples: [{ act: "facets.view id=7d9a1f40 tile=facets", does: "the selection becomes that view's query; Matches follows" }],
@@ -1240,10 +1243,8 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const q = v ? prop(v, "query") : undefined;
       if (!v || !q) throw new ActionRefused(`${id} is no saved view with a [query::…] · facets.list names the views`);
       return p.serial(async () => {
-        const before = { raw: p.raw, clauses: p.clauses, day: p.day };
-        p.raw = q; p.clauses = []; p.day = null;
-        if (!(await p.load(desk))) { Object.assign(p, before); throw new ActionRefused(`the view's query wasn't answered: ${q}`); }
-        desk.keepLayout?.(); desk.redraw();
+        const result = await p.changeSource(prop(v, "facet-source") ?? "notes", desk, q);
+        if (result.error) throw new ActionRefused(`the view's query wasn't answered: ${q} · ${result.error}`);
         return { view: v.id, query: p.query(), notes: p.describe().matched };
       });
     },
