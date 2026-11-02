@@ -103,25 +103,64 @@ function balanced(text: string): boolean {
   return !quote;
 }
 
+/** Where the quote `value` opens with closes (-1 when it doesn't): a backslash escapes inside double quotes, as `balanced` reads it. */
+function closingQuote(value: string): number {
+  const q = value[0];
+  for (let i = 1; i < value.length; i++) {
+    if (value[i] === "\\" && q !== "'") { i++; continue; }
+    if (value[i] === q) return i;
+  }
+  return -1;
+}
+
 /** An attribute written back: `key="value"`, in the quote the value allows. */
 const written = (key: string, value: string) => (/^[^\s"'{}\\]+$/.test(value) ? `${key}=${value}` : !/["\\]/.test(value) ? `${key}="${value}"` : !value.includes("'") ? `${key}='${value}'` : `${key}="${value.replace(/(["\\])/g, "\\$1")}"`);
 
 /**
  * What the line says that no button reads (PIE-1298, Evan, Oct 25: `act="tile.zoom reach="column" tile="t-a6125371"` ended
  * act= at the second quote and zoomed the focused tile): null when it reads as written, else the reason and the line to
- * write. `strays` are words the button doesn't read (not BUTTON_OWN's, nor a slot some `{key}` names).
+ * write. `strays` are words the button doesn't read (not BUTTON_OWN's, nor a slot some `{key}` names); `words` are the line's
+ * words as written, and `kept` says which a button reads (its own and its slots'), so a nested quote is found even when
+ * what it cut off was one of those (`act="note.comment text="hi there" tone=red"` read only `text=hi`).
+ *
+ * An act= cut short by a quote inside it, or one whose words need quotes, is steered to the one-action-per-line form
+ * (`::button{label="zoom"}`, then the action on its own line, then `::`): a body line has no outer quote for an inner one
+ * to end (daddy's pop-it thread, from Evan's own button). A stray word alone is folded back into act= on the one line.
  */
-function misread(label: string | undefined, act: string, strays: readonly { key: string; value: string }[]): string | null {
-  const open = !balanced(act);
-  if (!open && !strays.length) return null;
-  const read = open ? act.replace(/["']/g, "").trim() : act;
-  const word = (p: { key: string; value: string }) => (p.value === "on" ? p.key : `${p.key}=${p.value}`);
+function misread(label: string | undefined, act: string, strays: readonly { key: string; value: string }[], words: readonly string[], kept: (key: string) => boolean): string | null {
+  const at = words.findIndex(w => /^act=/i.test(w)), value = at >= 0 ? words[at]!.slice(4) : "", q = value[0];
+  const close = q === '"' || q === "'" ? closingQuote(value) : -1;
+  const early = !balanced(act) || (close > 0 && close < value.length - 1);
+  if (!early && !strays.length) return null;
+  const read = early ? act.replace(/["']/g, "").trim() : act;
+  const word = (p: { key: string; value: string }) => (p.value === "on" ? p.key : `${p.key}=${wordOf(p.value)}`);
+  const lead = label ? `label="${label.replace(/"/g, "'")}" ` : "";
+  if (early && at >= 0) {
+    // The action as its author meant it: from act='s quote through the last word it cut off (a word the button reads
+    // itself ends it, unless that word carries the act's closing quote), without its outer quotes (the closing one only when
+    // it closes nothing inside: `tile="t-a6125371"` keeps its own).
+    let end = at;
+    while (end + 1 < words.length) {
+      const next = words[end + 1]!, eq = next.indexOf("="), key = eq > 0 ? next.slice(0, eq) : next;
+      if (kept(key) && balanced(next.slice(eq + 1))) break;
+      end++;
+    }
+    let step = words.slice(at, end + 1).join(" ").slice(4);
+    if (q === '"' || q === "'") { step = step.slice(1); if (step.endsWith(q) && !balanced(step)) step = step.slice(0, -1); }
+    const opener = `::button{${words.filter((_, i) => i < at || i > end).join(" ")}}`;
+    const cut = words.slice(at + 1, end + 1);
+    // The line to write comes first after the reason: a narrow tile cuts the end of a message, and this is what to do.
+    return `act= ends early, at a quote inside it: write one action per line, ${opener} ⏎ ${step.trim()} ⏎ :: (one line has no quotes to nest; it read ${read}${cut.length ? `, and ${cut.join(" ")} fell outside it` : ""})`;
+  }
   const joined = [read, ...strays.map(word)].join(" ").trim();
-  // After an early end the whole action goes inside single quotes (its own words are rarely quoted that way).
-  const act1 = open && !joined.includes("'") ? `act='${joined}'` : written("act", joined);
-  const fixed = `::button{${label ? `label="${label.replace(/"/g, "'")}" ` : ""}${act1}}`;
-  const what = open ? `act= ends early, at a quote inside it (it read ${read})${strays.length ? `, and ${strays.map(word).join(" ")} fell outside it` : ""}` : `${strays.map(word).join(" ")} ${strays.length === 1 ? "isn't" : "aren't"} read by a button (it runs ${read})`;
-  return `${what}: write ${fixed}`;
+  const what = `${strays.map(word).join(" ")} ${strays.length === 1 ? "isn't" : "aren't"} read by a button (it runs ${read})`;
+  // Words that need quotes of their own go one action per line, where nothing nests.
+  if (/["']/.test(joined)) {
+    const strayKeys = new Set(strays.map(p => p.key));
+    const opener = words.filter(w => !/^act=/i.test(w) && !strayKeys.has(w.includes("=") ? w.slice(0, w.indexOf("=")) : w)).join(" ");
+    return `${what}: write it one action per line: ::button{${opener}} ⏎ ${joined} ⏎ ::`;
+  }
+  return `${what}: write ::button{${lead}${written("act", joined)}}`;
 }
 
 /** A list item's marker, or quote bars and then one, before a component on its line: `- `, `  1. `, `> `, `> > - `. */
@@ -231,7 +270,8 @@ function buttonCallOwn(lines: readonly string[], i: number): ButtonCall | null {
   if (!steps.length) problem ??= '::button needs what it runs: write one action or ((script)) per line, then ::, or use act= / of=';
   // A button that reads differently than it was written runs nothing: it never acts on what its words didn't say.
   if (!problem && act && !act.startsWith("[")) {
-    const said = misread(label, act, rest);
+    const words = open[3] ? splitWords(open[3].slice(1, -1), false, false).flat().map(w => w.raw) : [];
+    const said = misread(label, act, rest, words, key => OWN.has(key.toLowerCase()) || slots.some(s => s.key === key));
     if (said) problem = said;
   }
   // A `{key}` the line has no word for: the word to add.

@@ -56,6 +56,8 @@ Pi/OMP users can invoke `/outliner`; supported coding clients can use the projec
 
 ## Source boundaries
 
+- Door events use outline-core `src/door-open.ts`: `server.ts` carries `door.event` envelopes unchanged on its event stream, filtered by kind. `extension-rules.ts` matches a target note and calls the existing extension/script runtime (`input.trigger.event`); the service keeps no visit history.
+
 - `src/program-env.ts` owns the running checkout's source paths and revision and `programEnv`, the environment
   builder for terminal tiles, named agents, extension programs and the MCP worker. Named agents resolve it
   through `ep0ch agent exec` on their destination machine; `ep0ch where` and agent instructions read the same owner.
