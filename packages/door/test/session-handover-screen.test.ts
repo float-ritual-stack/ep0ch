@@ -180,7 +180,7 @@ describe.skipIf(!outliner)("a handover with no terminal attached keeps the scree
     for (let i = 0; i < 50 && (await shells()).length < 1; i++) await Bun.sleep(100);
     expect(before).toContain((await shells())[0]!);
     b.type("\x1ba");                                          // alt+a: the drawer up
-    for (let i = 0; i < 50 && (await infoOn(sessionSocket(dir)))!.kept.length; i++) await Bun.sleep(100);
+    for (let i = 0; i < 50 && (await infoOn(sessionSocket(dir)))!.kept?.length; i++) await Bun.sleep(100);
     expect((await infoOn(sessionSocket(dir)))!.kept).toEqual([]);
     expect(await shells()).toEqual(before);                   // the same two shells, in their tiles
     b.close();
