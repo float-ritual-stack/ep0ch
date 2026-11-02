@@ -20,6 +20,24 @@ export function completionSection(deskOf: MakeDesk): Section {
   };
 }
 
+export function completionPlaceSection(deskOf: MakeDesk): Section {
+  return {
+    key: "completion-place", need: "see the matches right where you type, the preview beside them and the note still readable around them (PIE-1511)",
+    part: "the completion popup's one placement (completion-float.ts drawCompletionFloat), used by every host (the desk, a screen, the board's composer, the power bar) and every source (pages, Work IDs, properties, an extension's): it measures the popup, then places it. A: under the caret, at its column, as tall as its rows, the preview a column to its right, moved left when the right edge is near. B: where A won't fit under the caret, a short sheet along the bottom, list left and preview right. Near the bottom it goes above the caret. The key hints are the status bar's (popupHint); a click lights a row and previews it, a second click inserts (RowPresses, as the power bar's rows), the wheel moves (complete.move)",
+    files: "src/surface/completion-float.ts (drawCompletionFloat), src/surface/completion-popup.ts (renderCompletion, anchoredRows), src/bar/list-preview.ts (listWithDocs), src/surface/completer.ts (Completer.click, drawn.layout)",
+    aside: "Go in (⏎): the edit is open with [[sow- typed on Bed 1's line, and the sowing weeks drop under the cursor with the preview beside them · ↓ some lines, End, type ((Sowing week: where the list won't fit under the cursor (a list taller than a third of the screen: a short terminal or tile) it opens as a sheet along the bottom; near the bottom it goes above · a click lights a row and previews it, a second click inserts, the wheel moves · ↑↓ ⏎ tab esc are said in the status bar · act: draft.place line=20, draft.paste text=[[sow-, complete.ask; peek's completion.layout says below, above or sheet",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · completion placement", panes: [r], names: ["calendar"] }, show, [[r, n.completionPlace]], d => {
+        void d.press(r, NOTE_ACTIONS, "edit")
+          .then(() => d.press(r, NOTE_ACTIONS, "draft.place", { line: 5 }))
+          .then(() => d.press(r, NOTE_ACTIONS, "draft.paste", { text: "[[sow-" }))
+          .then(() => d.press(r, NOTE_ACTIONS, "complete.ask"));
+      });
+    },
+  };
+}
+
 export function snippetSection(deskOf: MakeDesk): Section {
   return {
     key: "snippets", need: "fill a component or button's slots without losing the insertion to several undo steps (PIE-1480)",

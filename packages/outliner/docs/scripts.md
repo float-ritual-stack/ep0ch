@@ -83,6 +83,10 @@ value with `button.slot label="pop it" key=target value=<tile>`. A script's slot
 (below): `::button{label="two up" of=neat page={page1} page={page2} page1= page2=}` asks page1 (1 of 2), then page2, from
 the notes, since neat says `[form-field::page note]`; several empty slots are asked in the order the line writes them. A button whose line reads differently than it was written
 (nested quotes that end `act=` early, stray words) runs nothing and says the line to write, in the editor as you type and on save.
+An `act=` cut short by a quote inside it is steered to one action per line (`::button{label="zoom"}`, then
+`tile.zoom reach="column" tile="links"` on its own line, then `::`): a line of its own has no outer quote for an inner one to end.
+A button outside a lifted tile that toggles the lift (`tile.zoom tile={target} reach=column`) drops it on the next press: the click
+or key that drops a lift when work moves elsewhere is that press, so it isn't lifted again.
 
 **From the command line (PIE-1230).** A script runs by its name, with a button's slots, wherever an action is typed: the power
 bar (ctrl+k, `neat page=[[a]] page=[[b]]`), `ep0ch act neat …` and `ep0ch neat …` from a shell. All three are one action,

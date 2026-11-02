@@ -160,7 +160,8 @@ describe("terminal cells, not code points", () => {
     const items = [{ label: `Omen${OSC52} list 会議メモ：来週の発表の準備`, kind: "note", context: "", insertion: "[[x]]" }];
     const popup = (w: number) => renderCompletion({ items, index: 0, loading: false, message: "", truncated: 0, target: { kind: "block", start: 0, end: 2, query: "" }, at: { row: 0, col: 2, line: "((" } }, w, 4);
     // At 20 cells the row's kind (PIE-1339) leaves the title a few: cut by cells, no escape acts. At 28 its words show.
-    for (const w of [20, 28]) for (const l of popup(w)) { expect(cells(l)).toBe(w); expect(acts(l.replace(/\x1b\[[\d;]*m/g, ""))).toBeNull(); }
+    // The popup is as wide as its content within w (PIE-1511): every line the same width, none past w.
+    for (const w of [20, 28]) { const lines = popup(w); for (const l of lines) { expect(cells(l)).toBe(cells(lines[0]!)); expect(cells(l)).toBeLessThanOrEqual(w); expect(acts(l.replace(/\x1b\[[\d;]*m/g, ""))).toBeNull(); } }
     expect(visible(popup(28).join("\n"))).toContain("Omen list");
   });
 
