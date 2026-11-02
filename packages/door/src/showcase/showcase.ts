@@ -27,6 +27,7 @@ import { actionPage } from "../surface/action-page";
 import { DRAFT_ACTIONS } from "../edit";
 import { keepUnsent, unsent } from "../draft-session";
 import { Desk, DESK_ACTIONS } from "../desk/desk";
+import { trailSections } from "./trail";
 import { FRAME_LEGEND } from "../desk/frame-controls";
 import { openScreen } from "../desk/screen-specs";
 import { type SavedTree, type TileSpec } from "../desk/tiles";
@@ -285,15 +286,7 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · zoom", panes: [plan], names: ["plan"] }, show, [[plan, n.zoomPlan]]);
     },
   },
-  {
-    key: "trail", need: "see where a reader has been, every stop by its title, and go straight back to one", part: "the trail (PIE-208): the reader's own back and forward stacks listed (NoteSurface.describeHistory; a river column's are its flow's trail, desk travelTrail), never a second history; the person's opens a trail tile beside the reader on a screen of tiles (PIE-1425: the trail tile kind, through the reader's own pair as the Sources tile is), a list picker over a screen without them (ListPicker through DeskApi.overlay); a choice is back or forward that many steps (back steps=, forward steps=); the web page's is the service's reader journal, each tab's own (ReaderPresence.trail)",
-    files: "src/surface/note.ts (trail, trailRows, travel, historyRow), src/desk/trail-tile.ts, src/desk/desk.ts (travelTrail, trailTile), src/river/column.ts (history.trail), outliner src/share-sessions.ts (ReaderPresence.trail), outliner src/publish-reader.js (drawTrail)",
-    aside: "follow the walk's link four times (⏎ on it, or a click), then alt+T, the ≡ trail beside ← back, or the tile menu's trail row: a trail tile beside the walk, every stop by title, the note shown lit; drag its border, dock it, esc closes it · ⏎, or a click on a picked stop, goes straight there and the trail follows; ← back and forward → walk the same trail · in the river it lists the columns back and forward; on the web page ≡ trail at the end of the breadcrumbs · agents: act trail tile=walk reads it (it opens nothing), act back steps=2 tile=walk goes two stops",
-    stage(n, show) {
-      const walk = new ReaderPane();
-      return deskOf({ title: "showcase · trail", panes: [walk], names: ["walk"] }, show, [[walk, n.trailGate]]);
-    },
-  },
+  ...trailSections(deskOf),
   {
     key: "back-anywhere", need: "go back in any tile to what it showed before, whichever tile or key changed it: a preview changed by a list's pick, a link's open or b, and the links tile changed by b", part: "each tile's own back and forward (PIE-1426, Pane.trail): a reader's is its surface's stacks (NoteSurface.track, now around a wired preview too: Desk.previewIntoPane), the links tile's the notes it listed (BacklinksPane.trail); back and forward in a reader, tile.travel in the links tile (alt+←), the trail lists both",
     files: "src/desk/desk.ts (previewIntoPane, travelTile), src/desk/panes.ts (TileTrail, ReaderPane.trail), src/desk/backlinks-pane.ts (trail), src/desk/tile-actions.ts (tile.travel)",
@@ -1474,7 +1467,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "pick-a-tile", need: "choose a tile by clicking it instead of typing its id, copy any tile's or note's address from where you see it, and see a button read as you type it", part: "the wire picker (tile.link's link mode, now tile.pick), a button's {slot} read by outline-core's button-call and written by sources.set's line save (button.slot), the action's own argument kind, Desk.tileAddressesOf over the tile registry (a tile's id, and the role or slot that names its place), and note.copy-ref over the tile's subject (Pane.subject), outline-core's blockRefText and the service's fragments.at and fragments.ensure", files: "outline-core/src/button-call.ts, src/button-check.ts, src/desk/desk.ts, src/surface/note.ts, src/edit.ts",
-    aside: "Press pop it: its target= is empty, so the door asks (click the links tile, or press its number); a tile whose place has a name of its own asks: this tile exactly, or whichever fills its place · the line becomes target=t-…; press again and it lifts above the drawer, again and it drops · ctrl+z takes the choice back; alt+click chooses again · the misread button runs nothing and says the line to write · an agent passes the tile itself: button.slot label=\"pop it\" key=target value=links (kept as its id) · the ⋯ menu's Copy group, first: copy note id, copy note reference, copy note web link and copy line reference (an ^anchor added once), then copy tile id, copy tile reference and copy tile name (%name, what a script's left=/right= and the power bar's % take) · a list's, the tree's or a lane's menu copies its selected row · any of them pasted into the power bar is that note's row, ⏎ opens it · ^W y copies the reference, ^W , shows the tile's card · act note.copy-ref kind=id|ref|link|line · e, then write a ::button: the editor colours it and marks what won't run",
+    aside: "Press pop it: its target= is empty, so the door asks (click the links tile, or press its number); a tile whose place has a name of its own asks: this tile exactly, or whichever fills its place · the line becomes target=t-…; press again and it lifts above the drawer, again (a click or ⏎) and it drops · ctrl+z takes the choice back; alt+click chooses again · the misread button runs nothing and says the line to write: one action per line under ::button{…}, then ::, as zoom links is written · an agent passes the tile itself: button.slot label=\"pop it\" key=target value=links (kept as its id) · the ⋯ menu's Copy group, first: copy note id, copy note reference, copy note web link and copy line reference (an ^anchor added once), then copy tile id, copy tile reference and copy tile name (%name, what a script's left=/right= and the power bar's % take) · a list's, the tree's or a lane's menu copies its selected row · any of them pasted into the power bar is that note's row, ⏎ opens it · ^W y copies the reference, ^W , shows the tile's card · act note.copy-ref kind=id|ref|link|line · e, then write a ::button: the editor colours it and marks what won't run",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane();
       return deskOf({ title: "showcase · pick a tile", panes: [a, b, c], names: ["notes", "links", "preview"],

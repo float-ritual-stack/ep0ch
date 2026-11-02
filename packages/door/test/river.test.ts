@@ -691,6 +691,10 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     // The person's alt+T: a trail tile beside the column (PIE-1425), the column shown lit; esc closes it.
     key({ kind: "alt", ch: "T" });
     await until(() => screen().includes("● Water the herbs · here") && screen().includes("trail · "), "the trail tile in the river");
+    key(char("t"));
+    await until(() => screen().includes("Trail · forest"), "the same Trail tile switches to the forest");
+    await mine("trail.view", { view: "history" }, "trail");
+    expect(screen()).toContain("● Water the herbs · here");
     key({ kind: "esc" });
     await until(() => !screen().includes("● Water the herbs · here"), "the trail tile closed");
     await mine("back", { steps: 2 }, b.name);

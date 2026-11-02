@@ -126,6 +126,7 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
     // A note still writing retired look keys (PIE-1365) for tune.retired.*'s examples to fix.
     const retired = page.name.startsWith("tune.retired.") ? " [style.header.image::media/seed-swap.png] [style.header.image.tint::0.5]" : "";
     const note = await h.board.createBlock(null, `Seed swap [page::garden]${retired}${page.name === "tree.depth" ? " [type::virtual-branch] [query::page=garden]" : ""}\nseed swap: bring beans and peas.\n${parts}` + "Water the beds.\n".repeat(45));
+    if (page.name === "open" && example.act.includes("compare=true")) await h.board.update(note.id, note.text + "\nBring spare pots.", note.revision!, USER);
     const pad = page.name.startsWith("element.") ? await h.board.createBlock(null, "Sticky pad\nKept beside the plan.\nThe end.") : null;
     if (page.name === "tree.depth") await h.board.move(note.id, null, USER, 1);
     const file = join(h.scratch.root, "garden-plan.md");

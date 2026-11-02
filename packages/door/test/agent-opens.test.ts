@@ -100,7 +100,7 @@ describe.skipIf(!outliner)("an agent's open on the person's desk (PIE-1444)", ()
       const group = d.desk.pane("pair") as any;
       const desk = d.desk.dispatch.where(), inner = group.inner.dispatch.where();
       // Before the group is first drawn too: the shell's one answer, read through, not the inner desk's keys alone.
-      expect(group.inner.ctx).toBeUndefined();
+      // (the inner desk now has its context from the mount, PIE-1234; the shell's answer is still what it reads)
       expect(desk.yolo).toBe(true);
       expect(inner.yolo).toBe(true);
       expect(Math.abs(inner.idle - desk.idle)).toBeLessThan(1000);
