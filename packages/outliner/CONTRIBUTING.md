@@ -149,6 +149,10 @@ source evidence or distinguish authored glyphs from controls.
 - `block-record.ts` in outline-core is the block-as-a-record shape (PIE-534, for
   PIE-533) and its one builder; `src/block-records.ts` builds records from the
   service's own reads (`blocks.records`), and every consumer reads that shape.
+  Agent reads request `includeTrashed: true` so a note can be read before restoring it;
+  ordinary record reads report trashed ids as unavailable.
+- Figure child rows share outline-core's `figureChildRows` in `figure-props.ts`:
+  the door, publisher and `site.sources` parse the children from `site.answer` identically.
 - `src/view-writes.ts` owns what a write into a saved view must change
   (`views.planWrite`): the property patch that moves a block into a view, or the
   properties, text or roadmap-item input a new block there is born with, and the

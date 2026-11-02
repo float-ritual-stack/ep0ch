@@ -7465,7 +7465,7 @@ export class NoteSurface {
       const was = P.answer?.sources[P.open ?? -1]?.key;
       P.answer = await host.ctx.board.siteSources(P.block);
       const { schemas } = await host.ctx.board.componentSchemas();
-      for (const source of P.answer.sources) if (source.kind === "figure") {
+      for (const source of P.answer.sources) if (source.query.editable) {
         const props = schemas.find(x => x.id === source.name)?.props.filter(x => x.where === "yaml") ?? [];
         for (const p of props) if (!source.query.params.some(x => x.key === p.key)) source.query.params.push({ key: p.key, value: p.default ?? "" });
       }

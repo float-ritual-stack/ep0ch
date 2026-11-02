@@ -64,6 +64,26 @@ async function setup() {
 }
 
 
+test("Sources describes figures that read child notes, with their rows and provenance", async () => {
+  const { create, client } = await setup();
+  for (const [text, children] of [
+    ["Garden jobs\n::graph-check\n---\nrows: children\n---\n::", ["[ ] Water beans", "[x] Plant peas"]],
+    ["Garden year\n::graph-timeline\n---\ntitle: Garden year\n---\n::", ["March: sow peas", "April: plant beans"]],
+  ] as const) {
+    const note = create(text);
+    const rows = children.map(text => create(text, note.id));
+    create("A comment [type::annotation]", note.id);
+    const answer = await client.request<SourcesAnswer>({ action: "site.sources", blockId: note.id });
+    const source = answer.sources[0]!;
+    expect(source.live).toBe(true);
+    expect(source.transform.label).toMatch(/child/i);
+    expect(source.query.text).toContain(note.id);
+    expect(source.result.rows).toBe(2);
+    expect(source.result.table?.map(row => row[0]).sort()).toEqual(rows.map(row => row.id).sort());
+    expect(source.result.text).toContain(children[0]);
+  }
+});
+
 test("a note's generated regions are listed with their query, transform, result and when each read", async () => {
   const { create, client, output } = await setup();
   const script = create(`Beds table [script::beds-table] [mode::render]\n\`\`\`js\nreturn view.table({ columns: ["Owner", "Week"], rows: [[(await resolve("this.owner")).values[0], props.week[0]]] });\n\`\`\``);

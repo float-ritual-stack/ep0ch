@@ -5,7 +5,7 @@ import { Inspector } from "./inspector";
 // line), Transform (the script, template or figure YAML that shaped it, with a jump to its note) and Result (the raw rows,
 // copyable, then Outline, Read and the Query). Drawn from the service's one answer (`site.sources`, outline-core sources.ts),
 // the one a published page's panel draws too. State and drawing only: the reader's mode (src/surface/note.ts) keeps it.
-import type { SourceEntry, SourcesAnswer } from "@ep0ch/outline-core/sources";
+import { sourceIsWritten, type SourceEntry, type SourcesAnswer } from "@ep0ch/outline-core/sources";
 import { ageSince } from "@ep0ch/outline-core/age";
 import { BOLD, C, dim, fg, pad, RESET, UNBOLD, width } from "../style";
 import { rowLines, wrap } from "../text";
@@ -50,6 +50,7 @@ const KIND_WORDS: Partial<Record<SourceEntry["kind"], string>> = { button: "butt
 
 /** The items of source `s` for the folds as they are open, in reading order. */
 export function itemsOf(s: SourceEntry, folds: Record<SourcesFold, boolean>): PanelItem[] {
+  if (sourceIsWritten(s)) return [{ kind: "copy", part: "transform" }];
   const out: PanelItem[] = [{ kind: "fold", fold: "query" }];
   if (folds.query) { for (const p of s.query.params) out.push({ kind: "param", key: p.key, value: p.value }); out.push({ kind: "copy", part: "query" }); }
   out.push({ kind: "fold", fold: "transform" });
@@ -124,6 +125,13 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
   else if (s.live === false) put(` ${dim("as written: its text is the note's")}`);
   if (s.problem) for (const l of wrap(s.problem, w - 3)) put(` ${fg(C.yellow)}${l}${RESET}`);
   put("");
+  if (sourceIsWritten(s)) {
+    put(` ${fg(C.white)}${BOLD}${s.transform.label}${UNBOLD}${RESET}`);
+    for (const line of (s.transform.text ?? "").split("\n")) put(` ${fg(C.grey)}${line}${RESET}`);
+    row(0, `${fg(C.lcyan)}[copy]${RESET}`, "sources.copy", { part: "transform" });
+    if (p.note) put(` ${dim(p.note)}`);
+    return { cols: cols(), lines, hits, items, focus };
+  }
   let i = 0;
   const fold = (f: SourcesFold, label: string, extra: string) => {
     const open = p.folds[f];

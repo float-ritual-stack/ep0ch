@@ -2792,7 +2792,7 @@ export class OutlinerStore {
    * When a block's current text was written and by whom: its last text or property edit (a move or a trip to the Trash
    * never changes the text), else when it was made and by whom. Read before the next write records its own.
    */
-  private textSaved(block: Block): { savedAt: string; author?: BlockAuthor; actorId?: string; taskId?: string } {
+  textSaved(block: Block): { savedAt: string; author: BlockAuthor; actorId?: string; taskId?: string } {
     const row = this.database.query(`SELECT edited_at, author, actor_id, task_id FROM block_edit_activity WHERE block_id = ? AND kind IN (${BLOCK_EDIT_ACTIVITY_KINDS.map(() => "?").join(", ")}) ORDER BY activity_id DESC LIMIT 1`)
       .get(block.id, ...BLOCK_EDIT_ACTIVITY_KINDS) as { edited_at: string; author: BlockAuthor; actor_id: string | null; task_id: string | null } | null;
     if (!row) return { savedAt: block.createdAt, author: block.author, ...(block.actorId ? { actorId: block.actorId } : {}), ...(block.taskId ? { taskId: block.taskId } : {}) };

@@ -2917,7 +2917,7 @@ export class OutlinerServer {
           result = grepBlocks(this.store.liveBlocks(), request);
           break;
         case "blocks.records":
-          result = readBlockRecords(this.store, request.ids);
+          result = readBlockRecords(this.store, request.ids, request.includeTrashed);
           break;
         case "blocks.census":
           result = this.store.blockSizeCensus();

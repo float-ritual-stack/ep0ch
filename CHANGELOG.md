@@ -10,6 +10,10 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+- Note records, agent reads and `ep0ch show --json` name the writer of the newest revision (PIE-1393).
+- Binding and outline reads distinguish a down host from a missing outline, with the machine, socket paths and retry command (PIE-1325).
+- Sources describes a written figure as “Written in the note · N items” and shows its text once, in the door and on the web (PIE-1226).
+- The first part dropped into an empty new note starts on line 1; later drops keep one blank line between parts (PIE-1381).
 ### A list view reads as a list again (PIE-1491, #1166)
 
 - **At rest:** a saved or inline view shows its rows, each with its note's title, and a count; its layout, sort, group and settings controls wait until you're in it.
