@@ -101,7 +101,7 @@ export class Hover {
     if (key === this.sent) return;
     this.resting = setTimeout(() => {
       this.resting = null; this.sent = key;
-      this.app.doorEvent({ ...e, at: Date.now() });
+      this.app.openEvents.post({ ...e, at: Date.now() }, this.app);
     }, HOVER_REST_MS);
     this.resting.unref?.();
   }

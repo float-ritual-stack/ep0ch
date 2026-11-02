@@ -22,7 +22,7 @@ Hover a link and its note shows in a post-it on the glass, above every screen (P
 | Need | The part that's there |
 |---|---|
 | What is under the pointer | the door's hover event (`src/hover.ts`): never while a button is down or over chrome; `door.hover` on the door event wire once the pointer rests |
-| ◇ on the status bar | an extension's status chip (`src/status-chips.ts`): its text, click (`glass.toggle`) and alt-click (`glass.clear`) |
+| ◇ on the status bar | an extension's status chip (`src/status-bar.ts`): its text, click (`glass.toggle`) and alt-click (`glass.clear`) |
 | Where post-its go | the float layer (`src/float-layer.ts`): put, dock, tuck, drag off |
 | Tune → Glass | a Tune section (`registerTuneSection`, `src/desk/tune.ts`) |
 | Running in the door | `"door": "glass"` in `extension.json`: the door runs its shipped module `packages/door/ext/glass` while this extension is served (`src/door-modules.ts`) |

@@ -1,11 +1,11 @@
 import type { Trail } from "./trail";
 import { OpenEvents } from "./open-events";
 import { TRAIL_QUERIES } from "./trail-actions";
-import type { DoorEvent, DoorOpen } from "@ep0ch/outline-core/door-open";
+import type { DoorOpen } from "@ep0ch/outline-core/door-open";
 import { Canvas, type Rect } from "./canvas"; import { doorLocation } from "./session/place";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { pressEnded } from "./surface/button";
-import { StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, type StatusItem, type StatusHit } from "./status-bar";
+import { chipItems, StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, type StatusItem, type StatusHit } from "./status-bar";
 import { OSC8, OSC8_CLOSE } from "./hyperlink";
 import { fullPlainText } from "./overflow";
 import { Overflow } from "./overflow";
@@ -49,7 +49,7 @@ import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, SCRIPT_RUN_ACTIONS, asScriptRun, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage, insertAnswer, oneLine } from "./extensions";
+import { describeModules, hostDoorModules, releaseDoorModules, runningModules, unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, SCRIPT_RUN_ACTIONS, asScriptRun, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage, insertAnswer, oneLine } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged, referenceWords } from "./refs";
@@ -61,8 +61,6 @@ import { alertMark, readAlert } from "./backup/alert";
 import type { AgentSession } from "./desk/agent-sessions";
 import { FloatLayer } from "./float-layer";
 import { Hover } from "./hover";
-import { statusChips } from "./status-chips";
-import { hostDoorModules, releaseDoorModules, runningModules } from "./door-modules";
 import { AgentDrawer, DRAWER_ACTIONS, overlay, type DrawerRun } from "./drawer";
 import { type ResolveOpts } from "./desk/tile-address";
 import { layerOrder, type HostMode } from "./desk/screen-layout";
@@ -184,10 +182,7 @@ export interface Ctx {
   readonly trail?: Trail;
   opened?(event: DoorOpen): void;
   lastOpen?(tile: string): DoorOpen | undefined;
-  /** The float layer above every screen (src/float-layer.ts). */
-  readonly glass?: FloatLayer;
-  /** What is under the pointer (src/hover.ts). */
-  readonly hover?: Hover;
+  readonly glass?: FloatLayer; readonly hover?: Hover; // the float layer above every screen; what is under the pointer
   /** Where a framed screen sits in a desk's undo order (the desk's `layoutUndoSeq`/`untrash`), so a reader in a tile hands ctrl+z on as one on the desk does (PIE-1470). */
   layoutUndoSeq?(): number | undefined;
   untrash?(board: object): boolean;
@@ -606,8 +601,7 @@ export class App implements Ctx {
   }
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
   readonly drawer: AgentDrawer;
-  readonly glass: FloatLayer;
-  readonly hover: Hover;
+  readonly glass: FloatLayer; readonly hover: Hover;
 
   /** The power bar while it's open (PIE-656): over every screen and the drawer, with the person's keys. */
   bar: PowerBar | null = null;
@@ -679,10 +673,7 @@ export class App implements Ctx {
       const hit = this.statusBoxes.find(h => h.item.id === "drawer");
       return hit ? { from: hit.from, to: hit.to, row: this.term.info.rows - 1 } : null;
     }, redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });
-    this.hover = new Hover(this, this.drawer);
-    this.glass = new FloatLayer(this, this.drawer, this.hover);
-    // The door modules the outline's extensions name run on this door (src/door-modules.ts): the glass is one.
-    hostDoorModules(this);
+    this.hover = new Hover(this, this.drawer); this.glass = new FloatLayer(this, this.drawer, this.hover); hostDoorModules(this);
     // The drawer's keys and clicks run the host layer's actions as the person, through the App's dispatcher.
     this.drawerRun = (name, args) => { void this.dispatch.pressIn(DRAWER_ACTIONS, name, args); };
     this.drawer.run = (name, args) => this.dispatch.pressIn(DRAWER_ACTIONS, name, args);
@@ -736,8 +727,7 @@ export class App implements Ctx {
    */
   retire(): void {
     this.closed = true;
-    releaseDoorModules(this);
-    this.hover.dispose();
+    releaseDoorModules(this); this.hover.dispose();
     stopCompletion(this.board);
     this.offResize();
     this.offStatus();
@@ -952,20 +942,9 @@ export class App implements Ctx {
   private flashes = 0;
 
   // ── the live feed (view.subscribe): what the person sees, pushed as it changes ──
-  private readonly openEvents = new OpenEvents();
+  readonly openEvents = new OpenEvents();
   get trail() { return this.openEvents.trail; }
   opened(e: DoorOpen) { this.openEvents.opened(e, this); }
-  /** Any other door kind onto the door event wire (`door.hover`, from the hover primitive). */
-  doorEvent(e: DoorEvent) { this.openEvents.post(e, this); }
-  /**
-   * `describe`'s glass (the float layer's tiles) with what each running door module says of itself, under its id: the
-   * glass extension's mode, settings and pinned count join the layer's tiles as `glass`.
-   */
-  private moduleState(): Record<string, Record<string, unknown>> {
-    const out: Record<string, Record<string, unknown>> = { glass: this.glass.describe() };
-    for (const [id, m] of runningModules()) { const d = m.describe?.(); if (d) out[id] = { ...out[id], ...d }; }
-    return out;
-  }
   lastOpen(tile: string) { return this.openEvents.last(tile); }
   doorOpens(since = 0) { return this.openEvents.since(since); }
   subscribe(f: (e: ViewEvent) => void): () => void { this.catchUp(); return this.openEvents.subscribe(f, this.stack.at(-1)); }
@@ -1132,7 +1111,7 @@ export class App implements Ctx {
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}),
       nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
-      ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...this.moduleState(), ...(this.bar ? { bar: this.bar.describe() } : {}),
+      ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...describeModules({ glass: this.glass.describe() }), ...(this.bar ? { bar: this.bar.describe() } : {}),
       messages: this.messages.rows,
       pointers: this.agentPointers.list(),
       // How the door is keeping up (a475084a): frames drawn against reports handled, the hover reports a busier moment folded into the newest, and the settle: the last input of a burst to the frame that shows it.
@@ -1907,8 +1886,7 @@ export class App implements Ctx {
       { id: "machine", text: this.location, place: "left", click: { action: "status.log" }, ...(this.machine ? { short: doorLocation(this).short } : {}) },
       right("docks", this.screenDesk()?.dockChoices().length ? "docks" : "", "strip.more", { strip: `${this.screenDesk()?.name}:docks` }),
       right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
-      // An extension's chips (src/status-chips.ts): the glass's ◇ when it runs.
-      ...statusChips().map((c): StatusItem => ({ ...right(c.id, c.text(), c.click, c.args), ...(c.tiny ? { tiny: c.tiny() } : {}), ...(c.keep ? { keep: true } : {}), ...(c.alt ? { alt: { action: c.alt } } : {}) })),
+      ...chipItems(), // an extension's chips (src/status-bar.ts): the glass's ◇
       right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
       { ...right("drawer", chip?.whole ?? "", "host.toggle"), alt: { action: "host.agent" }, keep: true, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}), ...(chip ? { short: chip.short, tiny: chip.tiny } : {}) },
       { ...right("waiting", waiting.styled, "host.waiting"), ...(waiting.short ? { short: waiting.short } : {}) },

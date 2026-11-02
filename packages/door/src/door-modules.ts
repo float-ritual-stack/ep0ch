@@ -4,7 +4,7 @@
 // the extensions screen's install and uninstall, `defaultOn`. Its manifest names the module (`"door": "glass"`), and the
 // door runs the module of that name it ships (packages/door/ext/<name>/) while `extensions.list` says the extension is
 // served, and stops it when it isn't. A module stands on the door's primitives only: the hover event (src/hover.ts),
-// a status chip (src/status-chips.ts), a Tune section (src/desk/tune.ts), the float layer (src/float-layer.ts), tile
+// a status chip (src/status-bar.ts), a Tune section (src/desk/tune.ts), the float layer (src/float-layer.ts), tile
 // kinds and action sets; nothing in core names one.
 import type { App } from "./app";
 import type { Key } from "./term";
@@ -59,3 +59,9 @@ export function hostDoorModules(app: App | null) {
 /** The door `app` ended: its modules stop. */
 export function releaseDoorModules(app: App) { if (host === app) hostDoorModules(null); }
 export const runningModules = (): [string, ActiveModule][] => [...running];
+/** `describe`'s parts with what each running module says of itself merged in under its id (the glass's mode beside the layer's tiles). */
+export function describeModules(base: Record<string, Record<string, unknown>>): Record<string, Record<string, unknown>> {
+  const out = { ...base };
+  for (const [id, m] of running) { const d = m.describe?.(); if (d) out[id] = { ...out[id], ...d }; }
+  return out;
+}

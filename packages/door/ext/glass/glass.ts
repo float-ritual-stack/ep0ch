@@ -4,7 +4,7 @@
 // any other from the extensions screen. It stands on the door's primitives only:
 //
 // - the hover event (src/hover.ts): what is under the pointer, never while a button is down or over chrome;
-// - an extension's status chip (src/status-chips.ts): ◇, its click and alt-click;
+// - an extension's status chip (registerStatusChip, src/status-bar.ts): ◇, its click and alt-click;
 // - the float layer (src/float-layer.ts, `app.glass`): where its post-its and shelves are put, docked and tucked;
 // - a Tune section (src/desk/tune.ts): its delays and limits, beside values and Hints;
 // - tile kinds (post-it, shelf) and an action set (`glass.*`), which go when it stops.
@@ -24,7 +24,7 @@ import { inside, type HoverMove, type Point } from "../../src/hover";
 import type { Rect } from "../../src/canvas";
 import { USER, type Actor } from "../../src/socket";
 import { outlineState, readState, writeState } from "../../src/state";
-import { registerStatusChip } from "../../src/status-chips";
+import { registerStatusChip } from "../../src/status-bar";
 import { actionSet, def, ActionRefused, keyName } from "../../src/surface/actions";
 import { effective, keyTable } from "../../src/surface/keymap";
 import type { ModeKey } from "../../src/surface/modes";

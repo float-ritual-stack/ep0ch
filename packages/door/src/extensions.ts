@@ -40,6 +40,8 @@ import { ProgramTile } from "./desk/tile-kinds";
 import { barSources, openNote, registerBarSource, unregisterBarSource, type BarSource } from "./bar/source";
 import { askInBar, type BarQuestion } from "./bar/ask";
 import { shippedModules, useDoorModules } from "./door-modules";
+// The door modules the bound extensions name run on the door that hosts them (src/door-modules.ts): the App starts and ends them here.
+export { describeModules, hostDoorModules, releaseDoorModules, runningModules } from "./door-modules";
 
 /** One action an extension declares, as `extensions.list` names it. */
 export interface ExtensionAction {
