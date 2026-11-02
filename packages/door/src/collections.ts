@@ -89,7 +89,8 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
     tag: (text, i) => press(controls[i]!.action, controls[i]!.args ?? {}, text),
   }).map(row => row.text) : [];
   const footer = `${answer.view.rows.length} notes${read?.state === "loading" ? " · updating…" : ""}${answer.truncated ? " · more matches" : ""}`;
-  const warning = answer.error ?? (answer.view.rows.length ? answer.hint : undefined);
+  // A key the graph-table doesn't take (PIE-1513): said here as the write said it, never silently ignored.
+  const warning = [spec.warning, answer.error ?? (answer.view.rows.length ? answer.hint : undefined)].filter(Boolean).join(" · ") || undefined;
   const body = [...(warning ? rowLines(warning, inner).map(line => fg(C.lred) + line + RESET) : []), ...drawing.lines];
   const count = blocks?.control?.(key, footer) ?? footer;
   // No in/out control (PIE-1501): its rows are elements, and the [ ] position on one of them has the keys.

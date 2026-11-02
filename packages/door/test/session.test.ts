@@ -19,7 +19,7 @@ import { openInEditor } from "../src/surface/editor";
 import { SocketBoard } from "../src/socket";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello } from "../src/session/protocol";
-import { FRAMES_IN_FLIGHT, SessionTerm, type Link } from "../src/session/session-term";
+import { FRAMES_IN_FLIGHT, SessionTerm, STEP_DOWN_AFTER, type Link } from "../src/session/session-term";
 import { doorMode, runEnv } from "../src/session/client";
 import { sessionEnv, startSession } from "../src/session/start";
 import { ancestors, detachedSaying, takeLock } from "../src/session/daemon";
@@ -640,6 +640,82 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     expect(term.activeClient).toBe(cb);
     expect(numbers(b).at(-1)).toBe(2);                   // one answered: the frame it was waiting on went
     expect(term.speed()[1]).toMatchObject({ unacked: 2, ackJoined: 1 });
+  });
+
+  // PIE-1500, Nov 2 10:20 AM: the mini's kitty (218×63, kitty+crt) stopped answering the frame check (200 given up on in
+  // 5 min) and sent no keys for 129 s; the MacBook's kitty at 239×50 answered every one. A terminal that keeps losing
+  // them is shown less: its video steps down by itself (kitty+crt, kitty, cells), said on screen, and alt+v steps it back up.
+  test("a terminal that stops answering steps its video down by itself, said on screen; the next video.cycle steps it back up", async () => {
+    const { term, app, make, numbers } = counting();
+    term.ackStaleMs = 40;
+    const said: string[] = [];
+    term.onNotice(text => { said.push(text); app.flash(text); });   // as the daemon wires it
+    const a = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true, kitty: true }));
+    expect(ca.painter.video).toBe("kitty+crt");
+    make(2);
+    // Three frame checks lost in a row: one step down, to kitty; the frame goes again, whole.
+    await until(() => term.speed()[0]!.ackTimeouts >= STEP_DOWN_AFTER, "three answers given up on", 2000);
+    expect(ca.painter.video).toBe("kitty");
+    expect(term.video).toBe("kitty");                      // the session is drawn in the active client's mode
+    expect(term.speed()[0]).toMatchObject({ video: "kitty", steppedFrom: "kitty+crt" });
+    expect(said.some(m => /stepped down.*kitty\+crt.*kitty/.test(m) && m.includes("alt+v"))).toBe(true);
+    expect(a.text()[0]).toBe(`frame 2`);
+    // Still nothing answered: the next three lost step it down to cells, where it stays (nothing under cells).
+    make(3);
+    await until(() => ca.painter.video === "cells", "the step down to cells", 2000);
+    expect(term.speed()[0]).toMatchObject({ video: "cells", steppedFrom: "kitty+crt" });
+    make(4);
+    await until(() => term.speed()[0]!.ackTimeouts >= 3 * STEP_DOWN_AFTER, "more answers given up on", 2000);
+    expect(ca.painter.video).toBe("cells");
+    expect(term.speed()[0]!.frames).toBeGreaterThan(4);   // every frame it was sent is counted, with its bytes
+    expect(term.speed()[0]!.bytes).toBeGreaterThan(0);
+    // One key steps it back up to what it was: video.cycle restores the mode it was stepped down from, then cycles as before.
+    expect(term.cycleVideo()).toBeNull();
+    expect(ca.painter.video).toBe("kitty+crt");
+    expect(term.speed()[0]!.steppedFrom).toBeNull();
+    expect(term.cycleVideo()).toBeNull();
+    expect(ca.painter.video).toBe("kitty");
+    expect(a.text()[0]).toBe("frame 4");               // and it shows the latest frame throughout
+  });
+
+  // Codex on #1194: a key takes the frames in flight (proofOfLife), so the answers that follow it find none to match.
+  // They are answers all the same: the terminal is alive, and three separate slow moments must not step it down.
+  test("an answer that comes after a key took its frame still counts: the terminal keeps its video", async () => {
+    const { term, make } = counting();
+    term.ackStaleMs = 40;
+    const a = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true, kitty: true }));
+    for (let round = 1; round <= STEP_DOWN_AFTER + 1; round++) {
+      make(round * 3);                                    // the window fills
+      await until(() => term.speed()[0]!.ackTimeouts >= round, "a slow moment given up on", 2000);
+      term.input(ca, "j");                                // a key: what was in flight is taken
+      term.input(ca, answer);                             // then the late answer lands, with nothing left to match
+    }
+    expect(ca.painter.video).toBe("kitty+crt");
+    expect(term.speed()[0]!.steppedFrom).toBeNull();
+  });
+
+  test("a terminal that answers, even late now and then, keeps its video: only answers lost in a row step it down", async () => {
+    const { term, make } = counting();
+    term.ackStaleMs = 40;
+    const a = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true, kitty: true }));
+    for (let round = 1; round <= 4; round++) {
+      make(round * 3);                                    // the window fills: a paint waits on an answer
+      await until(() => term.speed()[0]!.ackTimeouts >= round, "an answer given up on", 2000);
+      term.input(ca, answer);                              // then it answers: never three lost in a row
+    }
+    expect(term.speed()[0]!.ackTimeouts).toBeGreaterThanOrEqual(4);
+    expect(ca.painter.video).toBe("kitty+crt");
+    expect(term.speed()[0]!.steppedFrom).toBeNull();
+    // A terminal without Kitty graphics has nothing to step down: cells it is, and stays.
+    const b = fakeLink(80, 24);
+    const cb = term.attach(b.link, hello(80, 24, { acks: true }));
+    make(20);
+    await until(() => term.speed()[1]!.ackTimeouts >= STEP_DOWN_AFTER, "the cells terminal's answers given up on", 3000);
+    expect(cb.painter.video).toBe("cells");
+    expect(term.speed()[1]!.steppedFrom).toBeNull();
   });
 
   test("the round trip of the answers is measured for each client, beside the frames waiting", async () => {

@@ -19,6 +19,24 @@ are its record. The outliner's entries from then are kept below, under
 - The kitchen sink's **completion-place** section shows both, by keys, mouse and act.
 - **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
 
+### Extension tiles draw rows; what-changed is an extension (PIE-1506, PIE-1507, PIE-1514)
+
+- An extension's tile can be rows drawn by the service (`render`) or a view (`view`), not only a terminal program. What changed (alt+o) is now the built-in extension `what-changed`, on by default with no install step; `d` still opens a change beside the note.
+- An action can answer `{ insert }`: Run lens inserts its line through lens itself, and the door's lens special case is gone.
+- An extension's tile can name the built-in kind it `replaces`, so a desk saved with the old kind opens the extension's tile.
+- **Run:** `ep0ch install --apply` on every machine. PROTOCOL 302.
+
+### Tuned styles stay out of the text you read (PIE-1510, PIE-1512)
+
+- A list's `[style.list.…]` settings, written by the tune inspector on its first item, are hidden while reading and shown while editing that line, the same rule as a heading's `heading-*` settings (outline-core's `stylingTokensInLine`).
+- A tune save after an undo in the same door lands.
+- **Run:** `ep0ch install --apply`. GRAMMAR 26.
+
+### A terminal that stops answering steps down (PIE-1500)
+
+- When a terminal misses three frame checks in a row, the door draws it with less (kitty+crt, then kitty, then cells) and says so; alt+v steps it back up. `peek` shows each terminal's bytes, frames, video and `steppedFrom`.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### Tile edges have room to breathe (PIE-1282)
 
 - The screen saves `gap` (0–8) and `inset` in cells. Set them with `^W P` on screen, or `act layout.policy gap=1 inset=1`; the layout places every tile inside that spacing. The kitchen sink’s **spacing** section shows 0, 1 and 2 by key, click and act.

@@ -142,6 +142,7 @@ export const SEED = {
   collection: "Garden collection",
   collectionQuiet: "Needs a gardener",
   collectionTune: "Tune the garden collection",
+  figureSettings: "Sprint: the garden week",
   peek: "Garden peeks",
   glass: "Links on the glass",
   glassTitle: "The spring planting schedule and the tools to carry across the garden before the afternoon rain arrives",

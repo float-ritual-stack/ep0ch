@@ -1918,7 +1918,7 @@ export class App implements Ctx {
       right("backup", backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text}` : "", "backups.alert"),
       right("new", count ? `${fg(C.yellow)}+${count} new` : "", "changes.open"),
       { ...right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"), ...(held ? { short: `${fg(C.dark)}+${held}` } : {}) },
-      right("video", this.video, "video.cycle"),
+      right("video", this.display.steppedDown?.() ? `${this.video}↓` : this.video, "video.cycle"),   // ↓: stepped down by the session, alt+v puts it back (PIE-1500)
       right("theme", theme().name, "theme.cycle"),
       { ...right("uptime", `on ${mins}m`, "status.log"), short: `${mins}m` },
       { ...right("clock", clock ?? "", "status.log"), keep: true },

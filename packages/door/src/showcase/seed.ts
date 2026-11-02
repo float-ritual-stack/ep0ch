@@ -1,5 +1,6 @@
 import { SPACING_NOTE, HYPER_NOTE } from "./spacing";
 import { COLLECTION_TUNE } from "./seed/collection-tune";
+import { FIGURE_SETTINGS } from "./seed/figure-settings";
 import { QUERY_WORDS, QUERY_TRELLIS, QUERY_FENCE } from "./seed/query-words";
 import { pickId } from "@ep0ch/outline-core/completion-source";
 import { PEEK } from "./seed/peek";
@@ -474,6 +475,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "Check the forecast [collection::garden] [owner::Sol] [stage::ready]\n\nBring the tender plants in before frost.",
   ]) await make(notes.root.id, text);
   notes.collectionTune = await make(notes.root.id, COLLECTION_TUNE);
+  notes.figureSettings = await make(notes.root.id, FIGURE_SETTINGS);
   const waiting = await make(notes.root.id, "Waiting in the garden [type::virtual-branch] [query::collection=waiting] [layout::table] [summary-properties::type, ticket]");
   await make(notes.root.id, "Check seeds [collection::waiting] [type::request] [ticket::GARDEN-7] [to::Mira]\n\n> [!success]\n> **Ready** for {{this.to}}.\n\n## Before planting [heading::tab]\n\nCheck the labels on the packets.");
   await make(notes.root.id, "Read report [collection::waiting] [type::report] [ticket::GARDEN-8] [to::Sol]\n\n> [!info]\n> The beds are **watered**, {{this.to}}.\n\n## Next visit [heading::tab]\n\nBring the seedlings.");
