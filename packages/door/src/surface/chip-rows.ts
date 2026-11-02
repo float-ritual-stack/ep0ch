@@ -43,27 +43,25 @@ export function tabStrip(tabs: readonly Tab[], o: StripOptions): TabRow[] {
   let more = 0;
   const narrow = o.overflow !== "wrap" && used() > room;
   if (narrow && o.overflow === "drop") {
-    // Phrases keep their words. The yielding tab (a message) takes what the others leave; when that is under a quarter
-    // of the row, tabs that aren't kept go whole into +N, the farthest from the current first, until it has that much.
-    // Still over: the others take their short, then tiny forms, from the end, then go into +N themselves (a `keep` tab
-    // never); at the last the yielding tab takes what is left, even nothing.
+    // Phrases keep their words. The yielding tab (a message) takes only what the others leave, even nothing (a cut
+    // message is said whole above the bar, PIE-1428): it never costs a chip. When the others alone don't fit they take
+    // their short, then tiny forms, from the end, then go whole into +N, the farthest from the current first, a `keep`
+    // tab never.
     const controls = () => more ? width(`‹+${more}›`) + join : 0, anchor = o.scroll ?? current;
     const yielding = shown.find(t => t.yield), fits = () => used() + controls() <= room;
-    const floor = yielding ? Math.min(width(yielding.label), Math.floor(room / 4)) : 0;
-    const give = (least = 0) => { if (yielding) yielding.text = ellipsize(yielding.label, Math.max(least, room - controls() - (used() - cells(yielding)))); };
+    const give = () => { if (yielding) yielding.text = ellipsize(yielding.label, Math.max(0, room - controls() - (used() - cells(yielding)))); };
     const drop = () => {
       const candidates = shown.filter(t => !t.keep && t !== yielding && t.i !== current).sort((a, b) => Math.abs(b.i - anchor) - Math.abs(a.i - anchor) || b.i - a.i);
       if (!candidates.length) return false;
       shown.splice(shown.indexOf(candidates[0]!), 1); more++; give(); return true;
     };
     give();
-    while (yielding && width(yielding.text) < floor && drop());
     for (const form of ["short", "tiny"] as const) for (const t of [...shown].reverse()) {
       if (fits()) break;
       if (t !== yielding && t[form] !== undefined && width(t[form]) < width(t.text)) { t.text = t[form]; give(); }
     }
     while (!fits() && drop());
-    if (!fits()) give(0);
+    give();
   } else if (narrow) {
     gap = ""; sep = o.overflow === "middle" ? " › " : " "; join = width(sep);
     for (const t of shown) {
@@ -98,7 +96,8 @@ export function tabStrip(tabs: readonly Tab[], o: StripOptions): TabRow[] {
     if (t.end && !narrow) { const space = Math.max(0, room - used()); text += " ".repeat(space); under += " ".repeat(space); x += space; }
     const look = t.on ? s.on : t.cursor ? s.cursor ?? s.off : tail ? s.more ?? s.off : s.off;
     const marked = t.cursor ? `\x1b[4m${drawn}\x1b[24m` : hot && !t.on && s.key ? `${p}${s.key}${hot}${RESET}${look}${label ? " " + label : ""}${p}` : drawn;
-    const full = fullText(t.hint ?? `${p}${hot}${hot ? " " : ""}${t.label}${p}`, marked, undefined, record ? { id: record.id, n: i } : undefined, { ...t, hit: t.hit ? { ...t.hit, tile: t.hit.tile ?? record?.tile } : undefined });
+    // A segment yielded down to nothing draws nothing: a cut value's marker around no cells would still show a letter.
+    const full = !n && t.label ? "" : fullText(t.hint ?? `${p}${hot}${hot ? " " : ""}${t.label}${p}`, marked, undefined, record ? { id: record.id, n: i } : undefined, { ...t, hit: t.hit ? { ...t.hit, tile: t.hit.tile ?? record?.tile } : undefined });
     const body = look + (t.on ? selectFullText(full) : full) + RESET;
     text += (o.tag && i >= 0 ? o.tag(body, i) : body) + (t.label.includes("\x1b]8;") ? OSC8_CLOSE : "") + gap;
     under += (t.on && s.under ? s.under + "▀".repeat(n) + RESET : " ".repeat(n)) + " ".repeat(width(gap));
