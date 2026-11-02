@@ -827,8 +827,8 @@
     {
       "id": "cli.ep0ch", "name": "ep0ch act | peek | snap", "group": "clients", "chapter": "agents", "ladder": "shared", "dependsOn": ["door.control"],
       "does": "The command line an agent uses: `ep0ch act card.move lane=Doing --as <id>`, `ep0ch peek`, `ep0ch subscribe`.",
-      "built": "main.ts's subcommands write one request line to the control socket (EP0CH_CONTROL) and print the answer.",
-      "refs": [ { "r": "door", "p": "src/control.ts", "l": 5, "m": "bun src/main.ts peek | snap" } ]
+      "built": "main.ts's subcommands write one request line to the control socket (EP0CH_CONTROL) and print the answer. CLI_COMMANDS owns command descriptions for help, shell completion and typo suggestions; cli-help renders them, and docs/cli.md keeps detailed rules. Session lists over SSH reuse mcp-netmail's ssh helper and the remote session reader.",
+      "refs": [ { "r": "door", "p": "src/control.ts", "l": 5, "m": "bun src/main.ts peek | snap" }, { "r": "door", "p": "src/cli-commands.ts", "l": 64, "m": "export const CLI_COMMANDS" } ]
     },
     {
       "id": "cli.cli", "name": "Outliner CLI", "group": "clients", "chapter": "agents", "ladder": "stable", "dependsOn": ["cli.client"],
