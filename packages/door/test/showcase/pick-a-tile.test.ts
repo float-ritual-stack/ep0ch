@@ -6,6 +6,7 @@ import { USER } from "../../src/socket";
 import { subject } from "../../src/board";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
+import { buttonCallsOf } from "@ep0ch/outline-core/button-call";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -86,8 +87,13 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     expect(lifted()).toBe(false);
   });
 
-  test("the misread button runs nothing and says the line to write", async () => {
-    await expect(act("button.press", { note: seeded.notes.pickATile.id, label: "misread" }, undefined, AGENT)).rejects.toThrow(/act= ends early.*act='tile\.zoom reach=column tile=t-a6125371'/);
+  test("the misread button runs nothing and says the line to write: one action per line", async () => {
+    await expect(act("button.press", { note: seeded.notes.pickATile.id, label: "misread" }, undefined, AGENT)).rejects.toThrow('act= ends early, at a quote inside it: write one action per line, ::button{label="misread"} ⏎ tile.zoom reach="column" tile="t-a6125371" ⏎ ::');
+    // The form it steers to, beside it, is a button that runs, its quotes as typed.
+    const m = (await board.get(seeded.notes.pickATile.id))!;
+    const zoom = buttonCallsOf(m.text).find(b => b.label === "zoom links")!;
+    expect(zoom.problem).toBeUndefined();
+    expect(zoom.act).toBe('tile.zoom reach="column" tile="links"');
   });
 
   // PIE-1312: a ::button line typed in the editor is drawn in parts, what won't run is underlined, and the row under the cursor

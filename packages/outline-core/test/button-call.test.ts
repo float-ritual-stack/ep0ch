@@ -148,7 +148,8 @@ test("a button that misreads says what it read and the corrected line, and runs 
   const nested = buttonCallAt(['::button{label="zoom" act="tile.zoom reach="column" tile="t-a6125371"}'], 0)!;
   expect(nested.act).toBeNull();
   expect(nested.problem).toContain("act= ends early");
-  expect(nested.problem).toContain(`label="zoom" act='tile.zoom reach=column tile=t-a6125371'`);
+  // Steered to one action per line (daddy's pop-it thread): the action as written, with no outer quote to end it.
+  expect(nested.problem).toContain(`act= ends early, at a quote inside it: write one action per line, ::button{label="zoom"} ⏎ tile.zoom reach="column" tile="t-a6125371" ⏎ ::`);
   // A stray word, and an attribute the button doesn't read.
   expect(buttonCallAt(['::button{label="x" act="tile.zoom" column}'], 0)!.problem).toContain("column");
   expect(buttonCallAt(['::button{label="x" act="tile.zoom" tile=reader}'], 0)!.problem).toContain(`act="tile.zoom tile=reader"`);
@@ -157,6 +158,27 @@ test("a button that misreads says what it read and the corrected line, and runs 
   // The honest forms stay buttons: alt=, label=, quotes inside the other kind, a filled and an empty slot.
   for (const ok of ['::button{label="x" act="tile.zoom" alt="theme.cycle"}', `::button{act='tile.collapse on=true tile="links"'}`, `::button{act="edit.button line='a b'"}`, '::button{act="go {t}" t=}'])
     expect(buttonCallAt([ok], 0)!.problem).toBeUndefined();
+});
+
+test("a nested quote that cuts off a word the button reads is a misread too, and the line it says to write runs what was meant", () => {
+  // `tone=red"` and `there"` were read as the look word and dropped: the press would have commented "hi" alone.
+  const cut = buttonCallAt(['::button{label="say" act="note.comment text="hi there" tone=red" glyph=x}'], 0)!;
+  expect(cut.act).toBeNull();
+  const said = /line, ::button\{(.*?)\} ⏎ (.*) ⏎ :: \(/.exec(cut.problem!)!;
+  expect(said[1]).toBe('label="say" glyph=x');
+  expect(said[2]).toBe('note.comment text="hi there" tone=red');
+  // Written as it says, it is a button that runs exactly that, with a slot kept on its opener.
+  const fixed = buttonCallAt([`::button{${said[1]}}`, said[2]!, "::"], 0)!;
+  expect(fixed.problem).toBeUndefined();
+  expect(fixed.act).toBe('note.comment text="hi there" tone=red');
+  const slotted = buttonCallAt(['::button{label="pop" act="tile.zoom reach="column" tile={target}" target=}'], 0)!;
+  const body = /line, ::button\{(.*?)\} ⏎ (.*) ⏎ :: \(/.exec(slotted.problem!)!;
+  expect(body[1]).toBe('label="pop" target=');
+  const again = buttonCallAt([`::button{${body[1]}}`, body[2]!, "::"], 0)!;
+  expect(again.problem).toBeUndefined();
+  expect(again.empty).toEqual(["target"]);
+  // A stray word that needs quotes of its own goes one action per line too; a plain one folds into act=.
+  expect(buttonCallAt(['::button{label="x" act="note.comment" text="a b"}'], 0)!.problem).toContain('::button{label="x"} ⏎ note.comment text="a b" ⏎ ::');
 });
 
 test("syntaxWarnings carries a misread button's reason", async () => {

@@ -993,6 +993,32 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     }, 45_000);
   }
 
+  // PIE-1298 (his pop it as a note's button): a click or ⏎ outside a lift drops it (PIE-1189), and that same click or key
+  // is the press of a button outside it that toggles it, so the press finds it down and leaves it there. Before, the press
+  // lifted it again: the second press never dropped it.
+  test("a note's button that toggles a lift: lift by ⏎, the next ⏎ drops it and it stays down, the next lifts it", async () => {
+    const d = await door();
+    try {
+      const note = await board.createBlock(null, 'Lift the kettle\n::button{label="popit" act="tile.zoom tile=kettle reach=column"}');
+      await d.desk.dispatch.act({ action: "open", args: { id: note.id }, tile: "reader" }, USER);
+      d.paint();
+      const lifted = () => d.desk.lifted?.tile !== undefined;
+      const enter = async () => {
+        const reader = d.desk.pane("reader") as any;
+        const n = reader.surface.describeElements().find((e: { label: string }) => e.label.includes("popit")).n;
+        await d.desk.dispatch.act({ action: "element.select", args: { n }, tile: "reader" }, USER);
+        await d.desk.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
+        d.paint();
+        d.key({ kind: "enter" });
+      };
+      await enter(); await until(lifted, "the first ⏎ lifts the kettle");
+      await enter(); await until(() => !lifted(), "the second ⏎ drops it");
+      await Bun.sleep(100); d.paint();
+      expect(lifted()).toBe(false);
+      await enter(); await until(lifted, "the third ⏎ lifts it again");
+    } finally { d.app.quit(); }
+  });
+
   // PIE-1285 (Evan, Oct 25): `lift` on the component library said "no tile drawer.agent on the component library" with the
   // drawer's Claude open below. The drawer is the host layer, above every screen, so tile=drawer.<name> names it from any
   // screen host (the library, the board's desk, a screen pushed on top), by the status bar, a button and act alike.

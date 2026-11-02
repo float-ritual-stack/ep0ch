@@ -3,7 +3,7 @@ import { modeBinding, modeHint, partsHint, type HintPart, type ModeKey } from ".
 import { tabStrip } from "../surface/chip-rows";
 import { stripHint, stripSegments, stripsRecorded, withStripOwner } from "../surface/strip-state";
 import { ZOOM_WHEEL } from "./wkeys";
-import type { ZoomReach } from "./screen-layout";
+import { droppedForInput, keptDropped } from "./lift-drops";
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
 import { Draft, keepCopy } from "../edit";
 import { errorDetails, messageContext } from "../status-log";
@@ -75,7 +75,7 @@ import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
   shape as layoutShapeOf, peekSource, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
-  foldsBeside, WIRE_VERBS, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
+  foldsBeside, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
@@ -7195,7 +7195,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   dropLiftElsewhere() {
     const lift = this.layout.lift;
-    if (lift && (!this.keysHere() || this.focus !== lift.tile)) this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile));
+    if (lift && (!this.keysHere() || this.focus !== lift.tile)) { this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile)); droppedForInput(this, lift); }
   }
 
   liftInput(k: Key, enter: () => void): boolean {
@@ -7208,7 +7208,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         this.redraw(); return true;
       }
       if ([r, ...this.overlayHits].some(box => k.x >= box.col && k.x < box.col + box.cols && k.y >= box.row && k.y < box.row + box.rows)) { if (k.action === "down") { this.run("tile.focus", {}, this.nameOf(lift.tile)); enter(); } this.key(k, this.ctx); return true; }
-      if (k.action === "down" || k.action === "wheel-up" || k.action === "wheel-down") this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile));
+      if (k.action === "down" || k.action === "wheel-up" || k.action === "wheel-down") { this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile)); droppedForInput(this, lift); }
     } else if (this.keysHere() && this.focus === lift.tile) {
       if (k.kind === "esc") { this.key(k, this.ctx); return true; }
     } else this.dropLiftElsewhere();
@@ -7220,7 +7220,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.tileNumbered(sel);
     const others = this.relatives().filter(d => d !== this && d.layout.lift);
     if (actor.kind === "agent" && others.some(d => d.layout.lift?.by.kind === "user")) throw new ActionRefused("the person's lift stays up until they drop it");
-    const r = this.apply({ op: "zoom", tile: p.id, reach, ...(on !== undefined ? { on } : {}) }, actor);
+    const r = this.apply({ op: "zoom", tile: p.id, reach, ...(on !== undefined ? { on } : keptDropped(this, p.id, reach, actor, !!this.layout.lift) ? { on: false } : {}) }, actor);
     if (this.layout.lift) for (const d of others) d.dropLift(actor);
     this.redraw();
     return { ...this.tileAnswer(p.id), pane: p.n, zoomed: !!r.answer.zoomed };
