@@ -46,7 +46,7 @@ export type PanelItem =
 export interface PanelHit { row: number; from: number; to: number; action: string; args: Record<string, unknown> }
 export interface PanelDraw { cols: number; lines: string[]; hits: PanelHit[]; items: PanelItem[]; /** The row the focus is on, to keep in view. */ focus: number }
 
-const KIND_WORDS: Record<SourceEntry["kind"], string> = { button: "button", handler: "handler line", expr: "one-line script", use: "template", figure: "figure", fields: "fields", if: "condition", output: "written output" };
+const KIND_WORDS: Partial<Record<SourceEntry["kind"], string>> = { button: "button", handler: "handler line", expr: "one-line script", use: "template", figure: "figure", fields: "fields", if: "condition", output: "written output" };
 
 /** The items of source `s` for the folds as they are open, in reading order. */
 export function itemsOf(s: SourceEntry, folds: Record<SourcesFold, boolean>): PanelItem[] {
@@ -103,7 +103,7 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
     let focus = 2;
     a.sources.forEach((x, i) => {
       if (i === p.sel) focus = lines.length;
-      const on = i === p.sel, when = age(x.readAt, now) || (x.kind === "output" ? "written" : ""), kind = KIND_WORDS[x.kind];
+      const on = i === p.sel, when = age(x.readAt, now) || (x.kind === "output" ? "written" : ""), kind = KIND_WORDS[x.kind] ?? x.transform.label;
       const left = ` ${on ? fg(C.yellow) + "▸" : " "} ${on ? fg(C.white) + BOLD : fg(C.lcyan)}${x.name}${UNBOLD}${RESET}${x.problem ? fg(C.yellow) + " !" + RESET : ""}`;
       const right = `${dim(kind)}  ${dim(when)}`;
       wanted = Math.max(wanted, width(`${left}  ${right}`));
@@ -119,7 +119,7 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
   let focus = 0;
   const mark = (i: number) => (i === at ? fg(C.yellow) + "▸" + RESET : " ");
   const row = (i: number, text: string, hit?: PanelHit["action"], args: Record<string, unknown> = {}) => { wanted = Math.max(wanted, width(text) + 2); if (i === at) focus = lines.length; for (const line of rowLines(`${mark(i)} ${text}`, w, Infinity, { hang: 2 })) put(line, [{ from: 0, to: w, action: hit ?? "sources.item", args: hit ? args : { n: i + 1 } }]); };
-  put(` ${fg(C.lcyan)}← ${RESET}${fg(C.yellow)}${BOLD}${s.name}${UNBOLD}${RESET} ${dim(`· ${KIND_WORDS[s.kind]} · line ${s.line + 1}${s.endLine > s.line ? `–${s.endLine + 1}` : ""}`)}${" ".repeat(0)}`, [{ from: 0, to: 3, action: "sources.back" }]);
+  put(` ${fg(C.lcyan)}← ${RESET}${fg(C.yellow)}${BOLD}${s.name}${UNBOLD}${RESET} ${dim(`· ${KIND_WORDS[s.kind] ?? s.transform.label} · line ${s.line + 1}${s.endLine > s.line ? `–${s.endLine + 1}` : ""}`)}${" ".repeat(0)}`, [{ from: 0, to: 3, action: "sources.back" }]);
   if (s.readAt) put(` ${dim(`read ${age(s.readAt, now)} · ${s.live ? "live: drawn again when what it read changes" : "as written"}`)}`);
   else if (s.live === false) put(` ${dim("as written: its text is the note's")}`);
   if (s.problem) for (const l of wrap(s.problem, w - 3)) put(` ${fg(C.yellow)}${l}${RESET}`);

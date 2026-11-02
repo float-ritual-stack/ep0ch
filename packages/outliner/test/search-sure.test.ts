@@ -95,6 +95,36 @@ test("a search with nothing that answers it says no strong match instead of a co
   expect(await until(async () => (await records("jev-run")).some(run => run.experiment === "search-live" && run.suggested === "1"))).toBe(true);
 });
 
+test("a jump to a title: notes whose titles start with the words stay first, and no verdict is read on them (PIE-1497)", async () => {
+  // Jev backs the body hit (a compost note that mentions pies); the titles the words start are the ones wanted.
+  const { store, client } = await setup({ best: "Compost turning", exists: 0.1 });
+  store.create("PIE-101 Builder report for the dock strip\nthe segments by title");
+  store.create("PIE-102 Narrow strips keep their names\nbreadcrumbs show links");
+  store.create("Compost turning schedule\nTurn the heap; bake the pies after.");
+  const r = await client.request<GotoSearchCollection>({ action: "tree.search", query: "pie", semantic: true });
+  expect(r.matches.slice(0, 2).map(m => m.title)).toEqual(["PIE-101 Builder report for the dock strip", "PIE-102 Narrow strips keep their names"]);
+  expect(r.matches[2]!.title).toBe("Compost turning schedule");
+  expect(r.matches[2]!.score).toBe(2.8);
+  // Sure, with no label for a footer to nag with; said for `ep0ch find`.
+  expect(r.semantic).toMatchObject({ status: "ranked", verdict: "strong", said: "title match: “PIE-101 Builder report for the dock strip”" });
+  expect(r.semantic.label).toBeUndefined();
+  // Settled by title: the deep pass isn't asked either.
+  const deep = await client.request<GotoSearchCollection>({ action: "tree.search", query: "pie", semantic: true, deep: true });
+  expect(deep.semantic.deep).toMatchObject({ status: "skipped" });
+});
+
+test("a title that only holds the words leads too, but is weak: // still reads every note (PIE-1497)", async () => {
+  const { store, client } = await setup({ best: "Compost turning", exists: 0.1 });
+  store.create("The dock overview\nsegments by title");
+  store.create("Compost turning schedule\nTurn the heap by the dock.");
+  const r = await client.request<GotoSearchCollection>({ action: "tree.search", query: "dock", semantic: true });
+  expect(r.matches.slice(0, 2).map(m => m.title)).toEqual(["The dock overview", "Compost turning schedule"]);
+  expect(r.semantic).toMatchObject({ status: "ranked", verdict: "weak", said: "title match: “The dock overview”" });
+  expect(r.semantic.label).toBeUndefined();
+  const deep = await client.request<GotoSearchCollection>({ action: "tree.search", query: "dock", semantic: true, deep: true });
+  expect(deep.semantic.deep?.status).not.toBe("skipped");
+});
+
 test("deep: a note none of whose words were asked is found by meaning, scored and said sure (PIE-1200)", async () => {
   const { store, client, asked } = await setup({ best: "Compost turning", exists: 0.1 });
   const target = store.create("Compost turning schedule\nTurn the heap every two weeks in summer.");

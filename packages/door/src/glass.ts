@@ -17,6 +17,7 @@ import { type ModeKey } from "./surface/modes";
 import { effective, keyTable } from "./surface/keymap";
 import { outlineState, readState, writeState } from "./state";
 import type { Key } from "./term";
+import type { ListView } from "./surface/list-view";
 
 export type GlassMode = "off" | "on" | "sticky";
 /** Each mode in a few words: what the status line says when it changes, and what the ◇ chip's title reads. */
@@ -55,6 +56,7 @@ export class Glass {
   private closeAt = 0;
   private generation = 0;
   private hover: PostIt | null = null;
+  private collection: ListView | undefined;
   private saved: HoverTrail | null = null;
   /** A mouse button is down (a drag of an edge, a title, a selection): no hover resolves until it comes up. */
   private held = false;
@@ -107,6 +109,13 @@ export class Glass {
     const point = { x, y, alt }, before = this.pointer, held = this.held;
     this.pointer = point; this.held = false;
     if (held || before && before.x === x && before.y === y && before.alt === alt) return;
+    const collection = this.hit(point)?.collection;
+    if (collection !== this.collection) {
+      if (this.collection) this.collection.hovered = false;
+      if (collection) collection.hovered = true;
+      this.collection = collection;
+      this.app.redraw();
+    }
     this.cancelOpen();
     const current = this.current(), over = current && inside(point, current.rect);
     if (current && current.pane instanceof PostIt && !current.pane.sticky) {
@@ -126,14 +135,17 @@ export class Glass {
       void this.resolve(point, generation).catch(e => this.app.flash((e as Error).message));
     }, this.settings.open);
   }
-  private async resolve(point: Point, generation: number) {
+  private hit(point: Point) {
     const over = this.floats().findLast(f => inside(point, f.rect));
     // Inside the open drawer, the screen under it is covered: only the host desk answers there, unless a float or menu
     // of the screen is drawn over that cell (the drawer's own layer answer, `covers`). Chrome (the drawer's bar, hint
     // rows, the status bar) belongs to no tile, so it never answers: a tile's content and its title are the targets.
     const inDrawer = !over && this.host.shown && this.host.rect && inside(point, this.host.rect) && !this.host.coveredAt(point.x, point.y);
     const desks = over || inDrawer ? [this.host.made!] : this.host.desks().filter(d => !this.host.isDrawer(d));
-    const hit = desks.map(d => d.hoverAt(point.x - d.screenOrigin.col, point.y - d.screenOrigin.row)).find(Boolean);
+    return desks.map(d => d.hoverAt(point.x - d.screenOrigin.col, point.y - d.screenOrigin.row)).find(Boolean);
+  }
+  private async resolve(point: Point, generation: number) {
+    const over = this.floats().findLast(f => inside(point, f.rect)), hit = this.hit(point);
     const text = hit?.text, key = hit?.target ? JSON.stringify(hit.target) : text;
     if (!hit || !key) return;
     this.cancelClose();
