@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { clientRows, formatClients } from "../src/control";
 import { outliner, Scratch, ScratchHost } from "./scratch";
+import { startSession } from "../src/session/start";
+import { placeOf } from "../src/session/place";
 
 const MAIN = join(import.meta.dir, "../src/main.ts");
 const run = async (args: string[], env: Record<string, string> = {}, cwd?: string) => {
@@ -32,6 +34,54 @@ describe("ep0ch clients", () => {
 });
 
 describe("ep0ch command", () => {
+  test("session --machine lists the remote sessions and never acts on a local session", async () => {
+    const host = new ScratchHost();
+    const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("EP0CH_")));
+    let local: Record<string, string> | undefined, remote: Record<string, string> | undefined;
+    const cwd = host.folder("caller");
+    try {
+      await host.start();
+      await host.create("garden");
+      await host.create("orchard");
+      local = { ...clean, ...host.env, EP0CH_WS: "", EP0CH_MACHINE: "", EP0CH_SOCKET: "", EP0CH_CONTROL: "", EP0CH_STATE: host.folder("local-state"), EP0CH_DAILY_AGENT: "sh" };
+      remote = { ...local, HOME: host.folder("remote-home"), EP0CH_STATE: host.folder("remote-state") };
+      for (const [name, env] of [["garden", local], ["orchard", remote]] as const) {
+        const place = placeOf({ outline: name }, env.EP0CH_STATE, env);
+        expect(await startSession(place.dir, ["--ws", name, "--screen", "desk"], env)).toEqual({ ok: true });
+      }
+      const bin = host.folder("bin"), ssh = join(bin, "ssh");
+      writeFileSync(ssh, `#!/bin/sh\nexec ${process.execPath} ${join(outliner!, "test/fake-ssh.ts")} "$@"\n`);
+      writeFileSync(join(bin, "ep0ch"), `#!/bin/sh\nexec ${process.execPath} ${MAIN} "$@"\n`);
+      chmodSync(ssh, 0o755); chmodSync(join(bin, "ep0ch"), 0o755);
+      const env = { ...local, EP0CH_SSH: ssh, FAKE_SSH_HOME: remote.HOME!, FAKE_SSH_OUTLINES: host.outlines, FAKE_SSH_STATE: remote.EP0CH_STATE!, FAKE_SSH_BIN: bin };
+      const listed = await run(["session", "list", "--machine", "box-a"], env, cwd);
+      expect(listed.code).toBe(0);
+      expect(listed.out).toContain("box-a");
+      expect(listed.out).toContain("orchard");
+      expect(listed.out).not.toContain("garden");
+      const json = await run(["--machine", "box-a", "session", "list", "--json"], env, cwd);
+      expect(json.code).toBe(0);
+      expect(JSON.parse(json.out).map((s: { place: { outline: string } }) => s.place.outline)).toEqual(["orchard"]);
+      const down = await run(["session", "list", "--machine", "box-a"], { ...env, FAKE_SSH_DOWN: "1" }, cwd);
+      expect(down.code).not.toBe(0);
+      expect(down.err).toContain("Connection refused");
+      expect(down.err).toContain("ssh box-a");
+      expect(down.out).not.toContain("garden");
+      // Every other session command keeps --machine as the outline's machine: the daemon itself starts as
+      // `session serve --ws <name> --machine <ssh-name>` (Nov 2: refusing it stopped every remote outline's session).
+      const status = await run(["session", "status", "--ws", "orchard", "--machine", "box-a"], env, cwd);
+      expect(status.err).not.toContain("does not accept --machine");
+      expect(status.out).not.toContain("Sessions on box-a");
+      for (const [env, name] of [[local, "garden"], [remote, "orchard"]] as const) {
+        const r = await run(["session", "list", "--json"], env, cwd);
+        expect(JSON.parse(r.out).map((s: { place: { outline: string } }) => s.place.outline)).toContain(name);
+      }
+    } finally {
+      for (const env of [local, remote]) if (env) await run(["session", "end", "--all", "--yes"], env, cwd);
+      await host.dispose();
+    }
+  }, 60_000);
+
   test("artifact commands use a machine with no outline, while import names its source outline", async () => {
     const host = new ScratchHost();
     try {
@@ -98,15 +148,14 @@ describe("ep0ch command", () => {
     expect(missing.err).toContain("ep0ch docs");
   });
 
-  test("help prints the usage and exits 0", async () => {
+  test("help fits a 50-row terminal and leads to each command's help", async () => {
     const r = await run(["help"]);
     expect(r.code).toBe(0);
+    expect(r.out.trimEnd().split("\n").length).toBeLessThanOrEqual(50);
     expect(r.out).toContain("ep0ch clients");
     expect(r.out).toContain("ep0ch try");
-    expect(r.out).toContain("ep0ch outline list [--all] [--archived] [--lines] | attach <name>");
-    expect(r.out).toContain("--all lists every machine's");
-    expect(r.out).toContain("ep0ch show <id>… [--json | --source");
     expect(r.out).toContain("ep0ch status");
+    expect(r.out).toContain("ep0ch help <command>");
   });
 
   test("clients against a socket with no service says no carrier and exits 1", async () => {

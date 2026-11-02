@@ -11,7 +11,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { dividerLine, listSlots, zebraRow } from "../list-look";
 import { RowView, type RowGesture, type RowPress } from "../scroll";
 import type { Actor } from "../socket";
-import { BOLD, UNBOLD, C, ellipsize, fg, pad, RESET, selectedRow, tint, width } from "../style";
+import { BOLD, C, ellipsize, fg, LINK_END, pad, RESET, selectedRow, tint, width } from "../style";
 import { primitiveLines } from "../components";
 import { tier } from "../figures/palette";
 import { rowLines } from "../text";
@@ -119,6 +119,8 @@ export interface ListPreview<S> {
 
 export interface ListDrawOpts<S> {
   primitive?: ListPrimitive;
+  /** A card's note body, drawn by its reader in that note's context. */
+  body?: (row: ListViewRow<S>, cols: number) => string[];
   header?: (key: string, text: string) => string;
   link?: (id: string, text: string, revision?: number) => string;
   lane?: (name: string, text: string) => string;
@@ -163,6 +165,7 @@ export class ListView<S = unknown> {
   typing: LineField | null = null;
   private was = "";
   readonly settings = new Map<string, Record<string, unknown>>();
+  hovered = false;
   private readonly answered = new Map<string, ListViewRow<S>[]>();
   lane = 0;
   page = 0;
@@ -287,6 +290,12 @@ export class ListView<S = unknown> {
   }
   /** Move `who`'s pick `by` rows among those that can be selected; null where there's no row that way. */
   step(who: string, by: number, axis: "row" | "column" | "group" = "row"): ListViewRow<S> | null {
+    const row = this.stepTarget(who, by, axis);
+    if (row) this.setPick(who, row.id, row.group);
+    return row;
+  }
+  /** The row `step` would pick, or null at the edge, without picking it (a collection leaves at its edge, PIE-1491). */
+  stepTarget(who: string, by: number, axis: "row" | "column" | "group" = "row"): ListViewRow<S> | null {
     const rows = this.pickable(who), picked = this.picked(who), at = rows.indexOf(picked!);
     const shape = this.shapes.get(who) ?? this.shapes.get(PERSON);
     let to = (at < 0 ? (by > 0 ? -1 : rows.length) : at) + Math.trunc(by);
@@ -305,7 +314,6 @@ export class ListView<S = unknown> {
     if (to === at) return null;
     const row = rows[Math.max(0, Math.min(rows.length - 1, to))];
     if (!row || (to < 0 || to >= rows.length) && at >= 0 && rows[at] === row) return null;
-    this.setPick(who, row.id, row.group);
     return row;
   }
   /** Forget `who`'s pick (their own, not the rows). */
@@ -433,7 +441,7 @@ export class ListView<S = unknown> {
   private arranged(o: ListDrawOpts<S>, node: ListPrimitive): ListDrawn<S> {
     const rows = this.visible(), mine = o.selection ? this.picked() : null;
     const expanded = this.hasPick(PERSON) ? mine : null;
-    const titleAt = Math.max(0, node.columns?.indexOf("title") ?? 0);
+    const titleAt = node.columns?.indexOf("title") ?? -1;
     const card = (row: ListViewRow<S>, cols: number, record = false): string[] => {
       const cell = record ? row.cells?.[titleAt] ?? row.label : row.label;
       const title = typeof cell === "object" && cell.link ? o.link?.(cell.link, cell.text, cell.revision) ?? cell.text : listCellText(cell);
@@ -447,26 +455,31 @@ export class ListView<S = unknown> {
           const cell = row.cells?.[i] ?? "";
           return [{ type: "text", ...(typeof cell === "object" ? cell : {}), text: rowLines(`${node.headers?.[i] ?? key}: ${listCellText(cell)}`, Math.max(8, cols - 2), sameRow(row, expanded) ? Infinity : 4).join("\n") }];
         }) : []),
-        ...(row.body ?? []).map(text => ({ type: "text", text })),
-      ] }, f.inner, { link: o.link });
+        ...(o.body ? [{ type: "blockdown", text: "" }] : (row.body ?? []).map(text => ({ type: "text", text }))),
+      ] }, f.inner, { link: o.link, blockdown: o.body ? (_text, cols) => o.body!(row, cols) : undefined });
       const lines = [f.top(), ...content.map(f.row), f.bottom()];
       if (!o.tag) return lines;
       const [before, after] = o.tag(row, "\u0000").split("\u0000");
-      return lines.map(line => before + line + after);
+      // A link inside a card's body closes the row's tag where it ends; the row opens again after it, so a click past the link still picks the card.
+      return lines.map(line => before + (before ? line.split(LINK_END).join(LINK_END + before) : line) + after);
     };
     const combine = (parts: string[][], cols: number) => Array.from({ length: Math.max(0, ...parts.map(p => p.length)) }, (_, line) => parts.map(p => pad(p[line] ?? "", cols)).join("  "));
     const drawRows = (own: readonly ListViewRow<S>[], cols: number, arrange: ListPrimitive["arrange"]): string[] => {
       if (arrange === "table" && tier(cols) !== "narrow") {
-        const keys = node.columns ?? ["title"];
+        // A row's identity stays visible even when the saved properties omit it.
+        const keys = node.columns?.includes("title") ? node.columns : ["title", ...(node.columns ?? [])];
+        const headers = keys.map(key => node.headers?.[node.columns?.indexOf(key) ?? -1] ?? key);
+        const cells = (r: ListViewRow<S>) => keys.map(key => key === "title" && titleAt < 0 ? r.label : r.cells?.[node.columns?.indexOf(key) ?? -1] ?? r.label);
         const shown = [...keys];
         if (tier(cols) === "cozy") while (shown.length > 2) {
-          if (width(shown.map((key, i) => pad(node.headers?.[i] ?? key, 8)).join("  ")) <= cols) break;
+          if (width(shown.map((key, i) => pad(headers[i] ?? key, 8)).join("  ")) <= cols) break;
           shown.pop();
         }
-        return [...primitiveLines({ type: "table", columns: shown.map((key, i) => node.headers?.[i] ?? key), rows: own.map(r => r.cells?.slice(0, shown.length) ?? [r.label]) }, cols, { link: o.link,
+        return [...primitiveLines({ type: "table", columns: shown.map((key, i) => headers[i] ?? key), rows: own.map(r => cells(r).slice(0, shown.length)) }, cols - 1, { link: o.link,
           expanded: i => sameRow(own[i], expanded),
-          row: (i, text) => { const row = own[i]!, marked = sameRow(row, mine) ? `${BOLD}${text}${UNBOLD}` : text; return o.tag?.(row, marked) ?? marked; },
-          header: (_label, text, i) => o.header?.(shown[i]!, text) ?? text }),
+          row: (i, text) => o.tag?.(own[i]!, text) ?? text,
+          rowStyle: (i, text) => sameRow(own[i], mine) ? selectedRow(" " + text, cols, o.focused, "idleRow") : " " + text,
+          header: (_label, text, i) => o.header?.(shown[i]!, text) ?? text }).map((line, i) => i < 2 ? " " + line : line),
           ...(shown.length < keys.length ? [fg(C.dark) + `+ ${keys.length - shown.length} columns · widen to see them` + RESET] : [])];
       }
       const per = arrange === "grid" && tier(cols) !== "narrow" ? Math.max(1, Math.floor(cols / (node.size === "large" && tier(cols) === "wide" ? 44 : 29))) : 1;

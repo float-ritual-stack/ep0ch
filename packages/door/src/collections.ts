@@ -7,10 +7,8 @@ import { watchedOn } from "./watched";
 import type { LinkBlocksEnv } from "./links";
 import { listOpenTarget, type LinkTarget } from "./refs";
 import { ListView, PERSON, listRowsOf } from "./surface/list-view";
-import { LISTVIEW_ACTIONS } from "./surface/list-actions";
-import { keysText } from "./surface/actions";
-import { tabStrip } from "./surface/chip-rows";
-import { BOLD, C, fg, RESET } from "./style";
+import { tabStrip, type Tab } from "./surface/chip-rows";
+import { BOLD, C, fg, RESET, width as textWidth } from "./style";
 import { rowLines } from "./text";
 
 // A changed query has no first answer yet. Keep the list and its input mounted while that answer arrives.
@@ -31,20 +29,22 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   const figure = sizing ? { figure: sizing.key } : undefined;
   width = sizing?.width ?? width;
   const entered = blocks?.entered?.(key) ?? false;
+  const current = blocks?.current?.() === key;
   view.set(listRowsOf(answer.view));
   for (const [who, state] of view.settings) if (who !== PERSON) {
     const read = siteProduced(note, { kind: "view", props: spec.props, state }, site);
     const value = read && "value" in read ? read.value : undefined;
     if (value?.kind === "view") view.setAnswer(who, listRowsOf(value.view), value.view);
   }
-  const press = (action: string, args: Record<string, string>, text: string) => tag?.({ role: "control", label: text, press: { act: actionLine({ action, args: { list: key, ...args } }), block: note ?? "", line: 0 } }, text) ?? text;
+  const press = (action: string, args: Record<string, string>, text: string) => tag?.({ role: "control", label: text, listRow: { key }, press: { act: actionLine({ action, args: { list: key, ...args } }), block: note ?? "", line: 0 } }, text) ?? text;
   const row = (r: typeof view.rows[number], text: string) => {
     const to = listOpenTarget(r);
     if (!to) return text;
     to.figure = figure;
     return blocks?.row ? blocks.row(key, r.id, to, text, r.group) : tag?.(to, text) ?? text;
   };
-  const drawing = view.draw({ primitive: answer.view, cols: Math.max(8, width - 4), focused: entered, selection: true, tag: row,
+  const drawing = view.draw({ primitive: answer.view, cols: Math.max(8, width - 4), focused: entered || current, selection: true, tag: row,
+    ...(blocks?.preview && Number(answer.config.body) > 0 ? { body: (row, cols) => blocks.preview!(row.id, cols, true).slice(0, Number(answer.config.body)) } : {}),
     link: (id, text, revision) => tag?.({ block: id, role: "row", revision, figure }, text) ?? text,
     header: (by, text) => press("list.sort", { by }, text),
     lane: (lane, text) => press("list.layout", { lane }, text),
@@ -72,14 +72,27 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
       return result;
     },
   });
-  const tabs = tabStrip(answer.layouts.map(layout => ({ label: layout === answer.layout ? `[${layout}]` : layout, on: layout === answer.layout })), {
-    width: Math.max(8, width - 4), overflow: "wrap", style: { on: BOLD, off: "", sep: " · " },
-    tag: (text, i) => press("list.layout", { layout: answer.layouts[i]! }, text),
-  }).map(row => row.text);
-  const footer = `${answer.view.rows.length} notes${read?.state === "loading" ? " · updating…" : ""}${answer.truncated ? " · more matches" : ""} · ${keysText(LISTVIEW_ACTIONS.def("list.layout")!.keys)}`;
-  const controls = [press("list.sort", {}, "sort"), press("list.group", {}, "group"), press("settings", { list: key }, "≡ settings")].join(" · ");
+  const plain = answer.layouts.length === 1 && !answer.question.group?.length && !answer.question.sort;
+  const wanted = !plain || entered || current || view.hovered;
+  const inner = Math.max(8, width - 4);
+  // The current layout cycles on a narrow row; the full tab set stays on a wide one.
+  const compact = textWidth(answer.layouts.join(" · ") + " · sort · group · ≡ settings") > inner;
+  const layouts = compact ? [answer.layout] : answer.layouts;
+  const controls: (Tab & { action: string; args?: Record<string, string> })[] = [
+    ...layouts.map(layout => ({ label: layout, on: layout === answer.layout, action: "list.layout", ...(!compact ? { args: { layout } } : {}) })),
+    { label: inner < 26 ? "s" : "sort", hint: "sort", action: "list.sort" },
+    { label: inner < 26 ? "g" : "group", hint: "group", action: "list.group" },
+    { label: compact ? "≡" : "≡ settings", action: "settings" },
+  ];
+  const tabs = wanted ? tabStrip(controls, {
+    width: inner, overflow: "share", style: { on: BOLD, off: "", sep: " · " },
+    tag: (text, i) => press(controls[i]!.action, controls[i]!.args ?? {}, text),
+  }).map(row => row.text) : [];
+  const footer = `${answer.view.rows.length} notes${read?.state === "loading" ? " · updating…" : ""}${answer.truncated ? " · more matches" : ""}`;
   const warning = answer.error ?? (answer.view.rows.length ? answer.hint : undefined);
-  const body = [...tabs, controls, ...(warning ? rowLines(warning, Math.max(8, width - 4)).map(line => fg(C.lred) + line + RESET) : []), ...drawing.lines];
-  const control = blocks?.control?.(key, entered ? "esc out" : "⏎ in");
-  return sizing ? sizing.finish(body, footer, control) : frame(answer.title, body, width, footer, control);
+  const body = [...(warning ? rowLines(warning, inner).map(line => fg(C.lred) + line + RESET) : []), ...drawing.lines];
+  const control = plain ? "" : blocks?.control?.(key, entered ? "esc out" : "⏎ in");
+  const count = blocks?.control?.(key, footer) ?? footer;
+  // Reveal in the frame's spacer so the note under the pointer stays put.
+  return sizing ? sizing.finish(body, count, control, {}, answer.title, tabs[0]) : frame(answer.title, body, width, count, control, tabs[0]);
 }

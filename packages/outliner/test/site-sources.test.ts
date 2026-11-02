@@ -96,7 +96,7 @@ test("a note's generated regions are listed with their query, transform, result 
   await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
   await until("both lines", () => output(note.id).length >= 2);
   const a = await client.request<SourcesAnswer>({ action: "site.sources", blockId: note.id });
-  expect(a.sources.map(s => [s.kind, s.name])).toEqual([["handler", "beds-table"], ["expr", "::="], ["use", `::use ((${template.id}))`], ["fields", "::fields crop"], ["if", "::if"], ["figure", "graph-table"], ["output", "rota"]]);
+  expect(a.sources.map(s => [s.kind, s.name])).toEqual([["handler", "beds-table"], ["expr", "::="], ["use", `::use ((${template.id}))`], ["fields", "::fields crop"], ["if", "::if"], ["view", "Collection"], ["output", "rota"]]);
   const by = (kind: string) => a.sources.find(s => s.kind === kind)!;
   // handler: its slots as fields, its script as the transform (with a jump), its table as rows, when it ran.
   expect(by("handler").query).toMatchObject({ params: [{ key: "week", value: "42" }], text: "beds-table:: week=42", editable: true });
@@ -108,9 +108,10 @@ test("a note's generated regions are listed with their query, transform, result 
   expect(by("use").result.text).toContain("Who: Kit");          // the result is what it drew, with the call's props in
   expect(by("fields").result.table?.[0]?.[0]).toBe("peas");
   expect(by("if").result.text).toContain("holds");
-  expect(by("figure").query.params).toEqual(expect.arrayContaining([{ key: "query", value: "crop=beans" }]));
-  expect(by("figure").transform.kind).toBe("figure");
-  expect(by("figure").result.rows).toBeGreaterThanOrEqual(1);
+  // The graph-table with a query is a collection (PIE-1491): the collection part describes itself.
+  expect(by("view").query.params).toEqual(expect.arrayContaining([{ key: "query", value: "crop=beans" }, { key: "layout", value: "table" }]));
+  expect(by("view").transform.label).toBe("Collection · table");
+  expect(by("view").result.rows).toBeGreaterThanOrEqual(1);
   expect(by("output").transform).toMatchObject({ kind: "script", block: script.id });
   expect(by("output").key).toBe("#out-rota-1");
   // Reading writes nothing.

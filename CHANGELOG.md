@@ -14,6 +14,18 @@ are its record. The outliner's entries from then are kept below, under
 - Binding and outline reads distinguish a down host from a missing outline, with the machine, socket paths and retry command (PIE-1325).
 - Sources describes a written figure as “Written in the note · N items” and shows its text once, in the door and on the web (PIE-1226).
 - The first part dropped into an empty new note starts on line 1; later drops keep one blank line between parts (PIE-1381).
+### Words in the power bar jump to a note again (PIE-1497)
+
+- **Search:** in the main list and `/notes`, words search titles with nothing drawn over the results: ↑↓ ⏎ are the list's. One letter lists the titles that start with it.
+- **Query words on purpose:** `=` typed first (from the main list or `/notes`) is the query scope: its words get the query-words offer (Tab accepts) and a line that parses lists the notes it selects. A line that already reads as a query (`type=job AND`, `by:loki`) gets the offer in `/notes` too. An act line still completes its arguments.
+- **Verdict:** a search whose words start or appear in a title says no "no strong match": the titled notes stay first, Jev's order below them, and the footer says only "jev ranked". `ep0ch find` says "title match: …".
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
+### A `::use` template steps and tabs like the page's own text (PIE-1492, #1165)
+
+- **Step:** `[ ]` stops on each heading, figure tab and row a template draws; `( )` goes heading to heading through it both ways.
+- **Tabs:** Tab, shift+Tab and ← → switch a figure's tabs inside a template; only that row lights, not the whole template. A template used twice keeps each call's list-preview mode.
+- **Run:** `ep0ch install --apply`; the kitchen sink's **template-steps** section shows it. GRAMMAR 25, no protocol or schema change.
 
 ### Arrow keys work in Ghostty (#1156)
 

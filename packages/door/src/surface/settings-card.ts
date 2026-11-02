@@ -16,8 +16,12 @@ import type { BarQuestion, BarSuggestion } from "../bar/ask";
 import { printable } from "../props";
 import { RowView } from "../scroll";
 import { selectedRow, bg, C, drawEllipsized, fg, pad, RESET, width } from "../style";
-import { ch, isDown, isUp, type Key } from "../term";
 import { rowLines, rule } from "../text";
+import { attachedPlaceOf, type AttachedPlace, type FloatRect } from "./attached";
+import { readState } from "../state";
+import { modeHint } from "./modes";
+import { SETTINGS_KEYS } from "./attached-keys";
+
 
 /**
  * One field of the card: a property a schema says the declaring note takes, its value on the note (null: unset), and
@@ -169,10 +173,13 @@ export function settingValue(field: SettingField, answer: string): string {
   return field.prop.type === "ref" && /^[0-9a-f-]{36}$/i.test(v) ? `((${v}))` : v;
 }
 
-export type CardIntent = "pick" | "clear" | "tokens" | "close" | null;
-
 /** The card's state while it's the panel's face: which field is selected, what it last said, where its rows were drawn. */
 export class SettingsCard {
+  place: AttachedPlace = attachedPlaceOf(readState<{ place: string }>("settings-place.json")?.place) ?? "inline";
+  float: FloatRect | null = null;
+  frame: FloatRect | null = null;
+  room: { w: number; h: number; col?: number; row?: number } = { w: 0, h: 0 };
+  rect: FloatRect = { col: 0, row: 0, cols: 0, rows: 0 };
   sel = 0;
   view = new RowView();
   note = "";
@@ -184,20 +191,21 @@ export class SettingsCard {
   /** The schemas' ids, joined: whether a card drawn before still fits the note. */
   get id(): string { return this.schemas.map(s => s.id).join("+"); }
 
-  key(k: Key, rows: number): CardIntent {
-    const c = ch(k);
-    const move = (d: number) => { if (rows) { this.sel = (this.sel + d + rows) % rows; this.note = ""; } };
-    if (k.kind === "tab" || isDown(k)) move(1);
-    else if (k.kind === "backtab" || isUp(k)) move(-1);
-    else if (k.kind === "enter" || c === "e") return "pick";
-    else if (c === "x" || k.kind === "delete") return "clear";
-    else if (c === "i") return "tokens";
-    else if (k.kind === "esc" || c === "q" || c === ",") return "close";
-    return null;
+  hint(): string {
+    return modeHint(SETTINGS_KEYS, () => undefined);
   }
 
-  hint(): string {
-    return "tab/j k field · enter picks · x clears · i every property · esc close";
+  draw(fields: readonly SettingField[], w: number, h: number, row: number, col: number, revision?: number): string[] {
+    this.rect = { row, col, cols: w, rows: h };
+    const chip = `[${this.place} ▸]`, left = Math.max(0, w - width(chip));
+    return [pad("Settings", left) + fg(C.lcyan) + chip + RESET, ...this.render(fields, w, h - 1, revision)];
+  }
+
+  hit(x: number, y: number): number | "place" | "body" | null {
+    const r = this.rect;
+    if (x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows) return null;
+    if (y === r.row) return "place";
+    return this.at.find(hit => hit.y === y - r.row - 1)?.n ?? "body";
   }
 
   /** The card's lines, at most `h`, `w` wide: a heading per section when the note is more than one thing. */
@@ -218,13 +226,12 @@ export class SettingsCard {
       if (this.schemas.length > 1 && (rows.length === 0 || f.section !== fields[f.n - 2]?.section)) rows.push({ heading: this.schemas[f.section]!.title });
       rows.push({ field: f });
     }
-    const keyW = Math.min(18, Math.max(4, ...fields.map(f => width(f.prop.key))));
     const drawn = rows.flatMap(r => {
       if ("heading" in r) return [{ text: fg(C.lcyan) + `  ${r.heading}` + RESET, n: 0 }];
       const f = r.field;
       const value = f.value !== null ? fg(C.yellow) + printable(f.value)
         : f.prop.default !== undefined ? fg(C.dark) + `${f.prop.default} (default)` : fg(C.dark) + "—";
-      return rowLines("  " + fg(C.brown) + f.prop.key + "  " + value + RESET, w, undefined, { hang: 2 }).map(text => ({ text, n: f.n }));
+      return rowLines("  " + fg(C.brown) + f.prop.key + "  " + value + RESET, w, Infinity, { hang: 2 }).map(text => ({ text, n: f.n }));
     });
     const at = drawn.findIndex(r => r.n - 1 === this.sel), end = drawn.findLastIndex(r => r.n - 1 === this.sel);
     this.view.place(at < 0 ? null : at, drawn.length, room, at < 0 ? null : [at, end]);

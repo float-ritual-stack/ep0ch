@@ -206,7 +206,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.layout": def({
     summary: "choose a collection's layout; without layout=, cycle its tabs. lane= selects a narrow board's lane",
-    keys: "tab in a collection; click a layout or lane", touches: "nothing", replay: "safe",
+    keys: "click a layout or lane; act list.layout layout=", touches: "nothing", replay: "safe",
     args: { list: LIST_ARG, layout: { type: "string", optional: true, about: "a layout offered by this collection" }, lane: { type: "number", optional: true, about: "lane number, from zero" } },
     async run({ list, layout, lane }, { host, standing }, actor) {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
@@ -245,7 +245,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.enter": def({
     summary: "go into a list (on=true, the default), or come out of it (on=false): in it, j k Home End move its selection (the preview follows), ⏎ opens, alt+⏎ opens in a new detail, / filters its rows, esc comes out, and any other key leaves it and does what it does in the reader. list= which list. The person's: an agent reads it with list.blocks, picks with list.pick and opens a row with list.open",
-    keys: [{ keys: "⏎", does: "enter the list" }, { keys: "click", does: "the frame's ⏎ in" }, { keys: "esc", does: "come out", says: "come out of the list you went into" }, { keys: "click", does: "outside the frame comes out" }],
+    keys: [{ keys: "⏎", does: "enter the list" }, { keys: "tab", does: "into a collection from its block, or out of it", says: "go into the collection the reading line is on, or come out of it" }, { keys: "click", does: "the frame's ⏎ in" }, { keys: "esc", does: "come out", says: "come out of the list you went into" }, { keys: "click", does: "outside the frame comes out" }],
     touches: "tile", replay: "safe", person: "going into a list is the person's; an agent reads it with list.blocks, picks with list.pick and opens a row with list.open",
     args: {
       list: LIST_ARG,
