@@ -1,6 +1,6 @@
 export const COLLECTION_TUNE = [
   "Tune the garden collection",
-  "Press , over the view, or click its ≡ settings control beside sort and group. Enter edits the selected field; Esc closes the card. Choose which layouts to show: add board, then hide table. Group, Sort and summary-properties offer the properties these four notes carry. Space shows or hides; J/K moves a shown choice; typing filters. Each choice saves immediately, and the garden redraws under the card.",
+  "Press , over the view, or click ≡ on its single control row. A plain view reveals that row when entered or hovered. Enter edits the selected field; Esc closes the card. Choose which layouts to show: add board, then hide table. Group, Sort and summary-properties offer the properties these four notes carry; each row keeps its title even without a title column. Space shows or hides; J/K moves a shown choice; typing filters. Each choice saves immediately, and the garden redraws under the card.",
   "",
   '::view{query="collection=garden" layout=table group=area sort="owner asc, stage desc" summary-properties="title, owner, stage"} ^garden',
   "::",

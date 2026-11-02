@@ -8,6 +8,13 @@ import { deskOf, type Section } from "./showcase";
 export const COLLECTION_SECTIONS: Section[] = [
   PEEK_SECTION, GLASS_SECTION,
   {
+    key: "quiet-collection", need: "read what is waiting, with controls quiet until wanted",
+    part: "the collection's own header and footer, ListView's title and pick, and the existing settings card",
+    files: "src/collections.ts, src/surface/list-view.ts, src/surface/settings-card.ts",
+    aside: "two notes with type and ticket properties, each keeping its title · hover to reveal one control row · click a note to pick it, arrows move the light, Enter opens · comma or ≡ opens settings · Esc leaves the list · try at 44 and 120 columns",
+    stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · quiet collection", panes: [r], names: ["garden"] }, show, [[r, n.collectionQuiet]]); },
+  },
+  {
     key: "collection-tune", need: "tune a collection over its view without editing the source",
     part: "the existing SettingsCard over VIEW, toggle and pick-order BarQuestions over the matched rows' facets, binding.set at the read revision",
     files: "src/surface/settings.ts, src/surface/settings-card.ts, src/surface/binding.ts, src/bar/ask.ts, src/desk/settings.ts",
@@ -16,7 +23,7 @@ export const COLLECTION_SECTIONS: Section[] = [
   },
   {
     key: "collection", need: "draw a saved query as a table, gallery, feed or board, inline too", part: "VIEW schema → site.answer → list primitive → ListView over RowView", files: "src/collections.ts, src/surface/list-view.ts, outline-core/src/view-spec.ts, outliner/src/site-producers.ts",
-    aside: "one garden record, four layouts · enter the list then tab changes layouts; click a table header to cycle sort · j k pick; Enter opens · / filters with the query grammar · act list.layout layout=board, list.group by=area,owner, list.sort by=owner · NONE is last · a narrow table becomes record cards, a narrow board offers lane tabs · the saved note's keys and inline ::view blocks are the same record",
+    aside: "one garden record, four layouts in one control row · enter the list then tab changes layouts; click a table header to cycle sort · j k pick the lit row; Enter opens · / filters with the query grammar · act list.layout layout=board, list.group by=area,owner, list.sort by=owner · NONE is last · a narrow table becomes named record cards, a narrow board offers lane tabs · the saved note's keys and inline ::view blocks are the same record",
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · collection", panes: [r], names: ["garden"] }, show, [[r, n.collection]]); },
   },
   {

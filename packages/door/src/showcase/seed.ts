@@ -471,6 +471,10 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "Check the forecast [collection::garden] [owner::Sol] [stage::ready]\n\nBring the tender plants in before frost.",
   ]) await make(notes.root.id, text);
   notes.collectionTune = await make(notes.root.id, COLLECTION_TUNE);
+  const waiting = await make(notes.root.id, "Waiting in the garden [type::virtual-branch] [query::collection=waiting] [layout::table] [summary-properties::type, ticket]");
+  await make(notes.root.id, "Check seeds [collection::waiting] [type::request] [ticket::GARDEN-7]");
+  await make(notes.root.id, "Read report [collection::waiting] [type::report] [ticket::GARDEN-8]");
+  notes.collectionQuiet = await make(notes.root.id, `${SEED.collectionQuiet}\n\n::view{of=((${waiting.id}))} ^waiting\n::`);
   notes.collectionInline = await make(notes.root.id, [
     SEED.collectionInline, "A saved source inline, and an anonymous board:",
     `::view{of=((${notes.collection.id})) layout=gallery} ^garden`, "::", "",

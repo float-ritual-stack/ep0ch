@@ -17,6 +17,7 @@ import { type ModeKey } from "./surface/modes";
 import { effective, keyTable } from "./surface/keymap";
 import { outlineState, readState, writeState } from "./state";
 import type { Key } from "./term";
+import type { ListView } from "./surface/list-view";
 
 export type GlassMode = "off" | "on" | "sticky";
 export const GLASS_SETTINGS = {
@@ -49,6 +50,7 @@ export class Glass {
   private closeAt = 0;
   private generation = 0;
   private hover: PostIt | null = null;
+  private collection: ListView | undefined;
   private saved: HoverTrail | null = null;
 
   constructor(private readonly app: App, private readonly host: AgentDrawer) {
@@ -94,6 +96,13 @@ export class Glass {
     const point = { x, y, alt }, before = this.pointer;
     this.pointer = point;
     if (before && before.x === x && before.y === y && before.alt === alt) return;
+    const collection = this.hit(point)?.collection;
+    if (collection !== this.collection) {
+      if (this.collection) this.collection.hovered = false;
+      if (collection) collection.hovered = true;
+      this.collection = collection;
+      this.app.redraw();
+    }
     this.cancelOpen();
     const current = this.current(), over = current && inside(point, current.rect);
     if (current && current.pane instanceof PostIt && !current.pane.sticky) {
@@ -113,11 +122,14 @@ export class Glass {
       void this.resolve(point, generation).catch(e => this.app.flash((e as Error).message));
     }, this.settings.open);
   }
-  private async resolve(point: Point, generation: number) {
+  private hit(point: Point) {
     const over = this.floats().findLast(f => inside(point, f.rect));
     const desks = over ? [this.host.made!] : this.host.desks().filter(d => !this.host.isDrawer(d));
     if (!over && this.host.shown && this.host.rect && inside(point, this.host.rect)) desks.unshift(this.host.made!);
-    const hit = desks.map(d => d.hoverAt(point.x - d.screenOrigin.col, point.y - d.screenOrigin.row)).find(Boolean);
+    return desks.map(d => d.hoverAt(point.x - d.screenOrigin.col, point.y - d.screenOrigin.row)).find(Boolean);
+  }
+  private async resolve(point: Point, generation: number) {
+    const over = this.floats().findLast(f => inside(point, f.rect)), hit = this.hit(point);
     const cut = this.app.overflow.targetAt(point.x, point.y), text = hit?.text ?? cut?.text;
     const key = hit?.target ? JSON.stringify(hit.target) : text;
     if (!key) return;

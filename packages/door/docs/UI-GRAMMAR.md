@@ -812,6 +812,11 @@ The service supplies the rows and groups. A click picks a card and gives the lis
 `h l` cross gallery columns or board lanes, and `H L` cross groups. These bindings are declared in
 `surface/list-keys.ts` and dispatch `list.*`, as clicks and `act` do. Card edges use `BORDER_BOXES`; the pick
 has a bright, bold frame and title, with no cell background. Small and large keep their cover sizes.
+Table rows use the shared selection band; every table keeps the note's title even when its configured
+properties omit it. A single-layout view without grouping or sorting shows its rows and count quietly.
+Hovering it or moving the cursor into it reveals one control row. At narrow widths its layout control cycles
+the layouts and `≡` opens settings. The entered collection's footer reads its pick, open and settings keys
+from `list-keys.ts`. The kitchen sink's **quiet-collection** section shows this with a type/ticket view.
 
 Comma (`list.tune` / `settings`) or the collection's `≡ settings` control opens and enters the existing settings card.
 Its rows show each key and value; the selected field's hint describes how to edit it. The card takes the keys ahead

@@ -7382,14 +7382,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   floatingTiles() { return this.floats.map(f => ({ tile: this.tileId(f.id), name: this.nameOf(f.id), pane: this.panes.get(f.id)!, rect: keepOnScreen(f.rect, this.area) })); }
-  hoverAt(x: number, y: number): { desk: Desk; tile: string; target?: import("../refs").LinkTarget; text?: string; rect: Rect } | null {
+  hoverAt(x: number, y: number): { desk: Desk; tile: string; target?: import("../refs").LinkTarget; collection?: import("../surface/list-view").ListView; text?: string; rect: Rect } | null {
     const hit = this.hits.find(([, r]) => x >= r.col && y >= r.row && x < r.col + r.cols && y < r.row + r.rows);
     if (!hit) return null;
     const [id, r] = hit, p = this.panes.get(id), at = this.origin(id, r);
     if (p instanceof ScreenTile) return p.inner?.hoverAt(x - at.col, y - at.row) ?? null;
     const reader = p instanceof ReaderPane ? p : null, h = reader?.surface.hoverAt(x - at.col, y - at.row);
     const cut = !h ? this.ctx.overflow?.targetAt(x + this.screenOrigin.col, y + this.screenOrigin.row) : null;
-    return h ? { desk: this, tile: this.nameOf(id), target: { ...reader!.noteAddress, ...h.target }, rect: { ...h.rect, col: h.rect.col + at.col + this.screenOrigin.col, row: h.rect.row + at.row + this.screenOrigin.row } } : cut ? { desk: this, tile: this.nameOf(id), ...cut } : null;
+    return h ? { desk: this, tile: this.nameOf(id), ...(h.target ? { target: { ...reader!.noteAddress, ...h.target } } : {}), collection: h.collection, rect: { ...h.rect, col: h.rect.col + at.col + this.screenOrigin.col, row: h.rect.row + at.row + this.screenOrigin.row } } : cut ? { desk: this, tile: this.nameOf(id), ...cut } : null;
   }
   async hoverInto(tile: string, m: Msg): Promise<boolean> { return !!this.placeNote(m, { from: this.tile(tile).id, verb: "hover", note: m.id, keys: false }, USER); }
 

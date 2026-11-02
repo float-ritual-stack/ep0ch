@@ -1,6 +1,6 @@
 import { HISTORY, NAV_VERSION, savedPlace, placeOf, readNav, type Place, type Zoom, type FigureChoice, type SavedNav } from "./navigation";
 export { HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
-import { LIST_KEYS, COLLECTION_KEYS, listBinding } from "./list-keys";
+import { LIST_KEYS, listBinding } from "./list-keys";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
@@ -2692,10 +2692,10 @@ export class NoteSurface {
         role: "control", label: field, form: { field }, press: { act: `${act} tile=${m.id}`, block: m.id, line: 0 },
       }, value))] : []),
     ]);
-    // What the inline lists (a ::links component, an extension's list view) are lent: their lists, the person in one, how a row and the control are tagged.
     this.listEnv = this.printed ? undefined : {
       list: (key, signature) => this.listFor(key, false, signature),
       entered: key => this.listIn === key,
+      current: () => this.listHost().current(),
       row: (key, row, to, x, group) => tagged(drawn, { ...to, listRow: { key, row, group } }, x),
       control: (key, x) => tagged(drawn, { role: "control", label: key, listRow: { key } }, x),
       ...(preview ? { preview } : {}),
@@ -4160,10 +4160,7 @@ export class NoteSurface {
     return key !== undefined && this.listViews.get(key)?.selectionStyle === "frame";
   }
 
-  /**
-   * The list of this reader the actions name, `named` as `list.*` takes it (its number, `^name` or title); left out, the
-   * one the person is in, else the one the [ ] position is in, else the note's only one.
-   */
+  /** The named list, else the entered or selected one, else the note's only list. */
   listNamed(named?: string): ListHandle<any> { return listNamed(this.listHost(), named); }
 
   /** The element drawn for row `row` of list `key`, and its number among the elements (from 1), or null. */
@@ -4178,10 +4175,6 @@ export class NoteSurface {
     return null;
   }
 
-  /**
-   * The current element is an inline list row: the host shows its note where this reader's selection goes (a
-   * preview following the reader, its preview link: PIE-794), as a links tile's selection does. Read only.
-   */
   private selectedElement(): Element | undefined {
     const drawn = this.elems.find(e => e.key === this.cur);
     if (drawn) return drawn;
@@ -4241,7 +4234,7 @@ export class NoteSurface {
       },
       rows: () => null,
       leave: async () => { this.leaveList(); return { left: "nothing" }; },
-      hint: () => this.listViews.get(list)?.typing ? "type to filter the list · ⏎ keep · esc clear" : `${title} · ${modeHint([...LIST_KEYS, ...(this.listsDrawn.find(l => l.key === list)?.change ? COLLECTION_KEYS : [])], name => LISTVIEW_ACTIONS.def(name))}`,
+      hint: () => this.listViews.get(list)?.typing ? "type to filter the list · ⏎ keep · esc clear" : this.listsDrawn.find(l => l.key === list)?.collection ? "" : `${title} · ${modeHint(LIST_KEYS, name => LISTVIEW_ACTIONS.def(name))}`,
       state: () => "in a list",
       describe: () => ({ list, title, selected: this.listViews.get(list)?.picked(PERSON)?.id ?? null, typing: this.listViews.get(list)?.typing?.text ?? null }),
     };
@@ -4278,7 +4271,7 @@ export class NoteSurface {
     const here = () => { if (!host) throw new ActionRefused("this list action needs the reader's host"); return host; };
     return {
       lists: () => this.listsDrawn.map(list => ({ ...list, entered: this.listIn === list.key })),
-      current: () => this.listIn ?? this.inView()?.link?.listRow?.key ?? null,
+      current: () => this.listIn ?? this.selectedElement()?.link?.listRow?.key ?? null,
       none: "this note draws no list (a ::links component, or an extension's list view)",
       picked: (l, row) => { this.selectListRow(l, row.id, row.group); if (l.change) this.enterList(l, true); const target = listOpenTarget(row); return this.previewRow(here(), target ? { ...target, listRow: { key: l.key, row: row.id, group: row.group } } : undefined); },
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
@@ -4684,9 +4677,16 @@ export class NoteSurface {
     return i < 0 ? null : this.runKey("element.select", { n: i + 1 }, host);
   }
 
-  hoverAt(x: number, y: number): { target: LinkTarget; rect: { col: number; row: number; cols: number; rows: number } } | null {
+  hoverAt(x: number, y: number): { target?: LinkTarget; collection?: ListView; rect: { col: number; row: number; cols: number; rows: number } } | null {
     const h = this.hitAt(x, y - (this.drawn?.heroRows ?? 0));
-    return h && "link" in h && (h.link.block || h.link.page) ? { target: h.link, rect: { col: h.from, row: h.row + (this.drawn?.heroRows ?? 0), cols: h.to - h.from, rows: 1 } } : null;
+    const point = h && "link" in h && (h.link.block || h.link.page) ? { target: h.link, rect: { col: h.from, row: h.row + (this.drawn?.heroRows ?? 0), cols: h.to - h.from, rows: 1 } } : null;
+    for (const l of this.listsDrawn.filter(l => l.collection)) {
+      const hits = this.hits.filter(h => "link" in h && h.link.listRow?.key === l.key);
+      const col = Math.min(...hits.map(h => h.from)), row = Math.min(...hits.map(h => h.row)) + (this.drawn?.heroRows ?? 0);
+      const cols = Math.max(...hits.map(h => h.to)) - col, rows = Math.max(...hits.map(h => h.row)) + (this.drawn?.heroRows ?? 0) - row + 1;
+      if (x >= col && x < col + cols && y >= row && y < row + rows) return { ...point, collection: l.view, rect: point?.rect ?? { col, row, cols, rows } };
+    }
+    return point;
   }
 
   /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */

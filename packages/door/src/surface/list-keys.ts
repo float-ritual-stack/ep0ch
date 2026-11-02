@@ -1,12 +1,12 @@
 import { keyTable } from "./keymap";
-import { modeBinding, type ModeKey } from "./modes";
+import { modeBinding, modeHint, type ModeKey } from "./modes";
 import type { Key } from "../term";
 
 export const LIST_KEYS = keyTable<ModeKey>("list", "While a list has the keys", [
-  { key: "j", action: "list.step", args: { by: 1 }, label: "row" },
-  { key: "down", action: "list.step", args: { by: 1 }, label: "row" },
-  { key: "k", action: "list.step", args: { by: -1 }, label: "row" },
-  { key: "up", action: "list.step", args: { by: -1 }, label: "row" },
+  { key: "j", action: "list.step", args: { by: 1 }, label: "pick" },
+  { key: "down", action: "list.step", args: { by: 1 }, label: "pick" },
+  { key: "k", action: "list.step", args: { by: -1 }, label: "pick" },
+  { key: "up", action: "list.step", args: { by: -1 }, label: "pick" },
   { key: "home", action: "list.pick", args: { n: 1 }, label: "first" },
   { key: "end", action: "list.pick", label: "last" },
   { key: "enter", action: "list.open", label: "open" },
@@ -33,3 +33,8 @@ export function listBinding(key: Key, collection: boolean, count: number): ModeK
   const b = (collection ? modeBinding(COLLECTION_KEYS, key) : undefined) ?? modeBinding(LIST_KEYS, key);
   return b?.action === "list.pick" && !b.args ? { ...b, args: { n: count } } : b;
 }
+
+export const collectionHint = () => modeHint([
+  ...LIST_KEYS.filter(row => ["up", "down", "enter"].includes(row.key)),
+  ...COLLECTION_KEYS.filter(row => row.action === "list.tune"),
+], () => undefined);

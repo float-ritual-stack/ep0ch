@@ -1,16 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { SECTIONS } from "../../src/showcase/showcase";
 import { ITEM_BG, RULER_BG } from "../../src/surface/selection";
+import { visible } from "../../src/style";
+import { PostIt } from "../../src/desk/post-it";
 import { until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
 describe("showcase: a collection record (PIE-1281)", () => {
   const h = useShowcaseScreen(177);
-  const stage = () => { h.screen(); return h.S().stage(SECTIONS.findIndex(s => s.key === "collection")).top; };
+  let section = "collection";
+  const stage = () => { h.screen(); return h.S().stage(SECTIONS.findIndex(s => s.key === section)).top; };
   const act = (action: string, args: Record<string, unknown> = {}) => stage().dispatch.act({ action, tile: "garden", args }, { kind: "user" }) as Promise<any>;
   const lists = () => stage().pane("garden").surface.listsDrawn as any[];
   const ready = (layout: string) => until(() => lists().some(l => l.detail?.layout === layout && l.view.pickable().length === 4), `garden ${layout}`, 8000);
   const show = async (text: string, cols = 177) => {
+    section = "collection";
     (h.app as any).term.info.cols = cols;
     await h.app.dispatch.act({ action: "section.try", args: { name: "collection" } }, { kind: "user" });
     for (const tile of stage().layoutGet().tiles) if (tile.name !== "garden") await stage().dispatch.act({ action: "tile.close", tile: tile.name }, { kind: "user" });
@@ -22,8 +26,86 @@ describe("showcase: a collection record (PIE-1281)", () => {
   };
   const agent = (action: string, args: Record<string, unknown> = {}) => stage().dispatch.act({ action, tile: "garden", args }, { kind: "agent", id: "gardener" }) as Promise<any>;
 
+  test.each([120, 44])("a plain saved view stays quiet and names its notes at %s columns", async cols => {
+    try {
+      section = "quiet-collection";
+      h.app.t.cols = cols;
+      await h.app.dispatch.act({ action: "section.try", args: { name: section } }, { kind: "user" });
+      await act("tile.focus");
+      await act("open", { id: h.seeded.notes.collectionQuiet.id });
+      await until(() => lists()[0]?.view.pickable().length === 2, "waiting garden rows");
+      const rendered = () => { h.app.flush(); return h.painted.map(visible); };
+      const cell = (word: string) => { const lines = rendered(), y = lines.findIndex(line => line.includes(word)); expect(y).toBeGreaterThan(-1); return { x: lines[y]!.indexOf(word) + 1, y }; };
+      const click = (word: string) => { const at = cell(word); h.press({ kind: "mouse", action: "down", button: 0, ...at }); h.press({ kind: "mouse", action: "up", button: 0, ...at }); };
+      const controls = () => rendered().filter(line => /table.* · /.test(line));
+      expect(controls()).toEqual([]);
+      expect(h.screen()).not.toContain("tab in a collection");
+      expect(h.screen()).toContain("Check seeds");
+      expect(h.screen()).toContain("Read report");
+      expect(h.screen()).toContain("2 notes");
+      const report = (await act("elements")).elements.find((e: any) => e.label.includes("Read report") && e.kind === "row");
+      await act("element.select", { n: report.n });
+      expect(controls()).toHaveLength(1);
+      if (cols === 120) expect(h.sc.render(h.app).lines.find(line => line.includes("Read report"))).toContain(ITEM_BG);
+      await act("element.select", { n: 0 });
+      expect(controls()).toEqual([]);
+      await h.app.dispatch.act({ action: "text.hover", args: cell("Check seeds") }, { kind: "user" });
+      expect(controls()).toHaveLength(1);
+      expect(lists()[0].entered).toBe(false);
+      const control = controls()[0]!, settingsAt = { x: control.indexOf("≡"), y: rendered().indexOf(control) };
+      h.press({ kind: "mouse", action: "down", button: 0, ...settingsAt });
+      h.press({ kind: "mouse", action: "up", button: 0, ...settingsAt });
+      await until(() => !!stage().pane("garden").surface.panel?.card, "hovered settings opens by click");
+      h.press({ kind: "esc" });
+      await until(() => !stage().pane("garden").surface.panel, "settings closes");
+      const settings = (await act("elements")).elements.find((e: any) => e.kind === "control" && e.label.includes("≡"));
+      await act("element.select", { n: settings.n });
+      h.press({ kind: "enter" });
+      await until(() => !!stage().pane("garden").surface.panel?.card, "Enter presses the selected settings control", 1500);
+      h.press({ kind: "esc" });
+      await until(() => !stage().pane("garden").surface.panel, "Enter's card closes");
+      await act("element.select", { n: 0 });
+      await h.app.dispatch.act({ action: "text.hover", args: { x: 0, y: 0 } }, { kind: "user" });
+      expect(controls()).toEqual([]);
+      if (cols === 120) {
+        await h.app.dispatch.act({ action: "glass.mode", args: { set: "on" } }, { kind: "user" });
+        await h.app.dispatch.act({ action: "glass.tune", args: { name: "open", value: 0 } }, { kind: "user" });
+        const preview = () => { const p = h.app.glass.floats().find(f => f.pane instanceof PostIt && f.pane.hover)?.pane; return p instanceof PostIt ? p.msg?.id : undefined; };
+        const seeds = lists()[0].view.pickable().find((row: any) => row.label === "Check seeds").id;
+        const report = lists()[0].view.pickable().find((row: any) => row.label === "Read report").id;
+        await h.app.dispatch.act({ action: "text.hover", args: cell("Check seeds") }, { kind: "user" });
+        await until(() => preview() === seeds, "the first row's hover preview");
+        await h.app.dispatch.act({ action: "text.hover", args: cell("Read report") }, { kind: "user" });
+        await until(() => preview() === report, "hover follows the second row", 1500);
+        await h.app.dispatch.act({ action: "glass.mode", args: { set: "off" } }, { kind: "user" });
+      }
+      click("Read report");
+      await until(() => lists()[0].entered && lists()[0].view.picked().label === "Read report", "click picks the report");
+      expect(controls()).toHaveLength(1);
+      if (cols === 120) expect(h.sc.render(h.app).lines.find(line => line.includes("Read report"))).toContain(ITEM_BG);
+      else expect(h.screen()).toContain("▸ Read report");
+      expect(h.screen()).toContain("settings");
+      h.press({ kind: "up" });
+      await until(() => lists()[0].view.picked().label === "Check seeds", "arrow picks the other note");
+      h.ch(",");
+      await until(() => !!stage().pane("garden").surface.panel?.card, "comma opens settings");
+      h.press({ kind: "esc" });
+      await until(() => !stage().pane("garden").surface.panel, "comma's card closes");
+      const picked = lists()[0].view.picked().id;
+      h.press({ kind: "enter" });
+      await until(() => stage().pane("garden").surface.msg?.id === picked, "Enter opens the picked note");
+    } finally {
+      await h.app.dispatch.act({ action: "text.hover", args: { x: 0, y: 0 } }, { kind: "user" });
+      await h.app.dispatch.act({ action: "glass.clear" }, { kind: "user" });
+      await h.app.dispatch.act({ action: "glass.mode", args: { set: "off" } }, { kind: "user" });
+      await h.app.dispatch.act({ action: "section.leave" }, { kind: "user" });
+      section = "collection";
+      h.app.t.cols = 177;
+    }
+  }, 20_000);
+
   test("a saved collection opens with four layouts, sorts by a header, picks and opens", async () => {
-    expect(await h.app.act({ action: "section", args: { name: "collection" }, as: "test-agent" })).toMatchObject({ key: "collection" });
+    expect(await h.app.dispatch.act({ action: "section", args: { name: "collection" } }, { kind: "user" })).toMatchObject({ key: "collection" });
     await ready("table");
     const names = lists()[0].view.pickable().map((r: any) => r.label);
     h.press({ kind: "enter" });
@@ -33,7 +115,8 @@ describe("showcase: a collection record (PIE-1281)", () => {
       await ready(layout);
       await act("list.pick", { n: 1 });
       const picked = h.sc.render(h.app).lines.find(line => line.includes(lists()[0].view.picked().label))!;
-      expect(picked).not.toContain(ITEM_BG);
+      if (layout === "table") expect(picked).toContain(ITEM_BG);
+      else expect(picked).not.toContain(ITEM_BG);
       expect(picked).not.toContain(RULER_BG);
       expect(lists()[0].view.pickable().map((r: any) => r.label).sort()).toEqual([...names].sort());
       expect(h.screen()).toContain("Water the beans");
@@ -248,12 +331,12 @@ describe("showcase: a collection record (PIE-1281)", () => {
     await h.board.request("update", { blockId: notebook.id, text: "Flower notebook\n\nAfter the rain.", expectedRevision: notebook.revision, mutation: { author: "user" } });
     await h.board.createBlock(null, `Notebook review [collection::leading-cell] [note::${notebook.id}] [revision::1] [rubric::clear]`);
     await show('Review table\n::graph-table{query="collection=leading-cell" columns="note, rubric"}\n::', 44);
-    const cell = (await act("elements")).elements.find((e: any) => e.label.includes("Flower notebook"));
+    const cell = (await act("elements")).elements.find((e: any) => e.label.includes("note:"));
     expect(cell).toBeDefined();
     await act("element.open", { n: cell.n });
     await until(() => stage().pane("garden").surface.msg?.id === notebook.id, "the leading cell opens the notebook", 4000);
     await show('Review with a revision\n::graph-table{query="collection=leading-cell" columns="note, rubric" link=note at=revision}\n::', 44);
-    const recorded = (await act("elements")).elements.find((e: any) => e.label.includes("Flower notebook"));
+    const recorded = (await act("elements")).elements.find((e: any) => e.label.includes("note:"));
     await act("element.open", { n: recorded.n });
     const reader = () => [...stage().panes.values()].find((pane: any) => pane.surface?.msg?.id === notebook.id) as any;
     await until(() => !!reader()?.surface.revisionMode, "the recorded revision is shown", 4000);
