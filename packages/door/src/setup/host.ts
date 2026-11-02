@@ -10,6 +10,7 @@ import { detectPlatform, type HostUnit, type Platform } from "./model";
 import { hostUnitArgv, hostUnitCommand } from "./plan";
 
 type Env = Record<string, string | undefined>;
+const hostProgram = resolve(import.meta.dir, "../../../outliner/src/host-main.ts");
 const xml = (s: string) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
 const quoted = (s: string) => '"' + s.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%") + '"';
 
@@ -47,7 +48,14 @@ export async function installHost(install: NonNullable<ReturnType<typeof hostIns
 
 /** Recovery for this machine, using the same unit and start command install uses. */
 export async function localHostHelp(socket: string, env: Env = process.env): Promise<string> {
-  const home = env.HOME || homedir(), unit = hostUnit(detectPlatform(), home, outlinesDir(env));
+  const home = env.HOME || homedir(), platform = detectPlatform(), outlines = outlinesDir(env), unit = hostUnit(platform, home, outlines);
+  if (!unit) {
+    const other = hostUnit(platform, home, null);
+    if (other) {
+      const command = ["env", `EP0CH_OUTLINES=${outlines}`, ...(env.XDG_CONFIG_HOME ? [`XDG_CONFIG_HOME=${env.XDG_CONFIG_HOME}`] : []), process.execPath, hostProgram].map(sh).join(" ");
+      return `${other.name} already serves another folder · run in another terminal: ${command} · then try again · its folder: ${other.outlines}`;
+    }
+  }
   const start = unit ? hostUnitCommand({ ...unit, state: await unitState(unit, undefined, env) }, "start") : "ep0ch install --apply";
   return `no outline host · run ${start} · socket ${socket}`;
 }
@@ -61,8 +69,8 @@ export async function ensureLocalHost(socket: string, env: Env = process.env): P
     unit = { ...unit, state: await unitState(unit, undefined, env) };
     await command(hostUnitArgv(unit, "start", process.getuid?.() ?? 0), env);
   } else {
-    const install = hostInstall({ platform, home, outlines, bun: process.execPath, program: resolve(import.meta.dir, "../../../outliner/src/host-main.ts"), path: env.PATH ?? "" });
-    if (!install) throw new Error(`no service unit for ${outlines} · run ep0ch install --apply`);
+    const install = hostInstall({ platform, home, outlines, bun: process.execPath, program: hostProgram, path: env.PATH ?? "" });
+    if (!install) throw new Error(await localHostHelp(socket, env));
     await installHost(install, env);
     unit = install.unit;
   }

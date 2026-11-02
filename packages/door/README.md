@@ -184,14 +184,18 @@ Bare `ep0ch` where nothing names an outline opens the home base: a screen like a
 - **This machine**: its host's outlines, then `+ new outline…` (the folder's or repository's name offered) and
   `↧ import a database…` (a new outline holding an older database's notes, properties, pages and work ids; the
   file is only read).
-- **Other machines**: saved machines, machine-link endpoints and the `Host` names in `~/.ssh/config` (including
-  included files). Home connects through the shared forward and lists each host's outlines as it answers, even
-  before an outline there has been opened. `+ add a machine…` accepts another SSH name. `x` removes a saved
-  machine; a configured machine is discovered again on the next launch.
+- **Other machines**: saved machines, machine-link endpoints, the `Host` names in `~/.ssh/config` (including
+  included files), and MagicDNS peers from `tailscale status --json`. Aliases on one `Host` line share one row.
+  Home connects through the shared forward and lists each host's outlines as it answers, even before an outline
+  there has been opened; candidates without an answering host are left out. `+ add a machine…` accepts another
+  SSH name and says why if it cannot connect. `x` removes a saved machine; a configured machine is discovered again
+  on reload or the next launch.
 - **The first local outline**: `n`, a name and Enter install and start this machine's outline host when needed,
   then create and open the outline. `ep0ch --ws garden` does the same. macOS uses `io.ep0ch.outliner-host` under
   launchd; Linux uses `outliner-host.service` under systemd. A failed start says why on the status line. Home's
   recovery command names this platform's service manager, or `ep0ch install --apply` when no unit is installed.
+  If the installed unit serves another folder, the refusal names it and gives the foreground host command for
+  this folder: run it in another terminal, then create again. The existing unit stays as it is.
 - **Choosing an outline** opens the door on it. Started in a folder that can be named (not `$HOME`, `/` or one
   right under `/`), the home base offers to write its `.ep0ch` (`ws`, and `machine` for one on another machine), so
   the next `ep0ch` there opens it directly, or to open it this time only.

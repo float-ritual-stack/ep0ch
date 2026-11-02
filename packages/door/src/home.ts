@@ -1,7 +1,7 @@
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "./surface/modes";
 // The home base: what bare `ep0ch` opens where nothing names an outline (no --ws, no EP0CH_WS, no .ep0ch). A screen
 // spec on the desk (PIE-515: `homeSpec`) with one tile of its own kind (`home`, HOME_KIND): this machine's outlines,
-// then the machines known through history, links and ssh config (src/machine.ts), each
+// then the machines known through history, links, ssh config and the tailnet (src/machine.ts), each
 // one's outlines once its forward is up, read as `ep0ch doctor` reads them (`machineStatus`). Choosing an outline opens
 // the door on it, and offers to write the folder's `.ep0ch` (its name, and its machine when it is another one) so the
 // next `ep0ch` there opens it directly. An outline whose session runs (one per outline, src/session/place.ts) says so
@@ -128,9 +128,6 @@ export class HomePane implements Pane {
   private moved = false;
 
   init(desk: DeskApi) {
-    for (const m of [...(this.args.machine ? [this.args.machine] : []), ...knownMachines()]) {
-      if (!this.machines.has(m)) this.machines.set(m, { outlines: null, problem: "", busy: "looking at its forward…" });
-    }
     void this.load(desk);
   }
 
@@ -148,10 +145,20 @@ export class HomePane implements Pane {
   async load(desk: DeskApi) {
     await Promise.all([
       this.loadHere(desk),
-      ...[...this.machines.keys()].map(m => this.loadMachine(m, !!desk.ctx.home).then(() => desk.redraw())),
+      this.loadMachines(desk),
       runningSessions().then(rs => { this.running = new Map(rs.map(r => [sessionKey(r.info.place.outline, r.info.place.machine), r.info])); }, () => {}),
     ]);
     desk.redraw();
+  }
+
+  private async loadMachines(desk: DeskApi) {
+    const names = new Set([...(this.args.machine ? [this.args.machine] : []), ...await knownMachines()]);
+    await Promise.all([...names].map(async machine => {
+      await this.loadMachine(machine, !!desk.ctx.home);
+      // SSH config also names logins to doors and unrelated servers. Only a host's answer makes one an offer.
+      if (desk.ctx.home && !this.machines.get(machine)?.outlines) this.machines.delete(machine);
+      desk.redraw();
+    }));
   }
 
   /** Discovery and home.connect use the same forward and status reader. */
@@ -565,7 +572,7 @@ function homeArgsOf(x: unknown): HomeArgs {
 
 /** The home base as a tile kind: the list, its actions, its band and what `peek` says. */
 export const HOME_KIND: TileKind = {
-  kind: "home", about: "the home base: this machine's outlines and machines known through history, links and SSH config", noun: "the home base",
+  kind: "home", about: "the home base: this machine's outlines and answering machines found through history, links, SSH config and the tailnet", noun: "the home base",
   make: s => new HomePane(homeArgsOf(s.state)),
   actions: HOME_ACTIONS,
   band: {

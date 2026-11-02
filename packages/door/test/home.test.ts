@@ -21,11 +21,12 @@ beforeAll(async () => {
   await far.create("garden");
   dir = scratchDir("ep0ch-home-");
   for (const d of ["bin", "home/.ssh", "state", "far-home", "work/jam-shelf"]) mkdirSync(join(dir, d), { recursive: true, mode: 0o700 });
-  writeFileSync(join(dir, "home/.ssh/config"), "# a fictional ssh config\nHost box-a\n  HostName 192.0.2.10\nHost *.wild\n  User nobody\nInclude more\n");
+  writeFileSync(join(dir, "home/.ssh/config"), "# a fictional ssh config\nHost box-a box-a.test\n  HostName 192.0.2.10\nHost lobby lobby.test\n  HostName 192.0.2.12\nHost *.wild\n  User nobody\nInclude more\n");
   writeFileSync(join(dir, "home/.ssh/more"), "Host tin-shed box-b\n  HostName 192.0.2.11\n");
   writeFileSync(join(dir, "bin/ssh"), `#!/bin/sh\nexec ${process.execPath} ${join(outliner!, "test/fake-ssh.ts")} "$@"\n`);
   writeFileSync(join(dir, "bin/ep0ch"), `#!/bin/sh\nexec ${process.execPath} ${MAIN} "$@"\n`);
   for (const f of ["ssh", "ep0ch"]) chmodSync(join(dir, "bin", f), 0o755);
+  writeFileSync(join(dir, "bin/tailscale"), `#!/bin/sh\ncat <<'JSON'\n${JSON.stringify({ Self: { DNSName: "desk.tail.test." }, Peer: { orchard: { DNSName: "orchard.tail.test." } } })}\nJSON\n`, { mode: 0o755 });
   mkdirSync(join(here.outlines, ".remote"), { recursive: true });
   symlinkSync(far.sock, join(here.outlines, ".remote", "glasshouse.link.sock"));
   writeFileSync(join(here.outlines, ".remote", "glasshouse.link.json"), JSON.stringify({ up: true, pid: process.pid }));
@@ -46,11 +47,11 @@ class Home {
   readonly proc: ReturnType<typeof Bun.spawn>;
   constructor(cwd: string, args: string[] = [], env: Record<string, string> = {}, preload: string[] = []) {
     this.env = wholeEnv({
-      PATH: process.env.PATH!, TERM: "xterm-256color", LANG: "C.UTF-8", HOME: join(dir, "home"),
+      PATH: `${dir}/bin:${process.env.PATH}`, TERM: "xterm-256color", LANG: "C.UTF-8", HOME: join(dir, "home"),
       EP0CH_OUTLINES: here.outlines, EP0CH_STATE: join(dir, "state"), EP0CH_CONTROL: join(dir, "state", "door.sock"),
       EP0CH_DAEMON: "0", EP0CH_KITTY: "0", EP0CH_PACKS: join(dir, "no-packs"), EP0CH_DAILY_AGENT: "sh",
       EP0CH_SSH: join(dir, "bin/ssh"), FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE!, FAKE_SSH_HOME: join(dir, "far-home"), FAKE_SSH_OUTLINES: far.outlines, FAKE_SSH_BIN: join(dir, "bin"),
-      FAKE_SSH_REFUSE: "glasshouse",
+      FAKE_SSH_REFUSE: "glasshouse,lobby,lobby.test",
       XDG_STATE_HOME: join(dir, "xs"), XDG_CACHE_HOME: join(dir, "xc"),
       XDG_CONFIG_HOME: join(dir, "config"),
       ...env,
@@ -76,7 +77,7 @@ class Home {
     let last: any = null;
     const end = Date.now() + ms;
     while (Date.now() < end) { last = await this.peek(); if (last && screen(last)) return last; await Bun.sleep(150); }
-    throw new Error(`timed out waiting for ${what}; last peek: ${JSON.stringify(last)?.slice(0, 400)}; the screen: ${this.out.replace(/\x1b\[[0-9;?<>]*[a-zA-Z]/g, "").slice(-400)}; exit ${this.code}; peek said ${this.said.slice(0, 300)}`);
+    throw new Error(`timed out waiting for ${what}; home: ${JSON.stringify(last?.state?.home)}; the screen: ${last?.text?.join("\n")}; exit ${this.code}; peek said ${this.said.slice(0, 300)}`);
   }
   async end() { if (this.code === null) { this.proc.kill("SIGTERM"); await until(() => this.code !== null, "the door to end", 10_000); } }
 }
@@ -100,7 +101,7 @@ describe.skipIf(!outliner)("the home base", () => {
     // Only the OS service manager is substituted. It executes the installed unit against a real scratch host.
     for (const tool of ["systemctl", "launchctl"]) writeFileSync(join(home, "bin", tool), `#!/bin/sh\nexec '${process.execPath}' '${join(import.meta.dir, "fake-host-manager.ts")}' ${tool} "$@"\n`, { mode: 0o755 });
     const h = new Home(work, [], {
-      HOME: home, PATH: `${home}/bin:${process.env.PATH}`, EP0CH_OUTLINES: join(home, "outlines"),
+      HOME: home, PATH: `${home}/bin:${dir}/bin:${process.env.PATH}`, EP0CH_OUTLINES: join(home, "outlines"),
       EP0CH_STATE: join(home, "state"), EP0CH_CONTROL: join(home, "door.sock"),
       XDG_CONFIG_HOME: join(home, "config"),
       EP0CH_SSH: join(home, "bin/ssh"),
@@ -134,6 +135,42 @@ describe.skipIf(!outliner)("the home base", () => {
     } finally { await direct.end(); stopUnder(home); }
   }, 30_000);
 
+  test("an existing macOS host for another folder: n names the refusal and a command that serves this scratch folder", async () => {
+    // The recovery command must remain visible even when the installed folder has a long name.
+    const home = join(dir, "host-serving-a-different-folder"), work = join(home, "work"), outlines = join(home, "scratch");
+    for (const p of ["work", "Library/LaunchAgents"]) mkdirSync(join(home, p), { recursive: true });
+    const unit = join(home, "Library/LaunchAgents/io.ep0ch.outliner-host.plist");
+    const original = `<plist><dict><key>ProgramArguments</key><array><string>${process.execPath}</string><string>${join(outliner!, "src/host-main.ts")}</string></array><key>EnvironmentVariables</key><dict><key>EP0CH_OUTLINES</key><string>${join(home, "outlines")}</string></dict></dict></plist>`;
+    writeFileSync(unit, original);
+    writeFileSync(join(home, "platform.ts"), 'Object.defineProperty(process, "platform", { value: "darwin" });');
+    const h = new Home(work, [], {
+      HOME: home, EP0CH_OUTLINES: outlines, EP0CH_STATE: join(home, "state"), EP0CH_CONTROL: join(home, "door.sock"),
+    }, ["--preload", join(home, "platform.ts")]);
+    let host: ReturnType<typeof Bun.spawn> | undefined;
+    try {
+      await h.on(p => p.screen === "home base", "the empty home base");
+      h.type("n");
+      await Bun.sleep(300);
+      h.type("\x15meadow\r");
+      const refusal = await h.on(p => p.messages?.some((m: any) => m.kind === "error" || m.kind === "refusal"), "the creation refusal", 5000);
+      expect(refusal.text.join("\n")).toContain("already serves");
+      expect(refusal.text.join("\n")).toContain("host-main.ts");
+      expect(readFileSync(unit, "utf8")).toBe(original);
+      expect(existsSync(join(outlines, "meadow.sqlite"))).toBe(false);
+      // Run the foreground host named by the recovery, then repeat the person's create without replacing the unit.
+      host = Bun.spawn([process.execPath, join(outliner!, "src/host-main.ts")], { env: h.env, stdio: ["ignore", "ignore", "ignore"] });
+      await until(() => existsSync(join(outlines, ".host/host.sock")), "the foreground scratch host");
+      h.type("n");
+      await Bun.sleep(300);
+      h.type("\x15meadow\r");
+      await until(() => h.out.includes("this time only"), "the open offer");
+      h.type("\x1b[B\r");
+      await h.on(p => p.outline === "meadow" && p.screen !== "home base", "the created outline");
+      expect(existsSync(join(outlines, "meadow.sqlite"))).toBe(true);
+      expect(readFileSync(unit, "utf8")).toBe(original);
+    } finally { await h.end(); if (host) { host.kill(); await host.exited; } }
+  }, 30_000);
+
   test("by keys: n names a new outline, ⏎ makes it, the offer to write .ep0ch is declined, and the door opens on it", async () => {
     const h = new Home(join(dir, "work/jam-shelf"));
     try {
@@ -157,12 +194,19 @@ describe.skipIf(!outliner)("the home base", () => {
     } finally { await h.end(); }
   }, 60_000);
 
-  test("by act: a machine added from ssh config, its outline opened, the folder's .ep0ch written with the machine", async () => {
+  test("by act: discovery folds SSH aliases and finds tailnet, linked and remembered machines before opening an outline", async () => {
+    writeFileSync(join(dir, "state/machines.json"), JSON.stringify({ machines: [{ name: "potting-shed", at: 1 }] }));
     const h = new Home(join(dir, "work/jam-shelf"));
     try {
       await h.on(p => p.screen === "home base", "the home base");
-      await h.on(p => p.state?.home?.machines?.some((m: any) => m.machine === "box-a" && m.outlines?.includes("garden")), "an outline on a machine never opened here", 5000);
+      await h.on(p => p.state?.home?.machines?.some((m: any) => m.machine === "box-a" && m.outlines?.includes("garden")), "an outline on a machine never opened here");
       await h.on(p => p.state?.home?.machines?.some((m: any) => m.machine === "glasshouse" && m.outlines?.includes("garden")), "an outline through a machine link never opened here", 5000);
+      await h.on(p => p.state?.home?.machines?.some((m: any) => m.machine === "orchard" && m.outlines?.includes("garden")), "an outline on a tailnet machine with no SSH config entry", 5000);
+      const found = await h.on(p => p.state?.home?.machines?.some((m: any) => m.machine === "potting-shed" && m.outlines?.includes("garden")), "a remembered machine outside SSH config", 5000);
+      expect(found.state.home.machines.some((m: any) => m.machine === "box-a.test")).toBe(false);
+      expect(found.state.home.machines.some((m: any) => m.machine === "lobby")).toBe(false);
+      expect(found.state.home.machines.some((m: any) => m.machine === "lobby.test")).toBe(false);
+      expect(found.text.join("\n")).not.toContain("unavailable");
       const added = await h.cli("act", "home.add", "machine=box-a", "--as", "home-test");
       expect(added.out + added.err).toContain("garden");
       const listed = await h.home();
@@ -174,7 +218,7 @@ describe.skipIf(!outliner)("the home base", () => {
       const door = await h.on(p => p.screen !== "home base" && p.outline === "garden", "the door on garden");
       expect(door.outline).toBe("garden");
       expect(readFileSync(join(dir, "work/jam-shelf/.ep0ch/config.toml"), "utf8")).toBe('ws = "garden"\nmachine = "box-a"\n');
-      expect(JSON.parse(readFileSync(join(dir, "state/machines.json"), "utf8")).machines.map((m: any) => m.name)).toEqual(["box-a"]);
+      expect(JSON.parse(readFileSync(join(dir, "state/machines.json"), "utf8")).machines.map((m: any) => m.name)).toEqual(["box-a", "potting-shed"]);
     } finally { await h.end(); }
     // The next `ep0ch` there opens it directly: the folder names it now, on its machine.
     const { resolveTarget } = await import("../src/discover");
@@ -274,6 +318,6 @@ describe.skipIf(!outliner)("an outline the machine doesn't have (PIE-545): the h
 
 test("ssh config names: Host aliases and what Include brings, without patterns", async () => {
   const { sshConfigNames } = await import("../src/machine");
-  expect(sshConfigNames({ HOME: join(dir, "home") })).toEqual(["box-a", "box-b", "tin-shed"]);
+  expect(sshConfigNames({ HOME: join(dir, "home") })).toEqual(["box-a", "box-a.test", "box-b", "lobby", "lobby.test", "tin-shed"]);
   expect(sshConfigNames({ HOME: join(dir, "nobody-home") })).toEqual([]);
 });
