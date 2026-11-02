@@ -25,6 +25,8 @@ export class Trail {
   places: Record<string, TrailPlace>;
   settings: TrailSettings;
   private timer?: ReturnType<typeof setTimeout>;
+  private readonly listeners = new Set<() => void>();
+  subscribe(changed: () => void): () => void { this.listeners.add(changed); return () => { this.listeners.delete(changed); }; }
   private readonly dir = outlineState();
   private readonly titles = new Map<string, string>();
   constructor(private readonly visitChanged?: (visit: Visit) => void) {
@@ -103,6 +105,6 @@ export class Trail {
     const since = Date.now() - this.settings.days * 86_400_000;
     this.visits = this.visits.filter(v => v.open.at >= since);
   }
-  changed() { this.timer ??= setTimeout(() => { this.timer = undefined; this.flush(); }, 200); this.timer.unref?.(); }
+  changed() { for (const changed of this.listeners) changed(); this.timer ??= setTimeout(() => { this.timer = undefined; this.flush(); }, 200); this.timer.unref?.(); }
   flush() { const tiles = new Set(this.visits.flatMap(v => [v.open.target.tile, ...(v.open.source ? [v.open.source.tile] : [])])); for (const tile of Object.keys(this.places)) if (!tiles.has(tile)) delete this.places[tile]; if (this.timer) clearTimeout(this.timer); this.timer = undefined; writeState("trail.json", { visits: this.visits, places: this.places, settings: this.settings }, this.dir); }
 }

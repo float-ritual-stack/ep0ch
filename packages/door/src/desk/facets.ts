@@ -1,20 +1,15 @@
-// The facets tile (PIE-881): the properties the notes have, each opening to its values with how many notes carry them
-// and when one was last updated, narrowed by what is picked. A tag is one facet among the others (`#yomama` is the `tag`
-// facet's value), `project=x/y/z` and `type=meeting` are two more: the same engine underneath, with no special case.
-//
-// A value is included (`+`) or excluded (`−`): several values of one facet are ORed, facets are ANDed, an exclusion is NOT.
-// A path-shaped value (`project=x/y/z`, a nested tag) groups as a tree, and picking `x` includes `x/…` (`project=x/*`).
-// The selection is the views' query grammar, shown as text (`e` edits it, `facets.query` sets it) and savable as a view, a
-// lane on a hub, in one action (`facets.save`): a facet search becomes a saved query, never a client-side filter.
-//
-// The service answers all of it: `blocks.query` with the selection as `where` and `facets=true` counts every match, so the
-// door never counts, narrows or parses a value (SocketBoard.facetList). It only writes the selection as text. Every key and
-// click is an action (FACETS_ACTIONS), so `act` reaches them with no tile open.
+import { buttonText } from "../surface/button";
+import { keyTable } from "../surface/keymap";
+import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
+import "../trail-facets";
+import { facetSource, facetSources, onFacetSources, sourceAnswer, type SourceRow } from "../facet-sources";
+import type { FacetNotes } from "../socket";
+// Facets keep the selection and its presentation; a source owns the answer. Notes ask the service, while
+// visits and extension rows use the same pure query grammar and counter through the source contract.
 import { weekday } from "@ep0ch/outline-core/figure-props";
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type FacetAnswer } from "../socket";
-import { ActionRefused, actionSet, def, keysText } from "../surface/actions";
-import { modeHint, type ModeKey } from "../surface/modes";
+import { ActionRefused, actionSet, def, keysText, shownLine } from "../surface/actions";
 import { C, fg, pad, RESET, selectedRow, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ago, rowLines, waiting, waitingText } from "../text";
@@ -89,7 +84,42 @@ const CAL_ROWS = 8, CAL_COLS = 28;
 const VIEWS_SHOWN = 8;
 const USES = 5, LAST = 5;
 
+const SOURCE_KEYS: readonly ModeKey[] = keyTable("facets-source", "the facets tile source", [{ key: "S", action: "facets.source", label: "source", says: "Switch to the next facet source" }]);
+
 export class FacetsPane implements Pane, AttachedOwner {
+  readonly bindings = SOURCE_KEYS;
+  sourceId = "notes";
+  private sourceLine = -1;
+  private sourceTitle() { return facetSources().find(s => s.id === this.sourceId)?.title ?? this.sourceId; }
+  /** What the count line calls the source's rows. */
+  private rowsNoun() { const s = facetSources().find(s => s.id === this.sourceId); return s?.rows ?? (s?.title ?? this.sourceId).toLowerCase(); }
+  private sourceRows = new Map<string, SourceRow>();
+  private async readSource(desk: DeskApi, where: string, limit = 200, options: FacetNotes = {}): Promise<FacetAnswer> {
+    const result = await facetSource(this.sourceId).query({ where, limit, ...options }, desk);
+    for (const row of result.rows) this.sourceRows.set(row.id, row);
+    return sourceAnswer(result);
+  }
+  async openRow(note: Msg, desk: DeskApi, actor: Actor, fresh = false) {
+    const row = this.sourceRows.get(note.id);
+    if (!row) throw new ActionRefused("that row is no longer in this source · facets.reload reads it again");
+    return facetSource(this.sourceId).open(row, desk, this.source(), actor, fresh);
+  }
+  previewRow(note: Msg, desk: DeskApi, actor: Actor) {
+    const row = this.sourceRows.get(note.id);
+    if (row) facetSource(this.sourceId).preview?.(row, desk, this.source(), actor);
+  }
+  requireNotes() {
+    if (!facetSource(this.sourceId).notes) throw new ActionRefused("pin and tag edit notes · facets.source source=notes switches to notes");
+  }
+  async changeSource(id: string, desk: DeskApi, query = "") {
+    facetSource(id);
+    this.sourceId = id; this.raw = query; this.clauses = []; this.day = null; this.open.clear(); this.sourceRows.clear();
+    this.views = []; this.extra.clear(); this.extraMore.clear(); this.extraFor = null;
+    this.answer = null; this.all = null; this.pinned = []; this.error = null; this.dayCounts.clear();
+    this.at = 0; this.setRows(); desk.redraw();
+    await this.load(desk); desk.keepLayout?.(); desk.redraw();
+    return this.describe();
+  }
   clauses: Clause[] = [];
   /** A query typed by hand (`e`, `facets.query`): kept, with the picks after it. */
   raw = "";
@@ -117,6 +147,8 @@ export class FacetsPane implements Pane, AttachedOwner {
   private width = 0;
   private asked = 0;
   private reload: Timer | null = null;
+  private stopSource?: () => void;
+  private stopSources?: () => void;
   /** The query being typed (`e`): applied on ⏎, dropped on esc. */
   draft: LineField | null = null;
   private wordPicks: Clause[] = [];
@@ -174,7 +206,8 @@ export class FacetsPane implements Pane, AttachedOwner {
   private dayCounts = new Map<string, number>();
   private groupsKept: MatchGroup[] = [];
 
-  constructor(public readonly kind: "facets" | "tags" = "facets", o: { query?: string; open?: readonly string[]; sort?: FacetSort; zero?: boolean; share?: number; place?: AttachedPlace; pin?: string; show?: readonly string[]; group?: string; calendar?: boolean; day?: string } = {}) {
+  constructor(public readonly kind: "facets" | "tags" = "facets", o: { source?: string; query?: string; open?: readonly string[]; sort?: FacetSort; zero?: boolean; share?: number; place?: AttachedPlace; pin?: string; show?: readonly string[]; group?: string; calendar?: boolean; day?: string } = {}) {
+    this.sourceId = o.source ?? "notes";
     this.share = o.share ?? 0.4;
     this.raw = o.query ?? ""; this.sort = o.sort ?? "uses"; this.zero = o.zero ?? false;
     this.open = new Set(o.open ?? (kind === "tags" ? ["tag"] : []));
@@ -204,7 +237,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   viewNamed(id: string): Msg | undefined { return this.views.find(v => v.id === id || (id.length >= 8 && v.id.startsWith(id))); }
   /** The pane whose wires a pick and an open go through: the Matches tile while there is one, else this. */
   source(): Pane { return this.place === "tile" && this.matchesPane ? this.matchesPane : this; }
-  title() { const q = this.query(); return q ? `${this.kind} ${q}` : this.kind; }
+  title() { const q = this.query(); return `${this.kind} · ${this.sourceTitle()}${q ? ` ${q}` : ""}`; }
   hint() { return this.draft ? "type the query (the views' grammar: #tag key=value NOT … OR …) · " + modeHint(QUERY_DRAFT_KEYS, () => undefined) : `${modeHint(HINT_KEYS, () => undefined)} · ${keysText(FACETS_ACTIONS.def("facets.resize")!.keys)}`; }
   headLabel() { return fg(C.dark) + (this.error ? "failed" : this.answer ? String(this.answer.facets.length) : "…") + RESET; }
   spine() { return { title: this.title() }; }
@@ -214,17 +247,20 @@ export class FacetsPane implements Pane, AttachedOwner {
   blur() { if (this.draft) lineCompleter(this.draft)?.dismiss(); this.draft = null; }
   spec() {
     const q = selectionQuery(this.clauses, this.raw);
-    return { ...(q ? { query: q } : {}), args: { share: this.share, sort: this.sort, ...(this.zero ? { zero: true } : {}), ...(this.open.size ? { open: [...this.open] } : {}),
+    return { source: this.sourceId, ...(q ? { query: q } : {}), args: { share: this.share, sort: this.sort, ...(this.zero ? { zero: true } : {}), ...(this.open.size ? { open: [...this.open] } : {}),
       ...(this.place !== "inline" ? { place: this.place } : {}), ...(this.pin !== "pinned" ? { pin: this.pin } : {}), ...(this.show.join() !== SHOW.join() ? { show: this.show } : {}),
       ...(this.group !== "updated:recent" ? { group: this.group } : {}), ...(this.calendar !== (this.kind === "facets") ? { calendar: this.calendar } : {}), ...(this.day ? { day: this.day } : {}) } };
   }
 
-  init(desk: DeskApi) { if (!this.answer) void this.refresh(desk); }
+  init(desk: DeskApi) {
+    this.stopSources = onFacetSources(id => { if (id === this.sourceId) this.onEvent(desk); });
+    if (!this.answer) void this.refresh(desk);
+  }
   onEvent(desk: DeskApi) {
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => { this.reload = null; void this.refresh(desk); }, 400);
   }
-  dispose() { if (this.reload) clearTimeout(this.reload); }
+  dispose() { this.stopSources?.(); this.stopSource?.(); if (this.reload) clearTimeout(this.reload); }
 
   /** Ask the service for the selection's facets and notes (and, to dim the ones it leaves at 0, every note's facets). */
   /** A refresh (an outline change, `r`, `z`): in turn with the selection's own reads, so none supersedes another. */
@@ -233,8 +269,10 @@ export class FacetsPane implements Pane, AttachedOwner {
   async load(desk: DeskApi): Promise<boolean> {
     const n = ++this.asked, board = desk.ctx.board, q = this.query();
     try {
+      this.stopSource?.();
+      this.stopSource = facetSource(this.sourceId).subscribe?.(desk, () => this.onEvent(desk));
       // Pinned: the notes the pins page links to, and any that carry the pin key itself.
-      if (!this.pinsPage && Date.now() - this.pinsMissAt > 30_000) {
+      if (facetSource(this.sourceId).notes && !this.pinsPage && Date.now() - this.pinsMissAt > 30_000) {
         const r = await board.resolvePage(this.pins).catch(() => null);
         this.pinsPage = r?.status === "resolved" && r.block ? r.block.id : null;
         if (!this.pinsPage) this.pinsMissAt = Date.now();
@@ -243,11 +281,11 @@ export class FacetsPane implements Pane, AttachedOwner {
       const { year, month } = this.month, from = `${year}-${String(month).padStart(2, "0")}-01`, to = isoDay(new Date(year, month, 0));
       const plain = selectionQuery(this.clauses, this.raw), monthQ = [plain && /\bOR\b/.test(plain) ? `(${plain})` : plain, `updated >= "${dayWords(from)}" updated <= "${dayWords(to)}"`].filter(Boolean).join(" ");
       const [now, all, pinned, views, days] = await Promise.all([
-        board.facetList(q, 200, { group: this.group, sort: "updated desc", excerpt: true }),
-        q ? board.facetList("", 0) : null,
-        board.facetList(within, 50, { facets: false, sort: "updated desc", excerpt: true }).catch(() => null),
-        this.open.has("views") || !this.views.length ? board.facetList("type=virtual-branch query", 200, { facets: false, sort: "updated desc" }).catch(() => null) : null,
-        this.calendar ? board.facetList(monthQ, 1, { facets: false, group: "updated:day" }).catch(() => null) : null,
+        this.readSource(desk, q, 200, { group: this.group, sort: "updated desc", excerpt: true }),
+        q ? this.readSource(desk, "", 0) : null,
+        facetSource(this.sourceId).notes ? this.readSource(desk, within, 50, { facets: false, sort: "updated desc", excerpt: true }).catch(() => null) : null,
+        this.open.has("views") || !this.views.length ? board.facetList(`type=${facetSource(this.sourceId).notes ? "virtual-branch" : "facet-view"} query${facetSource(this.sourceId).notes ? "" : ` facet-source=${this.sourceId}`}`, 200, { facets: false, sort: "updated desc" }).catch(() => null) : null,
+        this.calendar ? this.readSource(desk, monthQ, 1, { facets: false, group: "updated:day" }).catch(() => null) : null,
       ]);
       if (n !== this.asked) return true;
       const was = this.rowKey(this.current());
@@ -263,7 +301,7 @@ export class FacetsPane implements Pane, AttachedOwner {
         const pages = await Promise.all(reread.map(async label => {
           const g = groups.find(x => x.label === label), clause = g ? bucketWhere(this.group, g.value) : null;
           if (!clause) return null;
-          const r = await board.facetList([q && /\bOR\b/.test(q) ? `(${q})` : q, clause].filter(Boolean).join(" "), 1000, { facets: false, sort: "updated desc", excerpt: true }).catch(() => null);
+          const r = await this.readSource(desk, [q && /\bOR\b/.test(q) ? `(${q})` : q, clause].filter(Boolean).join(" "), 1000, { facets: false, sort: "updated desc", excerpt: true }).catch(() => null);
           return r ? [label, r] as const : null;
         }));
         if (n !== this.asked) return true;
@@ -353,7 +391,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     const asked = this.asked, q = this.query(), had = this.extra.get(label), was = new Set(g.notes.map(m => m.id));
     // `<=` the last one read: notes sharing its time (a batch written at once) aren't skipped; those already read drop out.
     const older = had?.length ? ` updated <= ${new Date(had[had.length - 1]!.updatedAt).toISOString()}` : "";
-    const got = await desk.ctx.board.facetList([q && /\bOR\b/.test(q) ? `(${q})` : q, clause].filter(Boolean).join(" ") + older, 1000, { facets: false, sort: "updated desc", excerpt: true });
+    const got = await this.readSource(desk, [q && /\bOR\b/.test(q) ? `(${q})` : q, clause].filter(Boolean).join(" ") + older, 1000, { facets: false, sort: "updated desc", excerpt: true });
     await this.readHomes(desk, got.notes);
     if (asked !== this.asked) return { group: label, notes: 0 };
     const seen = new Set((had ?? []).map(m => m.id)), all = [...(had ?? []), ...got.notes.filter(m => !seen.has(m.id))];
@@ -484,7 +522,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     const push = (text: string, row = -1) => { lines.push(text); this.lineRows.push(row); };
     const cell = (sort: FacetSort, label: string) => (this.sort === sort ? fg(C.white) + `\x1b[1m${label}▾\x1b[22m` : fg(C.dark) + label + " ") + RESET;
     const a = this.answer, q = this.query();
-    push(pad(` ${fg(C.dark)}${a?.matched ?? "…"} of ${this.all?.matched ?? "…"} notes`, Math.max(0, w - USES - 1 - LAST)) + cell("uses", "uses") + " " + cell("last", "last"));
+    push(pad(` ${fg(C.dark)}${a?.matched ?? "…"} of ${this.all?.matched ?? "…"} ${this.rowsNoun()}`, Math.max(0, w - USES - 1 - LAST)) + cell("uses", "uses") + " " + cell("last", "last"));
     if (this.draft) { this.draft.drawnAt(8, 1, w - 8); push(fg(C.yellow) + ` where: ${this.draft.show(w - 8)}` + RESET); }
     else push(fg(C.dark) + pad(q ? ` where: ${q}` : " where: every note · e types words or a query", w) + RESET);
     const completion = this.draft && lineCompleter(this.draft), ghost = completion?.shown;
@@ -493,6 +531,8 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (this.error) push(fg(C.lred) + " " + this.error + RESET);
     else if (!a) push(" " + waiting());
     if (a?.hint) push(fg(C.yellow) + " " + a.hint + RESET);
+    this.sourceLine = lines.length;
+    push(pad(` ${buttonText(`source: ${this.sourceTitle()}`)} · ${keysText(FACETS_ACTIONS.def("facets.source")!.keys)}`, w));
     const top = lines.length;
     this.bodyRoom = Math.max(0, h - top - 1);
     // Split with no room for two lists side by side draws as inline (a 44-column tile), and is still split when it widens.
@@ -635,8 +675,7 @@ export class FacetsPane implements Pane, AttachedOwner {
         if (row.id.startsWith(MORE)) return this.readGroup(desk, row.id.slice(MORE.length));
         const m = row.source as Msg | undefined;
         if (!m) throw new ActionRefused(`${row.label} is a heading: it opens nothing`);
-        desk.openFromTile(m, { from: this.source(), link: true, ...(where === "new" ? { fresh: true } : {}), by: actor });
-        return { id: m.id, title: subject(m) };
+        return this.openRow(m, desk, actor, where === "new");
       },
       enter: () => { throw new ActionRefused("Matches has the keys whenever its tile does: focus it (tile.focus) rather than going into it"); },
       type: () => { this.list.startTyping(was => new LineField(was, false, { complete: false })); desk.redraw(); },
@@ -729,6 +768,8 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (c === "0" || k.kind === "backspace") { if (row?.kind === "day") this.act(desk, "facets.day", { day: "" }); else this.act(desk, "facets.set", { mode: "off" }); return true; }
     if (c === "e") { this.act(desk, "facets.edit"); return true; }
     if (c === "[" || c === "]") { this.act(desk, "facets.resize", { by: c === "[" ? -0.1 : 0.1 }); return true; }
+    const sourceKey = modeBinding(SOURCE_KEYS, k);
+    if (sourceKey) { this.act(desk, sourceKey.action); return true; }
     if (c === "v") { this.act(desk, "facets.save"); return true; }
     if (c === "s") { this.act(desk, "facets.sort"); return true; }
     if (c === "z") { this.act(desk, "facets.zero"); return true; }
@@ -770,6 +811,7 @@ export class FacetsPane implements Pane, AttachedOwner {
       return true;
     }
     if (k.action !== "down") return true;
+    if (y === this.sourceLine && !this.draft) { this.act(desk, "facets.source"); return true; }
     const at = this.hit(x, y);
     if (at.sort) { this.act(desk, "facets.sort", { by: at.sort }); return true; }
     if (at.row === undefined) return true;
@@ -795,7 +837,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   describe() {
     const rows = this.rows();
     return {
-      query: this.query(), clauses: this.clauses, raw: this.raw, sort: this.sort, zero: this.zero, share: this.share, total: this.all?.matched ?? 0, matched: this.answer?.matched ?? 0,
+      source: this.sourceId, sources: facetSources().map(s => ({ id: s.id, title: s.title })), query: this.query(), clauses: this.clauses, raw: this.raw, sort: this.sort, zero: this.zero, share: this.share, total: this.all?.matched ?? 0, matched: this.answer?.matched ?? 0,
       facets: rows.flatMap(r => (r.kind === "facet" ? [{ key: r.key, notes: r.count, open: r.open, values: rows.filter((v): v is Extract<Row, { kind: "value" }> => v.kind === "value" && v.key === r.key).map(v => ({ value: v.node.path, uses: v.node.value?.count ?? null, last: v.node.value?.last ? new Date(v.node.value.last).toISOString() : null, ...(v.state ? { state: v.state } : {}), ...(v.zero ? { zero: true } : {}) })) }] : [])),
       notes: this.notes().map(m => ({ id: m.id, title: subject(m) })), ...(this.error ? { error: this.error } : {}), ...(this.draft ? { typing: this.draft.text } : {}),
       ...(this.day ? { day: this.day } : {}), month: `${this.month.year}-${String(this.month.month).padStart(2, "0")}`,
@@ -839,7 +881,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
         if (!(i >= 0 && i < rows.length)) throw new ActionRefused(`the tile has ${rows.length} rows; n is 1-${rows.length}`);
         p.at = i;
         const row = rows[i];
-        if (row?.kind === "note") desk.showFrom?.(p.source(), row.note, actor);
+        if (row?.kind === "note") p.previewRow(row.note, desk, actor);
         // Reaching a group's "more" row reads the rest of the group: scrolling on goes on into it, and End on to the last
         // row (PIE-1457), while a read brings rows.
         if (row?.kind === "more") return p.readGroup(desk, row.group).then(r => {
@@ -925,10 +967,10 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       { act: "facets.open id=7d9a1f40 tile=facets", does: "opens that note where the facets tile's opens land" },
       { act: "facets.open n=9 fresh=true tile=facets", does: "opens the note on row 9 in a new detail beside" },
     ],
-    run({ n, id, fresh }, { pane, desk, standing }, actor) {
+    async run({ n, id, fresh }, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane;
       const note = p.noteFor({ n, id });
-      desk.openFromTile(note, { from: p.source(), link: true, ...(fresh ? { fresh: true } : {}), by: actor });
+      await p.openRow(note, desk, actor, fresh);
       // In a flow too narrow for every column (the navigator at 44), the reader it landed in comes to the wide place.
       const landed = !fresh && standing ? desk.linked?.(p.source()) : undefined;
       if (landed && desk.coverOf?.(landed) !== "full" && desk.coverOf?.(landed) !== undefined) void desk.perform?.("tile.widen", {}, actor, landed);
@@ -981,7 +1023,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const home = p.viewsHome() ?? (await findBoards(board))[0]?.hub.id ?? null;
       const save = async (label: string, hub: string | null) => {
         const title = (label.trim() || q).replace(/[\[\]\n]/g, " ").slice(0, 60);
-        const made = await board.createBlock(hub, `${title} [type::virtual-branch] [query::${q}]`, actor);
+        const made = await board.createBlock(hub, `${title} [type::${facetSource(p.sourceId).notes ? "virtual-branch" : "facet-view"}] [query::${q}]${facetSource(p.sourceId).notes ? "" : ` [facet-source::${p.sourceId}]`}${facetSource(p.sourceId).notes ? "" : `\n::button{label="Open facets"}\n${shownLine("tile.open", { kind: "facets", source: p.sourceId, query: q })}\n::`}`, actor);
         // Listed at once, whether the views are open or folded: the next v on this pick names it.
         p.viewSaved(made);
         desk.ctx.flash(`saved "${title}" as a view${hub ? ` under ${p.homeName(hub) ?? "its hub"}` : ""}`);
@@ -1078,7 +1120,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
         }
         const m = row?.source;
         if (!m) throw new ActionRefused("Matches lists no note yet");
-        if (standing) { const at = p.rows().findIndex(r => r.kind === "note" && r.note.id === m.id); if (at >= 0) p.at = at; desk.showFrom?.(p.source(), m, actor); }
+        if (standing) { const at = p.rows().findIndex(r => r.kind === "note" && r.note.id === m.id); if (at >= 0) p.at = at; p.previewRow(m, desk, actor); }
         desk.redraw();
         return { id: m.id, title: subject(m) };
       };
@@ -1114,7 +1156,9 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     args: { id: { type: "string", optional: true, about: "a note's block id" }, n: { type: "number", optional: true, about: "its row, from 1" }, on: { type: "boolean", optional: true, about: "pin (true) or unpin (false)" } },
     examples: [{ act: "facets.pin id=7d9a1f40 tile=facets", does: "pins that note: it moves to the top of Matches, and only the pins page changes" }],
     async run({ id, n, on }, { pane, desk, standing }, actor) {
-      const p = pane as FacetsPane, m = p.noteFor({ id, n }, standing ? PERSON : actorKey(actor)), board = desk.ctx.board;
+      const p = pane as FacetsPane;
+      p.requireNotes();
+      const m = p.noteFor({ id, n }, standing ? PERSON : actorKey(actor)), board = desk.ctx.board;
       const page = await board.resolvePage(p.pins);
       const pins = page.status === "resolved" && page.block ? await board.get(page.block.id) : null;
       if (pins) p.pinsPageIs(pins.id);
@@ -1152,7 +1196,9 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       { act: "facets.tag id=7d9a1f40 key=stage value=next tile=facets", does: "writes [stage::next] on that note" },
     ],
     async run({ id, key, value }, { pane, desk, standing }, actor) {
-      const p = pane as FacetsPane, m = p.noteFor({ id }, standing ? PERSON : actorKey(actor));
+      const p = pane as FacetsPane;
+      p.requireNotes();
+      const m = p.noteFor({ id }, standing ? PERSON : actorKey(actor));
       const write = async (key: string | undefined, value: string | undefined) => {
         const tag = !key?.trim() && value?.trim().startsWith("#");
         const k = tag ? "tag" : key?.trim().replace(/^#$/, "tag"), v = (tag ? value!.trim().slice(1) : value?.trim())?.replace(/^#/, "");
@@ -1211,7 +1257,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     },
   }),
   "facets.view": def({
-    summary: "set the selection to a saved view's query (a shortcut: the views listed at the top of the tile): id= the view's block id. The picks are replaced; v saves a selection back as a view",
+    summary: "set the source and selection to a saved view (a shortcut: the views listed at the top of the tile): id= the view's block id. The picks are replaced; v saves a selection back as a view",
     keys: "⏎ or a click on a view", touches: "tile", replay: "safe", says: r => `the view's query: ${String(r.query)}`,
     args: { id: { type: "string", kind: "view", about: "the saved view's block id" } },
     examples: [{ act: "facets.view id=7d9a1f40 tile=facets", does: "the selection becomes that view's query; Matches follows" }],
@@ -1221,12 +1267,20 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const q = v ? prop(v, "query") : undefined;
       if (!v || !q) throw new ActionRefused(`${id} is no saved view with a [query::…] · facets.list names the views`);
       return p.serial(async () => {
-        const before = { raw: p.raw, clauses: p.clauses, day: p.day };
-        p.raw = q; p.clauses = []; p.day = null;
-        if (!(await p.load(desk))) { Object.assign(p, before); throw new ActionRefused(`the view's query wasn't answered: ${q}`); }
-        desk.keepLayout?.(); desk.redraw();
+        const result = await p.changeSource(prop(v, "facet-source") ?? "notes", desk, q);
+        if (result.error) throw new ActionRefused(`the view's query wasn't answered: ${q} · ${result.error}`);
         return { view: v.id, query: p.query(), notes: p.describe().matched };
       });
+    },
+  }),
+  "facets.source": def({
+    summary: "Switch this facets tile to notes, the trail or an installed extension's rows; clears the old selection",
+    keys: "S", menu: { label: "change facet source", key: "S", group: "Facets" }, touches: "tile", replay: "safe",
+    args: { source: { type: "string", optional: true, about: "source id; omitted cycles the installed sources" } },
+    examples: [{ act: "facets.source source=trail tile=facets", does: "narrows visits in the trail" }],
+    run({ source }, { pane, desk }) {
+      const p = pane as FacetsPane, sources = facetSources();
+      return p.serial(() => p.changeSource(source ?? sources[(sources.findIndex(s => s.id === p.sourceId) + 1) % sources.length]!.id, desk));
     },
   }),
   "facets.list": def({
@@ -1237,11 +1291,11 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
 });
 
 const SORTS = FACET_SORTS as readonly string[];
-const makeFacets = (kind: "facets" | "tags") => (s: { query?: string; args?: Record<string, unknown> }) => {
+const makeFacets = (kind: "facets" | "tags") => (s: { source?: string; query?: string; args?: Record<string, unknown> }) => {
   const a = s.args ?? {};
   if (a.share !== undefined && (typeof a.share !== "number" || !Number.isFinite(a.share) || a.share < 0.15 || a.share > 0.85)) throw new ActionRefused("facets: args.share must be a number from 0.15 to 0.85; edit the screen's tile args to share: 0.4");
   if (a.place !== undefined && !attachedPlaceOf(a.place)) throw new ActionRefused(`facets: args.place is ${ATTACHED_PLACES.join(", ")}`);
-  return new FacetsPane(kind, { query: s.query, sort: SORTS.includes(String(a.sort)) ? (a.sort as FacetSort) : undefined, zero: a.zero === true, share: a.share as number | undefined, ...(Array.isArray(a.open) ? { open: a.open.map(String) } : {}),
+  return new FacetsPane(kind, { source: s.source, query: s.query, sort: SORTS.includes(String(a.sort)) ? (a.sort as FacetSort) : undefined, zero: a.zero === true, share: a.share as number | undefined, ...(Array.isArray(a.open) ? { open: a.open.map(String) } : {}),
     ...(attachedPlaceOf(a.place) ? { place: attachedPlaceOf(a.place)! } : {}), ...(typeof a.pin === "string" ? { pin: a.pin } : {}), ...(Array.isArray(a.show) ? { show: a.show.map(String) } : {}),
     ...(typeof a.group === "string" ? { group: a.group } : {}), ...(typeof a.calendar === "boolean" ? { calendar: a.calendar } : {}), ...(typeof a.day === "string" && DAY.test(a.day) ? { day: a.day } : {}) });
 };
@@ -1255,14 +1309,14 @@ for (const info of COMPLETION_ACTIONS.list()) {
 const kindOf = (kind: "facets" | "tags", about: string, key: string): TileKind => ({
   kind, about, noun: kind === "tags" ? "a tags tile" : "a facets tile",
   keys: [{ key, label: kind }],
-  openArgs: ["query", "args"], previews: true,
+  openArgs: ["source", "query", "args"], previews: true,
   make: makeFacets(kind),
   actions: FACETS_ACTIONS,
   save: p => (p as FacetsPane).spec(),
   check: s => (s.query !== undefined && !s.query.trim() ? "a facets tile's query is the views' grammar, or left out" : null),
   shows: p => { const f = p as FacetsPane, r = f.current(); return r?.kind === "note" ? r.note : f.list.picked(PERSON)?.source ?? null; },
   // In brief (layout.get without full=true), its selection, counts and where Matches is: the lists are the facets tile's own read (facets.list).
-  describe: (p, full) => { const d = (p as FacetsPane).describe(); return full ? d : { query: d.query, total: d.total, matched: d.matched, facets: d.facets.length, matches: d.matches.place, ...(d.day ? { day: d.day } : {}), ...(d.error ? { error: d.error } : {}) }; },
+  describe: (p, full) => { const d = (p as FacetsPane).describe(); return full ? d : { source: d.source, query: d.query, total: d.total, matched: d.matched, facets: d.facets.length, matches: d.matches.place, ...(d.day ? { day: d.day } : {}), ...(d.error ? { error: d.error } : {}) }; },
   peek: p => ({ facets: (p as FacetsPane).describe() }),
 });
 /**

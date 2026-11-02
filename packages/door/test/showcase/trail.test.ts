@@ -9,6 +9,7 @@ import type { DoorOpen } from "@ep0ch/outline-core/door-open";
 import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
 import { Trail } from "../../src/trail";
+import { FacetsPane } from "../../src/desk/facets";
 import { TrailPane } from "../../src/desk/trail-tile";
 import { ReaderPane } from "../../src/desk/panes";
 import { outlineState, readState, writeState } from "../../src/state";
@@ -84,6 +85,19 @@ describe.skipIf(!outliner)("showcase: the trail", () => {
     const act = (action: string, tile = "reader", args: Record<string, unknown> = {}) => desk.dispatch.act({ action, tile, args }, USER) as Promise<any>;
     return { desk, act, visit: (tile = "reader") => h.app.trail.current(desk.tileIdOfPane(desk.paneNamed(tile)!)!)! };
   }
+
+  test("S in a Trail tile opens facets over its visits", async () => {
+    const { desk, act } = screen();
+    try {
+      await act("open", "reader", { id: h.seeded.notes.notebook.id });
+      await act("tile.focus", "trail");
+      h.ch("S");
+      await until(() => !!desk.paneNamed("trail-facets"), "S opens trail facets");
+      const facets = desk.paneNamed("trail-facets") as FacetsPane;
+      expect(facets.sourceId).toBe("trail");
+      await until(() => facets.notes().length > 0, "trail visits in facets");
+    } finally { h.app.pop(); }
+  }, 30_000);
 
   async function previews(desk: Desk, act: ReturnType<typeof screen>["act"]) {
     const target = await h.board.createBlock(null, "Preview target");

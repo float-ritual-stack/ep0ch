@@ -124,6 +124,7 @@ describe.skipIf(!outliner)("the facets tile, against a scratch outline", () => {
     const saved = await act("facets.save", { name: "Garden, not week 5" });
     expect(saved).toMatchObject({ title: "Garden, not week 5", query: "plot=garden/* NOT week=5" });
     const view = await board.get(saved.id);
+    expect(view!.text).toBe("Garden, not week 5 [type::virtual-branch] [query::plot=garden/* NOT week=5]");
     expect(prop(view!, "type")).toBe("virtual-branch");
     expect(prop(view!, "query")).toBe("plot=garden/* NOT week=5");
     // The same pick again is that view already (PIE-1448): said, never a second copy.

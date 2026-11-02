@@ -79,7 +79,7 @@ export const FORM_EXAMPLES = ["form"] as const;
 export const VIEW_EXAMPLES = ["gallery", "workbench"] as const;
 
 /** The outliner's example completion source (PIE-1340): open issues under [[ and [issue::. Installed with the rules. */
-export const SOURCE_EXAMPLES = ["issues"] as const;
+export const SOURCE_EXAMPLES = ["facet-garden", "issues"] as const;
 
 /**
  * Copy the outliner's example extensions (its checkout's `extensions/`) into the scratch service's user

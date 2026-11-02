@@ -7,6 +7,7 @@ import {
   parsePropertyFilterClause,
   parsePropertyFilterExpression,
   serializePropertyFilters,
+  sortQueriedBlocks,
 } from "../src/block-query";
 
 describe("property filter expressions", () => {
@@ -201,4 +202,17 @@ describe("filter completion targeting", () => {
       prefix: "in pr",
     });
   });
+});
+
+test("comma-separated sort keys order notes with or without spaces", () => {
+  const rows = [
+    { id: "late", text: "Beans", createdAt: "2026-10-02", updatedAt: "2026-10-02", properties: [] },
+    { id: "other", text: "Carrots", createdAt: "2026-10-01", updatedAt: "2026-10-01", properties: [] },
+    { id: "early", text: "Beans", createdAt: "2026-10-01", updatedAt: "2026-10-01", properties: [] },
+  ];
+  for (const sort of ["title asc,created asc", "title asc ,  created asc", "title asc, created asc"]) {
+    const ordered = [...rows];
+    sortQueriedBlocks(ordered, sort);
+    expect(ordered.map(row => row.id)).toEqual(["early", "late", "other"]);
+  }
 });
