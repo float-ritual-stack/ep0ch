@@ -42,4 +42,16 @@ describe("a live graph-table's layout (PIE-1513)", () => {
     expect(componentReading("Garden\n::graph-table\n---\nquery: type=bed\nlayout: [table, feed]\n---\n::", BUILTIN_COMPONENT_SCHEMAS).warnings).toEqual([]);
     expect(componentReading("Garden\n::graph-table\n---\nquery: type=bed\nlayout: table, cards\n---\n::", BUILTIN_COMPONENT_SCHEMAS).warnings[0]).toContain('layout "cards" is one of table, gallery, feed, board');
   });
+  test("a key is unknown only when the figure reads it nowhere: its rows' YAML form, a live sort, a calendar's today (main red, #1197)", () => {
+    // The YAML form of a figure's rows is a key it takes (figureProps: the YAML wins over the Markdown).
+    expect(unknownFigureKeys("check", { title: "t", items: [{ label: "a", done: true }] })).toEqual([]);
+    expect(unknownFigureKeys("timeline", { events: [] })).toEqual([]);
+    expect(unknownFigureKeys("decision", { options: [], text: ["we chose"] })).toEqual([]);
+    // Every live figure's question reads sort and direction (figure-live's liveAsk), so each says it takes them.
+    expect(unknownFigureKeys("check", { query: "type=crate", sort: "title", direction: "asc" })).toEqual([]);
+    expect(unknownFigureKeys("tabs", { query: "type=crate", sort: "title", direction: "asc" })).toEqual([]);
+    // A calendar's day bracketed as today (figure-props' monthOf).
+    expect(unknownFigureKeys("calendar", { today: "2026-03-11" })).toEqual([]);
+    expect(unknownFigureKeys("calendar", { todya: "2026-03-11" })).toEqual(["doesn't take todya: did you mean today?"]);
+  });
 });

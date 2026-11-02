@@ -408,9 +408,13 @@ describe.skipIf(!outliner)("mirror interrupted snapshots and forwards", () => {
       expect(deleted).not.toBe("");
       const manifest = copy.manifest();
       expect(manifest.leftOut).toEqual([]);
-      expect(manifest.files).toHaveLength(notes.size);
       const contents = manifest.files.map(file => readFileSync(join(dir, file), "utf8"));
       for (const [id, text] of notes) expect(contents.some(content => content.includes(`id: "${id}"`) && content.includes(text)), id).toBe(true);
+      // Beside the test's notes, only the pages the host writes for itself: a default-on extension's (what-changed,
+      // PIE-1506) are written once the host has started, after beforeAll's clearing, so they are the outline's too.
+      const others = contents.filter(content => ![...notes.keys()].some(id => content.includes(`id: "${id}"`)));
+      expect(others.map(content => /^actor: "(.*)"$/m.exec(content)?.[1])).toEqual(others.map(() => "ext:extension-pages"));
+      expect(manifest.files).toHaveLength(notes.size + others.length);
     } finally { await copy.stop(); await proxy.close(); }
   }, 30_000);
 
