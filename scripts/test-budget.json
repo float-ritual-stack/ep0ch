@@ -1,0 +1,64 @@
+{
+  "about": "Seconds of summed test time (each file's JUnit <testsuite> time, hooks included) a nightly run may take: per package (total), any one file (file), and files with a budget of their own (files). Over any of them, the nightly is red; at 80% of a total, a warning. Only Evan raises it; scripts/test-budget.ts propose prints a new one (PIE-1422).",
+  "estimated": true,
+  "measured": "2026-11-03: float-box's own per-test times from that night's nightly log (main 60d13be78, the door at --parallel=8), each file's hooks added from CI's JUnit of 2026-11-01 (main d2501da62) scaled to float-box, plus 25%; outline-core's total is a 30 s floor",
+  "packages": {
+    "door": {
+      "total": 10223,
+      "file": 60,
+      "files": {
+        "test/action-pages.test.ts": 67,
+        "test/box-test-limits.test.ts": 208,
+        "test/claude-mod-contract.test.ts": 119,
+        "test/cli-words.test.ts": 72,
+        "test/find-export.test.ts": 85,
+        "test/home.test.ts": 69,
+        "test/install-migrate.test.ts": 186,
+        "test/link.test.ts": 71,
+        "test/mounts.test.ts": 105,
+        "test/notes-cli.test.ts": 74,
+        "test/overlay-hits.test.ts": 202,
+        "test/parity-board.test.ts": 595,
+        "test/parity-desk-tiles.test.ts": 464,
+        "test/parity-desk.test.ts": 561,
+        "test/parity-readers.test.ts": 744,
+        "test/parity-screens.test.ts": 358,
+        "test/parity-showcase.test.ts": 329,
+        "test/runtime.test.ts": 82,
+        "test/scratch-processes.test.ts": 61,
+        "test/session.test.ts": 99,
+        "test/setup.test.ts": 205,
+        "test/showcase/agent-focus.test.ts": 81,
+        "test/showcase/collection.test.ts": 70,
+        "test/showcase/desk.test.ts": 67,
+        "test/showcase/extensions.test.ts": 105,
+        "test/showcase/facets.test.ts": 83,
+        "test/showcase/figures.test.ts": 62,
+        "test/showcase/glass.test.ts": 64,
+        "test/showcase/hints.test.ts": 84,
+        "test/showcase/layout.test.ts": 61,
+        "test/showcase/neat-builtin.test.ts": 75,
+        "test/showcase/neat-probe.test.ts": 149,
+        "test/showcase/reset.test.ts": 66,
+        "test/showcase/runbook.test.ts": 73,
+        "test/showcase/scripts-in-place.test.ts": 65,
+        "test/showcase/scripts.test.ts": 121,
+        "test/showcase/sections.test.ts": 74,
+        "test/theme-contrast.test.ts": 100,
+        "test/try-it.test.ts": 106
+      }
+    },
+    "outliner": {
+      "total": 1224,
+      "file": 60,
+      "files": {
+        "test/agent-tools.test.ts": 92,
+        "test/web-signin.test.ts": 98
+      }
+    },
+    "outline-core": {
+      "total": 30,
+      "file": 60
+    }
+  }
+}

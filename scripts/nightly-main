@@ -5,6 +5,12 @@
 #
 #   scripts/nightly-main            test origin/main's head; green: a row in nightly.tsv; red: one ticket listing the red files
 #
+# The test-time budget (PIE-1422, scripts/test-budget.ts against scripts/test-budget.json at main): over it, the night
+# is red and one ticket, "Over test budget: investigate", carries the files that grew since the last green night; at 80%
+# of a package's total, a warning line goes under the day's build log; so does an over-budget night while the budget
+# still says `"estimated": true` (never measured): a warning and the measured budget, not a red night. A green night within budget keeps its times as
+# the next night's comparison (last-green.tsv beside nightly.tsv). The row's seventh column is the budget's verdict.
+#
 # Red on main is a ticket, never a rerun (AGENTS.md). The ticket goes to pie's queue, high, as loki, with the log's path
 # and each red file once. Nov 2: the run the docs promised wasn't scheduled anywhere, and 13 merges on Oct 31 left main
 # red for 34 hours before anyone saw it.
@@ -24,8 +30,52 @@ secs=$(( $(date +%s) - start ))
 # The files that failed: the file header bun prints before a run of tests, kept when a (fail) line follows it.
 red=$(awk '/\.test\.ts:$/{f=$0; sub(/:$/, "", f)} /^\(fail\)/{if (f != "") print f}' "$log" | sort -u)
 count=$(printf '%s' "$red" | grep -c . || true)
-printf '%s\t%s\t%s\t%ss\t%s\t%s\n' "$(date -u +%FT%TZ)" "${sha:0:12}" "$code" "$secs" "$count" "$log" >> "$dir/nightly.tsv"
-[ "$code" = 0 ] && exit 0
+
+# The budget: the comparison box-test printed at the end of the log, decided here (0 within, 3 near, 4 over, 5 none).
+md=$(mktemp) line=$(mktemp)
+bun "$repo/scripts/test-budget.ts" compare --log "$log" --budget-at "$sha" --last "$dir/last-green.tsv" --markdown "$md" --line "$line" >/dev/null
+budget=$?
+case $budget in 0) verdict=ok;; 3) verdict=near;; 4) verdict=over;; *) verdict=none;; esac
+# Over a budget still marked estimated (never measured): a warning like near, never red; its line says so.
+[ "$verdict" = ok ] && grep -q '^over the estimated' "$line" && verdict=estimated
+# A green night within budget is the next one's "since the last green night".
+if [ "$code" = 0 ] && [ "$verdict" != over ] && grep -q "^test-time	" "$log"; then
+  { echo "# $day ${sha:0:12}"; grep "^test-time	" "$log"; } > "$dir/last-green.tsv.new" && mv "$dir/last-green.tsv.new" "$dir/last-green.tsv"
+fi
+final=$code
+[ "$final" = 0 ] && [ "$verdict" = over ] && final=4
+printf '%s\t%s\t%s\t%ss\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "${sha:0:12}" "$final" "$secs" "$count" "$log" "$verdict" >> "$dir/nightly.tsv"
+
+cli() { EP0CH_WS=pie EP0CH_MACHINE=float-2 bun "$repo/packages/outliner/src/cli.ts" "$@"; }
+if [ "$verdict" = near ] || [ "$verdict" = estimated ]; then
+  # Under the day's build log (yesterday's when today's isn't written yet at 04:00).
+  under=
+  for d in "$day" "$(date -d yesterday +%F)"; do
+    under=$(cli list --query "type=build-log AND day=$d" --fields id --limit 1 2>/dev/null | jq -r '.blocks[0].id // empty')
+    [ -n "$under" ] && break
+  done
+  if [ -n "$under" ]; then
+    cli create --parent "$under" --text "Nightly $day (main \`${sha:0:12}\`): $(cat "$line"). The log: \`$log\` on float-box. [type::test-budget]" \
+      --author agent --actor loki >/dev/null || echo "nightly-main: the build log's warning line failed: $(cat "$line")" >&2
+  else echo "nightly-main: no build log for $day or the day before to warn in: $(cat "$line")" >&2; fi
+fi
+if [ "$verdict" = over ]; then
+  body=$(mktemp)
+  {
+    echo "Evan opens the nightly result and sees over test budget: investigate, with the files that grew since the last green night, before the suite creeps back to 60 minutes."
+    echo
+    echo "- **The run:** main \`${sha:0:12}\`, $day, $((secs / 60)) min of wall time on float-box; $(cat "$line")."
+    echo "- **The budget:** \`scripts/test-budget.json\` at main; only Evan raises it."
+    echo
+    cat "$md"
+  } >"$body"
+  cli work create --title "Over test budget on $day: investigate" \
+    --project pi-outliner --arc floor --track tests --priority high --stage queued --new \
+    --body-file "$body" --author agent --actor loki >/dev/null || echo "nightly-main: filing the over-budget request failed; the log is $log" >&2
+  rm -f "$body"
+fi
+rm -f "$md" "$line"
+[ "$code" = 0 ] && exit "$final"
 
 body=$(mktemp)
 {
@@ -42,7 +92,7 @@ body=$(mktemp)
   echo "- Each file above passes alone on main, fixed at its cause (the merge that changed it, by bisect), red first."
   echo "- The next night's run is green."
 } >"$body"
-EP0CH_WS=pie EP0CH_MACHINE=float-2 bun "$repo/packages/outliner/src/cli.ts" work create \
+cli work create \
   --title "Main is red on $day: $count files fail in the nightly run" \
   --project pi-outliner --arc floor --track tests --priority high --stage queued --new \
   --body-file "$body" --author agent --actor loki >/dev/null || echo "nightly-main: filing the ticket failed; the log is $log" >&2

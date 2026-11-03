@@ -55,6 +55,7 @@ Before a PR claims a change works:
    run under `claude plugin test` (`claude` on PATH).
    - **Focused runs on float-2** go through `scripts/agent-env <name> --test -- timeout 900 bun test <files>`: two at
      once on the machine at most (`EP0CH_TEST_SLOTS`), each capped in a systemd user scope (`EP0CH_TEST_CPU`,
+     `EP0CH_TEST_MEM`, default 3G, of which node may use all but 512 MB as heap; a run that runs out says so and names
      `EP0CH_TEST_MEM`), in the foreground, never `--parallel`. Each door `parity-*` file takes two to four minutes
      whole (a scenario is held to `PARITY_BUDGET_MS`, 60 s); run the scenarios you touched with `PARITY_ONLY` (see the
      ep0ch-core skill). Name the files from the package or from the root (`packages/door/test/edit.test.ts`): from the
@@ -62,6 +63,11 @@ Before a PR claims a change works:
    - **The nightly run on main** is `scripts/nightly-main`, started by the float-box user timer `ep0ch-nightly.timer`
      at 04:00: `box-test --each all` on origin/main's head, a row in `~/.local/state/ep0ch/nightly/nightly.tsv`, and on red
      one high ticket in pie naming every red file.
+   - **The test-time budget** (PIE-1422) is `scripts/test-budget.json`: summed seconds per package and per test file,
+     read from the JUnit each box-test run writes, so more shards or `--parallel` can't hide growth. box-test prints the
+     comparison after the suites (`scripts/test-budget.ts`); the nightly goes red over it ("over test budget:
+     investigate", a ticket listing the files that grew since the last green night) and writes a warning under the
+     build log at 80%. Only Evan raises it: the repo mod refuses an agent's change to the file.
    - **Whole suites** (loki's merge batch, the nightly run on main) go through
      `scripts/box-test [--on float-box|boxd] [--each] [door|outliner|outline-core|claude-mod|all]`: float-box when it
      answers, else a boxd fork of the golden box (`--refresh-golden` rebuilds it after a `bun.lock` change). It runs
