@@ -340,7 +340,7 @@ describe("the BBS screens with keys and no mouse, until now", () => {
 });
 
 describe("the desk's screens are left by mouse too: the hint row's keys are clickable", () => {
-  for (const name of ["who", "lastcall", "waiting", "brief", "welcome", "river"]) test(`${name}: a click on "q menu" goes back, as q does`, async () => {
+  for (const name of ["who", "lastcall", "brief", "welcome", "river"]) test(`${name}: a click on "q menu" goes back, as q does`, async () => {
     const s = on(new MainMenu());
     const desk = openScreen(name);
     s.stack.push(desk); desk.enter?.(s.ctx);

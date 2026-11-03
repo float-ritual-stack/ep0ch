@@ -48,6 +48,7 @@ import { FramedScreen } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
 import { terminalSections } from "./restart";
+import { kindSections } from "./kinds";
 import { AgentsPane } from "../desk/agents-panel";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -279,7 +280,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "zoom", need: "zoom into part of a note: a figure, a table or a heading's section fills the reader, interactive at full size; back returns to the whole note as it was", part: "the reader's element.zoom (PIE-780): the part element.detach would take, as the service finds it (fragments.at, outliner src/fragments.ts elementAt, never a part rule of the door's), read by the same reading render over only its lines (NoteSurface.foldsIn); where the reader was goes on its back trail (back, forward, saved with the layout); the ⤢ control the renderer places at a part's right edge (Doc.parts)",
-    files: "outliner src/fragments.ts (elementAt), outliner src/store.ts (partAt), src/surface/note.ts (zoomInto, unzoom, element.zoom), src/doc.ts (Doc.parts), src/surface/attached-keys.ts (ZOOM_KEYS)",
+    files: "outliner src/fragments.ts (elementAt), outliner src/store.ts (partAt), src/surface/note.ts (zoomInto, unzoom, element.zoom), src/doc.ts (Doc.parts), src/surface/reader-keys.ts (ZOOM_KEYS, READER_KEYS)",
     aside: "click in the figure, the table or a section, then the ⤢ that shows at its right edge: that part fills the reader, the figure's rows still open notes · W zooms into the part the [ ] position (or the reading line) is in · esc, alt+←, ⌫ or a click on the ⤢ row at the top comes back, scrolled as it was; alt+→ zooms in again · agents: act element.zoom tile=plan line=4, act element.zoom tile=plan on=false",
     stage(n, show) {
       const plan = new ReaderPane();
@@ -531,24 +532,7 @@ export const SECTIONS: Section[] = [
     aside: "the brief here is its spec: one tile of the brief kind, which knows the briefs and steps them (, .); `act screen.spec` reads it as the data a note would hold · the Welcome (C on the menu) is one too: notes marked [welcome::true], in its Welcome view's hand-set order (alt+↑ alt+↓ or a drag in its list, `act welcome.move`), the first read when it opens; this outline seeds two · the home base is a spec the same way (`home`): bare `ep0ch` in a folder that names no outline (no --ws, EP0CH_WS or .ep0ch) opens it, to open, make or import one here or on a machine; `--machine box-a --ws fern` where box-a has no fern makes nothing there: the home base says so and offers the one here, creating it there (`home.new name=fern machine=box-a`, or `--create`), or `home.cancel`",
     stage: () => openScreen("brief"),
   },
-  {
-    key: "kinds", need: "add a kind of tile (a built-in, or an extension's whole tile); fill a container from data", part: "the tile-kind registry: registerTileKind, one TileKind entry per kind (make, keys, actions, policy, accepts, save); serviceKind for a tile the service draws; a tile source fills columns (hub:<id>, one query tile per view)", files: "src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/query.ts",
-    aside: "the left tile is a service-drawn kind (ServiceTile) whose rows are the registry itself; an extension's kind registers the same way (PIE-507, PIE-1506): tiles[] with run (a program in a terminal), render (a shipped render script's view, its list the door's one ListView: the what-changed extension's list in the changes section, ^W o W) or view (a query, as a query tile). Over the reader, columns filled from the house board's hub: a query tile per view, as the board's lanes are",
-    stage(n, show) {
-      // The registry listed by a tile drawn the way an extension's is: its render answers rows, the door draws them.
-      const list = serviceKind({
-        kind: "showcase.kinds", about: "the registry, listed",
-        render: async req => ({
-          title: "tile kinds",
-          lines: tileKinds().flatMap(k => [`${fg(C.lcyan)}${k.kind}${RESET}${k.keys?.length ? ` ${fg(C.dark)}^W o ${k.keys.map(x => x.key).join(" ")}${RESET}` : ""}`, `  ${fg(C.grey)}${k.about}${RESET}`]),
-        }),
-      }).make({ kind: "showcase.kinds" });
-      const r = new ReaderPane();
-      // The hub's views as query tiles: a columns container its tile source (hub:<id>) fills, as the board's lanes.
-      const lanes = n.hub ? [columnsOf<number>([], { key: "lanes", source: `hub:${n.hub.id}` })] : [];
-      return deskOf({ title: "showcase · kinds", panes: [list, r], layout: ([a, b]) => pair("row", 0.4, leaf(a!), lanes.length ? splitOf("col", [...lanes, leaf(b!)], [0.45, 0.55]) : leaf(b!)) }, show, [[r, n.notebook]]);
-    },
-  },
+  ...kindSections({ deskOf, row }),
   {
     key: "echonet", need: "read echomail: the message areas of every outline the door reaches (named views and tagged notes, and each subscription's source boards), a message with its FidoNet footer, the nodelist (EchoNet, PIE-779)",
     part: "a screen spec of four kinds (echo.areas, the model and the band; echo.messages; echo.reader, a ReaderPane with SurfaceHost.header and .footer on its outline's board; echo.nodelist), every list a blocks.query, new by unread:me, a message read by blocks.markRead; r and q in the shared composer (passage.act); a newer original is taken with the echonet extension's own actions",
@@ -1317,8 +1301,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "made", need: "make a screen of your own: start blank, build it, save it, open it by name", part: "the blank screen (one tile whose rows are blank.fill and blank.screens, the layout's replace) and screen notes: screen.save writes the screen as a [type::screen] note, its spec as data, which every door on the outline registers (screen.open, --screen, ^W r)", files: "src/desk/blank.ts, src/desk/screen-notes.ts, src/desk/screen-spec.ts, src/desk/tile-actions.ts",
-    aside: "a blank screen: t r d s Q (or a click on a row) puts the outline, a reader, a detail, a terminal or a query lane in its place; ^W o, ^W v and alt+l build the rest; ^W w saves it as a screen note in this outline, and `ep0ch --screen <name>`, screen.open or the blank tile's o opens it again · name it the way you'd say it (allotment work is kept as typed and opened as allotment-work too; the prompt shows what it saves as, or why it can't, as you type) · `act blank.fill kind=tree tile=blank`, then `act screen.save name=allotment-work`: an agent builds and saves one the same way, and the answer says the slug",
+    key: "made", need: "make a screen of your own: start blank, build it, save it, open it by name", part: "the blank screen (one tile whose rows are blank.fill and blank.screens, the layout's replace) and screen notes: screen.save writes the screen as a [type::screen] note, its spec as data, which every door on the outline registers (screen.open, --screen, ^W r)", files: "src/desk/blank.ts, src/desk/screen-notes.ts, src/desk/screen-spec.ts, src/desk/tile-actions.ts, src/screens.ts (menuItems)",
+    aside: "a blank screen: t r d s Q (or a click on a row) puts the outline, a reader, a detail, a terminal or a query lane in its place; ^W o, ^W v and alt+l build the rest; ^W w saves it as a screen note in this outline, and `ep0ch --screen <name>`, screen.open or the blank tile's o opens it again · name it the way you'd say it (allotment work is kept as typed and opened as allotment-work too; the prompt shows what it saves as, or why it can't, as you type) · `act blank.fill kind=tree tile=blank`, then `act screen.save name=allotment-work`: an agent builds and saves one the same way, and the answer says the slug · on the main menu: the saved screen's ⋯ (or the power bar) has \"add to the main menu\": a key and a label (Y Allotment), written into its note so every door shows the row; `act screen.menu key=Y label=Allotment`, off=true takes it away",
     stage() { return openScreen("blank", { persist: false }); },
   },
   {

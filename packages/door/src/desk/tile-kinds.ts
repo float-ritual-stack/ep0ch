@@ -22,7 +22,7 @@ import { ListView, listRowsOf, PERSON, type ListHandle, type ListViewRow } from 
 import { C, fg, RESET } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { wrap } from "../text";
-import type { Policy } from "./screen-layout";
+import type { Policy, TileFacts } from "./screen-layout";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import { PtyPane, type PtySpec } from "./pty";
 import type { TileSpec } from "./tiles";
@@ -46,6 +46,32 @@ export interface TileEnv {
   followers(): Pane[];
   /** It was moved here whole (from another screen, or the drawer): it keeps what it shows, whatever is here. */
   moved?: boolean;
+}
+
+/**
+ * What a tile says about itself for the layout's rules (PIE-1523): the kind answers (`TileKind.facts`) and the desk
+ * merges it with what only the desk knows (its wires, its sources, who asks), so the layout never asks which class a
+ * tile is. An extension's kind answers the same way, from its manifest's `holds`.
+ */
+export type KindFacts = Pick<TileFacts, "editing" | "running" | "holds" | "pinned" | "history" | "lists"> & {
+  /** It keeps a session the person's keys go into (a reader's edit or comment, kept or not; an extension tile that holds them): no note is sent into it. */
+  holdsKeys?: boolean;
+  /**
+   * The person types in it now, with their keys on it (an extension tile that holds them): the typing rule's tile, as a
+   * terminal they're in is. A reader's edit is the desk's to say (whether they entered it), so a reader leaves it out.
+   */
+  typing?: boolean;
+  /** It keeps the note opened into it unless a list feeds it (a reader the person owns): the desk says whether it's held now. */
+  holdable?: boolean;
+};
+/** What a kind's `facts` is asked with. */
+export interface KindFactsAsk {
+  /** The person's keys are on the tile (its desk's focus). */
+  keys: boolean;
+  /** The person acting may leave its draft (a new note's tile closes with its edit, PIE-591): the draft isn't an edit to keep. */
+  leavesDraft?: boolean;
+  /** Who asks: an agent, or the person (left out: the layout itself). */
+  actor?: Actor;
 }
 
 /** A key under `^W o` (`^W O` as a tab) that opens a tile of the kind, with what it starts with. */
@@ -154,6 +180,11 @@ export interface TileKind {
   holdsWork?(p: Pane): boolean;
   /** What it shows or has selected (a reader's note, the tree's row, a board's card), for followers and marks. */
   shows?(p: Pane): Msg | null;
+  /**
+   * What a tile of it is now, as the layout's rules ask (PIE-1523): an edit it holds, a program running, the person's
+   * keys in it, a pin. Placement, the typing rule, closing and the select wires read only this, never the tile's class.
+   */
+  facts?(p: Pane, ask: KindFactsAsk): KindFacts;
   /** The tile joins a live desk: it reads what it needs (a detail its note, a preview its source). */
   start?(p: Pane, env: TileEnv): void;
   /** What `layout.get` and `peek` add about it (a preview's source, a terminal's program). */
@@ -284,8 +315,27 @@ export interface AimedList extends Pane { source: string; show(m: Msg, desk: Des
 export const tileKinds = (): TileKind[] => [...registry.values()];
 /** A pane's entry (a pane a view brought that isn't registered, the showcase's exhibit, has none). */
 export const kindOf = (p: Pane | undefined): TileKind | undefined => (p ? registry.get(p.kind) : undefined);
+
+/** A note sent by a wire or a preview doesn't land in it now: it holds an edit, or the person's keys. */
+export const busyFor = (f: KindFacts): boolean => !!(f.editing || f.holdsKeys);
+/** A terminal tile's facts (the built-in terminal kind's, and an extension's program tile's): the program running in it. */
+export const terminalFacts = (p: Pane): KindFacts => (p instanceof PtyPane && p.running ? { running: p.run.cmd[0] ?? "a program" } : {});
+/**
+ * An extension kind's declared holds (its manifest's `holds`, PIE-1523): while the person's keys are on a tile of it,
+ * it holds them (the typing rule: an agent doesn't move, resize, float or close it, and no open lands in it), and to an
+ * agent it holds `edit` when named.
+ */
+export const declaredFacts = (holds: ServiceHolds | undefined) => (_p: Pane, ask: KindFactsAsk): KindFacts =>
+  !holds?.keys || !ask.keys ? {} : { holdsKeys: true, typing: true, holds: true, ...(holds.edit && ask.actor?.kind === "agent" ? { editing: holds.edit } : {}) };
+/** What an extension's tile kind declares it holds (`extension.json`'s `tiles[].holds`). */
+export interface ServiceHolds { keys?: boolean; edit?: string }
 /** A pane's entry, or the one its kind had before it went away (its tile still runs what that kind made). */
 export const lastKindOf = (p: Pane | undefined): TileKind | undefined => (p ? registry.get(p.kind) ?? wentAway.get(p.kind) : undefined);
+/**
+ * What tile `p`'s kind says it is now (`TileKind.facts`); nothing for a kind that says nothing. A kind taken out while
+ * its tile lives on (an extension removed with its program running) still answers, as `lastKindOf` does for the desk.
+ */
+export const factsOf = (p: Pane | undefined, ask: KindFactsAsk = { keys: false }): KindFacts => lastKindOf(p)?.facts?.(p!, ask) ?? {};
 /** A kind's action sets: its own, then the ones it shares. */
 export const kindActions = (k: TileKind | undefined): ActionSet<any, KindHost>[] => (k ? [...(k.actions ? [k.actions] : []), ...(k.inherits ?? [])] : []);
 /** Every kind's action sets, each once (a shared one is listed once). */
@@ -495,7 +545,9 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
           // The first list is the tile's: its rows go to the one ListView, which keeps the pick and the filter across redraws.
           if (this.listNode) { const v = new ListView("other"); v.set(listRowsOf(node)); return v.draw({ primitive: node, cols: width, lines: 2, focused: false, selection: false, empty: node.empty }).lines; }
           this.listNode = node;
+          const was = this.list.picked()?.id;
           this.list.set(listRowsOf(node));
+          this.showFirst(desk, was);
           const d = this.list.draw({ primitive: node, cols: width, lines: 2, focused, selection: true, room: h, empty: node.empty ?? "nothing here" });
           return d.lines.map((l, i) => markRow(d.rowAt[i] ?? null) + l);
         },
@@ -506,6 +558,21 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
     const lines = drawn.map((l, i) => (marked[i] ? l.slice(marked[i]![0].length) : l));
     return { lines: lines.slice(0, h) };
   }
+  /** The row last handed to the previews (a pick, or showFirst), so a redraw never asks twice. */
+  private shownFirst: string | null = null;
+  /**
+   * The picked row, to the previews its select wire feeds (PIE-1525), through the same path a pick takes: while they show
+   * nothing yet (Waiting's reader shows the longest wait as it opens, as the tree shows its first row), and when the
+   * rows that came back moved the pick off the row they showed (that ask was answered and left the list).
+   */
+  private showFirst(desk: DeskApi, was: string | undefined) {
+    const row = this.list.picked();
+    if (!row || row.id === this.shownFirst || !listOpenTarget(row)?.block || desk.shownNow?.(this) === false) return;
+    const moved = was !== undefined && was === this.shownFirst && row.id !== was;
+    if (!moved && !desk.previewsEmpty?.(this)) return;
+    this.shownFirst = row.id;
+    void this.listHost(desk).picked(this.handle(desk), row);
+  }
   /** The picked row's note: what the tile is about (an extension's block action on it, `note.trash`, a wire's select). */
   subject(): string | null { const row = this.list.picked(); const to = row ? listOpenTarget(row) : null; return to?.block ?? null; }
   /** The list as the lists' actions run over it (`list.*`, PIE-747): one handle, the tile's own. */
@@ -513,7 +580,7 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
     return { n: 1, key: "service", title: this.title(), view: this.list, entered: !!desk.hasFocus?.(this), describeRow: (row, n) => ({ n, ...(listOpenTarget(row)?.block ? { id: listOpenTarget(row)!.block! } : {}) }) };
   }
   listHost(desk: DeskApi): ListHost {
-    const show = async (row: ListViewRow, by: Actor) => { const id = listOpenTarget(row)?.block; const m = id ? await desk.ctx.board.get(id) : null; if (m && desk.showFrom && this.list.picked()?.id === row.id) desk.showFrom(this, m, by); desk.redraw(); };
+    const show = async (row: ListViewRow, by: Actor) => { if (by.kind !== "agent") this.shownFirst = row.id; const id = listOpenTarget(row)?.block; const m = id ? await desk.ctx.board.get(id) : null; if (m && desk.showFrom && this.list.picked()?.id === row.id) desk.showFrom(this, m, by); desk.redraw(); };
     return {
       lists: () => (this.listNode ? [this.handle(desk)] : []),
       current: () => "service",
@@ -633,8 +700,9 @@ export type ServiceArgs = Record<string, { type: string; description?: string }>
  * program the service names (`program`, a terminal tile of that kind with the terminal kind's own hooks). `args` are
  * what a tile of it is opened and saved with; a `block` arg is the note read where it's opened.
  */
-export function serviceKind(o: { kind: TileKindName; about: string; noun?: string; render?: ServiceRender; view?: string; program?: ServiceProgram; args?: ServiceArgs; keyHint?: readonly string[]; /** A drawn tile's keys to its actions (an extension's `d`): pressed in it, the action runs on the picked row. */ keyActions?: Readonly<Record<string, string>>; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[]; actions?: TileKind["actions"]; replaces?: readonly TileKindName[] }): TileKind {
-  const base = { kind: o.kind, about: o.about, noun: o.noun, keys: o.keys, policy: o.policy, accepts: o.accepts, actions: o.actions, replaces: o.replaces };
+export function serviceKind(o: { kind: TileKindName; about: string; noun?: string; render?: ServiceRender; view?: string; program?: ServiceProgram; args?: ServiceArgs; keyHint?: readonly string[]; /** A drawn tile's keys to its actions (an extension's `d`): pressed in it, the action runs on the picked row. */ keyActions?: Readonly<Record<string, string>>; policy?: Policy; accepts?: TileKind["accepts"]; keys?: readonly KindKey[]; actions?: TileKind["actions"]; replaces?: readonly TileKindName[]; /** What its tiles hold while the person's keys are on one (PIE-1523). */ holds?: ServiceHolds }): TileKind {
+  const declared = declaredFacts(o.holds);
+  const base = { kind: o.kind, about: o.about, noun: o.noun, keys: o.keys, policy: o.policy, accepts: o.accepts, actions: o.actions, replaces: o.replaces, facts: declared };
   const prog = o.program;
   const args = o.args ?? prog?.args ?? {};
   const blockArg = Object.entries(args).find(([, a]) => a.type === "block")?.[0];
@@ -687,6 +755,7 @@ export function serviceKind(o: { kind: TileKindName; about: string; noun?: strin
     save: p => (p instanceof ProgramTile || p instanceof UnavailableTile ? (Object.keys(p.state).length ? { state: p.state } : {}) : {}),
     defaults,
     holdsWork: p => p instanceof PtyPane && p.running,
+    facts: (p, ask) => ({ ...terminalFacts(p), ...declared(p, ask) }),
     // The terminal's own actions, keys and wait for its program, as a built-in terminal tile has them.
     ...(pty?.actions ? { inherits: [pty.actions] } : {}),
     ...(pty?.press ? { press: (p: Pane, k: Key) => (p instanceof PtyPane ? pty.press!(p, k) : null) } : {}),

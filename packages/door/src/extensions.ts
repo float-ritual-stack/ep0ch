@@ -32,10 +32,12 @@ import { printable } from "./text";
 import { partyOf, UndoHistory } from "./steps";
 import { closest } from "./cli-words";
 import { slotPairs, slotWords } from "@ep0ch/outline-core/action-line";
+import { READER_OWN_KEYS } from "./surface/reader-keys";
 import { ActionRefused, ActionSet, actionSet, asActor, def, FREE_ARGS, shownLine, type ActionDef } from "./surface/actions";
 import { explainNotInstalled, nameAlso } from "./surface/dispatch";
-import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
+import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type ServiceHolds, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/screen-layout";
+import { forgetScreen, readSpec, registerScreen, screenHolder, screenNames, specData, useInstallableScreens, type ScreenSpec } from "./desk/screen-spec";
 import type { DeskApi, Pane } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
 import { barSources, openNote, registerBarSource, unregisterBarSource, type BarSource } from "./bar/source";
@@ -107,6 +109,8 @@ export interface ExtensionEntry {
   partOf?: string;
   /** The door module its manifest names (PIE-1505, `"door": "glass"`): run in the door's process while it's served (src/door-modules.ts). */
   door?: string;
+  /** Its screens (PIE-1525, `screens[]`): specs as data, registered while it's served and gone when it stops (bindScreens). */
+  screens?: unknown[];
 }
 export interface ExtensionScheduleEntry {
   entry: string; every?: string; cron?: string; next: string; running?: boolean;
@@ -127,6 +131,8 @@ export interface ExtensionTileKind {
   save?: string;
   /** Retired kinds this one serves in place of (PIE-1514): a saved tile of one opens as this kind. */
   replaces?: string[];
+  /** What a tile of it holds while the person's keys are on it (PIE-1523): the keys, and an edit an agent is told of. */
+  holds?: ServiceHolds;
 }
 /**
  * A rule (PIE-600) as `extensions.list` names it: an extension's (`ext:<id>/<rule>`) or a rule note's
@@ -144,7 +150,7 @@ export interface RuleEntry {
 }
 export type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource };
 /** One of the repo's extensions that isn't installed here (`extensions.list`'s `available`): what installing would add. */
-export interface AvailableExtension { id: string; name: string; version: number; description?: string; scripts?: { name: string; file: string; about: string }[]; door?: string }
+export interface AvailableExtension { id: string; name: string; version: number; description?: string; scripts?: { name: string; file: string; about: string }[]; door?: string; /** The screens it would add, by name (PIE-1525). */ screens?: string[] }
 export interface ExtensionList {
   generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; barSources?: ExtensionBarSource[]; primitives?: string[]; targets?: string[]; rules?: RuleEntry[]; ruleProblems?: string[];
   /** The outline's Extensions hub, and each extension's page (README, what it adds, demo notes under it), by id. */
@@ -381,12 +387,8 @@ export function handlerActions(extension: string, handler: string): ExtensionAct
   return [...on.filter(a => !a.builtIn), ...on.filter(a => a.builtIn)];
 }
 
-/**
- * The keys a reader keeps while one of its elements is current: an extension's key never shadows them (it
- * still runs by a click on its control and by `act`). Navigation, `r` (run again), `y` (copy) and the rest of
- * the reader's own (README "Reading a note").
- */
-export const READER_OWN_KEYS = new Set("[]()fFuUrRSt~\"yYvViICcmMAXezjkhlqgGbO/?nN0123456789 ,".split(""));
+/** The keys a reader keeps while one of its elements is current: read from the reader's table (src/surface/reader-keys.ts). */
+export { READER_OWN_KEYS };
 
 /**
  * The action a key runs on a handler line: one the line has, bound to a single printable character that
@@ -862,7 +864,7 @@ function kindEntry(t: ExtensionTileKind, actions: ActionSet<Record<string, ExtAr
   const keyHint = t.actions.flatMap(a => (keyOf(a.key) ? [`${keyOf(a.key)} ${a.id}`] : []));
   // `accepts` names the kinds that may join a tile of it as tabs or drops; an empty one (the manifest's default) leaves it
   // open, as a built-in's does, so the drawer can open its lists as tabs beside an extension's tile.
-  const shared = { kind: t.kind, noun: t.name, ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}), ...(t.policy ? { policy: t.policy } : {}), accepts: { notes: false, ...(t.accepts?.length ? { tiles: t.accepts } : {}) }, actions, ...(t.replaces?.length ? { replaces: t.replaces } : {}) };
+  const shared = { kind: t.kind, noun: t.name, ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}), ...(t.policy ? { policy: t.policy } : {}), accepts: { notes: false, ...(t.accepts?.length ? { tiles: t.accepts } : {}) }, actions, ...(t.replaces?.length ? { replaces: t.replaces } : {}), ...(t.holds ? { holds: t.holds } : {}) };
   if (t.render) {
     const of = t.render;
     return serviceKind({
@@ -871,7 +873,9 @@ function kindEntry(t: ExtensionTileKind, actions: ActionSet<Record<string, ExtAr
       args: t.args ?? {}, keyHint, keyActions: Object.fromEntries(t.actions.flatMap(a => (keyOf(a.key) ? [[keyOf(a.key)!, a.name]] : []))),
       render: async req => {
         const r = await req.desk.ctx.board.request<{ markdown: string; view?: unknown }>("scripts.render", { of, props: propsOf(req.state), deadlineMs: 15_000 }, 20_000);
-        return { title: t.name, ...(r.view !== undefined ? { view: r.view } : { lines: r.markdown.split("\n") }) };
+        // The list's own title (PIE-1525: "outbox · 3 waiting on 2 people"), else the kind's name.
+        const own = r.view && typeof r.view === "object" && typeof (r.view as { title?: unknown }).title === "string" ? oneLine((r.view as { title: string }).title) : "";
+        return { title: own || t.name, ...(r.view !== undefined ? { view: r.view } : { lines: r.markdown.split("\n") }) };
       },
     });
   }
@@ -930,6 +934,40 @@ function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
     },
   };
 }
+
+// ── screens from the service ─────────────────────────────────────────────────
+
+/** The screens this module registered (by name), with what they were made from (a changed spec is registered again). */
+const boundScreens = new Map<string, string>();
+
+/**
+ * Register the served extensions' screens (PIE-1525, `screens[]`): each read by `readSpec` as a screen note's is, under
+ * its own name, owned by its extension. One gone (its extension uninstalled or stopped) is forgotten, and a door showing
+ * it keeps the screen it has; a name a built-in, another extension or a screen note holds, or a spec that doesn't read,
+ * is said, never thrown.
+ */
+function bindScreens(served: readonly ExtensionEntry[], problems: string[]) {
+  const want = new Map<string, { extension: string; spec: ScreenSpec; print: string }>();
+  for (const e of served) for (const raw of e.screens ?? []) {
+    const named = raw && typeof raw === "object" && typeof (raw as { name?: unknown }).name === "string" ? (raw as { name: string }).name : "?";
+    let spec: ScreenSpec;
+    // An extension's words are its own, never escapes: its title and its menu row drawn as one clean line each.
+    try { spec = readSpec(raw); spec = { ...spec, title: oneLine(spec.title) || spec.name, ...(spec.menu ? { menu: { ...spec.menu, label: oneLine(spec.menu.label), ...(spec.menu.about ? { about: oneLine(spec.menu.about) } : {}) } } : {}) }; } catch (err) { problems.push(`${e.name ?? e.id}'s screen ${oneLine(named)} isn't registered: ${oneLine(err instanceof Error ? err.message : String(err))}`); continue; }
+    if (want.has(spec.name)) { problems.push(`${e.name ?? e.id}'s screen ${spec.name} isn't registered: ${want.get(spec.name)!.extension} has a screen by that name`); continue; }
+    want.set(spec.name, { extension: e.id, spec, print: `${e.id}|${JSON.stringify(spec)}` });
+  }
+  // The way back for a screen an extension the repo offers would add: what screen.open says of it.
+  useInstallableScreens(new Map((current?.available ?? []).flatMap(e => (e.screens ?? []).map(n => [n, `the ${e.name} extension adds it: ctrl+k, & and ⏎ on ${e.name}, or ep0ch act extensions.install id=${e.id}`] as [string, string]))));
+  for (const [name, print] of boundScreens) if (want.get(name)?.print !== print) { forgetScreen(name); boundScreens.delete(name); }
+  for (const [name, w] of want) {
+    if (boundScreens.has(name)) continue;
+    if (screenNames().includes(name)) { problems.push(`${w.extension}'s screen ${name} isn't registered: ${screenHolder(name)} has that name`); continue; }
+    const data = specData(w.spec);
+    registerScreen(name, () => readSpec(data), { extension: w.extension });
+    boundScreens.set(name, w.print);
+  }
+}
+
 
 /** The bar sources this module registered (by name), with what they were made from. */
 const boundBar = new Map<string, string>();
@@ -1032,6 +1070,7 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   // Door modules (PIE-1505): the ones the served extensions name run, the rest stop; a name the door doesn't ship is said.
   for (const name of useDoorModules(served.flatMap(e => e.door ? [e.door] : []))) problems.push(`${served.find(e => e.door === name)?.id} names door module ${name}, which this door doesn't ship (${shippedModules().join(", ")}); ep0ch install --apply brings the door's code up to date`);
   if (changed) kindsChanged();
+  bindScreens(served, problems);
   bindBar(next?.barSources ?? [], problems);
   // Said by name (PIE-1399): an extension's own, never a script it ships (`partOf`: its row is the extension's), never an id.
   const after = new Set(served.map(e => e.id));

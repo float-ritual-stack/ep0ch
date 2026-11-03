@@ -4,12 +4,13 @@ import { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, TRAIL_CHIP, HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
+import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { collectionAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
-import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS, hintOf, rk, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, chooseKeys, PLACEMENT_KEYS, FIELD_KEYS, CHILDREN_KEYS, replyHint, figureKeys, LET_GO_KEYS, gripKeys, backKeys } from "./attached-keys";
+import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS, hintOf, rk, chooseKeys, PLACEMENT_KEYS, FIELD_KEYS, CHILDREN_KEYS, replyHint, figureKeys, LET_GO_KEYS, gripKeys, backKeys } from "./attached-keys";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
@@ -4564,121 +4565,101 @@ export class NoteSurface {
     }
     const taken = this.modes.key(k, host);
     if (taken !== null) return taken;
-    // Back and forward (PIE-453): where the reader was before a follow, scrolled and with its [ ] position.
-    const dir = historyKey(k);
-    if (dir) { void this.runKey(dir < 0 ? "back" : "forward", {}, host); return true; }
-    if (isTrailKey(k)) { void this.runKey("trail", {}, host); return true; }
-    if (ch(k) === "~") { void this.runKey("decor.raw", {}, host); return true; }
     const c = ch(k);
     // An extension's line that is the current element (PIE-512): a key its actions answer to runs that
-    // action (`w` wards); the reader's own keys stay the reader's (READER_OWN_KEYS).
+    // action (`w` wards); the reader's own keys stay the reader's (READER_OWN_KEYS, read from READER_KEYS).
     const xe = c ? this.inView()?.link?.ext : undefined;
     const xa = xe ? handlerKeyAction(xe.extension, xe.handler, c, host.ownKeys) : undefined;
     if (xe && xa) { void this.pressExt(xa.name, xe, host); return true; }
-    // Selecting text (PIE-419): v starts the keyboard mode, y Y and cmd+c copy, esc lets go; the rest read on.
+    // The current element's own keys first: a selection's (PIE-419: v y Y cmd+c, esc), a collection row's (PIE-1501),
+    // a figure's, an image's (PIE-532).
     if ((c === "v" || c === "y" || c === "Y" || isCopyKey(k) || this.selection) && this.msg && this.selectKey(k, host)) return true;
-    if (host.attachment === "list-preview" && this.previewPoint()) {
-      if (isUp(k) || isDown(k)) { void this.runKey("list.preview.scroll", { by: isDown(k) ? 1 : -1 }, host); return true; }
-      if (ch(k) === "e") { void this.runKey("list.preview.edit", {}, host); return true; }
-    }
-    // e ctrl+e C m i I start a session: the note's action for that key (SESSION_ACTIONS), as the desk and the river run it.
-    if (c === '"' && this.msg) { void this.runKey("note.quote", {}, host); return true; }
-    const starts = this.msg ? sessionStart(k) : null;
-    if (starts) {
+    if (collectionKey(this, k, host)) return true;
+    const ek = this.figureKey(k) ?? this.imageKey(k);
+    if (ek) { void this.runKey(ek.name, ek.args as never, host); return true; }
+    const row = readerBinding(k, g => this.holds(g, host)); // then the reader's own (READER_KEYS): the first row whose guards hold
+    if (!row) { if (READER_SAYS[c]) { host.ctx.flash(READER_SAYS[c]!); return true; } return false; }
+    if (row.start) {
       // e and ctrl+e arm the edit first (edit.arm): ⏎ or the key again opens it.
-      if (armsEdit(starts)) { void this.runKey("edit.arm", starts === "external" ? { external: true } : {}, host); return true; }
+      if (armsEdit(row.start)) { void this.runKey("edit.arm", (row.args ?? {}) as never, host); return true; }
       // The edit and the comment say their own refusals (a flash, the draft's note); the panel's are said here.
+      const starts = row.start;
       void this.startAsPerson(starts, host).catch(e => { if (starts === "props" || starts === "props-full") host.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); host.redraw(); });
       return true;
     }
-    // c collapses where a pane can (the board's readers and lanes, which take it first); comment is C.
-    if (c === "c") { host.ctx.flash("nothing collapses here · C comments on a passage"); return true; }
-    // A: apply anyway (PIE-501), on the proposal shown, or the one whose embed or control is the current element.
-    if (c === "r" && this.msg && this.proposalOperations(this.currentProposal() ?? this.msg.id).includes("resolve")) { void this.proposalControl("resolve", undefined, host); return true; }
-    if (c === "A" && this.msg && (isOpenProposal(this.msg) || this.currentProposal())) { void this.proposalControl("apply", undefined, host); return true; }
-    // X: dismiss it (the proposal shown, or the one whose embed or control is the current element).
-    if (c === "X" && this.msg && (isOpenProposal(this.msg) || this.currentProposal())) { void this.proposalControl("dismiss", undefined, host); return true; }
-    // The current element (`[ ]`, `( )`, a click) is let go by esc and by moving on (scrolling, following,
-    // u), so ⏎ has its usual meaning again (in the board's preview: open the note in a detail). Then esc
-    // lets go of a focus mark someone set here.
-    if (k.kind === "esc" && (this.cur || this.link >= 0)) { void this.runKey("element.select", { n: 0 }, host); return true; }
-    if (k.kind === "esc" && this.focusMark) { void this.runKey("block.untint", {}, host); return true; }
-    // W zooms into the part the [ ] position or the reading line is in; esc then returns to the whole note (PIE-780).
-    const zk = modeBinding(ZOOM_KEYS, k);
-    if (zk && (zk.args?.on !== false || this.zoom) && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("element.zoom", zk.args ?? {}, host); return true; }
-    // The [ ] position on a collection's row (PIE-1501): its list keys, as a figure's rows have theirs; no mode.
-    if (collectionKey(this, k, host)) return true;
-    const fk = this.figureKey(k);
-    if (fk) { void this.runKey(fk.name, fk.args as never, host); return true; }
-    if (isUp(k) || isDown(k)) { void this.runKey("reading.step", { by: isUp(k) ? -1 : 1 }, host); return true; }
-    // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
-    // ctrl+z undoes the last step change made here.
-    if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: stepClosed(e.task.step.status) ? "todo" : "done" }, host, true); return true; } }
-    // ctrl+z undoes the last change made here, a step's status, a callout's header or an image's layout, whichever came last.
-    if (k.kind === "char" && k.ctrl && k.ch === "z") {
-      const at = this.msg?.id ?? "";
-      // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
-      if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
-      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["sources.undo", this.sourceHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)], ["settings.undo", SETTINGS_UNDO.last("you", at)]] as const)
-        .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "sources.undo" | "task.undo" | "ext.undo" | "note.move.undo" | "settings.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
-      // A note trashed after it comes back first (note.untrash). The layout isn't compared (PIE-1435): a tile moved elsewhere
-      // didn't happen to this note, so the desk's ctrl+z (layout.undo, or a trash newer than it) gets the key only when the
-      // reader has nothing of its own; with no layout change either, the reader's refusal says there's nothing to undo.
-      const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
-      if (trashedAt !== undefined && trashedAt > last.seq) {
-        return last.seq >= 0 && !!host.untrash?.(host.ctx.board);
-      }
-      if (last.seq < 0 && host.layoutUndoSeq?.() !== undefined) return false;
-      void this.runKey(last.name, {}, host, true);
+    if (row.pick) return this.pickKey(row, k, host);
+    // A row of the person's keymap carries its arguments as words, as `act` does: typed as the wire's are (a refusal is said).
+    try { void this.runKey(row.action as keyof NoteActionArgs & string, (READER_KEYS.includes(row) ? row.args ?? {} : coerceActionArgs(row.action, NOTE_ACTIONS.argsOf(row.action) ?? {}, row.args ?? {})) as never, host, !!row.quiet); } catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e)); }
+    return true;
+  }
+
+  /** Whether reader guard `g` holds now (READER_GUARDS says each in words). */
+  private holds(g: ReaderGuard, host: SurfaceHost): boolean {
+    const m = this.msg;
+    switch (g) {
+      case "note": return !!m;
+      case "whole": return !!m && !m.partial;
+      case "outline": return !!m && isOutlineNote(m);
+      case "parent": return !!m?.parentId;
+      case "preview": return host.attachment === "list-preview" && !!this.previewPoint();
+      case "resolvable": return !!m && this.proposalOperations(this.currentProposal() ?? m.id).includes("resolve");
+      case "proposal": return !!m && (isOpenProposal(m) || !!this.currentProposal());
+      case "element": return !!this.cur || this.link >= 0;
+      case "tinted": return !!this.focusMark;
+      case "zoomed": return !!this.zoom;
+      case "settings": return !!m && !!this.settingsSchemaOf(m);
+      case "task": { const e = this.inView(); return e?.kind === "task" && !!e.task; }
+      case "detach": return !!host.detach;
+    }
+  }
+
+  /** A row whose action the reader picks at the key (ReaderPick): what's in front of it decides. */
+  private pickKey(row: ReaderKey, k: Key, host: SurfaceHost): boolean {
+    switch (row.pick!) {
+      case "page": void this.runKey("scroll", { by: this.pageBy((row.args?.by as number) < 0 ? -1 : 1) }, host); return true;
+      case "fold-all": void this.runKey(this.folded.size === 0 ? "fold" : "unfold", { all: true }, host); return true;
+      case "task": { const e = this.inView()!; void this.runKey("task.status", { to: stepClosed(e.task!.step.status) ? "todo" : "done" }, host, true); return true; }
+      case "detach": host.detach!(); return true;
+      case "undo": return this.undoKey(host);
+      case "enter": return this.enterKey(!!row.args?.fresh, host);
+    }
+  }
+
+  /** ctrl+z undoes the last change made here, a step's status, a callout's header or an image's layout, whichever came last. */
+  private undoKey(host: SurfaceHost): boolean {
+    const at = this.msg?.id ?? "";
+    // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
+    if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
+    const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["sources.undo", this.sourceHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)], ["settings.undo", SETTINGS_UNDO.last("you", at)]] as const)
+      .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "sources.undo" | "task.undo" | "ext.undo" | "note.move.undo" | "settings.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+    // A note trashed after it comes back first (note.untrash). The layout isn't compared (PIE-1435): a tile moved elsewhere
+    // didn't happen to this note, so the desk's ctrl+z (layout.undo, or a trash newer than it) gets the key only when the
+    // reader has nothing of its own; with no layout change either, the reader's refusal says there's nothing to undo.
+    const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
+    if (trashedAt !== undefined && trashedAt > last.seq) {
+      return last.seq >= 0 && !!host.untrash?.(host.ctx.board);
+    }
+    if (last.seq < 0 && host.layoutUndoSeq?.() !== undefined) return false;
+    void this.runKey(last.name, {}, host, true);
+    return true;
+  }
+
+  /**
+   * ⏎ acts on the current element while the person can see it: a link follows (where is the host's call), a fold toggles,
+   * a row or an embed opens its note, a comment mark its thread. alt+⏎ opens a link, a row or an embed in a new reader.
+   * Otherwise ⏎ isn't the reader's.
+   */
+  private enterKey(fresh: boolean, host: SurfaceHost): boolean {
+    const e = this.inView();
+    if (!fresh && this.selectedFold()) { void this.runKey("fold.toggle", {}, host); return true; }
+    if (e) {
+      if (fresh && !opens(e) && !e.link?.press?.alt) return false;
+      void this.runKey(e.link?.press ? "button.press" : "element.open", e.link?.press ? { n: this.elems.indexOf(e) + 1, ...(fresh ? { alt: true } : {}) } : fresh ? { fresh } : {}, host);
       return true;
     }
-    if (k.kind === "pgdn" || c === " " || k.kind === "pgup") { void this.runKey("scroll", { by: this.pageBy(k.kind === "pgup" ? -1 : 1) }, host); return true; }
-    // Home to the top; End or G to the last line, then (pressed again) past it to the middle (PIE-622).
-    if (k.kind === "home" || k.kind === "end" || c === "G") { void this.runKey("scroll", { to: k.kind === "home" ? "top" : "end" }, host); return true; }
-    // An image is current (PIE-532): its size, where it sits, the header (imageKey).
-    const ik = this.imageKey(k);
-    if (ik) { void this.runKey(ik.name, ik.args as never, host); return true; }
-    // [ ] walk every element in reading order (PIE-441); ( ) below stays the folds-only jump.
-    if (c === "]" || c === "[") { void this.runKey("element.select", { by: c === "]" ? 1 : -1 }, host); return true; }
-    if (c === "z") { void this.runKey("callouts", {}, host); return true; }
-    // R: the note as written, without what the rules draw on it (PIE-600), and back.
-    if (c === "R" && this.msg && isOutlineNote(this.msg)) { void this.runKey("note.reply", {}, host); return true; }
-    // ,: a configurable note's settings card (PIE-786), as an app's settings are; elsewhere , isn't the reader's.
-    if (c === "," && this.msg && !this.msg.partial && isOutlineNote(this.msg) && this.settingsSchemaOf(this.msg)) { void this.runKey("settings", {}, host); return true; }
-    // ⏎ acts on the current element while the person can see it: a link follows (where is the host's call),
-    // a fold toggles, a row or an embed opens its note, a comment mark its thread. alt+⏎ opens a link, a
-    // row or an embed in a new reader. Otherwise ⏎ isn't the reader's.
-    if (k.kind === "enter" || k.kind === "alt-enter") {
-      const fresh = k.kind === "alt-enter", e = this.inView();
-      if (!fresh && this.selectedFold()) { void this.runKey("fold.toggle", {}, host); return true; }
-      if (e) {
-        if (fresh && !opens(e) && !e.link?.press?.alt) return false;
-        void this.runKey(e.link?.press ? "button.press" : "element.open", e.link?.press ? { n: this.elems.indexOf(e) + 1, ...(fresh ? { alt: true } : {}) } : fresh ? { fresh } : {}, host);
-        return true;
-      }
-      if (!this.cur && this.links[this.link]) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
-      const b = this.buttonAtReading(); // the reading line (j k) on a ::button's block (PIE-1518): ⏎ presses it, no ] first
-      if (b && (!fresh || b.link?.press?.alt)) { void this.runKey("button.press", { n: this.elems.indexOf(b) + 1, ...(fresh ? { alt: true } : {}) }, host); return true; }
-      return false;
-    }
-    if ((c === "(" || c === ")") && this.msg && !this.msg.partial) { void this.runKey("fold.select", { by: c === ")" ? 1 : -1 }, host); return true; }
-    if (c === "f" && this.msg && !this.msg.partial) { void this.runKey("fold.toggle", {}, host); return true; }
-    if (c === "F" && this.msg && !this.msg.partial) { void this.runKey(this.folded.size === 0 ? "fold" : "unfold", { all: true }, host); return true; }
-    if (c === "u" && this.msg?.parentId) { void this.runKey("up", {}, host, true); return true; }
-    const move = modeBinding(READER_MOVE_KEYS, k);
-    if (move && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", move.args ?? {}, host); return true; }
-    // alt+z: route this note by the outline's routing rules (PIE-1010); alt+Z says what would move, moving nothing.
-    if (k.kind === "alt" && (k.ch === "z" || k.ch === "Z") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.route", k.ch === "Z" ? { dry: true } : {}, host); return true; }
-    // alt+D detaches the part the reader is on into a tile of its own (PIE-1247): the desk's element.detach, which places the tile.
-    if (k.kind === "alt" && k.ch === "D" && this.msg && !this.msg.partial && isOutlineNote(this.msg) && host.detach) { host.detach(); return true; }
-    // b: this note's links (Outlinks, Resources, Backlinks) in the screen's links tile.
-    if (c === "b" && this.msg && !this.msg.partial) { void this.runKey("links", {}, host, true); return true; }
-    // The margin's cards (ADR 0004 contract 6): a row each, whole, or off.
-    if (c === "M" && this.msg && !this.msg.partial) { void this.runKey("margin", {}, host); return true; }
-    // r: fetch the tickets this note shows now (PIE-445): the one the [ ] position is on, else the note's.
-    if (c === "r" && this.msg && isOutlineNote(this.msg)) { void this.runKey("projection.refresh", {}, host, true); return true; }
-    // S: where this note's generated regions come from (PIE-956 S6b): the Sources inspector.
-    if (c === "S" && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("sources.open", {}, host); return true; }
+    if (!this.cur && this.links[this.link]) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
+    const b = this.buttonAtReading(); // the reading line (j k) on a ::button's block (PIE-1518): ⏎ presses it, no ] first
+    if (b && (!fresh || b.link?.press?.alt)) { void this.runKey("button.press", { n: this.elems.indexOf(b) + 1, ...(fresh ? { alt: true } : {}) }, host); return true; }
     return false;
   }
 
@@ -9139,8 +9120,8 @@ export class NoteSurface {
   }
 
   private proposalKeys(id: string): string {
-    const keys = { apply: "A apply anyway", dismiss: "X dismiss", resolve: "r resolve" };
-    return this.proposalOperations(id).map(op => keys[op] + " · ").join("");
+    // Each operation's key and word are its row of the reader's table (READER_KEYS: proposal.apply, …).
+    return this.proposalOperations(id).map(op => { const r = READER_KEYS.find(r => r.action === `proposal.${op}`)!; return `${r.key} ${r.label} · `; }).join("");
   }
 
   /** The person's `A`, `X`, or a click or ⏎ on a proposal's control: `proposal.apply` or `proposal.dismiss`, its refusal flashed. */
@@ -9653,12 +9634,8 @@ async function personComments(surface: NoteSurface, host: SurfaceHost, mode: "se
  * and `note` a comment on the whole note (`comment.note`), as C resolves them.
  */
 export type SessionKind = "note-thread" | "note-reply" | "edit" | "external" | "comment" | "select" | "note" | "threads" | "props" | "props-full";
-/** The key that starts a session in a reader (e, ctrl+e, C, m, i, I; c collapses), or null: one table for every reader. */
-export function sessionStart(k: Key): SessionKind | null {
-  if (k.kind !== "char") return null;
-  if (k.ctrl) return k.ch === "e" ? "external" : null;
-  return k.ch === "t" ? "note-thread" : k.ch === "R" ? "note-reply" : k.ch === "e" ? "edit" : k.ch === "C" ? "comment" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
-}
+/** The key that starts a session in a reader: the reader table's `start` rows (READER_KEYS). */
+export { sessionStart } from "./reader-keys";
 /** The person's e and ctrl+e arm the edit (edit.arm, src/arm.ts) where the others start at once; a click on a hint's e opens it. */
 export const armsEdit = (kind: SessionKind): boolean => (kind === "edit" || kind === "external") && !clickedKey();
 /** The key running now came from a click (a hint's key: asBoundKey "click"): the mouse's, so an edit opens at once. */
@@ -9857,7 +9834,7 @@ async function travelAction(dir: -1 | 1, { surface, host, standing }: On, actor:
 const proposalDef = def<{ id: { type: "string"; optional: true; about: string } }, { surface?: NoteSurface; host: Pick<SurfaceHost, "ctx" | "redraw"> }>;
 const PROPOSAL_DEFS = {
   "proposal.resolve": def({
-    summary: "ask the outline agent to resolve this proposal against the current note", keys: "r, a click on [resolve]",
+    summary: "ask the outline agent to resolve this proposal against the current note", keys: readerKeys("proposal.resolve", { keys: "click", does: "on [resolve]" }),
     touches: "nothing", replay: "ask",
     args: { block: { type: "string", optional: true, about: "proposal block id" }, id: { type: "string", optional: true, about: "proposal block id" } },
     examples: [{ act: "proposal.resolve block=5c2e8b17-4a90-4d3f-b6e1-9f07a3d2c845", does: "resolves the intended edit against the current text" }],
@@ -9875,7 +9852,7 @@ const PROPOSAL_DEFS = {
     },
   }),
   "proposal.apply": proposalDef({
-    summary: "apply anyway (PIE-501): the edit an agent's draft.patch proposed when it couldn't apply, as an ordinary edit by whoever runs this; on the proposal whose embed or control is the current element, the proposal shown, or id. Refused, with why, on one whose passage was already gone when it was proposed ([proposal-applies::no]: only dismiss is offered)", keys: "A, a click on [apply]",
+    summary: "apply anyway (PIE-501): the edit an agent's draft.patch proposed when it couldn't apply, as an ordinary edit by whoever runs this; on the proposal whose embed or control is the current element, the proposal shown, or id. Refused, with why, on one whose passage was already gone when it was proposed ([proposal-applies::no]: only dismiss is offered)", keys: readerKeys("proposal.apply", { keys: "click", does: "on [apply]" }),
     touches: "nothing", replay: "ask",
     args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
     examples: [
@@ -9899,7 +9876,7 @@ const PROPOSAL_DEFS = {
     },
   }),
   "proposal.dismiss": proposalDef({
-    summary: "dismiss a proposal (PIE-501) without applying it: the service (draft.proposal.dismiss) marks it dismissed and puts it in Trash, all recorded as whoever runs this, and the note it sits beside stops showing it (an older proposal's embed line comes out of the note, or the draft of it being written). Anyone may dismiss any proposal, an agent another agent's too, attributed", keys: "X, a click on [dismiss]",
+    summary: "dismiss a proposal (PIE-501) without applying it: the service (draft.proposal.dismiss) marks it dismissed and puts it in Trash, all recorded as whoever runs this, and the note it sits beside stops showing it (an older proposal's embed line comes out of the note, or the draft of it being written). Anyone may dismiss any proposal, an agent another agent's too, attributed", keys: readerKeys("proposal.dismiss", { keys: "click", does: "on [dismiss]" }),
     touches: "nothing", replay: "ask",
     args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
     examples: [
@@ -10415,7 +10392,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     hintId: "confirm",
     hint: (_, { surface, host }) => host.ctx.armed?.()?.of === surface ? CONFIRM_HINT : null,
     summary: "the person's e (ctrl+e: for $EDITOR) in a reader: arm the edit instead of opening it. The status bar asks `edit <title>? ⏎ · any other key cancels` and the reader's frame turns the edit's colour; ⏎ or the same key again within the window (edit.arm.set, or EP0CH_EDIT_ARM over it; default 2000 ms) opens it (edit), any other key lets it go and does what it does, and the window running out lets it go. edit.arm.set on=false (or EP0CH_EDIT_ARM=off) opens it at once. A click on an edit control, and an agent's edit, open at once",
-    keys: "e, ctrl+e", touches: "nothing", replay: "ask",
+    keys: readerKeys("edit.arm"), touches: "nothing", replay: "ask",
     person: "arming is the person's e key, so a stray key never opens an edit; an agent opens one with edit (edit.text puts text in it)",
     args: { external: { type: "boolean", optional: true, about: "arm ctrl+e's $EDITOR handoff instead" } },
     examples: [
@@ -10584,7 +10561,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.quote": def({
     summary: "insert a frozen selection with its source block (and existing anchor) into the reply, opening one if needed",
-    keys: '\"', touches: "draft", draft: "type", replay: "ask",
+    keys: readerKeys("note.quote"), touches: "draft", draft: "type", replay: "ask",
     menu: { label: "quote into a reply", group: "note", key: '\"' },
     args: { quote: { type: "string", optional: true, about: "exact source words; otherwise your selection" } },
     examples: [
@@ -10822,7 +10799,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run({ n }, { surface, host }) { surface.requireNote(); surface.selectLink(n - 1); host.redraw(); return surface.describe().links[n - 1]; },
   }),
   "link.follow": def({
-    summary: "follow the selected link (or the nth); where it opens is the view's call; fresh=true opens it in a new reader", keys: "enter, alt+enter, click on a link",
+    summary: "follow the selected link (or the nth); where it opens is the view's call; fresh=true opens it in a new reader", keys: readerKeys("link.follow", { keys: "click", does: "on a link" }),
     touches: "tile", replay: "ask", way: "following a link there would move what they're reading · an agent follows one in another reader (tile=), or opens the note with open id= naming no tile (it lands where opens land)",
     args: {
       ref: { type: "string", optional: true, about: "a link drawn in a snippet: ((id)), [[page]], a URL or #tag" },
@@ -10877,7 +10854,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run({ n, by }, { surface, host }) { surface.scrollInline(n, by); host.redraw(); return {}; },
   }),
   "element.select": def({
-    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. row= picks a row inside that element's inline list. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: [{ keys: "[ ]", does: "the previous or next element" }, { keys: "click", does: "an element" }, { keys: "esc", does: "lets go", says: "let go of the element you are on" }],
+    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. row= picks a row inside that element's inline list. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: readerKeys("element.select", { keys: "click", does: "an element" }),
     touches: "tile", replay: "safe", person: "the [ ] position is the person's; block.tint marks a block for them without moving it",
     args: {
       n: { type: "number", optional: true, about: "which element, from 1, as elements lists them; 0 lets go" },
@@ -10925,7 +10902,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "button.press": def({
     summary: "press a button or a pressable square of a view in this note by its label (or n from elements): a button runs its ordered action taps and script pipe stages as one undo group over reversible effects; a view square runs its action line. The dispatcher attributes whoever asks, and the first sequence failure reports the step and effects that remain. It opens nothing and moves nothing the person is reading, so it works on the reader they hold; tile= names another reader, and note=<id> presses a ::button, an [label](act: …) link or a control a render script drew (a view's button, badge, card or row, from the service's projection) in a note that is open nowhere, with no focus moved",
-    keys: "a click on a button, or ⏎ on it (element.open does the same); alt+⏎ or alt+click a control's alt action (a breadcrumb's reveal)", touches: "nothing", replay: "ask",
+    keys: readerKeys("button.press", { keys: "click", does: "on a button" }, { keys: "alt+click", does: "a control's alt action (a breadcrumb's reveal)" }), touches: "nothing", replay: "ask",
     args: {
       label: { type: "string", optional: true, about: "the button's label, or part of it (`Fantasia` finds `✦ Fantasia`); the one pressable element that has it" },
       alt: { type: "boolean", optional: true, about: "run the button's alt= action, as alt+click does" },
@@ -11012,7 +10989,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (a, { surface, host }, actor) => surface.setButtonSlot(a, host, actor),
   }),
   "element.open": def({
-    summary: "do what enter does on an element: a link follows (where is the view's call), a fold toggles, a row or an embed opens its note, a comment mark opens its thread; fresh=true opens a link, row or embed in a new reader. An agent's leaves the person's [ ] position alone, is refused in the reader they have, and never opens the browser (it is given the address)", keys: "enter, alt+enter, a click",
+    summary: "do what enter does on an element: a link follows (where is the view's call), a fold toggles, a row or an embed opens its note, a comment mark opens its thread; fresh=true opens a link, row or embed in a new reader. An agent's leaves the person's [ ] position alone, is refused in the reader they have, and never opens the browser (it is given the address)", keys: readerKeys("element.open", { keys: "click", does: "on an element" }),
     touches: "tile", replay: "ask", way: "opening an element there would move what they're reading · an agent opens one in another reader (tile=), opens the note with open id=, or folds a section with fold or unfold",
     args: {
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them); default the current one (the person's own only)" },
@@ -11117,7 +11094,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "block.untint": def({
-    summary: "take away the tint (block.tint) in this reader (esc does it for the person once nothing else is selected)", keys: "esc",
+    summary: "take away the tint (block.tint) in this reader (esc does it for the person once nothing else is selected)", keys: readerKeys("block.untint"),
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { surface, host }, actor) {
@@ -11129,7 +11106,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "projection.refresh": def({
-    summary: "fetch the tickets a note shows now (a page's, or the ticket block's own), and run its extensions' lines again (PIE-507): block=<id> (line=<index> for one line: an output, a component, an @name request is asked again, a record fetched), else the one the [ ] position is on, else the note's (its tickets; its one line that runs, when it has one). A note with several lines that run (handler lines, components, @name requests) and no position is refused naming them: none runs (PIE-956). Who runs it is who asked (an @name line says so). The service runs them and writes as the extension; the region repaints", keys: "r, a click on a ticket's age or on a line's run again control (behind its gutter mark)",
+    summary: "fetch the tickets a note shows now (a page's, or the ticket block's own), and run its extensions' lines again (PIE-507): block=<id> (line=<index> for one line: an output, a component, an @name request is asked again, a record fetched), else the one the [ ] position is on, else the note's (its tickets; its one line that runs, when it has one). A note with several lines that run (handler lines, components, @name requests) and no position is refused naming them: none runs (PIE-956). Who runs it is who asked (an @name line says so). The service runs them and writes as the extension; the region repaints", keys: readerKeys("projection.refresh", { keys: "click", does: "on a ticket's age or on a line's run again control (behind its gutter mark)" }),
     touches: "nothing", replay: "ask",
     args: {
       block: { type: "string", optional: true, about: "the block whose tickets and lines to fetch or run (a page or a ticket block); default: the reader's" },
@@ -11148,7 +11125,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "up": def({
-    summary: "go to the note's parent. An agent's is refused on the reader the person has", keys: "u (U too in the message reader)",
+    summary: "go to the note's parent. An agent's is refused on the reader the person has", keys: readerKeys("up", { keys: "U", does: "in the message reader" }),
     touches: "tile", replay: "safe", way: "up would move what they're reading · an agent goes up in another reader (tile=), or opens the parent with open id=",
     menu: noteRow("up to the parent", "u", { busy: true }),
     args: {},
@@ -11161,7 +11138,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "links": def({
     summary: "show this reader's note's links (its Outlinks, Resources and Backlinks, the links model the outliner's Tree shows) in the screen's links tile: it aims at this note, its dock opens, and the person's keys go to it; on a screen without one a links tile opens below the reader with a preview following its selection. An agent's never aims the person's links tile: where the screen has one, it answers this note's links (the tile keeps its note and selection); where there's none, it opens one of its own below the reader, on this note. Either way the person's keys stay where they are. A note can list them inline too: ::links, ::resources, ::backlinks",
-    keys: "b",
+    keys: readerKeys("links"),
     touches: "shape", replay: "safe", says: () => "showed the links",
     menu: noteRow("links", "b", { now: ({ surface, host }) => (!host.links || !surface.msg || !isOutlineNote(surface.msg) ? { hide: true } : null) }),
     args: {},
@@ -11175,7 +11152,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "back": def({
     summary: "go back to the note this reader showed before it followed a link, went up, or had a note opened into it (an agent's open too), scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
-    keys: [{ keys: "alt+← alt+b backspace", does: "back" }, { via: "the mouse's back button" }, { keys: "click", does: "on ← back" }],
+    keys: readerKeys("back", { via: "the mouse's back button" }, { keys: "click", does: "on ← back" }),
     touches: "tile", replay: "safe", way: "back would move what they're reading · an agent goes back only in another reader (name it with tile=)",
     menu: noteRow("back", "alt+left", { busy: true, now: ({ surface }) => (surface.describeHistory().back.length ? null : { hide: true }) }),
     args: { steps: STEPS_ARG },
@@ -11184,7 +11161,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "forward": def({
     summary: "go forward again to where back came from, scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
-    keys: [{ keys: "alt+→ alt+f", does: "forward" }, { via: "the mouse's forward button" }, { keys: "click", does: "on forward →" }],
+    keys: readerKeys("forward", { via: "the mouse's forward button" }, { keys: "click", does: "on forward →" }),
     touches: "tile", replay: "safe", way: "forward would move what they're reading · an agent goes forward only in another reader (name it with tile=)",
     menu: noteRow("forward", "alt+right", { busy: true, now: ({ surface }) => (surface.describeHistory().forward.length ? null : { hide: true }) }),
     args: { steps: STEPS_ARG },
@@ -11193,7 +11170,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "trail": def({
     summary: "the trail of where this reader has been (PIE-208): every stop back and forward by its title, nearest first, the note shown between them. The person's opens it as a trail tile beside the reader (PIE-1425: docked, resized and closed like any tile; alt+T again goes back to it), or a list over a screen without tiles: ⏎ or a click on a stop goes there (back or forward that many steps, as back steps= does), esc closes it. An agent's answers the stops and opens nothing",
-    keys: "alt+T, a click on ≡ trail beside ← back",
+    keys: readerKeys("trail", { keys: "click", does: "on ≡ trail beside ← back" }),
     touches: "nothing", replay: "safe",
     menu: noteRow("trail: where it's been", "alt+T", { busy: true, now: ({ surface }) => { const h = surface.describeHistory(); return h.back.length || h.forward.length ? null : { hide: true }; } }),
     args: {},
@@ -11202,7 +11179,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "element.zoom": def({
     summary: "zoom this reader into a part of its note (PIE-780): the figure, table, heading's section, callout, list item or paragraph at line= (from 1; default the [ ] position's, else the reading line's), or anchor=, fills the tile, interactive at full size, the part element.detach would take there (the service says which lines). Where it was goes on its back trail: on=false, esc, back or a click on ← back returns to the whole note as it was; forward zooms in again. An agent's is refused on the reader the person has focused",
-    keys: ZOOM_KEYS.map(k => k.key === "click" ? "a click on a part's ⤢" : `${keyCaption(k.key)}${k.args?.on === false ? " (zoomed)" : ""}`).join(", "),
+    keys: readerKeys("element.zoom", { keys: "click", does: "on a part's ⤢" }),
     touches: "tile", replay: "safe", way: "zooming would change what they're reading · an agent zooms only in another reader (name it with tile=)",
     says: r => (r as { zoomed?: { label: string } }).zoomed ? `zoomed into ${(r as { zoomed: { label: string } }).zoomed.label}` : "back to the whole note",
     menu: noteRow("zoom into this part", "W", { busy: true, now: ({ surface }) => (!surface.msg || !isOutlineNote(surface.msg) ? { hide: true } : null) }),
@@ -11437,7 +11414,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "margin": def({
     summary: `the margin's cards (ADR 0004 contract 6): trim, ${MARGIN_MODE_WORDS.trim.does}; full, ${MARGIN_MODE_WORDS.full.does}; off, ${MARGIN_MODE_WORDS.off.does} (the highlights stay on the words). The byline's count says which: ${MARGIN_MODES.map(x => `"${MARGIN_MODE_WORDS[x].chip}"`).join(", ")}. Reading state agents may change for the person, kept with the tile (PIE-873) and taken by a reader opened from it`,
-    keys: [{ keys: "M", does: "cycles trim, full, off (as marks)" }, { keys: "click", does: "the byline's comment count" }],
+    keys: readerKeys("margin", { keys: "click", does: "the byline's comment count" }),
     touches: "shape", replay: "safe",
     args: { mode: { type: "string", optional: true, about: "trim, full or off; left out, the next one" } },
     examples: [
@@ -11839,7 +11816,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.route": def({
     summary: "route a note by the outline's routing rules (PIE-1010): the one shown, or id=. The first rule note ([type::route] [query::…] [route-to::((id))], listed in the Routing view) whose query holds for it moves it there, by the service's one move, as ext:route with you recorded as who asked, in one revision; ctrl+z puts it back (note.move.undo). dry=true says what would move where and why (which rule) and moves nothing; a note no rule holds for is said so, and a rule that can't be used is named. A note being written in a door is never moved under the person: it routes when the draft closes",
-    keys: [{ keys: "alt+z", does: "in a reader" }, { keys: "alt+Z", does: "says what would move, moving nothing" }, { via: "the tile menu's \"route by rules\"" }],
+    keys: [...readerKeys("note.route"), { via: "the tile menu's \"route by rules\"" }],
     touches: "nothing", replay: "ask",
     menu: { label: "route by rules", group: "note", key: "alt+z", now: (_h, t) => (t.kind === "river.column" ? { hide: true } : null) },
     says: r => String((r as { said?: string }).said ?? "routed a note"),
@@ -12067,7 +12044,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   ...SETTINGS_DEFS,
   "decor.raw": def({
     summary: "the note as written, without what the outline's rules draw on it (PIE-600: a heading's band, a meeting's card, a shouted line), or (on=false, or ~ again) with it. The reader's own state: the note is never written",
-    keys: "~",
+    keys: readerKeys("decor.raw"),
     touches: "tile", replay: "safe", way: "peek's decorations say what is drawn; open the note in a reader of your own to see it raw",
     args: { on: { type: "boolean", optional: true, about: "true: raw; false: decorated; absent: the other one" } },
     examples: [
@@ -12084,7 +12061,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "fold.select": def({
     words: "move the ( ) fold selection to the next or previous heading, list item or callout",
-    summary: "put the person's ( ) fold selection on the next (by=1) or previous (by=-1) heading, list item or callout drawn; f or enter then folds it. The person's reading state: an agent's is refused (fold, unfold and fold.toggle name a fold point)", keys: "( )",
+    summary: "put the person's ( ) fold selection on the next (by=1) or previous (by=-1) heading, list item or callout drawn; f or enter then folds it. The person's reading state: an agent's is refused (fold, unfold and fold.toggle name a fold point)", keys: readerKeys("fold.select"),
     touches: "tile", replay: "safe", person: "the ( ) selection is the person's; fold, unfold and fold.toggle name a fold point (folds lists them)",
     args: { by: { type: "number", about: "1 the next fold point, -1 the previous one" } },
     examples: [
@@ -12100,7 +12077,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "reading.step": def({
     summary: "step the rows of the container the [ ] position is in (a collection, a live figure, a links list), walking on past its edge; elsewhere move the reading line by logical blocks, landing on a container's first or last row, a screen at a time in a tall block",
-    touches: "tile", replay: "safe", person: "the reading position belongs to the person", keys: "↑ ↓ j k",
+    touches: "tile", replay: "safe", person: "the reading position belongs to the person", keys: readerKeys("reading.step"),
     args: { by: { type: "number", about: "1 next block, -1 previous block" }, through: { type: "boolean", optional: true, about: "on a collection's block: walk past it instead of into it (j or k at its edge)" } },
     examples: [
       { act: "reading.step by=1", does: "moves the reading line to the next block of the note" },
@@ -12130,7 +12107,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "scroll": def({
-    summary: "scroll the reader's note by rows (by=, negative is up) or to=top / to=end (the last line to the bottom edge; again, past the end as reader.overscroll allows, to the middle by default); the person's [ ] position is let go, as their own scrolling does. An agent's is refused on the reader the person has focused (view.scrollTo on the desk scrolls without touching their position)", keys: "j k ↑ ↓, PgUp PgDn, space, Home End G, wheel",
+    summary: "scroll the reader's note by rows (by=, negative is up) or to=top / to=end (the last line to the bottom edge; again, past the end as reader.overscroll allows, to the middle by default); the person's [ ] position is let go, as their own scrolling does. An agent's is refused on the reader the person has focused (view.scrollTo on the desk scrolls without touching their position)", keys: readerKeys("scroll", { keys: "wheel", does: "scrolls the note" }),
     touches: "tile", replay: "safe", way: "its scroll is theirs; an agent scrolls a reader with view.scrollTo (desk), which leaves their [ ] position alone",
     args: {
       by: { type: "number", optional: true, about: "rows to scroll; negative scrolls up" },
@@ -12153,7 +12130,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "callouts": def({
-    summary: "open every callout, or put them back as written (those with [!type]- folded); show= sets it, else it toggles. The person's reading state: an agent's is refused (fold and unfold name one callout)", keys: "z",
+    summary: "open every callout, or put them back as written (those with [!type]- folded); show= sets it, else it toggles. The person's reading state: an agent's is refused (fold and unfold name one callout)", keys: readerKeys("callouts"),
     touches: "tile", replay: "safe", person: "whether callouts are open is the person's reading state; an agent reads the note's text (peek, elements)",
     menu: noteRow("open or fold callouts", "z", { now: ({ surface }) => (surface.msg && surface.calloutsIn(surface.msg).length ? null : { hide: true }) }),
     args: { show: { type: "boolean", optional: true, about: "true shows the bodies, false folds them; left out, it toggles" } },
@@ -12181,7 +12158,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "list.preview.scroll": def({
-    summary: "scroll the selected item's children inside their fixed preview", keys: "wheel over the children",
+    summary: "scroll the selected item's children inside their fixed preview", keys: readerKeys("list.preview.scroll", { keys: "wheel", does: "over the children" }),
     touches: "tile", person: "the preview scroll belongs to the person", replay: "safe",
     args: { by: { type: "number", about: "rows to scroll" } },
     examples: [{ act: "list.preview.scroll by=3", does: "scrolls three rows inside the children preview" }],
@@ -12189,7 +12166,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "list.preview.edit": def({
     summary: "edit the selected item's children in the shared editor; a save patches only their lines",
-    touches: "draft", draft: "write", replay: "ask", keys: "click the children preview",
+    touches: "draft", draft: "write", replay: "ask", keys: readerKeys("list.preview.edit", { keys: "click", does: "on the children preview" }),
     args: { text: { type: "string", optional: true, about: "replacement source for the children; left out opens the editor" } },
     examples: [{ act: 'list.preview.edit text="  - New detail"', does: "patches the selected item's children" }],
     run: ({ text }, { surface, host }, actor) => surface.editListPreview(host, actor, text),
@@ -12234,7 +12211,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "fold": def({
-    summary: "fold a heading (hiding through the next heading of its level or higher) , a list item (hiding its nested items and continuation lines) or a callout (to its title); all=true folds every outermost one (F when nothing is folded). Reading state only: the note's text never changes", keys: "( ) then f or enter, click, F",
+    summary: "fold a heading (hiding through the next heading of its level or higher) , a list item (hiding its nested items and continuation lines) or a callout (to its title); all=true folds every outermost one (F when nothing is folded). Reading state only: the note's text never changes", keys: readerKeys("fold", { keys: "click", does: "on a fold" }),
     touches: "tile", while: "typing", replay: "safe", way: "an agent folds a reader the person isn't typing in",
     args: { ...FOLD_ARGS, all: { type: "boolean", optional: true, about: "fold every outermost heading and list item" } },
     examples: [
@@ -12244,7 +12221,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (args, on, actor) => runFold(true, args, on, actor),
   }),
   "unfold": def({
-    summary: "unfold a heading, list item or callout; all=true unfolds everything (F when something is folded)", keys: "( ) then f or enter, click, F",
+    summary: "unfold a heading, list item or callout; all=true unfolds everything (F when something is folded)", keys: readerKeys("unfold", { keys: "click", does: "on a fold" }),
     touches: "tile", while: "typing", replay: "safe", way: "an agent unfolds a reader the person isn't typing in",
     args: { ...FOLD_ARGS, all: { type: "boolean", optional: true, about: "unfold everything in this reader" } },
     examples: [
@@ -12254,7 +12231,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (args, on, actor) => runFold(false, args, on, actor),
   }),
   "fold.toggle": def({
-    summary: "fold a heading, list item or callout, or unfold it if it's folded; with none named, the person's: the one ( ) selected, else the section being read", keys: "f, enter, click",
+    summary: "fold a heading, list item or callout, or unfold it if it's folded; with none named, the person's: the one ( ) selected, else the section being read", keys: readerKeys("fold.toggle", { keys: "click", does: "on a fold" }),
     touches: "tile", while: "typing", replay: "safe", way: "an agent folds a reader the person isn't typing in",
     args: FOLD_ARGS,
     examples: [
@@ -12392,7 +12369,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "task.status": def({
     summary: "set a checklist step's status (done, todo, waiting, problem, approved, rejected: approved is the person's yes) through checklist.update, checked against the step as it was read; recorded as whoever asks (an agent by its id) and said on screen. Works on steps inside embeds: the change is to the note the step is in",
-    keys: [{ keys: "[ ]", does: "to a step" }, { keys: "⏎ click", does: "on its box opens the status choice" }, { keys: "x o + - w !", does: "set the status in the choice" }, { keys: "space", does: "toggles done / to do" }, { via: "with no step named, the person's: the status choice open, else the step that is the current element" }],
+    keys: [{ keys: "[ ]", does: "to a step" }, { keys: "⏎ click", does: "on its box opens the status choice" }, { keys: "x o + - w !", does: "set the status in the choice" }, ...readerKeys("task.status"), { via: "with no step named, the person's: the status choice open, else the step that is the current element" }],
     touches: "draft", draft: "write", replay: "ask",
     args: { ...STEP_ARGS, to: { type: "string", about: "done, todo, waiting, problem, approved or rejected (or a box's mark: x, space, ~, !, ✓ or +, ✗ or -)" } },
     examples: [
@@ -12469,7 +12446,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "callout.undo": def({
     summary: "undo the last callout change (type or start) made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the callout changed again since",
-    keys: "ctrl+z (when a callout change was the last change made here)",
+    keys: readerKeys("callout.undo", { via: "when a callout change was the last change made here" }),
     touches: "draft", draft: "write", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.undoCallout(host, actor),
@@ -12684,7 +12661,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "ext.undo": def({
     summary: "undo the last extension action run on this note (PIE-784: its write group, whole: the blocks it made to the Trash, its edits, moves and orders put back), or the last quote of its marks (the quoting block to the Trash), as whoever ran it (an agent undoes its own, the person theirs); refused, with nothing changed, if any of it changed since",
-    keys: "ctrl+z (when an extension action or a quote was the last change made here)",
+    keys: readerKeys("ext.undo", { via: "when an extension action or a quote was the last change made here" }),
     touches: "nothing", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.undoExtension(host, actor),
@@ -12707,14 +12684,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "image.undo": def({
     summary: "undo the last image change (size, place, header) made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the line changed again since",
-    keys: "ctrl+z (when an image change was the last change made here)",
+    keys: readerKeys("image.undo", { via: "when an image change was the last change made here" }),
     touches: "draft", draft: "write", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.undoImage(host, actor),
   }),
   "task.undo": def({
     summary: "undo the last step status change made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the step changed again since",
-    keys: "ctrl+z",
+    keys: readerKeys("task.undo"),
     touches: "draft", draft: "write", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.undoStep(host, actor),
@@ -12759,7 +12736,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.open": def({
     summary: "open the Sources inspector on this note (PIE-956): every generated region (handler lines, ::=, ::use, figures, ::fields, ::if, written output) with when it last read, from the service's one answer (site.sources), beside the note when the reader is wide. A page shows none of its mechanics by default; this is where \"where this comes from\" goes. An agent's call answers the same list and opens nothing in the person's reader",
-    keys: [{ keys: "S", does: "open sources", says: "show where this note's generated parts come from" }, { keys: "click", does: "the header's [sources]" }],
+    keys: readerKeys("sources.open", { keys: "click", does: "the header's [sources]" }),
     touches: "shape", replay: "safe", says: () => "opened the sources", way: "the inspector opens beside their note · an agent reads the list in the answer, or sources.at line=",
     menu: noteRow("where this comes from (sources)", "S", { now: ({ surface }) => (!surface.msg || !isOutlineNote(surface.msg) || surface.msg.partial ? { hide: true } : null) }),
     args: {},
@@ -12922,7 +12899,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "use.undo": def({
     summary: "undo the last use.fill made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the ::use line changed again since",
-    keys: "ctrl+z (when a ::use fill was the last change made here)",
+    keys: readerKeys("use.undo", { via: "when a ::use fill was the last change made here" }),
     touches: "draft", draft: "write", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.undoUse(host, actor),
@@ -13094,7 +13071,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "edit.strays": def({
     summary: "bring back the stray characters esc just dropped from an edit opened by mistake (src/stray.ts: open under 10s, up to 3 characters typed, nothing taken out): the edit opens again with them, as it was",
-    keys: "ctrl+z right after esc dropped them (within a minute)",
+    keys: readerKeys("edit.strays", { via: "right after esc dropped them (within a minute)" }),
     touches: "draft", draft: "write", replay: "ask",
     person: "the strays were the person's keys; an agent writes with edit.text or draft.patch",
     args: {},

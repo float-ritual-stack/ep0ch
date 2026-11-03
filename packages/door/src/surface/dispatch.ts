@@ -42,6 +42,9 @@ export const GONE_ACTIONS: Record<string, string> = {
   "links.enter": "links.enter is now list.enter (PIE-747): act list.enter tile=<reader> [list=<number|^name|title>] [on=false]",
   "backlinks.pick": "backlinks.pick is now list.pick (PIE-747): act list.pick tile=<links tile> n=<row> | id=<block>; list.step by=1 is the old by=, list.open the old open=true / fresh=true",
   "backlinks.open": "backlinks.open is now list.open (PIE-747): act list.open tile=<links tile> n=<row> | id=<block> [where=home|new]",
+  // Waiting is the waiting extension's list since PIE-1525: its rows are the lists' one set.
+  "waiting.pick": "waiting.pick is now list.pick (PIE-1525: Waiting is the waiting extension's list): act list.pick tile=waiting n=<row> | id=<block>; list.step by=1 is the old by=",
+  "waiting.reload": "waiting.reload is gone (PIE-1525): the waiting extension's list reads the outline again whenever what it lists changes",
 };
 
 export const isTilePath = (sel: string | undefined): sel is string => !!sel && sel.includes("/");

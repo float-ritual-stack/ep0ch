@@ -1606,6 +1606,11 @@ A drawn one, and a view, from the same manifest shape:
   full name a layout saved). The door's tile-kind registry resolves a saved tile of one to this kind the moment it
   registers, and the tile saves under the new name; nothing in the door maps old kinds to new by hand. A name the door
   still has a live kind under is refused with the kind, and so is one of the extension's own.
+- `holds` says what a tile of the kind holds while the person's keys are on it, as a reader's edit or a terminal they're
+  in does (PIE-1523): `{ "keys": true }` makes it the typing rule's tile then (an agent doesn't move, resize, float or
+  close it, and no open lands in it), and `"edit": "a hand of patience"` is what an agent's refusal names it by. The
+  door reads it through `TileKind.facts`, the same hook its readers and terminals answer; the showcase's `kind-facts`
+  section shows one.
 - **`defaultOn: true`** (a built-in only): on wherever the service runs. The host installs it into the user folder (or
   the outline's own) at start when no copy is installed, unless `.off/<id>` there says it was uninstalled
   (`extensions.uninstall` writes it, `extensions.install` takes it back). what-changed is one: the door's +N new never
@@ -1647,6 +1652,7 @@ A drawn tile carries `render: "<script name>"` instead of `command`, a view `vie
 | default policy | `policy` (the layout design's per-container settings) |
 | what it accepts | `accepts` (tile kinds it takes as drops; empty: none) |
 | what it replaces | `replaces` (retired kinds whose saved tiles open as this one and save under it; absent: none) |
+| what it holds | `holds` (`keys`, `edit`): its `facts` while the person's keys are on a tile of it; absent: nothing |
 | how it saves | `save: "args"`: a screen stores the kind and its args, nothing else |
 | where it can run | `host`: a program's command is a path on the service's host, so a door on another machine shows the kind as unavailable; a drawn tile and a view run anywhere the service answers |
 
@@ -1681,6 +1687,37 @@ mark, do: { open: id } }`; `extension.json` declares `tiles: [{ kind: "list", na
 "what-changed", args: { since, unseen, machinery } }]`. The door's `changes.open` (alt+o) opens `what-changed.list` in
 the drawer with `since` and `unseen` from its own count; `^W o W` opens one on the desk; a `what-changed:: since=…`
 line draws the same list in a note. No door code draws the rows.
+
+## A whole screen, and its main-menu row
+
+**What it is.** `screens[]` (PIE-1525) ships whole screens for the door: each a screen spec as data, the same shape a
+screen note holds (`name`, `title`, `layout`, and the optional `keys`, `hint`, `lands`…). The door registers each
+while the extension is served and forgets it when it stops: uninstalling takes the screen, installing brings it back,
+with no restart. [waiting](../../extensions/waiting) is the first: the main menu's O.
+
+```json
+"screens": [{
+  "name": "waiting", "title": "waiting on others", "lands": "reader",
+  "menu": { "key": "O", "label": "Waiting", "about": "outbox items still waiting, by who they wait on" },
+  "layout": { "focus": "waiting", "root": { "t": "split", "dir": "row", "ratio": 0.5,
+    "a": { "t": "leaf", "kind": "waiting.list", "name": "waiting", "wires": [{ "verb": "select", "to": "reader" }] },
+    "b": { "t": "leaf", "kind": "reader", "name": "reader" } } }
+}]
+```
+
+- **Opaque to the service:** it checks each has a name (a letter, then letters, digits, `.` `-` `_`) and no name is
+  declared twice, and passes the rest through on `extensions.list` (each extension's `screens`). The door's `readSpec`
+  reads it, as it reads a screen note's; a spec that doesn't read is said where extension problems are said.
+- **A name is one owner's:** a built-in's, another extension's or a screen note's name is refused, saying who holds it.
+  A screen note can't take an extension's screen's name either.
+- **`menu`** gives it a row on the main menu: `key` (one character), `label` (up to 16), `about` (the help screen's
+  words). The art has twelve slots; every other row joins its key line. A key another row holds (or V, H, ?) leaves
+  the row keyless, said, and a click still opens it. A screen a person made gets a row the same way
+  (`screen.menu key=Y label=Potting`, its ⋯ menu's "add to the main menu").
+- **Not installed:** `ep0ch --screen <name>` and `screen.open` for a screen an available extension adds answer with
+  the command that installs it (`extensions.list`'s `available[].screens`).
+- **Its tiles** are usually its own kinds (`waiting.list`); a kind it `replaces` keeps a layout saved with the old
+  built-in working.
 
 ## A door module
 
