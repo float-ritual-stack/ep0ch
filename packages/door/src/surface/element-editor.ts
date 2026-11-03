@@ -392,6 +392,9 @@ export class ElementEdit {
     this.positionRows.source = sourceRows;
     this.total = body.length; this.room = room;
     if (d.follow) this.top = follow(cursor, this.top, room);
+    // The cursor's line where it is on screen, in the position's terms (src/draft-view.ts): an agent's patch keeps it there.
+    const first = sourceRows.indexOf(d.row);
+    d.position.caret = first >= this.top && first < this.top + room ? { line: d.row, row: 2 + first - this.top } : null;
     this.spots = spots.map(s => ({ ...s, y: s.y - this.top + 2 }));
     return [fg(C.lcyan) + pad(labels.map(l => l[0]).join(" "), w) + RESET,
       fg(C.cyan) + pad(d.note || attribution || modeHint(ELEMENT_KEYS, () => undefined), w) + RESET,
@@ -399,4 +402,4 @@ export class ElementEdit {
   }
 }
 /** The draft's rich cells adapter (src/draft-view.ts), made on first use and kept with its other views. */
-export function elementEdit(d: Draft): ElementEdit { return (d.views.rich ??= new ElementEdit(d)) as ElementEdit; }
+export function elementEdit(d: Draft): ElementEdit { return (d.views.rich ??= new ElementEdit(d)); }

@@ -89,7 +89,7 @@ export interface CompletionField {
   /** What a line completes: a draft has none of this and completes text. */
   readonly complete?: LineCompletion;
   /** Its views (src/draft-view.ts): the popup is kept there. */
-  readonly views: { completer: unknown };
+  readonly views: { completer: Completer | null };
   completed?(item: CompletionItem): void;
   startSnippet?(slots: SnippetSlot[], offset: number): void;
   offsetOf?(row: number, col: number): number;
@@ -914,7 +914,7 @@ export class Completer {
 
 /** The draft's (or line's) completer, made on first use; null when the board can't look anything up (a test double). */
 export function completerFor(d: CompletionField, board: unknown, redraw: () => void, own?: CompletionOwner): Completer | null {
-  const had = d.views.completer as Completer | null;
+  const had = d.views.completer;
   if (had) return had;
   const b = board as Partial<CompletionBoard> | null;
   if (!b || typeof b.completePages !== "function" || typeof b.searchBlocks !== "function") return null;
@@ -938,10 +938,10 @@ export const recordCompletionPick = (board: CompletionBoard, key: string, item: 
   board.completionPicked?.(key, pickId(item.insertion), heard(item) ? { source: item.from, outcome: "accepted", ...(query !== undefined ? { query } : {}), row: rowTold(item) } : {}).catch(() => {});
 
 /** The draft's completer, if it has one. */
-export const completerOf = (d: CompletionField): Completer | null => (d.views.completer as Completer | null) ?? null;
+export const completerOf = (d: CompletionField): Completer | null => (d.views.completer) ?? null;
 
 /** The draft's popup, if one is open (for drawing). */
-export const completionOf = (d: CompletionField): CompletionState | null => (d.views.completer as Completer | null)?.shown ?? null;
+export const completionOf = (d: CompletionField): CompletionState | null => (d.views.completer)?.shown ?? null;
 
 const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" || k.ch === " " || k.ch === "@");
 

@@ -1,6 +1,6 @@
 // The delicate contract (PIE-1560): an agent's patch landing in a draft never moves the person's place. Their cursor
-// stays on the screen row it was on, and a view the wheel scrolled away keeps its top row's text, through every view
-// of the draft (raw rows, rich cells). Made-up notes; no service.
+// stays on the screen row it was on, and a view the wheel scrolled away keeps its top row's text, in the raw rows and
+// in rich cells, whether or not a view drew the draft yet. Made-up notes; no service.
 import { describe, expect, test } from "bun:test";
 import { Draft } from "../src/edit";
 import { draftView } from "../src/draft-view";
@@ -79,12 +79,19 @@ describe("an agent's patch keeps the person's place", () => {
     const d = new Draft("note-rich", 4, text);
     const rich = richView(d);
     d.place(d.lines.length - 1, 3);
+    draftView(d).render(W, H);              // drawn raw first: the place it left is the raw view's
     rich.open({ kind: "user" });
     const draw = (t: string, w: number) => { const lines = t.split("\n").map(l => l.slice(0, w)); return { lines, source: lines.map((_, i) => i) }; };
-    const at = () => rich.render(W, H, draw).findIndex((l: string) => visible(l).includes("│"));
+    const at = () => rich.render(W, 12, draw).findIndex((l: string) => /[a-z]│[a-z]/.test(visible(l)));   // the cursor, inside "leek"
     const row = at();
     expect(row).toBeGreaterThan(1);
     patch(d, "row note 1\n", "row note 1\nmore\nand more\n");
     expect(at()).toBe(row);
+    // A line added between the top row and the cursor's cell: the cell stays on its row too.
+    rich.scroll(-3);                         // (the wheel: a few prose lines above the table come into view)
+    const row2 = at(), shown = rich.render(W, 12, draw).map(visible);
+    const above = shown.slice(2, row2).map(r => r.trim()).find(r => r.startsWith("row note"))!;
+    patch(d, `${above}\n`, `${above}\nthinned\n`);
+    expect(at()).toBe(row2);
   });
 });

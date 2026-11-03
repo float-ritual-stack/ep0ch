@@ -6,6 +6,8 @@
 // the last render.
 import { landingLine } from "@ep0ch/outline-core/block-insert";
 import type { Draft } from "./edit";
+import type { Completer } from "./surface/completer";
+import type { ElementEdit } from "./surface/element-editor";
 import { listLead } from "./edit";
 import type { Placement } from "./kitty";
 import type { LinkTarget } from "./refs";
@@ -45,9 +47,9 @@ export class DraftViews {
   readonly raw: RawRows;
   line: LineRow | null = null;
   /** The rich cells' adapter (`ElementEdit`), made by `elementEdit` on first use. */
-  rich: unknown = null;
+  rich: ElementEdit | null = null;
   /** The completion popup (`Completer`), made by `completerFor` on first use. */
-  completer: unknown = null;
+  completer: Completer | null = null;
   preview: PreviewDrawn | null = null;
   constructor(d: Draft) { this.raw = new RawRows(d); }
 }
@@ -194,7 +196,7 @@ export class RawRows {
   dropAt(x: number, y: number): { line: number; row: number } | null {
     const d = this.d, f = this.frame, rows = this.shown.rows;
     // Rich edit draws no source rows (PIE-1357): the part lands after the block the cursor is in, with no line drawn.
-    if (!f || !rows.length || (d.views.rich as { on?: boolean } | null)?.on) return { line: landingLine(d.lines, d.row), row: -1 };
+    if (!f || !rows.length || d.views.rich?.on) return { line: landingLine(d.lines, d.row), row: -1 };
     if (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols) return null;
     const line = landingLine(d.lines, rows[Math.min(rows.length - 1, this.top + (y - f.row))]!.line);
     // Its drop line: under the last row the landing line is drawn on, when that row is in view.
