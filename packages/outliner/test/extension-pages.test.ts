@@ -154,6 +154,23 @@ test("an extension not installed says what installing it gives you, in the words
   const before = about("moon");
   await client.request({ action: "extensions.install", extension: "moon" });
   expect((await list()).about.moon).toEqual(before);
+  // Settings before install name what to set and the command once it's installed, never the repo copy's config.json.
+  const marginalia = about("marginalia").adds.find((line) => line.startsWith("- **Settings,** once it's installed"))!;
+  expect(marginalia).toContain("ext.marginalia.settings");
+  expect(marginalia).not.toContain("config.json");
+  expect(about("marginalia").adds.join("\n")).not.toContain(join(import.meta.dir, "..", "extensions"));
+  expect(listed.about.notify!.adds.find((line) => line.startsWith("- **Settings:**"))).toContain("config.json");
+});
+
+test("a note's script describes itself from its note, never from the folder's README (PIE-1549)", async () => {
+  const { outline, list, client } = await setup();
+  writeFileSync(join(outline, "README.md"), "# Not the script\n\nThe project's own README.\n");
+  await client.request({ action: "create", parentId: null, text: ["Errand board [script::errand-board] [mode::render]", "```js", "return 1", "```"].join("\n"), author: "user" });
+  const listed = await list();
+  const script = (listed.extensions as { id: string; script?: unknown }[]).find((entry) => entry.script);
+  expect(script).toBeDefined();
+  expect(listed.about[script!.id]).toBeUndefined();
+  expect(JSON.stringify(listed.about)).not.toContain("The project's own README");
 });
 
 test("every built-in says what it is in one short sentence, and its README opens with what it does (PIE-1549)", () => {

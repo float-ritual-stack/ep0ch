@@ -172,8 +172,11 @@ export interface ExtensionAbout {
   readonly needs: readonly string[];
 }
 
-/** An extension's `ExtensionAbout`, from its manifest and its folder. */
-export function extensionAbout(manifest: ExtensionManifest, directory: string): ExtensionAbout {
+/**
+ * An extension's `ExtensionAbout`, from its manifest and its folder. `installed` is false for the repo's copy, which
+ * install never takes config.json from: its settings say the command, not a path there.
+ */
+export function extensionAbout(manifest: ExtensionManifest, directory: string, installed = true): ExtensionAbout {
   const readme = readText(join(directory, "README.md"));
   const body = readme?.trim() ? readmeBody(readme).split("\n") : [];
   const fenced = codeFenceLines(body);
@@ -182,7 +185,7 @@ export function extensionAbout(manifest: ExtensionManifest, directory: string): 
   const demo = readDemo(directory, manifest.demo);
   return {
     ...(opening ? { readme: opening } : {}),
-    adds: whatItAdds(manifest, directory),
+    adds: whatItAdds(manifest, directory, installed),
     demo: demo.notes.filter((note) => !note.parent).map((note) => words(firstLineWithoutPropertyTokens(note.text)) || note.key),
     ...(demo.problem ? { demoProblem: words(demo.problem) } : {}),
     needs: (manifest.env ?? []).map((name) => `the host's \`${name}\` (its process is given it when the service has it)`),
@@ -190,7 +193,7 @@ export function extensionAbout(manifest: ExtensionManifest, directory: string): 
 }
 
 /** What a manifest adds, as list lines (the page's "What it adds"). */
-export function whatItAdds(manifest: ExtensionManifest, directory?: string): string[] {
+export function whatItAdds(manifest: ExtensionManifest, directory?: string, installed = true): string[] {
   const out: string[] = [];
   for (const script of manifest.scripts ?? []) out.push(`- Script **${words(script.name)}** (\`${script.file}\`): ${words(script.about)}`);
   for (const handler of manifest.handlers ?? []) {
@@ -229,7 +232,9 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string): str
       return spec?.description ? `${words(spec.description).replace(/\.$/, "")}${fallen ? ` (${fallen})` : ""}` : fallen;
     };
     // A lead line saying where they're changed, then one item per setting: a bullet is one point (the write review's rule).
-    out.push(`- **Settings:** in the door ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`, or edit \`${directory ? join(directory, "config.json") : "config.json"}\`:`,
+    out.push(installed
+      ? `- **Settings:** in the door ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`, or edit \`${directory ? join(directory, "config.json") : "config.json"}\`:`
+      : `- **Settings,** once it's installed: ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`:`,
       ...Object.entries(settings).map(([key, spec]) => { const line = said(spec); return `  - \`${key}\`${line ? `: ${line}` : ""}`; }));
   }
   return out;
@@ -383,7 +388,7 @@ export class ExtensionPages {
           ...(manifest.door ? { door: manifest.door } : {}),
           ...(manifest.screens?.length ? { screens: manifest.screens.map((screen) => screen.name) } : {}),
           ...(manifest.description ? { description: manifest.description } : {}),
-          about: extensionAbout(manifest, join(root, name)),
+          about: extensionAbout(manifest, join(root, name), false),
         });
       } catch {
         // A built-in that doesn't parse isn't offered.
@@ -395,9 +400,10 @@ export class ExtensionPages {
   private async syncOnce(): Promise<void> {
     const listed = this.registry.list().extensions.filter((entry) => entry.state !== "shadowed" && !entry.partOf);
     this.available = this.readAvailable(new Set(listed.map((entry) => entry.id)));
+    // A script (a note's, an outline file's) describes itself from its own block, never from the folder it sits in.
     this.installedAbout = Object.fromEntries(listed.flatMap((entry) => {
       const loaded = this.registry.loaded(entry.id);
-      return loaded ? [[entry.id, extensionAbout(loaded.manifest, loaded.directory)]] : [];
+      return loaded && !entry.script && !loaded.script ? [[entry.id, extensionAbout(loaded.manifest, loaded.directory)]] : [];
     }));
     const state = this.read();
     const restored = this.ruleNotes("was-on");
