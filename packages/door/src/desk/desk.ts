@@ -7470,6 +7470,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const spec = this.specOf(t.id);
     const typing = pane === this.ptyIn && this.focus === t.id;
     this.bindFollows(t.id, pane);
+    // The tiles that give their keys back to it keep that, by identity, for when it comes back here (`carryIn`).
+    const owed = [...this.layout.openedFrom].filter(([, o]) => o.from === t.id).map(([k, o]) => ({ child: this.panes.get(k)!, typing: !!o.typing }));
+    if (owed.length) keysOwed.set(pane, owed);
     this.commit(plan.from);
     this.forgetTile(t.id, pane);
     // Its heir takes its place and its name: a new tile of its kind, started as any tile joining a live desk.
@@ -7484,6 +7487,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.movedIn.add(id);
     if (!isTileKind(moved.spec.kind)) this.unregistered.set(id, moved.spec);
     this.commit(plan.to);
+    for (const o of keysOwed.get(moved.pane) ?? []) { const c = this.idOf(o.child); if (c !== undefined) this.openedBy(c, id, o.typing); }
     this.startTile(id, true);
     for (const w of moved.links ?? []) this.addExt(id, w);
     this.relink();
@@ -8238,6 +8242,8 @@ export interface TileLine {
 }
 
 export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[] }
+/** The tiles a carried tile was the opener of (`openedFrom`), by identity: an opener that comes back gets them back. */
+const keysOwed = new WeakMap<Pane, { child: Pane; typing: boolean }[]>();
 /** How a tile is carried (`Desk.carry`): beside `to`, `where` it; or `floating` there (the glass, no keys); `heir` takes its place. */
 export interface CarryHow { to?: string; where?: Where; floating?: Rect; heir?: Pane }
 /** A carry's answer as an action says it: the moved pane and the keys flag are the caller's, not the person's. */

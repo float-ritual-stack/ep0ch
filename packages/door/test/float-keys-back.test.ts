@@ -136,4 +136,19 @@ describe.skipIf(!outliner)("closing a float gives the keys back to the terminal 
       expect(d.shown(d.agent)).toContain("^[");
     } finally { d.quit(); }
   });
+
+  test("its opener carried into the drawer and back: closing the keys window still gives the keys back to it (PIE-1547)", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.press("tile.focus", {}, "reader");
+      await (d.desk as any).openKeys(undefined, USER);
+      await until(() => d.desk.focusName() === "keys", "the keys window has the keys");
+      await d.desk.dispatch.act({ action: "tile.drawer", args: { on: true }, tile: "reader" }, USER);
+      await d.desk.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "reader" }, USER);
+      expect(d.desk.pane("reader")).toBeDefined();
+      await d.desk.dispatch.press("tile.focus", {}, "keys");
+      await d.desk.dispatch.press("tile.close", {}, "keys");
+      expect(d.desk.focusName()).toBe("reader");
+    } finally { d.quit(); }
+  });
 });

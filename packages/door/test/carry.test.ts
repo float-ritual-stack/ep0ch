@@ -93,6 +93,13 @@ describe("one carry", () => {
     expect(leaves(from.tree)).toEqual([1, 2, 3]);
   });
 
+  test("a last tile kept on the glass: its stand-in keeps its name, so it arrives under the next one (PIE-1547)", () => {
+    const r = carry(side(layout(leaf(1), [[1, "reader"]])), side(drawer(), PERSON, {}, { otherNames: ["reader"] }), { tile: 1, heir: { id: 5 }, land: { id: 12, kind: "reader", at: { kind: "float" } }, keys: false });
+    if (!r.ok) throw new Error(r.refused);
+    expect(r.from.state.names.get(5)).toBe("reader");
+    expect(r.name).toBe("reader2");
+  });
+
   test("a screen's last tile leaves an heir in its place, under its name", () => {
     const r = carry(side(layout(leaf(1), [[1, "outline"]])), side(drawer()), { tile: 1, heir: { id: 5 }, land: { id: 12, kind: "reader", at: { kind: "float" } }, keys: false });
     if (!r.ok) throw new Error(r.refused);

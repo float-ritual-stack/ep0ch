@@ -41,8 +41,10 @@ export function carry<I>(from: CarrySide<I>, to: CarrySide<I>, req: CarryRequest
   if (name === undefined) return { ok: false, side: "from", refused: `no tile ${String(req.tile)} here` };
   const out = apply(from.state, { op: "take", tile: req.tile, ...(req.heir ? { heir: req.heir } : {}) }, from.ctx);
   if (!out.ok) return { ok: false, side: "from", refused: out.refused };
-  // The names it's measured against: the destination's own and the layer beside it, the tile's own name not counted (it's leaving).
-  const others = (to.ctx.otherNames ?? []).filter(n => n !== name);
+  // The names it's measured against: the destination's own and the layer beside it, the tile's own name not counted when
+  // it leaves with the tile (an heir in its place keeps it: counted).
+  const stays = [...out.state.names.values()].includes(name);
+  const others = (to.ctx.otherNames ?? []).filter(n => stays || n !== name);
   const as = freeName([...to.state.names.values(), ...others], name);
   const travels = travelsOf(from.state, req.tile);
   const keys = req.keys !== false && from.ctx.standing && from.ctx.person.focus === req.tile && from.ctx.person.here !== false;
