@@ -7452,8 +7452,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const moved = this.carryOut(p.t, p.plan, how.heir);
     const done = dest.carryIn(moved, p.plan, p.land);
     if (p.plan.keys && moved.typing && moved.pane instanceof PtyPane && dest.focus === dest.idOf(moved.pane)) dest.ptyIn = moved.pane;
-    // What travels and couldn't land there is said, never swallowed (a fold in the drawer's tabs, a float).
-    if (p.plan.dropped.length) dest.ctx?.flash(`${p.plan.name} came without ${p.plan.dropped.join(" and ")}`);
+    // What travels and couldn't land there is in the answer, and the action says it (`without`), never swallowed.
     return { ...done, keys: p.plan.keys, moved, ...(p.plan.dropped.length ? { dropped: p.plan.dropped } : {}) };
   }
   /** This desk's half of a carry: its `take` committed, the tile's pane and its links across taken with it. */

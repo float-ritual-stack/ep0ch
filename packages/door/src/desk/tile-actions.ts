@@ -128,6 +128,9 @@ type PolicyArgs = ArgsOf<typeof POLICY_ARGS>;
 /** The person's `note.trash` waiting for the service's answer (what would go), per desk, and whether a second d came meanwhile. */
 const asking = new WeakMap<Desk, { id: string; again: boolean }>();
 
+/** A carry's answer says what travelled and couldn't land (PIE-1547): a fold in the drawer's tabs, on the glass. */
+const without = (r: { dropped?: unknown }): string => (Array.isArray(r.dropped) && r.dropped.length ? ` · without ${r.dropped.join(" and ")}` : "");
+
 export const TILE_ACTIONS = actionSet<On>()("tile", {
   "layout.get": def({
     answer: { tiles: { type: "array", about: "tiles on the screen, in groups and in the drawer" }, layers: { type: "array", about: "each desk's tree and tiles" }, brief: { type: "string", about: "said when tiles are described in brief (no full=true)" }, tree: { type: "object", about: "the screen layout tree" } },
@@ -154,8 +157,8 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     keys: [{ keys: "drag", does: "a header (onto a group to move into it, out of a group's frame to move out)" }, { keys: "^W m then h j k l", does: "beside", says: "move this tile beside the one in that direction" }, { keys: "^W t then h j k l", does: "into tabs", says: "move this tile into the tabs of the one in that direction" }, { keys: "^W H J K L", does: "to an edge" }, { keys: "^W T", does: "takes a tab out" }, { keys: "^W i", does: "into a group, or out of the one it's in" }],
     touches: "shape", replay: "safe", confirms: true,
     says: (r, a) => {
-      if (r.into) return `moved ${r.name ?? r.tile} into ${r.into}`;
-      if (r.out) return `moved ${r.name ?? r.tile} out of ${r.from ?? "its group"}`;
+      if (r.into) return `moved ${r.name ?? r.tile} into ${r.into}${without(r)}`;
+      if (r.out) return `moved ${r.name ?? r.tile} out of ${r.from ?? "its group"}${without(r)}`;
       const w = whereOf(a.where, "layout.move", "right");
       return `moved ${r.name ?? r.tile} ${w.startsWith("edge-") ? `to the ${w.slice(5)} edge` : `${PLACE[w]} ${r.to}`}`;
     },
@@ -278,7 +281,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     words: "pop this tile out as a float over everything, or put it back",
     summary: "pop tile=<tile> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or put a float back in the layout (on the board, as a detail). to=glass keeps it above every screen. where=right lands beside its opener. Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
     keys: [{ keys: "⤢", does: "land a peek beside its gallery" }, { keys: "^W f", does: "float" }, { keys: "^W U", does: "keep on the glass" }, { keys: "o", does: "on the board" }, { via: "the frame card's float or put back row" }, { keys: "f", does: "while dragging a tile" }],
-    touches: "shape", replay: "safe", says: r => `${r.floated ? "popped out" : "put back"} ${r.name ?? r.tile}`,
+    touches: "shape", replay: "safe", says: r => `${r.floated ? "popped out" : "put back"} ${r.name ?? r.tile}${without(r)}`,
     menu: [{ label: "keep on the glass", group: TILE, key: "ctrl+w U", args: { to: "glass" } }, { label: "float", group: TILE, key: "ctrl+w f", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float ? { label: "put back in the layout" } : { refused: n.refused("float") }; } }],
     args: { to: { type: "string", optional: true, choices: ["glass"], about: "glass: keep this tile above every screen" }, where: { type: "string", optional: true, choices: ["right"], about: "right: land beside the tile that opened this float" }, on: { type: "boolean", optional: true, about: "true floats it, false puts it back; with it left out the action toggles. A tile already in that state is left as it is (a script floating every tile can't land one that floats)" } },
     examples: [
@@ -447,7 +450,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "your drawer (PIE-498): tile=<tile> goes into your drawer, the tabs above every screen that travel with the person across screens (on=true, the default for a tile on a screen), keeping its program, note and history: the same tile, moved, never started again; or a tile in your drawer comes out into the screen shown (on=false, the default for a tile in the drawer; on=false named from a screen brings the drawer's tab shown), beside to=<tile> (where=left, right, up, down, tabs, edge-<side>; left out, beside the tile the person has). The drawer's own first tab comes out too, as an ordinary terminal tile with its program running, and the drawer starts a new own program when it next comes up. An agent's leaves the person's keys where they are and never moves the tile they type in or have; refused where the layout keeps the tile (locked, a container that keeps its tiles, a lane)",
     keys: [{ keys: "^W a", does: "on a screen: put in your drawer; in the drawer: take out" }, { keys: "^W A", does: "on a screen: the drawer's tab shown comes beside your tile" }, { keys: "drag", does: "a tile's title onto the status bar's drawer chip (a tab) or onto a side, edge or tab strip of a drawer tile (where its drop zone says)" }, { keys: "a", does: "while dragging a tile" }, { keys: "drag", does: "a drawer tab's title out onto the screen" }],
     touches: "shape", replay: "safe", confirms: true,
-    says: r => (r.changed === false ? null : r.inDrawer ? `put ${r.name ?? r.tile} in your drawer${r.from ? ` from the ${r.from}` : ""}` : `took ${r.name ?? r.tile} out of your drawer into the ${r.into ?? "screen"}${r.fresh ? " · its program runs on there; your drawer starts a new one when it comes up" : ""}`),
+    says: r => (r.changed === false ? null : r.inDrawer ? `put ${r.name ?? r.tile} in your drawer${r.from ? ` from the ${r.from}` : ""}${without(r)}` : `took ${r.name ?? r.tile} out of your drawer into the ${r.into ?? "screen"}${without(r)}${r.fresh ? " · its program runs on there; your drawer starts a new one when it comes up" : ""}`),
     menu: { label: "put in your drawer", group: TILE, key: "ctrl+w a", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.inDrawer ? { label: "take out of your drawer" } : { refused: n.refused("drawer") }; } },
     args: {
       on: { type: "boolean", optional: true, about: "true: into your drawer; false: out of it into the screen shown; left out, whichever it isn't" },
@@ -813,7 +816,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "move tile=<tile> into a group on this screen whole (group=<its tile>; with several groups and none named, the person picks one), or, on a tile of a group's screen, back out onto the screen holding it. A shorthand for layout.move into=<group> / out=true, which also place it (beside=, where=)",
     keys: [{ keys: "^W i", does: "put into a group" }, { via: "the tile menu" }],
     touches: "shape", replay: "safe", confirms: true,
-    says: r => (r.asked ? `${r.name ?? r.tile}: into which group?` : `moved ${r.name ?? r.tile} ${r.out ? `out of ${r.from ?? "its group"}` : `into ${r.into}`}`),
+    says: r => (r.asked ? `${r.name ?? r.tile}: into which group?` : `moved ${r.name ?? r.tile} ${r.out ? `out of ${r.from ?? "its group"}` : `into ${r.into}`}${without(r)}`),
     menu: { label: "move into a group…", group: TILE, key: "ctrl+w i", now: ({ d, reader }) => { const n = d.groupsFor(reader); return d.inGroup() ? { label: "move out of its group" } : n.length ? null : { hide: true }; } },
     args: { group: { type: "string", optional: true, kind: "tile", about: "the group tile to move it into" } },
     examples: [
