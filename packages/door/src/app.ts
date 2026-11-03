@@ -1251,7 +1251,7 @@ export class App implements Ctx {
       },
     }) },
     { set: BAR_ACTIONS, takes: "none", on: (_, how) => ({ on: this.barOn, standing: how.standing }) },
-    { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
+    { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), ...(how.standing ? { keysAt: this.keysScreen() } : {}), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
     { set: RUNBOOK_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     // note.copy-ref on a screen that has none of its own (the main menu, a BBS list): the note named by ref=, else the
     // one in front (the power bar's row menu copies a hit from anywhere).
