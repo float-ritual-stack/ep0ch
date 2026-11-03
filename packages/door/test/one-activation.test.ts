@@ -6,13 +6,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { Msg } from "../src/board";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, type Actor } from "../src/socket";
 import { visible } from "../src/style";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { READER_KEYS } from "../src/surface/reader-keys";
 import { outliner, Scratch, until } from "./scratch";
 
 const W = 90, H = 60;
+const TIDY: Actor = { kind: "agent", id: "tidy" };
 type Way = "key" | "click" | "act";
 const WAYS: Way[] = ["key", "click", "act"];
 
@@ -51,10 +52,10 @@ describe.skipIf(!outliner)("one activation for ⏎, a click and act, on a scratc
 
   /** The targets, each by how to find its element and its words on screen, and what pressing it does. */
   const TARGETS = [
-    { name: "a link", find: (e: any) => e.kind === "link" && /Seed ledger/.test(e.label), text: "Seed ledger", outcome: async () => { await until(() => opened.at(-1) === n.ledger, "the ledger opened"); return opened.at(-1); } },
-    { name: "an embed", find: (e: any) => e.kind === "embed", text: "Paint the shed", outcome: async () => { await until(() => opened.at(-1) === n.shed, "the shed opened"); return opened.at(-1); } },
-    { name: "a figure's row", find: (e: any) => e.kind === "row" && /North bed/.test(e.label), text: "North bed", twice: true, outcome: async () => { await until(() => opened.at(-1) === n.north, "the bed opened"); return opened.at(-1); } },
-    { name: "a proposal's [dismiss]", find: (e: any) => e.control === "dismiss", text: "[dismiss]", outcome: async () => { await until(() => flashes.some(f => f.startsWith("dismissed the proposal")), "the dismiss"); return "dismissed"; } },
+    { name: "a link", find: (e: any) => e.kind === "link" && /Seed ledger/.test(e.label), text: "Seed ledger", outcome: async (_s: NoteSurface) => { await until(() => opened.at(-1) === n.ledger, "the ledger opened"); return opened.at(-1); } },
+    { name: "an embed", find: (e: any) => e.kind === "embed", text: "Paint the shed", outcome: async (_s: NoteSurface) => { await until(() => opened.at(-1) === n.shed, "the shed opened"); return opened.at(-1); } },
+    { name: "a figure's row", find: (e: any) => e.kind === "row" && /North bed/.test(e.label), text: "North bed", twice: true, outcome: async (_s: NoteSurface) => { await until(() => opened.at(-1) === n.north, "the bed opened"); return opened.at(-1); } },
+    { name: "a proposal's [dismiss]", find: (e: any) => e.control === "dismiss", text: "[dismiss]", outcome: async (_s: NoteSurface) => { await until(() => flashes.some(f => f.includes("dismissed the proposal")), "the dismiss"); return "dismissed"; } },
     { name: "a step's box", find: (e: any) => e.kind === "task", text: "water the beans", box: true, outcome: async (s: NoteSurface) => { await until(() => s.picker !== null, "the status choice"); return `choice on ${s.picker!.key.split("#")[0]!.slice(0, 5)}`; } },
   ] as const;
 
@@ -103,6 +104,19 @@ describe.skipIf(!outliner)("one activation for ⏎, a click and act, on a scratc
       expect(got.act).toEqual(got.key);
     }, 60_000);
   }
+
+  test("an agent's act opens the same things, as itself, and leaves the person's position alone", async () => {
+    for (const t of TARGETS.filter(t => t.name !== "a step's box")) {
+      flashes.length = 0; opened.length = 0;
+      const { s, h } = await reading(await fixture());
+      const i = s.describeElements().findIndex(t.find) + 1;
+      // A reader the person isn't in (an agent never acts in the one with their keys).
+      const r = await s.act("element.open", { n: i }, { ...h, focused: false }, TIDY);
+      expect(r).toMatchObject({ element: i });
+      expect(await t.outcome(s)).toEqual(await press(t, "key"));
+      expect(s.describeElements().find(e => e.current)).toBeUndefined();
+    }
+  }, 120_000);
 
   test("link.follow on a drawn link is its element's activation: the person's lands the position on it", async () => {
     flashes.length = 0; opened.length = 0;

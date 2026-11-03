@@ -6090,7 +6090,7 @@ export class NoteSurface {
       if (y === pr.row && !host.hasWiredPreview?.() && x >= pr.col + pr.cols - `[${this.listPreview.place} ▸]`.length) void this.runKey("placement.menu", { target: "list-preview" }, host);
       else if (y > pr.row) {
         const hit = this.previewHits.find(h => h.row === y && x >= h.from && x < h.to);
-        if (hit) void this.followLink(hit.link, host);
+        if (hit) { if (hit.link.choice !== undefined) void this.choose(hit.link.choice, host); else this.pressLink(hit.link, undefined, this.cur, undefined, !!host.freshClick, host); } // a choice row chooses; else its element's activation
         else void this.runKey("list.preview.edit", {}, host);
       }
       return true;
@@ -10577,7 +10577,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       // which makes the person's their [ ] position and leaves an agent's alone; not drawn, it's followed as ⏎ would.
       const links = surface.noteLinks();
       if (n !== undefined && !links[n - 1]) throw new ActionRefused(`there is no link ${n}; the note has ${links.length}`);
-      const link = n !== undefined ? links[n - 1]! : standing ? surface.selectedLink() : null;
+      const link = n !== undefined ? links[n - 1]! : surface.selectedLink();
       if (!link) throw new ActionRefused("no link is selected; pass n");
       const e = surface.elementOfLink(link);
       if (e) { const r: unknown = await NOTE_ACTIONS.run("element.open", { n: surface.elems.indexOf(e) + 1, ...(fresh && opens(e) ? { fresh } : {}) }, on, actor); return r as { opened: string | null }; }
@@ -10764,8 +10764,6 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (!i) throw new ActionRefused("no element is current in view; pass n");
       if (row !== undefined && (!Number.isInteger(row) || row < 1)) throw new ActionRefused("row must be a whole number from 1");
       const e = row === undefined ? surface.element(i) : surface.inlineRowElement(surface.element(i), row - 1);
-      // The person's activation is on their [ ] position (a click's element becomes it, as ⏎'s already is); an agent's leaves it.
-      if (standing && row === undefined) surface.selectElement(e);
       // A code block or a quote has nothing to open: ⏎ copies it (the person's to their clipboard, an agent's returned).
       if (e.kind === "block") { const r: unknown = await NOTE_ACTIONS.run("block.copy", { n: e.block! + 1 }, on, actor); return r; }
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed" && !e.link?.press?.alt) throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
@@ -10774,6 +10772,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const asked = surface.askLeave("element.open", { n: i, ...(row !== undefined ? { row } : {}), ...(fresh ? { fresh } : {}) }, actor, host, e.key);
         if (asked) return asked;
       }
+      // The person's activation is on their [ ] position (a click's element becomes it, as ⏎'s already is); an agent's leaves it.
+      if (standing && row === undefined) surface.selectElement(e);
       // A step's box opens the person's status choice; an agent sets the status itself.
       // A live figure's tab or density control: the figure's own action, with its rules and its provenance.
       if (e.kind === "figure" && e.link?.figure) {
