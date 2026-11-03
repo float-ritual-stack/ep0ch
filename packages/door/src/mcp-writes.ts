@@ -27,7 +27,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mcpEnvFile, mcpSetting } from "@ep0ch/outliner/mcp-access-files";
-import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import { isMcpAccessLevel, type McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import { effectiveLevel } from "@ep0ch/outliner/write-gate";
+export { gate, writesAt, noWritesWords } from "@ep0ch/outliner/write-gate";
 import { actorLabel, composeActor, composeSessionId, CALL_PATTERN, CLIENT_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { sessionPersona, type LocationReader } from "@ep0ch/outline-core/outline-location";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
@@ -179,14 +181,10 @@ export const sessionIdOf = (caller: McpCaller): string => composeSessionId({ sub
  * `full`, whatever the setting lets the others (`read`). A setting of `none` is a person's denial and holds for everyone.
  */
 export const levelFor = (status: { level: McpAccessLevel; owner?: string }, caller: McpCaller | undefined, machine: string | undefined, where: BoardAddress | undefined): McpAccessLevel => {
-  const level = caller && status.owner && status.level !== "none" && status.owner === principalOf(caller, machine) ? "full" : status.level;
   // A connection capped lower (a named path's `propose`) gets no more than its cap in this outline, whatever it allows.
   const cap = caller?.cap?.(where);
-  return cap ? lowerLevel(cap, level) : level;
+  return effectiveLevel(status, { ...(caller ? { principal: principalOf(caller, machine) } : {}), ...(cap ? { cap } : {}) }).level;
 };
-
-/** The lower of two levels: what an outline's grant and a caller's cap leave. */
-export const lowerLevel = (a: McpAccessLevel, b: McpAccessLevel): McpAccessLevel => LEVELS.indexOf(a) <= LEVELS.indexOf(b) ? a : b;
 
 /**
  * What a named path may do at most, in each outline (PIE-804): `EP0CH_MCP_PATH_ACCESS`, a comma list of
@@ -206,7 +204,7 @@ export function pathCapEntry(spec: string, persona: string): (where?: BoardAddre
     const [who = "", level = "", ...extra] = entry.split("=").map(x => x.trim());
     if (!who) continue;
     // A misspelled cap must never restore the more permissive default.
-    const invalid = extra.length > 0 || !(LEVELS as readonly string[]).includes(level);
+    const invalid = extra.length > 0 || !isMcpAccessLevel(level);
     entries.set(who.toLowerCase(), { level: invalid ? "none" : level as McpAccessLevel, invalid });
   }
   const name = persona.toLowerCase();
@@ -214,9 +212,6 @@ export function pathCapEntry(spec: string, persona: string): (where?: BoardAddre
   return where => (where ? found(`${name}@${where.outline}@${where.machine}`.toLowerCase()) ?? found(`${name}@${where.outline}`.toLowerCase()) : undefined)
     ?? found(name) ?? { level: "propose", entry: null };
 }
-export const LEVELS: readonly McpAccessLevel[] = ["none", "read", "propose", "full"];
-
-export { assignIdRefusal, restoreRefusal, proposalSettlementRefusal, writesAt } from "@ep0ch/outliner/mcp-write";
 export type { McpWrite, WriteOutcome } from "@ep0ch/outliner/mcp-write";
 import type { McpWrite, WriteOutcome } from "@ep0ch/outliner/mcp-write";
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";

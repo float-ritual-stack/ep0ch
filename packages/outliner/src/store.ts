@@ -1012,7 +1012,7 @@ export class OutlinerStore {
     const row = this.database.query("SELECT value FROM metadata WHERE key = ?").get(MCP_ACCESS_METADATA_KEY) as { value: string } | null;
     const level = normalizeMcpAccessLevel(row?.value ?? "none");
     const owner = this.outlineAbout()?.principal;
-    return { level, canRead: level !== "none", sequence: this.sequence, ...(owner ? { owner } : {}) };
+    return { level, canRead: level !== "none", sequence: this.sequence, set: row !== null, ...(owner ? { owner } : {}) };
   }
 
   /** What this outline says of itself, when an agent made it over MCP. */

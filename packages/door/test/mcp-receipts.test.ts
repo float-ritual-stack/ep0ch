@@ -173,7 +173,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     expect((await pull()).ok).toBe(true);
     await boardOn(far, "attic-notes", FAR).configureMcpAccess("full");
     const r = (await tool("outline_write_status", { queueId: gone.json.queueId })).json;
-    expect(r).toMatchObject({ state: "rejected", reason: expect.stringContaining("is read here now") });
+    expect(r).toMatchObject({ state: "rejected", reason: expect.stringContaining("MCP access is read for attic-notes@") });
     const theirs = await callAs(OTHER, "outline_write_status", { queueId: gone.json.queueId });
     expect(theirs.isError).toBe(true);
     expect(theirs.text).toContain("No queued write");

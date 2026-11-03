@@ -11,6 +11,7 @@ import { loadQuerySuggestPrompt } from "./ai-prompts";
 import { askJev, type JevAnswer, type JevOptions, type JevReading } from "./jev";
 import { recordQueryWords, SuggestionWrites, type SuggestionClient } from "./jev-suggestions";
 import type { RecordCache } from "./records";
+import { JevAsks } from "./jev-asks";
 import type { Block, VisibleBlockCollection, OutlinerResponse, OutlinerRequest } from "./types";
 
 export async function querySuggestReply(suggester: QuerySuggester, request: Extract<OutlinerRequest, { action: "query.suggest" }>, sequence: () => number): Promise<OutlinerResponse> {
@@ -47,7 +48,7 @@ type Prompt = Awaited<ReturnType<typeof loadQuerySuggestPrompt>>;
 export class QuerySuggester {
   private cache = new Map<string, QueryWords>();
   private records: RecordCache = {};
-  constructor(private readonly client: SuggestionClient, private readonly writes = new SuggestionWrites()) {}
+  constructor(private readonly client: SuggestionClient, private readonly writes = new SuggestionWrites(), private readonly asks = new JevAsks()) {}
 
   private async notes(where: string): Promise<Block[]> {
     return (await this.client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, machinery: "show", limit: 1000 } })).blocks;
@@ -209,7 +210,7 @@ export class QuerySuggester {
   }
 
   private async keep(read: Read, request: QuerySuggestRequest): Promise<QueryWords> {
-    read.answer.id = await this.writes.run(() => recordQueryWords(this.client, read.answer, "suggested", request.mutation?.actorId ?? "user", read.reading, this.records));
+    read.answer.id = await this.writes.run(() => recordQueryWords(this.client, read.answer, "suggested", request.mutation?.actorId ?? "user", read.reading, this.records, this.asks));
     return read.answer;
   }
 
@@ -239,7 +240,7 @@ export class QuerySuggester {
         else await this.client.request({ action: "create", text, author: mutation.author, ...(mutation.author === "agent" && mutation.actorId ? { provenance: { actorId: mutation.actorId } } : {}) });
       }
     }
-    await recordQueryWords(this.client, { ...suggestion, where: request.acceptedWhere ?? suggestion.where }, request.outcome!, request.mutation?.actorId ?? "user", undefined, this.records);
+    await recordQueryWords(this.client, { ...suggestion, where: request.acceptedWhere ?? suggestion.where }, request.outcome!, request.mutation?.actorId ?? "user", undefined, this.records, this.asks);
     return { ...suggestion, ...(warnings.length ? { warning: warnings.join("\n") } : {}) };
   }
 }

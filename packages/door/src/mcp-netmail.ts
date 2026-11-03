@@ -35,9 +35,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
-import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import { atLeast, lowerLevel, type McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { configFileOf, type Env } from "./backup/config";
-import { applyWrite, isWriteTool, type McpWrite, type McpWriteTool, type WriteOutcome } from "./mcp-writes";
+import { applyWrite, gate, isWriteTool, type McpWrite, type McpWriteTool, type WriteOutcome } from "./mcp-writes";
 import { boardFor, type NotesBoard } from "./notes-cli";
 import { Refused } from "./socket";
 
@@ -458,8 +458,10 @@ async function applyOnce(board: NotesBoard, e: NetmailEntry, now: () => number):
   const at = () => new Date(now()).toISOString();
   const refused = (said: string): NetmailSettled => ({ id: e.id, state: "refused", said, uri: e.uri, at: at() });
   if (!isWriteTool(e.tool)) return refused(`${e.tool} isn't a write this machine knows`);
-  const level = (await board.mcpAccessStatus()).level;
-  if (level !== "propose" && level !== "full") return refused(`MCP access for ${e.outline} is ${level} here now, so the write queued at ${e.queuedAt} was dropped`);
+  // At the level it was queued under, or narrower: an owner who has since moved full to propose gets proposals.
+  const effective = lowerLevel(e.level, (await board.mcpAccessStatus()).level);
+  const decided = gate({ tool: e.tool, level: effective, where: board.address });
+  if (decided.becomes === "refused" && !atLeast(effective, "propose")) return refused(`${decided.why} The write queued at ${e.queuedAt} was dropped.`);
   const info = await board.info();
   const uri = (blockId: string) => formatEp0chBlockUri({ ...board.address, blockId });
   // A create, comment, reply or resolve carries the entry's id as its request id: tried again, the host returns the one it made.
@@ -476,8 +478,6 @@ async function applyOnce(board: NotesBoard, e: NetmailEntry, now: () => number):
     else if (e.textHash && e.textHash === textHash(r.text) && e.revision === e.mirrorRevision) revision = r.revision;
     else { proposeOnly = true; revision = r.revision; }
   }
-  // At the level it was queued under, or narrower: an owner who has since moved full to propose gets proposals.
-  const effective: McpAccessLevel = e.level === "propose" || level === "propose" ? "propose" : "full";
   try {
     const done: WriteOutcome = await applyWrite(board, write, { level: effective, actor: { actorId: e.actorId, sessionId: e.subject }, uri, proposeOnly, ...(revision !== undefined ? { revision } : {}), queued: { at: e.queuedAt } });
     return { id: e.id, state: done.outcome, said: `${done.said} (queued ${e.queuedAt})`, ...(done.uri ? { uri: done.uri } : {}), ...receiptDetail(done, uri), at: at() };

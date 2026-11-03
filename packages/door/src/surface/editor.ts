@@ -7,7 +7,7 @@ import { PositionRows } from "../reader-position";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { DRAFT_ACTIONS, keepCopy, patchLabel, type Draft } from "../edit";
+import { DRAFT_ACTIONS, DRAFT_KEYS, keepCopy, patchLabel, type Draft } from "../edit";
 import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
 import { drawEllipsized, C, fg, pad, RESET, visible, width, type LinkRange } from "../style";
@@ -18,6 +18,7 @@ import { ownTerminal, type Handover, type TileExit, type TileProgram, type Key }
 import { agentLabel, declaredKeys, keyCaption } from "./actions";
 import { modeHint, type ModeKey } from "./modes";
 import { popupHint, completerOf, completionOf } from "./completer";
+import { wordIn } from "./selection";
 
 export interface EditFrame {
   look?: StyleValues;
@@ -223,6 +224,19 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   return true;
 }
 
+/**
+ * A double click's word (the one word rule, `wordIn`: by grapheme) or a triple click's line at the draft's cursor,
+ * selected by two draft.place as a drag would (PIE-1542). Every field's multi-click is this: the reader's edit, a comment
+ * in its tile, the board's composer, an inspector field. `run` is the host's way to run a draft action (attributed).
+ */
+export async function selectClicks(d: Draft, n: number, run: (name: string, args: Record<string, unknown>) => Promise<unknown> = (name, args) => DRAFT_ACTIONS.run(name as never, args as never, d, USER)): Promise<void> {
+  if (n < 2) return;
+  const line = d.lines[d.row] ?? "", span = n === 2 ? wordIn(line, d.col) : { start: 0, end: line.length };
+  if (span.start === span.end) return;
+  await run("draft.place", { line: d.row + 1, col: span.start + 1 });
+  await run("draft.place", { line: d.row + 1, col: span.end + 1, extend: true });
+}
+
 /** A draft's keys as a hint row: each row names the action its key runs (the draft's own keys, edit.ts), drawn the way every mode's are. */
 const draftKeys = (rows: readonly ModeKey[]): string => modeHint(rows, () => undefined);
 
@@ -235,18 +249,19 @@ export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload
       const action = DRAFT_ACTIONS.def(name)!;
       return `${keyCaption([...declaredKeys(action.keys)][0]!)} ${name.split(".")[1]}`;
     }).join(" · ");
-  // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
+  // The ways out first (a narrow hint row cuts the end), then the list keys and the preview. A key the table holds is
+  // its built-in one here; the hint applies the keymap (modeHint's `effective`), so a rebind shows and an unbound one drops.
   const last = d.undos.at(-1);
-  const undo = last ? ` · ctrl+z undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}` : "";
-  const row = (key: string, action: string, label: string): ModeKey => ({ key, action, label });
+  const row = (key: string, action: string, label: string): ModeKey[] => [{ key, action, label }];
+  const bound = (action: string, label: string): ModeKey[] => { const r = DRAFT_KEYS.find(x => x.action === action); return r ? row(r.key, action, label) : []; };
   return draftKeys([
-    row("ctrl+s", "edit.save", o.save), row("esc", "edit.close", d.dirty ? "twice puts it aside" : o.close ?? "done"),
-    ...(o.follow && d.linkAtCursor() ? [row("ctrl+l", "edit.follow", "open link")] : []),
-    ...(last ? [row("ctrl+z", "draft.undo", `undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}`)] : []),
-    ...(o.place ? [row("ctrl+o", "draft.place", o.place)] : []), ...(o.move ? [row("ctrl+g", "comment.grip", "move")] : []),
-    ...(d.redos.length ? [row("ctrl+y", "draft.redo", "redo")] : []), ...(d.selection() ? [row("alt+c", "draft.copy", "copy")] : []),
-    row("ctrl+x ctrl+e", "edit.external", "$EDITOR"), ...(o.reload ? [row("ctrl+r", "edit.reload", o.reload)] : []),
-    row("ctrl+t", "edit.insert", "insert"), row("tab", "draft.indent", "indent"), row("shift+tab", "draft.outdent", "out"), row("ctrl+p", "draft.preview", "preview"),
+    ...bound("edit.save", o.save), ...row("esc", "edit.close", d.dirty ? "twice puts it aside" : o.close ?? "done"),
+    ...(o.follow && d.linkAtCursor() ? bound("edit.follow", "open link") : []),
+    ...(last ? bound("draft.undo", `undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}`) : []),
+    ...(o.place ? row("ctrl+o", "draft.place", o.place) : []), ...(o.move ? row("ctrl+g", "comment.grip", "move") : []),
+    ...(d.redos.length ? bound("draft.redo", "redo") : []), ...(d.selection() ? bound("draft.copy", "copy") : []),
+    ...row("ctrl+x ctrl+e", "edit.external", "$EDITOR"), ...(o.reload ? bound("edit.reload", o.reload) : []),
+    ...bound("draft.pick", "insert"), ...row("tab", "draft.indent", "indent"), ...row("shift+tab", "draft.outdent", "out"), ...bound("draft.preview", "preview"),
   ]);
 }
 

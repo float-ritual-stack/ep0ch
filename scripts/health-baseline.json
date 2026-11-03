@@ -1,5 +1,5 @@
 {
-  "revision": "6b56ec39c7b610fd247c7b13c4710ecdc459a2f6",
+  "revision": "e9294847732fa869f39c09bff7977463daacfe57",
   "patterns": {
     "width-length": {
       "count": 243,
@@ -188,7 +188,7 @@
         "packages/door/src/surface/editor.ts:1746cff03332e3fa",
         "packages/door/src/surface/element-editor.ts:ad73c971150dbbfc",
         "packages/door/src/surface/element-editor.ts:d92cf1ea02e539e",
-        "packages/door/src/surface/inspector.ts:12d9796441aeaf70",
+        "packages/door/src/surface/inspector.ts:c388a1c5506860a0",
         "packages/door/src/surface/list-view.ts:ee86ad0dec7295bc",
         "packages/door/src/surface/list-view.ts:ee956f7bd060eb10",
         "packages/door/src/surface/list-view.ts:ee956f7bd060eb10",
@@ -372,11 +372,11 @@
   "files": {
     "packages/claude-mod/hooks/register.ts": 2898,
     "packages/door/src/app.ts": 2008,
-    "packages/door/src/desk/desk.ts": 8524,
+    "packages/door/src/desk/desk.ts": 8527,
     "packages/door/src/desk/screen-layout.ts": 2347,
     "packages/door/src/screens.ts": 2239,
     "packages/door/src/showcase/showcase.ts": 2138,
-    "packages/door/src/surface/note.ts": 12989,
+    "packages/door/src/surface/note.ts": 12981,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4671,
@@ -384,7 +384,7 @@
     "packages/outliner/src/detail-pi.ts": 2042,
     "packages/outliner/src/publish.ts": 3381,
     "packages/outliner/src/resource-catalog.ts": 4937,
-    "packages/outliner/src/server.ts": 4568,
+    "packages/outliner/src/server.ts": 4452,
     "packages/outliner/src/store.ts": 6485,
     "packages/outliner/src/tree-controller.ts": 3251,
     "packages/outliner/src/types.ts": 2912

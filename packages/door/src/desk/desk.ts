@@ -7468,11 +7468,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile whose opens land in itself keeps that wire (it travels in the open): no other open goes with it (one open wire a tile).
     links.push(...(this.ext.get(t.id) ?? []).filter(w => !plan.travels.inPlace || w.verb !== "open").map(w => ({ ...w })));
     const spec = this.specOf(t.id);
-    const typing = pane === this.ptyIn && this.focus === t.id;
-    this.bindFollows(t.id, pane);
+    const typing = pane === this.ptyIn && this.focus === t.id; this.bindFollows(t.id, pane);
     // The tiles that give their keys back to it keep that, by identity, for when it comes back here (`carryIn`).
-    const owed = [...this.layout.openedFrom].filter(([, o]) => o.from === t.id).map(([k, o]) => ({ child: this.panes.get(k)!, typing: !!o.typing }));
-    if (owed.length) keysOwed.set(pane, owed);
+    keysOwed.set(pane, [...this.layout.openedFrom].filter(([, o]) => o.from === t.id).map(([k, o]) => ({ child: this.panes.get(k)!, typing: !!o.typing })));
     this.commit(plan.from);
     this.forgetTile(t.id, pane);
     // Its heir takes its place and its name: a new tile of its kind, started as any tile joining a live desk.
@@ -8242,8 +8240,7 @@ export interface TileLine {
 }
 
 export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[] }
-/** The tiles a carried tile was the opener of (`openedFrom`), by identity: an opener that comes back gets them back. */
-const keysOwed = new WeakMap<Pane, { child: Pane; typing: boolean }[]>();
+/** The tiles a carried tile was the opener of (`openedFrom`), by identity: an opener that comes back gets them back. */ const keysOwed = new WeakMap<Pane, { child: Pane; typing: boolean }[]>();
 /** How a tile is carried (`Desk.carry`): beside `to`, `where` it; or `floating` there (the glass, no keys); `heir` takes its place. */
 export interface CarryHow { to?: string; where?: Where; floating?: Rect; heir?: Pane }
 /** A carry's answer as an action says it: the moved pane and the keys flag are the caller's, not the person's. */

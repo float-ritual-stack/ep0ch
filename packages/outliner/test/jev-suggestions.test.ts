@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { applyWrite } from "../src/mcp-write";
-import { afterOf, judgeSuggestion, problemOf, stampSettled, tallyAsk, settleOpen, writerOf } from "../src/jev-suggestions";
+import { afterOf, judgeSuggestion, problemOf, stampSettled, tallyAsk, tallyDay, settleOpen, writerOf } from "../src/jev-suggestions";
+import { asksFor } from "../src/jev-asks";
 import { scratchOutline } from "./scratch-outline";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
@@ -60,11 +61,13 @@ async function setup(o: { hostDelayMs?: number } = {}) {
   const client = new OutlinerClient(paths.socket);
   const records = async (type: string) => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `type=${type}`, machinery: "show" } })).blocks
     .map(b => ({ id: b.id, text: b.text, ...Object.fromEntries(parsePropertyRecords(b.text).map(p => [p.key, p.value])) as Record<string, string> } as { id: string; text: string } & Record<string, string>));
-  return { store, agent, records, client, env: { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` } };
+  // The day's run is written at most every 15 minutes (PIE-1546): a test that reads its counts writes it first.
+  const run = async (day = new Date().toISOString().slice(0, 10)) => { await tallyDay(client, day, asksFor(root)); return (await records("jev-run")).find(r => r.run === day); };
+  return { store, agent, records, client, run, env: { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` } };
 }
 
 test("a write that gets a suggestion leaves a record, and later writes decide whether it was followed, a different figure, or ignored", async () => {
-  const { store, agent, records, client } = await setup();
+  const { store, agent, records, client, run } = await setup();
   const first = await agent("create", { parent: "root", text: SEASON });
   expect(first.exitCode, first.stderr).toBe(0);
   const [fact] = await records("review-finding");
@@ -82,7 +85,7 @@ test("a write that gets a suggestion leaves a record, and later writes decide wh
   expect(grown.exitCode, grown.stderr).toBe(0);
   const [outcome] = await records("suggestion-outcome");
   expect(outcome).toMatchObject({ suggestion: fact!.id, note: note.id, outcome: "followed", component: "graph-timeline", writer: "loki", harness: "claude-code", day: today });
-  expect((await records("jev-run")).find(r => r.run === today)).toMatchObject({ suggested: "1", agreed: "1", agreement: "1", different: "0", ignored: "0" });
+  expect(await run()).toMatchObject({ suggested: "1", agreed: "1", agreement: "1", different: "0", ignored: "0" });
   // PIE-1539: the finding itself reads whole: its title is the problem, and settling stamped what the writer did, the
   // passage after and the write that settled it, without making it news.
   const [stamped] = await records("review-finding");
@@ -233,13 +236,13 @@ test("a write through the MCP gateway's entry leaves the same record, with the w
 }, 40_000);
 
 test("two writers' first suggestions of the day at once leave one run for the day, counting both", async () => {
-  const { agent, records } = await setup({ hostDelayMs: 150 });
+  const { agent, records, run } = await setup({ hostDelayMs: 150 });
   const [one, two] = await Promise.all([
     agent("create", { parent: "root", text: SEASON }),
     agent("create", { parent: "root", text: SEASON.replace("Garden year", "Bed rotation") }),
   ]);
   expect([one.exitCode, two.exitCode], `${one.stderr}${two.stderr}`).toEqual([0, 0]);
-  expect(await until(async () => (await records("review-finding")).length === 2 && (await records("jev-run")).some(r => r.suggested === "2"))).toBe(true);
+  expect(await until(async () => (await records("review-finding")).length === 2 && (await run())?.suggested === "2")).toBe(true);
   expect(await records("jev-run")).toHaveLength(1);
 }, 40_000);
 
@@ -261,11 +264,22 @@ test("an existing suggestions page gains the quiet writes' table, with when, kee
   expect(old).not.toContain("review-quiet");
   const up = upgradeSuggestionsPage(old);
   expect(up).toContain("columns: [note, outcome, passage, after, writer]");
-  expect(up).toContain("columns: [note, writer, revision, created]");
+  expect(up).toContain("columns: [run, quiet, items, unavailable, tokens-in]");
   expect(up.indexOf("## Reviewed, nothing to fix")).toBeLessThan(up.indexOf("## Was Jev right?"));
   expect(up.split("\n").filter(l => l === "::").length).toBe(old.split("\n").filter(l => l === "::").length + 1);
   expect(upgradeSuggestionsPage(up)).toBe(up);
   expect(upgradeSuggestionsPage(SUGGESTIONS_PAGE)).toBe(SUGGESTIONS_PAGE);
+});
+
+// PIE-1546: quiet asks are no longer blocks, so the table that listed them becomes the day's counts, where it stood.
+test("a page's table of review-quiet notes becomes the quiet count a day a row, in its place", async () => {
+  const { SUGGESTIONS_PAGE, upgradeSuggestionsPage } = await import("../src/jev-suggestions");
+  const listed = ["## Reviewed, nothing to fix", "::graph-table", "---", "title: writes the review passed", "query: type=review-quiet NOT source=backfill", "machinery: show", "columns: [note, writer, revision, created]", "link: note", "at: revision", "sort: created", "direction: desc", "limit: 30", "---", "::", ""].join("\n");
+  const old = SUGGESTIONS_PAGE.replace(/## Reviewed, nothing to fix\n[\s\S]*?\n::\n\n/, `${listed}\n`);
+  expect(old).toContain("review-quiet");
+  const up = upgradeSuggestionsPage(old);
+  expect(up).toBe(SUGGESTIONS_PAGE);
+  expect(upgradeSuggestionsPage(up)).toBe(up);
 });
 
 // PIE-1433: a review row opens its note at the revision the review read; pie's page gains `at: revision` on its own.
@@ -275,8 +289,8 @@ test("an existing suggestions page gains at: revision on its review tables, and 
   const up = upgradeSuggestionsPage(old);
   expect(up).toBe(SUGGESTIONS_PAGE);
   const tables = up.split("::graph-table").slice(1).map(t => t.slice(0, t.indexOf("\n::")));
-  for (const t of tables) expect(t.includes("at: revision")).toBe(/query: type=review-(finding|quiet)\b/.test(t) && t.includes("link: note"));
-  expect(tables.filter(t => t.includes("at: revision")).length).toBe(2);
+  for (const t of tables) expect(t.includes("at: revision")).toBe(/query: type=review-finding\b/.test(t) && t.includes("link: note"));
+  expect(tables.filter(t => t.includes("at: revision")).length).toBe(1);
   expect(upgradeSuggestionsPage(up)).toBe(up);
 });
 
