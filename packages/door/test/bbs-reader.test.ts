@@ -263,6 +263,63 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(top()).toBeInstanceOf(MainMenu);
   }, 20_000);
 
+  test("t's replies view has a way back: esc and alt+← close it back to the note, and its hint says so (PIE-1533)", async () => {
+    const r = await open();
+    const replies = () => (r.surface as any).modes.get("replies");
+    for (const back of [{ kind: "esc" }, { kind: "alt-left" }] as Key[]) {
+      key(char("t"));
+      await until(() => !!replies() && text().includes("THREAD"), "the replies view");
+      expect(visible(r.surface.hint())).toMatch(/esc\/alt\+←[^·]*close replies/);
+      key(back);
+      await until(() => !replies(), `${JSON.stringify(back)} closing the replies`);
+      expect(top()).toBe(r);
+      expect(r.surface.msg?.id).toBe(n.first.id);
+    }
+  }, 20_000);
+
+  test("r resolves the one proposal in view with none current; with several in view it asks which (PIE-1533)", async () => {
+    const asked: string[] = [], flashes: string[] = [];
+    const resolve = board.resolveProposal.bind(board), flash = app.flash.bind(app);
+    app.flash = (msg: string, ...more: any[]) => { flashes.push(msg); return (flash as any)(msg, ...more); };
+    (board as any).resolveProposal = async (id: string) => { asked.push(id); return { outcome: "asked", message: "asked the agent" }; };
+    try {
+      // A stale proposal beside a note: it was proposed, then the note changed under it, so [resolve] is offered.
+      const propose = async (note: any, observed: string, replacement: string) => (await board.request<any>("draft.patch", { blockId: note.id, revision: (await board.get(note.id))!.revision, propose: true, patches: [{ observed, replacement }], mutation: { author: "agent", actorId: "moss" } })).proposalId as string;
+      const stale = async (note: any) => { const now = (await board.get(note.id))!; await board.update(now.id, now.text.replace("Monday", "Tuesday"), now.revision!); };
+      const note = await create(n.conf.id, "Resolution plot\ngrow beans\ndelivery Monday");
+      const one = await propose(note, "grow beans", "grow peas");
+      await stale(note);
+      const reader = async () => { while (stack() > 1) app.pop(); const r = new MessageReader([(await board.get(note.id))!], 0); app.push(r); await until(() => !!r.surface.msg && !r.surface.msg.partial, "the note"); return r; };
+      let r = await reader();
+      await shows("[resolve]");
+      expect(current(r)).toBeNull();
+      key(char("r"));
+      await until(() => asked.length === 1, "r resolving the proposal in view");
+      expect(asked).toEqual([one]);
+
+      // A second proposal in view: r asks which, putting [ ] on the first one's [resolve]; r again resolves that one.
+      const two = await propose(note, "delivery Tuesday", "delivery Wednesday");
+      const fresh = (await board.get(note.id))!; await board.update(fresh.id, fresh.text + "\nmore compost", fresh.revision!);
+      r = await reader();
+      await until(() => (r.surface as any).resolveTarget()?.several?.length === 2, `both proposals in view:\n${text()}`);
+      // An agent with several in view and no id is told which ids there are, and nothing is resolved.
+      await expect(app.act({ action: "proposal.resolve", args: {}, as: AS })).rejects.toThrow(/2 proposals in view; say which: block=/);
+      flashes.length = 0;
+      key(char("r"));
+      expect(asked).toHaveLength(1);
+      expect(flashes.at(-1)).toContain("2 proposals in view");
+      expect(current(r)?.kind).toBe("control");
+      const offered = (r.surface as any).currentProposal();
+      expect(offered).toBe(one);
+      // ] walks on from it; r then offers (or, on the next one's own element, resolves) the next one, never the first again.
+      key(char("]"));
+      key(char("r"));
+      if (asked.length === 1) { expect((r.surface as any).currentProposal()).toBe(two); key(char("r")); }
+      await until(() => asked.length === 2, "r resolving the next one");
+      expect(asked[1]).toBe(two);
+    } finally { (board as any).resolveProposal = resolve; app.flash = flash; }
+  }, 30_000);
+
   test("agents: actions lists the note's actions and the reader's; act folds, selects and moves on, attributed", async () => {
     const r = await open();
     const listed = app.actions();
