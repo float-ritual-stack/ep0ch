@@ -2,7 +2,7 @@
 # that need the sysop, and the open PRs (ctrl-s cycles them). Each source is a query in the views' grammar (ep0ch find
 # --query: the outline answers it); edit them here. The outline is the door's rule (--ws, EP0CH_WS, the folder's
 # .ep0ch). The preview is the ticket as ep0ch show draws it (a PR: gh pr view); ctrl-g opens it in the running door (a
-# PR: the PIE-n it names), as the agent television. Enter prints ((id)).
+# PR: the PIE-n it names), as the agent television. Enter prints ((id)) (a PR row: pr-<n>, not a note).
 [metadata]
 name = "ep0ch-board"
 description = "The workboard: doing, review, validate, needs-sysop and open PRs (ctrl-s); ctrl-g opens one in the door"

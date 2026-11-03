@@ -227,7 +227,8 @@ async function main(argv: string[]) {
       const r = await agent(), cmd = agentCommand(r, verb.slice(6) as "open" | "restart" | "stop");
       if ("refused" in cmd) { console.error(cmd.refused); return pause(); }
       const ran = cmd.door ? await ep0ch(cmd.argv, { timeoutMs: 120_000 }) : await realExec(cmd.argv, { timeoutMs: 60_000 });
-      console.error(ran.code === 0 ? `${verb.slice(6)}: ${r.name || r.id} · ${firstLine(ran.out) || "done"}` : `ep0ch-tv: ${firstLine(ran.err) || firstLine(ran.out) || `exit ${ran.code}`}`);
+      const tile = json<{ name?: string }>({ ...ran, out: firstLine(ran.out) })?.name;
+      console.error(ran.code === 0 ? `${verb.slice(6)}: ${r.name || r.id} · ${tile ? `opened in the door's tile ${tile}` : firstLine(ran.out) || "done"}` : `ep0ch-tv: ${firstLine(ran.err) || firstLine(ran.out) || `exit ${ran.code}`}`);
       return pause();
     }
     case "health": {
@@ -253,9 +254,11 @@ async function main(argv: string[]) {
       if (verb === "health-preview") { say(healthPreview(r)); return; }
       if (!r.fix) { console.error(`${r.group} · ${r.name}: nothing to run`); return pause(); }
       console.error(`running: ${r.fix}`);
+      // The fix is doctor's own command line, run as the person typed it (tv's execute mode hands it the terminal and exits).
       const p = Bun.spawn(["sh", "-c", r.fix], { stdio: ["inherit", "inherit", "inherit"] });
-      console.error(`exit ${await p.exited}`);
-      return pause();
+      // tv has handed over the terminal and gone (execute mode): what the fix said stays in the shell, with its exit.
+      console.error(`exit ${await p.exited} · tv ep0ch-health lists the checks again`);
+      return;
     }
     case "board": {
       const r = await ep0ch(["find", "--query", arg, "--property-scope", "all", "--json"], { timeoutMs: 60_000 });
