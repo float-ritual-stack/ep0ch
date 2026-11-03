@@ -28,5 +28,9 @@ export const BACK_KEY: readonly ModeKey[] = [{ key: "q", action: "screen.back", 
 export const messageNavHint = () => partsHint([{ key: "n", action: "message.next", label: "next" }, { key: "p", action: "message.previous", label: "prev" }]);
 /** The drawer's folded title row: + or ⏎ opens it, esc leaves. */
 export const drawerTitleHint = () => partsHint([DRAWER_OPEN_PART, DRAWER_LEAVE_PART]);
-/** The drawer's foot: entered, - folds it, esc steps out and esc again puts it away; else esc puts it away. */
-export const drawerFoot = (entered: boolean) => partsHint(entered ? [DRAWER_FOLD_PART, { ...DRAWER_LEAVE_PART, label: "steps out" }, DRAWER_AWAY_PART] : [{ ...DRAWER_AWAY_PART, label: "puts it away" }]);
+/**
+ * The drawer's foot: typing in a program there, ctrl+] steps out of it (Esc and every other key are the program's,
+ * PIE-1554); entered, - folds it, esc steps out and esc again puts it away; else esc puts it away.
+ */
+export const drawerFoot = (entered: boolean, typing = false) => partsHint(entered && typing ? [{ ...LEAVE_PART, label: "steps out · esc is the program's" }]
+  : entered ? [DRAWER_FOLD_PART, { ...DRAWER_LEAVE_PART, label: "steps out" }, DRAWER_AWAY_PART] : [{ ...DRAWER_AWAY_PART, label: "puts it away" }]);
