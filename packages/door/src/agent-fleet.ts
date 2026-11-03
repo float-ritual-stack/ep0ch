@@ -25,6 +25,8 @@ const VAR = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** One row of `scripts/agent-restart --ls`. */
 export interface SessionRow {
   name: string; id: string; sessionId: string; status: string; cwd: string;
+  /** What claude says beside the status: a background job's `state` (working, done) and why one waits (`waitingFor`: "dialog open"). */
+  state?: string | null; waitingFor?: string | null;
   /** `background` (the daemon's job: restartable here) or `interactive` (a terminal owns it). */
   kind: string;
   /** Where an interactive session's process runs, when its parents say (a door terminal tile and its outline, a Herdr pane…). */
@@ -87,8 +89,9 @@ export function formatSessions(rows: readonly SessionRow[], machine?: string): s
   const where = machine ?? "this machine";
   if (!rows.length) return `no Claude sessions on ${where} (claude agents lists them)`;
   const w = (f: (r: SessionRow) => string) => Math.max(...rows.map(r => f(r).length));
-  const nameW = w(r => r.name || "(unnamed)"), kindW = w(r => r.kind), stateW = w(r => r.status || "?");
-  const lines = rows.map(r => `${(r.name || "(unnamed)").padEnd(nameW)}  ${r.id}  ${r.kind.padEnd(kindW)}  ${(r.status || "?").padEnd(stateW)}  ${(r.running ?? "?").padEnd(8)}${r.behind ? `  behind ${r.installed}` : r.running ? "  current" : "  (its process can't be read)"}${r.place ? ` · ${r.place}` : ""}`);
+  const status = (r: SessionRow) => `${r.status || "?"}${r.waitingFor ? ` (${r.waitingFor})` : ""}`;
+  const nameW = w(r => r.name || "(unnamed)"), kindW = w(r => r.kind), stateW = w(status);
+  const lines = rows.map(r => `${(r.name || "(unnamed)").padEnd(nameW)}  ${r.id}  ${r.kind.padEnd(kindW)}  ${status(r).padEnd(stateW)}  ${(r.running ?? "?").padEnd(8)}${r.behind ? `  behind ${r.installed}` : r.running ? "  current" : "  (its process can't be read)"}${r.place ? ` · ${r.place}` : ""}`);
   const m = machine ? ` --machine ${machine}` : "";
   // A door terminal tile's Claude is restarted by its door (tile.restart), with the background ones; any other terminal's isn't reachable.
   const behind = rows.filter(r => r.behind && (r.kind === "background" || r.door)), terminals = rows.filter(r => r.behind && r.kind !== "background" && !r.door);

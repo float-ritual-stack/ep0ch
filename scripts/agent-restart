@@ -110,6 +110,8 @@ def last_write(sid):
 
 # --ls: every session `claude agents --json` gives, as JSON rows, for `ep0ch agent ls`: the background ones (a job id)
 # first, then the interactive ones (a terminal owns each: this script can't restart those).
+# Its status, and what claude says beside it: `state` (a background job's working or done) and `waitingFor` (why one
+# waits: "dialog open", a permission prompt), for the rows tv's ep0ch-agents channel and `ep0ch agent ls` show.
 if [ "$target" = --ls ]; then
   installed=$(installed_version)
   sep=$'\x1f'   # not whitespace, so an empty field stays a field; each row is one line of JSON, which has no raw newline or \x1f in it
@@ -121,7 +123,7 @@ rows = json.load(sys.stdin)
 rows.sort(key=lambda r: not r.get('id'))
 for r in rows:
     row = {'name': str(r.get('name') or ''), 'id': r.get('id') or r.get('sessionId', '')[:8], 'sessionId': r.get('sessionId', ''), 'kind': 'background' if r.get('id') else (r.get('kind') or 'interactive'),
-           'status': str(r.get('status') or ''), 'cwd': str(r.get('cwd') or ''), 'place': None if r.get('id') else (place(r.get('pid')) or None),
+           'status': str(r.get('status') or ''), 'state': str(r.get('state') or '') or None, 'waitingFor': str(r.get('waitingFor') or '') or None, 'cwd': str(r.get('cwd') or ''), 'place': None if r.get('id') else (place(r.get('pid')) or None),
            'door': None if r.get('id') else (door_folder(r.get('pid')) or None),
            'pid': r.get('pid') if isinstance(r.get('pid'), int) else None, 'startedAt': r.get('startedAt') if isinstance(r.get('startedAt'), (int, float)) else None,
            'lastWrite': last_write(r.get('sessionId', ''))}

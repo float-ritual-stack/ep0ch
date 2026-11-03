@@ -136,7 +136,7 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     await mine("tile.focus", {}, "reader");
     render();
     const r = rect("activity");
-    const b = (D().menuButtons as any[]).find(x => D().nameOf(x.id) === "activity");
+    const b = (D().presses.kind("menu") as any[]).find(x => D().nameOf(x.id) === "activity");
     // Left of the ×: ⋯ ×.
     expect(b).toMatchObject({ row: r.row, from: r.col + r.cols - 4 });
     expect(screen().split("\n")[r.row]!.slice(r.col + r.cols - 4, r.col + r.cols - 1)).toBe("≡─x");
@@ -352,7 +352,7 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     press(r.col + 4, r.row + 3, 2);
     await new Promise(res => setTimeout(res, 50));
     expect(menu()).toBeNull();
-    const b = (D().menuButtons as any[]).find(x => D().nameOf(x.id) === "mousy");
+    const b = (D().presses.kind("menu") as any[]).find(x => D().nameOf(x.id) === "mousy");
     press(b.from, b.row);
     await until(() => menu()?.name === "tile menu", "the ⋯ opens the terminal's menu");
     key({ kind: "esc" });

@@ -326,9 +326,10 @@ export interface Pane {
   folded?(on: boolean): void;
   /**
    * Controls for its header after its title, when they fit in `room` columns (the backlinks' status: sort, kind,
-   * stage), each its text, colour and what a click on it does; null when they don't fit (it draws them itself).
+   * stage), each its text, colour and the action a click on it runs (the desk's press map records it); null when they
+   * don't fit (it draws them itself).
    */
-  headControls?(room: number, desk: DeskApi): { text: string; sgr: string; press?: () => void; chip?: true }[] | null;
+  headControls?(room: number, desk: DeskApi): { text: string; sgr: string; act?: OwnPress; chip?: true }[] | null;
 }
 
 
@@ -339,6 +340,13 @@ export interface Pane {
  */
 export function runOwn(set: ActionSet<any, any>, name: string, args: Record<string, unknown>, on: { pane: Pane; desk: DeskApi }) {
   void (on.desk.press ? on.desk.press(on.pane, set, name, args) : Dispatcher.of(set, { ...on, standing: true }, () => on.desk.ctx).press(name, args));
+}
+
+/** A header control's press: the action it names, run as `runOwn` (or the desk's `perform`) runs it. */
+export interface OwnPress { action: string; args?: Record<string, unknown>; run: () => void }
+/** A tile's own action as a header control's press (runOwn). */
+export function ownPress(set: ActionSet<any, any>, name: string, args: Record<string, unknown>, on: { pane: Pane; desk: DeskApi }): OwnPress {
+  return { action: name, ...(Object.keys(args).length ? { args } : {}), run: () => runOwn(set, name, args, on) };
 }
 
 /** Row `n` (from 1) of `count`, or why not. */
@@ -524,10 +532,10 @@ export class ReaderPane implements Pane, AttachedOwner {
 
   headControls(room: number, desk: DeskApi) {
     if (!this.pinnable) return null;
-    const press = () => void runOwn(READER_ACTIONS, "reader.pin", {}, { pane: this, desk });
+    const act = ownPress(READER_ACTIONS, "reader.pin", {}, { pane: this, desk });
     const ways = this.pinPage ? [this.stateLabel(), "▣ pinned", "▣"] : this.pinned ? [this.stateLabel(), "▣"] : ["□ pin", "□"];
     const text = ways.find(w => width(w) <= room);
-    return text ? [{ text, sgr: fg(this.pinned ? C.yellow : C.grey), press, chip: true as const }] : null;
+    return text ? [{ text, sgr: fg(this.pinned ? C.yellow : C.grey), act, chip: true as const }] : null;
   }
   /** P and the state chip open the same policy controls. */
   private pickSource(desk: DeskApi) {
@@ -925,7 +933,7 @@ export class ActivityPane implements Pane {
     return false;
   }
   click(_x: number, y: number, desk: DeskApi) { const i = this.drawnItems[y] ?? -1; if (i >= 0 && i < (this.rows?.length ?? 0) && i !== this.sel) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
-  headControls(_w: number, desk: DeskApi) { return [{ text: "r reload", sgr: fg(C.grey), press: () => runOwn(ACTIVITY_ACTIONS, "activity.reload", {}, { pane: this, desk }) }]; }
+  headControls(_w: number, desk: DeskApi) { return [{ text: "r reload", sgr: fg(C.grey), act: ownPress(ACTIVITY_ACTIONS, "activity.reload", {}, { pane: this, desk }) }]; }
   wheel(dir: 1 | -1, desk: DeskApi) { const i = this.sel + dir; if (i >= 0 && i < (this.rows?.length ?? 0)) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
 }
 
@@ -963,7 +971,7 @@ export class WhoPane implements Pane {
     };
   }
   key(k: Key, desk: DeskApi): boolean { if (ch(k) === "r") { runOwn(WHO_ACTIONS, "who.refresh", {}, { pane: this, desk }); return true; } return false; }
-  headControls(_w: number, desk: DeskApi) { return [{ text: "r refresh", sgr: fg(C.grey), press: () => runOwn(WHO_ACTIONS, "who.refresh", {}, { pane: this, desk }) }]; }
+  headControls(_w: number, desk: DeskApi) { return [{ text: "r refresh", sgr: fg(C.grey), act: ownPress(WHO_ACTIONS, "who.refresh", {}, { pane: this, desk }) }]; }
 }
 
 export const WHO_ACTIONS = actionSet<{ pane: WhoPane; desk: DeskApi }>()("who", {

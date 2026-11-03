@@ -5,7 +5,7 @@ export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
 import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, type ReaderGuard, type ReaderKey } from "./reader-keys";
-import { collectionAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
+import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
@@ -1254,7 +1254,7 @@ export class NoteSurface {
     if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label)} · ⏎ runs ${printable(e.link.press.act.replaceAll("\n", " -> "))}`;
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ${hintOf([rk("enter", "element.open", verbOf(e, false)), ...(e.kind === "resource" ? [rk("y", "block.copy", "copy")] : [])])}`;
     // A table row's label keeps its columns' gaps: one space each here, since two spaces part a hint row's keys (hintKeys).
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ${hintOf([rk("enter", "element.open", verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))), ...(opens(e) ? [rk("alt+enter", "element.open", "new", { fresh: true })] : []), ...(e.kind === "resource" || e.kind === "block" ? [rk("y", "block.copy", "copy")] : []), ...(e.kind === "task" ? [rk("space", "task.status", "done/to do"), rk("ctrl+z", "task.undo", "undo")] : [])])}${this.collectionAtCursor() ? ` · ${collectionHint()}` : this.figureHint()} · ${this.zoomHint()}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ${hintOf([rk("enter", "element.open", verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))), ...(opens(e) ? [rk("alt+enter", "element.open", "new", { fresh: true })] : []), ...(e.kind === "resource" || e.kind === "block" ? [rk("y", "block.copy", "copy")] : []), ...(e.kind === "task" ? [rk("space", "task.status", "done/to do"), rk("ctrl+z", "task.undo", "undo")] : [])])}${this.listAtCursor()?.collection ? ` · ${collectionHint()}` : this.figureHint()} · ${this.zoomHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
@@ -4588,6 +4588,8 @@ export class NoteSurface {
       return true;
     }
     if (row.pick) return this.pickKey(row, k, host);
+    // r with several proposals in view, none current and none named by the binding, asks which (PIE-1533): [ ] goes to one's [resolve], r again resolves it.
+    if (row.action === "proposal.resolve" && !row.args?.block && !row.args?.id) { const t = this.resolveTarget(); if (t && "several" in t) { this.setElem(t.first); host.ctx.flash(`${t.several.length} proposals in view · r again resolves this one · ] then r offers the next`); host.redraw(); return true; } }
     // A row of the person's keymap carries its arguments as words, as `act` does: typed as the wire's are (a refusal is said).
     try { void this.runKey(row.action as keyof NoteActionArgs & string, (READER_KEYS.includes(row) ? row.args ?? {} : coerceActionArgs(row.action, NOTE_ACTIONS.argsOf(row.action) ?? {}, row.args ?? {})) as never, host, !!row.quiet); } catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e)); }
     return true;
@@ -4602,7 +4604,7 @@ export class NoteSurface {
       case "outline": return !!m && isOutlineNote(m);
       case "parent": return !!m?.parentId;
       case "preview": return host.attachment === "list-preview" && !!this.previewPoint();
-      case "resolvable": return !!m && this.proposalOperations(this.currentProposal() ?? m.id).includes("resolve");
+      case "resolvable": return !!this.resolveTarget();
       case "proposal": return !!m && (isOpenProposal(m) || !!this.currentProposal());
       case "element": return !!this.cur || this.link >= 0;
       case "tinted": return !!this.focusMark;
@@ -5199,7 +5201,7 @@ export class NoteSurface {
   }
 
   /** The collection whose row the `[ ]` position is on, or null (PIE-1501): its list keys are the position's. */
-  collectionAtCursor(): ListHandle<any> | null { return collectionAtCursor(this.rowWorld()); }
+  listAtCursor(): ListHandle<any> | null { return listAtCursor(this.rowWorld()); } // the list whose row [ ] is on, a collection or not (PIE-1534)
 
   /** What the last layout drew, lent to the row containers (row-container.ts); a pick lands as a click's does when there's a host. */
   private rowWorld(host?: SurfaceHost): RowWorld<Element> {
@@ -9046,6 +9048,19 @@ export class NoteSurface {
     return this.inView()?.link?.proposal?.id;
   }
 
+  /**
+   * What `r` resolves (PIE-1533): the current proposal, else the one shown, else the only one whose [resolve] is in view.
+   * Several in view: `several`, and the [resolve] to offer: the first below the current element (] walked on), else the first.
+   */
+  resolveTarget(): { id: string } | { several: string[]; first: Element } | null {
+    const m = this.msg, d = this.drawn, named = m && (this.currentProposal() ?? (isOpenProposal(m) ? m.id : undefined));
+    if (!m || named) return named && this.proposalOperations(named).includes("resolve") ? { id: named } : null;
+    const at = this.elems.find(e => e.key === this.cur)?.row ?? -1;
+    const shown = d ? this.elems.filter(e => e.link?.proposal?.op === "resolve" && e.row - d.top >= d.scroll && e.row - d.top < d.scroll + d.room) : [];
+    const ids = [...new Set(shown.map(e => e.link!.proposal!.id))];
+    return ids.length === 1 ? { id: ids[0]! } : ids.length ? { several: ids, first: shown.find(e => e.row > at) ?? shown[0]! } : null;
+  }
+
   /** The keys a proposal's element offers, for the hint: `X` alone when it can't be applied (it was drawn with no `[apply]`). */
   /** Notes whose old edits the person unfolded ([show] on the "1 old edit" chip). */
   private oldUnsentShown = new Set<string>();
@@ -9528,6 +9543,13 @@ export function draftPreviewDoc(text: string, w: number, src: Source | null = nu
   return NoteSurface.draftPreviewDoc(text, w, src, links);
 }
 
+/** The proposal `proposal.resolve` acts on with no id (NoteSurface.resolveTarget): several in view are refused with their ids. */
+function resolveTargetOf(surface?: NoteSurface): string {
+  const t = surface?.resolveTarget();
+  if (t && "several" in t) throw new ActionRefused(`${t.several.length} proposals in view; say which: block=${t.several.join(" or block=")}`);
+  return t?.id ?? proposalTarget(undefined, surface);
+}
+
 /** The proposal `proposal.apply` or `proposal.dismiss` acts on: `id`, else the one whose embed or control is the current element, else the open proposal shown. */
 function proposalTarget(id: string | undefined, surface?: NoteSurface): string {
   const shown = surface?.msg && isOpenProposal(surface.msg) ? surface.msg.id : undefined;
@@ -9839,7 +9861,7 @@ const PROPOSAL_DEFS = {
     args: { block: { type: "string", optional: true, about: "proposal block id" }, id: { type: "string", optional: true, about: "proposal block id" } },
     examples: [{ act: "proposal.resolve block=5c2e8b17-4a90-4d3f-b6e1-9f07a3d2c845", does: "resolves the intended edit against the current text" }],
     async run({ block, id }, { surface, host }: { surface?: NoteSurface; host: Pick<SurfaceHost, "ctx" | "redraw"> }, actor) {
-      const target = proposalTarget(block ?? id, surface);
+      const target = block ?? id ?? resolveTargetOf(surface);
       host.ctx.flash("asking the agent to resolve the proposal");
       try {
         const result = await host.ctx.board.resolveProposal(target, actor);
@@ -10869,7 +10891,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ n, by, row }, { surface, host }, actor) {
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("say n= (an element, 0 lets go) or by=1 / by=-1");
       // Letting go of a collection's row (esc) ends the peek that followed it, as leaving a list did (PIE-849, PIE-1501).
-      if (n === 0) { if (surface.collectionAtCursor()) host.retirePeeks?.(USER); surface.letGo(); host.redraw(); return { current: null }; }
+      if (n === 0) { if (surface.listAtCursor()?.collection) host.retirePeeks?.(USER); surface.letGo(); host.redraw(); return { current: null }; }
       if (by !== undefined) {
         if (!surface.step(by < 0 ? -1 : 1)) throw new ActionRefused("nothing to step to: this note has no links, folds, figure rows, embeds, resource projections or comments");
         surface.previewRow(host);

@@ -281,7 +281,7 @@ describe.skipIf(!outliner)("a mounted screen is one screen with the one around i
     const { id, pane } = mountPane(m.name);
     const inner = pane.inner as any, box = D().contents.get(id);
     expect([...inner.names.values()]).toContain("reader");
-    const b = inner.menuButtons.find((x: any) => inner.names.get(x.id) === "reader");
+    const b = inner.presses.kind("menu").find((x: any) => inner.names.get(x.id) === "reader");
     expect(b).toBeDefined();
     D().key({ kind: "mouse", action: "down", button: 0, x: box.col + b.from, y: box.row + b.row }, D().ctx);
     await settle();

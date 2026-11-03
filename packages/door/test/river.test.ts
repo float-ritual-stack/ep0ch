@@ -495,6 +495,31 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(river.holdsKeys()).toBe(false);
   });
 
+  test("a ::links row picked with ] leaves j and k the river's: column.select moves, PgDn pages the list (PIE-1534)", async () => {
+    for (let i = 1; i <= 14; i++) await create(null, `Seed packet ${String(i).padStart(2, "0")} [type::river-packet]`);
+    const tray = await create(null, 'Seed tray\nThe packets.\n\n::links{query="type=river-packet" title="Packets"}\n::');
+    await create(tray.id, "Label the tray\nMarker on the left edge.");
+    const o: any = await act("open", { id: tray.id, from: lib() });
+    const r = o.name as string;
+    await until(() => !!paneOf(r).root, "the tray column");
+    await mine("tile.focus", {}, r);
+    await mine("tile.widen", {}, r);
+    await until(() => screen().includes("Seed packet 01"), "the packets drawn");
+    const s = paneOf(r).surface as any;
+    for (let i = 0; i < 12 && !s.listAtCursor(); i++) key(char("]"));
+    expect(s.listAtCursor()?.title).toBe("Packets");
+    const sel = focused().sel, row = () => s.selectedElement()?.label;
+    const first = row();
+    key({ kind: "pgdn" });                                       // the list's page, the pick kept
+    expect(s.listAtCursor()?.title).toBe("Packets");
+    expect(row()).not.toBe(first);
+    expect(focused().sel).toBe(sel);
+    const picked = row();
+    key(char("j"));                                              // the river's column.select, not a step in the list
+    expect(focused().sel).toBe(sel + 1);
+    expect(row()).not.toBe(picked);
+  });
+
   test("a note column folds as a reader does: fold n=1 hides its section; ( ) f and a click on the heading unfold it (round 3, W4)", async () => {
     const plan = await create(null, "Garden plan\nWhat goes where.\n\n## Beds\nCarrots by the shed, leeks by the gate.\n\n## Paths\nGravel between the beds.");
     const o: any = await act("open", { id: plan.id, from: lib() });
