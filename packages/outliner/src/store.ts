@@ -1170,12 +1170,9 @@ export class OutlinerStore {
     return this.database.transaction(() => {
       this.requireActive(targetBlockId);
       const root = this.requireBookmarksRootFromCurrentRead();
-      const records = this.bookmarkRecordsFromCurrentRead(root);
-      return {
-        root,
-        targetBlockId,
-        record: records.find((candidate) => candidate.targetBlockId === targetBlockId)?.record ?? null,
-      };
+      const skipped: { id: string; reason: string }[] = [], records = this.bookmarkRecordsFromCurrentRead(root, skipped);
+      const record = records.find((candidate) => candidate.targetBlockId === targetBlockId)?.record ?? null;
+      return { root, targetBlockId, record, ...(skipped.length ? { skipped } : {}) };
     }).deferred();
   }
 
@@ -5742,13 +5739,14 @@ export class OutlinerStore {
     return parseBookmarksRoot(roots[0]!).root;
   }
 
-  private bookmarkRecordsFromCurrentRead(root: Block): BookmarkRecord[] {
+  /** The active records under the root; one that doesn't read is left out and named in `skipped` (a read never throws on one). */
+  private bookmarkRecordsFromCurrentRead(root: Block, skipped: { id: string; reason: string }[] = []): BookmarkRecord[] {
     const rows = this.database
       .query(
         "SELECT DISTINCT property.block_id FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE property.scope = 'block' AND property.key = 'type' AND LOWER(property.value) = ? AND block.parent_id = ? AND block.effective_deleted_root_id IS NULL ORDER BY block.created_at, block.id",
       )
       .all(BOOKMARK_TYPE, root.id) as Array<{ block_id: string }>;
-    const records = rows.map((row) => parseBookmarkRecord(this.require(row.block_id)));
+    const records = rows.flatMap((row) => { try { return [parseBookmarkRecord(this.require(row.block_id), "read")]; } catch (error) { skipped.push({ id: row.block_id, reason: (error as Error).message }); return []; } });
     const targetOwners = new Map<string, string>();
     for (const record of records) {
       if (record.record.parentId !== root.id) {
