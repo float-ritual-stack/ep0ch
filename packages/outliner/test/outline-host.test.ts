@@ -599,7 +599,70 @@ test("away machines answer links from a read-only copy while silent forwards tim
   expect(readFileSync(join(mirrorRoot, "laptop", "orchard.sqlite"))).toEqual(before);
 }, 15_000);
 
-test("failed laptop mirror snapshots cannot close local outlines or crash the host", async () => {
+test("an away machine's big copies answer links while the door's reads keep their turn (PIE-1546)", async () => {
+  const root = scratch(), mirrorRoot = join(root, "copies");
+  const previous = process.env.EP0CH_MCP_MIRROR_DIR;
+  process.env.EP0CH_MCP_MIRROR_DIR = mirrorRoot;
+  cleanups.push(() => { if (previous === undefined) delete process.env.EP0CH_MCP_MIRROR_DIR; else process.env.EP0CH_MCP_MIRROR_DIR = previous; });
+  const logged: string[] = [];
+  const error = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  cleanups.push(() => { console.error = error; });
+  const host = await startHost(root, "garden");
+  await host.create("garden");
+  const target = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: "Water the beans" });
+  // The laptop's copies: one big outline that links here (float-hub's size), and a few small ones.
+  mkdirSync(join(mirrorRoot, "laptop"), { recursive: true });
+  const seedFile = join(root, "orchard-seed.sqlite");
+  const seed = new OutlinerStore(seedFile);
+  const source = seed.create(`Orchard chores\n((${target.id}))`);
+  seed.close();
+  const database = new Database(seedFile);
+  database.transaction(() => {
+    const insert = database.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, NULL, ?, ?, 'user', '2026-01-01', '2026-01-01')");
+    for (let i = 0; i < 40000; i++) insert.run(crypto.randomUUID(), i + 100, `Fictional pruning record ${i} `.repeat(10));
+  })();
+  database.run("VACUUM INTO ?", [join(mirrorRoot, "laptop", "orchard.sqlite")]);
+  database.close();
+  for (const name of ["attic", "cellar", "shed", "barn"]) {
+    const small = new OutlinerStore(join(root, `${name}-seed.sqlite`));
+    small.create(`The ${name} list`);
+    small.close();
+    const file = new Database(join(root, `${name}-seed.sqlite`));
+    file.run("VACUUM INTO ?", [join(mirrorRoot, "laptop", `${name}.sqlite`)]);
+    file.close();
+  }
+  // The laptop's link accepts and never answers, as it does while the laptop sleeps.
+  const layout = layoutOf(root);
+  mkdirSync(layout.remoteDir, { recursive: true });
+  const sockets = new Set<import("node:net").Socket>();
+  const listener = createServer(socket => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); });
+  await new Promise<void>(resolve => listener.listen(layout.remote("laptop").socket, resolve));
+  cleanups.push(async () => { for (const socket of sockets) socket.destroy(); await new Promise<void>(resolve => listener.close(() => resolve())); });
+  // The door's own reads go on meanwhile: none may wait behind the copies.
+  let worst = 0, running = true;
+  const door = (async () => {
+    while (running) {
+      const started = performance.now();
+      await ok<Block>(host.socketPath, { action: "get", outline: "garden", blockId: target.id });
+      worst = Math.max(worst, performance.now() - started);
+      await Bun.sleep(20);
+    }
+  })();
+  const backlinks = () => ok<import("../src/types").BacklinkCollection>(host.socketPath, { action: "references.backlinks", outline: "garden", query: { targetBlockId: target.id, limit: 20 } });
+  const first = await backlinks();
+  const second = await backlinks();
+  running = false;
+  await door;
+  console.info(`PIE-1546: the door's slowest read during the copies' snapshots: ${Math.round(worst)} ms`);
+  expect(logged.filter(line => line.includes("can't take a snapshot"))).toEqual([]);
+  expect(first.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "orchard", machine: "laptop" }));
+  expect(second.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "orchard", machine: "laptop" }));
+  expect(first.away).toContainEqual({ machine: "laptop", asOf: expect.any(String) });
+  expect(worst).toBeLessThan(1000);
+}, 90_000);
+
+test("seven laptop copies snapshotted under load never close local outlines or crash the host (PIE-1057, PIE-1546)", async () => {
   const root = scratch(), layout = layoutOf(root), copies = join(root, "copies");
   // Seven generations reproduce the restart threshold; garden also exists locally to check ownership.
   const names = ["garden", "orchard", "attic", "cellar", "shed", "barn", "field"];
@@ -634,7 +697,7 @@ test("failed laptop mirror snapshots cannot close local outlines or crash the ho
     const client = new OutlinerClient(layout.socket, 30000, "garden");
     const links = client.request<import("../src/types").BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: target.id, limit: 20 } });
     await eventually(() => names.every(name => existsSync(join(copies, ".serve", "laptop", name, String(child.pid), "1", ".host", "host.sock"))), "mirror generation sockets");
-    // Keep real readers queued on generations while their initial attach requests time out.
+    // Keep real readers queued on generations while the others are snapshotted.
     const mirrorReads = names.flatMap(name => {
       const socket = join(copies, ".serve", "laptop", name, String(child.pid), "1", ".host", "host.sock");
       const reader = new OutlinerClient(socket, 5000, name);
@@ -645,7 +708,8 @@ test("failed laptop mirror snapshots cannot close local outlines or crash the ho
     expect(result.sources).toContainEqual(expect.objectContaining({ blockId: source.id }));
     await Promise.all([...reads, ...mirrorReads]);
     await Bun.sleep(1000);
-    expect(errors).toContain("can't take a snapshot: Outliner request timed out after 1000ms");
+    // The snapshots used to fail here, asking each copy for its whole index within a second (PIE-1546).
+    expect(errors).not.toContain("can't take a snapshot");
     expect(errors).not.toContain("unhandled rejection");
     expect(errors).not.toContain("Cannot use a closed database");
     expect(child.exitCode).toBeNull();

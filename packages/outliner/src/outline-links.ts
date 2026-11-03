@@ -41,11 +41,8 @@ export class OutlineLinks {
         if (!mirror) {
           mirror = new OutlineMirror(outline, machine, config.folder, {
             schema: () => SCHEMA_VERSION,
-            attach: async (socket, name) => {
-              const client = new OutlinerClient(socket, 1000, name);
-              const index = await client.request<{ blocks: { updatedAt: string }[] }>({ action: "tree.index" });
-              return { board: client, newest: index.blocks.reduce((newest, b) => Math.max(newest, Date.parse(b.updatedAt)), 0), close() {} };
-            },
+            // The copy's own reads answer within the caller's deadline; the mirror reads its newest change itself.
+            attach: async (socket, name) => ({ board: new OutlinerClient(socket, 1000, name), close() {} }),
           });
           this.mirrors.set(key, mirror);
         }
