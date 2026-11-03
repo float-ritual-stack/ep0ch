@@ -1,3 +1,4 @@
+import { changes, proposed } from "./wire";
 // draft.patch (pi-herdr-outliner PIE-501): an agent's compare-and-swap on a span lands in the draft the person
 // is typing in. The test line: the mark is the queue, you keep typing, the block keeps its id. The draft half
 // runs anywhere; the rest starts a scratch outliner service (never a real outline) with fictional notes.
@@ -248,12 +249,12 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
       const saved = (await board.get(e.id))!;
       const pending = await agent.request("draft.patch", {blockId: e.id, revision: saved.revision, propose: true, patches: [{observed: "", replacement: "\nNew line."}], mutation: {author: "agent", actorId: "gardener"}});
       e.d.replace("", undefined, undefined, true);
-      const result = await board.request("draft.proposal.resolve", {proposalId: pending.proposalId, mutation: {author: "user"}});
+      const result = await board.request("draft.proposal.resolve", {proposalId: proposed(pending).proposalId, mutation: {author: "user"}});
       expect(result.outcome).toBe("open");
       expect(result.message).toContain("empty draft");
       expect(e.d.text).toBe("");
       expect((await board.get(e.id))!.text).toBe("Garden");
-      expect(prop((await board.get(pending.proposalId))!, "proposal-status")).toBe("open");
+      expect(prop((await board.get(proposed(pending).proposalId))!, "proposal-status")).toBe("open");
     } finally { e.s.dispose(); }
   });
 
@@ -269,13 +270,13 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
       const before = e.d.text;
       const saved = (await board.get(e.id))!;
       const pending = await agent.request("draft.patch", {blockId: e.id, revision: saved.revision, propose: true, patches, mutation: {author: "agent", actorId: "gardener"}});
-      const result = await board.request("draft.proposal.resolve", {proposalId: pending.proposalId, mutation: {author: "user"}});
+      const result = await board.request("draft.proposal.resolve", {proposalId: proposed(pending).proposalId, mutation: {author: "user"}});
       expect(result.outcome).toBe("resolved");
       expect(e.d.text).toBe(before.replace("Remove this sentence.\n", ""));
       await board.request("extensions.undo", {undo: result.undo, mutation: {author: "user"}});
       expect(e.d.text).toBe(before);
       expect((await board.get(e.id))!.text).toBe(saved.text);
-      expect(prop((await board.get(pending.proposalId))!, "proposal-status")).toBe("open");
+      expect(prop((await board.get(proposed(pending).proposalId))!, "proposal-status")).toBe("open");
     } finally { e.s.dispose(); }
   });
 
@@ -328,7 +329,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const after = (await board.get(e.id))!;
     expect(after.id).toBe(e.id);
     expect(after.text).toContain("The beans go along the fence. ^deep-link");
-    expect((await board.request("pages.resolve", { address: "morning plan" })).block.id).toBe(e.id);
+    expect((await board.request("pages.resolve", { address: "morning plan" })).block!.id).toBe(e.id);
     expect((await board.request("fragments.read", { blockId: e.id, fragmentId: "deep-link" })).status).toBe("resolved");
     expect((await board.get(a))!.text).toContain(`((${e.id}^deep-link))`);
   }, 30_000);
@@ -577,9 +578,9 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
       patches: [{ observed, replacement: "The peas climb the net.", range: { start, end: start + observed.length }, unit: "utf16", before: read.text.slice(0, start), after: read.text.slice(start + observed.length, start + observed.length + 48) }],
     });
     expect(r).toMatchObject({ outcome: "proposed", beside: e.id });
-    expect(e.d.text).not.toContain(r.proposalId);
+    expect(e.d.text).not.toContain(proposed(r).proposalId);
     e.d.place(e.d.lines.length - 1, 0);
-    return r.proposalId as string;
+    return proposed(r).proposalId as string;
   }
 
   test("PIE-1065: an append proposal offers apply and lands at the end of the draft", async () => {
@@ -587,7 +588,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const result = await agent.request("draft.patch", { blockId: e.id, revision: e.d.base,
       patches: [{ observed: "", replacement: "\nA proposed addition." }], propose: true,
       mutation: { author: "agent", actorId: "tidy" } });
-    const proposal = (await board.get(result.proposalId))!;
+    const proposal = (await board.get(proposed(result).proposalId))!;
     const reader = new NoteSurface(), h = host();
     reader.show(proposal, h);
     expect(reader.render(100, 40, h).lines.map(visible).join("\n")).toContain("[apply]");
@@ -677,7 +678,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const since = board.lastSequence ?? 0;
     await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, { kind: "user" });
     expect((await board.get(e.id))!.text).toContain("the rake and the hoe");
-    const changes = (await board.request("changes.since", { sequence: since, limit: 50 })).changes as any[];
+    const changes = changes((await board.request("changes.since", { sequence: since, limit: 50 }))).changes as any[];
     expect(changes.find(c => c.blockId === e.id && c.kind === "edit")?.actor).toMatchObject({ author: "user", actorId: `${ACTOR_ID}+ext:tidy` });
   }, 30_000);
 
@@ -704,7 +705,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect(e.d.writers).toEqual([{ kind: "user" }, { kind: "agent", id: "ext:spacer" }]);
     await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, { kind: "user" });
     expect((await board.get(e.id))!.text).toBe("Bike shed\nthe pump and the tubes\n\nstill to list:\nlights");
-    const changes = (await board.request("changes.since", { sequence: since, limit: 50 })).changes as any[];
+    const changes = changes((await board.request("changes.since", { sequence: since, limit: 50 }))).changes as any[];
     expect(changes.filter(c => c.blockId === e.id && c.kind === "edit").at(-1)?.actor).toMatchObject({ author: "user", actorId: `${ACTOR_ID}+ext:spacer` });
     // Only the extension wrote it this time: still saved as the person's, naming the extension.
     const only = await editing("Tool wall\nthe  saw  and the plane\n");

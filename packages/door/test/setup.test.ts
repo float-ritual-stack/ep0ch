@@ -1546,8 +1546,8 @@ test("install records a deploy in the host's default outline from an unnamed fol
     await record.local("finished");
     const result = await hostRequest(h.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
     expect((await hostRequest(h.sock, "get", { outline: "garden", blockId: record.id })).text).toBe(before.text);
-    expect(result.blocks.some(b => b.id !== record.id && b.text.includes("Local: finished") && b.text.includes(record.id)), JSON.stringify(result)).toBe(true);
-    expect(result.blocks.find(b => b.text.includes("Local: finished"))?.text).toContain("failed:\nnone");
+    expect(result.blocks.some(b => b.id !== record.id && b.text.includes!!!("Local: finished") && b.text.includes!!!(record.id)), JSON.stringify(result)).toBe(true);
+    expect(result.blocks.find(b => b.text.includes!!!("Local: finished"))?.text).toContain("failed:\nnone");
     const other = await hostRequest(h.sock, "blocks.query", { outline: "workshop", query: { where: "type=deploy machine=install" } });
     expect(other.blocks).toEqual([]);
   } finally { await h.dispose(); }
@@ -1581,7 +1581,7 @@ for (const explicit of [false, true]) test(`install sends records to the ${expli
     expect(code, lines.join("\n")).not.toBe(2);
     const received = await hostRequest(receiver.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
     expect(received.blocks.length, lines.join("\n")).toBeGreaterThan(0);
-    expect(received.blocks.some(b => b.text.includes("Local: finished"))).toBe(true);
+    expect(received.blocks.some(b => b.text.includes!!!("Local: finished"))).toBe(true);
     const stayed = await hostRequest(local.sock, "blocks.query", { outline: "workshop", query: { where: "type=deploy machine=install" } });
     expect(stayed.blocks).toEqual([]);
   } finally { await local.dispose(); await receiver.dispose(); }
@@ -1608,7 +1608,7 @@ test("install records to the folder's machine without a local host", async () =>
     const record = await startDeployRecord(f, env, folder, now, () => {});
     await record.local("finished");
     const received = await hostRequest(receiver.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
-    expect(received.blocks.some(b => b.text.includes("Local: finished"))).toBe(true);
+    expect(received.blocks.some(b => b.text.includes!!!("Local: finished"))).toBe(true);
   } finally { await local.dispose(); await receiver.dispose(); }
 }, 30_000);
 

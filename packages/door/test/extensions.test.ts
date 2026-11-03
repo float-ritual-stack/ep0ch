@@ -1,3 +1,4 @@
+import { changes } from "./wire";
 // PIE-512: the four extension kinds in the door, against a scratch service with the outliner's example
 // extensions installed in the scratch outline's own `extensions/` folder (never a real outline, never the
 // person's user folder). A reader draws a `moon::` record, a `horoscope::` output, a `fancy-horror::`
@@ -282,7 +283,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     const after = (await board.get(note.id))!;
     expect(after.text).toContain("\nwater the leeks\n@tidy");
     const changes = await board.request("changes.since", { sequence: 0, limit: 200 });
-    expect(changes.changes.some((c: any) => c.blockId === note.id && c.actor?.actorId === "ext:tidy")).toBe(true);
+    expect(changes(changes).changes.some((c: any) => c.blockId === note.id && c.actor?.actorId === "ext:tidy")).toBe(true);
   }, 30_000);
 
   test("a view's image primitive (PIE-827) is drawn as a note's image line: its caption, and under Kitty graphics the picture where the view put it", async () => {
@@ -538,7 +539,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     const kept = (await board.children(spot.id)).filter(m => m.author === "ext:tarot");
     expect(kept).toHaveLength(2);
     // The writes stay the extension's; the feed records who asked beside them.
-    const changes = (await board.request("changes.since", { sequence: since, limit: 200 })).changes as any[];
+    const changes = changes((await board.request("changes.since", { sequence: since, limit: 200 }))).changes as any[];
     const asked = changes.filter(c => kept.some(k => k.id === c.blockId) && c.actor?.actorId === "ext:tarot").map(c => c.requestedBy);
     expect(asked).toEqual([{ author: "agent", actorId: AS }, { author: "user" }]);
     // Only the service writes as an extension: an agent can't name itself ext:<id> (E6).

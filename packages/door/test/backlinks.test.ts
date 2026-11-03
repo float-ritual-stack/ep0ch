@@ -313,7 +313,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     for (const t of ["Thank the swap hosts", "Post the swap photos"]) await create(null, `${t} [type::outbox-item] [outbox::done]\n${ref}`);
     ids.rota = (await create(null, `Rota for the stall\nfor ${ref}`)).id;
     const day = (await board.request("pages.follow", { address: "2026-03-14", author: "agent" })).block;
-    await create(day.id, `Market morning\n${ref}`);
+    await create(day!.id, `Market morning\n${ref}`);
     const notes = await create(null, "Allotment notes\nMondays and Thursdays.");
     const said = await board.comment("c-open", notes.id, notes.revision, `Bring labels to ${ref}`, { quote: "Mondays", start: notes.text.indexOf("Mondays") });
     const fixed = await board.comment("c-done", notes.id, notes.revision, `Gate code for ${ref}`, { quote: "Thursdays", start: notes.text.indexOf("Thursdays") });

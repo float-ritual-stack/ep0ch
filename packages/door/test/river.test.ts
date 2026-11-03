@@ -103,7 +103,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(river.unsaved()).toBe(true);
     key(ctrl("s"));
     await until(() => !surfaceOf(2).draft, "the save");
-    expect((await current(notes.beans.id)).text).toContain("Canes along the fence. Two per plant.");
+    expect((await current(notes.beans.id))!.text).toContain("Canes along the fence. Two per plant.");
     expect((await lastBy(notes.beans.id, "user"))?.[0]).toBe("user");
     await until(() => screen().includes("Two per plant."), "the saved text in the column");
     expect(screen()).not.toContain("editing ·");
@@ -162,7 +162,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   });
 
   test("an agent's edit in the focused column doesn't take the person's keys; its line clears on their next key there", async () => {
-    const text = (await current(notes.beans.id)).text.replace("Tie them loosely", "Tie them loosely with twine");
+    const text = (await current(notes.beans.id)).text.replace!!!("Tie them loosely", "Tie them loosely with twine");
     expect(await act("edit.text", { text }, beansR)).toMatchObject({ dirty: true });
     // h and l still move between columns; nothing is typed into the agent's draft.
     key(char("h"));
@@ -183,13 +183,13 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const c: any = await act("comment", { quote: "the wind is strong there", body: "Stake on the lee side." }, beansR);
     expect(c).toMatchObject({ sent: "comment" });
     const mine_ = (await threads(notes.beans.id)).find(x => x.body === "Stake on the lee side.");
-    expect(mine_.originalTarget.anchor.exact).toBe("the wind is strong there");
-    expect([mine_.block.author, mine_.block.actorId]).toEqual(["agent", AS]);
-    expect(await act("reply", { thread: mine_.block.id, body: "Done." }, beansR)).toMatchObject({ sent: "reply" });
+    expect(mine_.originalTarget.anchor!!!.exact).toBe("the wind is strong there");
+    expect([mine_.block!!!.author, mine_.block!!!.actorId]).toEqual(["agent", AS]);
+    expect(await act("reply", { thread: mine_.block!!!.id, body: "Done." }, beansR)).toMatchObject({ sent: "reply" });
     // Resolving opens the thread list over the note: refused in the column the person has (round 3, C3); fine once they're elsewhere.
-    await expect(act("resolve", { thread: mine_.block.id }, beansR)).rejects.toThrow(/has the person's keys; the thread list would cover what they're reading/);
+    await expect(act("resolve", { thread: mine_.block!!!.id }, beansR)).rejects.toThrow(/has the person's keys; the thread list would cover what they're reading/);
     key(char("h"));
-    expect(await act("resolve", { thread: mine_.block.id }, beansR)).toMatchObject({ lifecycle: "resolved" });
+    expect(await act("resolve", { thread: mine_.block!!!.id }, beansR)).toMatchObject({ lifecycle: "resolved" });
     key(char("l"));
     await act("comment.close", {}, beansR);
   });
@@ -213,7 +213,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   });
 
   test("esc, esc on an agent's unsaved draft copies it to disk before closing", async () => {
-    const text = (await current(notes.beans.id)).text + "\nAn agent's unsaved line.";
+    const text = (await current(notes.beans.id))!.text + "\nAn agent's unsaved line.";
     await act("edit.text", { text }, beansR);
     const d = surfaceOf(2).draft;
     key({ kind: "enter" });                                      // the person enters the agent's edit
@@ -248,12 +248,12 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(surfaceOf(1).draft.blockId).toBe(notes.squash.id);
     await expect(act("tile.close", {}, lib())).rejects.toThrow(/edit|keeps/);
     expect(await act("edit.save", {}, lib())).toMatchObject({ saved: true });
-    expect((await current(notes.squash.id)).text).toContain("in June.");
+    expect((await current(notes.squash.id))!.text).toContain("in June.");
   });
 
   test("a column keeps its name as columns open around it; an agent's edit carries on only in the column that holds it", async () => {
     const was = focused();
-    const text = (await current(notes.beans.id)).text + "\nPositional.";
+    const text = (await current(notes.beans.id))!.text + "\nPositional.";
     expect(await act("edit.text", { text }, beansR)).toMatchObject({ dirty: true });
     // A column opens after the Library, before the beans: the beans column keeps its name, and the person's focus stays.
     const peas: any = await act("open", { id: notes.peas.id, from: lib() });
@@ -321,7 +321,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const peasR = readerOf(notes.peas.id)!, p = paneOf(peasR);
     await mine("tile.focus", {}, lib());
     if (coverOf(peasR) !== "full") await act("tile.hold", { on: true }, peasR);
-    const text = (await current(notes.peas.id)).text.replace("Sow the peas", "Sow the peas [stage::doing]");
+    const text = (await current(notes.peas.id)).text.replace!!!("Sow the peas", "Sow the peas [stage::doing]");
     await act("edit.text", { text }, peasR);
     expect(await act("edit.save", {}, peasR)).toMatchObject({ saved: false });   // the property warning first
     expect(await act("edit.save", {}, peasR)).toMatchObject({ saved: true });
@@ -339,9 +339,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
 
   test("another client's save marks the column's draft, never replaces it; leaving copies it out", async () => {
     readOnReader(beansR);
-    await act("edit.text", { text: (await current(notes.beans.id)).text + "\nMine, unsaved." }, beansR);
+    await act("edit.text", { text: (await current(notes.beans.id))!.text + "\nMine, unsaved." }, beansR);
     const now = await current(notes.beans.id);
-    await other.request("update", { blockId: notes.beans.id, text: now.text.replace("Canes", "Hazel canes"), expectedRevision: now.revision, mutation: { author: "agent", actorId: "other-writer" } });
+    await other.request("update", { blockId: notes.beans.id, text: now.text.replace!!!("Canes", "Hazel canes"), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "other-writer" } });
     const s = paneOf(beansR).surface as any;
     await until(() => s.draft?.changedElsewhere, "changed elsewhere", 8000);
     expect(s.draft.text).toContain("Mine, unsaved.");

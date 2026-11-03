@@ -1,3 +1,4 @@
+import { proposed } from "../wire";
 import { traceActions } from "../../src/surface/actions";
 // PIE-439: the showcase screen, the desk: esc, refusals, drawer, status, sessions, power bar, policy. One of the showcase's test files (split from the one file, so a
 // section's test is a file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it.
@@ -351,7 +352,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       const note = await board.request("create", {text: "Resolution garden\ngrow beans\ndelivery Monday", author: "user"});
       const proposal = await board.request("draft.patch", {blockId: note.id, revision: note.revision, propose: true, patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "moss"}});
       await board.update(note.id, note.text.replace("Monday", "Tuesday"), note.revision);
-      return {note, proposal: proposal.proposalId};
+      return {note, proposal: proposed(proposal).proposalId};
     };
     const finished = async (id: string) => untilAsync(async () => prop((await board.get(id))!, "proposal-status") === "resolved", "the resolution");
     const first = await make();

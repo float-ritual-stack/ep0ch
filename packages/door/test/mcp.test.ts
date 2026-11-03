@@ -1,3 +1,4 @@
+import { proposed } from "./wire";
 // PIE-520: the local stdio MCP server is bound to the outline the CLI can open, and serves canonical
 // ep0ch:// block resources plus read/find/links tools. Scratch service only; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -179,7 +180,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       writeFileSync(wire, readFileSync(wire, "utf8").replace(/export const PROTOCOL = \d+;/, `export const PROTOCOL = ${hostProtocol};`));
       await Promise.all([write("After the protocol install"), write("Queued during handover")]);
       const saved = await board.request("children", { parentId: target.id });
-      expect(saved.some(b => b.text === "After the protocol install" && b.actorId.includes("version-gardener"))).toBe(true);
+      expect(saved.some(b => b.text === "After the protocol install" && b.actorId.includes!!!("version-gardener"))).toBe(true);
       child.stdin.end();
       expect(await child.exited, await errors).toBe(0);
     } finally {
@@ -538,7 +539,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
         const note = await board.request("create", { parentId: null, text: "Seed plan\nPlant beans." });
         const p = await board.request("draft.patch", { blockId: note.id, revision: note.revision,
           patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: true, mutation: { author: "agent", actorId } });
-        return { note, id: p.proposalId as string };
+        return { note, id: proposed(p).proposalId as string };
       };
       for (const op of ["dismiss", "apply"]) {
         const name = `outline_proposal_${op}`;

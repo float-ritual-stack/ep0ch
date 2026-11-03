@@ -338,26 +338,26 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
 
   test("an edit is one revision-checked properties.patch, recorded as whoever made it; a stale one is refused", async () => {
     const before = await current(ids.card);
-    const r = await act("props.edit", { key: "priority", value: "medium", revision: before.revision });
-    expect(r).toMatchObject({ saved: true, from: "high", to: "medium", revision: before.revision + 1 });
+    const r = await act("props.edit", { key: "priority", value: "medium", revision: before!.revision });
+    expect(r).toMatchObject({ saved: true, from: "high", to: "medium", revision: before!.revision + 1 });
     const now = await current(ids.card);
-    expect(now.text).toBe(before.text.replace("[priority::high]", "[priority::medium]"));
+    expect(now!.text).toBe(before.text.replace!!!("[priority::high]", "[priority::medium]"));
     const log = await other.request("activity.recent", { author: "agent", limit: 20 });
     expect(log.entries.find((x: any) => x.block.id === ids.card)).toMatchObject({ author: "agent", actorId: AS });
-    await expect(act("props.edit", { key: "priority", value: "low", revision: before.revision })).rejects.toThrow(`is at revision ${now.revision}`);
+    await expect(act("props.edit", { key: "priority", value: "low", revision: before!.revision })).rejects.toThrow(`is at revision ${now!.revision}`);
     // By keys: open the field, and while it's open someone else saves the note. Enter is refused, nothing overwritten.
-    await until(() => B().preview.msg.revision === now.revision, "the reader to catch up");
+    await until(() => B().preview.msg.revision === now!.revision, "the reader to catch up");
     const P = B().preview.surface.panel;
     P.sel = 3;                                                                                // project
     key({ kind: "enter" }); for (const c of "-east") key(char(c));
     expect(B().preview.surface.editing).toBe(true);
-    await other.update(ids.card, now.text.replace("Beside the beds", "Next to the beds"), now.revision);
+    await other.update(ids.card, now.text.replace!!!("Beside the beds", "Next to the beds"), now!.revision);
     await until(() => !!P.field?.changedElsewhere, "changed elsewhere", 5000);
     key({ kind: "enter" });
     await until(() => !!P.field && !P.field.saving && P.field.note.includes("not saved"), "the refusal", 5000);
     const after = await current(ids.card);
-    expect(after.text).toContain("[project::garden]");
-    expect(after.text).toContain("Next to the beds");
+    expect(after!.text).toContain("[project::garden]");
+    expect(after!.text).toContain("Next to the beds");
     key({ kind: "esc" });
     expect(P.field).toBeNull();
   });
@@ -399,7 +399,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
       await Bun.sleep(300);
       reset();
       const b0 = await current(bystander);
-      await other.update(bystander, "A bystander note, edited", b0.revision, { kind: "agent", id: "helper" });
+      await other.update(bystander, "A bystander note, edited", b0!.revision, { kind: "agent", id: "helper" });
       await until(() => (app as any).whatChanged.list().some((r: any) => r.blockId === bystander && r.kind === "edited"), "the event");
       await settled("the redraw");
       const unrelated = tally();
@@ -438,7 +438,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     await act("props.close");
     await until(() => shown(120).includes("Beans along the fence."), "the embed");
     const plan = await current(ids.plan);
-    await other.update(ids.plan, plan.text.replace("Beans along the fence.", "Peas along the fence."), plan.revision);
+    await other.update(ids.plan, plan.text.replace!!!("Beans along the fence.", "Peas along the fence."), plan!.revision);
     await until(() => shown(120).includes("Peas along the fence."), "the refreshed embed", 8000);
     invalidateReferences();
   });

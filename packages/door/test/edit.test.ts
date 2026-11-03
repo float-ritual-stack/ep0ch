@@ -233,7 +233,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     expect(pane.draft!.text).toBe(text);
     pane.key({ kind: "esc" }, d);
     await until(() => !pane.draft, "second Esc keeps the draft aside");
-    expect((await current(b.id)).text).toBe(b.text);
+    expect((await current(b.id))!.text).toBe(b.text);
   });
 
   test.each([false, true])("PIE-1173: stepping messages refuses with the owning draft keys (preview=%s)", async preview => {
@@ -262,11 +262,11 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     pane.key(ctrl("s"), d);
     await until(() => !pane.editing, "the save");
     const now = await current(b.id);
-    expect(now.text).toBe("Card [stage::queued]\nold body, then more");
-    expect(now.properties).toEqual([{ key: "stage", value: "queued" }]);
-    expect(now.revision).toBe(b.revision + 1);
-    expect(pane.msg?.revision).toBe(now.revision);
-    expect(flashes.at(-1)).toBe(`saved · revision ${now.revision}`);
+    expect(now!.text).toBe("Card [stage::queued]\nold body, then more");
+    expect(now!.properties).toEqual([{ key: "stage", value: "queued" }]);
+    expect(now!.revision).toBe(b.revision + 1);
+    expect(pane.msg?.revision).toBe(now!.revision);
+    expect(flashes.at(-1)).toBe(`saved · revision ${now!.revision}`);
     const log = await other.request("activity.recent", { author: "user", limit: 20 });
     expect(log.entries.find((e: any) => e.block.id === b.id)?.actorId).toBe(ACTOR_ID);
   });
@@ -278,9 +278,9 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     pane.key(ctrl("s"), d);
     await until(() => !pane.editing, "the save");
     const saved = await current(b.id);
-    expect(saved.properties).toEqual([{ key: "stage", value: "queued" }]);
-    expect(saved.text).toBe("Card [stage::queued] (retry)\nbody");
-    expect(saved.revision).toBe(b.revision + 1);
+    expect(saved!.properties).toEqual([{ key: "stage", value: "queued" }]);
+    expect(saved!.text).toBe("Card [stage::queued] (retry)\nbody");
+    expect(saved!.revision).toBe(b.revision + 1);
   });
 
   test("a conflicting write is refused: the other writer's text stays, the draft stays and is copied out", async () => {
@@ -298,13 +298,13 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     await until(() => pane.draft?.conflict !== null, "the refusal");
     expect(pane.editing).toBe(true);
     expect(pane.draft!.text).toBe("Race [stage::queued]\nbody mine");
-    expect((await current(b.id)).text).toBe("Race [stage::queued]\ntheirs");
+    expect((await current(b.id))!.text).toBe("Race [stage::queued]\ntheirs");
     expect(readFileSync(pane.draft!.savedCopy!, "utf8")).toBe("Race [stage::queued]\nbody mine\n");
 
     // Saving again from the same stale base is refused again, never forced through.
     pane.key(ctrl("s"), d);
     await Bun.sleep(300);
-    expect((await current(b.id)).text).toBe("Race [stage::queued]\ntheirs");
+    expect((await current(b.id))!.text).toBe("Race [stage::queued]\ntheirs");
 
     // ctrl+r starts over from the current text and revision; a save then goes through.
     pane.key(ctrl("r"), d);
@@ -312,7 +312,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     pane.key({ kind: "down" }, d); pane.key({ kind: "end" }, d); type(pane, " + mine", d);
     pane.key(ctrl("s"), d);
     await until(() => !pane.editing, "the second save");
-    expect((await current(b.id)).text).toBe("Race [stage::queued]\ntheirs + mine");
+    expect((await current(b.id))!.text).toBe("Race [stage::queued]\ntheirs + mine");
   });
 
   test("a reader showing another note does not jump while its draft is open", async () => {
@@ -360,7 +360,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     app.pop();                                                          // again within 3s: leave, draft copied out
     expect((app.describe() as any).screen).not.toBe(desk.title);
     expect(readFileSync(draft.savedCopy!, "utf8")).toBe("Guarded [stage::queued] typedq1!\nbody\n");
-    expect((await current(b.id)).text).toBe("Guarded [stage::queued]\nbody");   // nothing was saved behind our back
+    expect((await current(b.id))!.text).toBe("Guarded [stage::queued]\nbody");   // nothing was saved behind our back
     app.quit();
   });
 
@@ -386,7 +386,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     expect(quit).toBe(1);
     expect(kept).toEqual([draft.savedCopy!]);
     expect(readFileSync(draft.savedCopy!, "utf8")).toBe("Signalled [stage::queued] typed\nbody\n");
-    expect((await current(b.id)).text).toBe("Signalled [stage::queued]\nbody");   // copied, not saved
+    expect((await current(b.id))!.text).toBe("Signalled [stage::queued]\nbody");   // copied, not saved
   });
 
   test("ctrl+e in a draft is the line's end and opens no editor", async () => {
@@ -419,7 +419,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
       await until(() => pane.draft!.text === "Via editor [stage::queued]\nwritten in the editor", "the editor's text back in the draft");
       pane.key(ctrl("s"), d);
       await until(() => !pane.editing, "the save");
-      expect((await current(b.id)).text).toBe("Via editor [stage::queued]\nwritten in the editor");
+      expect((await current(b.id))!.text).toBe("Via editor [stage::queued]\nwritten in the editor");
     } finally {
       if (was.VISUAL !== undefined) process.env.VISUAL = was.VISUAL;
       if (was.EDITOR !== undefined) process.env.EDITOR = was.EDITOR; else delete process.env.EDITOR;

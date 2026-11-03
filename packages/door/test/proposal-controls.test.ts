@@ -1,3 +1,4 @@
+import { proposed } from "./wire";
 // Embeds as elements, and an agent's proposal (PIE-501) usable by keys, mouse and act: every embed kind
 // (a note, a fragment, a view, a proposal) is a [ ] stop and a click on its source line selects it; a proposal's
 // source line, and an opened proposal's header, carry [apply] and [dismiss], which run proposal.apply and
@@ -47,8 +48,8 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
       patches: [{ observed, replacement: "The peas climb the net.", range: { start, end: start + observed.length }, unit: "utf16", before: read.text.slice(0, start), after: read.text.slice(start + observed.length, start + observed.length + 48) }],
     });
     expect(r).toMatchObject({ outcome: "proposed", beside: id });
-    expect((await board.get(id))!.text).not.toContain(r.proposalId);
-    return { id, proposal: r.proposalId as string };
+    expect((await board.get(id))!.text).not.toContain(proposed(r).proposalId);
+    return { id, proposal: proposed(r).proposalId as string };
   }
 
   /** A reader on note `id`, drawn once every embed in it is projected: three note embeds, and the view as a collection with its rows. */

@@ -411,7 +411,7 @@ if (scenario === "backlinks") {
   await mk(plot.id, `Rota for the stall\nCovers ${ref}.`);
   await mk(null, `Seed tins to bring\nLabelled for ${ref}.`);
   const day = (await board.request("pages.follow", { address: "2026-03-14", author: "agent" })).block;
-  await mk(day.id, `Market morning, then ${ref}`);
+  await mk(day!.id, `Market morning, then ${ref}`);
   await mk(null, `Garden club takeaways [type::meeting]\nWe agreed ${ref} goes ahead.`);
   const notes = await mk(null, "Allotment notes\nMondays and Thursdays.");
   const c1 = await board.comment("c1", notes.id, notes.revision, `Bring labels to ${ref}`, { quote: "Mondays", start: notes.text.indexOf("Mondays") });
@@ -884,14 +884,14 @@ if (scenario === "journey") {
   ch("e"); await Bun.sleep(500);
   for (const c of " Mine.") ch(c);
   const now = (await other.request("blocks.context", { blockId: shed.id })).selected;
-  await other.request("update", { blockId: shed.id, text: now.text.replace("Sand the door first.", "Sand the door first, then prime."), expectedRevision: now.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await other.request("update", { blockId: shed.id, text: now.text.replace!!!("Sand the door first.", "Sand the door first, then prime."), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
   await snap("9-changed-elsewhere", 1500); said();
   press({ kind: "esc" }); press({ kind: "esc" }); await Bun.sleep(200);
   press({ kind: "esc" });                                                   // back to the lanes
   // Another client moves a different card: only the lanes it touches are asked again.
   const before = S.asked.length;
   const g = (await other.request("blocks.context", { blockId: gate.id })).selected;
-  await other.request("update", { blockId: gate.id, text: g.text.replace("[stage::doing]", "[stage::done]"), expectedRevision: g.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await other.request("update", { blockId: gate.id, text: g.text.replace!!!("[stage::doing]", "[stage::done]"), expectedRevision: g!.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
   await snap("10-other-moved", 1800);
   console.log(`  lanes asked again after the other client's move: ${[...new Set(S.asked.slice(before))].join(", ") || "(none)"}`);
   // The service restarts. The door says it's offline, reconnects and catches up.
@@ -901,7 +901,7 @@ if (scenario === "journey") {
   await scratch!.start();
   await snap("12-reconnected", 2500); said();
   const final = await new SocketBoard(board.path).request("blocks.context", { blockId: shed.id });
-  console.log(`  service: shed at revision ${final.selected.revision}, ${final.selected.properties.map((p: any) => `${p.key}=${p.value}`).join(" ")}`);
+  console.log(`  service: shed at revision ${final.selected!.revision}, ${final.selected.properties.map((p: any) => `${p.key}=${p.value}`).join!!!(" ")}`);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "edit") {
@@ -922,7 +922,7 @@ if (scenario === "edit") {
   await snap("2-editing", 800);
   const other = new SocketBoard();
   const now = (await other.request("blocks.context", { blockId: card.id })).selected;
-  await other.update(card.id, now.text.replace("Edit me", "Someone else edited me"), now.revision);
+  await other.update(card.id, now.text.replace!!!("Edit me", "Someone else edited me"), now!.revision);
   await snap("3-changed-elsewhere", 1500);
   press({ kind: "char", ch: "s", ctrl: true });
   await snap("4-refused", 1200);
@@ -931,7 +931,7 @@ if (scenario === "edit") {
   press({ kind: "char", ch: "s", ctrl: true });
   await snap("5-saved", 1500);
   const final = (await other.request("blocks.context", { blockId: card.id })).selected;
-  console.log(`service text now (revision ${final.revision}, actor ${final.actorId}):\n${final.text}`);
+  console.log(`service text now (revision ${final!.revision}, actor ${final!.actorId}):\n${final!.text}`);
   other.close(); board.close(); process.exit(0);
 }
 if (scenario === "props") {
@@ -985,7 +985,7 @@ if (scenario === "props") {
   press({ kind: "enter" }); for (const c of "-2") ch(c);
   const other = new SocketBoard();
   const now = (await other.request("blocks.context", { blockId: card.id })).selected;
-  await other.update(card.id, now.text.replace("three-bay", "four-bay"), now.revision);
+  await other.update(card.id, now.text.replace!!!("three-bay", "four-bay"), now!.revision);
   await Bun.sleep(1200);
   press({ kind: "enter" }); await snap("6-refused", 1500);
   press({ kind: "esc" }); press({ kind: "esc" });
@@ -1038,12 +1038,12 @@ if (scenario === "move") {
   // Someone else edits the card after the board drew it: the move is refused, nothing written.
   const other = new SocketBoard();
   const now = (await other.request("blocks.context", { blockId: gate.id })).selected;
-  await other.request("update", { blockId: gate.id, text: now.text.replace("It squeaks.", "It squeaks less."), expectedRevision: now.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await other.request("update", { blockId: gate.id, text: now.text.replace!!!("It squeaks.", "It squeaks less."), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
   ch("L"); await settle();
   await snap("8-stale-refused", 300);
   for (const id of [lamp.id, gate.id]) {
     const b = (await other.request("blocks.context", { blockId: id })).selected;
-    console.log(`${id.slice(0, 8)} revision ${b.revision} · ${b.properties.map((p: any) => `${p.key}=${p.value}`).join(" ")}\n  ${b.text.split("\n")[0]}`);
+    console.log(`${id.slice(0, 8)} revision ${b!.revision} · ${b.properties.map((p: any) => `${p.key}=${p.value}`).join!!!(" ")}\n  ${b.text.split("\n")!!![0]}`);
   }
   console.log(JSON.stringify(B.describe(), null, 1).split("\n").filter(l => /lastMove|result|"to"/.test(l)).join("\n"));
   other.close(); board.close(); process.exit(0);
@@ -1083,7 +1083,7 @@ if (scenario === "comment") {
   press({ kind: "enter" }); for (const c of "Friday is tight.") ch(c);
   const other = new SocketBoard();
   const now = (await other.request("blocks.context", { blockId: card.id })).selected;
-  await other.update(card.id, now.text.replace("\nShip", "\nScope moved to v2.\nShip"), now.revision);
+  await other.update(card.id, now.text.replace!!!("\nShip", "\nScope moved to v2.\nShip"), now!.revision);
   press({ kind: "char", ch: "s", ctrl: true });
   await snap("8-refused", 1500);
   press({ kind: "char", ch: "r", ctrl: true });
@@ -1219,7 +1219,7 @@ if (scenario === "river-write") {
   await act("edit.text", { text: (await board.get(beans.id))!.text + "\nMine, unsaved." }, beansR);
   const other = new SocketBoard(board.path);
   const now = (await other.request("blocks.context", { blockId: beans.id })).selected;
-  await other.request("update", { blockId: beans.id, text: now.text.replace("Canes", "Hazel canes"), expectedRevision: now.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await other.request("update", { blockId: beans.id, text: now.text.replace!!!("Canes", "Hazel canes"), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
   await snap("9-changed-elsewhere", 1500);
   // Focus away: the agent's draft doesn't take the person's h, and the column holding it resists compression.
   ch("h"); ch("h");

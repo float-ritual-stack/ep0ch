@@ -1,3 +1,4 @@
+import { proposed } from "./wire";
 // PIE-509: what the door drew wrong in a real pane on a realistically shaped (fictional) outline. A sparkline and
 // a typed line's cursor use glyphs the kitty+crt font (CP437) has; a board lane's header names its view as written
 // and its cards show the view's [summary-properties::]; a reader showing a note that goes to the Trash (a
@@ -107,9 +108,9 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
     expect(r.outcome).toBe("proposed");
     const desk = new Desk();
     app.push(desk);
-    await app.act({ action: "open", args: { id: r.proposalId }, as: "walker-509" });
+    await app.act({ action: "open", args: { id: proposed(r).proposalId }, as: "walker-509" });
     await until(() => lines().join("\n").includes("[apply] [dismiss]"), "the proposal's controls", 10_000);
-    await agent.trash(r.proposalId, { kind: "agent", id: "tidy" });
+    await agent.trash(proposed(r).proposalId, { kind: "agent", id: "tidy" });
     await until(() => lines().join("\n").includes("in the Trash"), "the reader saying the proposal is in the Trash", 10_000);
     expect(lines().join("\n")).not.toContain("[apply] [dismiss]");
     app.pop();

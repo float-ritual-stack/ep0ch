@@ -157,12 +157,12 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
 
     const list = await threads(b.id);
     expect(list).toHaveLength(1);
-    const anchor = list[0].originalTarget.anchor;
+    const anchor = list[0].originalTarget!!!.anchor;
     expect(anchor).toMatchObject({ kind: "text-quote", exact: "release notes", start: NOTE.lastIndexOf("release notes") });
-    expect(list[0].body).toBe("Who reviews these?");
-    expect(list[0].block.author).toBe("user");
+    expect(list[0]!.body).toBe("Who reviews these?");
+    expect(list[0].block!!!.author).toBe("user");
     expect(flashes.at(-1)).toBe("comment added");
-    expect((await current(b.id)).text).toBe(NOTE);      // commenting didn't touch the note's text
+    expect((await current(b.id))!.text).toBe(NOTE);      // commenting didn't touch the note's text
 
     // The thread list shows it; Esc back to the reader shows the count.
     expect(plain(pane.render(80, 30, true, d).lines.join("\n"))).toContain('"release notes"');
@@ -200,7 +200,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     pane.key(ctrl("s"), d);
     await until(() => pane.session?.mode === "threads", "the reply to land");
     let list = await threads(b.id);
-    expect(list[0].replies.map((r: any) => r.body)).toEqual(["Me, on Thursday."]);
+    expect(list[0].replies.map!!!((r: any) => r.body)).toEqual(["Me, on Thursday."]);
     // The list is "threads" while the thread still loads (src/comment.ts), and a key there waits for it: s pressed
     // before then is dropped (on boxd it was, PIE-1412).
     await idle(pane);
@@ -209,19 +209,19 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     await idle(pane);
     await until(() => pane.session!.threads[0]?.open === false, "the thread to show seen");
     list = await threads(b.id);
-    expect(list[0].lifecycle).toBe("seen");
+    expect(list[0]!.lifecycle).toBe("seen");
     expect(plain(pane.render(80, 30, true, d).lines.join("\n"))).toContain("0 current · 1 earlier");
     const log = await other.request("activity.recent", { author: "user", limit: 20 });
-    expect(log.entries.find((e: any) => e.block.id === list[0].block.id)?.actorId).toBe(ACTOR_ID);
+    expect(log.entries.find((e: any) => e.block.id === list[0].block!!!.id)?.actorId).toBe(ACTOR_ID);
 
     pane.key(char("s"), d);
     await idle(pane);
     await until(() => pane.session!.threads[0]?.open === true, "the thread to show open");
-    expect((await threads(b.id))[0].lifecycle).toBe("open");
+    expect((await threads(b.id))[0]!.lifecycle).toBe("open");
     pane.key(char("p"), d);
     await idle(pane);
     await until(() => pane.session!.threads[0]?.lifecycle === "kept", "the thread to show kept");
-    expect((await threads(b.id))[0].lifecycle).toBe("kept");
+    expect((await threads(b.id))[0]!.lifecycle).toBe("kept");
   });
 
   test("a send whose answer is lost is retried with the same request id and lands once", async () => {
@@ -305,9 +305,9 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     pane.key(ctrl("s"), d);
     await until(() => pane.session?.mode === "threads", "the send");
     const list = await threads(b.id);
-    const now = (await current(b.id)).text as string;
-    expect(list[0].originalTarget.anchor.start).toBe(now.indexOf("Ship the release notes"));
-    expect(list[0].originalTarget.anchor.exact).toBe("Ship the release notes before Friday.");
+    const now = (await current(b.id))!.text as string;
+    expect(list[0].originalTarget.anchor!!!.start).toBe(now.indexOf("Ship the release notes"));
+    expect(list[0].originalTarget.anchor!!!.exact).toBe("Ship the release notes before Friday.");
   });
 
   test("when the quoted words are gone, ctrl+r goes back to picking and the comment text comes along", async () => {
@@ -326,7 +326,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     expect(pane.session!.composer!.text).toBe("Keep me.");
     pane.key(ctrl("s"), d);
     await until(() => pane.session?.mode === "threads", "the send");
-    expect((await threads(b.id))[0].originalTarget.anchor.exact).toBe("Ship it Monday.");
+    expect((await threads(b.id))[0].originalTarget.anchor!!!.exact).toBe("Ship it Monday.");
   });
 
   test("a quote that isn't in the note is refused by the service, and nothing is written", async () => {
@@ -337,7 +337,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     const wrongPlace = await board.comment("wrongplace-" + b.id, b.id, b.revision, "x", { quote: "release notes", start: 3 }).catch(e => e);
     expect(wrongPlace).toBeInstanceOf(Refused);
     expect(await threads(b.id)).toHaveLength(0);
-    expect((await current(b.id)).revision).toBe(b.revision);
+    expect((await current(b.id))!.revision).toBe(b.revision);
   });
 
   test("the composer keeps its text: esc asks twice, keys stay in it, the reader stays on its note", async () => {

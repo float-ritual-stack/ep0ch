@@ -1,3 +1,4 @@
+import { proposed } from "./wire";
 // The remote MCP gateway's writes (PIE-615), end to end over real HTTP. Two scratch hosts: "here" (the gateway's
 // machine, whose outlines it writes directly) and a far box standing in for the laptop, whose outline the gateway reads
 // from a read-only mirror and whose writes queue (netmail) until the far box pulls them over ssh. The ssh is the fake one
@@ -112,7 +113,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
       const proposal = await attic.request("draft.patch", { blockId: note.id, revision: note.revision,
         patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: true,
         mutation: { author: "agent", actorId: "mcp:chat.example.test" } });
-      ids[`settle-${op}`] = proposal.proposalId;
+      ids[`settle-${op}`] = proposed(proposal).proposalId;
     }
 
     dir = scratchDir("ep0ch-mcpw-");
@@ -568,7 +569,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const pond = boardOn(here, "pond-notes", HERE);
     const note = await pond.request("create", { parentId: null, text: "Reeds\nTall and green.", author: "user" });
     const theirs = await pond.request("draft.patch", { blockId: note.id, revision: note.revision, patches: [{ observed: "Tall", replacement: "Short" }], propose: true, mutation: { author: "agent", actorId: "other-agent" } });
-    const dismissUri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: theirs.proposalId });
+    const dismissUri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: proposed(theirs).proposalId });
     const refusedDismiss = await tool("outline_proposal_dismiss", { uri: dismissUri });
     expect(refusedDismiss.isError).toBe(true);
     expect(refusedDismiss.text).toContain("needs full access");

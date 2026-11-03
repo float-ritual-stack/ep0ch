@@ -556,7 +556,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     const made = await board.request("create", { parentId: null, text: "Mend the wheelbarrow\nThe tyre is flat.", author: "agent" });
     const { workId } = await board.request("work-ids.allocate", { blockId: made.id, expectedRevision: made.revision });
     const page = (await board.request("pages.follow", { address: "Tool shed", author: "agent" })).block;
-    for (const [ref, id] of [[workId, made.id], [`[[${workId}]]`, made.id], ["[[Tool shed]]", page.id], [made.id, made.id], [`((${made.id}))`, made.id]] as const) {
+    for (const [ref, id] of [[workId, made.id], [`[[${workId}]]`, made.id], ["[[Tool shed]]", page!.id], [made.id, made.id], [`((${made.id}))`, made.id]] as const) {
       const read = await tool("outline_read", { ref, outline: scratch.name });
       expect(read.isError).toBe(false);
       expect(JSON.parse(read.text).record.id).toBe(id);
