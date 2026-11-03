@@ -30,7 +30,8 @@ export type LimitedBy = "grant" | "owner" | "cap" | "unset";
 /** The level a caller writes at in an outline: the setting, the maker's `full`, a local session's `full` on an unset outline, then its cap. */
 export function effectiveLevel(status: GateStatus, caller: GateCaller = {}): { level: McpAccessLevel; limitedBy: LimitedBy } {
   let level = status.level, limitedBy: LimitedBy = "grant";
-  if (caller.local && status.set === false) { level = "full"; limitedBy = "unset"; }
+  // A host that doesn't say (`set` absent: one not yet updated) is read as unset, so a local session writes as it always has.
+  if (caller.local && status.set !== true) { level = "full"; limitedBy = "unset"; }
   else if (caller.principal && status.owner && status.level !== "none" && status.owner === caller.principal) { level = "full"; limitedBy = "owner"; }
   if (caller.cap) {
     const capped = lowerLevel(caller.cap, level);

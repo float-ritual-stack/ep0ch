@@ -22,6 +22,7 @@ describe("the gate, as a table", () => {
     ["a named path capped at propose", { principal: "chatgpt.com", cap: "propose" }, { level: "full", set: true }, "propose", "cap"],
     ["a cap above the grant", { cap: "full" }, { level: "read", set: true }, "read", "grant"],
     ["a local session, level never set", { local: true }, { level: "none", set: false }, "full", "unset"],
+    ["a local session, a host that doesn't say", { local: true }, { level: "none" }, "full", "unset"],
     ["a local session, level set to propose", { local: true }, { level: "propose", set: true }, "propose", "grant"],
     ["a local session, level set to read", { local: true }, { level: "read", set: true }, "read", "grant"],
     ["a client, level never set", {}, { level: "none", set: false }, "none", "grant"],
