@@ -77,6 +77,11 @@ export const EDIT_PREVIEW_KEYS: readonly ModeKey[] = keyTable("edit preview", "a
 
 export const EDIT_PREVIEW_READER_KEYS = EDIT_PREVIEW_KEYS.filter(row => row.action === "draft.preview");
 
+/** A note's own edit's keys beside the edit control's (PIE-1076, PIE-1542): ctrl+k lists the actions to run where the person types. */
+export const NOTE_EDIT_KEYS: readonly ModeKey[] = keyTable("edit", "a note's own edit, beside the draft's keys", [
+  { key: "ctrl+k", action: "edit.actions", label: "actions", says: "list the actions to run from where you're typing" },
+]);
+
 /** The settings card (PIE-786, PIE-1491): one more user of the attached surface, with its placements, grip and pointer rows. */
 export const SETTINGS_KEYS: readonly ModeKey[] = keyTable("settings", "the settings card, comma over a configurable note or a collection", [
   ...["tab", "j", "down"].map(key => say(row(key, "settings.pick", "field", { by: 1 }), "select the next field of the card")),

@@ -16,8 +16,8 @@ import type { Msg } from "./board";
 import type { Placement } from "./kitty";
 import type { LinkTarget } from "./refs";
 import { authorName, whoOf, USER, type Actor } from "./socket";
-import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
-import { isCopyKey, SELECT_BG } from "./surface/selection";
+import { ActionRefused, actionSet, def, keyName, type ArgsOfSet } from "./surface/actions";
+import { Gesture, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
 import { bg, C, chip, codePointCells, drawEllipsized, fg, RESET, width } from "./style";
 import { wrap } from "./text";
@@ -27,6 +27,8 @@ import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type Dra
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
 import { nextGraphemeEnd, previousGraphemeStart } from "@ep0ch/outline-core/graphemes";
 import { foldPoints, type FoldPoint } from "./doc";
+import { modeBinding, type ModeKey } from "./surface/modes";
+import { keyTable, movedInTable } from "./surface/keymap";
 
 /** How long an agent's patch stays lit in the draft, with who made it (ms). */
 export const PATCH_FLASH_MS = 2500;
@@ -66,6 +68,28 @@ export type DraftPatchAnswer = { applied: true } | { applied: false; reason: str
  * changed text: its session puts it aside as unsent), `copy` (cmd+c: the host runs its draft.copy).
  */
 export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy" | "follow" | "image" | "attach";
+
+/**
+ * The draft's keys (PIE-1542): one table every place a person types reads (a note's edit, a comment, the composer, an
+ * inspector field, the power bar, a line field), with the person's keymap applied, so a rebind works in each and the hint
+ * row says the key that works. Typing, the arrows, the esc ladder and the line motions (ctrl+a ctrl+e ctrl+k) are the
+ * control's own, not actions.
+ */
+export const DRAFT_KEYS: readonly ModeKey[] = keyTable("draft", "every place a person types: a note's edit, a comment, the composer, an inspector field, the power bar, a line field", [
+  { key: "ctrl+s", action: "edit.save", label: "save", says: "save or send what's written" },
+  { key: "ctrl+z", action: "draft.undo", label: "undo", says: "take back the last change in what you're writing" },
+  { key: "ctrl+y", action: "draft.redo", label: "redo", says: "put back the change you undid (ctrl+shift+z too)" },
+  { key: "ctrl+t", action: "draft.pick", label: "insert", says: "insert a link or a component from a picker" },
+  { key: "ctrl+r", action: "edit.reload", label: "reload", says: "load the note as it is now, after it changed elsewhere" },
+  { key: "ctrl+p", action: "draft.preview", label: "preview", says: "show or hide the preview of what you're writing" },
+  { key: "ctrl+v", action: "draft.image", label: "picture", says: "put in a picture from the clipboard or the path at the cursor" },
+  { key: "ctrl+l", action: "edit.follow", label: "open link", says: "open the link the cursor is on, beside the edit" },
+  { key: "alt+c", action: "draft.copy", label: "copy", says: "copy the selected text" },
+  { key: "super+c", action: "draft.copy", label: "copy", says: "copy the selected text" },
+]);
+/** What a table key asks of the draft's host (its session runs the host's action); the rest are the draft's own actions. */
+type DraftActionName = Parameters<typeof DRAFT_ACTIONS.run>[0];
+const HOST_PART: Record<string, DraftAction> = { "edit.save": "save", "draft.pick": "pick", "edit.reload": "reload", "draft.image": "image", "edit.follow": "follow", "draft.copy": "copy" };
 
 export class Draft {
   lines: string[];
@@ -116,6 +140,10 @@ export class Draft {
   private ctrlX = false;
   /** Its host offers to attach it to open work (a new roadmap card with a twin, PIE-1258): ctrl+x a does that. */
   attachChord = false;
+  /** Its host saves on ⏎ (an inspector field, PIE-1542): a typed ⏎ asks "save", a pasted one is a line break. */
+  enterSaves = false;
+  /** The mouse's presses on its text, counted (a double click its word, a triple its line: `selectClicks`). */
+  readonly clicks = new Gesture();
   note = "";
 
   /**
@@ -488,39 +516,25 @@ export class Draft {
       this.record(USER, "a change"); this.pasting = true;
       queueMicrotask(() => { if (this.pasting) { this.pasted(USER); this.redraw?.(); } });
     }
-    // cmd+c copies the selection; it never types, and never ends a put-aside's second esc. alt+c too,
-    // where cmd+c can't reach the door (a terminal without the Kitty keyboard protocol, tmux).
-    if (isCopyKey(k) || (k.kind === "alt" && k.ch === "c")) return "copy";
+    // The keys that run an action, from the one key table (DRAFT_KEYS, the person's keymap applied).
+    const bound = modeBinding(DRAFT_KEYS, k);
+    // cmd+c copies the selection; it never types, and never ends a put-aside's second esc.
+    if (bound?.action === "draft.copy") return "copy";
     if (k.kind === "super") return "keep";
     const was = this.discard.take(true), armed = this.undoArmed > 0 && Date.now() - this.undoArmed >= UNDO_ASK_PAUSE_MS;
     this.discard.clear(); this.undoArmed = 0;
     if (chord && this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a") return "attach";
+    if (chord && k.kind === "char" && k.ctrl && k.ch === "e") return "editor";
+    if (bound) return this.run(bound.action, k, armed);
     if (k.kind === "char" && k.ctrl) {
-      if (k.ch === "s") return "save";
-      // ctrl+x ctrl+e: $EDITOR. ctrl+e alone is the line's end, as ctrl+a is its start (a Mac's cmd+→ and cmd+←).
+      // ctrl+x ctrl+e: $EDITOR (bash's chord). ctrl+e alone is the line's end, as ctrl+a is its start (a Mac's cmd+→ and cmd+←).
       if (k.ch === "x") { this.ctrlX = true; this.note = `ctrl+x · ctrl+e opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`; return "keep"; }
-      if (k.ch === "e" && chord) return "editor";
       if (k.ch === "e") { this.anchor = this.goal = null; this.col = this.line.length; return "keep"; }
-      if (k.ch === "t") return "pick";
-      if (k.ch === "r") return "reload";
-      if (k.ch === "p") { void DRAFT_ACTIONS.run("draft.preview", {}, this, USER); return "keep"; }
-      // ctrl+v puts in a picture (PIE-592): the image file whose path the cursor is on (a file dropped on the terminal
-      // pastes its path), else the clipboard's; kept in the outline's folder, a media line here.
-      if (k.ch === "v") return "image";
-      // ctrl+l follows the link the cursor is on (PIE-592): it opens beside the edit, which stays open.
-      if (k.ch === "l") {
-        if (this.linkAtCursor()) return "follow";
-        this.note = "no link here · ctrl+l on a [[page]], ((reference)) or [text](url) opens it beside the edit";
-        return "keep";
-      }
-      // ctrl+z undoes; ctrl+y and ctrl+shift+z (the Kitty keyboard protocol tells shift apart) redo.
-      if (k.ch === "z" || k.ch === "y") {
-        const name = k.ch === "y" || k.shift ? "draft.redo" : "draft.undo";
-        void DRAFT_ACTIONS.run(name, name === "draft.undo" && armed ? { past: true } : {}, this, USER).catch(e => { this.note = e instanceof Error ? e.message : String(e); });
-        return "keep";
-      }
       if (k.ch === "a") { this.anchor = this.goal = null; this.col = 0; return "keep"; }
       if (k.ch === "k") { this.anchor = null; if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER, "the cut to the line's end"); } return "keep"; }
+      // A key the person's keymap took from a draft action (ctrl+z after draft.undo went to alt+u) says where it went.
+      const moved = movedInTable(DRAFT_KEYS, "", keyName(k) ?? "");
+      if (moved) this.note = moved;
       return "keep";
     }
     if (k.kind === "esc") {
@@ -538,6 +552,8 @@ export class Draft {
       }
       return "discard";
     }
+    // A field whose host says ⏎ saves (an inspector's value): a typed ⏎ saves; shift+⏎ and a pasted line break are text.
+    if (k.kind === "enter" && this.enterSaves && !("pasted" in k && k.pasted) && !("shift" in k && k.shift)) return "save";
     this.note = "";
     const L = this.lines, len = L.length, r0 = this.row, cur = this.line;
     const typing = k.kind === "char" || k.kind === "enter" || k.kind === "alt-enter" || k.kind === "backspace" || k.kind === "delete";
@@ -606,6 +622,22 @@ export class Draft {
     // Every keystroke that changes the text makes the person its last writer.
     if (L.length !== len || L[r0] !== cur) this.wrote(USER);
     if (this.row !== r0) this.selectAsk();
+    return "keep";
+  }
+
+  /**
+   * A key the table bound to `action`: the host's part (save, insert, reload, a picture, a link) comes back as what it
+   * asks of its host; the draft's own actions run here. ctrl+shift+z is redo (the Kitty keyboard protocol tells shift apart).
+   */
+  private run(action: string, k: Key, armed: boolean): DraftAction {
+    const host = HOST_PART[action];
+    if (host === "follow" && !this.linkAtCursor()) {
+      this.note = "no link here · ctrl+l on a [[page]], ((reference)) or [text](url) opens it beside the edit";
+      return "keep";
+    }
+    if (host) return host;
+    const name = action === "draft.undo" && "shift" in k && k.shift ? "draft.redo" : action;
+    void DRAFT_ACTIONS.run(name as DraftActionName, name === "draft.undo" && armed ? { past: true } : {}, this, USER).catch(e => { this.note = e instanceof Error ? e.message : String(e); });
     return "keep";
   }
 

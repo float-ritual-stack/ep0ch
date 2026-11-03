@@ -4,20 +4,23 @@
 // (shift selects), ctrl+a ctrl+e, ctrl+u, ctrl+w and alt+backspace (the word before), ctrl+k, ctrl+x (cut), ctrl+z
 // ctrl+y (undo, redo), cmd+c (copy), and the mouse: a click places the cursor, a drag selects, a double click a word,
 // a triple the line. Enter, esc, tab, ↑ ↓ and the rest stay the caller's (`take` answers false for them).
-import { Draft } from "../edit";
+import { Draft, DRAFT_KEYS } from "../edit";
+import { keyName } from "./actions";
+import { movedInTable } from "./keymap";
+import { modeBinding } from "./modes";
 import { INPUT_CURSOR, paint, bg, C, fg, headOf, RESET, tailFrom, width } from "../style";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
 import { USER } from "../socket";
 import { editorLineKey } from "./editor";
-import { Gesture, isCopyKey, rowsOf, wordAt } from "./selection";
+import { Gesture, wordIn } from "./selection";
 import { lineCompletionHooks, type LineCompletion } from "./line-hooks";
 import { clampToGraphemeStart } from "@ep0ch/outline-core/graphemes";
 
 export { lineCompletionHooks, type LineCompletion };
 
-/** The ctrl keys a line takes; any other ctrl key is the caller's (a screen's ctrl+n, ctrl+s). */
-const LINE_CTRL = new Set(["a", "e", "k", "u", "w", "x", "z", "y"]);
+/** The line's own ctrl motions (start, end, cut to the end, clear, the word before, cut); the table's keys come first. */
+const LINE_MOTIONS = new Set(["a", "e", "k", "u", "w", "x"]);
 const LINE_KEYS = new Set<Key["kind"]>(["char", "paste", "backspace", "delete", "left", "right", "home", "end", "alt-backspace"]);
 
 export class LineField extends Draft {
@@ -68,18 +71,31 @@ export class LineField extends Draft {
   }
 
   private edit(k: Key): boolean {
-    if (isCopyKey(k) || (k.kind === "alt" && k.ch === "c")) {
+    if (modeBinding(DRAFT_KEYS, k)?.action === "draft.copy") {
       const text = this.selectedText();
       if (!text) return false;
       this.copy(text); return true;
     }
-    if (k.kind === "char" && k.ctrl) {
-      if (!LINE_CTRL.has(k.ch)) return false;
+    // The edit control's key table (DRAFT_KEYS, the keymap applied): undo and redo are the line's; the table's other
+    // actions (save, insert, a picture) are the caller's.
+    const bound = modeBinding(DRAFT_KEYS, k);
+    if (bound?.action === "draft.undo" || bound?.action === "draft.redo") {
       this.fresh = false;
-      if (k.ch === "z" || k.ch === "y") { this.history(k.ch === "y" || !!k.shift ? "redo" : "undo"); return true; }
+      this.history(bound.action === "draft.redo" || ("shift" in k && !!k.shift) ? "redo" : "undo");
+      return true;
+    }
+    if (k.kind === "char" && k.ctrl) {
+      if (!LINE_MOTIONS.has(k.ch)) {
+        const moved = movedInTable(DRAFT_KEYS, "", keyName(k) ?? "");
+        if (moved) { this.note = moved; return true; }
+        return false;
+      }
+      this.fresh = false;
       if (k.ch === "a" || k.ch === "e" || k.ch === "k") { this.key(k); return true; }
       return editorLineKey(this, k, this.copy);
     }
+    // A line break or a tab inside a paste typed out key by key is a space in one line: never the caller's ⏎.
+    if ((k.kind === "enter" || k.kind === "tab") && "pasted" in k && k.pasted) k = { kind: "char", ch: " ", pasted: true };
     if (!LINE_KEYS.has(k.kind)) return false;
     if (k.kind === "paste" && !k.text) return false;   // an empty paste (only a picture on the clipboard) is the caller's
     this.fresh = false;
@@ -109,10 +125,9 @@ export class LineField extends Draft {
       const n = this.gesture.press(k.x, k.y), col = clampToGraphemeStart(this.text, this.posAt(x, 0).col);
       this.place(0, col);
       if (n > 1) {
-        const cs = [...this.text], cp = [...this.text.slice(0, this.col)].length;
-        const word = wordAt(rowsOf([this.text]), { row: 0, col: cp });
-        this.place(0, n === 3 ? 0 : cs.slice(0, word.start.col).join("").length);
-        this.place(0, n === 3 ? this.text.length : cs.slice(0, word.end.col + 1).join("").length, true);
+        const word = n === 3 ? { start: 0, end: this.text.length } : wordIn(this.text, this.col);
+        this.place(0, word.start);
+        this.place(0, word.end, true);
       }
       return true;
     }

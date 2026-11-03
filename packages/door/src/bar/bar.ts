@@ -252,8 +252,10 @@ export class PowerBar {
     if (k.kind === "right" && this.scope !== "ask" && this.input.col === this.query.length && /\s/.test(this.query) && this.host.dispatch.has(this.query.split(/\s/)[0]!)) { void this.host.dispatch.press("bar.edit", { op: "complete" }); return true; }
     if (k.kind === "alt-enter") { if (this.items.length) this.pick(this.picker.sel + 1, true); return true; }
     if (k.kind === "alt-backspace") { void this.host.dispatch.press("bar.edit", { op: "delete-word" }); return true; }
-    if (k.kind === "char" && k.ctrl && ["u", "w", "x", "z"].includes(k.ch) && !k.shift) {
-      void this.host.dispatch.press("bar.edit", { op: k.ch === "u" ? "clear" : k.ch === "w" ? "delete-word" : k.ch === "x" ? "cut" : "undo" });
+    // ctrl+u ctrl+w ctrl+x are the bar's edits (bar.edit); undo and redo are the line's own, through the edit control's key
+    // table, so a rebind of draft.undo works here too (PIE-1542).
+    if (k.kind === "char" && k.ctrl && ["u", "w", "x"].includes(k.ch) && !k.shift) {
+      void this.host.dispatch.press("bar.edit", { op: k.ch === "u" ? "clear" : k.ch === "w" ? "delete-word" : "cut" });
       return true;
     }
     if (k.kind === "paste") { void this.host.dispatch.press("bar.edit", { op: "paste", text: k.text }); return true; }
@@ -281,8 +283,9 @@ export class PowerBar {
     if (op === "select" || o.from !== undefined || o.to !== undefined) { this.input.place(0, o.from ?? 0); this.input.place(0, o.to ?? this.query.length, true); }
     if (op === "complete") await this.complete();
     else if (op === "clear") this.clear();
+    else if (op === "undo") { this.input.history("undo"); this.refresh(); }
     else if (op !== "select") {
-      const k: Key = op === "paste" ? { kind: "paste", text: o.text ?? "" } : op === "delete-word" ? { kind: "alt-backspace" } : { kind: "char", ctrl: true, ch: op === "cut" ? "x" : "z" };
+      const k: Key = op === "paste" ? { kind: "paste", text: o.text ?? "" } : op === "delete-word" ? { kind: "alt-backspace" } : { kind: "char", ctrl: true, ch: "x" };
       editorLineKey(this.input, k, text => { if (clipboard && !(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(text); });
       if (this.scope === "ask" && maskedQuestion()) { this.input.undos = []; this.input.redos = []; }
       this.refresh();
