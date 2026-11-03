@@ -6,6 +6,7 @@
 
 import { type GuardContext, SHARED_MACHINE, bunTest, wholeSuiteRefusal } from './whole-suite'
 import { baseName, simpleCommands } from './shell'
+import { readsOnly } from './freshness'
 
 export { wholeSuiteRefusal }
 
@@ -59,6 +60,13 @@ export function repoNamed(args: readonly string[]): string | null {
   return null
 }
 
+/** Where a git command's subcommand is, past git's own options (`git -C <dir> -c k=v stash`). */
+export function gitSubcommandAt(words: readonly string[]): number {
+  let i = 1
+  while (i < words.length && words[i]!.startsWith('-')) i += ['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(words[i]!) ? 2 : 1
+  return i
+}
+
 /** Why one simple command is refused here, or null. */
 function refusalOf(words: readonly string[], ctx: GuardContext): string | null {
   const name = baseName(words[0] ?? '')
@@ -67,8 +75,7 @@ function refusalOf(words: readonly string[], ctx: GuardContext): string | null {
       'Stop only what you started, by its pid: check `pstree -p <pid>`, then `kill <pid>`; for a test door or run under agent-env, `scripts/agent-env <name> --clean`.'
   }
   if (name === 'git') {
-    let i = 1
-    while (i < words.length && words[i]!.startsWith('-')) i += ['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(words[i]!) ? 2 : 1
+    const i = gitSubcommandAt(words)
     if (words[i] === 'stash' && !['list', 'show'].includes(words[i + 1] ?? '')) {
       return 'git stash is refused in this repository: stashes are shared by every worktree of the repo, so one agent pops another\'s. ' +
         'Commit to your branch instead: `git add -A && git commit -m "wip: <what>"` (a merge commit keeps it in the branch history, which is fine).'
@@ -97,7 +104,50 @@ export function guardOf(command: string, ctx: GuardContext): string | null {
     const why = refusalOf(words, ctx)
     if (why) return why
   }
-  return wholeSuiteRefusal(command, ctx)
+  return wholeSuiteRefusal(command, ctx) ?? budgetRefusal(command)
+}
+
+/** The test-time budget (PIE-1422): scripts/test-budget.json, which only Evan raises. */
+export const BUDGET_FILE = 'scripts/test-budget.json'
+export const BUDGET_REFUSAL = `${BUDGET_FILE} is the test-time budget, and only Evan raises it (PIE-1422): this repository's mod refuses ` +
+  "an agent's change to it, in every Claude session here, the way it refuses a PROTOCOL merge that isn't main's plus one. " +
+  'If the nightly is over budget, find the files that grew (its request lists them) and make them fast again. ' +
+  "Evan raises it himself, in his editor or with `! bun scripts/test-budget.ts propose --log <the nightly's log> --write`; " +
+  'a test that needs a budget writes a made-up one of its own and passes `--budget <file>`.'
+
+/** Programs that run code given to them (-c, -e, a heredoc on stdin): a nudge, not a sandbox (PIE-1422). */
+const INTERPRETERS = new Set(['python', 'python3', 'node', 'bun', 'deno', 'perl', 'ruby', 'php'])
+const namesBudget = (word: string) => /(^|[/>])test-budget\.json$/.test(word)
+const budgetScript = (w: readonly string[]) => baseName(w[0] ?? '') === 'bun' && /(^|\/)test-budget\.ts$/.test(w[1] ?? '')
+/** Read-only uses of the budget beyond the sweep's list: git staging it, and the comparison reading it. */
+const budgetReader = (w: readonly string[]) =>
+  (baseName(w[0] ?? '') === 'git' && ['add', 'commit', 'diff', 'log', 'show', 'status', 'blame'].includes(w[gitSubcommandAt(w)] ?? '')) ||
+  (budgetScript(w) && ['compare', 'times', 'propose'].includes(w[2] ?? '') && !w.includes('--write')) ||
+  // A copy from it (to a scratch folder) leaves it as it was; onto it is a change.
+  (['cp', 'install'].includes(baseName(w[0] ?? '')) && !namesBudget(w.at(-1) ?? ''))
+
+/** Why a Bash command changes the test-time budget (a redirection onto it, or a command that isn't a read), or null. */
+export function budgetRefusal(command: string): string | null {
+  const named = command.includes('test-budget.json')
+  if (!named && !command.includes('test-budget.ts')) return null
+  for (const w of simpleCommands(command)) {
+    // The raise itself writes the file without naming it.
+    if (budgetScript(w) && w[2] === 'propose' && w.includes('--write')) return BUDGET_REFUSAL
+    // A script whose code names it (`python3 -c "…"`, a heredoc fed to node): its words don't show the path, the command does.
+    if (named && INTERPRETERS.has(baseName(w[0] ?? '')) && !budgetScript(w)) return BUDGET_REFUSAL
+
+    if (!w.some(namesBudget)) continue
+    const redirected = w.some((word, i) => (/^\d*>>?/.test(word) && namesBudget(word)) || (/^\d*>>?$/.test(w[i - 1] ?? '') && namesBudget(word)))
+    if (redirected) return BUDGET_REFUSAL
+    const words = w.filter((word, i) => !/^\d*[<>]/.test(word) && !/^\d*[<>]+$/.test(w[i - 1] ?? ''))
+    if (!readsOnly(words) && !budgetReader(words)) return BUDGET_REFUSAL
+  }
+  return null
+}
+
+/** Why an Edit or Write of `path` is refused: it is the test-time budget (in any checkout of this repository). */
+export function budgetEditRefusal(path: unknown): string | null {
+  return typeof path === 'string' && (path === BUDGET_FILE || path.endsWith(`/${BUDGET_FILE}`)) ? BUDGET_REFUSAL : null
 }
 
 export type Merge = { pr: string | null; repo: string | null }

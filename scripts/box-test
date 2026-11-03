@@ -28,6 +28,9 @@
 #   --keep    leave the fork (boxd) or the run dir (float-box) afterwards, and say how to reach and remove it.
 #
 # The exit code is the first failing suite's (124: a timeout), else 0.
+# After the suites, the test-time budget (PIE-1422): each bun test package writes its JUnit, and the run ends with the
+# comparison against scripts/test-budget.json at the tested commit (scripts/test-budget.ts), printed, not part of the
+# exit code; scripts/nightly-main turns it red.
 # The commit needn't be pushed: what origin hasn't got goes up as a git bundle. Uncommitted changes are not
 # tested (it says so). Each run's time, commit, estimated cost (0 on float-box) and target go to <state>/ep0ch/box-test.tsv. A fork that
 # outlives its run (this script killed with -9) powers itself off after EP0CH_BOX_MAX seconds (default 7200) and
@@ -52,7 +55,7 @@ while [ $# -gt 0 ]; do
     --keep) keep=1; shift;;
     --replace) replace=1; shift;;
     --refresh-golden) refresh=1; target=boxd; shift;;
-    -h|--help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    -h|--help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     all) pkgs+=(outline-core outliner door claude-mod host-bench); shift;;
     door|outliner|outline-core|claude-mod|host-bench) pkgs+=("$1"); shift;;
     *) echo "box-test: what is \"$1\"? (packages: door outliner outline-core claude-mod host-bench all)" >&2; exit 2;;
@@ -65,6 +68,21 @@ fi
 case $target in float-box|boxd) ;; *) echo "box-test: --on takes float-box or boxd, not \"$target\"" >&2; exit 2;; esac
 
 say() { printf '\033[2mbox-test:\033[0m %s\n' "$*" >&2; }
+# The test-time budget (PIE-1422, scripts/test-budget.ts): the run script ends by printing each package's JUnit as
+# test-time lines (`times_block <junit path prefix>`, on the box, where the reports are); this side reads them back out
+# of what the run printed and prints the comparison (`budget_said <file>`), the same one scripts/nightly-main decides by.
+times_block() {
+  local p ps=()
+  for p in "${pkgs[@]}"; do case $p in door|outliner|outline-core) ps+=("$p");; esac; done
+  [ ${#ps[@]} -gt 0 ] || return 0
+  printf '%s' "; if [ -f scripts/test-budget.ts ]; then echo; echo '━━ test time (scripts/test-budget.ts)'; for p in ${ps[*]}; do bun scripts/test-budget.ts times \$p $1\$p.xml; done; fi"
+}
+budget_said() {
+  [ -s "$1" ] && grep -q "^test-time	" "$1" || return 0
+  echo
+  bun "$repo/scripts/test-budget.ts" compare --log "$1" --budget-at "$sha"
+  return 0
+}
 # ── the commit ──
 sha=$(git -C "$repo" rev-parse --verify "$ref^{commit}") || exit 2
 # What the run is doing, to a terminal that speaks the Program Status Protocol (OSC 7501: the door's tiles, Ghostty):
@@ -144,8 +162,11 @@ if [ $target = float-box ]; then
     pb=""; [ "$p" = door ] && pb="PARITY_BUDGET_MS=\${PARITY_BUDGET_MS:-180000} "
     # The types first: `bun test` runs what tsc would refuse, so a green run once left main failing its check.
     if [ "$p" != claude-mod ]; then run+="; echo; echo \"━━ $p: bun run check\"; (cd packages/$p && nice -n 10 bun run check); c=\$?; [ \$code = 0 ] && code=\$c"; fi
-    run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && ${pb}nice -n 10 bun run test$par); c=\$?; [ \$code = 0 ] && code=\$c"
+    # Each bun test package writes its JUnit (PIE-1422): its files' times, read back below for the test-time budget.
+    ju=""; [ "$p" != claude-mod ] && ju=" --reporter=junit --reporter-outfile=$dir/junit-$p.xml"
+    run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && ${pb}nice -n 10 bun run test$par$ju); c=\$?; [ \$code = 0 ] && code=\$c"
   done
+  run+="$(times_block "$dir/junit-")"
   [ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each, $jobs at once)'; (cd packages/door && PARITY_BUDGET_MS=\${PARITY_BUDGET_MS:-180000} TEST_EACH_JOBS=$jobs nice -n 10 bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
   run+="; exit \$code"
   printf '%s\n' "$run" | rssh "cat > $dir/run.sh" || { echo "box-test: couldn't write the run script on $box_host" >&2; exit 1; }
@@ -164,9 +185,15 @@ if [ $target = float-box ]; then
   # BOX_TEST_RUN_DIR is in the guard's own starting environment (a later export doesn't show in /proc/<pid>/environ), so a
   # process of this run is found by it even inside another run's environment.
   guarded=1
-  rssh "env $envs setsid -w bash $dir/guard.sh" </dev/null &
+  # What the run prints, kept here too (the run dir goes with the run): the test-time lines are read back from it.
+  stream=$(mktemp)
+  exec {tee_fd}> >(tee "$stream")
+  tee_pid=$!
+  rssh "env $envs setsid -w bash $dir/guard.sh" </dev/null >&$tee_fd &
   rpid=$!
   wait $rpid; code=$?; rpid=0
+  exec {tee_fd}>&-
+  wait "$tee_pid" 2>/dev/null
   [ $code = 255 ] && say "ssh to $box_host dropped; the guard there stops the run and removes its dir"
   [ $code = 3 ] && guarded=0
   [ $code = 97 ] && say "a process of the run survived its kill: the run is failed (see the LEAK lines above)"
@@ -174,6 +201,8 @@ if [ $target = float-box ]; then
   secs=$(( $(date +%s) - start ))
   mkdir -p "$log_dir"
   printf '%s\t%s\t%s\t%s\t%ss\t€0\t%s\t%s\n' "$(date -u +%FT%TZ)" "${sha:0:12}" "${pkgs[*]}$([ $each = 1 ] && echo ' each')" "$box_host" "$secs" "$code" float-box >> "$log_dir/box-test.tsv"
+  budget_said "$stream"
+  rm -f "$stream"
   say "exit $code · $((secs / 60))m$((secs % 60))s · $box_host (cost 0; $log_dir/box-test.tsv)"
   if [ "$code" = 0 ]; then status done "${pkgs[*]} passed at ${sha:0:12} · $((secs / 60))m$((secs % 60))s"
   else status error "${pkgs[*]} at ${sha:0:12}: exit $code · $((secs / 60))m$((secs % 60))s"; fi
@@ -256,8 +285,10 @@ for p in "${pkgs[@]}"; do
   # As on float-box: the parity budget is wall-clock time, and every file runs at once here.
   pb=""; [ "$p" = door ] && pb="PARITY_BUDGET_MS=\${PARITY_BUDGET_MS:-180000} "
   if [ "$p" != claude-mod ]; then run+="; echo; echo \"━━ $p: bun run check\"; (cd packages/$p && bun run check); c=\$?; [ \$code = 0 ] && code=\$c"; fi
-  run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && ${pb}timeout 3000 bun run test$par); c=\$?; [ \$code = 0 ] && code=\$c"
+  ju=""; [ "$p" != claude-mod ] && ju=" --reporter=junit --reporter-outfile=/tmp/junit-$p.xml"
+  run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && ${pb}timeout 3000 bun run test$par$ju); c=\$?; [ \$code = 0 ] && code=\$c"
 done
+run+="$(times_block /tmp/junit-)"
 [ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each)'; (cd packages/door && PARITY_BUDGET_MS=\${PARITY_BUDGET_MS:-180000} TEST_EACH_JOBS=\$(nproc) bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
 run+="; exit \$code"
 printf '%s\n' "$run" | boxd machine exec "$box" -- bash -c 'cat > /tmp/box-test.sh' 2>/dev/null \
@@ -287,6 +318,10 @@ secs=$(( $(date +%s) - start ))
 cost=$(awk -v s="$secs" -v c="$vcpu" 'BEGIN { printf "%.3f", s / 3600 * (c * 0.049 + c * 4 * 0.015) }')
 mkdir -p "$log_dir"
 printf '%s\t%s\t%s\t%s\t%ss\t€%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "${sha:0:12}" "${pkgs[*]}$([ $each = 1 ] && echo ' each')" "$vcpu" "$secs" "$cost" "$code" boxd >> "$log_dir/box-test.tsv"
+stream=$(mktemp)
+inbox "$box" "grep '^test-time	' /tmp/box-test.log" > "$stream"
+budget_said "$stream"
+rm -f "$stream"
 say "exit $code · $((secs / 60))m$((secs % 60))s · about €$cost ($vcpu vCPU; $log_dir/box-test.tsv)"
 if [ "$code" = 0 ]; then status done "${pkgs[*]} passed at ${sha:0:12} · $((secs / 60))m$((secs % 60))s"
 else status error "${pkgs[*]} at ${sha:0:12}: exit $code · $((secs / 60))m$((secs % 60))s"; fi

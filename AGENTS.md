@@ -276,7 +276,8 @@ five default triage roles are `[triage::<role>]` properties and never set `work-
 
 The repository's own Claude mod, `.claude/skills/ep0ch-repo/` (loaded for sessions in this repository only), turns the
 hard rules above into refusals that name the command to run instead: `pkill`/`killall`, `git stash`, `gh pr merge
--d`/`--delete-branch`, `bun test --parallel` on float-2, and a merge into main that changes `PROTOCOL` to anything but main's plus one.
+-d`/`--delete-branch`, `bun test --parallel` on float-2, a merge into main that changes `PROTOCOL` to anything but main's plus one,
+and an agent's change to the test-time budget `scripts/test-budget.json` (only Evan raises it; PIE-1422).
 In the deployer's sessions it also runs the freshness sweep: after every three deploys or merges, a read-only agent
 checks what `.claude/freshness.md` lists as stale and hands its findings to the main thread. It also attaches a package's
 `.claude/rules/` file, once a session, to the first Bash command that touches that package.
