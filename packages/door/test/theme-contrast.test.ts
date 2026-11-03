@@ -12,6 +12,7 @@ import { Mirror } from "../src/mirror";
 import { artNamed } from "../src/packs";
 import { VGA_RGB } from "../src/ansi";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { chip, CHIP_MAX_LUMINANCE, fgRgb, stripMarks } from "../src/style";
 import { colourBody } from "../src/text";
 import { presentLinks } from "../src/refs";
@@ -327,12 +328,16 @@ describe("the palettes themselves (every background, not only the ones these scr
       } finally { setTheme("calm"); }
     }
     // A background in a light palette colour, drawn straight (not through chip): only the one-cell text cursor.
-    const CURSOR = new Set(["src/edit.ts", "src/surface/line.ts"]);
+    const CURSOR = new Set(["src/draft-view.ts"]);
     const light = /bg\(C\.(dark|grey|white|yellow|lcyan|lgreen|lred|lmagenta|lblue)\)/;
     const found: string[] = [];
-    for (const f of new Bun.Glob("src/**/*.ts").scanSync(".")) {
+    // From this package's folder, wherever the run started: from the repository's root "src/**" finds nothing, and this passed.
+    const door = join(import.meta.dir, "..");
+    const scanned = [...new Bun.Glob("src/**/*.ts").scanSync(door)];
+    expect(scanned.length).toBeGreaterThan(100);
+    for (const f of scanned) {
       if (CURSOR.has(f)) continue;
-      readFileSync(f, "utf8").split("\n").forEach((l, i) => { if (light.test(l)) found.push(`${f}:${i + 1}`); });
+      readFileSync(join(door, f), "utf8").split("\n").forEach((l, i) => { if (light.test(l)) found.push(`${f}:${i + 1}`); });
     }
     expect(found).toEqual([]);
   });
