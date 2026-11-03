@@ -42,5 +42,8 @@ export function groupWith(l: TileSpec, adopt: Adopt | undefined, host: AdoptHost
   if (!adopt || l.kind !== "screen" || l.screen || !l.inner || typeof l.inner !== "object") return undefined;
   const given = new Map<string, Pane>();
   for (const n of savedNodes((l.inner as { root?: unknown }).root)) if (n.t === "leaf" && typeof n.id === "string" && typeof n.name === "string") { const p = adoptTile(n.id, adopt, host, old, used); if (p) given.set(n.name, p); }
-  return given.size ? new ScreenTile("screen", l, undefined, given) : undefined;
+  if (!given.size) return undefined;
+  const g = new ScreenTile("screen", l, undefined, given);
+  if (l.id) tileRegistry.restore(g, { id: l.id });   // the group keeps its identity: a wire or a reference to it still reaches it
+  return g;
 }

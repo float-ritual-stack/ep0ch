@@ -52,7 +52,7 @@ import { inResize, resizeEnded, resizeHeld } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
-import { LayoutHistory, type LayoutEntry } from "./layout-history";
+import { LayoutHistory, specTileIds, type LayoutEntry } from "./layout-history";
 import { adoptTile, groupWith, undoOrder, type Adopt, type AdoptHost } from "./undo-across";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
@@ -1023,34 +1023,43 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         : "nothing to undo on this screen's layout");
       entries = [mine];
     }
-    // A transaction is one undo on every desk it reached (neat's links tile in the drawer, PIE-1230; a carry's two
-    // layouts, PIE-1559): each is checked before any changes, then each is rebuilt, the tiles that moved between them
-    // kept by identity (`Adopt`), and each is saved.
+    const steps = this.undoAcross(entries, actor);
+    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: entries[0]!.what, steps };
+  }
+
+  /**
+   * `entries` taken back on every desk their transactions reached (neat's links tile in the drawer, PIE-1230; a carry's two
+   * layouts, PIE-1559): each checked first, the whole refused when one can't be; then each rebuilt with the tiles that moved
+   * between them kept by identity (`Adopt`), and saved. An agent's undo leaves the person's keys where they are (`keepFocus`).
+   */
+  private undoAcross(entries: LayoutEntry[], actor: Actor, keepFocus = false): number {
     const txns = new Set(entries.flatMap(e => (e.txn ? [e.txn] : [])));
     const asked: [Desk, LayoutEntry[]][] = [[this, entries], ...this.relatives().filter(d => d !== this && [...txns].some(t => d.history.forTxn(t)))
       .map(d => [d, [...txns].flatMap(t => d.history.entriesOf(t)).sort((a, b) => b.seq - a.seq)] as [Desk, LayoutEntry[]])];
     for (const [d, es] of asked) { const why = d.undoRefusal(es, actor); if (why) throw new ActionRefused(why); }
     const { plan, adopt } = undoOrder(asked, d => [...d.panes.keys()].map(i => d.tileId(i)));
     let steps = 0;
-    for (const [d, es] of plan) { const r = d.undoEntries(es, actor, false, adopt); if (r.blocked) throw new ActionRefused(r.blocked); steps += r.done.reduce((n, e) => n + e.steps, 0); }
+    for (const [d, es] of plan) { const r = d.undoEntries(es, actor, keepFocus || actor.kind === "agent", adopt); if (r.blocked) throw new ActionRefused(r.blocked); steps += r.done.reduce((n, e) => n + e.steps, 0); }
     for (const p of adopt.pool.values()) { p.dispose?.(); tileRegistry.release(p); }   // claimed and never placed: ended, as a rebuild ends it
     for (const [d] of plan) { d.save(); d.redraw(); }
-    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: entries[0]!.what, steps };
+    return steps;
   }
-
-  /**
-   * Take back `entries` (newest first), one at a time: each must be the end of the history as far as other actors go
-   * (nobody undoes over someone else), and the module's `load` check must allow it (a lock, the tile the person types in).
-   * Stops at the first that doesn't, with why; what was undone is done.
-   */
   /** Why `entries` can't be taken back here now, or null: what `undoEntries` checks, asked first and changing nothing. */
   private undoRefusal(entries: LayoutEntry[], actor: Actor): string | null {
     if (this.keysHere() && this.holdsKeys()) return "you are typing; ctrl+z (layout.undo) puts it back when you are done";
     if (actor.kind === "agent" && !entries.every(e => e.party === partyOf(actor) || e.owner === partyOf(actor))) return `the ${this.layoutSelf().name}'s change isn't yours: an agent undoes its own`;
     for (const entry of entries) { const later = this.history.after(entry).find(e => entry.txn !== undefined ? e.txn !== entry.txn : e.party !== entry.party);
       if (later) return `the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}`; }
+    // An agent never takes the person's focus: an undo that would close the tile their keys are on is theirs to make.
+    const on = this.panes.has(this.focus) ? this.tileId(this.focus) : null, last = entries.at(-1);
+    if (actor.kind === "agent" && this.keysHere() && on && last && !specTileIds(last.before).includes(on)) return `the person is on ${this.nameOf(this.focus)}, which this undo would close: an agent leaves their tile alone`;
     return refusal(this.layout, { op: "load", name: "the layout before" }, this.layoutCtx(actor));
   }
+  /**
+   * Take back `entries` (newest first), one at a time: each must be the end of the history as far as other actors go
+   * (nobody undoes over someone else), and the module's `load` check must allow it (a lock, the tile the person types in).
+   * Stops at the first that doesn't, with why; what was undone is done.
+   */
   private undoEntries(entries: LayoutEntry[], actor: Actor, keepFocus = false, adopt?: Adopt): { done: LayoutEntry[]; blocked?: string } {
     const done: LayoutEntry[] = [];
     for (const entry of entries) {
@@ -1093,11 +1102,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const entries = this.history.entriesOf(txn), steps = entries.reduce((n, e) => n + e.steps, 0);
     const early = reason === "stopped" || reason === "failed";
     if (early && entries.length) {
-      // Put back what it changed, newest first, as far as nothing else changed since and the screen allows (it may be locked now).
-      const r = this.undoEntries([...entries].reverse(), USER, true);
-      this.save(); this.redraw();
-      asActor(this.ctx, actor).flash(r.blocked ? `${txn} ${reason}; layout only partly put back: ${r.blocked}` : `${txn} ${reason}; layout put back`, r.blocked ? 8000 : undefined);
-      return { txn, ended: reason, steps, putBack: !r.blocked, ...(r.blocked ? { left: r.blocked } : {}) };
+      // Put back what it changed on every desk it reached, as one undo does, when nothing else changed since and the screen allows.
+      for (const d of this.relatives()) if (d !== this) d.history.close(txn);
+      let blocked: string | undefined;
+      try { this.undoAcross([...entries].reverse(), USER, true); } catch (e) { blocked = e instanceof Error ? e.message : String(e); }
+      asActor(this.ctx, actor).flash(blocked ? `${txn} ${reason}; layout not put back: ${blocked}` : `${txn} ${reason}; layout put back`, blocked ? 8000 : undefined);
+      return { txn, ended: reason, steps, putBack: !blocked, ...(blocked ? { left: blocked } : {}) };
     }
     if (steps) asActor(this.ctx, actor).flash(`${steps === 1 ? "one layout change" : `${steps} layout changes`} · ctrl+z puts ${steps === 1 ? "it" : "them"} back`);
     return { txn, ended: reason, steps, putBack: false };
@@ -1152,7 +1162,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const kind = l.kind;
       // The tile itself by its identity before any by name (a carried one has another's name here, PIE-1559).
       const mineById = reuse && l.id ? [...old.keys()].find(x => !used.has(x) && this.tileId(x) === l.id) : undefined;
-      const o = mineById ?? (reuse && l.name ? byName.get(l.name) : undefined);
+      const o = mineById ?? (reuse && l.name && !(adopt && l.id?.startsWith("t-")) ? byName.get(l.name) : undefined);   // an undo's tile is that instance, never a namesake
       const p = o !== undefined ? old.get(o) : undefined;
       const moved = o === undefined && adopt && l.id && adopt.claims.has(l.id) ? adoptTile(l.id, adopt, this.adoptHost(), old, used) : undefined;
       let id: number;
@@ -7437,6 +7447,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       land: { id: dest.nextId, kind: goes.kind, at: land.at, deliberate: pane.deliberate ?? false }, ...(how.floating ? { keys: false as const } : {}),
     });
     if (!plan.ok) return plan.side === "to" ? `${dest.layoutSelf().name} doesn't take ${t.name} there: ${plan.refused}` : plan.refused;
+    // Both answers were asked for `actor` (the pure carry): their commits record it, as an ask's do.
+    const standing = this.layoutCtx(actor).standing; this.asked.set(plan.from, { actor, op: "take", standing }); dest.asked.set(plan.to, { actor, op: "open", standing });
     return { t, plan, land };
   }
   /** Why tile `sel` can't be carried to `dest` as `how` says, or null: what a drag shows before the release. */

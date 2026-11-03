@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { SocketBoard } from "../src/socket";
+import { TXN } from "../src/surface/txn";
 import { outliner, Scratch } from "./scratch";
 
 const USER = { kind: "user" } as const;
@@ -148,6 +149,99 @@ describe.skipIf(!outliner)("one undo brings a carried tile back whole (PIE-1559)
       expect(d.desk.pane("reader")).toBeUndefined();
       expect([inner().pane("reader"), inner().pane("activity")]).toEqual([reader, activity]);
       expect(d.desk.outOfStep()).toEqual([]);
+    } finally { d.quit(); }
+  });
+
+  // Codex's second pass (PIE-1559).
+  const AGENT = "undoer-1559";
+  const asAgent = (d: Awaited<ReturnType<typeof door>>, action: string, args: Record<string, unknown> = {}, tile?: string) => d.app.act({ action, args, ...(tile ? { tile } : {}), as: AGENT }) as Promise<any>;
+
+  test("an agent's carry is the agent's: it undoes its own carry, the same instance back", async () => {
+    const d = await door();
+    try {
+      const pane = d.desk.pane("replies"), before = d.shape(d.desk), drawerBefore = d.shape(d.drawer());
+      await asAgent(d, "tile.drawer", { on: true }, "replies");
+      expect(d.desk.history.newest()?.party).toBe(`agent:${AGENT}`);
+      await asAgent(d, "layout.undo");
+      expect(d.shape(d.desk)).toEqual(before);
+      expect(d.desk.pane("replies")).toBe(pane);
+      expect(d.shape(d.drawer())).toEqual(drawerBefore);
+    } finally { d.quit(); }
+  });
+
+  test("a run stopped after a carry puts the same tile back, once, on both sides", async () => {
+    const d = await door();
+    try {
+      const pane = d.desk.pane("replies"), before = d.shape(d.desk), drawerBefore = d.shape(d.drawer());
+      await d.act(d.desk, "tile.drawer", { on: true, txn: "run-1559" }, "replies");
+      const r = d.desk.endTxn("run-1559", "stopped");
+      expect(r.putBack).toBe(true);
+      expect(d.shape(d.desk)).toEqual(before);
+      expect(d.desk.pane("replies")).toBe(pane);
+      expect(d.shape(d.drawer())).toEqual(drawerBefore);
+    } finally { d.quit(); }
+  });
+
+  test("an agent's undo leaves the person's keys where they put them, and won't close the tile they're on", async () => {
+    const d = await door();
+    try {
+      await asAgent(d, "tile.open", { kind: "reader", name: "lamp", where: "right" }, "replies");
+      await d.act(d.desk, "tile.focus", {}, "reader");
+      await asAgent(d, "layout.undo");
+      expect(d.desk.layoutGet().focus).toBe("reader");
+      await asAgent(d, "tile.open", { kind: "reader", name: "wick", where: "right" }, "replies");
+      await d.act(d.desk, "tile.focus", {}, "wick");
+      await expect(asAgent(d, "layout.undo")).rejects.toThrow(/wick/);
+      expect(d.desk.pane("wick")).toBeDefined();
+    } finally { d.quit(); }
+  });
+
+  test("a renamed tile and a new one with its old name: undo puts back the carried instance, never the namesake", async () => {
+    const d = await door();
+    try {
+      const pane = d.desk.pane("replies"), before = d.shape(d.desk);
+      await d.act(d.desk, "tile.drawer", { on: true, txn: "swap-1559" }, "replies");
+      await d.act(d.drawer(), "tile.title", { text: "ember", txn: "swap-1559" }, "replies");
+      await d.act(d.desk, "tile.open", { kind: "reader", name: "replies", where: "right", txn: "swap-1559" }, "reader");
+      const namesake = d.desk.pane("replies");
+      await d.act(d.desk, "layout.txn.end", { txn: "swap-1559" });
+      d.desk.undoLayout(USER);
+      expect(d.desk.pane("replies")).toBe(pane);
+      expect(d.desk.pane("replies")).not.toBe(namesake);
+      expect(d.shape(d.desk).tiles).toEqual(before.tiles);
+    } finally { d.quit(); }
+  });
+
+  test("a two-way exchange between a group and the screen in one run comes back whole", async () => {
+    const d = await door();
+    try {
+      await d.act(d.desk, "tile.group", { with: "activity", name: "hob" }, "reader");
+      d.paint();
+      const inner = () => (d.desk.pane("hob") as any).inner as Desk;
+      const reader = inner().pane("reader"), replies = d.desk.pane("replies"), before = d.shape(d.desk), innerBefore = d.shape(inner());
+      TXN.run({ txn: "trade-1559" }, () => {                             // a drop each way, as a drag between them does
+        d.desk.carry(inner(), "replies", { to: "activity", where: "right" }, USER);
+        inner().carry(d.desk, "reader", { to: "tree", where: "right" }, USER);
+      });
+      d.desk.endTxn("trade-1559", "done"); inner().endTxn("trade-1559", "done");
+      d.desk.undoLayout(USER);
+      d.paint();
+      expect(d.shape(d.desk)).toEqual(before);
+      expect(d.shape(inner())).toEqual(innerBefore);
+      expect([inner().pane("reader"), d.desk.pane("replies")]).toEqual([reader, replies]);
+      expect([...d.desk.outOfStep(), ...inner().outOfStep()]).toEqual([]);
+    } finally { d.quit(); }
+  });
+
+  test("a group spilled and put back keeps its own identity: a wire to it still reaches it", async () => {
+    const d = await door();
+    try {
+      await d.act(d.desk, "tile.group", { with: "activity", name: "hob" }, "reader");
+      d.paint();
+      const id = d.desk.layoutGet().tiles.find((t: any) => t.name === "hob")!.tile;
+      await d.act(d.desk, "tile.group", { on: false }, "hob");
+      d.desk.undoLayout(USER);
+      expect(d.desk.layoutGet().tiles.find((t: any) => t.name === "hob")?.tile).toBe(id);
     } finally { d.quit(); }
   });
 });
