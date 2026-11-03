@@ -3,7 +3,7 @@
 // terminal tile's program the person's keys as that program asked: the protocol, or legacy bytes.
 import { afterEach, describe, expect, test } from "bun:test";
 import { KBD_POP, KBD_PUSH, KbdModes, keyBytes, legacyBytes, parseReport, rawKey, reportKey, translateReports } from "../src/kbd";
-import { TERM_RESET, Term, type Key } from "../src/term";
+import { KeyDecoder, TERM_RESET, Term, type Key } from "../src/term";
 import { PtyPane } from "../src/desk/pty";
 
 const key = (seq: string) => { const r = parseReport(seq); return r ? reportKey(r) : null; };
@@ -96,8 +96,13 @@ describe("the door's terminal", () => {
       { kind: "paste", text: "a\nb" }, { kind: "mouse", action: "down", button: 0, x: 2, y: 3 }, { kind: "enter" },
     ]);
     keys.length = 0;
-    feed("\x1b");                                                               // a lone ESC is still Esc, after the wait
+    feed("\x1b");                                                               // a lone ESC from a terminal that reports keys: maybe a cut report (PIE-1554)
+    await Bun.sleep(60);
     expect(keys).toEqual([]);
+    await Bun.sleep(500);
+    expect(keys).toEqual([{ kind: "esc" }]);                                   // nothing followed: Esc, after the longer wait
+    keys.length = 0;
+    feed("\x1b");                                                               // it sends bare ESCs after all: Esc after the short wait from now on
     await Bun.sleep(60);
     expect(keys).toEqual([{ kind: "esc" }]);
     keys.length = 0;
@@ -163,9 +168,56 @@ describe("the door's terminal", () => {
     feed(";2u");
     expect(sent).toEqual(["x", "\x1b[13;2u"]);
     sent.length = 0;
-    feed("\x1b[");                                                              // never finished: sent as it was
+    feed("\x1b[");                                                              // never finished: sent as it was, after the wait for a cut report
     await Bun.sleep(60);
+    expect(sent).toEqual([]);
+    await Bun.sleep(500);
     expect(sent).toEqual(["\x1b["]);
+  });
+});
+
+describe("a key cut by the reads (PIE-1554)", () => {
+  function decoder() {
+    const d = new KeyDecoder({ cols: 80, rows: 24, cellW: 9, cellH: 16, kitty: false } as any);
+    const keys: Key[] = [], sent: string[] = [];
+    d.keyHandler = k => keys.push(k);
+    return { d, keys, sent, raw: () => { d.rawSink = () => (s: string) => sent.push(s); } };
+  }
+
+  test("a wait from an earlier cut report never flushes a later one still arriving (raw: a terminal tile)", async () => {
+    const { d, sent, raw } = decoder();
+    d.feed("\x1b[?15u");                                                       // answered before any tile has the keys
+    raw();
+    d.feed("\x1b["); await Bun.sleep(10); d.feed("27u");
+    await Bun.sleep(480);
+    d.feed("\x1b["); await Bun.sleep(40); d.feed("27u");
+    expect(sent).toEqual(["\x1b[27u", "\x1b[27u"]);
+  });
+
+  test("a wait from an earlier cut report never splits a paste still arriving (decoded)", async () => {
+    const { d, keys } = decoder();
+    d.feed("\x1b[?15u");
+    d.feed("\x1b["); await Bun.sleep(10); d.feed("27u");
+    await Bun.sleep(480);
+    d.feed("\x1b["); await Bun.sleep(40); d.feed("200~hello\x1b[201~");
+    expect(keys).toEqual([{ kind: "esc" }, { kind: "paste", text: "hello" }]);
+  });
+
+  test("a legacy ctrl+left (CSI 1;5D) is no evidence of Kitty keys: a lone Esc after it is Esc at once", async () => {
+    const { d, keys } = decoder();
+    d.feed("\x1b[1;5D");
+    keys.length = 0;
+    d.feed("\x1b");
+    await Bun.sleep(60);
+    expect(keys).toEqual([{ kind: "esc" }]);
+  });
+
+  test("raw: after a legacy ctrl+left, a lone Esc goes to the program at once", () => {
+    const { d, sent, raw } = decoder();
+    raw();
+    d.feed("\x1b[1;5D");
+    d.feed("\x1b");
+    expect(sent.at(-1)).toBe("\x1b");
   });
 });
 
