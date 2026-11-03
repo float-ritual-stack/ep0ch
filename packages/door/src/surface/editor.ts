@@ -14,7 +14,7 @@ import { stateSub } from "../state";
 import { drawEllipsized, C, fg, pad, RESET, visible, width, type LinkRange } from "../style";
 import { inWindow, type Placement } from "../kitty";
 import type { LinkTarget } from "../refs";
-import { rule, words } from "../text";
+import { fitPaths, rowLines, rule, words } from "../text";
 import { ownTerminal, type Handover, type TileExit, type TileProgram, type Key } from "../term";
 import { agentLabel, declaredKeys, keyCaption } from "./actions";
 import { modeHint, type ModeKey } from "./modes";
@@ -27,6 +27,8 @@ export interface EditFrame {
   title: string;
   /** Status lines under the title (already coloured): revision and state, the last thing that happened. */
   status: string[];
+  /** The draft's own status line first, drawn to the frame's width (PIE-1560): its state, and what it said (up to three rows). */
+  draftStatus?: { state: boolean; said: string | null };
   /** Context between the status and the text, such as the quoted passage. */
   context?: string[];
   /** Who else typed into this draft (an agent), shown so it is never silent. */
@@ -95,6 +97,8 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   })() : [];
   const top = [
     fg(C.yellow) + pad(`» ${f.title}`, tw) + ctls.map(c => " " + fg(C.lcyan) + c.text).join("") + RESET,
+    ...(f.draftStatus?.state ? editState(d, w, "") : []),
+    ...(f.draftStatus?.said ? saidRows(f.draftStatus.said, w, 3, C.yellow) : []),
     ...f.status,
     ...lands,
     ...twin,
@@ -138,6 +142,11 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
  * What the wheel at `x`, `y` (the host's cells) over a draft drawn by renderEditor scrolls (PIE-846): its preview when
  * the pointer is over the preview, its text when over the text, else null (the host's own: the note around a comment).
  */
+/** What the draft says, on up to `rows` rows at `w`, a path in it shortened to its file rather than cut (PIE-1560). */
+export function saidRows(said: string, w: number, rows: number, colour: number): string[] {
+  return rowLines(fitPaths(said, w * rows, w), w, rows).map(l => fg(colour) + pad(l, w) + RESET);
+}
+
 export function wheelTarget(d: Draft, x: number, y: number): "text" | "preview" | null {
   const f = draftView(d).frame;
   if (!f) return null;
@@ -267,6 +276,17 @@ export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload
 
 /** A note draft's state, for its status line. */
 export function draftState(d: Draft): string { return d.status.state(d.dirty); }
+
+/**
+ * An edit's state under its title, one row (an agent's patch or a status never moves the text down): `rev N · ` and the
+ * state's words, its short form when they don't fit, so "not saved" is never what a cut takes (PIE-1560).
+ */
+export function editState(d: Draft, w: number, head = `rev ${d.base} · `): string[] {
+  const st = d.status.stateParts(d.dirty);
+  const words = width(head + st.words) <= w ? st.words : st.short;
+  if (width(head) + 4 > w) return [fg(st.colour) + pad(drawEllipsized(words, w), w) + RESET];
+  return [fg(C.brown) + head + fg(st.colour) + pad(drawEllipsized(words, Math.max(1, w - width(head))), Math.max(1, w - width(head))) + RESET];
+}
 
 /**
  * The edit frame's "who typed this" line, saying what the save or send will record (null when only the

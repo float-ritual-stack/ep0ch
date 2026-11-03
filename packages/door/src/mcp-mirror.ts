@@ -66,13 +66,15 @@ const currentSchema = (): number | null => {
   return schemaNow;
 };
 
-/** A door board on a snapshot's host (the mirror reads the newest change the copy holds itself). */
+/** A door board on a snapshot's host, and the newest change it holds. */
 const attachBoard = (machine: string) => async (socket: string, outline: string) => {
   const board = new SocketBoard(socket, 30_000, outline) as NotesBoard;
   board.address = { outline, machine };
   try {
     await board.info();
-    return { board, close: () => board.close() };
+    let newest = 0;
+    for (const b of await board.index()) if (Number.isFinite(b.updatedAt) && b.updatedAt > newest) newest = b.updatedAt;
+    return { board, newest, close: () => board.close() };
   } catch (e) { board.close(); throw e; }
 };
 

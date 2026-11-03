@@ -37,10 +37,16 @@ export class DraftStatus {
   }
 
   /** The draft's state, for the edit frame's status line (`dirty`: it differs from what it started as). */
-  state(dirty: boolean): string {
-    return this.conflict ? fg(C.lred) + `! ${this.conflict}`
-      : this.doing ? fg(C.grey) + this.doing
-      : this.changedElsewhere ? fg(C.yellow) + "!! changed elsewhere · saving checks it first"
-      : dirty ? fg(C.yellow) + "unsaved" : fg(C.dark) + "no changes";
+  state(dirty: boolean): string { const s = this.stateParts(dirty); return fg(s.colour) + s.words; }
+  /**
+   * The state's words and colour apart, and (`short`) the same said for a narrow row: what was refused first, so a cut
+   * never takes "not saved" (PIE-1560).
+   */
+  stateParts(dirty: boolean): { colour: number; words: string; short: string } {
+    const one = (colour: number, words: string, short = words) => ({ colour, words, short });
+    return this.conflict ? one(C.lred, `! ${this.conflict}`, /not saved/.test(this.conflict) ? `! not saved: ${this.conflict.replace(/\s*·?\s*not saved\s*/, " ").trim()}` : `! ${this.conflict}`)
+      : this.doing ? one(C.grey, this.doing)
+      : this.changedElsewhere ? one(C.yellow, "!! changed elsewhere · saving checks it first", "!! changed elsewhere")
+      : dirty ? one(C.yellow, "unsaved") : one(C.dark, "no changes");
   }
 }

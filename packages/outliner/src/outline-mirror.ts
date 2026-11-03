@@ -40,17 +40,6 @@ const loadOutlineHost = async () => (await import(OUTLINE_HOST_MODULE) as { Outl
 
 /** How often a read looks for a newer copy; a change is at most this late. */
 const CHECK_EVERY_MS = 15_000;
-/**
- * Snapshots are taken one at a time in a process, every mirror's (PIE-1546): each one copies a file, checks it and opens
- * a host on it, and ten copies of an away machine taken at once held the outline host's loop for seconds.
- */
-let building: Promise<unknown> = Promise.resolve();
-const oneAtATime = <T>(build: () => Promise<T>): Promise<T> => {
-  const next = building.then(build, build);
-  building = next.catch(() => {});
-  return next;
-};
-
 /** How long a replaced generation keeps serving the reads that began on it. */
 const RETIRE_AFTER_MS = 120_000;
 
@@ -126,7 +115,7 @@ export interface MirrorRead<B> { board: B; asOf: string; stale?: MirrorStale; ho
 export interface MirrorUnreadable { error: string; access?: McpAccessLevel }
 
 /** A client's reader of one generation: attached to its host's socket, closed when the generation goes. */
-export interface Attached<B> { board: B; close(): void }
+export interface Attached<B> { board: B; /** The newest change the copy holds (ms), 0 when it holds none. */ newest: number; close(): void }
 
 export interface OutlineMirrorOptions<B> {
   /** Opens the client's reader on a generation's host socket (it names `outline`). */
@@ -213,10 +202,7 @@ export class OutlineMirror<B> {
   async read(): Promise<MirrorRead<B> | MirrorUnreadable> {
     if (this.closed) return { error: "isn't served: this process is stopping" };
     if (!this.exists()) return { error: "hasn't arrived yet (its backup hasn't been followed here)" };
-    // A copy that couldn't be snapshotted is tried again on the same clock as a newer one (PIE-1546): a failure retried
-    // on every read rebuilt every copy of an away machine on every link read. A read that comes while one is being
-    // taken waits for it.
-    if (this.refreshing || (!this.current && !this.problem) || this.now() - this.checkedAt >= CHECK_EVERY_MS) {
+    if (!this.current || this.now() - this.checkedAt >= CHECK_EVERY_MS) {
       this.refreshing ??= this.refresh().finally(() => { this.refreshing = null; });
       await this.refreshing;
     }
@@ -288,7 +274,7 @@ export class OutlineMirror<B> {
     const marker = this.marker();
     if (this.current?.marker === marker) return;
     try {
-      const next = await oneAtATime(() => this.build(this.freshest(), marker));
+      const next = await this.build(this.freshest(), marker);
       if (this.closed) { await this.drop(next); return; }
       if (this.current) this.retire(this.current);
       this.current = next;
@@ -342,7 +328,6 @@ export class OutlineMirror<B> {
       }
       if (migrated) this.log(`${this.label} ${this.outline}@${this.machine}: migrated the served copy of ${this.relative(from)} from schema ${migrated.from} to ${migrated.to} (the mirror itself is untouched)`);
       const homeInstanceId = instanceIdOf(served);
-      const newest = newestOf(served);
       // The host opening the copy would mint a fresh instance id for a file it hasn't seen closed; a copy is its source's
       // instance, so it is told to keep the one it carries (answers name the outline's id, not the copy's).
       (await import(OUTLINE_INSTANCE_MODULE) as { adoptOutlineInstance(path: string): void }).adoptOutlineInstance(served);
@@ -351,7 +336,7 @@ export class OutlineMirror<B> {
       await host.start();
       const attached = await this.options.attach(host.socketPath, this.outline);
       // The marker taken before the snapshot: a change during it is picked up at the next check.
-      return { dir, host, attached, marker, homeInstanceId, copy: { file: this.relative(from), copiedAt }, ...(migrated && !("error" in migrated) ? { migrated: { from: migrated.from, to: migrated.to } } : {}), asOf: new Date(newest || Date.parse(copiedAt)).toISOString() };
+      return { dir, host, attached, marker, homeInstanceId, copy: { file: this.relative(from), copiedAt }, ...(migrated && !("error" in migrated) ? { migrated: { from: migrated.from, to: migrated.to } } : {}), asOf: new Date(attached.newest || Date.parse(copiedAt)).toISOString() };
     } catch (e) {
       await host?.close().catch(() => {});
       rmSync(dir, { recursive: true, force: true });
@@ -398,19 +383,6 @@ function instanceIdOf(path: string): string | null {
   const db = new Database(path, { readonly: true });
   try { return (db.query("SELECT value FROM metadata WHERE key = 'outline_instance_id'").get() as { value: string } | null)?.value ?? null; }
   catch { return null; } finally { db.close(); }
-}
-
-/**
- * The newest change a copy holds (ms), 0 when it holds none: read from its file in one query, where asking its host for
- * the whole index (every note's label, made a slice at a time) took seconds on a big outline and failed the snapshot.
- */
-function newestOf(path: string): number {
-  const db = new Database(path, { readonly: true });
-  try {
-    const row = db.query("SELECT max(updated_at) AS newest FROM blocks WHERE deleted_at IS NULL AND effective_deleted_root_id IS NULL").get() as { newest: string | null } | null;
-    const ms = row?.newest ? Date.parse(row.newest) : 0;
-    return Number.isFinite(ms) ? ms : 0;
-  } catch { return 0; } finally { db.close(); }
 }
 
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
