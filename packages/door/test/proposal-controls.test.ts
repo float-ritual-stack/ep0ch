@@ -98,7 +98,8 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
       // The view embed is a collection (PIE-1281, PIE-1491): its column heads, its row and its count step, not an embed line.
       "control title",
       "control updated",
-      "row Sow the beans  Nov 2",
+      // Its updated column, as view-fields writes a date: today, in the test's zone (it said "Nov 2" outright, red the next day).
+      `row Sow the beans  ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
       "control 1 notes",
       "embed » a proposal by @tidy",
       "control [apply]",

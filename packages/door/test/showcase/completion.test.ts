@@ -38,7 +38,8 @@ describe("showcase: completion (PIE-1339)", () => {
       let lines = rows(cols);
       // The popup alone (PIE-1511): from its frame's top to its bottom, its own columns; the status row last, no key hints.
       const status = lines.findIndex(l => /references \d+\/\d+/.test(l));
-      const top = lines.slice(0, status).findLastIndex(l => l.includes("┌─  ")), left = lines[top]!.indexOf("┌─  ");
+      // Its frame has no title, so its top edge is unbroken (PIE-1518 took the gap out of an untitled frame).
+      const top = lines.slice(0, status).findLastIndex(l => /┌─+┐/.test(l)), left = lines[top]!.search(/┌─+┐/);
       const bottom = lines.findIndex((l, i) => i > status && l.slice(left).startsWith("└"));
       const box = lines.slice(top, bottom + 1).map(l => l.slice(left, left + completerOf(d()!)!.drawn!.cols!));
       expect(box.join("\n")).not.toContain("↑↓");

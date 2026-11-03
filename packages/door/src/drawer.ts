@@ -384,6 +384,7 @@ export class AgentDrawer {
    * never moves their screen this way). A spine opens first (`tile.expand`); `zoom` zooms it after (a reach, `column` or
    * `full`, lifts it instead: agent.lift).
    */
+  enteredTab(p: Pane): void { if (drawerUp(this) && !this.entered && !this.d?.liftedDesk) this.goTo(p, USER); }
   goTo(p: Pane, actor: Actor, o: { zoom?: boolean | ZoomReach } = {}): { tile: string; name: string; in: "drawer" | "screen"; raised?: string } {
     const d = this.d, inDrawer = d?.nameOfPane(p) ?? "";
     if (d && inDrawer) {

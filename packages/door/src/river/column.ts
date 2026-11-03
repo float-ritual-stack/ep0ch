@@ -37,7 +37,7 @@ import type { WriteBoard } from "../mcp-writes";
 import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
 import { CLOSE_KEY, type ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
-import { readerFacts } from "../desk/builtin-tiles";
+import { readerFacts } from "../desk/reader-facts";
 import type { TileSpec } from "../desk/tiles";
 import { LineField } from "../surface/line";
 import { popupHint, completerOf, completionOf, lookupCompletion, type CompletionBoard } from "../surface/completer";
