@@ -87,6 +87,15 @@ export function collectionAtCursor(w: RowWorld<any>): ListHandle<any> | null {
   return row?.row ? collection(w, row.key) ?? null : null;
 }
 
+/**
+ * The list whose row the `[ ]` position is on, a collection or not (a ::links list, ::backlinks, an extension's list
+ * view): the list its row keys belong to (PIE-1534). Null off every list's row.
+ */
+export function listAtCursor(w: RowWorld<any>): ListHandle<any> | null {
+  const row = w.cursor?.link?.listRow ?? w.wanted;
+  return row?.row ? w.lists.find(l => l.key === row.key) ?? null : null;
+}
+
 /** The container the `[ ]` position is in: on one of its rows, or on a control of its own (a figure's tab). Null off every container. */
 export function rowContainerAt<E extends RowElement>(w: RowWorld<E>): RowContainer | null {
   const onRow = collectionAtCursor(w);

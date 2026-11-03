@@ -17,6 +17,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Frame controls:** every click on a tile's frame goes through one press map, so x-ray and hints name the same action the click runs (PIE-1530).
 - **Fix:** PgDn in a table collection pages one screen, not to the last row (PIE-1529).
+- **Fix:** PgDn and PgUp page a `::links` list, `::backlinks` or an extension's list inside a note once a row is picked (j), keeping the pick, as a collection does; with nothing picked they still scroll the note (PIE-1534).
 
 ### Waiting is an extension, and any screen can have a menu row (PIE-1525)
 
