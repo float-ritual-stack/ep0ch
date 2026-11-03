@@ -12,8 +12,9 @@
 // host's clock.
 
 const demoOnly = props.demo?.[0] === "only";
-// The demo's made-up items carry [demo::waiting]: listed only where a demo asks for them, so a real outline's list is its own.
-const where = `type=outbox-item outbox=waiting ${demoOnly ? "demo=waiting" : "NOT demo=waiting"}`;
+// The demo's made-up asks carry [demo::waiting] and no outbox type, so no real view (an outbox board, a kanban) lists
+// them; only a demo line asks for them.
+const where = demoOnly ? "demo=waiting" : "type=outbox-item outbox=waiting NOT demo=waiting";
 const { rows: items } = await query({ where, limit: 500 });
 
 const one = (item, key) => (item.props[key]?.[0] ?? "").trim();

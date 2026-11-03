@@ -1444,8 +1444,8 @@ power bar's `screen.menu`) asks for a key and a label (`Y Potting`), or `act scr
 takes it away. The row is written into the screen note's spec (`menu`), so every door on the outline shows it and a
 restart keeps it. The menu art has twelve slots; every other row joins its key line. A key another row holds (or the
 menu's own V, H, ?) leaves the row without a key, and the answer says who holds it: a click still opens it. Extensions
-name rows the same way: O Waiting is the waiting extension's (`ep0ch ext remove waiting` takes it, and its screen,
-away).
+name rows the same way: O Waiting is the waiting extension's (its row on the extensions screen, ctrl+k then `&`, or
+`ep0ch ext remove waiting`, takes it and its screen away).
 
 **Containers and policy (PIE-505).** A layout is a tree of tiles in containers: splits, tab sets and docks. A
 dock slides out from an edge (`act tile.dock tile=tree edge=left`, or the policy panel's edge row) and takes
@@ -2964,7 +2964,7 @@ exact VGA palette the door was drawn in (bright cyan, magenta and phosphor green
 - **Nothing flashes bright.** No theme has a light ground, a light selection or a light banner; chips (a lit menu
   slot, a dock handle, a mark) take text that reads on them (`chip` in `src/style.ts`).
 - **Checked, not eyeballed.** `test/theme-contrast.test.ts` paints the main menu and every screen the menu opens
-  (the welcome notes, the desk, the board, the Quay, the brief, Waiting, the lists, Stats, the showcase) and a reader
+  (the welcome notes, the desk, the board, the Quay, the brief, the lists, Stats, the showcase) and a reader
   with links, comments, a proposal, the reading ruler and a selection, reads every cell back from the terminal
   mirror and checks WCAG 2 contrast: in calm and night every text cell reads at 4.5:1 or more on whatever it is
   drawn on, and no text is brighter than 15:1 (calm) or 10:1 (night). Lines are allowed lower (box drawing,

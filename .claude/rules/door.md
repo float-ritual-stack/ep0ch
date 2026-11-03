@@ -41,7 +41,7 @@ so a feature can't quietly break its own demo. If it can't be shown there, the P
 A feature that moves out of the door into an extension takes its demo with it, as the extension's demo notes (its
 manifest's `demo` folder, made up, written under its page when it's installed): Waiting's made-up asks are
 `packages/outliner/extensions/waiting/demo` (PIE-1525). A default-on extension's demo must never join the person's
-real views: mark its notes (`[demo::<id>]`) and leave them out of its own query unless a demo line asks for them. The
+real views: mark its notes (`[demo::<id>]`), give them no type a real view matches, and have a demo line ask for them. The
 glass, a door module, still sits in the showcase.
 
 ## Capture, tested as a person works

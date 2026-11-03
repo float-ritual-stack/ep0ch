@@ -56,6 +56,9 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     expect(top().name).toBe("waiting");
     await until(() => screen().includes("Nobody owes you an answer."), "the empty list, drawn by the extension");
     expect(screen()).toContain("waiting on others · none");
+    // The made-up asks are in the outline, under the extension's page, and no outbox view lists them.
+    expect((await board.query("demo=waiting", 10)).length).toBe(3);
+    expect(await board.query("type=outbox-item", 10)).toEqual([]);
   });
 
   test("an item filed elsewhere shows up, grouped, oldest first; the reader shows the one picked; j picks the next", async () => {

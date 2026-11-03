@@ -3,4 +3,4 @@ The list below is the Waiting extension's own, drawn from the made-up asks under
 
 waiting:: demo=only
 
-An outbox item waits while it has `[type::outbox-item]` and `[outbox::waiting]`; `[waiting-on::Name: the question]` groups it, and `[sent::…]` is when the wait began. These carry `[demo::waiting]`, so they never join your real list.
+An outbox item waits while it has `[type::outbox-item]` and `[outbox::waiting]`; `[waiting-on::Name: the question]` groups it, and `[sent::…]` is when the wait began. These made-up ones carry only `[demo::waiting]`, so they never join your real list or an outbox board.

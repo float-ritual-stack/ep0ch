@@ -17,7 +17,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Your own screens on the menu:** on a saved screen, ⋯ then "add to the main menu", a key and a label (Y Potting). It's written into the screen note, so every door shows it. Also `act screen.menu key=Y label=Potting`; `off=true` takes it away.
 - **For extensions:** `screens[]` in a manifest ships whole screens, with `menu` for a row; a render script's `view.list({ title })` names its tile, and `await date(text)` reads a date as people write it.
 - `waiting.pick` is now `list.pick tile=waiting`; `r` reload is gone (the list reads again on change).
-- **Run:** `ep0ch install --apply`. PROTOCOL moves (extensions.list carries `screens`); loki sets the number at merge.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change: `screens` and a list's `title` are new optional fields an older door ignores.
 
 ### An extension's tile can hold your keys (PIE-1523)
 

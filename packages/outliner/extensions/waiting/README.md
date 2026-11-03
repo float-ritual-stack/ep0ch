@@ -24,4 +24,4 @@ Waiting on others: every outbox item still waiting for an answer, grouped by who
 | The tile | `extension.json` `tiles[]` with `render: "waiting"`; `replaces: ["waiting"]`, so a layout saved with the old built-in kind opens this one |
 | Its title | the list's `title` ("outbox · 3 waiting on 2 people"), the tile's frame |
 | The screen and its menu row | `screens[]`: the list beside a reader, wired to show what it picks, with `menu: { key: "O", label: "Waiting" }` |
-| The demo | `demo/`: made-up asks carrying `[demo::waiting]`, listed only by `waiting:: demo=only`, never in your real list |
+| The demo | `demo/`: made-up asks carrying only `[demo::waiting]` (no outbox type, so no real view lists them), drawn by `waiting:: demo=only` |
