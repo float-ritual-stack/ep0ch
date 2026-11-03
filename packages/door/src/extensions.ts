@@ -32,6 +32,7 @@ import { printable } from "./text";
 import { partyOf, UndoHistory } from "./steps";
 import { closest } from "./cli-words";
 import { slotPairs, slotWords } from "@ep0ch/outline-core/action-line";
+import { READER_OWN_KEYS } from "./surface/reader-keys";
 import { ActionRefused, ActionSet, actionSet, asActor, def, FREE_ARGS, shownLine, type ActionDef } from "./surface/actions";
 import { explainNotInstalled, nameAlso } from "./surface/dispatch";
 import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type ServiceHolds, type TileKind } from "./desk/tile-kinds";
@@ -386,12 +387,8 @@ export function handlerActions(extension: string, handler: string): ExtensionAct
   return [...on.filter(a => !a.builtIn), ...on.filter(a => a.builtIn)];
 }
 
-/**
- * The keys a reader keeps while one of its elements is current: an extension's key never shadows them (it
- * still runs by a click on its control and by `act`). Navigation, `r` (run again), `y` (copy) and the rest of
- * the reader's own (README "Reading a note").
- */
-export const READER_OWN_KEYS = new Set("[]()fFuUrRSt~\"yYvViICcmMAXezjkhlqgGbO/?nN0123456789 ,".split(""));
+/** The keys a reader keeps while one of its elements is current: read from the reader's table (src/surface/reader-keys.ts). */
+export { READER_OWN_KEYS };
 
 /**
  * The action a key runs on a handler line: one the line has, bound to a single printable character that
