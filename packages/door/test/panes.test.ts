@@ -28,7 +28,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
   const AS = "layout-agent-511";
   const B = () => BV.view(b);
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as = AS) => app.act({ action, args, tile: reader, as });
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const create = async (parentId: string | null, text: string) => board.toMsgs([await board.request("create", { parentId, text, author: "agent" })])[0]!;
   const message = () => (app as any).message as string;
   /** The tree as `peek` shows it: tiles by name, containers with their keys and shares. */
   const tree = () => B().describe().tree;
@@ -587,10 +587,10 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
   });
 
   test("a query tile on the desk (PIE-511): a saved view's cards with its own cursor, followed by a preview, refreshed as the outline changes", async () => {
-    const hub = await board.request<any>("create", { parentId: null, text: "Shed jobs", author: "agent" });
-    const view = await board.request<any>("create", { parentId: hub.id, text: "Open [type::virtual-branch] [query::shed=open]", author: "agent" });
-    const a = await board.request<any>("create", { parentId: null, text: "Oil the mower [shed::open]", author: "agent" });
-    await board.request<any>("create", { parentId: null, text: "Sharpen the shears [shed::open]", author: "agent" });
+    const hub = await board.request("create", { parentId: null, text: "Shed jobs", author: "agent" });
+    const view = await board.request("create", { parentId: hub.id, text: "Open [type::virtual-branch] [query::shed=open]", author: "agent" });
+    const a = await board.request("create", { parentId: null, text: "Oil the mower [shed::open]", author: "agent" });
+    await board.request("create", { parentId: null, text: "Sharpen the shears [shed::open]", author: "agent" });
     const t = await act("tile.open", { kind: "query", view: view.id, name: "shed", where: "right" }) as any;
     expect(t).toMatchObject({ name: "shed", kind: "query" });
     await until(() => D().describe().panes.find((p: any) => p.name === "shed")?.count === 2, "the view's cards");
@@ -604,7 +604,7 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     key(char("j"));
     await until(() => D().describe().panes.find((p: any) => p.name === "shed-card")?.showing?.title === "Sharpen the shears", "the preview on the card");
     // A card added that the view lists: the tile reads it again by itself on a desk.
-    await board.request<any>("create", { parentId: null, text: "Mend the hose [shed::open]", author: "agent" });
+    await board.request("create", { parentId: null, text: "Mend the hose [shed::open]", author: "agent" });
     await until(() => D().describe().panes.find((p: any) => p.name === "shed")?.count === 3, "the new card listed");
     await expect(act("tile.open", { kind: "query" })).rejects.toThrow(/needs view=/);
     D().focusTile(D().nameOf(D().all()[0]), { kind: "user" });

@@ -4,6 +4,7 @@ import { FRAGMENT_ID_SOURCE, fragmentAnchorMatch } from "@ep0ch/outline-core/lin
 import { outputHeader } from "@ep0ch/outline-core/output-region";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import type { FragmentKind } from "@ep0ch/outline-core/protocol";
 
@@ -117,13 +118,20 @@ function parsedNote(text: string): ParsedNote {
   const hit = parsedNotes.get(text);
   if (hit) { parsedNotes.delete(text); parsedNotes.set(text, hit); return hit; }
   const listItems: MarkdownListItem[] = [];
-  const codeLines = new Set<number>();
+  // Code lines are outline-core's fence grammar (codeBlocks), not the Markdown parser's: a half-typed fence ends at its
+  // paragraph there, where marked made the rest of the note code (PIE-1375). codeBlocks doesn't read a fence inside a
+  // blockquote (`> ```…`) yet; those lines are still the parser's.
+  const { fences, indented } = codeBlocks(text.split("\n"));
+  const codeLines = new Set<number>(indented);
+  for (const fence of fences) for (let line = fence.start; line <= fence.end; line++) codeLines.add(line);
   const quotes: Quote[] = [];
   const visit = (nodes: readonly MarkdownSourceToken[], depth: number, parentStart?: number, inQuote = false): void => {
     for (const node of nodes) {
       if (node.token.type === "code") {
-        for (let line = node.span.startLine; line <= node.span.endLine; line++) codeLines.add(line);
-      } else if (node.token.type === "blockquote") {
+        if (inQuote) for (let line = node.span.startLine; line <= node.span.endLine; line++) codeLines.add(line);
+        continue;
+      }
+      if (node.token.type === "blockquote") {
         if (!inQuote && parentStart === undefined) quotes.push({ startLine: node.span.startLine, endLine: node.span.endLine });
         visit(node.children, depth, parentStart, true);
       } else if (node.token.type === "list_item") {

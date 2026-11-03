@@ -1545,13 +1545,13 @@ test("install records a deploy in the host's default outline from an unnamed fol
     f.home = h.env.HOME!;
     f.host = { ...f.host, folder: h.outlines, socket: h.sock };
     const record = await startDeployRecord(f, h.env, h.folder("unnamed"), now, () => {});
-    const before = await hostRequest<{ text: string }>(h.sock, "get", { outline: "garden", blockId: record.id });
+    const before = await hostRequest(h.sock, "get", { outline: "garden", blockId: record.id });
     await record.local("finished");
-    const result = await hostRequest<{ blocks: { id: string; text: string }[] }>(h.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
-    expect((await hostRequest<{ text: string }>(h.sock, "get", { outline: "garden", blockId: record.id })).text).toBe(before.text);
-    expect(result.blocks.some(b => b.id !== record.id && b.text.includes("Local: finished") && b.text.includes(record.id)), JSON.stringify(result)).toBe(true);
-    expect(result.blocks.find(b => b.text.includes("Local: finished"))?.text).toContain("failed:\nnone");
-    const other = await hostRequest<{ blocks: unknown[] }>(h.sock, "blocks.query", { outline: "workshop", query: { where: "type=deploy machine=install" } });
+    const result = await hostRequest(h.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
+    expect((await hostRequest(h.sock, "get", { outline: "garden", blockId: record.id })).text).toBe(before.text);
+    expect(result.blocks.some(b => b.id !== record.id && b.text!.includes!("Local: finished") && b.text!.includes!(record.id)), JSON.stringify(result)).toBe(true);
+    expect(result.blocks.find(b => b.text!.includes!("Local: finished"))?.text).toContain("failed:\nnone");
+    const other = await hostRequest(h.sock, "blocks.query", { outline: "workshop", query: { where: "type=deploy machine=install" } });
     expect(other.blocks).toEqual([]);
   } finally { await h.dispose(); }
 }, 30_000);
@@ -1582,10 +1582,10 @@ for (const explicit of [false, true]) test(`install sends records to the ${expli
       out: s => lines.push(s), err: s => lines.push(s),
     });
     expect(code, lines.join("\n")).not.toBe(2);
-    const received = await hostRequest<{ blocks: { id: string; text: string }[] }>(receiver.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
+    const received = await hostRequest(receiver.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
     expect(received.blocks.length, lines.join("\n")).toBeGreaterThan(0);
-    expect(received.blocks.some(b => b.text.includes("Local: finished"))).toBe(true);
-    const stayed = await hostRequest<{ blocks: unknown[] }>(local.sock, "blocks.query", { outline: "workshop", query: { where: "type=deploy machine=install" } });
+    expect(received.blocks.some(b => b.text!.includes!("Local: finished"))).toBe(true);
+    const stayed = await hostRequest(local.sock, "blocks.query", { outline: "workshop", query: { where: "type=deploy machine=install" } });
     expect(stayed.blocks).toEqual([]);
   } finally { await local.dispose(); await receiver.dispose(); }
 }, 30_000);
@@ -1610,8 +1610,8 @@ test("install records to the folder's machine without a local host", async () =>
     f.host = { ...f.host, running: false, socket: local.sock, folder: local.outlines };
     const record = await startDeployRecord(f, env, folder, now, () => {});
     await record.local("finished");
-    const received = await hostRequest<{ blocks: { text: string }[] }>(receiver.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
-    expect(received.blocks.some(b => b.text.includes("Local: finished"))).toBe(true);
+    const received = await hostRequest(receiver.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
+    expect(received.blocks.some(b => b.text!.includes!("Local: finished"))).toBe(true);
   } finally { await local.dispose(); await receiver.dispose(); }
 }, 30_000);
 

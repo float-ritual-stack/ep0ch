@@ -80,7 +80,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     delete process.env.VISUAL;
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const mk = (text: string) => board.request<{ id: string }>("create", { parentId: null, text, author: "agent" });
+    const mk = (text: string) => board.request("create", { parentId: null, text, author: "agent" });
     notes.long = await mk(["Seed order", ...Array.from({ length: 60 }, (_, i) => `Row ${i + 1}: ${i === 41 ? "the parsnips need your call" : "beans and peas"}`)].join("\n"));
     notes.shed = await mk("Mend the shed roof\nBuy tacks and felt.");
     writeFileSync(draft(), ["# Plot draft", ...Array.from({ length: 30 }, (_, i) => `- line ${i + 2} of the draft`)].join("\n") + "\n");
@@ -197,7 +197,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
       expect(await controlClient(["open", notes.shed.id, "from=claude", "--as", "opener-510"])).toBe(0);
       // A reference as written, through outline-core's one parser: `((id|label))`, and `((id^fragment))` or a URI's
       // `#fragment`, whose reader scrolls to the fragment and marks it.
-      const anchored = await board.request<{ id: string }>("create", { parentId: null, text: "Bean rows\nFirst row.\n\n## Late sowing ^late\nRunners after the frost.", author: "agent" });
+      const anchored = await board.request("create", { parentId: null, text: "Bean rows\nFirst row.\n\n## Late sowing ^late\nRunners after the frost.", author: "agent" });
       const reader = () => desk.layoutGet().tiles.find(t => t.showing?.id === anchored.id && t.name !== "tree")?.name;
       expect(await controlClient(["open", `((${anchored.id}|the bean rows))`, "--as", "opener-510"])).toBe(0);
       await until(() => !!reader(), "the labelled reference opened");
@@ -234,7 +234,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     const run = external.run;
     external.run = cmd => { ran.push(cmd); };
     try {
-      const fence = (await board.request<{ id: string }>("create", { parentId: notes.shed.id, text: `Fence quote\nAsk [the supplier](https://example.invalid/fence) and see ((${notes.long.id}|the seed order)).`, author: "agent" })).id;
+      const fence = (await board.request("create", { parentId: notes.shed.id, text: `Fence quote\nAsk [the supplier](https://example.invalid/fence) and see ((${notes.long.id}|the seed order)).`, author: "agent" })).id;
       await mine("tile.focus", "tree");
       await act("open", { id: fence }, "side");
       await until(() => desk.dispatch.tile("side")?.shows === fence, "the note in side");

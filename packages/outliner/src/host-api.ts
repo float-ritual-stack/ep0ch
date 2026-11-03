@@ -23,6 +23,7 @@ import type { VisibleBlock, VisibleBlockCollection } from "./types";
 import { WorkToolRefusal } from "./work-tools";
 import { answerShape, shapeOfAnswer, type ScriptQueryRecord } from "./line-watches";
 import { programEnv } from "./program-env";
+import { BLOCK_ID_SOURCE } from "@ep0ch/outline-core/addressable-resource";
 
 export type HostTool = (input?: Record<string, unknown>) => Promise<unknown>;
 
@@ -161,7 +162,7 @@ export interface HostApi {
   resolve(path: string): Promise<unknown>;
 }
 
-const NOTE_ID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+const NOTE_ID = new RegExp(BLOCK_ID_SOURCE, "gi");
 /** Text longer than this is a note's words, not a reference to a note: its ids aren't scanned. */
 const MAX_REFERENCE = 200;
 const MAX_NOTE_IDS = 500;

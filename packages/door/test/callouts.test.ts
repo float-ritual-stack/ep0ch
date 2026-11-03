@@ -85,7 +85,7 @@ describe.skipIf(!outliner)("changing a callout, against a scratch outline", () =
     const host: SurfaceHost = { ctx: { board, flash: (m: string) => flashes.push(m), t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate: m => { s.show(m, host); } };
     return { s, host, render: () => s.render(72, 60, host).lines.map(plain) };
   };
-  const create = (text: string) => board.request<any>("create", { parentId: null, text, author: "user" });
+  const create = (text: string) => board.request("create", { parentId: null, text, author: "user" });
   const textOf = async (id: string) => (await board.get(id))!.text;
   let note: any;
 

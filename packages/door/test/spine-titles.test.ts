@@ -68,7 +68,7 @@ describe.skipIf(!outliner)("a river of many columns: every spine names its note,
   test("nine columns: each squeezed one is a spine with its note's title, in cells and as a Kitty image", async () => {
     const titles = Array.from({ length: 9 }, (_, i) => `Column ${i + 1}: a long title about the allotment's north beds and the water butts by the shed`);
     for (const t of titles) {
-      const n = await board.request<any>("create", { parentId: null, text: `${t}\nA line.`, author: "agent" });
+      const n = await board.request("create", { parentId: null, text: `${t}\nA line.`, author: "agent" });
       await app.act({ action: "open", args: { id: n.id, fresh: true }, as: "spine-agent" });
     }
     await until(() => V().columns.length >= 10, "ten columns", 10_000);

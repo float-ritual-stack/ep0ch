@@ -77,6 +77,7 @@ import type {
 import type { ExtensionsListResult } from "./extension-registry";
 import { codeBlocks, codeFenceInfo } from "@ep0ch/outline-core/code-fence";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
 /** The client these operations use: requests, and the protocol check before a write or a newer read. */
 export interface AgentToolsClient extends WorkToolsClient {
@@ -91,7 +92,7 @@ export interface AgentActor {
   taskId?: string;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID = BLOCK_ID_PATTERN;
 
 function mutationOf(actor: AgentActor): MutationProvenance {
   // A person has no actor id (a run a person pressed writes as them, PIE-1462).

@@ -176,7 +176,7 @@ export function drawMarginalia(html: string, marks: readonly PublishedAnnotation
       const tags = mark.tags.length ? ` data-tags="${escapeHtml(mark.tags.join(" "))}"` : "";
       const tag = `<mark class="ann ann-${escapeHtml(mark.tone)}${mark.earlier ? " ann-earlier" : ""}"${ids ? ` data-ann="${escapeHtml(mark.annotationId)}"` : ""} data-kind="${escapeHtml(mark.kind)}"${tags}>`;
       // Whole when it nests; else each run of its text between tags is marked on its own, so the HTML stays well formed.
-      const runs = balanced(html.slice(open + 2, close).replace(SENTINEL, "")) ? [[open, close]] : textRuns(html, open + 2, close);
+      const runs: [number, number][] = balanced(html.slice(open + 2, close).replace(SENTINEL, "")) ? [[open, close]] : textRuns(html, open + 2, close);
       for (const [from, to] of runs) {
         edits.push({ at: from, remove: 0, order: 0, insert: tag });
         edits.push({ at: to, remove: 0, order: 0, insert: "</mark>" });

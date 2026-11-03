@@ -601,7 +601,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       { act: "outline.snapshot ttl=2h", does: "makes a snapshot link good for two hours" },
     ],
     async run({ ttl }, { ctx }, actor) {
-      const snapshot = await ctx.board.request<import("@ep0ch/outline-core/protocol").OutlineSnapshot>("outline.snapshot", { ...(ttl ? { ttl } : {}), mutation: actor.kind === "user" ? { author: "user" } : { author: "agent", actorId: actor.id } }, 120_000);
+      const snapshot = await ctx.board.request("outline.snapshot", { ...(ttl ? { ttl } : {}), mutation: actor.kind === "user" ? { author: "user" } : { author: "agent", actorId: actor.id } }, 120_000);
       if (actor.kind === "user") {
         ctx.copy?.(snapshot.url!, "snapshot link");
         ctx.flash(`Snapshot link copied · ${snapshot.bytes} bytes · expires ${snapshot.expiresAt}`, 15_000);
@@ -619,7 +619,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       { act: "artifact.lease name=orrery", does: "makes a link for the next version of orrery" },
     ],
     async run({ name }, { ctx }, actor) {
-      const lease = await ctx.board.request<import("@ep0ch/outline-core/protocol").UploadLease>("artifacts.lease", { ...(name ? { name } : {}), mutation: actor.kind === "user" ? { author: "user" } : { author: "agent", actorId: actor.id } });
+      const lease = await ctx.board.request("artifacts.lease", { ...(name ? { name } : {}), mutation: actor.kind === "user" ? { author: "user" } : { author: "agent", actorId: actor.id } });
       if (actor.kind === "user") {
         ctx.copy?.(lease.curl, "upload command");
         ctx.flash(`Upload command copied · one upload, good until ${lease.expiresAt} · ${lease.curl}`, 20_000);

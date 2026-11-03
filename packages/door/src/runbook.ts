@@ -1,3 +1,4 @@
+import { requesterOf } from "./socket";
 import { errorDetails } from "./status-log";
 import { hostname } from "node:os";
 import { stat } from "node:fs/promises";
@@ -36,11 +37,11 @@ function record(run: Run, status: RunbookStatus, output = "", exit?: number): Pr
   const cwd = scrubCredentials(run.cwd, run.secrets) as string;
   run.writes = run.writes.then(async () => {
     const { step } = run;
-    const result = await run.ctx.board.actExtension("runbook", "record", { blockId: step.block, args: {
+    const result = await run.ctx.board.request("extensions.act", { extension: "runbook", extensionAction: "record", blockId: step.block, args: {
       step: JSON.stringify({ root: step.root, block: step.block, anchor: step.anchor, title: step.title, variables: step.variables.filter(name => Object.hasOwn(step.env, name)) }),
       status, owner: `${hostname()}:${process.pid}`, at: run.at, cwd, ...(run.record ? { record: run.record } : {}), output,
       ...(!["starting", "running", "stopping"].includes(status) ? { end: new Date().toISOString() } : {}), ...(exit !== undefined ? { exit: String(exit) } : {}),
-    } }, run.actor);
+    }, clientId: run.ctx.board.clientId, mutation: requesterOf(run.actor) });
     if (result.proposalId) throw new ActionRefused("The run record was proposed because its note is being edited; finish that edit before running the step.");
     if (!run.record) run.record = result.written.find(id => id !== step.root)!;
   });

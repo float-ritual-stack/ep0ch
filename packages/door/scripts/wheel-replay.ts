@@ -37,7 +37,7 @@ const scratch = new Scratch();
 const sock = await scratch.start();
 const board = new SocketBoard(sock);
 const text = ["Scroll fixture [type::fixture]", ...Array.from({ length: Number(process.env.LINES ?? 600) }, (_, i) => `L${String(i + 1).padStart(3, "0")} the lighthouse keeper counts the gulls on the breakwater${process.env.RICH ? " with **the brass** telescope, see [[Harbour log]] and `tide::low`" : ""}`)].join("\n");
-const id = (await board.request<any>("create", { parentId: null, text, author: "agent" })).id as string;
+const id = (await board.request("create", { parentId: null, text, author: "agent" })).id as string;
 board.close();
 
 const tmp = mkdtempSync(join(tmpdir(), "ep0ch-wheel-"));

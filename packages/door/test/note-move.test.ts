@@ -289,7 +289,7 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     const act = (args: Record<string, unknown>) => app.act({ action: "tree.move", tile: treeName(), args, as: "undo-gardener" });
     await act({ id: note.id, to: shed.id, revision: note.revision });
     const moved = (await board.get(note.id))!;
-    await board.request("update", { blockId: note.id, text: "Carrots, keep in shed", expectedRevision: moved.revision });
+    await board.request("update", { blockId: note.id, text: "Carrots, keep in shed", expectedRevision: moved.revision!, mutation: { author: "user" } });
     for (let attempt = 0; attempt < 2; attempt++) {
       await expect(act({ id: note.id, undo: true })).rejects.toThrow("changed since");
       expect((await board.get(note.id))!.parentId).toBe(shed.id);

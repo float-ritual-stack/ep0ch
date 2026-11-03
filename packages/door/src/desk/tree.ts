@@ -338,7 +338,7 @@ export class TreePane implements Pane {
     const n = ++p.asked, board = desk.ctx.board;
     const current = () => this.panels.get(key) === p && p.asked === n;
     const why = (e: unknown) => `couldn't ask: ${e instanceof Error ? e.message : String(e)}`;
-    board.authoredLinks(p.blockId).then(v => { if (current()) { p.links = { kind: "ready", value: v }; this.rebuild(); desk.redraw(); } },
+    board.request("blocks.authored-links", { ownerBlockId: p.blockId }).then(v => { if (current()) { p.links = { kind: "ready", value: v }; this.rebuild(); desk.redraw(); } },
       e => { if (current()) { p.links = { kind: "error", message: why(e) }; this.rebuild(); desk.redraw(); } });
     board.backlinks(p.blockId).then(v => {
       if (!current()) return;

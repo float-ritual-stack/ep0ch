@@ -605,7 +605,7 @@ describe.skipIf(!outliner)("the power bar", () => {
         key({ kind: "enter" });
         await until(() => peek().bar?.runs.at(-1)?.line === `agents.yolo on=${on}`, "the action answered in the bar", 3000);
         expect(app.agentsYolo).toBe(on);
-        expect((await board.mcpAccessStatus()).yolo === true).toBe(on);
+        expect((await board.request("mcp.access.status", {})).yolo === true).toBe(on);
       }
     } finally {
       await app.dispatch.press("agents.yolo", { on: false });

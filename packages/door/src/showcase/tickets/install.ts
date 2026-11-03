@@ -43,21 +43,21 @@ export function installTickets(configDir: string, tickets: Record<string, Ticket
 
 /** The ticket Source (created once). */
 export async function ticketSource(b: SocketBoard): Promise<string> {
-  const sources = await b.request<{ id: string; provider: string; boundary?: { project?: string } }[]>("resource-sources.list");
+  const sources = await b.request("resource-sources.list");
   const found = sources.find(s => s.provider === "ext:jira" && s.boundary?.project === TICKET_PROJECT);
   if (found) return found.id;
-  return (await b.request<{ id: string }>("resource-sources.create", { input: { name: "Tickets (made up)", provider: "ext:jira", boundary: { origin: TICKET_ORIGIN, project: TICKET_PROJECT } } })).id;
+  return (await b.request("resource-sources.create", { input: { name: "Tickets (made up)", provider: "ext:jira", boundary: { origin: TICKET_ORIGIN, project: TICKET_PROJECT } } })).id;
 }
 
 /** Register a ticket by its key (the service resolves it through the extension). Its Resource id. */
 export async function registerTicket(b: SocketBoard, key: string): Promise<string> {
-  const r = await b.request<{ resource: { id: string } }>("resources.follow-authored", { reference: { kind: "ext:jira", key } });
+  const r = await b.request("resources.follow-authored", { reference: { kind: "ext:jira", key } });
   return r.resource.id;
 }
 
-/** Fetch a ticket's details into the service (`SocketBoard.refreshResource`). The service runs the extension. */
+/** Fetch a ticket's details into the service (`resources.refresh`). The service runs the extension. */
 export async function refreshTicket(b: SocketBoard, resourceId: string): Promise<void> {
-  await b.refreshResource(resourceId);
+  await b.request("resources.refresh", { resourceId });
 }
 
 /** The outliner's example extensions the showcase shows (PIE-507): one of each kind, and an @name agent. */

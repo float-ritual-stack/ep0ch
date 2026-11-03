@@ -32,7 +32,7 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     process.env.EP0CH_STATE = join(scratch.root, "door");
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const make = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+    const make = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
     for (const [t, s] of [["Sow the beans", "todo"], ["Turn the compost", "todo"], ["Mend the gate", "done"], ["Oil the shears", "done"]]) await make(null, `${t} [type::job] [area::garden] [stage::${s}]`);
     await make(null, "Descale the kettle [type::job] [area::kitchen] [stage::todo]");
     garden = await make(null, "Garden jobs");
@@ -106,7 +106,7 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     expect(B().hub.id).toBe(kitchen.id);
     expect(message()).toContain(`an agent (${AS})`);
     expect(message()).toContain("Kitchen jobs");
-    await expect(act("board.hub", { id: (await board.request<any>("create", { parentId: null, text: "Not a board" })).id })).rejects.toThrow("isn't a board");
+    await expect(act("board.hub", { id: (await board.request("create", { parentId: null, text: "Not a board" })).id })).rejects.toThrow("isn't a board");
   });
 
   test("the board's open takes from= (E2): a tile's link is honoured, unlinked it lands in the detail, an unknown tile is named", async () => {

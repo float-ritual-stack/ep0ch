@@ -33,7 +33,7 @@ describe.skipIf(!outliner)("a click on a hint segment does what its key does (PI
     board = new SocketBoard(await scratch.start());
     await board.info();
     for (const text of ["Plant the leeks\nAlong the south bed.\n\n## Rows\n- row one\n- row two\n\n## Tools\n- a dibber", "Net the brassicas\nBefore the pigeons find them.", "Lift the shallots\nWhen the tops fall."])
-      notes.push(await board.request<any>("create", { parentId: null, text, author: "agent" }));
+      notes.push(await board.request("create", { parentId: null, text, author: "agent" }));
     const term = { info: { cols: COLS, rows: ROWS, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     // What the door says (a refusal on the status bar or a tile's frame): ctx.flash and ctx.refuse both come here.

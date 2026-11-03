@@ -9,6 +9,7 @@ import { EXTENSION_TRIGGERS, type SourceTrigger } from "@ep0ch/outline-core/comp
 import { FORM_FIELD_LIMITS, FORM_FIELD_NAME, FORM_FIELD_TYPES, RESERVED_ARG_NAMES, type FormFieldType } from "@ep0ch/outline-core/form-fields";
 import { cronProblem } from "./extension-schedule";
 import { SECRET_GROUP_PATTERN, SECRET_KEY_PATTERN } from "./extension-secrets";
+import { BLOCK_ID_SCHEMA_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
 /**
  * What an extension folder is (contract 2): `extension.json` plus an optional
@@ -352,9 +353,9 @@ const RuleMatchSchema = Type.Object(
     /** A query in the saved views' grammar (`type=meeting AND status=open`). */
     query: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
     /** A saved view's block id: its query. */
-    view: Type.Optional(Type.String({ pattern: "^[0-9a-fA-F-]{36}$" })),
+    view: Type.Optional(Type.String({ pattern: BLOCK_ID_SCHEMA_PATTERN })),
     /** Only blocks under this one. */
-    under: Type.Optional(Type.String({ pattern: "^[0-9a-fA-F-]{36}$" })),
+    under: Type.Optional(Type.String({ pattern: BLOCK_ID_SCHEMA_PATTERN })),
     /** A pattern tested line by line, outside code, literal regions and property tokens; `(?i)` ignores case. */
     text: Type.Optional(Type.String({ minLength: 1, maxLength: 300 })),
     /** A construct: heading, heading:1…6 (h1…h6), callout, callout:<type>, list, rule, image. */

@@ -218,7 +218,7 @@ describe("--machine: an outline on another machine, through the forward", () => 
     expect(JSON.parse(init.stdout.toString())).toMatchObject({ name: "fern", created: true });
     expect(readFileSync(join(far, ".ep0ch", "config.toml"), "utf8")).toBe('ws = "fern"\nmachine = "box-a"\n');
     const { hostRequest } = await import("../src/socket");
-    expect((await hostRequest<{ outlines: { name: string }[] }>(host.sock, "outlines.list")).outlines.map(o => o.name)).toContain("fern");
+    expect((await hostRequest(host.sock, "outlines.list")).outlines.map(o => o.name)).toContain("fern");
     // `status` is this machine's host unless --machine names another: what another machine is asked.
     const status = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "status", "--json"], { cwd: far, env });
     expect(status.exitCode).toBe(1);
@@ -232,7 +232,7 @@ describe("--machine: an outline on another machine, through the forward", () => 
 });
 
 describe("an outline the machine doesn't have is never made there (PIE-545)", () => {
-  const names = async () => (await (await import("../src/socket")).hostRequest<{ outlines: { name: string }[] }>(host.sock, "outlines.list")).outlines.map(o => o.name);
+  const names = async () => (await (await import("../src/socket")).hostRequest(host.sock, "outlines.list")).outlines.map(o => o.name);
 
   test("--machine: the door, the session's naming and `outline attach` refuse with the commands; nothing is made", async () => {
     const { connectTarget } = await import("../src/door");

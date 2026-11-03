@@ -341,7 +341,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     log,
     async list(caller) {
       const rows: McpOutlineListing[] = [];
-      const access = async (target: McpBoard | { error: string }) => { if ("error" in target) return undefined; const s = await target.board.mcpAccessStatus().catch(() => undefined); return s && levelFor(s, caller, undefined, target.board.address); };
+      const access = async (target: McpBoard | { error: string }) => { if ("error" in target) return undefined; const s = await target.board.request("mcp.access.status", {}).catch(() => undefined); return s && levelFor(s, caller, undefined, target.board.address); };
       // Who made each outline and why (outline_new's), from the host's own list.
       const abouts = new Map((admin ? await admin.host<HostedOutlineList>("outlines.list").catch(() => ({ outlines: [] as HostedOutlineSummary[] })) : { outlines: [] as HostedOutlineSummary[] }).outlines.map(o => [o.name, o.about]));
       // An outlines folder that can't be read fails the list (the gateway logs why), never a list without them.
@@ -598,8 +598,11 @@ function cappedOutlines(outlines: McpOutlines, cap: (where?: { outline: string; 
       const inner = found.board;
       const board = new Proxy(inner, {
         get(target, key) {
-          if (key === "mcpAccessStatus") return async () => {
-            const status = await target.mcpAccessStatus();
+          // The access status, asked by action name, reads no higher than the cap.
+          if (key === "request" || key === "send") return async (action: string, ...rest: unknown[]) => {
+            const answer = await (target.send as (...a: unknown[]) => Promise<unknown>).call(target, action, ...rest);
+            if (action !== "mcp.access.status") return answer;
+            const status = answer as Awaited<ReturnType<typeof target.request<"mcp.access.status">>>;
             const level = lowerLevel(cap(target.address), status.level);
             return { ...status, level, canRead: status.canRead && level !== "none" };
           };

@@ -36,7 +36,7 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     delete process.env.VISUAL;
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const mk = async (text: string, parentId: string | null = null) => board.request<any>("create", { parentId, text, author: "agent" });
+    const mk = async (text: string, parentId: string | null = null) => board.request("create", { parentId, text, author: "agent" });
     notes.orchard = await mk("Orchard rota\nWho prunes which row.");
     notes.pears = await mk("Prune the pears\nAfter the frost.", notes.orchard.id);
     notes.plums = await mk("Thin the plums\nOne every hand-span.", notes.orchard.id);

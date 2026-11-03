@@ -18,7 +18,9 @@ export function serviced<B extends Fake>(board: B): B & { completionRows: (r: an
       case "extensions.list": return (board.listExtensions ? await board.listExtensions() : { extensions: [] }) as T;
       case "components.schemas": return (board.componentSchemas ? await board.componentSchemas() : { schemas: BUILTIN_COMPONENT_SCHEMAS }) as T;
       case "components.usage": return (board.componentUsage ? await board.componentUsage() : {}) as T;
-      case "callouts.types": return (board.calloutTypes ? await board.calloutTypes() : { types: [] }) as T;
+      case "callouts.types": return (board.calloutTypes ? await board.calloutTypes() : { types: [], problems: [] }) as T;
+      case "headings.styles": return { styles: [], problems: [], complete: true } as T;
+      case "styles.list": return { sheets: [], problems: [], complete: true } as T;
       case "properties.catalog": return (board.propertyCatalog ? await board.propertyCatalog(input.key, input.prefix, input.limit, !!input.keys) : []) as T;
       case "template.props": return await board.templateProps(input.of) as T;
       case "pages.resolve": return (board.resolvePage ? await board.resolvePage(input.address) : { status: "missing" }) as T;
@@ -26,7 +28,10 @@ export function serviced<B extends Fake>(board: B): B & { completionRows: (r: an
     }
     throw new Error(`the fake has no ${action}`);
   } };
+  // The door asks a fake what it asks the service (`request`), answered from the fake's own lookups.
+  const ask = (action: string, input: Record<string, any> = {}) => (board.request && board.request !== ask ? board.request(action, input) : svc.request(action, input));
   return Object.assign(board, {
+    ...(board.request ? {} : { request: ask, send: ask }),
     completionRows: (r: any) => completionRows(svc, r, [], async () => [], {}),
     completionPicked: async () => ({}),
   });

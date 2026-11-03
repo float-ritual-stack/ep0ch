@@ -6,7 +6,7 @@ import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import type { Desk } from "../src/desk/desk";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, mutationFor } from "../src/socket";
 import type { Key } from "../src/term";
 import { viewCommand } from "../src/view-cli";
 import { boardScreen } from "./board-view";
@@ -24,7 +24,7 @@ describe.skipIf(!outliner)("a lane's hand-set order", () => {
   const make = (parentId: string | null, text: string) => other.request("create", { parentId, text, author: "agent" });
   const lane = (name: string) => B().lanes.find((l: any) => l.name === name);
   const titles = (name: string) => (lane(name).items ?? []).map((m: Msg) => m.text.split(" [")[0]);
-  const order = async () => (await other.viewOrder(queue.id)).blockIds;
+  const order = async () => (await other.request("virtual.occurrences.order", { viewId: queue.id })).blockIds;
   const settled = () => until(() => B().lanes.every((l: any) => l.items && !l.want), "lanes", 8000);
   const select = (name: string, title: string) => {
     BV.at(b, "lanes");
@@ -129,7 +129,7 @@ describe.skipIf(!outliner)("a lane's hand-set order", () => {
     key({ kind: "mouse", action: "drag", button: 32, x, y: over });
     expect(B().cardDrag?.onto).toBe(cards[onto].id);
     // An agent puts the hovered card first while the person drags: the lane is read again, its rows shift.
-    await other.moveInView({ view: queue.id, blocks: [cards[onto].id], to: 0 }, { kind: "agent", id: "shed-agent" });
+    await other.request("virtual.occurrences.move", { input: { view: queue.id, blocks: [cards[onto].id], to: 0 }, mutation: mutationFor({ kind: "agent", id: "shed-agent" }) });
     await until(() => titles("Queue")[0] === onto, "the lane read again mid-drag");
     // Released on the same row, which now holds another card: the drop is onto the card it was over, by id (now
     // first), above it.
@@ -144,8 +144,8 @@ describe.skipIf(!outliner)("a lane's hand-set order", () => {
     const io = { out: (s: string) => out.push(s), err: (s: string) => err.push(s) };
     process.env.EP0CH_SOCKET = board.path;
     try {
-      const window = await other.request("work-ids.allocate", { blockId: cards["Fix the window"].id, expectedRevision: (await other.get(cards["Fix the window"].id))!.revision });
-      const workId = window.block.properties.find((p: any) => p.key === "work-id").value;
+      const window = await other.request("work-ids.allocate", { blockId: cards["Fix the window"].id, expectedRevision: (await other.get(cards["Fix the window"].id))!.revision! });
+      const workId = window.block.properties.find((p: any) => p.key === "work-id")!.value;
       expect(await viewCommand(["view", "order", queue.id, cards["Oil the hinges"].id, workId.toLowerCase(), "--as", "shell-agent", "--json", "--ws", "scratch"], io)).toBe(0);
       const json = JSON.parse(out.at(-1)!);
       const rest = titles("Queue").filter((t: string) => t !== "Oil the hinges" && t !== "Fix the window");

@@ -138,7 +138,7 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
     board = new SocketBoard(await scratch.start());
     await board.info();
-    plot = await board.request<any>("create", { parentId: null, text: "Plot heading style [heading-style::plot] [heading-pattern::dots] [heading-align::left]", author: "user" });
+    plot = await board.request("create", { parentId: null, text: "Plot heading style [heading-style::plot] [heading-pattern::dots] [heading-align::left]", author: "user" });
     const term = { info: { cols: COLS, rows: ROWS, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));

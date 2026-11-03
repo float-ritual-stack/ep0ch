@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { extensionList } from "../../src/extensions";
 import { SECTIONS } from "../../src/showcase/showcase";
-import { USER } from "../../src/socket";
+import { USER, requesterOf } from "../../src/socket";
 import { INVITES } from "../../src/surface/invite";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -139,7 +139,7 @@ describe.skipIf(!outliner)("the showcase screen: Fantasia", () => {
     click(b.x, b.y);
     await untilAsync(() => tiles().filter(t => t.float).length >= 3, "the tiles floated", 20_000);
     const run = (desk().history.openIds() as string[])[0]!;
-    await board.stopScript(run, USER);
+    await board.request("scripts.stop", { run, mutation: requesterOf(USER) });
     await untilAsync(() => !desk().history.isOpen(run), "the stopped run's transaction closed", 20_000);
     desk().settle();
     expect(tiles().every(t => !t.float)).toBe(true);

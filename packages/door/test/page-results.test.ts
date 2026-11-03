@@ -120,7 +120,7 @@ describe.skipIf(!outliner)("ep0ch show --markdown against a scratch host", () =>
     const sock = await scratch.start();
     env = { EP0CH_SOCKET: sock, EP0CH_WS: scratch.name };
     const board = new SocketBoard(sock, undefined, scratch.name);
-    const make = async (text: string) => (await board.request<{ id: string }>("create", { parentId: null, text, author: "agent" })).id;
+    const make = async (text: string) => (await board.request("create", { parentId: null, text, author: "agent" })).id;
     crates.apples = await make("Apples crate [type::crate] [packed::yes] [bay::north]");
     crates.beets = await make("Beets crate [type::crate] [bay::north]");
     crates.chard = await make("Chard crate [type::crate] [packed::yes] [bay::south]");

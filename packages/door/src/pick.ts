@@ -41,7 +41,7 @@ export async function pickerCwd(board: SocketBoard, site?: Pick<SiteAnswerReques
   const home = homedir();
   const info = await board.info();
   const folder = info.workspace && existsSync(info.workspace) ? info.workspace : home;
-  const answer = site?.blockId ? await board.request<SiteAnswer>("site.answer", { ...site, paths: ["cwd"] }) : null;
+  const answer = site?.blockId ? await board.request("site.answer", { ...site, paths: ["cwd"] }) : null;
   const cwd = answer?.paths?.[0]?.values?.[0];
   return cwd ? resolve(folder, cwd.replace(/^~(?=$|\/)/, home)) : folder;
 }

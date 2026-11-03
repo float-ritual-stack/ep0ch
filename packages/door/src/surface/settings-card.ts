@@ -21,6 +21,7 @@ import { attachedPlaceOf, type AttachedPlace, type FloatRect } from "./attached"
 import { readState } from "../state";
 import { modeHint } from "./modes";
 import { SETTINGS_KEYS } from "./attached-keys";
+import { isBlockId } from "@ep0ch/outline-core/addressable-resource";
 
 
 /**
@@ -171,7 +172,7 @@ export function settingQuestion(field: SettingField, src: SettingSources): BarQu
 /** A value as written: a note picked for a block reference becomes `((id))`. */
 export function settingValue(field: SettingField, answer: string): string {
   const v = answer.trim();
-  return field.prop.type === "ref" && /^[0-9a-f-]{36}$/i.test(v) ? `((${v}))` : v;
+  return field.prop.type === "ref" && isBlockId(v) ? `((${v}))` : v;
 }
 
 /** The card's state while it's the panel's face: which field is selected, what it last said, where its rows were drawn. */

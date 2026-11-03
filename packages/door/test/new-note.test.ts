@@ -88,7 +88,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+    const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
     notes.plot = await mk(null, "Plot notes\nSee [[Bean diary]] for the runner beans.");
     inbox = (await board.roots()).find(r => prop(r, "system-view") === "inbox")!.id;
   }, 30_000);
@@ -557,7 +557,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     expect(under).toMatchObject({ rule: "near", parentId: notes.plot.id });
     await expect(app.act({ action: "note.new", args: { near: notes.plot.id, inbox: true }, as: "gardener" })).rejects.toThrow("two places");
     // A near it names that's gone is refused with the runnable fix, never quietly put in the Inbox.
-    const gone = await board.request<any>("create", { parentId: null, text: "Old bed plan", author: "agent" });
+    const gone = await board.request("create", { parentId: null, text: "Old bed plan", author: "agent" });
     await board.trash(gone.id);
     const inboxBefore = (await childrenOf(inbox)).length;
     const refused = app.act({ action: "note.new", args: { text: "Beans up", near: gone.id }, as: "gardener" });

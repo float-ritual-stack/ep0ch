@@ -307,7 +307,7 @@ function layoutTable(node:TableLayout,width:number):Row[] {
     for(let column=0;column<count;column++)if(natural[column]!>widths[column]!&&
       (chosen<0||natural[column]!-widths[column]!>natural[chosen]!-widths[chosen]!))chosen=column;
     if(chosen<0)break;
-    widths[chosen]++;spare--;
+    widths[chosen]!++;spare--;
   }
   const rows:Row[]=[];
   const border=(left:string,middle:string,right:string)=>generatedGlyphs(left+widths.map(size=>'─'.repeat(size+2)).join(middle)+right,'table border');

@@ -74,7 +74,7 @@ describe("a Resource shown as a note", () => {
 });
 
 describe("a Resource's threads, read against the text that was drawn", () => {
-  const thread = { block: { id: "t1", actorId: "me" }, body: "Why?", lifecycle: "open", originalTarget: { anchor: { exact: "cache" }, representation: { subject: { kind: "resource" } } }, resolvedTarget: { anchor: { kind: "text-quote", start: 4, end: 9 } }, replies: [] };
+  const thread = { block: { id: "t1", actorId: "me" }, body: "Why?", lifecycle: "open", originalTarget: { anchor: { kind: "text-quote", exact: "cache" }, representation: { subject: { kind: "resource" } } }, resolvedTarget: { anchor: { kind: "text-quote", start: 4, end: 9 } }, replies: [] };
   const boardAnswering = (revision: number) => {
     const board = Object.create(SocketBoard.prototype) as SocketBoard;
     (board as any).request = async () => ({ threads: [thread], changed: false, revision });

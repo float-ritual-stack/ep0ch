@@ -51,9 +51,9 @@ describe.skipIf(!outliner)("the gateway over stdio", () => {
   beforeAll(async () => {
     board = new SocketBoard(await scratch.start());
     await board.info();
-    parent = (await board.request<{ id: string }>("create", { parentId: null, text: "Garden plans", author: "agent" })).id;
+    parent = (await board.request("create", { parentId: null, text: "Garden plans", author: "agent" })).id;
     for (const [k, v] of Object.entries(scratch.env)) { oldEnv[k] = process.env[k]; process.env[k] = v; }
-    await board.configureMcpAccess("full");
+    await board.request("mcp.access.configure", { level: "full" });
   }, 30_000);
 
   afterAll(async () => {

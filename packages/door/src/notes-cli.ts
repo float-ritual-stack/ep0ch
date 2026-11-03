@@ -33,7 +33,7 @@ import { readMissing } from "./outlines";
 import { sh } from "./setup/links";
 import { summarySegments } from "./props";
 import { projectionsPending, resourceChanged } from "./projection";
-import { previewTitle, SocketBoard, type IndexBlock } from "./socket";
+import { previewTitle, SocketBoard, type IndexBlock, type WireParams } from "./socket";
 import { matchWords } from "./board";
 import { matchFacts, PROPERTY_QUERY_SCOPES, type PropertyMatch } from "@ep0ch/outline-core/protocol";
 import { readState } from "./state";
@@ -358,7 +358,7 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
     } catch (e) { return refused(e); }
   } else if (filtered) {
     try {
-      const q = await board.queryIds({ expression, text, subtreeRootId: s.under, ...(s.sort ? { sort: { field: s.sort, direction: s.direction ?? "asc" } } : {}), ...(s.propertyScope ? { propertyScope: s.propertyScope } : {}), ...(s.machinery ? { machinery: s.machinery } : {}), ...(s.countMachinery ? { countMachinery: true } : {}) });
+      const q = await board.queryIds({ expression, text, subtreeRootId: s.under, ...(s.sort ? { sort: { field: s.sort, direction: (s.direction ?? "asc") as "asc" | "desc" } } : {}), ...(s.propertyScope ? { propertyScope: s.propertyScope as WireParams<"blocks.query">["query"]["propertyScope"] } : {}), ...(s.machinery ? { machinery: s.machinery } : {}), ...(s.countMachinery ? { countMachinery: true } : {}) });
       hint = q.hint;
       matches = q.matches;
       machineryLeftOut = q.machineryLeftOut;

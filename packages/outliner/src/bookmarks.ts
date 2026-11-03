@@ -1,10 +1,10 @@
 import { blockDisplayTitle } from "./references";
 import type { Block } from "./types";
+import { BLOCK_ID_PATTERN, looksLikeBlockId } from "@ep0ch/outline-core/addressable-resource";
 
 export const BOOKMARK_TYPE = "bookmark";
 export const BOOKMARKS_SYSTEM_VIEW = "bookmarks";
-const CANONICAL_BLOCK_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CANONICAL_BLOCK_ID_PATTERN = BLOCK_ID_PATTERN;
 
 export interface BookmarkRecord {
   record: Block;
@@ -45,13 +45,17 @@ export function parseBookmarksRoot(block: Block): BookmarksRoot {
   return { root: block };
 }
 
-export function parseBookmarkRecord(block: Block): BookmarkRecord {
+/**
+ * A bookmark record, checked. `write` (a record made now) wants a canonical target id; `read` (one already stored) takes
+ * any UUID's shape, so an id written before the outline minted v4s still reads.
+ */
+export function parseBookmarkRecord(block: Block, mode: "write" | "read" = "write"): BookmarkRecord {
   const type = exactlyOne(block, "type").toLowerCase();
   if (type !== BOOKMARK_TYPE) {
     throw new Error(`Bookmark record ${block.id} has invalid type: ${type}`);
   }
   const targetBlockId = exactlyOne(block, "target");
-  if (!CANONICAL_BLOCK_ID_PATTERN.test(targetBlockId)) {
+  if (!(mode === "read" ? looksLikeBlockId(targetBlockId) : CANONICAL_BLOCK_ID_PATTERN.test(targetBlockId))) {
     throw new Error(`Bookmark record ${block.id} has invalid canonical target ID`);
   }
   const createdAt = exactlyOne(block, "bookmark-created");

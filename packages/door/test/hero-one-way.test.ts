@@ -27,7 +27,7 @@ describe.skipIf(!outliner)("one header picture, the note's own (PIE-1361)", () =
   const scratch = new Scratch();
   let board: SocketBoard;
   const pic = (name: string) => join(scratch.root, name);
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "user" });
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "user" });
   const text = async (id: string) => (await board.get(id))!.text as string;
 
   beforeAll(async () => {
@@ -83,7 +83,7 @@ describe.skipIf(!outliner)("one header picture, the note's own (PIE-1361)", () =
       expect(said.hero).toBeNull();
       expect(d.lines().join("\n")).toContain("this note has no header picture: H on one of its images");
       expect(said.values["header.image"]).toBeUndefined();
-    } finally { d.close(); await board.request("trash", { id: style.id }).catch(() => {}); }
+    } finally { d.close(); await board.request("delete", { blockId: style.id }).catch(() => {}); }
   }, 30_000);
 
   test("one picture, drawn once: a page-level header.image naming no picture of the note (quoted, as it was typed) adds no second copy behind the header", async () => {

@@ -312,7 +312,7 @@ if (args[0] === "clients") {
   if (target.machine) await forwardTo(target.machine).catch(e => { console.error(`ep0ch: can't reach the outline host on ${target.machine}: ${(e as Error).message}`); process.exit(1); });
   // A folder that names none asks the host as it is (its default outline, when it has one, else its refusal).
   const board = new SocketBoard(target.path, undefined, "outline" in target ? target.outline : undefined);
-  try { console.log(formatClients(clientRows(await board.request<any[]>("clients.list")))); }
+  try { console.log(formatClients(clientRows(await board.request("clients.list")))); }
   catch (e) { console.error(`ep0ch: no carrier on ${board.path}\n  ${(e as Error).message.replaceAll("\n", "\n  ")}`); board.close(); process.exit(1); }
   board.close();
   process.exit(0);

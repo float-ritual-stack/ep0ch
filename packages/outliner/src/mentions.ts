@@ -9,6 +9,7 @@ import {marked} from 'marked';
 import {parseOutlinerLinkUri} from './outliner-links';
 import type {OutlinerStore} from './store';
 import type {MentionCollection,MentionEntry,MentionMessage,MentionReceipt,MentionScope} from './mentions-types';
+import { blockIdMatcher } from "@ep0ch/outline-core/addressable-resource";
 
 export const MENTION_MESSAGE_LIMIT=200;
 const MAX_TEXT=65536,MAX_REFERENCES=100;
@@ -16,7 +17,7 @@ const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 interface Reference {bare?:boolean;kind:'block'|'address';value:string;start:number;end:number;}
 /** `blockId` is null only in a message kept before unresolved references were dropped. */
 interface StoredReference extends Reference {blockId:string|null;excerpt:string;}
-interface StoredMessage extends MentionMessage {key:string;receivedAt:string;references:StoredReference[];notChecked:string[];}
+export interface StoredMessage extends MentionMessage {key:string;receivedAt:string;references:StoredReference[];notChecked:string[];}
 function required(value:unknown,name:string,max=512):string{
  if(typeof value!=='string'||!value.trim()||value.length>max||/[\u0000-\u001f]/.test(value))throw Error(`${name} must be nonempty text, at most ${max} characters`);
  return value;
@@ -36,7 +37,7 @@ export function extractMentionReferences(text:string,prefix?:TicketPrefixes):Ref
  });
  // A bare id in code is the code's text, as a reference there is (PIE-764).
  const code=protectedCodeRanges(text);
- for(const match of text.matchAll(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi)){
+ for(const match of text.matchAll(blockIdMatcher())){
   if(!refs.some(r=>match.index>=r.start&&match.index<r.end)&&!offsetInRanges(match.index,code))refs.push({bare:true,kind:'block',value:match[0].toLowerCase(),start:match.index,end:match.index+match[0].length});
  }
  const seen=new Set<string>();

@@ -8,7 +8,7 @@ import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { LayoutHistory } from "../src/desk/layout-history";
 import { MainMenu } from "../src/screens";
-import { SocketBoard, USER } from "../src/socket";
+import { SocketBoard, USER, requesterOf } from "../src/socket";
 import { INVITES } from "../src/surface/invite";
 import { actorRule } from "../src/surface/dispatch";
 import { NOBODY } from "../src/whereabouts";
@@ -138,7 +138,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
   });
 
   test("undoing a layout change keeps the readers opened into the screen (a note you opened is not part of what a resize undoes)", async () => {
-    const note = await board.request<{ id: string }>("create", { author: "user", text: "A note opened beside the others" });
+    const note = await board.request("create", { author: "user", text: "A note opened beside the others" });
     await act("open", { id: note.id });
     await until(() => (D().layoutGet() as { tiles: { note?: string }[] }).tiles.some(t => JSON.stringify(t).includes(note.id.slice(0, 8))), "the note opened in a reader");
     const before = names();
@@ -187,7 +187,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     const [a, b] = before.filter(n => n !== D().layoutGet().focus) as [string, string];
     // It gives the keys to one tile (what the person's own keys are the screen's about), then closes two others.
     await board.request("create", { author: "user", text: 'Tidy tiles [script::tidy-tiles] [results::keep] [effects::write]\n```js\nawait act("tile.focus", { tile: props.f[0] });\nawait act("tile.close", { tile: props.a[0] });\nawait act("tile.close", { tile: props.b[0] });\nreturn "closed two";\n```' });
-    const note = await board.request<{ id: string }>("create", { author: "user", text: "Scratch note for the script" });
+    const note = await board.request("create", { author: "user", text: "Scratch note for the script" });
     await board.request("extensions.list", { reload: true });
     await app.loadExtensions(true);
     await until(() => !!extensionList()?.extensions.find(e => e.name === "tidy-tiles"), "the script loaded");
@@ -218,7 +218,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
   }, 60_000);
 
   test("ext.undo restores Fantasia's saved screen and reports the writes and layout", async () => {
-    const note = await board.request<{ id: string }>("create", { author: "user", text: `Dance [script::restore-dance] [results::keep] [effects::write]\n\x60\x60\x60js\n${FANTASIA}\n\x60\x60\x60` });
+    const note = await board.request("create", { author: "user", text: `Dance [script::restore-dance] [results::keep] [effects::write]\n\x60\x60\x60js\n${FANTASIA}\n\x60\x60\x60` });
     const reader = await person("tile.open", { kind: "detail", note: note.id }) as { tile: string };
     await person("screen.save", { name: "before-dance" });
     await person("tile.close", {}, names().find(n => n !== reader.tile)!);
@@ -245,7 +245,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     const before = names();
     const b = before.find(n => n !== D().layoutGet().focus)!;
     await board.request("create", { author: "user", text: 'Slow tidy [script::slow-tidy] [results::keep] [effects::write]\n```js\nawait act("tile.close", { tile: props.b[0] });\nawait wait(30000);\nreturn "never";\n```' });
-    const note = await board.request<{ id: string }>("create", { author: "user", text: "Another scratch note" });
+    const note = await board.request("create", { author: "user", text: "Another scratch note" });
     await board.request("extensions.list", { reload: true });
     await app.loadExtensions(true);
     await until(() => !!extensionList()?.extensions.find(e => e.name === "slow-tidy"), "the script loaded");
@@ -254,7 +254,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     const run = await person(`ext.${ext.id}.run`, { block: note.id, b, invitation: INVITES.mint("you") }) as { undo: string };
     await untilAsync(async () => !names().includes(b), "the run closed a tile");
     expect(D().history.isOpen(run.undo)).toBe(true);
-    await board.stopScript(run.undo, USER);
+    await board.request("scripts.stop", { run: run.undo, mutation: requesterOf(USER) });
     await untilAsync(async () => names().includes(b), "the stopped run's layout put back", 8000);
     expect(names().sort()).toEqual(before.sort());
     expect(D().history.isOpen(run.undo)).toBe(false);
@@ -329,7 +329,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     const before = names();
     const b = before.find(n => n !== D().layoutGet().focus)!;
     await board.request("create", { author: "user", text: 'Sneaky tidy [script::sneaky-tidy] [results::keep] [effects::write]\n```js\nawait act("tile.close", { tile: props.b[0], txn: "custom" });\nawait wait(30000);\nreturn "never";\n```' });
-    const note = await board.request<{ id: string }>("create", { author: "user", text: "A third scratch note" });
+    const note = await board.request("create", { author: "user", text: "A third scratch note" });
     await board.request("extensions.list", { reload: true });
     await app.loadExtensions(true);
     await until(() => !!extensionList()?.extensions.find(e => e.name === "sneaky-tidy"), "the script loaded");
@@ -339,14 +339,14 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     await untilAsync(async () => !names().includes(b), "the run closed a tile");
     expect(D().history.isOpen("custom")).toBe(false);
     expect(D().history.isOpen(run.undo)).toBe(true);
-    await board.stopScript(run.undo, USER);
+    await board.request("scripts.stop", { run: run.undo, mutation: requesterOf(USER) });
     await untilAsync(async () => names().includes(b), "the stopped run's layout put back", 8000);
   }, 60_000);
 
   // PIE-1435: the reader owns ctrl+z while it has something of its own; a tile closed elsewhere afterwards stays closed.
   test("ctrl+z in a reader undoes the extension's write on its note, not a tile closed elsewhere after it", async () => {
     await board.request("create", { author: "user", text: 'Stamp [script::stamp-note] [results::keep] [effects::write]\n```js\nreturn "stamped";\n```' });
-    const note = await board.request<{ id: string }>("create", { author: "user", text: "A note a script stamps" });
+    const note = await board.request("create", { author: "user", text: "A note a script stamps" });
     await board.request("extensions.list", { reload: true });
     await app.loadExtensions(true);
     await until(() => !!extensionList()?.extensions.find(e => e.name === "stamp-note"), "the script loaded");
@@ -367,7 +367,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     expect(names()).not.toContain(victim);
     // A note trashed after the reader's own change comes back first, even with a tile closed after the trash.
     await person(`ext.${ext.id}.run`, { block: note.id });
-    const gone = await board.request<{ id: string }>("create", { author: "user", text: "A note trashed from the tree" });
+    const gone = await board.request("create", { author: "user", text: "A note trashed from the tree" });
     await person("note.trash", { ref: gone.id, confirm: gone.id }, here);
     await untilAsync(async () => !!(await board.get(gone.id).catch(() => null))?.deleted || !(await board.get(gone.id).catch(() => null)), "the note trashed");
     const second = names().find(n => n !== here)!;

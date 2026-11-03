@@ -459,7 +459,7 @@ async function applyOnce(board: NotesBoard, e: NetmailEntry, now: () => number):
   const refused = (said: string): NetmailSettled => ({ id: e.id, state: "refused", said, uri: e.uri, at: at() });
   if (!isWriteTool(e.tool)) return refused(`${e.tool} isn't a write this machine knows`);
   // At the level it was queued under, or narrower: an owner who has since moved full to propose gets proposals.
-  const effective = lowerLevel(e.level, (await board.mcpAccessStatus()).level);
+  const effective = lowerLevel(e.level, (await board.request("mcp.access.status", {})).level);
   const decided = gate({ tool: e.tool, level: effective, where: board.address });
   if (decided.becomes === "refused" && !atLeast(effective, "propose")) return refused(`${decided.why} The write queued at ${e.queuedAt} was dropped.`);
   const info = await board.info();

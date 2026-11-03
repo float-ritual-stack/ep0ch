@@ -8,6 +8,7 @@ import { fileName, imageSource, parseSize } from "@ep0ch/outline-core/media-line
 import { safeExtensionHtml } from "./extension-html";
 import { figureBodyHtml } from "./publish-figures";
 import { ACTIVATION_KINDS, LIST_MAX_ROWS, LIST_PREVIEWS, activationCount, listHead, listSections, listCellText, openedRef, type ListCell, type ListGroup, type ListPrimitive, type ListRow } from "@ep0ch/outline-core/list-row";
+import { BLOCK_ID_LIKE_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
 /**
  * The shared primitive catalogue a rich component (kind 3 of the extension
@@ -151,7 +152,7 @@ const MAX_DATA_BYTES = 256 * 1024;
 const MAX_IMAGE_ROWS = 60;
 /** The longest markup an svg image primitive carries (a script's drawing, not a photograph). */
 const MAX_SVG_CHARS = 256 * 1024;
-const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BLOCK_ID = BLOCK_ID_LIKE_PATTERN; // what a view links to is read, not made: any stored id
 /** What a link in a view may name: a block, or a Resource (PIE-754) the client opens the way the links tile does. */
 const linkable = (link: string) => BLOCK_ID.test(link) || (isResourceRef(link) && !("problem" in parseResourceRef(link)));
 

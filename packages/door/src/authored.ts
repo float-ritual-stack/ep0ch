@@ -12,59 +12,23 @@ import { printable } from "./text";
 import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
 import { parseResourceRef } from "@ep0ch/outline-core/resource-ref";
 
-// ── the wire (pi-herdr-outliner src/authored-links.ts, src/resource-references.ts, src/resources.ts) ──
+// ── the wire: the outline host's own types (the wire contract, @ep0ch/outliner/wire; PIE-1375) ──
 
-export type AuthoredResourceReference =
-  | { kind: "resource"; resourceId: string }
-  | { kind: "filesystem"; path: string }
-  | { kind: "web"; url: string }
-  /** An extension provider's entity by key (`[jira::PC-12]`): `kind` is `ext:<id>` (Jira's `ext:jira`). */
-  | { kind: `ext:${string}`; key: string }
-  | { kind: "application"; uri: string };
+export type {
+  AuthoredLinkCompleteness, AuthoredLinkDiagnostic, AuthoredLinkGroup, AuthoredLinksSnapshot, AuthoredOutlink, AuthoredOutlinkResolution,
+  AuthoredResourceLink, AuthoredResourceReference, AuthoredResourceResolution,
+} from "@ep0ch/outliner/wire";
+import type { AuthoredLinkGroup, AuthoredLinksSnapshot, AuthoredOutlink, AuthoredResourceLink, AuthoredResourceReference } from "@ep0ch/outliner/wire";
+import type { Reads } from "./socket";
 
-export interface AuthoredLinkDiagnostic { span: { start: number; end: number }; message: string }
-export type AuthoredLinkCompleteness = { kind: "complete" } | { kind: "limited"; reason: string; shown: number };
-
-/** What an Outlink's or Resource's target block is (the service's `linkTargetFacets`): for Kind, Stage and Sort. */
-export interface AuthoredTargetFacets {
-  kind: string; kindLabel: string;
-  stage?: { property: string; value: string; bucket?: "waiting" | "draft" | "active" | "done" };
-  createdAt: string; updatedAt: string;
-}
-
-interface EntryBase { key: string; label: string; firstSpan: { start: number; end: number }; occurrenceCount: number }
-
-export type AuthoredOutlinkResolution =
-  | { kind: "ready"; target: { kind: "block"; blockId: string; outline?: string; machine?: string; fragmentId?: string }; title: string; subtitle?: string; facets?: AuthoredTargetFacets }
-  | { kind: "deleted"; blockId: string; fragmentId?: string; title: string; reason: string }
-  | { kind: "unregistered-page"; address: string; reason: string }
-  | { kind: "missing"; reason: string };
-export interface AuthoredOutlink extends EntryBase { kind: "outlink"; referenceKind: "block" | "page" | "work-id"; resolution: AuthoredOutlinkResolution }
-
-export type AuthoredResourceResolution =
-  | { kind: "ready"; target: { kind: "resource"; resourceId: string }; sourceName: string; provider: string; addressLabel: string }
-  | { kind: "unregistered"; reference: AuthoredResourceReference; reason: string }
-  | { kind: "missing"; reason: string };
-export interface AuthoredResourceLink extends EntryBase {
-  kind: "resource"; resourceId?: string;
-  /** The block the Resource is kept as (a Jira ticket the extension owns, PIE-445): ⏎ opens it. */
-  recordBlockId?: string;
-  /** What the record block is (a ticket kept as a block). */
-  facets?: AuthoredTargetFacets;
-  resolution: AuthoredResourceResolution;
-}
-
-export interface AuthoredLinkGroup<E> { entries: E[]; completeness: AuthoredLinkCompleteness; invalidCount: number; diagnostics: AuthoredLinkDiagnostic[] }
-
-export type AuthoredLinksSnapshot =
-  | { kind: "ready"; ownerId: string; ownerTextDigest: string; outlinks: AuthoredLinkGroup<AuthoredOutlink>; resources: AuthoredLinkGroup<AuthoredResourceLink> }
-  | { kind: "owner-unavailable"; ownerId: string; reason: "missing" | "deleted" }
-  | { kind: "source-too-large"; ownerId: string; maximumUtf16Units: number };
-
-/** What `resources.describe` sends that the door reads: the Resource, its Source and what is stored. */
+/**
+ * What `resources.describe` sends that the door reads: the Resource, its Source and what is stored. A reader's view of
+ * the host's `ResourceDescription`, held to it (`Reads`): a field the door reads that the host stops sending, or sends
+ * as something else, fails the check.
+ */
 export interface ResourceDescription {
-  resource: { id: string; provider: string; mediaType: string | null; address: Record<string, unknown> & { kind: string }; createdAt: string; updatedAt: string };
-  source: { id: string; name: string; provider: string; policy?: { deniedCapabilities?: string[] } };
+  resource: { id: string; provider: string; mediaType: string | null; address: { readonly kind: string; readonly [key: string]: unknown }; createdAt: string; updatedAt: string };
+  source: { id: string; name: string; provider: string; policy?: { deniedCapabilities?: readonly string[] } };
   filesystem?: { text: string; capturedAt: string; contentHash?: string } | null;
   /** The file's folder was made again and its Source re-bound to it: said to the first reader after (PIE-853). */
   filesystemNotice?: string;
@@ -73,13 +37,15 @@ export interface ResourceDescription {
   pdf?: unknown;
   web?: { markdown: string; sourceSnapshot?: { fetchedAt: string | null }; representation?: { contentHash: string } } | null;
   webError?: string;
-  remoteEntity?: { title: string; markdown: string; externalUrl: string; metadata: Record<string, string | string[] | null>; sourceSnapshot?: { fetchedAt: string } } | null;
+  remoteEntity?: { title: string; markdown: string; externalUrl: string; metadata: Readonly<Record<string, string | readonly string[] | null>>; sourceSnapshot?: { fetchedAt: string } } | null;
   remoteError?: string;
   computed?: { markdown: string; derivedAt: string } | null;
   /** What the service allows for this Resource here: `refresh.status` is `unavailable` when it won't fetch it. */
   capabilities?: { refresh?: { status: string; reason?: string } };
 }
-
+export type ResourceDescriptionRead = Reads<ResourceDescription, import("@ep0ch/outliner/wire").ResourceDescription>;
+/** What an Outlink's or Resource's target block is (the service's `linkTargetFacets`): for Kind, Stage and Sort. */
+export type AuthoredTargetFacets = import("@ep0ch/outliner/wire").LinkTargetFacets;
 
 /** Something is stored for the Resource to show: a file's text, a fetched page, a ticket, a computed document. */
 export function resourceStored(d: ResourceDescription): boolean {
@@ -135,7 +101,7 @@ function cut(text: string): { text: string; note: string } {
 function addressLabel(a: ResourceDescription["resource"]["address"]): string {
   const v = a.path ?? a.url ?? a.key ?? a.identifier ?? a.uri;
   if (typeof v === "string") return v;
-  if (a.kind === "github") return `${a.entity} #${a.number}`;
+  if (a.kind === "github") return `${String(a.entity)} #${String(a.number)}`;
   return a.kind;
 }
 
@@ -296,7 +262,7 @@ export function resourceWords(l: AuthoredResourceLink): { text: string; context:
 }
 
 /** A group's dim state, as the Tree's header says it: its count's extras (invalid, limited, diagnostics). */
-export function groupNote(g: AuthoredLinkGroup<unknown>): string {
+export function groupNote(g: AuthoredLinkGroup<AuthoredOutlink | AuthoredResourceLink>): string {
   const parts: string[] = [];
   if (g.invalidCount > 0) parts.push(`${g.invalidCount} invalid reference${g.invalidCount === 1 ? "" : "s"}`);
   if (g.completeness.kind === "limited") parts.push("results limited");
@@ -305,7 +271,7 @@ export function groupNote(g: AuthoredLinkGroup<unknown>): string {
 }
 
 /** Whether an Outlinks or Resources group is shown: the Tree hides one with nothing to say (Backlinks always shows). */
-export const groupHasSomething = (g: AuthoredLinkGroup<unknown>) => g.entries.length > 0 || g.invalidCount > 0 || g.diagnostics.length > 0 || g.completeness.kind === "limited";
+export const groupHasSomething = (g: AuthoredLinkGroup<AuthoredOutlink | AuthoredResourceLink>) => g.entries.length > 0 || g.invalidCount > 0 || g.diagnostics.length > 0 || g.completeness.kind === "limited";
 
 /** Why a snapshot has no groups (the owner is gone or too long), or null. */
 export function snapshotProblem(s: AuthoredLinksSnapshot): string | null {

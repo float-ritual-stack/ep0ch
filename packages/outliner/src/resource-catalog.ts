@@ -97,6 +97,7 @@ import {
   EXTENSION_PROVIDER_PATTERN,
   providerLabel,
 } from "./resources";
+import { BLOCK_ID_SOURCE } from "@ep0ch/outline-core/addressable-resource";
 
 interface SourceRow {
   id: string;
@@ -1179,9 +1180,7 @@ export class ResourceCatalog {
   }
 
   resolveComputedHandler(reference: string): ComputedHandlerResolution | null {
-    const match =
-      /^producer:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i
-        .exec(reference);
+    const match = new RegExp(`^producer:(${BLOCK_ID_SOURCE})$`, "i").exec(reference);
     if (!match?.[1]) return null;
     const invocationId = normalizeResourceId(match[1], "Computed invocation ID");
     return this.database.transaction(() => {

@@ -34,7 +34,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
   const B = () => BV.view(b);
   const create = (parentId: string | null, text: string) => sock.request("create", { parentId, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
-  const props = async (id: string) => (await current(id)).properties.map((p: any) => `${p.key}=${p.value}`);
+  const props = async (id: string) => (await current(id))!.properties.map!((p: any) => `${p.key}=${p.value}`);
   const laneIndex = (name: string) => B().lanes.findIndex((l: any) => l.name === name);
   const laneIds = (name: string): string[] => (B().lanes[laneIndex(name)].items ?? []).map((m: Msg) => m.id);
   const press = (k: Key) => b.key(k, B().ctx);
@@ -107,8 +107,8 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     await settled();
     expect(await props(cards.one.id)).toEqual(["work-stage=doing", "track=door"]);
     const now = await current(cards.one.id);
-    expect(now.text).toBe("Card one [work-stage::doing] [track::door]\nA simple card.");
-    expect(now.revision).toBe(cards.one.revision + 1);
+    expect(now!.text).toBe("Card one [work-stage::doing] [track::door]\nA simple card.");
+    expect(now!.revision).toBe(cards.one.revision + 1);
     expect(selected()).toEqual({ lane: "Doing", id: cards.one.id });
     expect(laneIds("Queued")).not.toContain(cards.one.id);
     // Not done (`not work-stage=done`) still lists it, and the flash says so.
@@ -134,10 +134,10 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
 
     // Card one already has track=door: only work-stage changes (one token replaced, nothing appended).
     await select("Doing", cards.one.id);
-    const before = (await current(cards.one.id)).text;
+    const before = (await current(cards.one.id))!.text;
     pick("Review");
     await settled();
-    expect((await current(cards.one.id)).text).toBe(before.replace("[work-stage::doing]", "[work-stage::review]"));
+    expect((await current(cards.one.id))!.text).toBe(before.replace("[work-stage::doing]", "[work-stage::review]"));
     expect(flashes.at(-1)).toBe(`moved to Review · work-stage doing -> review${grammar() ? " · still in Not done too" : ""}`);
 
     // Card three has no track: it is appended beside its metadata, where the service reads it as a property.
@@ -153,7 +153,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     await select("Queued", cards.four.id);
     pick("Done");
     await settled();
-    expect((await current(cards.four.id)).text).toBe("Card four `[x::y]` #tagged [work-stage::done]\n\nSee [work-stage::prose-mention] in the body.\n```\n[work-stage::in-fence]\n```");
+    expect((await current(cards.four.id))!.text).toBe("Card four `[x::y]` #tagged [work-stage::done]\n\nSee [work-stage::prose-mention] in the body.\n```\n[work-stage::in-fence]\n```");
     expect(await props(cards.four.id)).toEqual(["tag=tagged", "work-stage=done"]);
     expect(selected()).toEqual({ lane: "Done", id: cards.four.id });
   });
@@ -186,32 +186,32 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
       ...Object.fromEntries(["Newest", "First five"].map(n => [n, `can't move to ${n}: ${n} is invalid: Virtual branch query property must appear exactly once; found 0`])),
     });
     const after = await current(cards.stale.id);
-    expect(after.revision).toBe(before.revision);
-    expect(after.text).toBe(before.text);
+    expect(after!.revision).toBe(before!.revision);
+    expect(after!.text).toBe(before!.text);
 
     // A card carrying two work-stage values is in both lanes; the door won't guess which to change.
     await select("Queued", cards.dup.id);
     pick("Done");
     await settled();
     expect(flashes.at(-1)).toContain("the note has 2 work-stage:: values (queued, doing)");
-    expect((await current(cards.dup.id)).revision).toBe(cards.dup.revision);
+    expect((await current(cards.dup.id))!.revision).toBe(cards.dup.revision);
   });
 
   test("a stale card is refused: someone else changed it after the board loaded", async () => {
     await select("Queued", cards.stale.id);
     const shown = B().lanes[B().lane].items[B().lanes[B().lane].sel] as Msg;
-    await other.request("update", { blockId: cards.stale.id, text: "Card stale [work-stage::queued]\nChanged by another writer.", expectedRevision: shown.revision, mutation: { author: "agent", actorId: "test-other-writer" } });
+    await other.request("update", { blockId: cards.stale.id, text: "Card stale [work-stage::queued]\nChanged by another writer.", expectedRevision: shown.revision!, mutation: { author: "agent", actorId: "test-other-writer" } });
     pick("Done");
     await settled();
     expect(flashes.at(-1)).toBe(`not moved: the card changed since the board loaded (revision ${shown.revision} -> ${shown.revision! + 1})`);
-    expect((await current(cards.stale.id)).text).toBe("Card stale [work-stage::queued]\nChanged by another writer.");
+    expect((await current(cards.stale.id))!.text).toBe("Card stale [work-stage::queued]\nChanged by another writer.");
     expect(selected()).toEqual({ lane: "Queued", id: cards.stale.id });
 
     // The service's own check, for a write that races past the door's: properties.patch at an old revision.
     const now = await current(cards.stale.id);
-    const err = await sock.patchProperties(cards.stale.id, now.revision - 1, [{ op: "replace", ordinal: 0, value: "done" }]).catch(e => e);
+    const err = await sock.patchProperties(cards.stale.id, now!.revision - 1, [{ op: "replace", ordinal: 0, value: "done" }]).catch(e => e);
     expect(err).toBeInstanceOf(EditConflict);
-    expect((await current(cards.stale.id)).revision).toBe(now.revision);
+    expect((await current(cards.stale.id))!.revision).toBe(now!.revision);
   });
 
   test("a card open as a draft isn't moved under it; after the edit closes it moves", async () => {
@@ -229,7 +229,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     ch("L"); ch("H");
     await settled();
     expect(flashes.at(-1)).toContain("not moved: it's open for editing with unsaved changes · ^S save · esc twice puts it aside");
-    expect((await current(cards.draft.id)).revision).toBe(cards.draft.revision);
+    expect((await current(cards.draft.id))!.revision).toBe(cards.draft.revision);
     // Close the edit (esc twice puts it aside), then the move goes through.
     // Coming back to it (focus moved away), e enters it again before its keys reach it (PIE-411).
     BV.at(b, `detail${B().details.findIndex((d: any) => d.editing)}`);

@@ -20,6 +20,7 @@ import { certaintyOf, readSearchAnswers, searchRequest, SEARCH_THRESHOLDS, type 
 import { deepCandidates } from "./search-deep";
 import type { SearchPick } from "./search-records";
 import type { Block, GotoSearchCollection, GotoSearchMatch, VisibleBlockCollection } from "./types";
+import { BLOCK_ID_SOURCE } from "@ep0ch/outline-core/addressable-resource";
 
 export const EVAL_EXPERIMENT = "search-eval";
 const EVAL: RecordWho = { author: "agent", provenance: { actorId: "jev/search-eval" } };
@@ -43,7 +44,7 @@ export interface EvalCase {
 
 // ── Harvest ────────────────────────────────────────────────────────────────
 
-const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+const UUID = new RegExp(BLOCK_ID_SOURCE, "gi");
 /** A read this many tool calls after a search still counts as what the search was for. */
 const FOLLOW = 8;
 const OPENS = /(?:outline_read|outline_edit|outline_patch|outline_comment|door_open|__show|outline_set_property|outline_move)$/;

@@ -1061,7 +1061,7 @@ export const SECTIONS: Section[] = [
       const hub = new ReaderPane(), page = new ReaderPane();
       const d = stageDesk({ title: "showcase · extension pages", panes: [hub, page], layout: ([a, b]) => row(0.5, a!, b!) });
       show(ctx => void (async () => {
-        const l = extensionList() ?? await ctx.board.listExtensions().catch(() => null);
+        const l = extensionList() ?? await ctx.board.request("extensions.list", {}).catch(() => null);
         const [h, p] = await Promise.all([l?.hub ? ctx.board.get(l.hub) : null, l?.pages?.notify ? ctx.board.get(l.pages.notify) : null]);
         if (h) hub.show(h, d);
         if (p) page.show(p, d);
@@ -1080,7 +1080,7 @@ export const SECTIONS: Section[] = [
       const page = new ReaderPane();
       const d = stageDesk({ title: "showcase · extension settings", panes: [page] });
       show(ctx => void (async () => {
-        const l = extensionList() ?? await ctx.board.listExtensions().catch(() => null);
+        const l = extensionList() ?? await ctx.board.request("extensions.list", {}).catch(() => null);
         const p = l?.pages?.tidy ? await ctx.board.get(l.pages.tidy) : null;
         if (p) page.show(p, d);
         ctx.redraw();

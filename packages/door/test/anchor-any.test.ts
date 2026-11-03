@@ -13,7 +13,7 @@ describe.skipIf(!outliner)("a sticky pad embeds one figure of a long note", () =
   let board: SocketBoard;
   beforeAll(async () => { await scratch.start(); board = new SocketBoard(scratch.sock); await board.info(); }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
-  const create = (text: string, parentId: string | null = null) => board.request<{ id: string }>("create", { parentId, text, author: "user" });
+  const create = (text: string, parentId: string | null = null) => board.request("create", { parentId, text, author: "user" });
 
   test("![[page^anchor]] and !((id^anchor)) draw only the figure, whose parent:this reads the note it lives in", async () => {
     const plan = await create([

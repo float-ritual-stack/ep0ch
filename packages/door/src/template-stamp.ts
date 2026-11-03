@@ -76,7 +76,7 @@ export const TEMPLATE_ACTIONS = actionSet<TemplateOn>()("template", {
       const withProps = async (template: string) => {
         if (actor.kind !== "user") return stamp(template, given);
         let declared: PropsSpec;
-        try { declared = (await ctx.board.templateProps(template)).spec; } catch (e) { throw new ActionRefused(`not stamped: ${e instanceof Error ? e.message : String(e)}`); }
+        try { declared = (await ctx.board.request("template.props", { of: template })).spec; } catch (e) { throw new ActionRefused(`not stamped: ${e instanceof Error ? e.message : String(e)}`); }
         const questions = asked(declared, given);
         if (!questions.length) return stamp(template, given);
         return askInBar(ctx as never, `Stamp ${template}`, questions, given, actor, answers => stamp(template, { ...given, ...answers }));

@@ -154,7 +154,7 @@ export class EchoAreas implements Pane {
     const out = [{ outline: this.own, board: ctx.board }];
     if (!own) return out;
     let names: string[] = [];
-    try { names = (await hostRequest<{ outlines: { name: string; archived?: boolean }[] }>(ctx.board.path, "outlines.list", {}, 4000)).outlines.filter(o => !o.archived).map(o => o.name); } catch { return out; }
+    try { names = (await hostRequest(ctx.board.path, "outlines.list", {}, 4000)).outlines.map(o => o.name); } catch { return out; }
     const wanted = names.filter(n => n !== own).slice(0, MAX_OUTLINES - 1);
     // An outline the host no longer serves (archived, deleted) lets its board go.
     for (const [name, b] of this.boards) if (!wanted.includes(name)) { this.unwatches.get(name)?.(); this.unwatches.delete(name); this.boards.delete(name); }
@@ -578,13 +578,13 @@ export class EchoReader extends ReaderPane {
     if (fresh && actor.kind === "user") {
       m.fresh = false;
       if (area.fresh) area.fresh--;
-      void board?.markRead(shown).catch(e => {
+      void board?.request("blocks.markRead", { blocks: shown }).catch(e => {
         m.fresh = true;
         if (area.fresh !== null) area.fresh++;
         desk.ctx.flash(`couldn't mark ${subject(m.msg)} read: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e));
         desk.redraw();
       });
-    } else if (actor.kind === "agent") void board?.markRead(shown, actor.id).catch(() => {});
+    } else if (actor.kind === "agent") void board?.request("blocks.markRead", { blocks: shown, ...(actor.id ? { reader: actor.id } : {}) }).catch(() => {});
     // The list beside lights it, when it lists the same area.
     const ms = this.net?.messages;
     if (ms?.area?.key === area.key && ms.items === list) ms.at = i;

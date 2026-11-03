@@ -4,10 +4,10 @@
 import { BUILTIN_COMPONENT_SCHEMAS, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { outlineList } from "./outline-lists";
 
-type SchemaBoard = { componentSchemas?: () => Promise<{ schemas: ComponentSchema[]; problems: string[] }> };
+type SchemaBoard = Partial<Pick<import("./socket").SocketBoard, "request">>;
 
 const SCHEMAS = outlineList<ComponentSchema, readonly ComponentSchema[]>(
-  (b: SchemaBoard) => (typeof b.componentSchemas === "function" ? () => b.componentSchemas!().then(r => ({ items: r.schemas, problems: r.problems })) : undefined),
+  (b: SchemaBoard) => (typeof b.request === "function" ? () => b.request!("components.schemas", {}).then(r => ({ items: r.schemas, problems: r.problems })) : undefined),
   items => items, BUILTIN_COMPONENT_SCHEMAS,
 );
 

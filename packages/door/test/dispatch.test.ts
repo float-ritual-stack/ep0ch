@@ -379,7 +379,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     process.env.EP0CH_STATE = join(scratch.root, "door");
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+    const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
     const hub = await create(null, "Router board");
     await create(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
     await create(hub.id, "Doing [type::virtual-branch] [query::stage=doing]");

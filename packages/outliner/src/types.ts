@@ -259,6 +259,7 @@ export interface BookmarkStatus {
   root: Block;
   targetBlockId: string;
   record: Block | null;
+  skipped?: { id: string; reason: string }[]; // records under the root that don't read, left out: each by id, with why
 }
 
 export type BookmarkResolution =
@@ -798,7 +799,6 @@ export interface AnnotationLifecycleInput {
   readonly lifecycle: AnnotationLifecycle;
   readonly promotedBlockId?: string;
 }
-
 
 export type AttentionTone = "current" | "info" | "warning" | "error" | "match" | "dim";
 export type AttentionRole = "current" | "supporting";
@@ -1587,7 +1587,7 @@ export interface ProjectedVisibleBlock extends ProjectedBlock {
   deletedDescendantCount?: number;
 }
 
-export interface ProjectedBlockCollection extends QuestionAnswerFields {
+export interface ProjectedBlockCollection extends QuestionAnswerFields, Pick<VisibleBlockCollection, "machineryHidden" | "machineryLeftOut"> {
   more?: boolean; nextOffset?: number;
   blocks: ProjectedVisibleBlock[];
   completeness: BlockCollectionCompleteness;

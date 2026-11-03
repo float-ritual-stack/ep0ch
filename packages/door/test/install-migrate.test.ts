@@ -250,8 +250,8 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     fakeSystemctl("start", "outliner-host.service");
     for (let i = 0; !(await hostLive(sock, 1000)); i++) { if (i > 100) throw new Error("the scratch host didn't come back"); await Bun.sleep(100); }
     const unfinished = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install" } });
-    expect(unfinished.blocks[0].text).toContain(`From: ${oldHead}`);
-    expect(unfinished.blocks[0].text).toContain("Local: running");
+    expect(unfinished.blocks[0]!.text).toContain(`From: ${oldHead}`);
+    expect(unfinished.blocks[0]!.text).toContain("Local: running");
     expect(first.out).toContain("deploy record could not be saved");
     const refused = await ep0ch("find", "leeks", "--ws", "compost");
     expect(refused.code).not.toBe(0);
@@ -285,37 +285,37 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect([version("allotment"), version("compost")]).toEqual([M, M]);
     expect(version("seed-bank")).toBe(M);
     const seeds = await hostRequest(sock, "blocks.query", { outline: "seed-bank", query: { where: "rule-name=bay-badges" } });
-    expect(seeds.blocks[0].text).toContain("Bay badges");
+    expect(seeds.blocks[0]!.text).toContain("Bay badges");
     // The host opens both on the new code (a ping opens the outline it names, and it refuses one at another schema).
     for (const outline of ["allotment", "compost"]) expect(await hostRequest(sock, "ping", { outline })).toMatchObject({ protocolVersion: expect.any(Number) });
     const repaired = await hostRequest(sock, "blocks.query", { outline: "compost", query: { where: "type=deploy machine=install" } });
-    expect(repaired.blocks.some((b: { text: string }) => b.text.includes("✓ workstation"))).toBe(true);
+    expect(repaired.blocks.some(b => "text" in b && b.text!.includes("✓ workstation"))).toBe(true);
     env.EP0CH_WS = "allotment";
     // A second install has nothing to rewrite, and leaves the host serving.
     const again = await ep0ch("install", "--apply", "--json");
     expect(again.code).toBe(0);
     expect(JSON.parse(again.out).steps.find((s: { id: string }) => s.id === "sweep").done).toEqual(["nothing to rewrite"]);
     const records = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" } } });
-    const savedStart = await hostRequest(sock, "get", { outline: "allotment", blockId: unfinished.blocks[0].id });
-    expect(savedStart.text).toBe(unfinished.blocks[0].text);
+    const savedStart = await hostRequest(sock, "get", { outline: "allotment", blockId: unfinished.blocks[0]!.id });
+    expect(savedStart.text).toBe(unfinished.blocks[0]!.text!);
     const record = records.blocks[0];
-    expect(record.author).toBe("agent");
-    expect(record.text).toContain("wren");
-    expect(record.text).toContain("garden-session");
-    expect(record.text).toContain("Machine: garden-host");
-    expect(record.text).toContain("When: 20");
-    expect(record.text).toContain(`From: ${newHead}`);
-    expect(record.text).toContain(`To: ${newHead}`);
-    expect(record.text).toContain("Protocol:");
-    expect(record.text).toContain("! away");
-    expect(record.text).toContain("✓ workstation");
-    const revisions = await hostRequest(sock, "block.revisions", { outline: "allotment", blockId: record.id });
+    expect(record!.author).toBe("agent");
+    expect(record!.text).toContain("wren");
+    expect(record!.text).toContain("garden-session");
+    expect(record!.text).toContain("Machine: garden-host");
+    expect(record!.text).toContain("When: 20");
+    expect(record!.text).toContain(`From: ${newHead}`);
+    expect(record!.text).toContain(`To: ${newHead}`);
+    expect(record!.text).toContain("Protocol:");
+    expect(record!.text).toContain("! away");
+    expect(record!.text).toContain("✓ workstation");
+    const revisions = await hostRequest(sock, "block.revisions", { outline: "allotment", blockId: record!.id }) as import("@ep0ch/outline-core/protocol").BlockRevisions;
     expect(revisions.revisions[0]).toMatchObject({ author: "agent", actorId: "wren" });
-    const recordsPage = await hostRequest(sock, "get", { outline: "allotment", blockId: record.parentId });
+    const recordsPage = await hostRequest(sock, "get", { outline: "allotment", blockId: record!.parentId! });
     expect(recordsPage.text).toContain("[system-view::deploys]");
     const everyday = await ep0ch("find", "--query", "type=deploy", "--json");
     expect(everyday.code).toBe(0);
-    expect(everyday.out).not.toContain(record.id);
+    expect(everyday.out).not.toContain(record!.id);
     // An unreachable leg is reported, then the next client really installs the new checkout.
     const clients = r2.steps.find(s => s.id === "clients")!;
     expect(clients.done!.join("\n")).toContain("! away");
@@ -371,12 +371,12 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     writeFileSync(join(home, ".ep0ch/config.toml"), 'ws = "allotment"\nagent = "robin"\n');
     expect((await ep0ch("install", "--apply", "--json")).code).toBe(0);
     let latest = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
-    expect(latest.blocks[0].text).toContain("Who: robin");
+    expect(latest.blocks[0]!.text).toContain("Who: robin");
     writeFileSync(join(home, ".ep0ch/config.toml"), 'ws = "allotment"\n');
     expect((await ep0ch("install", "--apply", "--json")).code).toBe(0);
     latest = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
-    expect(latest.blocks[0].author).toBe("user");
-    expect(latest.blocks[0].text).toContain("Who: person");
+    expect(latest.blocks[0]!.author).toBe("user");
+    expect(latest.blocks[0]!.text).toContain("Who: person");
 
     // A newer host protocol reaches a laptop that can only dial out; the real installer hands over its remote session.
     const { createServer } = await import("node:net");
@@ -438,14 +438,14 @@ process.once("SIGTERM",()=>{connector.stop();process.exit(0)});
       linkedClient = Bun.spawn([bun, join(root, "linked-client.ts")], { cwd: clientHome, env: clientEnv, stdout: "ignore", stderr: Bun.file(join(root, "linked-client-again.log")) });
       await until(() => { try { return JSON.parse(readFileSync(join(outlines, ".remote/travel.link.json"), "utf8")).up; } catch { return false; } }, "updated connector comes back");
       const record = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install host=travel", sort: { field: "created", direction: "desc" }, limit: 1 } });
-      expect(record.blocks[0].text).toContain(`travel: installed ${linkedHead}`);
-      expect(record.blocks[0].text).toContain("session was handed over");
+      expect(record.blocks[0]!.text).toContain(`travel: installed ${linkedHead}`);
+      expect(record.blocks[0]!.text).toContain("session was handed over");
       const repeated = await ep0ch("install", "--apply", "--json");
       expect(repeated.code).toBe(0);
       const repeatedRecord = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install host=travel", sort: { field: "created", direction: "desc" }, limit: 1 } });
-      expect(repeatedRecord.blocks[0].id).not.toBe(record.blocks[0].id);
-      expect(repeatedRecord.blocks[0].text).toContain(`travel: installed ${linkedHead}`);
-      expect(repeatedRecord.blocks[0].text).not.toContain("install pending");
+      expect(repeatedRecord.blocks[0]!.id).not.toBe(record.blocks[0]!.id);
+      expect(repeatedRecord.blocks[0]!.text).toContain(`travel: installed ${linkedHead}`);
+      expect(repeatedRecord.blocks[0]!.text).not.toContain("install pending");
     } finally {
       roamingClient.kill(); await roamingClient.exited;
       linkedClient.kill(); await linkedClient.exited;

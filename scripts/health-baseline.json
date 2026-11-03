@@ -1,5 +1,5 @@
 {
-  "revision": "61619af8b33695024cfae9d910fbcbf80b84bc63",
+  "revision": "8130788a35e997f9d73f542b74bdee49bd4bbe57",
   "patterns": {
     "width-length": {
       "count": 241,
@@ -20,7 +20,7 @@
         "packages/door/src/bar/bar.ts:e45608fe72bae50e",
         "packages/door/src/cells.ts:a457167c22980049",
         "packages/door/src/comment.ts:b1436579e409441f",
-        "packages/door/src/components.ts:3e45a08d78e662fd",
+        "packages/door/src/components.ts:c945c9337e055906",
         "packages/door/src/components.ts:3f53ddd8095c2418",
         "packages/door/src/components.ts:3f53ddd8095c2418",
         "packages/door/src/control.ts:cb6b649e983363c2",
@@ -381,9 +381,9 @@
     "packages/outliner/src/detail-pi-preview.ts": 2420,
     "packages/outliner/src/detail-pi.ts": 2042,
     "packages/outliner/src/publish.ts": 3381,
-    "packages/outliner/src/resource-catalog.ts": 4937,
+    "packages/outliner/src/resource-catalog.ts": 4936,
     "packages/outliner/src/server.ts": 4441,
-    "packages/outliner/src/store.ts": 6485,
+    "packages/outliner/src/store.ts": 6483,
     "packages/outliner/src/tree-controller.ts": 3251,
     "packages/outliner/src/types.ts": 2910
   }

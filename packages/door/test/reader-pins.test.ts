@@ -60,7 +60,7 @@ describe.skipIf(!outliner)("a reader's pin, against a scratch outline", () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const mk = async (text: string) => (await board.get((await board.request<any>("create", { parentId: null, text, author: "agent" })).id))!;
+    const mk = async (text: string) => (await board.get((await board.request("create", { parentId: null, text, author: "agent" })).id))!;
     notes.shed = await mk("Mend the shed roof\nBuy tacks and felt.");
     notes.beans = await mk("Sow the beans\nTwo to a hole.");
     notes.now = await mk("Garden, right now [page::garden-now]\nThe beans are in; the shed waits for felt.");

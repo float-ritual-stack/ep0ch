@@ -83,7 +83,7 @@ export function resolveBlockFocus(
   if (!Number.isInteger(limit) || limit <= 0) throw new Error("Focus match limit must be positive");
   const allMatches = rankAllBlockFocusMatches(blocks, query);
   if (allMatches.length === 0) return { kind: "none", matches: [] };
-  const [first, second] = allMatches;
+  const first = allMatches[0]!, second = allMatches[1];
   const matches = allMatches.slice(0, limit);
   // A typo, a missing word or a few words is a guess: never focused without asking, even alone.
   const guess = first.kind === "typo-terms" || first.kind === "partial-terms" || first.kind === "some-terms";

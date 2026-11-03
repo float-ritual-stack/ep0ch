@@ -50,7 +50,7 @@ export abstract class ServiceList<Row, Board = unknown> extends OutlineStore {
   async seed(board: Board): Promise<void> {
     this.board = board;
     const w = this.watched(), source = board as unknown as WatchSource & { watched?: Watched };
-    if (w && typeof source?.request === "function") {
+    if (w && typeof (board as { request?: unknown } | undefined)?.request === "function") {
       const holder = watchedOn(source);
       this.unlisten?.();
       this.unlisten = holder.listen(() => this.take());

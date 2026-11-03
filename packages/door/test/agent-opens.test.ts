@@ -23,7 +23,7 @@ describe.skipIf(!outliner)("an agent's open on the person's desk (PIE-1444)", ()
   beforeAll(async () => {
     board = new SocketBoard(await scratch.start());
     await board.info();
-    for (const t of ["Seed order [job::task] [plot::beds]", "Shed audit [job::task] [plot::shed]", "Standup [job::meeting]"]) await board.request<any>("create", { parentId: null, text: t, author: "agent" });
+    for (const t of ["Seed order [job::task] [plot::beds]", "Shed audit [job::task] [plot::shed]", "Standup [job::meeting]"]) await board.request("create", { parentId: null, text: t, author: "agent" });
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
   beforeEach(() => {

@@ -1,3 +1,4 @@
+import { proposed } from "./wire";
 // PIE-651: a screen mounted in another, against a scratch outline. `tile.open kind=screen` mounts the board (its own
 // spec, live) or a part of it on the desk; the mount's layout is its own, saved with the desk's and back after a
 // restart, never written to the full board's file; a part's opens land where the mount's do; `screen.mount` on a full
@@ -111,14 +112,14 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     const focus = get().focus;
     const before = get().tiles.map(t => t.id);
     for (const op of ["dismiss", "apply"]) {
-      const note = await board.request<any>("create", { parentId: null, text: "Seed plan\nPlant beans." });
-      const proposal = await board.request<any>("draft.patch", { blockId: note.id, revision: note.revision,
+      const note = await board.request("create", { parentId: null, text: "Seed plan\nPlant beans." });
+      const proposal = await board.request("draft.patch", { blockId: note.id, revision: note.revision,
         patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: true,
         mutation: { author: "agent", actorId: AS } });
-      await expect(act(`proposal.${op}`, { id: proposal.proposalId }, "missing-898")).rejects.toThrow("no tile missing-898");
-      expect(prop((await board.get(proposal.proposalId))!, "proposal-status")).toBe("open");
-      expect(await act(`proposal.${op}`, { id: proposal.proposalId })).toMatchObject({ outcome: op === "apply" ? "applied" : "dismissed" });
-      expect(prop((await board.get(proposal.proposalId))!, "proposal-status")).toBe(op === "apply" ? "applied" : "dismissed");
+      await expect(act(`proposal.${op}`, { id: proposed(proposal).proposalId }, "missing-898")).rejects.toThrow("no tile missing-898");
+      expect(prop((await board.get(proposed(proposal).proposalId))!, "proposal-status")).toBe("open");
+      expect(await act(`proposal.${op}`, { id: proposed(proposal).proposalId })).toMatchObject({ outcome: op === "apply" ? "applied" : "dismissed" });
+      expect(prop((await board.get(proposed(proposal).proposalId))!, "proposal-status")).toBe(op === "apply" ? "applied" : "dismissed");
       expect(get().focus).toBe(focus);
     }
     expect(get().tiles.map(t => t.id)).toEqual(before);

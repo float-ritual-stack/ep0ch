@@ -1,3 +1,4 @@
+import { proposed } from "./wire";
 // PIE-509: what the door drew wrong in a real pane on a realistically shaped (fictional) outline. A sparkline and
 // a typed line's cursor use glyphs the kitty+crt font (CP437) has; a board lane's header names its view as written
 // and its cards show the view's [summary-properties::]; a reader showing a note that goes to the Trash (a
@@ -43,7 +44,7 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard, agent: SocketBoard, app: App, hub: any;
   let key: (k: Key) => void = () => {};
-  const make = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "user" });
+  const make = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "user" });
   const screen = () => (app as any).stack.at(-1) as any;
   const lines = () => (screen().render((screen() as any).ctx ?? app).lines as string[]).map(visible);
 
@@ -103,13 +104,13 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
     const note = await make(null, "Compost notes\nThe bin  is   full.\nTurn it twice.");
     await board.update(note.id, "Compost notes\nThe bin  is   full. Empty it Friday.\nTurn it twice a week.", note.revision);
     const observed = "The bin  is   full.", start = note.text.indexOf(observed);
-    const r = await agent.request<any>("draft.patch", { blockId: note.id, revision: note.revision, propose: true, mutation: { author: "agent", actorId: "tidy" }, patches: [{ observed, replacement: "The bin is full.", range: { start, end: start + observed.length }, unit: "utf16" }] });
+    const r = await agent.request("draft.patch", { blockId: note.id, revision: note.revision, propose: true, mutation: { author: "agent", actorId: "tidy" }, patches: [{ observed, replacement: "The bin is full.", range: { start, end: start + observed.length }, unit: "utf16" }] });
     expect(r.outcome).toBe("proposed");
     const desk = new Desk();
     app.push(desk);
-    await app.act({ action: "open", args: { id: r.proposalId }, as: "walker-509" });
+    await app.act({ action: "open", args: { id: proposed(r).proposalId }, as: "walker-509" });
     await until(() => lines().join("\n").includes("[apply] [dismiss]"), "the proposal's controls", 10_000);
-    await agent.trash(r.proposalId, { kind: "agent", id: "tidy" });
+    await agent.trash(proposed(r).proposalId, { kind: "agent", id: "tidy" });
     await until(() => lines().join("\n").includes("in the Trash"), "the reader saying the proposal is in the Trash", 10_000);
     expect(lines().join("\n")).not.toContain("[apply] [dismiss]");
     app.pop();

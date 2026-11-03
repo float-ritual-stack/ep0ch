@@ -26,7 +26,7 @@ describe.skipIf(!outliner)("one wording for the typing tile (PIE-1428)", () => {
   beforeAll(async () => {
     board = new SocketBoard(await scratch.start());
     await board.info();
-    await board.request<any>("create", { parentId: null, text: "Kettle descaling: vinegar, then rinse twice", author: "agent" });
+    await board.request("create", { parentId: null, text: "Kettle descaling: vinegar, then rinse twice", author: "agent" });
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
   beforeEach(() => {

@@ -81,7 +81,7 @@ test.skipIf(!outliner)("a scratch host Bun ended at another test's timeout is st
   try {
     const board = new SocketBoard(await scratch.start());
     await board.info();
-    const made = await board.request<{ id: string }>("create", { text: "A note that outlives the host" });
+    const made = await board.request("create", { text: "A note that outlives the host" });
     // What Bun does at a timeout: a SIGTERM to the file's processes, which lands while the next test is starting.
     const old = scratch.pid!;
     process.kill(old, "SIGTERM");

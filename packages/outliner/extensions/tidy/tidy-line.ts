@@ -1,9 +1,9 @@
 // What @tidy does to one line, kept apart from tidy.ts (which reads its request from stdin) so the
 // service's `outliner patch-demo` uses the same rules instead of a copy. Fences are outline-core's (the bundle).
-import { blockReferenceOccurrences, codeFenceLines } from "./link-grammar.js";
+import { blockReferenceOccurrences, codeFenceLines, FRAGMENT_ID_SOURCE } from "./link-grammar.js";
 
 /** Page links, anchors, properties and code: tidying never goes inside one. Block references are the grammar's (below). */
-const PROTECTED = /\[\[[^\]\r\n]*\]\]|\[[A-Za-z][A-Za-z0-9_.-]*::[^\]\r\n]*\]|(?<=\s)\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$|`[^`\r\n]*`/g;
+const PROTECTED = new RegExp(String.raw`\[\[[^\]\r\n]*\]\]|\[[A-Za-z][A-Za-z0-9_.-]*::[^\]\r\n]*\]|(?<=\s)\^${FRAGMENT_ID_SOURCE}$|\x60[^\x60\r\n]*\x60`, "g");
 
 /** What tidying leaves as written in `text`, in order: PROTECTED's spans and every `((…))` (embeds' `!` too), label and all. */
 function protectedSpans(text: string): { start: number; end: number }[] {

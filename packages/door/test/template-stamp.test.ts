@@ -37,7 +37,7 @@ describe.skipIf(!outliner)("template.stamp through act (PIE-533 S4)", () => {
     app = new App(term(() => {}) as any, board, Date.now(), () => {});
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
-  const mk = (text: string, parentId: string | null = null) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (text: string, parentId: string | null = null) => board.request("create", { parentId, text, author: "agent" });
   const act = (args: Record<string, unknown>, as = "test-agent") => app.act({ action: "template.stamp", args, as }) as Promise<any>;
 
   test("an agent stamps today's daily note: {{now.date}} filled, the template's own chips gone, attributed, nothing of the person's moved", async () => {

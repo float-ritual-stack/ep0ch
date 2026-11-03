@@ -1,3 +1,4 @@
+import { changesOf } from "./wire";
 // PIE-1462: a person's press of a script is recorded as the person, with the script as how; an agent's press of the same
 // line stays the agent's. Pressed through the door's one `button.press`, read back from the note's revisions (what
 // `ep0ch revisions` prints) and the change feed; ctrl+z (`ext.undo`, which asks the service's `extensions.undo`) takes the person's press back. Made-up notes.
@@ -6,7 +7,7 @@ import { join } from "node:path";
 import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { App } from "../src/app";
 import { openScreen } from "../src/desk/screen-specs";
-import { SocketBoard, USER } from "../src/socket";
+import { SocketBoard, USER, requesterOf } from "../src/socket";
 import type { Key } from "../src/term";
 import { Scratch, outliner } from "./scratch";
 
@@ -23,7 +24,7 @@ describe.skipIf(!outliner)("who a pressed script's write is recorded as (PIE-146
     await board.info();
     app = new App({ info: size, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey(_f: (k: Key) => void) {}, onResize() {}, stop() {}, resume() {} }, board, Date.now(), () => {});
     board.subscribe(e => { app.event(e); const ended = (e as { ended?: { run: string } }).ended; if (ended) over.add(ended.run); });
-    await board.installExtension("lens");
+    await board.request("extensions.install", { extension: "lens", mutation: requesterOf(USER) });
     await app.loadExtensions();
     app.push(openScreen("desk")!);
   }, 60_000);
@@ -52,7 +53,7 @@ describe.skipIf(!outliner)("who a pressed script's write is recorded as (PIE-146
     expect(entry).toMatchObject({ author: "user" });
     expect(entry!.actorId).toBeUndefined();
     expect(revisionByline(entry!)).toBe("by you · via script");
-    const feed = (await board.request<any>("changes.since", { sequence: 0, limit: 500 })).changes as any[];
+    const feed = changesOf((await board.request("changes.since", { sequence: 0, limit: 500 }))).changes as any[];
     const change = feed.find(c => c.blockId === job.id && c.revision === before + 1);
     expect(change).toMatchObject({ actor: { author: "user" }, requestedBy: { author: "user" } });
 

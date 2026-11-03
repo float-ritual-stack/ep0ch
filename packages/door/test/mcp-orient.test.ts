@@ -61,9 +61,9 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
     board = new SocketBoard(sock);
     await board.info();
     // propose: reads, and a patch is always a proposal (the derived block this test needs).
-    await board.configureMcpAccess("propose");
+    await board.request("mcp.access.configure", { level: "propose" });
     const make = async (key: string, text: string, parentId: string | null = null) => {
-      const b = await board.request<{ id: string; revision: number }>("create", { parentId, text, author: "agent" });
+      const b = await board.request("create", { parentId, text, author: "agent" });
       notes[key] = { id: b.id, revision: b.revision };
       await Bun.sleep(8);
       return b;
@@ -77,7 +77,7 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
     await make("child-b", "Seed tray B\nNot yet.", notes.garden!.id);
     // Derived blocks of the lamp note: two comments, a delivery, and (below) a proposal.
     for (const [i, q] of ["brass fittings", "waxed cloth"].entries()) {
-      const at = (await board.request<{ text: string }>("get", { blockId: notes.lamp!.id })).text.indexOf(q);
+      const at = (await board.request("get", { blockId: notes.lamp!.id })).text.indexOf(q);
       derived.comments.push((await board.comment(`seed-${i}`, notes.lamp!.id, notes.lamp!.revision, `Is "${q}" still right?`, { quote: q, start: at })).id);
     }
     derived.reply = (await board.reply("seed-reply", derived.comments[1]!, "Yes, checked on Sunday.")).id;
@@ -206,7 +206,7 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
 
     test("a comment points at its note: its words and the span it is about, not a quoted copy", async () => {
       const lamp = (await call("outline_read", { ref: notes.lamp!.id })).json;
-      const text = (await board.request<{ text: string }>("get", { blockId: notes.lamp!.id })).text;
+      const text = (await board.request("get", { blockId: notes.lamp!.id })).text;
       const r = await call("outline_read", { ref: derived.comments[0]! });
       const start = text.indexOf("brass fittings");
       expect(r.json.record).toMatchObject({ kind: "comment", id: derived.comments[0], status: "open", target: `${notes.lamp!.id}@${lamp.revision}`, anchor: { start, end: start + "brass fittings".length }, body: 'Is "brass fittings" still right?' });
@@ -245,7 +245,7 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
       expect(f.json.matches[0]).toMatchObject({ id: notes.fresh!.id, unchanged: true });
 
       // The note changes: the same pair is now stale, and the full body comes back at the new revision.
-      const now = (await board.request<{ revision: number }>("get", { blockId: notes.fresh!.id })).revision;
+      const now = (await board.request("get", { blockId: notes.fresh!.id })).revision;
       await board.update(notes.fresh!.id, "Freshest note [rank::4]\nLast thing written, then edited.", now);
       const changed = await call("outline_read", { ref: notes.fresh!.id, seen: [pair] });
       expect(changed.json.unchanged).toBeUndefined();

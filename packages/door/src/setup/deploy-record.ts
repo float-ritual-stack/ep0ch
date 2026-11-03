@@ -3,7 +3,7 @@ import { sessionPersona } from "@ep0ch/outline-core/outline-location";
 import { configuredMachineName, hostMachineName } from "@ep0ch/outliner/machine-name";
 import { disk, resolveTarget } from "../discover";
 import { forwardTo } from "../machine";
-import { hostRequest } from "../socket";
+import { hostRequest, hostSend } from "../socket";
 import { writeRecord } from "@ep0ch/outliner/records";
 import { runningSessions } from "../session/place";
 import { defaultStateDir } from "../state";
@@ -19,7 +19,7 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
   if ("error" in target) throw new Error(target.error);
   const socket = "unnamed" in target ? f.host.socket : target.path;
   const outline = "unnamed" in target
-    ? (await hostRequest<{ defaultOutline?: string }>(socket, "outlines.list")).defaultOutline
+    ? (await hostRequest(socket, "outlines.list")).defaultOutline
     : target.outline;
   if (!("unnamed" in target) && target.machine) await forwardTo(target.machine, env);
   if (!outline) throw new Error("no outline named here or by the host; run install with EP0CH_WS=<served outline>");
@@ -30,7 +30,7 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
   const request = <T>(action: string, params: Record<string, unknown> = {}) => {
     // A schema refusal can be tried after restart; a lost create answer must never create twice.
     if (action === "create" || action === "template.stamp") creating();
-    return hostRequest<T>(socket, action, { outline, ...params });
+    return hostSend(socket, action, { outline, ...params }) as Promise<T>;
   };
   const machine = f.machineName?.chosen || configuredMachineName(env, f.host.folder) || hostMachineName();
   const heading = `Deploy ${when.toISOString()} on ${machine}`;
@@ -44,7 +44,7 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
   const who = { author: author as "agent" | "user", provenance };
   const append = async (previous?: string) => {
     const ping = f.host.running
-      ? await hostRequest<{ protocolVersion: number; grammarVersion: number }>(f.host.socket, "ping")
+      ? await hostRequest(f.host.socket, "ping")
       : undefined;
     const sessions = await runningSessions(env.EP0CH_STATE ?? defaultStateDir(env));
     return writeRecord(board, "deploy", {
@@ -82,7 +82,7 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
 export async function recordLinkInstall(deploy: LinkDeploy, machine: string, result: LinkInstallResult) {
   if (!deploy.record) return;
   const { socket, outline, id } = deploy.record;
-  await writeRecord({ request: <T>(action: string, params: Record<string, unknown> = {}) => hostRequest<T>(socket, action, { outline, ...params }) }, "deploy", {
+  await writeRecord({ request: <T>(action: string, params: Record<string, unknown> = {}) => hostSend(socket, action, { outline, ...params }) as Promise<T> }, "deploy", {
     sha: result.commit ?? deploy.sha, host: machine, previous: id,
     sessions: JSON.stringify(result.sessions), failed: [result.error, ...result.notDone].filter(Boolean).join("; ") || (result.code ? `exit ${result.code}` : "none"),
     details: linkInstallSummary(machine, result),

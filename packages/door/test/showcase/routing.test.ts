@@ -72,7 +72,7 @@ describe.skipIf(!outliner)("the showcase screen: notes that file themselves", ()
     // The Routing view at the root lists every rule, in the order they're tried.
     const view = (await board.roots()).find(r => prop(r, "page") === "routing")!;
     expect(view).toBeDefined();
-    const order = await board.request<{ blockIds: string[] }>("virtual.occurrences.order", { viewId: view.id });
+    const order = await board.request("virtual.occurrences.order", { viewId: view.id });
     const rules = (await board.children(routing.id)).filter(c => prop(c, "type") === "route").map(c => c.id);
     expect(rules).toHaveLength(2);
     for (const id of rules) expect(order.blockIds).toContain(id);

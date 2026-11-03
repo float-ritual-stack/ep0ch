@@ -12,7 +12,7 @@ import type { Desk } from "../../src/desk/desk";
 import { spanBg } from "../../src/surface/margin";
 import { MARGINALIA_FILE, type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
-import { SocketBoard, USER } from "../../src/socket";
+import { SocketBoard, USER, mutationFor } from "../../src/socket";
 import { subject } from "../../src/board";
 import { makeTile } from "../../src/desk/tiles";
 import type { ReaderPane } from "../../src/desk/panes";
@@ -79,7 +79,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     const onFile = await act(leaflet().name, { action: "ext.marginalia.highlight", quote: "Watch the thermometer, not the calendar." });
     expect(onFile.passage.subject).toBe(leaflet().showing.id);
     const resourceId = String(leaflet().showing.id).slice("resource:".length);
-    await waitFor(async () => (await board.request<any[]>("annotations.list", { query: { subject: { kind: "resource", resourceId }, includeResolved: true } })).some(t => t.properties?.kind?.[0] === "highlight"), "the leaflet's highlight", 5000);
+    await waitFor(async () => (await board.request("annotations.list", { query: { subject: { kind: "resource", resourceId }, includeResolved: true } })).some(t => t.properties?.kind?.[0] === "highlight"), "the leaflet's highlight", 5000);
     expect(readFileSync(MARGINALIA_FILE(), "utf8")).toBe(file);
     // The person: into the stage, a drag over words, a click on the toolbar's Highlight chip.
     press({ kind: "enter" });
@@ -314,7 +314,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     await until(() => /no TL;DR: no model is set up to write one · name one in .*config\.json/.test(cs()?.error ?? ""), "why, with the fix");
     expect((await oil()).tldr).toBeUndefined();
     // As it was: the seed's TL;DR back (the person's own, written), for the tests after.
-    await board.tldr((await oil()).id, USER, "Sewing machine oil on the hose reel, each spring.");
+    await board.request("annotations.tldr", { annotationId: (await oil()).id, body: "Sewing machine oil on the hose reel, each spring.", mutation: mutationFor(USER) });
     if (cs()) await stage().dispatch.press("comment.close", {}, "rota");
     await stage().dispatch.press("thread.toggle", { thread: (await oil()).id, expand: true }, "rota");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
@@ -398,7 +398,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     expect(listed).not.toContain(aside.id);
     // The note to self was never sent: nothing answered it.
     expect(thread.replies.filter(r => r.author !== "user")).toHaveLength(1);
-    const unread = async () => (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: UNREAD_REPLIES_QUERY, limit: 50 } })).blocks.map(b => b.id);
+    const unread = async () => (await board.request("blocks.query", { query: { where: UNREAD_REPLIES_QUERY, limit: 50 } })).blocks.map(b => b.id);
     expect(await unread()).toContain(answer.id);
     // A click on the question's card opens its thread: read now.
     const lines = screen().split("\n");

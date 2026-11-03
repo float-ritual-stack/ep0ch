@@ -38,7 +38,7 @@ export interface BarQuestion {
   empty?: (typed: string) => string;
   label?: string;
   description?: string;
-  choices?: string[];
+  choices?: readonly string[];
   options?: string[];
   /** The words a choice is shown as (`inbox` as "the Inbox"). */
   says?: Record<string, string>;

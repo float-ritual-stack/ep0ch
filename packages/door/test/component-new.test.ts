@@ -24,7 +24,7 @@ describe("the pure half", () => {
   test("a name any script answers to is refused, a render script's or an action's; a folder extension's title isn't a name", async () => {
     const wrote: string[] = [];
     const board = (extensions: { name?: string; state?: string; script?: object; handlers?: { key: string }[] }[]): ComponentBoard => ({
-      listExtensions: async () => ({ extensions: extensions.map(e => ({ handlers: [], ...e })) }),
+      request: async (action: string) => { if (action !== "extensions.list") throw new Error(`the fake has no ${action}`); return { extensions: extensions.map(e => ({ handlers: [], ...e })) }; },
       followPage: async () => ({ status: "ok", note: { id: "components-page", text: "Components" } }),
       createBlock: async (_parent: string, text: string) => { wrote.push(text); return { id: "made" }; },
     }) as unknown as ComponentBoard;

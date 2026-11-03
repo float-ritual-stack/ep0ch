@@ -7,7 +7,7 @@ function fake() {
   const asked: { action: string; params: any }[] = [];
   let generation = 0, value = "a";
   const source = {
-    async request(action: string, params: any = {}): Promise<any> {
+    async send(action: string, params: any = {}): Promise<any> {
       asked.push({ action, params });
       return { generation: params.generation ?? (params.watch ? 0 : generation), value };
     },
@@ -68,7 +68,7 @@ describe("watched reads", () => {
 
   test("a refused read waits before it asks again, so a paint loop doesn't hammer the service", async () => {
     let asked = 0;
-    const w = new Watched({ request: async (): Promise<any> => { asked++; throw new Error("no notes have aera"); } });
+    const w = new Watched({ send: async (): Promise<any> => { asked++; throw new Error("no notes have aera"); } });
     w.read("blocks.query", { query: { where: "aera" } }, (r: any) => r);
     await w.settled();
     for (let i = 0; i < 10; i++) expect(w.read("blocks.query", { query: { where: "aera" } }, (r: any) => r)).toMatchObject({ state: "error", error: "no notes have aera" });

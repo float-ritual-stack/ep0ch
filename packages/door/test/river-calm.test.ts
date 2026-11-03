@@ -218,7 +218,7 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
       expect(calls).toBe(0);                                     // nothing changed: the peek's note isn't rendered again
       // Another client's edit of that note reaches the covered column.
       const id = (p.source as { id: string }).id, now = (await board.request("blocks.context", { blockId: id })).selected;
-      await board.request("update", { blockId: id, text: now.text + "\n\nA line added from the quay.", expectedRevision: now.revision, mutation: { author: "agent", actorId: "calm-writer" } });
+      await board.request("update", { blockId: id, text: now!.text + "\n\nA line added from the quay.", expectedRevision: now!.revision, mutation: { author: "agent", actorId: "calm-writer" } });
       await until(() => plain(draw().join("\n")).includes("A line added from"), "the edit in the peek", 5000);
       expect(calls).toBeGreaterThan(0);
     } finally { s.digest = real; }

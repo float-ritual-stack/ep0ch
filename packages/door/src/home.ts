@@ -419,7 +419,7 @@ async function importDb(pane: HomePane, desk: DeskApi, path: string | undefined,
   }
   if (!isOutlineName(name)) throw new ActionRefused(`"${name}" isn't an outline name: lowercase letters, digits and hyphens, up to 32`);
   await ensureLocalHost(desk.ctx.board.path);
-  const r = await hostRequest<{ imported: { blocks: number } }>(desk.ctx.board.path, "outlines.import", { path: file, name }, 600_000).catch(e => { throw new ActionRefused((e as Error).message); });
+  const r = await hostRequest(desk.ctx.board.path, "outlines.import", { path: file, name }, 600_000).catch(e => { throw new ActionRefused((e as Error).message); });
   await pane.loadHere(desk);
   return { imported: file, blocks: r.imported.blocks, ...(open(pane, desk, name, undefined, write, actor) as object) };
 }

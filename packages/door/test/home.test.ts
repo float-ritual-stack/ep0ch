@@ -196,7 +196,7 @@ describe.skipIf(!outliner)("the home base", () => {
       const door = await h.on(p => p.screen !== "home base" && p.outline === "fern", "the door on fern");
       expect(door.outline).toBe("fern");
       expect(existsSync(join(dir, "work/jam-shelf/.ep0ch"))).toBe(false);
-      expect((await hostRequest<{ outlines: { name: string }[] }>(here.sock, "outlines.list")).outlines.map(o => o.name)).toContain("fern");
+      expect((await hostRequest(here.sock, "outlines.list")).outlines.map(o => o.name)).toContain("fern");
     } finally { await h.end(); }
   }, 60_000);
 
@@ -257,7 +257,7 @@ describe.skipIf(!outliner)("the home base", () => {
 });
 
 describe.skipIf(!outliner)("an outline the machine doesn't have (PIE-545): the home base says so and offers the ways on", () => {
-  const farNames = async () => (await hostRequest<{ outlines: { name: string }[] }>(far.sock, "outlines.list")).outlines.map(o => o.name);
+  const farNames = async () => (await hostRequest(far.sock, "outlines.list")).outlines.map(o => o.name);
   const offers = (home: any) => home.choices.filter((c: any) => c.kind === "offer").map((c: any) => [c.act, c.outline ?? null, c.machine ?? null]);
 
   test("by act: the offers are listed, nothing was made there, and creating it there opens it", async () => {
@@ -304,7 +304,7 @@ describe.skipIf(!outliner)("an outline the machine doesn't have (PIE-545): the h
       await until(() => h.code !== null, "the home base to end", 10_000);
       expect(h.code).toBe(1);
       expect(await farNames()).not.toContain("rowan");
-      expect((await hostRequest<{ outlines: { name: string }[] }>(here.sock, "outlines.list")).outlines.map(o => o.name)).not.toContain("rowan");
+      expect((await hostRequest(here.sock, "outlines.list")).outlines.map(o => o.name)).not.toContain("rowan");
     } finally { await h.end(); }
     // The cancel row by mouse: the row's place on screen, clicked.
     const m = new Home(join(dir, "work"), ["--machine", "box-a", "--ws", "rowan"]);
