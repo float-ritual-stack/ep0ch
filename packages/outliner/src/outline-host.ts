@@ -38,7 +38,8 @@ import {
   type OutlinerServiceStatus,
 } from "./types";
 import { probeSocket } from "./socket-probe";
-import { answerWebSessions, WEB_SESSION_ACTIONS, WebSessions } from "./web-sessions";
+import { answerWebSessions, WebSessions } from "./web-sessions";
+import { copyAnswers, isHostAction } from "./actions";
 import { readMcpAccessFiles } from "./mcp-access-files";
 import { acquireLockFile, acquireWorkspaceOwnership, ownerLockOf } from "./workspace-ownership";
 import { metaDir, withLitestreamPaused } from "./litestream-guard";
@@ -83,15 +84,13 @@ export interface OutlineHostOptions {
   log?: (message: string) => void;
   /**
    * A read-only host: it serves copies (a mirror of another machine's outline) and answers only reads
-   * (`READ_ONLY_ACTIONS`) and `outlines.list`. It never creates, imports or deletes an outline.
+   * (`copyAnswers` in actions.ts: `outlines.list` among them). It never creates, imports or deletes an outline.
    */
   readOnly?: boolean;
   /** A read-only copy of another machine's outline: what its OutlinerServer is told (its `copy` option, PIE-1091). */
   copy?: { address: string; state: string };
 }
 
-// `web.sessions.*`: the signed-in web client's sessions (web-sessions.ts), the host's own since one opens every outline.
-const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS, "loki.lease.start", "loki.lease.revoke", "loki.lease.use", "uploads.take", "uploads.finish", "devices.add", "devices.list", "devices.revoke", "devices.shortcut.put", "devices.shortcut.get", "mcp.access.files"]);
 /** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
 const RELAY_WAIT_MS = 60_000;
 const RELAY_MAX_ANSWER = 64 * 2 ** 20;
@@ -829,7 +828,7 @@ export class OutlineHost {
       }
     }
     const artifact = request?.outline === undefined && String(request?.action).startsWith("artifacts.") && request?.action !== "artifacts.import";
-    const hostAction = request && (HOST_ACTIONS.has(String(request.action)) || artifact);
+    const hostAction = request && (isHostAction(request.action) || artifact);
     if (request && hostAction && (request.relayed !== undefined || request.machine !== undefined)) {
       // Which outlines here another machine's extensions may ask: the list, through the relay, and nothing else of the host's.
       const listing = request.action === "outlines.list" || request.action === "echonet.list";
@@ -840,7 +839,7 @@ export class OutlineHost {
       return;
     }
     if (request && hostAction) {
-      if (this.options.readOnly && request.action !== "outlines.list" && !(artifact && ["artifacts.show", "artifacts.list", "artifacts.versions"].includes(String(request.action)))) {
+      if (this.options.readOnly && !copyAnswers(request.action)) {
         fail(new Error(`This outline host serves read-only copies: ${String(request.action)} isn't served`));
         return;
       }

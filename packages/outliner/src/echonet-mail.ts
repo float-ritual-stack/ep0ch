@@ -14,8 +14,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** The mail actions an outline answers, for any client or extension, local or relayed: they write no block. */
-export const ECHONET_MAIL_ACTIONS: ReadonlySet<string> = new Set(["echonet.bulletin", "echonet.put", "echonet.take"]);
 const NODE = /^[a-z0-9][a-z0-9-]*@[A-Za-z0-9][\w.-]*$/;
 /** A packet's size, at most: a bulletin of a few thousand notes fits well under it. */
 const MAX_PACKET = 24 * 1024 * 1024;

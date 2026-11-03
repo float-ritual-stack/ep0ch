@@ -1,0 +1,96 @@
+// The action table (PIE-1531): every wire action is declared once in src/actions.ts, and the gates read the rows. This
+// pins the rows to what main's separate lists said (MAIN, copied from them when they were deleted), names where they
+// disagreed, and drives the two gates a row decides on a real server: the sync dispatch and the read-only copy.
+import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { WATCHABLE_ACTIONS } from "@ep0ch/outline-core/protocol";
+import { ACTIONS, DECLARED, copyAnswers, extensionMay } from "../src/actions";
+import { OutlinerClient } from "../src/client";
+import { OutlinerServer } from "../src/server";
+import { OutlinerStore } from "../src/store";
+import type { OutlinerRequest } from "../src/types";
+
+const MAIN = {
+  read: ["agents.held","annotations.list","blocks.census","blocks.facets","blocks.grep","blocks.query","blocks.records","blocks.resolve","get","mcp.access.status","pages.resolve","ping","query.matches","references.backlinks","site.answer","site.sources","template.props","template.use","tree.index","tree.search","views.read","waiting.list"],
+  copy: ["agents.held","annotations.list","artifacts.list","artifacts.show","artifacts.versions","blocks.census","blocks.facets","blocks.grep","blocks.query","blocks.read","blocks.records","blocks.resolve","callouts.types","changes.since","children","events.subscribe","extensions.list","get","mcp.access.status","outline.snapshot","pages.resolve","ping","query.matches","reader.report","reader.view","references.backlinks","shares.list","shares.revoke","shares.snapshot.finish","shares.snapshot.take","site.answer","site.sources","template.props","template.use","transclusions.read","tree.index","tree.search","views.read","waiting.list"],
+  extensionReads: ["activity.recent","annotations.get","block.revisions","blocks.authored-links","blocks.context","blocks.read","callouts.types","changes.since","children","components.schemas","components.usage","extensions.args","extensions.list","fragments.at","fragments.candidates","fragments.read","headings.styles","notes.address","notes.render","properties.catalog","properties.inventory","properties.preview","proposals.outcomes","references.resolve","scripts.render","site.answer","site.sources","styles.list","template.props","template.use","transclusions.read","tree.query","work-ids.status"],
+  extensionWrites: ["annotations.batch","annotations.create","annotations.reply","create","delete","draft.patch","move","outputs.place","update"],
+  host: ["devices.add","devices.list","devices.revoke","devices.shortcut.get","devices.shortcut.put","echonet.list","loki.lease.revoke","loki.lease.start","loki.lease.use","mcp.access.files","outlines.archive","outlines.attach","outlines.close","outlines.create","outlines.delete","outlines.import","outlines.list","outlines.pane","outlines.unarchive","uploads.finish","uploads.take","web.sessions.list","web.sessions.resolve","web.sessions.revoke","web.sessions.start"],
+  whole: ["activity.recent","blocks.authored-links","blocks.facets","blocks.grep","blocks.query","blocks.records","callouts.types","checklist.search","components.schemas","fragments.candidates","headings.styles","pages.complete","properties.catalog","properties.inventory","query.matches","references.backlinks","site.answer","styles.list","tree.focus","tree.index","tree.query","tree.search","views.read","workspace.snapshot"],
+  async: ["artifacts.backfill","artifacts.deploy","artifacts.dns","artifacts.import","artifacts.lease","artifacts.list","artifacts.put","artifacts.rm","artifacts.show","artifacts.snapshot","artifacts.upload.abort","artifacts.upload.begin","artifacts.upload.chunk","artifacts.upload.finish","artifacts.versions","completion.cancel","completion.picked","completion.rows","computed.execute","draft.patch","draft.proposal.apply","draft.proposal.dismiss","draft.proposal.resolve","drafts.read","echonet.bulletin","echonet.put","echonet.take","extensions.act","extensions.args","extensions.bar","extensions.configure","extensions.install","extensions.list","extensions.schedule.run","extensions.undo","extensions.uninstall","notes.address","notes.render","outline.snapshot","outputs.place","query.suggest","quote","reader.report","reader.view","resources.command.execute","resources.follow-authored","resources.open","resources.projection.refresh","resources.refresh","roadmap.items.attach","roadmap.items.similar","scripts.render","scripts.run","scripts.sequence","scripts.stop","search.picked","search.picks","shares.list","shares.resolve","shares.revoke","shares.snapshot.finish","shares.snapshot.take","shares.start","shares.tunnel","suggestions.keep"],
+  events: ["annotations.approve-resolution","annotations.batch","annotations.create","annotations.lifecycle","annotations.propose-agent","annotations.read","annotations.reconcile","annotations.reply","annotations.review-agent","annotations.update","attention.acknowledge","attention.advance","attention.clear","attention.mark","blocks.markRead","bookmarks.remove","bookmarks.toggle","browsing-context.publish","capture.create","capture.draft.clear","capture.draft.save","capture.retitle","checklist.update","computed.execute","computed.invocations.create","computed.invocations.revise","create","delete","deliveries.ensure","deliveries.sync","edit-recovery.commit","edit-recovery.separate","fragments.ensure","mcp.access.configure","mentions.clear","mentions.ingest","mentions.save","move","navigation.back","navigation.dispatch","navigation.forward","notes.create","pages.alias","pages.follow","pages.remove","pages.rename","properties.patch","quote","resource-sources.create","resources.collect","resources.command.execute","resources.follow-authored","resources.intern","resources.intern-filesystem","resources.refresh","resources.relocate","resources.retention.configure","resources.retention.pin","resources.retention.reference","resources.retention.unpin","resources.retention.unreference","resources.write-filesystem","roadmap.items.create","selection.set","template.stamp","trash.purge","trash.restore","ui.command.send","update","virtual.occurrences.move","virtual.occurrences.place","virtual.occurrences.reorder","work-ids.allocate","work-ids.configure","workflows.promotion.commit"],
+};
+
+const sorted = (set: Iterable<string>) => [...new Set(set)].sort();
+const cleanups: Array<() => Promise<void> | void> = [];
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+
+test("each list main kept is now one column of the table", () => {
+  expect(sorted(DECLARED.async)).toEqual(MAIN.async);
+  expect(sorted(DECLARED.whole)).toEqual(MAIN.whole);
+  expect(sorted(DECLARED.extensionWrites)).toEqual(MAIN.extensionWrites);
+  expect(sorted(DECLARED.events)).toEqual(MAIN.events);
+  // Watchable reads stay listed in outline-core, the wire's side; the rows must say the same.
+  expect(sorted(DECLARED.watch)).toEqual(sorted(WATCHABLE_ACTIONS));
+  // outlines.list: the host's, answered by a read-only host too (outline-host.ts named it outright before).
+  expect(sorted(DECLARED.host)).toEqual(MAIN.host);
+  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list"]));
+  // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
+  expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites,
+    "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group"]));
+});
+
+test("blocks.read is a plain read: main's copy and extension lists both had it, the read-only list didn't", () => {
+  expect(MAIN.read).not.toContain("blocks.read");
+  expect(MAIN.copy).toContain("blocks.read");
+  expect(MAIN.extensionReads).toContain("blocks.read");
+  expect(ACTIONS["blocks.read"]).toEqual({ read: true });
+});
+
+test("the rows agree with each other", () => {
+  for (const [action, row] of Object.entries(ACTIONS) as [string, Record<string, unknown>][]) {
+    const where = `${action}: ${JSON.stringify(Object.keys(row))}`;
+    // A read never broadcasts, and nothing a read-only copy answers changes it.
+    if (row.read || row.copy) expect(row.event, where).toBeUndefined();
+    if (row.read || row.copy) expect(extensionMay(action) === "write", where).toBe(false);
+    // The host's actions never reach one outline's dispatch or its feed.
+    if (row.host) expect([row.async, row.event, row.ext, row.watch, row.whole], where).toEqual([undefined, undefined, undefined, undefined, undefined]);
+    // A watched read is one an extension may make (blocks.authored-links is watched but not answered by a copy: the web
+    // client's pages of a copy don't ask it, and this changes no access). The whole-outline lane holds only reads.
+    if (row.watch) expect(extensionMay(action), where).toBe("read");
+    if (row.whole) expect([row.event, row.async, extensionMay(action) === "write"], where).toEqual([undefined, undefined, false]);
+    if (row.read) expect(row.copy, where).toBeUndefined();
+  }
+});
+
+function server(readOnly = false) {
+  const directory = mkdtempSync(join(tmpdir(), "actions-table-"));
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  const service = new OutlinerServer(store, join(directory, "outliner.sock"), undefined, undefined, { readOnly });
+  cleanups.push(async () => { await service.close(); store.close(); rmSync(directory, { recursive: true, force: true }); });
+  return service;
+}
+
+test("the sync dispatch refuses what the host and the async path answer, by their rows", () => {
+  const service = server();
+  for (const action of [...DECLARED.host, ...DECLARED.async]) {
+    const answer = service.handle({ id: "t", action } as unknown as OutlinerRequest);
+    expect(answer.ok, action).toBe(false);
+    expect(!answer.ok && answer.error, action).toBe(DECLARED.host.has(action)
+      ? `${action} is answered by the outline host, never by one outline`
+      : `${action} requires asynchronous dispatch`);
+  }
+});
+
+test("a read-only copy answers its rows and refuses every other action", async () => {
+  const service = server(true);
+  await service.start();
+  const client = new OutlinerClient(service.socketPath);
+  for (const action of Object.keys(ACTIONS)) {
+    const error = await client.request({ action } as never).then(() => "", (e: Error) => e.message);
+    const refused = error.includes("is a read-only copy");
+    expect(refused, `${action}: ${error}`).toBe(!copyAnswers(action));
+  }
+});

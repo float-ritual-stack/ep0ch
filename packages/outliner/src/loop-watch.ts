@@ -14,6 +14,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { isWholeOutlineRead } from "./actions";
 
 export interface LoopStall {
   status: "loop_stalled";
@@ -89,19 +90,6 @@ export function loopWatched(): boolean {
   return watching;
 }
 
-/**
- * Reads that walk the whole outline (PIE-625). A client asks for many at once (Tree reads the tree and every saved
- * view after each change; five Details read their styles), and one outline's are each a few milliseconds: they wait
- * behind every other request, so a note read, a write or a ping is never queued behind a burst of them, on another
- * connection or on its own (they don't hold their connection's queue, PIE-1413). Only reads go here.
- */
-export const WHOLE_OUTLINE_READS: ReadonlySet<string> = new Set([
-  "tree.index", "tree.query", "tree.focus", "tree.search", "views.read", "blocks.query", "blocks.records", "blocks.grep", "site.answer", "workspace.snapshot",
-  "callouts.types", "headings.styles", "styles.list", "components.schemas", "references.backlinks", "checklist.search", "fragments.candidates",
-  "pages.complete", "properties.catalog", "properties.inventory", "query.matches", "activity.recent",
-  // A board's links and choosers read these over the whole outline (PIE-1413).
-  "blocks.authored-links", "blocks.facets",
-]);
 
 /**
  * Whose turn it is on the loop (PIE-625). Every request waits for a turn; one is given per pass of the event loop, so
@@ -121,7 +109,7 @@ const LAST_EVERY = 8;
 const USAGE_HALF_LIFE_MS = 1_000;
 
 /** Which lane a request waits in: the whole-outline reads last. */
-const laneOf = (action: unknown): "first" | "last" => (WHOLE_OUTLINE_READS.has(String(action)) ? "last" : "first");
+const laneOf = (action: unknown): "first" | "last" => (isWholeOutlineRead(action) ? "last" : "first");
 
 /** Who a turn is for: a connection, an `actor:<id>`, the service's `own` jobs, its `watches`. */
 export type TurnKey = object | string;
