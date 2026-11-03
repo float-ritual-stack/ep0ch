@@ -1,8 +1,8 @@
 {
-  "revision": "477168539d370c8dcaff2df329017fa0402ade4f",
+  "revision": "d03add953b64dab1ac61254a99fc6cc4f47a6c3e",
   "patterns": {
     "width-length": {
-      "count": 243,
+      "count": 241,
       "sites": [
         "packages/door/src/agent-fleet.ts:9566dd856b2d71fd",
         "packages/door/src/art-view.ts:68df40cd5e12d1a5",
@@ -147,7 +147,6 @@
         "packages/door/src/projection.ts:7945ec81d4d8e29d",
         "packages/door/src/river/column.ts:c36896a294673ab0",
         "packages/door/src/river/column.ts:c36896a294673ab0",
-        "packages/door/src/river/column.ts:1e25c891f4e2a942",
         "packages/door/src/river/column.ts:9ae890e37dfff080",
         "packages/door/src/river/column.ts:fc035e11c4520987",
         "packages/door/src/screens.ts:6779e91891f7bf2f",
@@ -188,7 +187,7 @@
         "packages/door/src/surface/editor.ts:1746cff03332e3fa",
         "packages/door/src/surface/element-editor.ts:ad73c971150dbbfc",
         "packages/door/src/surface/element-editor.ts:d92cf1ea02e539e",
-        "packages/door/src/surface/inspector.ts:12d9796441aeaf70",
+        "packages/door/src/surface/inspector.ts:c388a1c5506860a0",
         "packages/door/src/surface/list-view.ts:ee86ad0dec7295bc",
         "packages/door/src/surface/list-view.ts:ee956f7bd060eb10",
         "packages/door/src/surface/list-view.ts:ee956f7bd060eb10",
@@ -204,7 +203,6 @@
         "packages/door/src/surface/note.ts:157ef7c89bf2d337",
         "packages/door/src/surface/note.ts:c168c9df45107454",
         "packages/door/src/surface/note.ts:25a87f3b8fa82f32",
-        "packages/door/src/surface/note.ts:f1183abfe806b2b5",
         "packages/door/src/surface/note.ts:7a750309dd6cd817",
         "packages/door/src/surface/note.ts:af1eedc2bea296e3",
         "packages/door/src/surface/note.ts:f91a58c5dc32ddba",
@@ -376,7 +374,7 @@
     "packages/door/src/desk/screen-layout.ts": 2358,
     "packages/door/src/screens.ts": 2239,
     "packages/door/src/showcase/showcase.ts": 2138,
-    "packages/door/src/surface/note.ts": 12981,
+    "packages/door/src/surface/note.ts": 12875,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4671,

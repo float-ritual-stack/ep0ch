@@ -121,6 +121,10 @@ import { ago, bbsDate, rowLines, rule, waitingText, wrap } from "../text";
 import { startShare, endsIn } from "../share-cli";
 import type { FragmentKind, ShareSession } from "@ep0ch/outline-core/protocol";
 import { startsTable, tableCells } from "@ep0ch/outline-core/table-shape";
+import { blockdownHooks, drawIn, embedOnly, linkSink, NO_READER, readableSource, sequenceStart, tagInto } from "./blockdown-context";
+export { embedOnly, readableSource } from "./blockdown-context";
+import { copyControls, pickTarget } from "./note-targets";
+export { COPY_ROWS, pickTarget } from "./note-targets";
 import { ActionRefused, actionSet, boundNow, def, keyCaption, agentLabel, agentWords, asActor, type ActionDef, type ActionSet, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { holdsEdit, NOBODY } from "../whereabouts";
@@ -240,6 +244,8 @@ export interface SurfaceHost {
    * thread list (⏎ or a click on a comment mark), an armed edit confirmed (edit.arm). Without it the surface opens it itself.
    */
   startSession?(kind: SessionKind, opener?: Key): void | Promise<unknown>;
+  /** A press on a comment thread's mark in a host that draws no thread cards (a river column shows it as a reply): PIE-1543. */
+  showThread?(thread: string): void;
   /** The person's new note `m` made from this reader, opened in their edit where their new notes open (`note.opens`), lit as arrived. */
   writeNew?(m: Msg): Promise<{ tile: string; surface: NoteSurface } | null>;
   /**
@@ -344,14 +350,6 @@ export interface ReaderHistory {
   beneath?: true;   // its stops lie beneath the reader's own (PIE-1516: the list it opened in place over), listed and walked after them
 }
 
-/**
- * A sequence's first step when it is an action (its refusal now is exact: nothing has run before it), else null: a script
- * first, or a slot still to fill, can change what the later steps find.
- */
-function sequenceStart(call: ButtonCall): string | null {
-  const first = call.steps[0];
-  return call.sequence && first?.kind === "act" && !first.source.includes("{") ? first.source : null;
-}
 
 
 /**
@@ -393,16 +391,6 @@ export const TILE_HEADERS = {
 export type TileHeader = keyof typeof TILE_HEADERS;
 export const isTileHeader = (v: unknown): v is TileHeader => typeof v === "string" && v in TILE_HEADERS;
 
-/** A note that is only embeds (a figure or a part shown on its own), properties aside: nothing of its own to head. */
-export function embedOnly(m: Pick<Msg, "text">): boolean {
-  const embeds = embedOccurrences(m.text);
-  if (!embeds.length) return false;
-  let rest = "", at = 0;
-  for (const e of embeds) { rest += m.text.slice(at, e.start); at = e.end; }
-  rest += m.text.slice(at);
-  const h = headerLine(rest);
-  return h.line < 0 || (!h.prose.trim() && rest.split("\n").slice(h.line + 1).every(l => !l.trim()));
-}
 
 /**
  * The reader's header rows left out, one answer for every reader (PIE-1248): the tile's own setting when it has one
@@ -432,6 +420,13 @@ interface HeaderBlock {
   marginChip?: { row: number; from: number; to: number };
   titleControls?: { row: number; from: number; to: number; link: Link }[];
   wholeMarks?: { row: number; from: number; to: number; thread: string }[];
+}
+
+/** A note drawn once (NoteSurface.digest, PIE-1543): its header and body rows, each with every press target on them. */
+export interface DrawnNote {
+  header: { lines: string[]; targets: Hit[] };
+  lines: string[]; targets: Hit[]; placements: Placement[];
+  current: number | null; key: string | null; trims: Doc["trims"]; source: number[];
 }
 
 /** A note laid out by a reader (NoteSurface.layOut), and what it was laid out for (`m`, `key`). */
@@ -485,7 +480,7 @@ const same = <T,>(a: T | undefined, b: T | undefined, base: (x: T) => unknown) =
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: TrailDir } | { pick: number } | { image: string } | { passage: string } | { start: SessionKind } | { margin: true } | { fold: number } | { listPreview: number } | { region: string } | { sources: true } | { zoom: number });
+export type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: TrailDir } | { pick: number } | { image: string } | { passage: string } | { start: SessionKind } | { margin: true } | { fold: number } | { listPreview: number } | { region: string } | { sources: true } | { zoom: number });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -530,11 +525,8 @@ interface Element {
 /** What ⏎ does on a kept-draft line's control. */
 const UNSENT_VERB: Record<UnsentOp, string> = { diff: "show what your edit changed against the note now", copy: "open its copy", dismiss: "let it go (its copy stays on disk)", add: "add the lines the note doesn't have into an edit", keep: "keep it as a note under this one", show: "show the old edits" };
 /** The copy control of a code block, a quote or a callout (PIE-638). */
-const COPY_GLYPH = "⧉";
 /** The zoom control's glyph (PIE-780): a part fills the tile. */
 const ZOOM_GLYPH = "⤢";
-/** How many of a block's first rows its copy control looks through for a free cell. */
-export const COPY_ROWS = 4;
 /** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
 const verbOf = (e: Element, open: boolean) =>
   e.link?.ext ? extVerb(e.link.ext)
@@ -611,56 +603,11 @@ const linkText = (l: Link, text: string, src: Source | null) => l.block
   ? refView(l.block, l.fragment, l.label, referencesIn(text, src)?.get(refKey(l.block, l.fragment))).text
   : l.page ? pageView(l.page, l.label, pageOf(l.page, src)).text : l.url !== undefined ? l.label ?? l.url : l.media?.split("/").pop() ?? "";
 
-/**
- * The readable body before its links are presented, line for line: `lines[i]` is the note line (from 0,
- * the subject) body line i comes from, `anchors[i]` the fragment anchor read mode hid from it. Matched
- * literal-region markers (PIE-422) are hidden, as Detail hides them; `literal` holds the body lines inside
- * a region, where `[key::value]` is text, and `unterminated` the note line of an opener without a closer.
- */
-export function readableSource(m: Msg, src: Source | null): ReadableSource {
-  // A function of the text and the tokens the service gave it, asked several times a frame by a reader and by what it draws
-  // (the folds, the cursor, the hint): answered once while none of what it reads changes: the text, the tokens, the extensions listed.
-  const tokens = tokensOf(m.text, src), given = tokens?.state === "ready" ? tokens.tokens : tokens?.state ?? null, mentions = mentionsStamp();
-  const kept = READABLE.get(m.text);
-  if (kept && kept.given === given && kept.mentions === mentions) return kept.read;
-  const read = readableSourceOf(m, tokens);
-  if (READABLE.size >= 200) READABLE.clear();
-  READABLE.set(m.text, { given, mentions, read });
-  return read;
-}
-type ReadableSource = { text: string; lines: number[]; anchors: (string | undefined)[]; literal: Set<number>; unterminated: number | null };
-const READABLE = new Map<string, { given: unknown; mentions: RegExp | null; read: ReadableSource }>();
-function readableSourceOf(m: Msg, tokens: ReturnType<typeof tokensOf>): ReadableSource {
-  const hidden = metadataLines(m.text, tokens?.state === "ready" ? tokens.tokens : null);
-  const lit = literalLines(m.text);
-  // The title may come from a later line (a marker or a props-only line first): what's above it isn't body.
-  const title = Math.max(0, titleLine(m.text).line);
-  const all = m.text.split("\n"), code = codeFenceLines(all);
-  // A note that is only embeds (PIE-1248) has its first embed on the title line: it is the body, drawn as its words
-  // without the chips (its header starts as none, so nothing else would show it).
-  const head = embedOnly(m) ? headerLine(m.text) : null, embedTitle = head?.line === title ? head : null;
-  const rows = all.map((l, i) => ({ l: embedTitle && i === title ? embedTitle.prose : l, i })).filter(({ i }) => (i > title || (!!embedTitle && i === title)) && (!hidden.has(i) || mentionsExtensionLine(all[i]!)) && !lit.markers.has(i))
-    // A stable fragment anchor (`## Beds ^beds`) is an address, not prose: read mode hides it, as Detail does.
-    .map(({ l, i }) => {
-      const a = code[i]! >= 0 ? null : fragmentAnchorMatch(l);
-      return a ? { l: l.slice(0, a.index).trimEnd(), i, anchor: a[1] } : { l, i };
-    });
-  // Blank lines before the first line with text aren't drawn.
-  let lead = 0;
-  while (lead < rows.length - 1 && rows[lead]!.l === "") lead++;
-  const kept: { l: string; i: number; anchor?: string }[] = rows.slice(lead);
-  // The block-level tags (PIE-880, outline-core's blockTags) are the first row of the body, so hiding the properties
-  // doesn't hide them: one row under the byline, each a tag link, then a blank row. The row stands for its metadata line.
-  const row = blockTags(m.text, tokens?.state === "ready" ? tokens.tokens : null);
-  if (row.tags.length) kept.unshift({ l: row.tags.map(t => `#${t}`).join(" "), i: row.line }, ...(kept.length ? [{ l: "", i: row.line }] : []));
-  const literal = new Set<number>();
-  kept.forEach((r, k) => { if (lit.inside.has(r.i)) literal.add(k); });
-  return { text: kept.map(r => r.l).join("\n"), lines: kept.map(r => r.i), anchors: kept.map(r => ("anchor" in r ? r.anchor : undefined)), literal, unterminated: lit.unterminated };
-}
 /** Text from elsewhere (an extension's output) without control characters, its lines and tabs kept. */
 const printableBlock = (s: string) => printable(s, "", { lines: true });
 /** A link drawn: its text, tagged with its place in `drawn` (what [ ], ⏎ and a click find it by). */
-const tagged = (drawn: Link[], to: Link, text: string) => linkTag(drawn.push(to) - 1) + text + LINK_END;
+const tagged = tagInto;
+
 
 /**
  * An extension view's picture (PIE-827) as rows `width` wide, laid out as a note's image line is (doc.ts mediaRows: its
@@ -1128,7 +1075,7 @@ export class NoteSurface {
   /** The header image the last render drew above the note (PIE-532): its rows, and its image's element. */
   private hero: { line: number; full: number; pinned: boolean; over: boolean; max: number; picture: number } | null = null;
   /** The last digest's layout (its note, doc and note lines), for its host's sticky header (stickyHeader). */
-  private digested: { m: Msg; w: number; maxImageRows: number; doc: Doc; lines: number[] } | null = null;
+  private digested: { m: Msg; w: number; maxImageRows: number; doc: Doc; lines: number[]; head: string[]; inset: number } | null = null;
   /** The header's backdrop the last render drew (PIE-598): its image and note line, its step, and how it was drawn. */
   private backdropShown: { image: string; line: number; step: number; of: number; mode: HeroMode; drawn: "kitty" | "cells" | "making" | null; over?: string; focus?: Focus } | null = null;
   /** The note drawn as written, without the rules' decorations (PIE-600): `R`, decor.raw. The reader's own state. */
@@ -1774,23 +1721,67 @@ export class NoteSurface {
   }
 
   /**
-   * The sticky header for a host that draws this surface's digest under a scroll of its own (a river column): the
-   * reader's header rows (headerBlock), with the header's backdrop (PIE-598) for `under`, how many of the digest's rows
-   * the host has scrolled above it. `links`: the summary line's links by row and cells, for the host's clicks;
-   * `placements`: the backdrop's Kitty placements, on these rows. Call it after `digest`, whose layout it reads.
+   * Every press target of a header (headerBlock), in its rows' cells: the summary line's links, the zoom bar, the
+   * byline's [comment], [sources] and comment count, a whole-note thread's [+], and the title's controls (the crumbs, a
+   * rule's title decorations), which are elements too (`[ ]` reaches them). One index for every host that draws a header:
+   * the reader's render and a digest's (a river column's sticky header) press the same targets (PIE-1543).
    */
-  stickyHeader(m: Msg, w: number, host: SurfaceHost, under: number): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; placements: Placement[] } {
-    const src = this.use(host);
-    this.lookAt(m, w, host);
-    const { rows, summaryRow, summaryLinks } = this.headerBlock(m, w, host, src);
-    const lines = [...rows];
-    const headerRule = rows.length ? this.headerRule(w) : "";
-    if (headerRule) lines.push(headerRule);
+  private headerTargets(m: Msg, hb: HeaderBlock, w: number, elemAt?: (row: number, from: number) => string | undefined): { hits: Hit[]; elems: Element[] } {
+    const hits: Hit[] = [], elems: Element[] = [];
+    if (hb.summary) for (const l of hb.summaryLinks) hits.push({ row: hb.summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: elemAt?.(hb.summaryRow, l.from) });
+    if (hb.pathRow !== undefined && this.zoom && !this.printed) hits.push({ row: hb.pathRow, from: 0, to: w, zoom: -1 });
+    if (hb.commentChip) hits.push({ ...hb.commentChip, start: "note" });
+    if (hb.sourcesChip) hits.push({ ...hb.sourcesChip, sources: true });
+    if (hb.marginChip) hits.push({ ...hb.marginChip, margin: true });
+    for (const mark of hb.wholeMarks ?? []) hits.push({ ...mark, elem: `comment:${mark.thread}` });
+    for (const [i, control] of (hb.titleControls ?? []).entries()) {
+      const key = `control:title:${m.id}:${i}`;
+      hits.push({ ...control, elem: key });
+      elems.push({ ...control, key, kind: "control", ruler: [control.row, control.row + 1], label: control.link.label ?? "run" });
+    }
+    return { hits, elems };
+  }
+
+  /**
+   * The lines under a note's header that say what happened to it: that it's in the Trash, a save that changed its
+   * properties (`notice`), what an agent did, in one set of words for every host (the reader, a river column: PIE-1543).
+   */
+  banner(kind: "trash" | "notice" | "agent", m: Msg, w: number): string[] {
+    if (kind === "trash") return m.deleted ? [fg(C.lred) + pad(IN_TRASH, w) + RESET] : [];
+    if (kind === "notice") return this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : [];
+    return this.agent ? [fg(C.lmagenta) + pad(`an agent (${agentWords(this.agent.id)}) ${this.agent.did}`, w) + RESET] : [];
+  }
+
+  /**
+   * The digest's header (digest: the reader's header rows and their targets) with its backdrop (PIE-598) for `under`,
+   * how many of the digest's body rows the host has scrolled above it; `placements`: the backdrop's Kitty placements,
+   * on these rows. A host that draws the digest under a scroll of its own (a river column) keeps it above the scroll.
+   */
+  stickyHeader(m: Msg, w: number, host: SurfaceHost, under: number, drawn: DrawnNote): { lines: string[]; placements: Placement[] } {
+    const lines = [...drawn.header.lines];
     const d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
     this.backdropShown = null;
     const shade = d ? this.heroBackdrop(m, d.doc, d.lines, w, lines.length, host, Math.max(0, under)) : { placements: [], grid: null };
     this.headerSurface(lines, lines.length, w, shade);
-    return { lines, links: summaryLinks.map(l => ({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link })), placements: shade.placements };
+    return { lines, placements: shade.placements };
+  }
+
+  /**
+   * The source a digest's body rows `from`..`to` (inclusive) are drawn from, for a river column's Y (PIE-1543): the
+   * selected words (`seen`) as written when they are there verbatim, else the note lines those rows are drawn from
+   * (a block's to the line before the next drawn one).
+   */
+  digestSource(drawn: DrawnNote, from: number, to: number, seen: string): string | null {
+    const m = this.digested?.m, at = drawn.source.slice(Math.max(0, from), to + 1).filter(l => l >= 0);
+    if (!m || !at.length) return null;
+    const all = m.text.split("\n"), lo = Math.min(...at), next = drawn.source.slice(to + 1).find(l => l > Math.max(...at));
+    // A fenced block's rows map to its opening fence: its source is the whole fence, closing line included.
+    const fence = codeFenceLines(all);
+    let hi = Math.max(Math.max(...at) + 1, next ?? Math.max(...at) + 1);
+    while (hi < all.length && fence[hi - 1]! >= 0 && fence[hi] === fence[hi - 1]) hi++;
+    const span = all.slice(lo, hi).join("\n");
+    const words = seen.trim();
+    return words && span.includes(words) ? words : span;
   }
 
   private headerRule(w: number): string {
@@ -1914,7 +1905,7 @@ export class NoteSurface {
     if (foot) h -= 1;
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
-    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, own, pathRow, commentChip, sourcesChip, marginChip, wholeMarks, titleControls } = this.headerBlock(m, w, host, src);
+    const hb = this.headerBlock(m, w, host, src), { rows: headerBlock, summary, summaryRow, summaryLinks, title, own, wholeMarks } = hb;
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (" · " + this.proposalKeys(m.id).replace(/ · $/, "") + (proposalApplies(m) ? "" : " · it can't be applied: its passage was already gone")), w) + RESET]) } : null;
@@ -1922,8 +1913,8 @@ export class NoteSurface {
       ...headerBlock,
       ...(proposalHead ? proposalHead.lines : []),
       // A note trashed while it's shown (a proposal dismissed, a card or an ancestor trashed elsewhere: staleOn) says so: it's still readable.
-      ...(m.deleted ? [fg(C.lred) + pad(IN_TRASH, w) + RESET] : []),
-      ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
+      ...this.banner("trash", m, w),
+      ...this.banner("notice", m, w),
     ];
     // A draft put aside on this note (esc twice, a closed screen, the door quitting) says so, with its controls:
     // [diff] [open copy] [dismiss] [take it back]; an old one on an older revision folds into one dim line.
@@ -1932,7 +1923,7 @@ export class NoteSurface {
       // An opener without a closer (a literal region, PIE-422; a fence, `[[`, `[key::` or component, PIE-669): said.
       ...open.slice(0, OPEN_SHOWN).map(o => fg(C.yellow) + pad(`⚠ ${o.message}`, w) + RESET),
       ...(open.length > OPEN_SHOWN ? [dim(`  and ${open.length - OPEN_SHOWN} more left open`)] : []),
-      ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${agentWords(this.agent.id)}) ${this.agent.did}`, w) + RESET] : []),
+      ...this.banner("agent", m, w),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
       ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · ${this.focusMark.says ?? "the line that links here"}${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · ${hintOf(LET_GO_KEYS)}` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · ${hintOf(LET_GO_KEYS)}` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
@@ -1993,11 +1984,8 @@ export class NoteSurface {
       });
       this.elems = [...laid.elems, ...own].sort((a, b) => a.row - b.row || a.from - b.from);
     }
-    for (const [i, control] of (titleControls ?? []).entries()) {
-      const key = `control:title:${m.id}:${i}`;
-      this.hits.push({ ...control, elem: key });
-      this.elems.push({ ...control, key, kind: "control", ruler: [control.row, control.row + 1], label: control.link.label ?? "run" });
-    }
+    const headerHit = this.headerTargets(m, hb, w, (row, from) => this.elems.find(e => e.link && e.row === row && e.from === from)?.key);
+    this.elems.push(...headerHit.elems);
     this.elems.sort((a, b) => a.row - b.row || a.from - b.from);
     if (unsentHead.elems.length) this.elems = [...this.elems, ...unsentHead.elems].sort((a, b) => a.row - b.row || a.from - b.from);
     // A collection row picked before this layout drew it (a page turn): the [ ] position lands on it now (PIE-1501).
@@ -2092,12 +2080,7 @@ export class NoteSurface {
     // Where the links landed on screen: below the header, one column in (the body's margin), scrolled.
     // Each is the element it is, so a click also puts `[ ]` there.
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
-    if (summary) for (const l of summaryLinks) this.hits.push({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: keyOf.get(`${summaryRow}:${l.from}`) });
-    if (pathRow !== undefined && this.zoom && !this.printed) this.hits.push({ row: pathRow, from: 0, to: w, zoom: -1 });
-    if (commentChip) this.hits.push({ ...commentChip, start: "note" });
-    if (sourcesChip) this.hits.push({ ...sourcesChip, sources: true });
-    if (marginChip) this.hits.push({ ...marginChip, margin: true });
-    for (const mark of wholeMarks ?? []) this.hits.push({ ...mark, elem: `comment:${mark.thread}` });
+    this.hits.push(...headerHit.hits);
     const figureCol = (row: number) => wideFigureAt(doc, row) ? host?.heroBounds?.col ?? 0 : bx;
     const firstOf = new Map<number, string>();
     for (const r of doc.links) if (!firstOf.has(r.n)) firstOf.set(r.n, keyOf.get(`${top + r.line}:${r.from + figureCol(r.line)}`) ?? "");
@@ -2188,26 +2171,7 @@ export class NoteSurface {
     // The copy control (PIE-638) on a code block, a quote and a callout: a dim ⧉ at the block's top right edge, bright while its
     // block holds the `[ ]` position. A click is block.copy, as y is. Not drawn over a code cell it would hide.
     const blockNow = current ? this.blockOf(current) : null;
-    doc.blocks.forEach((b, n) => {
-      if (b.kind === "span") {
-        for (const cell of b.cells!) {
-          const row = cell.row - this.scroll;
-          if (row >= 0 && row < room && cell.from + bx < w) this.hits.push({ row: top + row, from: cell.from + bx, to: Math.min(w, cell.to + bx), block: n });
-        }
-        return;
-      }
-      if (b.col + bx >= w) return;
-      // On its first row with a free cell there (a long first line of a quote or code fills its row).
-      for (let r = b.row; r < b.row + Math.min(b.rows, COPY_ROWS); r++) {
-        const row = r - this.scroll, at = top + row;
-        if (row < 0 || row >= room || at >= lines.length) continue;
-        const put = putCell(lines[at]!, b.col + bx, COPY_GLYPH, fg(n === blockNow ? C.lcyan : C.dark));
-        if (put === null) continue;
-        lines[at] = put;
-        this.hits.push({ row: at, from: b.col + bx, to: b.col + bx + 1, block: n });
-        break;
-      }
-    });
+    this.hits.push(...copyControls(lines, doc, { at: r => { const row = r - this.scroll; return row >= 0 && row < room ? top + row : null; }, bx, w, now: blockNow }));
     if (laid.listInline) {
       const i = laid.listInline;
       const r = attachedRect("inline", i.cols, i.rows, { from: top + i.at - this.scroll + heroRows, col: this.bx });
@@ -2359,14 +2323,9 @@ export class NoteSurface {
     // links to follow, no properties), flush with the note's text.
     const extDraw = {
       note: m.id,
-      markdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, null), {
-        ...env, width, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, keepTags: false, regions: undefined, outputs: undefined,
-      }).lines,
+      markdown: (text: string, width: number) => drawIn("extension-text", presentLinks(printableBlock(text), false, null), env, {}, { width }).lines,
       // A view's Blockdown (a section a component lays out) is drawn as the body is: its links are links here.
-      blockdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, src, text, drawn), {
-        ...env, width, nested: true, keepTags: true, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined,
-        task: undefined, link: undefined, literal: undefined, decorate: undefined, callout: undefined, regions: undefined, outputs: undefined,
-      }).lines,
+      blockdown: (text: string, width: number) => drawIn("view", presentLinks(printableBlock(text), false, src, text, drawn), env, {}, { width }).lines,
       // A view's picture (PIE-827), laid out as the body's image lines are.
       image: (node: ImagePrimitive, width: number) => pictureRows(node, width, env, drawn),
       // A view's link names a block, or (PIE-754) a Resource the extension wants opened.
@@ -2419,8 +2378,8 @@ export class NoteSurface {
       const target = context?.value;
       const on = target ? tagged(drawn, target.kind === "block" ? { block: target.blockId } : { resourceRef: `resource:${target.resourceId}` },
         target.kind === "block" ? presentLinks(`((${target.blockId}))`, false, src) : "Resource") : context?.error ?? "reading comment subject…";
-      const intro = renderDoc(`on ${on}`, env);
-      const outlinks = renderDoc("::outlinks", { ...env, note: m.id, tag: (to, text) => tagged(drawn, to, text) });
+      const intro = drawIn("note", `on ${on}`, env);
+      const outlinks = drawIn("note", "::outlinks", env, { note: m.id, tag: linkSink(drawn).tag });
       const withContext = withRows(rendered, [
         { at: 0, lines: [...intro.lines, ""], links: intro.links },
         { at: rendered.lines.length, lines: ["", ...outlinks.lines], links: outlinks.links.map(l => ({ ...l, line: l.line + 1 })) },
@@ -2592,16 +2551,15 @@ export class NoteSurface {
       ...(preview ? { preview } : {}),
       seen: info => blocks.push(info),
     };
-    const doc = renderDoc(presentLinks(text, expandsEmbeds(!!hooks.embed, m), src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), {
-      ...env, literal, ...hooks, ...(isOutlineNote(m) ? { outputs: new Map(findOutputRegions(text).map(r => [r.startLine, r])) } : {}),
+    const doc = drawIn("note", presentLinks(text, expandsEmbeds(!!hooks.embed, m), src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), env, {
+      literal, ...hooks, ...(isOutlineNote(m) ? { outputs: new Map(findOutputRegions(text).map(r => [r.startLine, r])) } : {}),
       linkBlocks: this.listEnv, componentLine: line => lines[line]!,
       callout: this.calloutHook(m, lines, points, drawn),
       image: this.imageHook(m, lines, drawn),
       // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
       ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request<ArtifactInfo>("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
       folds: { points, folded: this.effectiveFolds(m), selected: this.foldSel, preview: new Set(points.filter(p => this.previews(p)).map(p => p.key)) },
-      link: (block, x, figure, query, at, cell) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}), ...(cell ? { cell: true } : {}) }, x),
-      tag: (to, x) => tagged(drawn, to, x), note: m.id,
+      ...linkSink(drawn), note: m.id,
       ...additions,
     });
     this.drawnFolds = doc.folds ?? points;
@@ -2668,8 +2626,8 @@ export class NoteSurface {
 
   static draftPreviewDoc(text: string, width: number, src: Source | null, links: LinkTarget[]): Doc & { pending: boolean } {
     const env: DocEnv = { width: Math.max(10, width), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts: calloutsOf(src), headings: headingStylesOf(src) };
-    const hooks = new NoteSurface().bodyHooks(null, [], env, src, links);
-    const doc = renderDoc(presentLinks(text, expandsEmbeds(!!hooks.embed), src, text, links), { ...env, ...hooks });
+    const hooks = blockdownHooks(NO_READER, null, [], env, src, links);
+    const doc = drawIn("preview", presentLinks(text, expandsEmbeds(!!hooks.embed), src, text, links), env, hooks);
     return { ...doc, pending: !!src && embedsLoading(src.board) };
   }
 
@@ -2700,7 +2658,7 @@ export class NoteSurface {
       site = { board: this.previewDraft.board, draft: { text }, pending: !this.previewDraft.ready, changed: loading => { pending ||= loading; } };
     }
     // `draftOf`: the text is that note's unsaved one (an edit's preview): its `{{ }}` are read from the text as typed (PIE-533 S2).
-    const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), expandsEmbeds(!!embed, m ?? undefined), src, text, drawn, undefined, draftOf && !site?.pending ? { block: draftOf, draft: true } : undefined), { ...env, ...(draftOf ? { note: draftOf, site } : {}), ...(embed ? { embed } : {}) });
+    const doc = drawIn("snippet", presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), expandsEmbeds(!!embed, m ?? undefined), src, text, drawn, undefined, draftOf && !site?.pending ? { block: draftOf, draft: true } : undefined), env, { ...(draftOf ? { note: draftOf, site } : {}), ...(embed ? { embed } : {}) });
     // Its `{{ }}` still being read: drawn again on the redraw the answer brings.
     if (draftOf && !site?.pending && siteAnswerWaiting(draftOf, text, src, true)) pending = true;
     // `images` for a host that lays them out in its own rows (a thread's panel), `placements` for one that places them as drawn (a preview).
@@ -2714,131 +2672,32 @@ export class NoteSurface {
     return stripMarks(stripTags(presentLinks(named, false, this.src, named)));
   }
 
-  private bodyHooks(m: Msg | null, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep" | "use"> & { preview?: (id: string, width: number, bodyOnly?: boolean) => string[]; spanPreview: (startLine: number, endLine: number, width: number) => string[] } {
-    // How many embedded bodies and template bodies are being drawn inside one another: an embed starts a fresh `::use`
-    // depth and a template body a fresh embed one, so a note that embeds a template that embeds it back is stopped here.
-    let nest = 0;
-    const tooDeep = (): string[] => [`${fg(C.dark)}drawn inside itself too many times${RESET}`];
-    const nested = <T>(draw: () => T, stop: () => T): T => {
-      if (nest >= 8) return stop();
-      nest++;
-      try { return draw(); } finally { nest--; }
-    };
-    const inner: EmbedBody = (target, part, width, hooks) => nested(() => {
-      let source = src;
-      if (target.address && this.context) {
-        const pool = outlineBoards(this.context);
-        const ctx = pool.peek(target.address);
-        if (!ctx) { void pool.on(target.address).then(() => src?.redraw(), (error: Error) => this.context?.flash(error.message, undefined, errorDetails(error))); return ["reading the other outline..."]; }
-        source = { board: ctx.board, redraw: () => src?.redraw() };
-      }
-      const firstLink = drawn.length;
-      let text: string, lines: number[], lit: Set<number>;
-      if (part) {
-        text = part.text;
-        lines = text.split("\n").map((_, i) => part.startLine + i);
-        const inside = target.text.includes("<!--") ? literalLines(target.text).inside : new Set<number>();
-        lit = new Set(lines.flatMap((l, i) => (inside.has(l) ? [i] : [])));
-      } else ({ text, lines, literal: lit } = readableSource(target, source));
-      const projections = isOutlineNote(target) ? projectionsOf(target, source) : [];
-      const projected = regionsByLine(projections, lines, { slice: !!part });
-      const inert = (text: string, width: number) => renderDoc(text, { ...env, width, graphics: false, after: undefined, embed: undefined, keepTags: false }).lines;
-      const rendered = renderDoc(presentLinks(text, expandsEmbeds(!!hooks.embed, target), source, target.text, drawn, undefined, isOutlineNote(target) ? { block: target.id } : undefined), {
-        ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, regions: undefined, outputs: undefined,
-        // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
-        nested: !!part,
-        decorate: (line, width) => {
-          const ps = projected.get(line)?.filter(({ p }) => p.output?.component?.placement === "replace");
-          return ps?.length ? { end: line + 1, rows: ps.flatMap(({ p }) => extensionRegion(p, width, Date.now(), (to, text) => tagged(drawn, to, text), { note: target.id, markdown: inert }).rows) } : null;
-        },
-        after: (line, width) => {
-          const ps = projected.get(line)?.filter(({ p }) => p.output?.component?.placement !== "replace");
-          return ps ? { rows: ps.flatMap(({ p }) => extensionRegion(p, width, Date.now(), (to, text) => tagged(drawn, to, text), { note: target.id, markdown: inert, row: (block, text) => tagged(drawn, { block, role: "row" }, text) }).rows) } : [];
-        },
-        link: (block, t, figure, query, at, cell) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}), ...(cell ? { cell: true } : {}) }, t),
-        // The template is the definition (`self`); the chain says the host is `this`, so a figure over `{{this.project}}` reads the host.
-        tag: (to, t) => tagged(drawn, to, t), note: target.id,
-        embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
-        // A `::use` in an embedded note hosts that note: a fresh Site, as an embed starts one.
-        use: isOutlineNote(target) ? useHook(target.id, lines, undefined, 0) : undefined,
-        present: presenter(target.text), liveStep,
-      }).lines;
-      if (target.address) for (const link of drawn.slice(firstLink)) {
-        if (!link.outline && (link.block || link.page)) Object.assign(link, target.address);
-      }
-      return rendered;
-    }, tooDeep);
-    // A call keeps its own fold keys; figures share this reader's controls and read the call's Site.
-    const templateBody = (depth: number, scope: string) => (target: Msg, site: LiveSite, width: number): Doc | string[] => nested<Doc | string[]>(() => {
-      const { text, lines, literal, anchors } = readableSource(target, src);
-      const points = foldPoints(text, anchors).map(p => ({ ...p, key: `${scope}/${p.key}`, ...(p.list ? { list: { ...p.list, key: `${scope}/${p.list.key}` } } : {}) }));
-      const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
-      return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
-        ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal, keepTags: true, folds: { points, folded: this.folded, selected: this.foldSel }, after: undefined, regions: undefined, outputs: undefined,
-        componentLine: line => lines[line]!,
-        figures: env.figures && { ...env.figures, fullWidth: width, seen: f => env.figures!.seen?.({ ...f, ...(f.note === target.id ? { revision: target.revision, line: f.line === undefined ? undefined : lines[f.line] } : {}) }) },
-        link: (block, t, figure, query, at, cell) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}), ...(cell ? { cell: true } : {}) }, t),
-        tag: (to, t) => tagged(drawn, to, t), note: target.id,
-        embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
-        use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1, undefined, scope),
-      });
-    }, tooDeep);
-    // The `::use` on body line `i`, drawn: `block` is the note whose text holds the line, `lines` its body lines' note lines.
-    const useHook = (block: string, lines: readonly number[], site: UseSite | undefined, depth: number, book?: RegionBook, scope = ""): DocEnv["use"] => (call, i, width) => {
-      const line = lines[i] ?? -1;
-      if (line < 0) return [];
-      return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m?.id ?? "", width, src, sink: drawn, depth, body: templateBody(depth, `${scope}/${block}:${line}`), ...(book ? { book } : {}) });
-    };
-    // A `::button` on body line `i` (PIE-957): the button part, a press of its action line on this note, in its press's state or
-    // disabled with the action's refusal now (PIE-1287).
-    const buttonHook = (block: string, lines: readonly number[]): DocEnv["button"] => (call, i) => {
-      const line = lines[i] ?? -1, label = printable(call.label);
-      if (call.act === null || line < 0) return [fg(C.yellow) + `[${label}] ${call.problem ?? ""}` + RESET];
-      const pressed = pressState(block, line, call.label), start = call.sequence ? sequenceStart(call) : call.act, refused = pressed.state || call.empty.length || !start ? null : this.refusedPress(start);
-      return buttonRows(label, { ...call.look, ...pressed, ...(refused ? { state: "disabled", why: refused } : {}) },
-        t => tagged(drawn, { role: "control", label, press: { act: call.act!, steps: call.steps, ...(call.alt ? { alt: call.alt } : {}), block, line, label: call.label } }, t));
-    };
-    const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m?.id ?? "", env.inlineList, undefined, this.listEnv);
-    // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
-    const presenter = (noteText: string) => (t: string, linked: boolean) => presentLinks(t, false, src, noteText, linked ? undefined : drawn);
-    // A live ::graph-check row's box: a step of its own note, whose mark writes the property its `done:` names.
-    const liveStep: DocEnv["liveStep"] = (row, box) => LINK_ON + tagged(drawn, { role: "task", block: row.block, task: { block: row.block, revision: 0, step: liveRowStep(row), live: row.mark } }, box) + LINK_OFF;
-    // A Resource or a file shown as a note has no steps, and its `!((…))` isn't the outline's to transclude.
-    const outline = expandsEmbeds(!!src, m ?? undefined);
-    const steps = m && isOutlineNote(m) ? stepsOf(m, src) : null;
-    const stepAt = new Map((steps?.items ?? []).map(st => [st.span.startLine, st]));
-    const task: NonNullable<DocEnv["task"]> = (i, box) => {
-      if (!m) return null;
-      const line = noteLines[i] ?? -1, st = stepAt.get(line);
-      if (st && steps && steps.revision !== m.revision && !stepStillOn(st, m.text, line)) return null;
-      const shown = boxStatus(box) === st?.status ? STEP_BOXES[st.status] : box;
-      return st && steps ? LINK_ON + tagged(drawn, { role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }, shown) + LINK_OFF : null;
-    };
-    return {
-      spanPreview: (startLine, endLine, width) => m ? embedRegion(m.id, undefined, 0, width, src, inner, drawn, m.id, env.inlineList, { note: m, startLine, endLine, task: (line, box) => task(noteLines.indexOf(line), box) }, this.listEnv) : [],
-      present: presenter(m?.text ?? ""), ...(outline ? { liveStep } : {}),
-      ...(outline ? { embed: embedHook } : {}),
-      ...(m && outline ? { use: useHook(m.id, noteLines, undefined, 0, env.regions), button: buttonHook(m.id, noteLines) } : {}),
-      // An inline ::links component's preview of its selected row (PIE-693): that note drawn as an embed of it is.
-      ...(outline ? { preview: (id: string, width: number, bodyOnly = false) => embedRegion(id, undefined, 0, width, src, inner, drawn, m?.id ?? "", undefined, undefined, undefined, bodyOnly) } : {}),
-      task,
-    };
+  private bodyHooks(m: Msg | null, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]) {
+    // Read when drawn, not now: a body's list hooks are set after its hooks are made.
+    const self = this;
+    return blockdownHooks({ get context() { return self.context; }, refusedPress: act => self.refusedPress(act), get folded() { return self.folded; }, get foldSel() { return self.foldSel; }, get listEnv() { return self.listEnv; } }, m, noteLines, env, src, drawn);
   }
 
   /**
-   * The note's body for a host that draws its own column around it (the river's): the same renderer as
-   * `render` (Markdown, links, transclusions nested, step controls and an open status choice), `w` wide,
-   * without the reader's header or scroll. Its links, embeds, steps and fold points are this surface's elements:
-   * `[ ]` walks them, ⏎ and space act on the current one, a click on one goes through `open`; its folds are this
-   * surface's (`( )`, `f`, `F`, `fold n=`), drawn ▾/▸ as a reader draws them. `current`: the row of the current
-   * element (a fold `( )` selected is one), for the host to keep in view; `links`: where each link, step box
-   * and status-choice row landed, by row, in the returned lines' cells; `folds`: each fold point's heading row,
-   * its width in cells and its number (`fold.toggle n=`), for a click on it; `placements`: its images, laid out as the
-   * reader lays them out whenever the host draws Kitty graphics (at most `maxImageRows` tall), by row and column of
-   * the returned lines, for the host to cut to what it shows (`inWindow`) and hand to the desk as a reader tile does.
+   * The note drawn once for a host that scrolls it itself (a river column, PIE-1543): its header as the reader draws it
+   * (crumbs, title, byline, the header's rule) and its body through the same renderer as `render` (Markdown, links,
+   * transclusions nested, step controls and an open status choice, folds ▾/▸, each code block's ⧉), with one index of
+   * every press target (`header.targets` on the header's rows, `targets` on the body's) that `pressTarget` presses as
+   * the reader's click does. The body is `w` wide, `inset` columns in (a host's margin: its lines start with it). Its
+   * links, embeds, steps, fold points and the header's controls are this surface's elements: `[ ]` walks them, ⏎ and
+   * space act on the current one. `current`: the body row of the current element, for the host to keep in view (a
+   * header control's is above the body, negative); `source`: each body row's note line (-1: none), for a copy of the
+   * source; `placements`: its images, laid out as the reader lays them out whenever the host draws Kitty graphics (at
+   * most `maxImageRows` tall), for the host to cut to what it shows (`inWindow`). `stickyHeader` puts the header's
+   * backdrop under it for how far the host has scrolled.
    */
-  digest(m: Msg, w: number, host: SurfaceHost, maxImageRows = 8): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; folds: { row: number; cols: number; n: number }[]; placements: Placement[]; current: number | null; key: string | null; trims: Doc["trims"]; blocks: { row: number; rows: number; col: number; to?: number; kind: DocBlock["kind"]; n: number }[] } {
+  digest(m: Msg, w: number, host: SurfaceHost, maxImageRows = 8, inset = 0): DrawnNote {
     const src = this.use(host);
+    this.lookAt(m, w, host);
+    const hb = this.headerBlock(m, w, host, src);
+    const head = [...hb.rows], headerRule = hb.rows.length ? this.headerRule(w) : "";
+    if (headerRule) head.push(headerRule);
+    const bw = Math.max(1, w - inset);
     this.drawn = null;
     this.digesting = true;
     // A digest's elements are counted as the reader's always were (one column in); its host draws its own margin.
@@ -2846,20 +2705,40 @@ export class NoteSurface {
     const drawn: Link[] = [];
     // A digest draws no header image above the note: it's drawn where it's written.
     this.hero = null;
-    const { doc: rendered, points, lines: noteLines } = this.body(m, this.docEnv(Math.max(1, w), host, maxImageRows), src, drawn);
-    const { doc, picks } = this.pickerRows(rendered, drawn, Math.max(1, w));
-    this.digested = { m, w, maxImageRows, doc, lines: noteLines };
+    const { doc: rendered, points, lines: noteLines } = this.body(m, this.docEnv(bw, host, maxImageRows), src, drawn);
+    const { doc, picks } = this.pickerRows(rendered, drawn, bw);
+    this.digested = { m, w, maxImageRows, doc, lines: noteLines, head, inset };
     this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0, this.imageRefOf(m, noteLines));
+    // The header's controls (the crumbs, a title decoration) are elements above the body, as in a reader.
+    const header = this.headerTargets(m, hb, w);
+    this.elems.unshift(...header.elems.map(e => ({ ...e, row: e.row - head.length, ruler: [e.ruler[0] - head.length, e.ruler[1] - head.length] as [number, number] })));
     this.keepCurrent(host);
     const current = this.elems.find(e => e.key === this.cur);
-    const lines = doc.lines.map((l, r) => (current && !this.framedList(current) && r >= current.ruler[0] && r < current.ruler[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
-    const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
-    for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
+    const ruled = current && !this.framedList(current) ? current.ruler : null;
+    const lines = doc.lines.map((l, r) => (ruled && r >= ruled[0] && r < ruled[1] ? paintRange(pad(l, bw), 0, bw, RULER_BG) : l));
+    const headLines = head.map((l, r) => (ruled && r - head.length >= ruled[0] && r - head.length < ruled[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
+    const targets: Hit[] = [];
+    const elemOf = new Map<Link, string>(this.elems.filter(e => e.link).map(e => [e.link!, e.key]));
+    for (const r of doc.links) { const link = drawn[r.n]; if (link) targets.push({ row: r.line, from: r.from, to: r.to, link, elem: elemOf.get(link) }); }
+    for (const [i, row] of (picks?.rows ?? []).entries()) targets.push({ row, from: 0, to: bw, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
     // Every row of a wrapped heading is its disclosure (PIE-1349).
-    const folds = doc.heads.flatMap(h => { const n = points.findIndex(p => p.key === h.key); return n < 0 ? [] : Array.from({ length: h.rows ?? 1 }, (_, k) => ({ row: h.row + k, cols: h.cols, n: n + 1 })); });
+    for (const h of doc.heads) { const n = points.findIndex(p => p.key === h.key); if (n >= 0) for (let k = 0; k < (h.rows ?? 1); k++) targets.push({ row: h.row + k, from: 0, to: h.cols, fold: n + 1 }); }
+    const copies = copyControls(lines, doc, { at: r => r, bx: 0, w: bw, now: current ? this.blockOf(current) : null });
+    targets.push(...copies);
     const placements = imagePlacements(doc.images, 0, ...cellOf(host));
     onGround(lines, placements);
-    return { lines, links, folds, placements, current: current ? current.row : null, key: current?.key ?? null, trims: doc.trims, blocks: doc.blocks.flatMap<ReturnType<NoteSurface["digest"]>["blocks"][number]>((b, n) => b.kind === "span" ? b.cells!.map(c => ({ row: c.row, rows: 1, col: c.from, to: c.to, kind: b.kind, n })) : [{ row: b.row, rows: b.rows, col: b.col, kind: b.kind, n }]) };
+    // The host's margin: every body row starts `inset` columns in, its targets, pictures and copy cuts with it.
+    const trims: Doc["trims"] = new Map();
+    for (const [r, t] of doc.trims) trims.set(r, { ...t, cuts: (t.cuts ?? []).map(([a, z, rep]) => [a + inset, z + inset, rep] as [number, number, string?]) });
+    for (const c of copies) if ("block" in c && doc.blocks[c.block]?.kind !== "span") { const t = trims.get(c.row) ?? { cuts: [] }; trims.set(c.row, { ...t, cuts: [...(t.cuts ?? []), [c.from + inset, c.to + inset]] }); }
+    return {
+      header: { lines: headLines, targets: header.hits },
+      lines: lines.map(l => " ".repeat(inset) + l),
+      targets: targets.map(t => ({ ...t, from: t.from + inset, to: t.to + inset })),
+      placements: placements.map(p => ({ ...p, col: p.col + inset })),
+      current: current ? current.row : null, key: current?.key ?? null, trims,
+      source: doc.source.map(b => noteLines[b] ?? -1),
+    };
   }
 
   /** A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section. */
@@ -4487,8 +4366,7 @@ export class NoteSurface {
 
   /** What the last render put at cell `x`, `y`; a region's mark covers a fold at the same gutter cell. */
   hitAt(x: number, y: number): Hit | undefined {
-    const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "start" in h || ("follow" in h && h.follow)) ?? at.find(h => "region" in h) ?? at[0];
+    return pickTarget(this.hits.filter(h => h.row === y && x >= h.from && x < h.to));
   }
 
   // ── keys: each one is an action, the same ones an agent calls ─────────────
@@ -5760,7 +5638,7 @@ export class NoteSurface {
       const d = this.drawn, digest = this.digested;
       withFigureBoard(host.ctx.board, () => host.redraw(), () => {
         if (d) this.renderReading(d.w, d.h, host, null);
-        else if (this.digesting && digest) this.digest(digest.m, digest.w, host, digest.maxImageRows);
+        else if (this.digesting && digest) this.digest(digest.m, digest.w, host, digest.maxImageRows, digest.inset);
       });
     }
   }
@@ -6220,9 +6098,7 @@ export class NoteSurface {
     const float = this.floatAt(x, y + (this.drawn?.heroRows ?? 0), host);
     if (float) { this.attachedMode(float)?.click(x, y, host); return true; }
     const h = this.hitAt(x, y);
-    if (h && "listPreview" in h) { void this.runKey("list.preview", { n: h.listPreview }, host); return true; }
-    if (h && "sources" in h) { void this.runKey("sources.open", {}, host); return true; }
-    if (h && "zoom" in h) { void this.runKey("element.zoom", h.zoom < 0 ? { on: false } : { line: h.zoom + 1 }, host); return true; }
+    if (h && ("listPreview" in h || "sources" in h || "zoom" in h)) return this.pressTarget(h, host, was);
     // An open mode first (in its precedence): the edit's or comment's own click, a status choice's row, a panel row.
     const taken = this.modes.click(x, y, host);
     if (taken !== undefined) return taken;
@@ -6237,6 +6113,19 @@ export class NoteSurface {
     if (!this.editing) { const line = this.sourceLineAt(y + (this.drawn?.heroRows ?? 0)); if (line !== null) void this.runKey("reading.place", { line: line + 1 }, host); }
     // The header image: a click on it makes it the `[ ]` position, as a click on any image does.
     if (y < 0) { const i = this.elems.findIndex(e => !!e.link?.media && e.link.image?.line === this.hero?.line); if (i >= 0) void this.runKey("element.select", { n: i + 1 }, host); return i >= 0; }
+    return this.pressTarget(h, host, was);
+  }
+
+  /**
+   * What a press on target `h` does, wherever its host drew it (PIE-1543): the reader's own rows (click) and a river
+   * column's digest and sticky header press the same index of targets, so a chip, a crumb, a fold, a copy control or a
+   * link does the same thing in both. `was`: the `[ ]` position before the press; `fresh`: an alt-, ctrl- or
+   * middle-click (else the host's freshClick).
+   */
+  pressTarget(h: Hit | undefined, host: SurfaceHost, was: string | null = this.cur, fresh = !!host.freshClick): boolean {
+    if (h && "listPreview" in h) { void this.runKey("list.preview", { n: h.listPreview }, host); return true; }
+    if (h && "sources" in h) { void this.runKey("sources.open", {}, host); return true; }
+    if (h && "zoom" in h) { void this.runKey("element.zoom", h.zoom < 0 ? { on: false } : { line: h.zoom + 1 }, host); return true; }
     // Each click is the action its key is (PIE-506): copy, back and forward, select.clear, element.open, …
     if (h && "fold" in h) { void this.runKey("fold.toggle", { n: h.fold }, host); return true; }
     // A generated region's mark (src/output-region.ts): the `[ ]` position goes to it, which shows what is behind it; a second click lets go.
@@ -6268,11 +6157,14 @@ export class NoteSurface {
     if (this.selection) void this.runKey("select.clear", {}, host);
     if (!h) return false;
     // A comment mark: its thread opens, as ⏎ on it does, and it's the `[ ]` position (PIE-441).
+    // A host that draws no thread cards (a river column: its comments are its replies) shows the thread its own way.
     if ("thread" in h) {
       const i = this.elems.findIndex(e => e.key === h.elem);
       if (i >= 0) void this.runKey("element.open", { n: i + 1 }, host);
+      else if (host.showThread) host.showThread(h.thread);
+      else void this.runKey("thread.toggle", { thread: h.thread }, host);
       host.redraw();
-      return i >= 0;
+      return true;
     }
     // A panel row or a status choice is its mode's (above); with that mode gone, nothing.
     if ("prop" in h || "pick" in h) return false;
@@ -6280,7 +6172,9 @@ export class NoteSurface {
     if ("image" in h) { void this.runKey("element.select", { n: this.elems.findIndex(x => x.key === h.image) + 1 }, host); return true; }
     // A link (in the text, the summary line, an embed's title, a figure's row): the `[ ]` position, then
     // it opens where ⏎ on it would.
-    return this.pressLink(h.link, h.elem ? this.elems.find(e => e.key === h.elem) : undefined, was, h.value, !!host.freshClick, host);
+    // A row of an open choice (a step's status, a callout's type) chooses it.
+    if (h.link.choice !== undefined) { void this.open(h.link, host, fresh); return true; }
+    return this.pressLink(h.link, h.elem ? this.elems.find(e => e.key === h.elem) : undefined, was, h.value, fresh, host);
   }
 
   /**
