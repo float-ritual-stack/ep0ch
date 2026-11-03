@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### tv shows the system: agents, health, the board and Herdr's panes (PIE-1535)
+
+- **`tv ep0ch-agents`:** every Claude session here, working, done or blocked and why; its newest messages as the preview. ctrl-g opens one in a door tile, alt-r restarts it, alt-k stops it.
+- **`tv ep0ch-health`:** doctor's checks, the links and each door session against main, worst first; enter runs the fix shown.
+- **`tv ep0ch-board`:** doing, review, validate, needs-you and open PRs (ctrl-s); ctrl-g opens one in the door.
+- **`tv herdr`:** every Herdr pane, the agent in it and its screen; enter focuses its tab.
+- **`ep0ch doctor`** gains a machine group: failed user units, the nightly run, box-test and the load. `ep0ch agent ls` says why a session waits.
+- **Run:** `ep0ch install --apply` (links the four new cable files). No protocol, grammar or schema change.
+
 ### The reader's keys come from one table (PIE-1527)
 
 - Every reader key, its hint and its line in `?` come from one table. A key you rebind can't be taken by an extension, and a custom binding with arguments works. shift+↑/↓ steps reading, and shift+⏎ and ctrl+⏎ act as ⏎.

@@ -1,0 +1,36 @@
+# The workboard (packages/door/ext/television, PIE-1535): the roadmap items doing, in review and to validate, the notes
+# that need the sysop, and the open PRs (ctrl-s cycles them). Each source is a query in the views' grammar (ep0ch find
+# --query: the outline answers it); edit them here. The outline is the door's rule (--ws, EP0CH_WS, the folder's
+# .ep0ch). The preview is the ticket as ep0ch show draws it (a PR: gh pr view); ctrl-g opens it in the running door (a
+# PR: the PIE-n it names), as the agent television. Enter prints ((id)) (a PR row: pr-<n>, not a note).
+[metadata]
+name = "ep0ch-board"
+description = "The workboard: doing, review, validate, needs-sysop and open PRs (ctrl-s); ctrl-g opens one in the door"
+requirements = ["ep0ch-tv"]
+
+[source]
+command = [
+  { name = "Doing", run = "ep0ch-tv board 'type=roadmap-item AND work-stage=doing'" },
+  { name = "Review", run = "ep0ch-tv board 'type=roadmap-item AND work-stage=review'" },
+  { name = "Validate", run = "ep0ch-tv board 'type=roadmap-item AND work-stage=validate'" },
+  { name = "Needs you", run = "ep0ch-tv board 'needs NOT work-stage=done NOT work-stage=superseded NOT type=peer-message'" },
+  { name = "PRs", run = "ep0ch-tv prs" },
+]
+ansi = true
+no_sort = true
+frecency = false
+output = "(({replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}))"
+
+[preview]
+command = "ep0ch-tv board-preview '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
+
+[ui.preview_panel]
+size = 60
+
+[keybindings]
+ctrl-g = "actions:open"
+
+[actions.open]
+description = "Open it in the door (ep0ch open, as the agent television)"
+command = "ep0ch-tv board-open '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
+mode = "fork"
