@@ -34,7 +34,7 @@ import { closest } from "./cli-words";
 import { slotPairs, slotWords } from "@ep0ch/outline-core/action-line";
 import { ActionRefused, ActionSet, actionSet, asActor, def, FREE_ARGS, shownLine, type ActionDef } from "./surface/actions";
 import { explainNotInstalled, nameAlso } from "./surface/dispatch";
-import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
+import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type ServiceHolds, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/screen-layout";
 import type { DeskApi, Pane } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
@@ -127,6 +127,8 @@ export interface ExtensionTileKind {
   save?: string;
   /** Retired kinds this one serves in place of (PIE-1514): a saved tile of one opens as this kind. */
   replaces?: string[];
+  /** What a tile of it holds while the person's keys are on it (PIE-1523): the keys, and an edit an agent is told of. */
+  holds?: ServiceHolds;
 }
 /**
  * A rule (PIE-600) as `extensions.list` names it: an extension's (`ext:<id>/<rule>`) or a rule note's
@@ -862,7 +864,7 @@ function kindEntry(t: ExtensionTileKind, actions: ActionSet<Record<string, ExtAr
   const keyHint = t.actions.flatMap(a => (keyOf(a.key) ? [`${keyOf(a.key)} ${a.id}`] : []));
   // `accepts` names the kinds that may join a tile of it as tabs or drops; an empty one (the manifest's default) leaves it
   // open, as a built-in's does, so the drawer can open its lists as tabs beside an extension's tile.
-  const shared = { kind: t.kind, noun: t.name, ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}), ...(t.policy ? { policy: t.policy } : {}), accepts: { notes: false, ...(t.accepts?.length ? { tiles: t.accepts } : {}) }, actions, ...(t.replaces?.length ? { replaces: t.replaces } : {}) };
+  const shared = { kind: t.kind, noun: t.name, ...(key ? { keys: [{ key, label: t.name.toLowerCase() }] } : {}), ...(t.policy ? { policy: t.policy } : {}), accepts: { notes: false, ...(t.accepts?.length ? { tiles: t.accepts } : {}) }, actions, ...(t.replaces?.length ? { replaces: t.replaces } : {}), ...(t.holds ? { holds: t.holds } : {}) };
   if (t.render) {
     const of = t.render;
     return serviceKind({
