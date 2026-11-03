@@ -220,11 +220,11 @@ export class AgentDrawer {
     if (a.named) {
       const p = new NamedAgentPane(a.named);
       tileRegistry.setRole(p, ROLE_AGENT);
-      return d.bringIn({ pane: p, name: freeName(d, a.name), spec: { t: "leaf", kind: "pty" }, from: "drawer", typing: false }, this.tabBase(d), "tabs", actor);
+      return d.bringIn({ pane: p, name: d.freeName(a.name), spec: { t: "leaf", kind: "pty" }, from: "drawer", typing: false }, this.tabBase(d), "tabs", actor);
     }
     const p = new PtyPane({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true, inShell: a.name !== "shell" });
     tileRegistry.setRole(p, ROLE_AGENT);
-    return d.bringIn({ pane: p, name: freeName(d, a.name), spec: { t: "leaf", kind: "pty" }, from: "drawer", typing: false }, this.tabBase(d), "tabs", actor);
+    return d.bringIn({ pane: p, name: d.freeName(a.name), spec: { t: "leaf", kind: "pty" }, from: "drawer", typing: false }, this.tabBase(d), "tabs", actor);
   }
 
   private namedSurface(d: Desk): boolean {
@@ -527,7 +527,7 @@ export class AgentDrawer {
     const cmd = sessionCommand(hit.program, args, folder);
     const resumed = cmd.length > 1 + args.length;
     if (person && !this.open) { this.offered = true; this.set(true, actor); }
-    const done = await d.openTile({ kind: "pty", cmd: shellQuote(hit.program), cwd: folder, name: freeName(d, program.replace(/[^\w-]/g, "-") || "agent") }, this.tabBase(), "tabs", actor);
+    const done = await d.openTile({ kind: "pty", cmd: shellQuote(hit.program), cwd: folder, name: d.freeName(program.replace(/[^\w-]/g, "-") || "agent") }, this.tabBase(), "tabs", actor);
     const p = d.pane(done.tile) as PtyPane;
     // An agent tab like any other (PIE-1331): the role is what the lift, the chip and `drawer.agent` read.
     tileRegistry.setRole(p, ROLE_AGENT);
@@ -565,7 +565,7 @@ export class AgentDrawer {
     // Its first start is the adopt: the key it is kept under, and the command it was kept with.
     p.keptKey = key;
     if (agent) tileRegistry.setRole(p, ROLE_AGENT);
-    const tile = d.bringIn({ pane: p, name: freeName(d, s.program.replace(/[^\w-]/g, "-") || "agent"), spec: { t: "leaf", kind: "pty" }, from: "drawer", typing: false }, this.tabBase(d), "tabs", actor);
+    const tile = d.bringIn({ pane: p, name: d.freeName(s.program.replace(/[^\w-]/g, "-") || "agent"), spec: { t: "leaf", kind: "pty" }, from: "drawer", typing: false }, this.tabBase(d), "tabs", actor);
     p.startNow(...this.termSize());
     if (p.pid !== kept.pid) this.host.flash(`${s.id} couldn't be adopted: a new one started in ${String(tile.name)}`, 8000);
     this.host.redraw();
@@ -1057,12 +1057,8 @@ export class AgentDrawer {
     const d = this.desk;
     if (!d) return "the drawer isn't ready (no screen is shown yet)";
     if (from === d) return d.tileNow(name, actor).float ? null : `${name} is in the drawer already`;
-    const out = from.takeRefusal(name, actor);
-    if (out) return out;
-    const kind = (from.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
     // As a tab of the one shown, unless the drop says where in the drawer's layout (`to`, `where`: its drop zones').
-    const into = d.bringRefusal({ name, spec: { t: "leaf" as const, kind } }, to, where ?? "tabs", actor);
-    return into ? `the drawer doesn't take ${name}: ${into}` : null;
+    return from.carryRefusal(d, name, { to, where: where ?? "tabs" }, actor);
   }
 
   /** `keep`: the drawer stays as shown or put away (agent.lift's fetch, PIE-1337: the lift shows the tab, not the drawer). */
@@ -1072,13 +1068,12 @@ export class AgentDrawer {
     if (no || !d) throw new ActionRefused(no ?? "the drawer isn't ready (no screen is shown yet)");
     if (from === d) return this.host.ctx!()!.glass!.tuck(name, actor);
     this.dropHover = null;
-    const moved = from.takeOut(name, actor);
-    const done = this.bring(d, moved, to, where ?? "tabs", actor, a => from.bringIn(moved, undefined, undefined, a));
+    const { keys: followed, moved, ...done } = from.carry(d, name, { to, where: where ?? "tabs" }, actor);
     if (this.ctx(actor).standing) {
-      // Shown on its tab, the drawer up; the keys come along only when they were in it.
+      // Shown on its tab, the drawer up; the keys come along when they were in it (the carry's one rule), or when asked.
       d.focusTile(done.tile, actor);
       if (!this.open && this.mode !== "none" && !keep) this.do({ op: "slide", tile: HOST_TILES, open: true }, actor);
-      if ((moved.typing || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
+      if ((followed || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); if (moved.typing) this.intoShown(); }
       this.save();
     }
     this.d?.shownAs(this.shown || !!this.d.floatingTiles().length);
@@ -1134,17 +1129,13 @@ export class AgentDrawer {
     if (!d) throw new ActionRefused("the drawer isn't ready");
     const screen = tilesOf(shown);
     if (!screen || screen === d) throw new ActionRefused(`the ${shown?.title ?? "screen"} has no tiles to put ${name} among · open one with tiles (D the desk, K the board, R the river), then tile.drawer on=false tile=${name}`);
-    const out = d.takeRefusal(name, actor);
-    if (out) throw new ActionRefused(out);
-    const kind = (d.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
-    const into = screen.bringRefusal({ name, spec: { t: "leaf", kind } }, to, where, actor);
-    if (into) throw new ActionRefused(`the ${screen.title} doesn't take ${name} there: ${into}`);
-    const wasIn = this.entered;
-    if (this.glassHasKeys(d.tileInfo(name).tile)) { this.glassReturn = null; this.capture = null; }
-    const moved = d.takeOut(name, actor);
-    const done = this.bring(screen, moved, to, where, actor, a => d.bringIn(moved, undefined, "tabs", a));
-    // The person's keys were in it in the drawer: they go with it, back on the screen.
-    if (wasIn && this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_SCREEN }, actor); screen.focusTile(done.tile, actor); }
+    const why = d.carryRefusal(screen, name, { to, where }, actor);
+    if (why) throw new ActionRefused(why);
+    const glass = this.glassHasKeys(d.tileInfo(name).tile);
+    if (glass) { this.glassReturn = null; this.capture = null; }
+    const { keys, moved: _moved, ...done } = d.carry(screen, name, { to, where }, actor);
+    // The person's keys were in it in the drawer (or on the glass): they go with it, back on the screen.
+    if ((keys || glass) && this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_SCREEN }, actor); screen.focusTile(done.tile, actor); }
     this.host.redraw();
     return { ...done, inDrawer: false, into: screen.title };
   }
@@ -1211,12 +1202,6 @@ export class AgentDrawer {
   /** Whether `actor` acts as the person here (their press, or an agent on it): only then do the keys move with a lift. */
   standsFor(actor: Actor): boolean { return this.ctx(actor).standing; }
 
-  /** `bringIn`, and if it's refused after all (a race), the tile goes back where it came from, for the same actor: never lost. */
-  private bring(to: Desk, moved: MovedTile, at: string | undefined, where: Where | undefined, actor: Actor, back: (actor: Actor) => unknown): TileDone {
-    try { return to.bringIn(moved, at, where, actor); }
-    catch (e) { try { back(actor); } catch { /* nowhere: it's ended below */ } throw e; }
-  }
-
   /**
    * Tiles still running on a screen that goes for good: into the drawer, behind the tab shown, nobody's keys moved,
    * each under a name free there; said once. The panes it took (one it couldn't ends with the screen).
@@ -1225,18 +1210,21 @@ export class AgentDrawer {
   keepRefusal(moved: Pick<MovedTile, "name" | "spec">[]): string | null {
     const d = this.desk;
     if (!d) return null;
-    for (const m of moved) { const why = d.bringRefusal({ ...m, name: freeName(d, m.name) }, undefined, "tabs", { kind: "agent", id: "door" }); if (why) return `${m.name} couldn't go into your drawer: ${why}`; }
+    for (const m of moved) { const why = d.bringRefusal(m, undefined, "tabs", { kind: "agent", id: "door" }); if (why) return `${m.name} couldn't go into your drawer: ${why}`; }
     return null;
   }
   keep(moved: MovedTile[]): Pane[] {
     const d = this.desk;
     if (!d) return [];
-    const took: string[] = [], panes: Pane[] = [];
+    // Leaving asked first (keepRefusal): one the drawer still refuses ends with the screen, and is said with why.
+    const took: string[] = [], panes: Pane[] = [], ended: string[] = [];
     for (const m of moved) {
-      const as = freeName(d, m.name);
-      try { d.bringIn({ ...m, name: as }, undefined, "tabs", { kind: "agent", id: "door" }); took.push(as); panes.push(m.pane); } catch { /* ends with the screen */ }
+      const why = d.bringRefusal(m, undefined, "tabs", { kind: "agent", id: "door" });
+      if (why) { ended.push(`${m.name} (${why})`); continue; }
+      took.push(d.bringIn(m, undefined, "tabs", { kind: "agent", id: "door" }).name as string); panes.push(m.pane);
     }
-    if (took.length) this.host.flash(`${took.join(", ")} went into your drawer · alt+a shows ${took.length === 1 ? "it" : "them"}`, 8000);
+    if (took.length) this.host.flash(`${took.join(", ")} went into your drawer · alt+a shows ${took.length === 1 ? "it" : "them"}${ended.length ? ` · ended with the screen: ${ended.join(", ")}` : ""}`, 8000);
+    else if (ended.length) this.host.flash(`ended with the screen: ${ended.join(", ")}`, 8000);
     if (took.length) this.host.redraw();
     return panes;
   }
@@ -1632,13 +1620,6 @@ export class AgentDrawer {
 
 /** The screen's own tiles: the screen when it's a desk, or a desk inside it (the showcase's section), else none. */
 function tilesOf(shown: Screen | undefined): Desk | null { return shown instanceof Desk ? shown : shown?.tilesHere?.() ?? null; }
-
-/** `base`, or `base2`, `base3` …: the first name no tile on `screen` has. */
-function freeName(screen: Desk, base: string): string {
-  let n = base;
-  for (let i = 2; screen.pane(n); i++) n = `${base}${i}`;
-  return n;
-}
 
 /** alt+A: the next height step after `share` (past the last, the first). */
 export function nextStep(share: number): number {
