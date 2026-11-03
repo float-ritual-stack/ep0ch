@@ -7470,7 +7470,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const spec = this.specOf(t.id);
     const typing = pane === this.ptyIn && this.focus === t.id; this.bindFollows(t.id, pane);
     // The tiles that give their keys back to it keep that, by identity, for when it comes back here (`carryIn`).
-    keysOwed.set(pane, [...this.layout.openedFrom].filter(([, o]) => o.from === t.id).map(([k, o]) => ({ child: this.panes.get(k)!, typing: !!o.typing })));
+    const owed = [...this.layout.openedFrom].filter(([, o]) => o.from === t.id).map(([k, o]) => ({ child: this.panes.get(k)!, typing: !!o.typing })); if (owed.length) keysOwed.set(pane, owed);
     this.commit(plan.from);
     this.forgetTile(t.id, pane);
     // Its heir takes its place and its name: a new tile of its kind, started as any tile joining a live desk.
