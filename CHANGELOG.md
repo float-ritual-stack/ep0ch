@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A tile opened beside another lands by one rule, for you and an agent alike (PIE-1559)
+
+- **One question:** every open beside a tile (tile.open, tile.preview, pane.split, the keys window, the trail, the tune inspector, ctrl+t's picker) asks the layout once where it goes, and the layout weighs that opener's sides in order and takes the first that reads. No caller tries side after side any more.
+- **You and agents agree:** a tile.open naming no place goes beside, then below, then floats when neither reads, whoever runs it. Your own keys always name the tile, so they land as before.
+- **The trail asks first:** with no room to read beside a reader, the history picker opens straight away, with no trail opened and closed again.
+- **Nothing left behind:** a layout built again (an undo, a layout loaded) forgets every tile it drops, picks and "beside the edit" records included.
+- **A lift in a group ends** when an agent in yolo moves your keys off the group, as your own move does.
+- **Run:** `ep0ch install --apply` (door code only; no protocol or schema change).
 ### Pictures in door tiles: mermaid, SVG, and kitty images from programs (PIE-1555)
 
 - **Diagrams and SVG in notes:** a ```mermaid fence (drawn by pele), a ```svg fence and an `[img::*.svg]` draw as pictures sized to the tile, on a terminal with kitty graphics; elsewhere they stay text with a caption.
