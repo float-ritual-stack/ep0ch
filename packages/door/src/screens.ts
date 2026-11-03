@@ -1082,11 +1082,11 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
 });
 
 /**
- * A person's key or click: the shell's action, as `you`, through a dispatcher of the shell's set for the screen it's
- * pressed on (inside a frame, the frame's screens); a refusal is said on the status bar. Any screen's q, Esc and V run these.
+ * A person's key or click: the shell's action, as `you`, on the screen's own shell dispatcher (`shellDispatcher`, in a frame
+ * the frame's; a click on q reaches it too, PIE-1293); a refusal is said on the status bar. Any screen's q, Esc and V run these.
  */
-export function shellKey<K extends keyof ShellArgs & string>(name: K, args: ShellArgs[K], here: Screen, ctx: Ctx) {
-  // One dispatcher per screen, made the first time it runs a shell key and kept with it (never one per key).
+export const shellKey = <K extends keyof ShellArgs & string>(name: K, args: ShellArgs[K], here: Screen, ctx: Ctx) => void shellDispatcher(here, ctx).press(name, args);
+export function shellDispatcher(here: Screen, ctx: Ctx): Dispatcher {
   let s = shells.get(here);
   if (!s) {
     const e: { ctx: Ctx; d: Dispatcher } = { ctx, d: null as unknown as Dispatcher };
@@ -1094,7 +1094,7 @@ export function shellKey<K extends keyof ShellArgs & string>(name: K, args: Shel
     shells.set(here, s = e);
   }
   s.ctx = ctx;
-  void s.d.press(name, args);
+  return s.d;
 }
 /** Each screen's shell dispatcher (`shellKey`), and the context it's shown in now (the door's, or a frame's). */
 const shells = new WeakMap<Screen, { ctx: Ctx; d: Dispatcher }>();

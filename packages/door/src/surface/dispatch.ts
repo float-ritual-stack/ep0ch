@@ -227,6 +227,8 @@ export interface DispatchHost {
   revision?(expected: unknown): string | null;
   /** A tile's draft for the draft rule: the note it shows and the session it holds. */
   draftOf?(t: TileRef): DraftAt | null;
+  /** The shell's actions (screen.back) in another context (a frame's: a mounted board, the showcase's reader), as its q runs them there. */
+  shellIn?(ctx: DispatchCtx): Dispatcher | null;
 }
 
 /** What the draft rule is asked about: the block an action writes, and the draft session where it runs (if any). */
@@ -955,6 +957,9 @@ export class Dispatcher {
     // An action the tile's screen doesn't answer (the App's note.new, keys.open, screen.back) runs here as its key does,
     // with no tile=: a hint segment's click names the tile it was drawn in (PIE-1293).
     const untiled = (r: ActRequest): ActRequest => { const { tile: _, ...rest } = r; return rest; };
+    // A tile in a frame (a mounted board, the showcase's BBS reader): q there leaves the frame's screen, not the door's.
+    const framed = (hit.tile.mount ?? hit.dispatch).host.ctx(), shell = framed && framed !== this.host.ctx() ? this.host.shellIn?.(framed) : null;
+    if (shell?.owner(untiled(req))) return { delegate: () => shell, request: untiled, listed: false };
     return this.owner(untiled(req)) ? { delegate: () => this, request: untiled, listed: false } : null;
   }
 

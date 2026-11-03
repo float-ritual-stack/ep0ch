@@ -154,4 +154,30 @@ describe.skipIf(!outliner)("a click on a hint segment does what its key does (PI
     click(frame()[y]!.indexOf("q back") + 2, y); await until(() => top() instanceof MainMenu, "back to the menu");
     (app as any).term.info.cols = COLS;
   }, 60_000);
+
+  test("inside a mounted board, a click on q menu does what q does there: the mount's, never the outer screen's", async () => {
+    // The desk with the board mounted in a tile beside, its keys in the mount; then q by key, or by a click on the row.
+    const mounted = async () => {
+      await leave();
+      const desk = new Desk(undefined, { layout: "daily" });
+      app.push(desk); await settle(); frame();
+      const r = await desk.dispatch.act({ action: "tile.open", args: { kind: "screen", screen: "board", name: "kanban" } }, { kind: "user" } as any) as any;
+      await desk.dispatch.press("tile.focus", {}, r.tile ?? "kanban");
+      await desk.dispatch.press("mount.enter", {}, r.tile ?? "kanban"); await settle(); frame(); await settle();
+      return desk;
+    };
+    // The layout by tile names (each open makes new ids), and who has the keys.
+    const after = (desk: Desk) => ({ top: top() === desk, layout: JSON.stringify((desk as any).layoutGet().tree).replace(/"(tile|id)":"[^"]*",/g, ""), focus: (desk as any).layoutGet().focus === (desk as any).layoutGet().tiles.find((t: any) => t.name === "kanban")?.tile, keys: JSON.stringify({ ...desk.keys?.(), address: undefined }) });
+    let desk = await mounted();
+    key({ kind: "char", ch: "q" }); await settle(); frame();
+    const byKey = after(desk);
+    desk = await mounted();
+    const l = frame(), y = ROWS - 2;
+    expect(l[y]).toContain("q menu");
+    said.length = 0;
+    click(l[y]!.indexOf("q menu") + 2, y); await settle(); frame();
+    expect({ ...after(desk), said: said.filter(w => /nothing here|takes no|refused/.test(w)) }).toEqual({ ...byKey, said: [] });
+    expect(byKey.top).toBe(true);
+    await desk.dispatch.press("tile.close", {}, "kanban").catch(() => {});
+  }, 60_000);
 });

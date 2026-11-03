@@ -35,7 +35,7 @@ import type { Reveal } from "./reveal";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { lineCompletionHooks } from "./surface/line-hooks";
 import { AgentPointers, screenKeys, whereabouts, type KeyLayers, type ScreenKeys, type Whereabouts } from "./whereabouts";
-import { SHELL_ACTIONS } from "./screens";
+import { SHELL_ACTIONS, shellDispatcher } from "./screens";
 import { NEW_NOTE_ACTIONS } from "./new-note";
 import { TEMPLATE_ACTIONS } from "./template-stamp";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
@@ -1217,7 +1217,7 @@ export class App implements Ctx {
   });
   recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run); }
 
-  readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
+  readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this, shellIn: c => { const here = (c as Ctx).screens?.().at(-1); return here ? shellDispatcher(here, c as Ctx) : null; } }, [
     { set: TRAIL_QUERIES, takes: "none", on: () => this },
     { set: STRIP_ACTIONS, takes: "screen", claims: req => STRIP_ACTIONS.has(req.action), on: at => ({ strips: this.strips, tile: at.tile?.id ?? (at.name ? (this.screenDesk() ?? this.hostLayer.desks()[0])?.dispatch.tile(at.name)?.id : undefined) }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => this.drawer.agentRef(), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>, tile?: string) => this.dispatch.act({ action: name, args, ...(tile ? { tile } : {}) }, how.actor) }) },
