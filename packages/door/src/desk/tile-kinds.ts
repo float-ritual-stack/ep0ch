@@ -515,7 +515,7 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
    */
   private showFirst(desk: DeskApi) {
     const row = this.list.picked();
-    if (!row || row.id === this.shownFirst || !listOpenTarget(row)?.block || desk.shownNow?.(this) === false || !desk.hasPreviews?.(this) || !desk.previewsEmpty?.(this)) return;
+    if (!row || row.id === this.shownFirst || !listOpenTarget(row)?.block || desk.shownNow?.(this) === false || !desk.previewsEmpty?.(this)) return;
     this.shownFirst = row.id;
     void this.listHost(desk).picked(this.handle(desk), row);
   }

@@ -304,6 +304,11 @@ export function forgetScreen(name: string): boolean {
 export const madeScreen = (name: string): { id: string; revision: number; title?: string } | undefined => registrations.get(name)?.made;
 /** A screen the door itself registers (desk, board, blank…): a screen note can't take its name. */
 export const builtinScreen = (name: string): boolean => specs.has(name) && !registrations.get(name)?.made && !registrations.get(name)?.extension;
+/** The screens an extension the repo offers (not installed here) would add, with the words that install it (PIE-1525). */
+let installable = new Map<string, string>();
+export const useInstallableScreens = (m: Map<string, string>): void => { installable = m; };
+/** How to get screen `name` back, when an extension that isn't installed here adds it; else null. */
+export const installableScreen = (name: string): string | null => installable.get(name) ?? null;
 /** The extension whose screen `name` is (PIE-1525), or undefined. */
 export const extensionScreen = (name: string): string | undefined => registrations.get(name)?.extension;
 /** Who holds a screen name, in words: "the waiting extension", "a built-in", "a screen note". */

@@ -134,8 +134,6 @@ export interface DeskApi {
   showFrom?(from: Pane, m: Msg, by?: Actor, where?: OpenHow["where"]): void;
   /** Whether the previews tile `from`'s selection goes to all show nothing yet (a list given the keys fills only those, PIE-1426). */
   previewsEmpty?(from: Pane): boolean;
-  /** Whether any preview here follows tile `from`'s selection (a select wire, its home reader). */
-  hasPreviews?(from: Pane): boolean;
   /**
    * Run an action as `by`, in tile `tile` (or the action's own default): the person's as their key does, an agent's as
    * its `act` does, a refusal said either way. A tile kind's code reaches another action (the brief steps to a day) by it.

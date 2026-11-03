@@ -36,7 +36,7 @@ import { ActionRefused, ActionSet, actionSet, asActor, def, FREE_ARGS, shownLine
 import { explainNotInstalled, nameAlso } from "./surface/dispatch";
 import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/screen-layout";
-import { forgetScreen, readSpec, registerScreen, screenHolder, screenNames, specData, type ScreenSpec } from "./desk/screen-spec";
+import { forgetScreen, readSpec, registerScreen, screenHolder, screenNames, specData, useInstallableScreens, type ScreenSpec } from "./desk/screen-spec";
 import type { DeskApi, Pane } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
 import { barSources, openNote, registerBarSource, unregisterBarSource, type BarSource } from "./bar/source";
@@ -957,6 +957,8 @@ function bindScreens(served: readonly ExtensionEntry[], problems: string[]) {
     if (want.has(spec.name)) { problems.push(`${e.name ?? e.id}'s screen ${spec.name} isn't registered: ${want.get(spec.name)!.extension} has a screen by that name`); continue; }
     want.set(spec.name, { extension: e.id, spec, print: `${e.id}|${JSON.stringify(spec)}` });
   }
+  // The way back for a screen an extension the repo offers would add: what screen.open says of it.
+  useInstallableScreens(new Map((current?.available ?? []).flatMap(e => (e.screens ?? []).map(n => [n, `the ${e.name} extension adds it: ctrl+k, & and ⏎ on ${e.name}, or ep0ch act extensions.install id=${e.id}`] as [string, string]))));
   for (const [name, print] of boundScreens) if (want.get(name)?.print !== print) { forgetScreen(name); boundScreens.delete(name); }
   for (const [name, w] of want) {
     if (boundScreens.has(name)) continue;
@@ -967,11 +969,6 @@ function bindScreens(served: readonly ExtensionEntry[], problems: string[]) {
   }
 }
 
-/** The repo's extension that would add screen `name` (PIE-1525), and the command that installs it: a refusal's way back. */
-export function screenInstallWords(name: string): string | null {
-  const e = (current?.available ?? []).find(a => a.screens?.includes(name));
-  return e ? `the ${e.name} extension adds it: ctrl+k, & and ⏎ on ${e.name}, or ep0ch act extensions.install id=${e.id}` : null;
-}
 
 /** The bar sources this module registered (by name), with what they were made from. */
 const boundBar = new Map<string, string>();

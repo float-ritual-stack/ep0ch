@@ -23,6 +23,7 @@ import { subject } from "../board";
 import { renamedPagesNote } from "@ep0ch/outline-core/protocol";
 import { READER_MODES, tileKind, tileNoun, type TileKindName } from "./tile-kinds";
 import { screenNote } from "./screen-notes";
+import { menuScreen } from "./menu-rows";
 /** The main-menu row a screen a person made names (PIE-1525), if any. */
 const madeMenu = (name: string) => screenNote(name)?.spec.menu;
 
@@ -943,7 +944,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "screen.menu name=garden-planning key=Y label=Potting", does: "puts Y Potting on the main menu, opening the garden planning screen" },
       { act: "screen.menu name=garden-planning off=true", does: "takes garden planning's row off the main menu" },
     ],
-    async run(a, { d }, actor) { return await d.menuScreen(a, actor); },
+    async run(a, { d }, actor) { return await menuScreen(d, a, actor); },
   }),
   "layout.load": loadLayout,
   "layout.undo": def({

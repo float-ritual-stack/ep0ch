@@ -1439,6 +1439,14 @@ the revision the door read; a built-in screen's name, or one two notes share, is
 screen of your own with changes not saved asks first. `act screen.delete name=<name>` (or trashing the note) takes it
 away. Layouts saved before this in `layouts.json` come across once with `bun scripts/import-layouts.ts --ws <name>`.
 
+**On the main menu (PIE-1525).** A screen you made gets a row there: its `⋯` menu's *add to the main menu* (or the
+power bar's `screen.menu`) asks for a key and a label (`Y Potting`), or `act screen.menu key=Y label=Potting`; `off=true`
+takes it away. The row is written into the screen note's spec (`menu`), so every door on the outline shows it and a
+restart keeps it. The menu art has twelve slots; every other row joins its key line. A key another row holds (or the
+menu's own V, H, ?) leaves the row without a key, and the answer says who holds it: a click still opens it. Extensions
+name rows the same way: O Waiting is the waiting extension's (`ep0ch ext remove waiting` takes it, and its screen,
+away).
+
 **Containers and policy (PIE-505).** A layout is a tree of tiles in containers: splits, tab sets and docks. A
 dock slides out from an edge (`act tile.dock tile=tree edge=left`, or the policy panel's edge row) and takes
 anything dropped into it: the tree, claude and a detail can share one. Every container, and the screen itself,
