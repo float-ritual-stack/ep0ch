@@ -169,12 +169,12 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       const restored = new Desk(spec, { saved });
       d.app.push(restored); d.paint();
       const note = await board.createBlock(null, "A letter after reopening");
-      await restored.openLanding(note.id, USER);
+      await restored.openBy(note.id, { standing: false }, USER);
       expect(restored.layoutGet().tiles.find(t => t.name === "kettle2")!.showing?.id).toBe(note.id);
       await restored.dispatch.act({ action: "tile.focus", tile: "other" }, USER);
       restored.key(char("x"), d.app);
       expect(restored.focusName()).toBe("kettle2");
-      const floated = await restored.openPlace(note.id, "float", USER);
+      const floated = await restored.openBy(note.id, { tile: "float" }, USER);
       expect(restored.layoutGet().tiles.find(t => t.tile === floated.tile)!.arrival).toBeDefined();
       const made = await restored.saveScreen("Letters to keep", USER);
       await d.app.dispatch.act({ action: "screen.open", args: { name: String(made.screen) } }, USER);

@@ -95,7 +95,7 @@ describe("the selection model", () => {
     expect(row).toStartWith("row 4 xxxxxxx ✓");
     expect(row).toEndWith(" xxxxxxxxxxxxxx");
     expect(out.filter((l, i) => l !== lines[i])).toHaveLength(1);
-    expect(tailFrom("\x1b[31mab\x1b[32mcd", 3)).toBe("\x1b[31m\x1b[32md");  // the colours at the cut, set again
+    expect(tailFrom("\x1b[31mab\x1b[32mcd", 3)).toBe("\x1b[32md");  // the colour in effect at the cut, set again (its state, not its history)
     expect(TOAST_MS).toBeGreaterThan(500);
   });
 });

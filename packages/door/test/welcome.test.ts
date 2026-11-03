@@ -307,6 +307,13 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect((app as any).message).toContain("an agent (test-agent) put House rules in the detail (welcome 2)");
     expect(await app.act({ action: "welcome.read", args: { id: n.kettle.id }, as: "test-agent" })).toMatchObject({ id: n.kettle.id, n: null });
     expect(focus()).toBe("welcome");
+    // An open fresh here is the welcome's own (PIE-1522: placement's action destination): read in the detail, the answer naming it.
+    // An agent's lands where the detail's opens go now, never the person's keys; the answer names the tile that shows it.
+    const fresh = await app.act({ action: "open", args: { id: n.rules.id, fresh: true }, as: "test-agent" }) as { name: string; id: string };
+    expect(fresh.id).toBe(n.rules.id);
+    expect(top().layoutAll().tiles.find(t => t.name === fresh.name)?.showing?.id).toBe(n.rules.id);
+    expect(focus()).toBe("welcome");
+    await app.act({ action: "welcome.read", args: { id: n.kettle.id }, as: "test-agent" });
     await until(() => kettleRows(), "the kettle's backlinks");
     // An agent's pick is its own (ADR 0004): it is the list's, in its tint, and the preview the person follows doesn't move.
     const shown = tileOf<WelcomePreview>("preview").msg?.id;
@@ -328,6 +335,8 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect(editFoot).not.toContain("logo");
     idle();
     await expect(app.act({ action: "welcome.select", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing on the welcome/);
+    // An agent's fresh open here is welcome.read (PIE-1522): its refusal is said, never an answer that opened nothing.
+    await expect(app.act({ action: "open", args: { id: n.rules.id, fresh: true }, as: "test-agent" })).rejects.toThrow(/the person is typing on the welcome/);
     ch("2");                                                                         // typed into the edit, not a pick
     expect(tileOf<WelcomeDetail>("detail").msg?.id).toBe(n.start.id);
     // Where a pick lands while the detail holds the edit is placement's, as on any desk (PIE-1294): the person's own
@@ -339,6 +348,19 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect(tileOf<WelcomeDetail>("detail").draft).toBeTruthy();
     press({ kind: "esc" }); press({ kind: "esc" });
     await until(() => !tileOf<WelcomeDetail>("detail").draft, "the edit closed");
+  });
+
+  test("an agent's open from= the drawer's waiting list over the welcome answers the tile that shows it, wherever that is (PIE-1522)", async () => {
+    idle();
+    await app.act({ action: "host.waiting" });
+    const tab = app.drawer.tabs().find(t => t.kind === "waiting-you");
+    expect(tab).toBeDefined();
+    idle();
+    const r = await app.act({ action: "open", args: { id: n.kettle.id, from: tab!.name, fresh: true }, as: "test-agent" }) as { tile: string | null; id: string };
+    expect(r.id).toBe(n.kettle.id);
+    expect(r.tile).not.toBeNull();
+    const shows = [top(), (app.drawer as any).d as Desk].flatMap(d => d.layoutAll().tiles).find(t => t.tile === r.tile)?.showing?.id;
+    expect(shows).toBe(n.kettle.id);
   });
 
   test("past ten notes the tenth is 0 and the rest are … more, which goes to the list", async () => {
