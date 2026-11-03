@@ -79,6 +79,10 @@ describe.skipIf(!outliner)("PgDn pages the row container the pick is in (PIE-153
     expect(text()).toContain(label().match(new RegExp(`${word} \\d\\d`))![0]);
     expect(press({ kind: "pgup" })).toBe(page);
     expect(d.surface.hint()).not.toContain("blocks/rows");
+    // A page counts from the row the [ ] position is on, wherever j left it: the list's pick follows the walk.
+    while (at()! > 1) press(char("k"));
+    expect(press(char("j"))).toBe(2);
+    expect(press({ kind: "pgdn" })).toBe(2 + page!);
   }, 30_000);
 
   test("with no row picked, PgDn scrolls the note a page", async () => {
