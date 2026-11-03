@@ -1493,9 +1493,9 @@ function mcpAccessArgs(argsIn: string[]): { boardArgs: string[]; machines: strin
 
 const ACCESS_SAYS: Record<McpAccessLevel, string> = {
   none: " (denied)",
-  read: " (read-only MCP allowed, stdio and the remote gateway)",
-  propose: " (reads, and writes as proposals for you to apply, over stdio and the remote gateway alike)",
-  full: " (reads, and writes applied, checked against the revision they read; a note open in your draft gets a proposal instead; stdio and the remote gateway alike)",
+  read: " (read-only MCP allowed, stdio and the remote gateway; agents' writes are refused, the Claude mod's too)",
+  propose: " (reads, and writes as proposals for you to apply, over stdio, the remote gateway and the Claude mod alike)",
+  full: " (reads, and writes applied, checked against the revision they read; a note open in your draft gets a proposal instead; stdio, the remote gateway and the Claude mod alike)",
 };
 
 /** `ep0ch mcp access --matrix [--machine <ssh-name>]… [--json]`: who can reach what, and how far (src/mcp-access-matrix.ts). */
