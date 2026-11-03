@@ -110,8 +110,8 @@ import {
 import { probeSocket } from "./socket-probe";
 import { actionOf, thisTurn, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { QueryWatches, type WatchConnection } from "./query-watches";
-import { machineryBlind, machineryChange } from "./watch-machinery";
-import { copyAnswers, eventOf, extensionMay, isAsyncOnly, isHostAction, isWatchable, isWholeOutlineRead, replayOnce, wired, type ActionName, type NotHandledHere, type WireAnswer } from "./actions";
+import { machineryBlind, watchesHear } from "./watch-machinery";
+import { copyAnswers, eventOf, extensionMay, holdsNoQueue, isAsyncOnly, isHostAction, isWatchable, replayOnce, wired, type ActionName, type NotHandledHere, type WireAnswer } from "./actions";
 import { LineWatches } from "./line-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -3823,10 +3823,8 @@ export class OutlinerServer {
   }
 
   private broadcast(event: OutlinerEvent): void {
-    // What a write tells subscribers may change a watched answer.
-    if (event.domain === "content" || event.domain === "view" || event.domain === "resource-catalog") {
-      this.watches.changed(event.domain === "content" ? machineryChange(this.store, event.change) : undefined);
-    }
+    // What a write tells subscribers may change a watched answer; a tool's bookkeeping is said `hidden` (PIE-1546).
+    event = watchesHear(this.store, this.watches, event);
     this.pruneDestroyedSubscribers();
     const envelope: OutlinerEventEnvelope = { event };
     const line = `${JSON.stringify(envelope)}\n`;
@@ -4424,9 +4422,9 @@ export class OutlinerServer {
           const key = turnKeyOf(line, socket), action = actionOf(line);
           // A connection that closed has nobody to answer: what it left queued is dropped, never run (PIE-1413).
           const answer = () => socket.destroyed ? undefined : this.respond(socket, line, received, key);
-          if (isWholeOutlineRead(action)) {
-            // A whole-outline read starts after what the connection sent before it (so it sees those writes), and nothing
-            // waits for it: a door's 86 lane reads never hold its note read, its save or its draft behind them (PIE-1413).
+          if (holdsNoQueue(action)) {
+            // A whole-outline read or a `detached` one starts after what the connection sent before it, and nothing waits
+            // for it: a door's lane reads and tile renders never hold its note read, its save or its draft (PIE-1413, 1546).
             const after = requestQueue;
             void after.then(() => socket.destroyed ? undefined : this.turns.next(action, key).then(answer));
           } else {

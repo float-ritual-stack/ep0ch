@@ -91,7 +91,7 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     expect(rows.rows.find(r => r.label === "install Neat")).toBeDefined();
     // What it adds is the preview's (PIE-1284): the row is one line.
     const source = barSource("extensions")!, row = (await source.rows("neat", null as never, "extensions")).find(r => r.label === "install Neat")!;
-    expect(((await source.preview(row, null as never)) as { markdown: string }).markdown).toContain("Adds the script **neat**");
+    expect(((await source.preview(row, null as never)) as { markdown: string }).markdown).toContain("It adds:\n- Script **neat**");
     const installed = await app.dispatch.act({ action: "extensions.install", args: { id: "neat" } }, { kind: "agent", id: "test-agent" }) as { state?: string; page?: string };
     expect(installed.state).toBe("active");
     expect((await board.get(installed.page!))!.text).toContain("Script **neat**");

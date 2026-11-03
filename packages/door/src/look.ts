@@ -28,6 +28,7 @@ type StyleBoard = Partial<Pick<import("./socket").SocketBoard, "request">>;
 const SHEETS = outlineList<StyleSheet, { sheets: readonly StyleSheet[] }>(
   (b: StyleBoard) => (typeof b.request === "function" ? () => b.request!("styles.list", {}).then(r => ({ items: r.sheets, problems: r.problems })) : undefined),
   items => ({ sheets: items }), { sheets: [] },
+  { action: "styles.list", pick: (r: { sheets: any[]; problems: string[] }) => ({ items: r.sheets, problems: r.problems }) },
 );
 
 /** The outline's style sheets for this connection (none until the service answers). */

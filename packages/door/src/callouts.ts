@@ -12,6 +12,7 @@ type CalloutBoard = Partial<Pick<import("./socket").SocketBoard, "request">>;
 const CALLOUTS = outlineList<CalloutType, CalloutRegistry>(
   (b: CalloutBoard) => (typeof b.request === "function" ? () => b.request!("callouts.types", {}).then(r => ({ items: r.types, problems: r.problems })) : undefined),
   calloutRegistry, BUILTIN_CALLOUT_REGISTRY,
+  { action: "callouts.types", pick: (r: { types: any[]; problems: string[] }) => ({ items: r.types, problems: r.problems }) },
 );
 
 /** The outline's callout types for this connection: the built-ins until (and unless) the service answers. */

@@ -115,40 +115,79 @@ export function readStatusNote(text: string, builtinIds: readonly string[]): { e
   return { entries, problems: problems.sort((a, b) => a.line - b.line) };
 }
 
-/** The note is ordinary outline content: edits, trash and reconnects all read it through the service. */
+/** The status bar's note, by its property: the question the door watches. */
+const STATUS_BAR_KEY = "status-bar";
+
+/**
+ * The note is ordinary outline content: edits, trash and reconnects all read it through the service. Its question
+ * (`[status-bar::true]`) is watched (PIE-1546): the service says when the answer changed, so a change elsewhere in the
+ * outline asks nothing. A refresh (the door's start, its own write) reads it at once.
+ */
 export class StatusBarNote {
   note: Msg | null = null;
   private read: { entries: StatusEntry[]; problems: StatusProblem[] } | null = null;
   private reading: Promise<void> | null = null;
   private stale = false;
   private said = "";
-  constructor(private board: SocketBoard, private changed: () => void, private warn: (text: string) => void) {}
+  private builtins: StatusItem[] | null = null;
+  /** The notes the bar was last read from (ids and revisions), refused or not. */
+  private taken = "";
+  constructor(private board: SocketBoard, private changed: () => void, private warn: (text: string) => void) {
+    // A watched answer arrived (this one, or any other on the connection): ours, as it stands, asks nothing.
+    board.watched?.listen(() => this.heard());
+  }
 
   /** The lines the reader skipped, with what to write (PIE-1227): shown on the bar as one `!` item. */
   get problems(): readonly StatusProblem[] { return this.read?.problems ?? []; }
 
+  /** Take the notes read: the bar's entries, and what's wrong with them said once. */
+  private take(notes: Msg[], builtins: StatusItem[]): void {
+    this.taken = notes.map(n => `${n.id}@${n.revision}`).join(",");
+    try {
+      if (notes.length > 1) throw new Error(`more than one [status-bar::true] note: ${notes.map(n => n.id).join(", ")}; keep the property on one`);
+      this.note = notes[0] ?? null;
+      this.read = this.note ? readStatusNote(this.note.text, builtins.map(b => b.id)) : null;
+      // Said once for each set of skipped lines: the bar's `!` item keeps showing it until the line is fixed.
+      const text = this.read?.problems.length ? `Status bar: skipped ${this.read.problems.map(p => `line ${p.line + 1}: ${p.message}`).join("; ")}` : "";
+      if (text && text !== this.said) this.warn(text);
+      this.said = text;
+    } catch (e) { this.failed(e); }
+  }
+  private failed(e: unknown): void {
+    this.read = null;
+    const text = `Status bar: ${e instanceof Error ? e.message : String(e)}`;
+    if (text !== this.said) this.warn(text);
+    this.said = text;
+  }
+
+  /**
+   * The service said a watched answer changed: when it is the bar's question and its note moved, take it. Nothing is
+   * asked (PIE-1546: the bar's note was read again after every change in the outline).
+   */
+  private heard(): void {
+    if (!this.builtins || this.reading) return;
+    const shown = this.board.byPropShown?.(STATUS_BAR_KEY, "true");
+    if (!shown) return;
+    // Every note the question holds, not only the one taken: a second one refused the bar, and its going brings it back.
+    const now = shown.map(n => `${n.id}@${n.revision}`).join(",");
+    if (now === this.taken) return;
+    this.taken = now;
+    this.take(shown, this.builtins);
+    this.changed();
+  }
+
+  /** Read the note now (the door's start, its own writes, a reconnect); from then on the service says when it changed. */
   refresh(builtins: StatusItem[]): Promise<void> {
+    this.builtins = builtins;
     this.stale = true;
     if (this.reading) return this.reading;
     this.reading = (async () => {
       try {
         while (this.stale) {
           this.stale = false;
-          try {
-            const notes = await this.board.byProp("status-bar", "true");
-            if (notes.length > 1) throw new Error(`more than one [status-bar::true] note: ${notes.map(n => n.id).join(", ")}; keep the property on one`);
-            this.note = notes[0] ?? null;
-            this.read = this.note ? readStatusNote(this.note.text, builtins.map(b => b.id)) : null;
-            // Said once for each set of skipped lines: the bar's `!` item keeps showing it until the line is fixed.
-            const text = this.read?.problems.length ? `Status bar: skipped ${this.read.problems.map(p => `line ${p.line + 1}: ${p.message}`).join("; ")}` : "";
-            if (text && text !== this.said) this.warn(text);
-            this.said = text;
-          } catch (e) {
-            this.read = null;
-            const text = `Status bar: ${e instanceof Error ? e.message : String(e)}`;
-            if (text !== this.said) this.warn(text);
-            this.said = text;
-          }
+          // The question watched from here on (asked in the background once).
+          this.board.byPropShown?.(STATUS_BAR_KEY, "true");
+          try { this.take(await this.board.byProp(STATUS_BAR_KEY, "true"), builtins); } catch (e) { this.failed(e); }
           this.changed();
         }
       } finally {

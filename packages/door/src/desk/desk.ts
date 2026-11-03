@@ -4690,7 +4690,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * reader's NOTE_ACTIONS', `note`; a river list's, `river`), else its kind's set's, else nothing (every binding).
    */
   private keysFilter(): string {
-    const p = this.panes.get(this.focus);
+    const at = this.focusedDesk(), p = at && at !== this && this.descend().includes(at) ? at.panes.get(at.focus) : this.panes.get(this.focus);   // in a group: its tile's
     const scope = p ? p.keysScope?.() ?? kindOf(p)?.actions?.scope : undefined;
     return scope ? `in:${scope}` : "";
   }

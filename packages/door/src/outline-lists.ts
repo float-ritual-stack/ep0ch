@@ -1,7 +1,10 @@
 // What an outline declares in its notes and the door draws by (PIE-538 callout types, PIE-599 heading styles): one
-// list a connection asks the service for in the background, keeps, and asks again after the outline changes (at most
-// once a second). Until the answer lands the built-ins (or the last answer) stand. Each kind is one `outlineList`.
+// list a connection asks the service for in the background and keeps. On a connection with watched reads (a
+// SocketBoard) the service says when the list changed (PIE-1546: it was asked again after every change, a tool's
+// bookkeeping included); elsewhere it's asked again after the outline changes (at most once a second). Until the answer
+// lands the built-ins (or the last answer) stand. Each kind is one `outlineList`.
 import { anyChangeSince, changeClock } from "./refs";
+import type { Watched } from "./watched";
 
 /** How soon after an answer a change asks again: a burst of edits makes one more question, not one each. */
 const AGAIN_MS = 1000;
@@ -28,10 +31,40 @@ export interface OutlineList<R> {
  * One kind of declared list: `ask` is the connection's question (absent on a test double: the built-ins stand), `build`
  * turns its answer into a registry, `builtin` is what stands until then.
  */
-export function outlineList<T, R extends object>(ask: (board: any) => (() => Promise<{ items: T[]; problems: string[] }>) | undefined, build: (items: T[]) => R, builtin: R): OutlineList<R> {
+export function outlineList<T, R extends object>(ask: (board: any) => (() => Promise<{ items: T[]; problems: string[] }>) | undefined, build: (items: T[]) => R, builtin: R, watch?: { action: string; pick: (raw: any) => { items: T[]; problems: string[] } }): OutlineList<R> {
   const keptBy = new WeakMap<object, Kept<R>>();
+  type Answer = { registry: R; problems: string[] };
+  const derive = (raw: unknown): Answer => { const r = watch!.pick(raw); return { registry: build(r.items), problems: r.problems }; };
+  const watchedOf = (b: object | undefined): Watched | undefined => (watch ? (b as { watched?: Watched } | undefined)?.watched : undefined);
+  /**
+   * Per connection: what `of` gives (the watched answer, or a read made after this door's own write to a declaration,
+   * until the service tells a newer one), the watched answer last taken, and the reader that drew it last.
+   */
+  interface Shown { registry: R; problems: string[]; watched?: R; src: ListSource; fresh?: Promise<void> }
+  const shownOf = new WeakMap<object, Shown>();
+  const shownBy = (b: object, src: ListSource, w: Watched): Shown => {
+    let kept = shownOf.get(b);
+    if (!kept) {
+      const made: Shown = { registry: builtin, problems: [], src };
+      shownOf.set(b, kept = made);
+      // The service told a newer answer: it stands, and the reader that drew last draws it.
+      w.listen(() => { if (take(made, w)) made.src.redraw(); });
+    }
+    kept.src = src;
+    take(kept, w);
+    return kept;
+  };
+  /** The watched answer, when it moved since it was last taken: true when it did. */
+  const take = (kept: Shown, w: Watched): boolean => {
+    const now = w.read<Answer>(watch!.action, {}, derive, "", { held: true }).value;
+    if (!now || now.registry === kept.watched) return false;
+    kept.watched = now.registry; kept.registry = now.registry; kept.problems = now.problems;
+    return true;
+  };
   const of = (src: ListSource | null | undefined): R => {
     const b = src?.board as object | undefined;
+    const w = watchedOf(b);
+    if (src && b && w) return shownBy(b, src, w).registry;
     const question = b && ask(b);
     if (!src || !b || !question) return builtin;
     const hit = keptBy.get(b);
@@ -56,9 +89,21 @@ export function outlineList<T, R extends object>(ask: (board: any) => (() => Pro
   const genOf = new WeakMap<R, number>();
   return {
     of,
-    async ready(src) { of(src); await keptBy.get(src.board as object)?.answer?.catch(() => {}); return of(src); },
+    async ready(src) {
+      const b = src.board as object, w = watchedOf(b);
+      if (w) { await w.answer(watch!.action, {}, derive, "", { held: true }); await shownOf.get(b)?.fresh; return of(src); }
+      of(src); await keptBy.get(b)?.answer?.catch(() => {}); return of(src);
+    },
     stamp(registry) { let n = genOf.get(registry); if (n === undefined) genOf.set(registry, (n = ++gen)); return n; },
-    problems: board => keptBy.get(board)?.problems ?? [],
-    stale(board) { const k = keptBy.get(board); if (k && !k.asking) { k.at = -Infinity; k.when = 0; } },
+    problems: board => (watchedOf(board) ? shownOf.get(board)?.problems ?? [] : keptBy.get(board)?.problems ?? []),
+    stale(board) {
+      // After this door's own write to a declaration (a tune saved): read it now, not when the service next tells.
+      const kept = shownOf.get(board), question = ask(board);
+      if (watchedOf(board)) {
+        if (kept && question) kept.fresh = question().then(r => { kept.registry = build(r.items); kept.problems = r.problems; kept.src.redraw(); }, () => {});
+        return;
+      }
+      const k = keptBy.get(board); if (k && !k.asking) { k.at = -Infinity; k.when = 0; }
+    },
   };
 }

@@ -9,6 +9,7 @@ type HeadingBoard = Partial<Pick<import("./socket").SocketBoard, "request">>;
 const HEADINGS = outlineList<HeadingStyle, HeadingStyleRegistry>(
   (b: HeadingBoard) => (typeof b.request === "function" ? () => b.request!("headings.styles", {}).then(r => ({ items: r.styles, problems: r.problems })) : undefined),
   headingStyleRegistry, BUILTIN_HEADING_STYLE_REGISTRY,
+  { action: "headings.styles", pick: (r: { styles: any[]; problems: string[] }) => ({ items: r.styles, problems: r.problems }) },
 );
 
 /** The outline's heading styles for this connection: the built-ins until (and unless) the service answers. */

@@ -1,6 +1,5 @@
 // The scratch service the script tests share (script-site.test.ts, scripts-docs.test.ts): a store and server in a temp
 // folder, a client, and `run` to start a script by name as a person would. Every note and name is made up.
-import { afterEach } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,8 +8,7 @@ import type { ExtensionsListResult } from "../src/extension-registry";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 
-const cleanups: Array<() => Promise<void> | void> = [];
-afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+import { testCleanups as cleanups } from "./test-cleanups";
 
 /** The same multiplier as the door's `testSlack` (packages/door/test/scratch.ts): EP0CH_TEST_SLACK, default 1, read at each call (PIE-1504). */
 export function testSlack(): number {

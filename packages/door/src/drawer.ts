@@ -1377,9 +1377,10 @@ export class AgentDrawer {
       if (isAlt(k, "M") && !this.desk?.rawInput()) { void this.host.ctx?.()?.press?.("status.log"); return true; }
       const d = this.desk;
       if (!d) return true;
-      // Esc and q step back out of the drawer (to the screen) where its tab isn't using them; never the screen's back.
+      // Esc and q step back out of the drawer (to the screen) where its tab isn't using them and the tile with the keys (in
+      // a group too) doesn't claim them (the keys window closes on them); never the screen's back.
       // A terminal there that exited isn't using them either.
-      if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && (!d.holdsKeys() || d.waitsOnExit()) && !d.draggedTile() && !d.linkingFrom()) { run("host.leave", { quiet: true }); return true; }
+      if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && (!d.holdsKeys() || d.waitsOnExit()) && !(d.focusedDesk() ?? d).focusedPane()?.claims?.(k) && !d.draggedTile() && !d.linkingFrom()) { run("host.leave", { quiet: true }); return true; }
       // ctrl+k, cmd+k or alt+k: the power bar, from the drawer too (PIE-1346), folded or not, as on a screen: never typing or in a terminal tile.
       if (isBarKey(k) && !this.foldPrefix && !d.rawKeys() && !d.holdsKeys()) { void this.host.ctx?.()?.press?.("bar.open"); return true; }
       if (strip) return this.stripKey(k, d);

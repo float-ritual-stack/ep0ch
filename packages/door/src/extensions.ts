@@ -758,7 +758,7 @@ function kindEntry(t: ExtensionTileKind, actions: ActionSet<Record<string, ExtAr
         const r = await req.desk.ctx.board.request("scripts.render", { of, props: propsOf(req.state), deadlineMs: 15_000 }, 20_000);
         // The list's own title (PIE-1525: "outbox · 3 waiting on 2 people"), else the kind's name.
         const own = r.view && typeof r.view === "object" && typeof (r.view as { title?: unknown }).title === "string" ? oneLine((r.view as { title: string }).title) : "";
-        return { title: own || t.name, ...(r.view !== undefined ? { view: r.view } : { lines: r.markdown.split("\n") }) };
+        return { title: own || t.name, ...(r.view !== undefined ? { view: r.view } : { lines: r.markdown.split("\n") }), ...(r.reads ? { read: { ids: r.reads.map(x => x.id), machinery: r.machinery === true } } : {}) };
       },
     });
   }

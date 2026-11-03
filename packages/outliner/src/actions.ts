@@ -56,6 +56,18 @@ export interface ActionDecl<R = OutlinerRequest> {
   watch?: true;
   /** A read that walks the whole outline: it waits behind every other request (loop-watch.ts, PIE-625). */
   whole?: true;
+  /**
+   * A watched read whose answer is made only from the text of notes a query that leaves machinery out matched (the
+   * outline's declarations, the asks waiting on Evan): a change to a note stamped `[machine::…]` before and after can't
+   * move it, so its watch isn't evaluated again for one (watch-machinery.ts, PIE-1546).
+   */
+  machineryBlind?: true;
+  /**
+   * A read the async path answers that may run for seconds off the loop (a script's drawing): it starts after what its
+   * connection sent before it, and nothing the connection sends after waits for it (server.ts `accept`, PIE-1546: a
+   * door's what-changed tile held its status bar and its saves behind a 1-6 s render).
+   */
+  detached?: true;
   /** The change event a successful answer broadcasts, or null when nothing changed; left out, none. */
   event?: (request: R, response: Answered, previousSequence: number) => EventFields | null;
 }
@@ -162,7 +174,7 @@ export const ACTIONS = {
   "bookmarks.toggle": { event: (_, { result }) => content((result as BookmarkToggleReceipt).record.id) },
   "browsing-context.get": {},
   "browsing-context.publish": { event: (_, { result }) => { const p = result as BrowsingContextPublication; return { domain: "browsing-context", contextId: p.contextId, blockId: p.target?.kind === "block" ? p.target.blockId : undefined, resourceId: p.target?.kind === "resource" ? p.target.resourceId : undefined, command: p.preview?.command }; } },
-  "callouts.types": { read: true, whole: true },
+  "callouts.types": { read: true, watch: true, whole: true, machineryBlind: true },
   "capture.create": { event: captured },
   "capture.draft.clear": { event: (_, { sequence }, previous) => sequence === previous ? null : content() },
   "capture.draft.get": {},
@@ -228,7 +240,7 @@ export const ACTIONS = {
   "extensions.bar": { async: true },
   "extensions.configure": { async: true },
   "extensions.install": { async: true },
-  "extensions.list": { read: true, async: true },
+  "extensions.list": { read: true, async: true, detached: true },
   "extensions.render": {},
   "extensions.schedule.run": { async: true },
   "extensions.undo": { async: true },
@@ -240,7 +252,7 @@ export const ACTIONS = {
   "fragments.ensure": { event: ifChanged },
   "fragments.read": { ext: "read" },
   "get": { read: true },
-  "headings.styles": { ext: "read", whole: true },
+  "headings.styles": { ext: "read", watch: true, whole: true, machineryBlind: true },
   "loki.lease.revoke": { host: true },
   "loki.lease.start": { host: true },
   "loki.lease.use": { host: true },
@@ -324,7 +336,7 @@ export const ACTIONS = {
   "roadmap.items.similar": { async: true },
   "rules.preview": {},
   "scripts.answer": {},
-  "scripts.render": { ext: "read", async: true },
+  "scripts.render": { ext: "read", async: true, detached: true },
   "scripts.run": { async: true },
   "scripts.sequence": { async: true, once: true },
   "scripts.stop": { async: true },
@@ -342,7 +354,7 @@ export const ACTIONS = {
   "shares.tunnel": { async: true },
   "site.answer": { read: true, watch: true, whole: true },
   "site.sources": { read: true },
-  "styles.list": { ext: "read", whole: true },
+  "styles.list": { ext: "read", watch: true, whole: true, machineryBlind: true },
   "suggestions.keep": { async: true },
   "suggestions.asks": { async: true },
   "suggestions.stamp": { async: true },
@@ -366,7 +378,7 @@ export const ACTIONS = {
   "virtual.occurrences.order": {},
   "virtual.occurrences.place": { event: (request) => ({ domain: "view", blockId: request.input.expected.viewId }) },
   "virtual.occurrences.reorder": { event: (request) => ({ domain: "view", blockId: request.viewId }) },
-  "waiting.list": { read: true },
+  "waiting.list": { read: true, watch: true, machineryBlind: true },
   "web.sessions.list": { host: true },
   "web.sessions.resolve": { host: true },
   "web.sessions.revoke": { host: true },
@@ -408,6 +420,9 @@ export const copyAnswers = (action: unknown): boolean => { const d = row(String(
 export const extensionMay = (action: unknown): ActionDecl["ext"] | undefined => { const d = row(String(action)); return d?.ext ?? (d?.read ? "read" : undefined); };
 export const isWatchable = (action: unknown): boolean => row(String(action))?.watch === true;
 export const isWholeOutlineRead = (action: unknown): boolean => row(String(action))?.whole === true;
+export const isMachineryBlindRead = (action: unknown): boolean => row(String(action))?.machineryBlind === true;
+/** Whether a request starts in order but holds nobody behind it: a whole-outline read, or a `detached` one. */
+export const holdsNoQueue = (action: unknown): boolean => { const d = row(String(action)); return d?.whole === true || d?.detached === true; };
 
 /** The event a successful answer broadcasts (`OutlinerServer.eventFor` adds its id, action and sequence), or null. */
 export function eventOf(request: OutlinerRequest, response: Answered, previousSequence: number): EventFields | null {
