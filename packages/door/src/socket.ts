@@ -37,6 +37,12 @@ export type { WireAnswer, WireParams } from "@ep0ch/outliner/wire";
 type AnnotationRecord = import("@ep0ch/outliner/wire").AnnotationRecord;
 type AnnotationThread = import("@ep0ch/outliner/wire").AnnotationThread;
 import type { WireAnswer, WireParams } from "@ep0ch/outliner/wire";
+/**
+ * A reader's view of a wire type (`View`, what a client reads of `Wire`), held to it: `Reads<View, Wire>` fails the check
+ * when the host's answer stops being one the view can read. For a client type kept narrower than the wire's on purpose
+ * (small fixtures, a part it never reads); a client that reads the whole answer uses the wire's type itself.
+ */
+export type Reads<View, Wire extends View> = Wire;
 /** What follows the action: its fields (left out when it has no required one), then a timeout and a signal. */
 export type WireArgs<A extends WireAction> = {} extends WireParams<A>
   ? [params?: WireParams<A>, timeoutMs?: number, signal?: AbortSignal]

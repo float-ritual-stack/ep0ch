@@ -406,7 +406,7 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     const pick = (lane: string, id: string) => { BV.at(b, "lanes"); B().lane = at(lane); B().lanes[at(lane)].sel = laneIds(lane).indexOf(id); };
     pick("Doing", cards.gate.id);
     B().moveTo(at("Done")); await until(() => !B().moving && laneIds("Done").includes(cards.gate.id), "the move");
-    expect((await current(cards.gate.id)).properties.find((p: any) => p.key === "stage")!!!.value).toBe("done");
+    expect((await current(cards.gate.id))!.properties.find((p: any) => p.key === "stage")!.value).toBe("done");
     pick("Done", cards.gate.id);
     await B().moveTo(at("Either"));
     expect(flashes.at(-1)).toBe("can't move to Either: Either needs (stage=blocked OR stage=waiting) and the note has stage=done; a move sets only the plain clauses beside it");

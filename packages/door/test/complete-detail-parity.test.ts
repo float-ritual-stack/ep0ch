@@ -24,7 +24,7 @@ describe.skipIf(!outliner)("one set of rows for :: [key [key:: and > [! (PIE-134
   const scratch = new Scratch();
   let board: SocketBoard, draftId = "";
   // Detail's client, over the same host: the outliner's requester shape on the door's socket.
-  const detail = () => referenceCompletionProvider({ request: ({ action, ...input }: { action: string } & Record<string, unknown>) => board.request(action, input) }, "user:made-up");
+  const detail = () => referenceCompletionProvider({ request: ({ action, ...input }: { action: string } & Record<string, unknown>) => board.send(action, input) as Promise<any> }, "user:made-up");
   const create = async (text: string) => (await board.request("create", { parentId: null, text, author: "agent" })).id as string;
 
   beforeAll(async () => {

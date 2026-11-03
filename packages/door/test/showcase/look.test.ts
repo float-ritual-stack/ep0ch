@@ -1154,7 +1154,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       const file = await board.request("artifacts.show", { name: images[2].path });
       const otherBytes: string[] = [];
       const other = session.attach({ send(m) { if (m.t === "output") otherBytes.push(m.text); }, backlog: () => 0, onDrain() {}, close() {} }, { ...pressing.hello, remote: false, pid: 456 });
-      const request = board.request.bind(board);
+      const request = board.send.bind(board);
       let release!: () => void, arrived!: () => void;
       const gate = new Promise<void>(r => { release = r; }), waiting = new Promise<void>(r => { arrived = r; });
       (board as any).request = (action: string, args: unknown) => {

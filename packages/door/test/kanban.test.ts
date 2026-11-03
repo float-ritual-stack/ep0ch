@@ -165,7 +165,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await until(() => !B().composer, "the create");
     const made = B().lastWrite.id;
     const m = await current(made);
-    const workId = m.properties.find((p: any) => p.key === "work-id")!!!.value;
+    const workId = m!.properties.find((p: any) => p.key === "work-id")!.value;
     expect(workId).toMatch(/^HOME-\d+$/);
     expect(m!.text).toBe(`${workId} — Oil the hinges [type::roadmap-item] [priority::medium] [work-stage::queued] [project::ep0ch-door] [arc::home] [track::doors] [work-id::${workId}]\n\nThe back door squeaks.`);
     expect(m!.parentId).toBe(queue.id);                                      // ep0ch-door's work queue
@@ -198,7 +198,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     const r: any = await act("card.create", { lane: "Queued", text: "Tune the piano [project::pi-outliner] [priority::low] [arc::music] [track::keys]" });
     expect(r).toMatchObject({ lane: "Queued", parent: queue2.id, workId: expect.stringMatching(/^HOME-\d+$/), recordedAs: `an agent (${AS})'s` });
     const m = await current(r.id);
-    expect(m.properties.filter((p: any) => p.key === "project").map!!!((p: any) => p.value)).toEqual(["pi-outliner"]);
+    expect(m!.properties.filter((p: any) => p.key === "project").map!((p: any) => p.value)).toEqual(["pi-outliner"]);
     expect(await createdBy(r.id)).toEqual(["agent", AS]);
     await expect(act("card.create", { lane: "Queued", text: "Mow the lawn [project::garden-club] [priority::low] [arc::a] [track::t]" }))
       .rejects.toThrow("Queued needs (project=pi-outliner OR project=ep0ch-door) and the note would have project=garden-club");
@@ -402,7 +402,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await until(() => !!B().steps?.read && !B().steps.busy, "the steps");
     press({ kind: "down" });
     const now = await current(cards.shelf.id);
-    await other.request("update", { blockId: cards.shelf.id, text: now.text.replace!!!("loosen the brackets", "loosen both brackets"), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "someone-else" } });
+    await other.request("update", { blockId: cards.shelf.id, text: now!.text.replace!("loosen the brackets", "loosen both brackets"), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "someone-else" } });
     const rev = (await current(cards.shelf.id))!.revision;
     press({ kind: "char", ch: "x" });
     await until(() => message().startsWith("not changed"), "the refusal");
@@ -430,7 +430,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(texts()).toEqual(["buy rice", "buy beans"]);
     // Someone else puts a step first: the open overlay reads the note again from its change record.
     const now = await current(cards.pantry.id);
-    await other.request("update", { blockId: cards.pantry.id, text: now.text.replace!!!("- [ ] buy rice", "- [ ] find the list\n- [ ] buy rice"), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "someone-else" } });
+    await other.request("update", { blockId: cards.pantry.id, text: now!.text.replace!("- [ ] buy rice", "- [ ] find the list\n- [ ] buy rice"), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "someone-else" } });
     await until(() => texts()[0] === "find the list", "the overlay to follow the note", 8000);
     // Even with the overlay behind the note, a numbered step means the note's step as it is now.
     B().steps.read = stale;

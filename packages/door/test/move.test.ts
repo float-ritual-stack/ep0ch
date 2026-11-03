@@ -34,7 +34,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
   const B = () => BV.view(b);
   const create = (parentId: string | null, text: string) => sock.request("create", { parentId, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
-  const props = async (id: string) => (await current(id)).properties.map!!!((p: any) => `${p.key}=${p.value}`);
+  const props = async (id: string) => (await current(id))!.properties.map!((p: any) => `${p.key}=${p.value}`);
   const laneIndex = (name: string) => B().lanes.findIndex((l: any) => l.name === name);
   const laneIds = (name: string): string[] => (B().lanes[laneIndex(name)].items ?? []).map((m: Msg) => m.id);
   const press = (k: Key) => b.key(k, B().ctx);

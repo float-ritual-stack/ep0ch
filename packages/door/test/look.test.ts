@@ -331,7 +331,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(tune.describe(d.desk).values).toMatchObject({ "list.gap": { value: "1", from: "screen detail", note: style.id }, measure: { value: "56" }, "pad.x": { value: "2" } });
       const gapBefore = d.where("Turn the left").y - d.where("Net the brassicas").y;
       const asked: string[] = [];
-      const request = board.request.bind(board);
+      const request = board.send.bind(board);
       (board as any).request = (action: string, params: any) => { asked.push(action); return request(action, params); };
       const said: string[] = [], flash = (d.desk as any).ctx.flash;
       (d.desk as any).ctx.flash = (m: string, ...rest: unknown[]) => { said.push(m); return flash.call((d.desk as any).ctx, m, ...rest); };

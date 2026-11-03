@@ -24,9 +24,9 @@ let phase = "start-up";
 /** Every request the door made: its action, the phase it was asked in, how long its answer took (or that it failed). */
 const timed: Array<{ phase: string; action: string; ms: number; failed?: true; view?: string }> = [];
 const board = new SocketBoard(values.socket, 15_000, values.outline);
-const request = board.request.bind(board);
+const request = board.send.bind(board);
 const view = (params?: Record<string, unknown>) => (typeof params?.viewId === "string" ? { view: params.viewId } : {});
-board.request = ((action: string, params?: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal) => {
+(board as any).request = ((action: string, params?: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal) => {
   const at = phase, started = performance.now();
   return request(action, params, timeoutMs, signal).then(
     r => { timed.push({ phase: at, action, ms: performance.now() - started, ...view(params) }); return r; },

@@ -386,7 +386,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(P()).toBeTruthy();
     expect(BV.where(b)).toBe(was);                                  // naming the reader never moves the person's keys (PIE-514)
     await until(() => !P().msg!.partial, "the whole note");
-    const text = (await current(cards.beans.id)).text.replace!!!("Canes along the fence.", "Canes along the fence, two per plant.");
+    const text = (await current(cards.beans.id))!.text.replace!("Canes along the fence.", "Canes along the fence, two per plant.");
     expect(await act("edit.text", { text }, reader)).toMatchObject({ name: reader, dirty: true });
     expect(P().draft!.text).toBe(text);
     const shown = P().render(90, 20, true, b).lines.join("\n");
@@ -404,7 +404,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
 
   test("a save that changes properties is shown to the agent first, like the second ctrl+s", async () => {
     const { name: reader } = await act("open", { id: cards.peas.id }, "new-detail") as any;
-    const text = (await current(cards.peas.id)).text.replace!!!("[stage::queued]", "stage queued");
+    const text = (await current(cards.peas.id))!.text.replace!("[stage::queued]", "stage queued");
     await act("edit.text", { text }, reader);
     const first: any = await act("edit.save", {}, reader);
     expect(first).toMatchObject({ saved: false, next: "edit.save again saves it" });
@@ -412,7 +412,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect((await current(cards.peas.id))!.text).not.toBe(text);
     expect(await act("edit.save", {}, reader)).toMatchObject({ saved: true });
     const now = await current(cards.peas.id);
-    expect([now!.text, now.properties!!!.length]).toEqual([text, 0]);
+    expect([now!.text, now!.properties!.length]).toEqual([text, 0]);
   });
 
   test("an agent never replaces the person's draft: edit.text is refused in their edit, which stays theirs (round 3, C2)", async () => {
@@ -545,9 +545,9 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
       return threads(id);
     };
     let list = await commentOn(m.id, "Prune the apple", "Which branches?");
-    expect([list[0].block!!!.author, list[0].block!!!.actorId]).toEqual(["agent", AS]);
+    expect([list[0]!.block!.author, list[0]!.block!.actorId]).toEqual(["agent", AS]);
     list = await commentOn(u.id, "Net the currants", "Which net?", " The fine one.");
-    expect([list[0].block!!!.author, list[0].block!!!.actorId, list[0]!.body]).toEqual(["agent", `${ACTOR_ID}+${AS}`, "Which net? The fine one."]);
+    expect([list[0]!.block!.author, list[0]!.block!.actorId, list[0]!.body]).toEqual(["agent", `${ACTOR_ID}+${AS}`, "Which net? The fine one."]);
   });
 
   test("comment, reply, resolve: the same session the keys drive, authored by the agent", async () => {
@@ -569,9 +569,9 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(sent).toMatchObject({ sent: "comment" });
     let list = await threads(cards.beans.id);
     expect(list).toHaveLength(1);
-    expect(list[0].originalTarget.anchor!!!.exact).toBe("the wind is strong there");
-    expect([list[0].block!!!.author, list[0].block!!!.actorId, list[0]!.body]).toEqual(["agent", AS, "Use soft twine?"]);
-    const id = list[0].block!!!.id;
+    expect(list[0]!.originalTarget.anchor!.exact).toBe("the wind is strong there");
+    expect([list[0]!.block!.author, list[0]!.block!.actorId, list[0]!.body]).toEqual(["agent", AS, "Use soft twine?"]);
+    const id = list[0]!.block!.id;
     expect(await act("reply", { thread: id.slice(0, 8), body: "Jute is fine." }, reader)).toMatchObject({ sent: "reply" });
     // Resolving opens the thread list over the note: refused in the reader the person has (round 3, C3).
     await mine("tile.focus", {}, reader);
@@ -581,7 +581,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(await act("resolve", { thread: id }, reader)).toMatchObject({ name: reader, already: "resolved" });
     list = await threads(cards.beans.id);
     expect(list[0]!.lifecycle).toBe("resolved");
-    expect([list[0].replies[0].block!!!.author, list[0].replies[0].block!!!.actorId]).toEqual(["agent", AS]);
+    expect([list[0]!.replies[0]!.block!.author, list[0]!.replies[0]!.block!.actorId]).toEqual(["agent", AS]);
     expect(pane.session?.mode).toBe("threads");
     expect(pane.render(90, 30, true, b).lines.join("\n")).toContain("resolved");
     // The person picks it up from there with the keys: the session is theirs too.
@@ -599,7 +599,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const r: any = await act("card.move", { lane: "doing", card: cards.squash.id });
     expect(r).toMatchObject({ card: cards.squash.id, lane: "Doing" });
     const now = await current(cards.squash.id);
-    expect(now.properties.map!!!((p: any) => `${p.key}=${p.value}`)).toContain("stage=doing");
+    expect(now!.properties.map!((p: any) => `${p.key}=${p.value}`)).toContain("stage=doing");
     expect(await lastBy(cards.squash.id)).toEqual(["agent", AS]);
     expect(B().lastMove).toMatchObject({ by: AS, to: "Doing" });
     expect(message()).toContain("an agent (test-agent-7) · moved to Doing");

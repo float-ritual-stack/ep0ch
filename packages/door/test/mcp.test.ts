@@ -180,7 +180,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       writeFileSync(wire, readFileSync(wire, "utf8").replace(/export const PROTOCOL = \d+;/, `export const PROTOCOL = ${hostProtocol};`));
       await Promise.all([write("After the protocol install"), write("Queued during handover")]);
       const saved = await board.request("children", { parentId: target.id });
-      expect(saved.some(b => b.text === "After the protocol install" && b.actorId.includes!!!("version-gardener"))).toBe(true);
+      expect(saved.some(b => b.text === "After the protocol install" && b.actorId!.includes!("version-gardener"))).toBe(true);
       child.stdin.end();
       expect(await child.exited, await errors).toBe(0);
     } finally {
@@ -490,7 +490,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       const hostApiModule = "@ep0ch/outliner/host-api";
       const { hostApi } = await import(hostApiModule);
       const api = hostApi({
-        request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.request<T>(action, rest),
+        request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.send(action, rest) as Promise<T>,
         requireCompatibleService: () => board.info(),
       }, { actorId: "garden-script", sessionId: "script-run" });
       const made = await api.tool.outline_create!({ parent: "root", text: "Seed ledger\nBring labels." }) as { id: string };
@@ -534,7 +534,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     test("scripts, the mod CLI and MCP settle proposals without a reader", async () => {
       const module = "@ep0ch/outliner/host-api";
       const { hostApi } = await import(module);
-      const api = hostApi({ request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.request<T>(action, rest), requireCompatibleService: () => board.info() }, { actorId: "garden-mod" });
+      const api = hostApi({ request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.send(action, rest) as Promise<T>, requireCompatibleService: () => board.info() }, { actorId: "garden-mod" });
       const make = async (actorId: string) => {
         const note = await board.request("create", { parentId: null, text: "Seed plan\nPlant beans." });
         const p = await board.request("draft.patch", { blockId: note.id, revision: note.revision,

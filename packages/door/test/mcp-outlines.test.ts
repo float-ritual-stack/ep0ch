@@ -9,7 +9,7 @@ import { mcpRecord } from "../src/mcp";
 import type { McpOutlineAdmin } from "../src/mcp-outlines";
 import { PERSONA_TOOLS, type McpCaller } from "../src/mcp-writes";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
-import { SocketBoard, hostRequest } from "../src/socket";
+import { SocketBoard, hostRequest, hostSend } from "../src/socket";
 import { outliner, ScratchHost } from "./scratch";
 
 const HERE = canonicalLocalMachineName();
@@ -29,7 +29,7 @@ describe.skipIf(!outliner)("agents make outlines of their own", () => {
   const boardOn = (name: string) => { const b = Object.assign(new SocketBoard(host.sock, 30_000, name), { address: { outline: name, machine: HERE } }); boards.push(b); return b; };
   const admin = (): McpOutlineAdmin => ({
     machine: HERE, now: () => Date.parse("2026-10-09T03:00:00.000Z"),
-    host: (action, params = {}) => hostRequest(host.sock, action, params),
+    host: (action, params = {}) => hostSend(host.sock, action, params) as never,
     open: async name => boardOn(name) as any,
   });
   const call = async (caller: McpCaller, name: string, args: Record<string, unknown>) => {

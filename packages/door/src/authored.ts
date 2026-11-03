@@ -16,9 +16,34 @@ import { parseResourceRef } from "@ep0ch/outline-core/resource-ref";
 
 export type {
   AuthoredLinkCompleteness, AuthoredLinkDiagnostic, AuthoredLinkGroup, AuthoredLinksSnapshot, AuthoredOutlink, AuthoredOutlinkResolution,
-  AuthoredResourceLink, AuthoredResourceReference, AuthoredResourceResolution, ResourceDescription,
+  AuthoredResourceLink, AuthoredResourceReference, AuthoredResourceResolution,
 } from "@ep0ch/outliner/wire";
-import type { AuthoredLinkGroup, AuthoredLinksSnapshot, AuthoredOutlink, AuthoredResourceLink, AuthoredResourceReference, ResourceDescription } from "@ep0ch/outliner/wire";
+import type { AuthoredLinkGroup, AuthoredLinksSnapshot, AuthoredOutlink, AuthoredResourceLink, AuthoredResourceReference } from "@ep0ch/outliner/wire";
+import type { Reads } from "./socket";
+
+/**
+ * What `resources.describe` sends that the door reads: the Resource, its Source and what is stored. A reader's view of
+ * the host's `ResourceDescription`, held to it (`Reads`): a field the door reads that the host stops sending, or sends
+ * as something else, fails the check.
+ */
+export interface ResourceDescription {
+  resource: { id: string; provider: string; mediaType: string | null; address: { readonly kind: string; readonly [key: string]: unknown }; createdAt: string; updatedAt: string };
+  source: { id: string; name: string; provider: string; policy?: { deniedCapabilities?: readonly string[] } };
+  filesystem?: { text: string; capturedAt: string; contentHash?: string } | null;
+  /** The file's folder was made again and its Source re-bound to it: said to the first reader after (PIE-853). */
+  filesystemNotice?: string;
+  /** Why the file isn't read: its folder leads elsewhere now, with the command that re-binds it (PIE-853). */
+  filesystemError?: string;
+  pdf?: unknown;
+  web?: { markdown: string; sourceSnapshot?: { fetchedAt: string | null }; representation?: { contentHash: string } } | null;
+  webError?: string;
+  remoteEntity?: { title: string; markdown: string; externalUrl: string; metadata: Readonly<Record<string, string | readonly string[] | null>>; sourceSnapshot?: { fetchedAt: string } } | null;
+  remoteError?: string;
+  computed?: { markdown: string; derivedAt: string } | null;
+  /** What the service allows for this Resource here: `refresh.status` is `unavailable` when it won't fetch it. */
+  capabilities?: { refresh?: { status: string; reason?: string } };
+}
+export type ResourceDescriptionRead = Reads<ResourceDescription, import("@ep0ch/outliner/wire").ResourceDescription>;
 /** What an Outlink's or Resource's target block is (the service's `linkTargetFacets`): for Kind, Stage and Sort. */
 export type AuthoredTargetFacets = import("@ep0ch/outliner/wire").LinkTargetFacets;
 
@@ -74,9 +99,9 @@ function cut(text: string): { text: string; note: string } {
 
 /** The address as the service labels it (`resourceAddressLabel`). */
 function addressLabel(a: ResourceDescription["resource"]["address"]): string {
-  const v = "path" in a ? a.path : "url" in a ? a.url : "key" in a ? a.key : "identifier" in a ? a.identifier : "uri" in a ? a.uri : undefined;
+  const v = a.path ?? a.url ?? a.key ?? a.identifier ?? a.uri;
   if (typeof v === "string") return v;
-  if (a.kind === "github") return `${a.entity} #${a.number}`;
+  if (a.kind === "github") return `${String(a.entity)} #${String(a.number)}`;
   return a.kind;
 }
 

@@ -249,7 +249,7 @@ test("install control returns a receipt, survives an offline connector, and hono
   const sha = "a".repeat(40);
   const receipts = async (previous: string) => {
     const result = await board.request("blocks.query", { query: { where: "type=deploy machine=install host=travel" } });
-    return result.blocks.filter(b => b.text.includes!!!(`[previous::((${previous}))]`));
+    return result.blocks.filter(b => b.text!.includes!(`[previous::((${previous}))]`));
   };
   const target = { sha, record: { socket: here.sock, outline: "garden", id: note.id } };
   let linked = serveLink({ outlines: here.outlines, port: 0, keys: { travel: "fictional-key" }, log() {}, onResult: (machine, result, deploy) => recordLinkInstall(deploy, machine, result) });
@@ -275,7 +275,7 @@ test("install control returns a receipt, survives an offline connector, and hono
     await until(() => !!linkInstallResult(here.outlines, "travel", sha), "disabled laptop reports why it did not install");
     expect(linkInstallResult(here.outlines, "travel", sha)?.notDone.join(" ")).toContain("auto-install off");
     expect(linkUpdateLabel(laptop.outlines)).toBe("update ready · ep0ch install --apply");
-    expect((await receipts(note.id)).some(b => b.text.includes!!!("auto-install off"))).toBe(true);
+    expect((await receipts(note.id)).some(b => b.text!.includes!("auto-install off"))).toBe(true);
     const toggle = Bun.spawn([process.execPath, resolve(import.meta.dir, "../src/main.ts"), "link", "auto-install", "on"], { env, stdout: "pipe", stderr: "pipe" });
     expect(await toggle.exited).toBe(0);
     await until(() => linkUpdateLabel(laptop.outlines) === "update ready · installing", "the door sees installation in progress");
@@ -298,8 +298,8 @@ test("install control returns a receipt, survives an offline connector, and hono
     await until(() => readFileSync(join(here.outlines, `.remote/travel.${sha}.install.json`), "utf8").includes("origin/main"), "receipt saved");
     await until(() => !!linkInstallResult(here.outlines, "travel", queued), "the newer deploy queued during installation also returns its result");
     expect(messages.filter(m => m.includes("unexpected authentication message"))).toEqual([]);
-    expect((await receipts(queuedNote.id)).some(b => b.text.includes!!!(queued))).toBe(true);
-    expect((await receipts(note.id)).some(b => b.text.includes!!!("origin/main"))).toBe(true);
+    expect((await receipts(queuedNote.id)).some(b => b.text!.includes!(queued))).toBe(true);
+    expect((await receipts(note.id)).some(b => b.text!.includes!("origin/main"))).toBe(true);
     expect((await board.get(note.id))?.text).toBe("Deploy on the garden host\nLocal: finished");
     expect((await board.get(queuedNote.id))?.text).toBe("Next deploy on the garden host\nLocal: finished");
     connector.stop();

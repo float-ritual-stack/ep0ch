@@ -157,10 +157,10 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
 
     const list = await threads(b.id);
     expect(list).toHaveLength(1);
-    const anchor = list[0].originalTarget!!!.anchor;
+    const anchor = list[0]!.originalTarget!.anchor;
     expect(anchor).toMatchObject({ kind: "text-quote", exact: "release notes", start: NOTE.lastIndexOf("release notes") });
     expect(list[0]!.body).toBe("Who reviews these?");
-    expect(list[0].block!!!.author).toBe("user");
+    expect(list[0]!.block!.author).toBe("user");
     expect(flashes.at(-1)).toBe("comment added");
     expect((await current(b.id))!.text).toBe(NOTE);      // commenting didn't touch the note's text
 
@@ -200,7 +200,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     pane.key(ctrl("s"), d);
     await until(() => pane.session?.mode === "threads", "the reply to land");
     let list = await threads(b.id);
-    expect(list[0].replies.map!!!((r: any) => r.body)).toEqual(["Me, on Thursday."]);
+    expect(list[0]!.replies.map!((r: any) => r.body)).toEqual(["Me, on Thursday."]);
     // The list is "threads" while the thread still loads (src/comment.ts), and a key there waits for it: s pressed
     // before then is dropped (on boxd it was, PIE-1412).
     await idle(pane);
@@ -212,7 +212,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     expect(list[0]!.lifecycle).toBe("seen");
     expect(plain(pane.render(80, 30, true, d).lines.join("\n"))).toContain("0 current · 1 earlier");
     const log = await other.request("activity.recent", { author: "user", limit: 20 });
-    expect(log.entries.find((e: any) => e.block.id === list[0].block!!!.id)?.actorId).toBe(ACTOR_ID);
+    expect(log.entries.find((e: any) => e.block.id === list[0]!.block!.id)?.actorId).toBe(ACTOR_ID);
 
     pane.key(char("s"), d);
     await idle(pane);
@@ -227,7 +227,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
   test("a send whose answer is lost is retried with the same request id and lands once", async () => {
     const b = await create(NOTE);
     const ids: string[] = [];
-    const real = board.request.bind(board);
+    const real = board.send.bind(board);
     let lose = 1;
     (board as any).request = async (action: string, params: any) => {
       if (action === "annotations.batch") ids.push(params.requestId);
@@ -259,7 +259,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
 
   test("after a lost answer, changing the text asks before sending what would be a second comment", async () => {
     const b = await create(NOTE);
-    const real = board.request.bind(board);
+    const real = board.send.bind(board);
     let lose = 1, sent = 0;
     (board as any).request = async (action: string, params: any) => {
       if (action === "annotations.batch") sent++;
@@ -306,8 +306,8 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     await until(() => pane.session?.mode === "threads", "the send");
     const list = await threads(b.id);
     const now = (await current(b.id))!.text as string;
-    expect(list[0].originalTarget.anchor!!!.start).toBe(now.indexOf("Ship the release notes"));
-    expect(list[0].originalTarget.anchor!!!.exact).toBe("Ship the release notes before Friday.");
+    expect(list[0]!.originalTarget.anchor!.start).toBe(now.indexOf("Ship the release notes"));
+    expect(list[0]!.originalTarget.anchor!.exact).toBe("Ship the release notes before Friday.");
   });
 
   test("when the quoted words are gone, ctrl+r goes back to picking and the comment text comes along", async () => {
@@ -326,7 +326,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     expect(pane.session!.composer!.text).toBe("Keep me.");
     pane.key(ctrl("s"), d);
     await until(() => pane.session?.mode === "threads", "the send");
-    expect((await threads(b.id))[0].originalTarget.anchor!!!.exact).toBe("Ship it Monday.");
+    expect((await threads(b.id))[0]!.originalTarget.anchor!.exact).toBe("Ship it Monday.");
   });
 
   test("a quote that isn't in the note is refused by the service, and nothing is written", async () => {

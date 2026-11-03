@@ -341,7 +341,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     const r = await act("props.edit", { key: "priority", value: "medium", revision: before!.revision });
     expect(r).toMatchObject({ saved: true, from: "high", to: "medium", revision: before!.revision + 1 });
     const now = await current(ids.card);
-    expect(now!.text).toBe(before.text.replace!!!("[priority::high]", "[priority::medium]"));
+    expect(now!.text).toBe(before!.text.replace!("[priority::high]", "[priority::medium]"));
     const log = await other.request("activity.recent", { author: "agent", limit: 20 });
     expect(log.entries.find((x: any) => x.block.id === ids.card)).toMatchObject({ author: "agent", actorId: AS });
     await expect(act("props.edit", { key: "priority", value: "low", revision: before!.revision })).rejects.toThrow(`is at revision ${now!.revision}`);
@@ -351,7 +351,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     P.sel = 3;                                                                                // project
     key({ kind: "enter" }); for (const c of "-east") key(char(c));
     expect(B().preview.surface.editing).toBe(true);
-    await other.update(ids.card, now.text.replace!!!("Beside the beds", "Next to the beds"), now!.revision);
+    await other.update(ids.card, now!.text.replace!("Beside the beds", "Next to the beds"), now!.revision);
     await until(() => !!P.field?.changedElsewhere, "changed elsewhere", 5000);
     key({ kind: "enter" });
     await until(() => !!P.field && !P.field.saving && P.field.note.includes("not saved"), "the refusal", 5000);
@@ -380,7 +380,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
 
   test("requests: an unrelated change asks nothing again, a note's references resolve once, embed targets are read together", async () => {
     const counts: Record<string, number> = {};
-    const request = board.request.bind(board);
+    const request = board.send.bind(board);
     const tally = () => ({ ...counts });
     const reset = () => { for (const k of Object.keys(counts)) delete counts[k]; };
     (board as any).request = (action: string, params: any = {}) => {
@@ -438,7 +438,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     await act("props.close");
     await until(() => shown(120).includes("Beans along the fence."), "the embed");
     const plan = await current(ids.plan);
-    await other.update(ids.plan, plan.text.replace!!!("Beans along the fence.", "Peas along the fence."), plan!.revision);
+    await other.update(ids.plan, plan!.text.replace!("Beans along the fence.", "Peas along the fence."), plan!.revision);
     await until(() => shown(120).includes("Peas along the fence."), "the refreshed embed", 8000);
     invalidateReferences();
   });
