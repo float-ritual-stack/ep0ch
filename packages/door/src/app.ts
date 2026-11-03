@@ -686,7 +686,7 @@ export class App implements Ctx {
       const { program } = this.keyLayers();
       const sink = !program || program.over ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
       return sink ? (bytes: string) => {
-        if (this.escSpent(bytes)) return;
+        this.xrayHold.drop(); if (this.escSpent(bytes)) return; // a chord typed into a program drops a waiting ctrl hold too
         this.drawer.desks().map(d => d.liftedDesk).find(Boolean)?.dropLiftElsewhere();
         sink(bytes);
       } : null;
