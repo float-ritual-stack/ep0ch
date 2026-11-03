@@ -53,7 +53,7 @@ import { authorName, whoOf, USER, type Actor, type OutlineEvent, requesterOf } f
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { LayoutHistory, specTileIds, type LayoutEntry } from "./layout-history";
-import { adoptTile, groupWith, stepThere, undoDesk, undoOrder, type Adopt, type AdoptHost } from "./undo-across";
+import { adoptTile, groupWith, newestDesk, stepThere, undoDesk, undoOrder, type Adopt, type AdoptHost } from "./undo-across";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
@@ -1032,6 +1032,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * layouts, PIE-1559): each checked first, the whole refused when one can't be; then each rebuilt with the tiles that moved
    * between them kept by identity (`Adopt`), and saved. An agent's undo leaves the person's keys where they are (`keepFocus`).
    */
+  undoNewest(actor: Actor) { return newestDesk<Desk>(this.relatives(), this, actor.kind === "agent" ? partyOf(actor) : null).undoLayout(actor); }   // `layout.undo anywhere=true`, ^W B
   private undoAcross(entries: LayoutEntry[], actor: Actor, keepFocus = false): number {
     const txns = new Set(entries.flatMap(e => (e.txn ? [e.txn] : [])));
     const asked: [Desk, LayoutEntry[]][] = [[this, entries], ...this.relatives().filter(d => d !== this && [...txns].some(t => d.history.forTxn(t)))
@@ -1048,10 +1049,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private undoRefusal(entries: LayoutEntry[], actor: Actor, from: Desk): string | null {
     if (this.keysHere() && this.keysDesk().holdsKeys()) return "you are typing; ctrl+z (layout.undo) puts it back when you are done";
     if (actor.kind === "agent" && !entries.every(e => e.party === partyOf(actor) || e.owner === partyOf(actor))) return `the ${this.layoutSelf().name}'s change isn't yours: an agent undoes its own`;
-    for (const entry of entries) { const later = this.history.after(entry).find(e => entry.txn !== undefined ? e.txn !== entry.txn : e.party !== entry.party);
-      if (later) { const who = `${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}`; return this === from ? `the layout changed since (${who}); undo that first${later.party === "you" ? ": ctrl+z" : ""}` : stepThere(this.layoutSelf().name, who, !!this.ctx?.hostLayer?.isDrawer(this) && !this.ctx.hostLayer.drawnRect?.(), this.rawKeys()); } }
-    // An agent never takes the person's focus: an undo that would close the tile their keys are on is theirs to make.
-    const on = this.panes.has(this.focus) ? this.tileId(this.focus) : null, last = entries.at(-1);
+    for (const entry of entries) { const later = this.history.after(entry).findLast(e => entry.txn !== undefined ? e.txn !== entry.txn : e.party !== entry.party);   // the newest: what its undo takes first
+      if (later) { const who = `${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}`; return this === from ? `the layout changed since (${who}); undo that first${later.party === "you" ? ": ctrl+z" : ""}` : stepThere(this.layoutSelf().name, who); } }
+    const on = this.panes.has(this.focus) ? this.tileId(this.focus) : null, last = entries.at(-1);   // an agent never closes the tile the person's keys are on
     if (actor.kind === "agent" && this.keysHere() && on && last && !specTileIds(last.before).includes(on)) return `the person is on ${this.nameOf(this.focus)}, which this undo would close: an agent leaves their tile alone`;
     return refusal(this.layout, { op: "load", name: "the layout before" }, this.layoutCtx(actor));
   }

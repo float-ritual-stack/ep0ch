@@ -2,10 +2,8 @@
 // drawer), a gather into a group and a spill out of one are each one transaction on every desk they touched; undoing it
 // rebuilds each desk's shape from before, and a tile those shapes name by its id (`t-…`) is the same instance put back,
 // never a second one made by name. Desk applies it; the choices here are plain.
-import { LEAVE_PART } from "../hint-parts";
 import { keyCaption } from "../surface/actions";
 import { hintKey } from "../surface/modes";
-import { ESCAPE_CHORD } from "./pty";
 import { tileRegistry } from "./tile-registry";
 import { specTileIds, type LayoutEntry } from "./layout-history";
 import { savedNodes } from "./screen-spec";
@@ -19,11 +17,16 @@ export function undoDesk<D extends { history: { newest(): { seq: number } | null
   for (let d = desk.holder?.desk() as D | undefined; d; d = d.holder?.desk() as D | undefined) if ((d.history.newest()?.seq ?? -1) > (best.history.newest()?.seq ?? -1)) best = d;
   return best;
 }
-/** A refusal said from another layout (PIE-1559), short enough for 80 columns: what changed there, and how the person gets to its ctrl+z: the drawer's key when it's away, else a click; out of its program first. */
-export function stepThere(name: string, change: string, away: boolean, inProgram: boolean): string {
-  const go = away ? keyCaption(hintKey({ action: "host.toggle", key: "alt+a", label: "" }) ?? "alt+a") : "click it", out = inProgram ? `${keyCaption(hintKey(LEAVE_PART) ?? ESCAPE_CHORD)}, ` : "";
-  return `${name} changed since (${change}); ${go}, ${out}then ctrl+z there`;
+/** The desk holding the newest change among `desks` (a person's, or `party`'s own): where `layout.undo anywhere=true` acts (PIE-1559). */
+export function newestDesk<D extends { history: { newest(): { seq: number } | null; last(party: string): { seq: number } | null } }>(desks: D[], fallback: D, party: string | null): D {
+  const at = (d: D) => (party ? d.history.last(party) : d.history.newest())?.seq ?? -1;
+  return desks.reduce((best, d) => (at(d) > at(best) ? d : best), fallback);
 }
+/**
+ * A refusal said from another layout (PIE-1559): what changed there, and the key that takes it back from here. Not ctrl+z,
+ * which goes to the tile the person would step to (its own undo, a program): the explicit undo, keys left where they are.
+ */
+export const stepThere = (name: string, change: string): string => `${name} changed since (${change}); ${keyCaption(hintKey({ action: "layout.undo", args: { anywhere: true }, key: "ctrl+w B", label: "" }) ?? "ctrl+w B")} undoes it`;
 
 /** What gives a claimed tile up: a desk being put back (`releaseTile`). */
 export interface Releases { releaseTile(rid: string): Pane | undefined }

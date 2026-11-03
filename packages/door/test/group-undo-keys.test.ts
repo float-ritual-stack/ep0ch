@@ -9,7 +9,7 @@ import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
-import { outliner, Scratch } from "./scratch";
+import { outliner, Scratch, until } from "./scratch";
 
 const USER = { kind: "user" } as const;
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
@@ -81,34 +81,50 @@ describe.skipIf(!outliner)("ctrl+z by the real keys (PIE-1559, PIE-1569)", () =>
       } finally { d.quit(); }
     });
 
-    test("a change the undo can't reach from here says where it can: doing what it says takes it back, and then the carry", async () => {
+    test("a change on the other layout is named, the newest one, and ^W B takes it back from here, then the carry", async () => {
       const d = await door(cols, rows);
       try {
         await d.desk.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
         const names = d.names(), replies = d.desk.pane("replies");
         await d.desk.dispatch.act({ action: "tile.drawer", tile: "replies", args: { on: true } }, USER);
         const drawer = () => d.app.drawer.desk as Desk;
-        // A later change on the drawer's side: an open beside the carried tile, as ^W o does there.
+        // Two later changes on the drawer's side: an open, then a rename of what it opened. Its undo takes the rename first.
         await drawer().dispatch.act({ action: "tile.open", tile: "replies", args: { kind: "reader", name: "late", where: "down" } }, USER);
+        await drawer().dispatch.act({ action: "tile.title", tile: "late", args: { text: "later" } }, USER);
         d.paint();
         const tree = d.rect("tree");
         await d.click(tree.col + 3, tree.row + 2);                        // a click on the screen: the keys are there
         expect(d.app.drawer.entered).toBe(false);
         await d.press(ctrl("z"));
-        // The drawer is up: a click goes there. Put away, its key does. Each time the line says the one that works from here.
-        expect(d.said()).toMatch(/^your drawer changed since \(you open\); click it, then ctrl\+z there$/);
-        await d.press({ kind: "alt", ch: "a" } as Key);
-        expect(d.app.drawer.shown).toBe(false);
-        await d.press(ctrl("z"));
-        expect(d.said()).toMatch(/^your drawer changed since \(you open\); alt\+a, then ctrl\+z there$/);
+        expect(d.said()).toBe("your drawer changed since (you rename); ^W B undoes it");
+        expect(drawer().pane("later")).toBeDefined();
+        // What it names works from here, with the keys where they are: the rename, the open, then the carry.
+        await d.press(ctrl("w"), char("B"));
         expect(drawer().pane("late")).toBeDefined();
-        await d.press({ kind: "alt", ch: "a" } as Key);
-        expect(d.app.drawer.entered).toBe(true);
-        await d.press(ctrl("z"));
+        await d.press(ctrl("w"), char("B"));
         expect(drawer().pane("late")).toBeUndefined();
-        await d.press(ctrl("z"));
+        await d.press(ctrl("w"), char("B"));
         expect(d.names()).toEqual(names);
         expect(d.desk.pane("replies")).toBe(replies);
+      } finally { d.quit(); }
+    });
+
+    test("^W B undoes the layout with the keys where they are: the program in the drawer gets no key and keeps running", async () => {
+      const d = await door(cols, rows);
+      try {
+        await d.desk.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
+        await d.app.dispatch.act({ action: "host.toggle", args: { open: true } }, USER);
+        await until(() => d.app.drawer.tile?.running === true, "the drawer's program runs");
+        const names = d.names(), agent = d.app.drawer.tile!, typed = () => agent.text().join("\n");
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "replies", args: { on: true } }, USER);
+        d.paint();
+        const tree = d.rect("tree");
+        await d.click(tree.col + 3, tree.row + 2);
+        await d.press(ctrl("w"), char("B"));
+        expect(d.names()).toEqual(names);
+        expect(agent.running).toBe(true);
+        expect(typed()).not.toContain("^Z");
+        expect(d.said()).toContain("put the layout back");
       } finally { d.quit(); }
     });
   });
