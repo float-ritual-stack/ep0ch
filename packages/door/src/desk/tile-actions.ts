@@ -258,7 +258,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     ],
     run({ by, axis }, { d, reader }, actor) {
       if (!Number.isInteger(by) || by === 0 || Math.abs(by) > 20) throw new ActionRefused("tile.resize: by is a whole number of steps, -20 to 20, not 0");
-      return d.resizeTile(reader, (axis ?? "row") as Axis, by, actor);
+      return d.step(reader, t => ({ op: "grow", tile: t.id, axis: (axis ?? "row") as Axis, by }), actor, (_, t) => ({ tile: t.tile, name: t.name, pane: t.n, axis: (axis ?? "row") as Axis, by }));
     },
   }),
   "tile.zoom": def({
@@ -474,7 +474,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     menu: { label: "widen", group: TILE, key: "ctrl+w W", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.flow ? { refused: n.refused("widen") } : { hide: true }; } },
     args: {},
     run(_, { d, reader }, actor) {
-      return d.widenTile(reader, actor);
+      return d.step(reader, t => ({ op: "flow.widen", tile: t.id }), actor, (_, t) => ({ tile: t.tile, name: t.name, wide: true }));
     },
   }),
   "float.place": def({
@@ -542,7 +542,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "tile.slide open=false tile=tree", does: "tucks the tree away, keeping its edge segment reachable" },
     ],
     run({ open, container, beside }, { d, reader }, actor) {
-      return d.slideTile(reader, open, actor, container, beside);
+      return d.step(reader, t => ({ op: "slide", tile: t.id, beside, ...(open !== undefined ? { open } : {}), ...(container ? { container } : {}) }), actor, (r, t) => ({ ...r.answer, tile: t.tile, name: t.name }));
     },
   }),
   "tile.preview": def({
@@ -696,13 +696,13 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "layout.gather tile=reader side=left", does: "gathers this row's spines on the left and keeps that policy" },
       { act: "layout.gather tile=reader side=sides", does: "gathers each spine at its nearer edge and keeps book policy" },
     ],
-    run({ side, node }, { d, reader }, actor) { return d.gatherSpines(reader, side as "left" | "right" | "sides" | "centre", actor, node); },
+    run({ side, node }, { d, reader }, actor) { return d.step(reader, t => ({ op: "gather", tile: t.id, side: side as "left" | "right" | "sides" | "centre", node }), actor, r => r.answer); },
   }),
   "layout.even": def({
     summary: "every split shares its room equally", keys: "^W =",
     touches: "shape", replay: "safe", says: () => "evened out the layout",
     args: {},
-    run(_, { d }, actor) { return d.evenOut(actor); },
+    run(_, { d }, actor) { return d.step(null, () => ({ op: "even" }), actor, () => ({ even: true as const })); },
   }),
   "layout.swap": def({
     words: "swap this tile with another",
@@ -712,7 +712,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     examples: [
       { act: "layout.swap tile=tree to=reader", does: "trades the places of the tree and the reader" },
     ],
-    run({ to }, { d, reader }, actor) { return d.swapTile(reader, to, actor); },
+    run({ to }, { d, reader }, actor) { const b = d.tileRefOf(to); return d.step(reader, t => ({ op: "swap", tile: t.id, with: b.id }), actor, (_, t) => ({ tile: t.tile, name: t.name, with: b.tile })); },
   }),
   "view.get": def({
     summary: "what each tile has in view: a reader's note and its lines in view (first, last) with the scroll; the outline's selected row; a terminal's screen, and for nvim its cursor, lines in view and file; tile=<tile> for one",
@@ -913,7 +913,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "layout.lock on=false", does: "unlocks the screen so tiles can be moved and closed again" },
     ],
     run({ on }, { d }, actor) {
-      return d.lockScreen(on, actor);
+      return d.step(null, () => ({ op: "lock", ...(on !== undefined ? { on } : {}) }), actor, r => ({ locked: !!r.answer.locked, changed: r.changed, layout: String(r.answer.layout), ...(r.answer.unlock ? { unlock: String(r.answer.unlock) } : {}) }));
     },
   }),
   "screen.delete": def({
