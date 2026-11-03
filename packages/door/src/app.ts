@@ -145,9 +145,7 @@ export interface HostLayer {
    * shown with the keys in it; on the screen shown, the drawer put away and the keys given to it. Refused for a tile on
    * a screen under this one.
    */
-  goTo(p: Pane, actor: Actor, o?: { zoom?: boolean }): { tile: string; in: "drawer" | "screen"; raised?: string };
-  /** The person went into terminal `p` of the drawer's desk (tile.enter: its ⏎, a click on its foot): with the drawer up and their keys outside it, they go in, as host.enter takes them. */
-  enteredTab?(p: Pane): void;
+  goTo(p: Pane, actor: Actor, o?: { zoom?: boolean }): { tile: string; in: "drawer" | "screen"; raised?: string }; enteredTab?(p: Pane): void;   // enteredTab: the person went into the drawer's terminal p (tile.enter): with it up, they go in as host.enter takes them
   /** Open block `id` on the screen shown, where an open naming no tile lands there (a detail; `fresh`: a new one): the status bar's opens. */
   openOnScreen(id: string, fresh: boolean, actor: Actor, reveal?: import("./reveal").Reveal): Promise<{ tile: string | null; name?: string; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
