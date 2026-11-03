@@ -17,6 +17,7 @@ import { HomeSurface } from "../surface/home";
 import { COMPLETION_ROWS, type Completer } from "../surface/completer";
 import { floatTheme } from "../theme";
 import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
+import { cornerSlots, PressMap, type Press } from "./press-map";
 import { HintCard, hintStatus, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
 import type { Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
@@ -583,29 +584,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.redraw();
     return { tile: id !== undefined ? this.nameOf(id) : null, tunes: target };
   }
-  private heads: { id: number; from: number; to: number; row: number }[] = [];
-  private markHits: { id: number; n: number; from: number; to: number; row: number }[] = [];
-  /** Each header's "⇤ docked" as drawn: a click there undocks it (tile.dock on=false). */
-  private dockLabels: { id: number; from: number; to: number; row: number }[] = [];
-  /** Each header's agents chip as drawn (PIE-639): a click cycles the tile's level (tile.agent). */
-  private agentChips: { id: number; from: number; to: number; row: number }[] = [];
-  private pointerHits: { id: number; from: number; to: number; row: number; agent: string }[] = [];
-  private floatButtons: { id: number; from: number; to: number; row: number }[] = [];
-  private liftButtons: { id: number; from: number; to: number; row: number }[] = [];
-  private foldButtons: { id: number; from: number; to: number; row: number }[] = [];
-  private holdButtons: { id: number; from: number; to: number; row: number }[] = [];
-  private closeButtons: { id: number; from: number; to: number; row: number }[] = [];
-  /** A header's ◄ (what the tile follows) and → or ⏎ (where its opens land) marks (PIE-855): a click opens that row of ^W P. */
-  private wireChips: { id: number; from: number; to: number; row: number; wire: "follows" | WireVerb }[] = [];
-  /** The controls chip stays at the right edge when a float moves. */
-  private menuButtons: { id: number; from: number; to: number; row: number; right: number }[] = [];
-  /** Each open dock's `[×]` as drawn: a click closes it, as Esc in it does. */
-  private dockCloses: { id: number; from: number; to: number; row: number }[] = [];
-  /** Controls a tile put on its header (the backlinks' status) as drawn: a click presses one. */
-  private headPresses: { id: number; row: number; from: number; to: number; press: () => void }[] = [];
+  /** Every control painted on a frame or header this frame, with what a click runs (PIE-1530): mouse, x-ray and hints read it. */
+  private presses = new PressMap();
   /** The tiles whose header carries their controls this frame. */
   private headCtl = new Set<number>();
-  private dockHits: { id: number; from: number; to: number; row: number; dock: Dock<number> }[] = [];
   private dividers: Divider<number>[] = [];
   private area: Rect = { col: 0, row: 0, cols: 80, rows: 22 };
   private rootArea = this.area;
@@ -2773,7 +2755,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   private controlsHint(id: number): Hint {
     const pane = this.panes.get(id);
-    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} · ${shortTileId(this.tileId(id))} controls`, lines: [FRAME_LEGEND, ...(pane instanceof ReaderPane ? pane.surface.buttonHint() : [])] };
+    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} · ${shortTileId(this.tileId(id))} controls`, lines: [FRAME_LEGEND, ...this.presses.describe(id), ...(pane instanceof ReaderPane ? pane.surface.buttonHint() : [])] };
   }
   linkingHint(): Hint | null {
     if (!this.linking) return null;
@@ -3659,8 +3641,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const ghosts: [number, Rect][] = [];
     this.inFlight.clear();
     this.tileSpots = [];
-    this.pointerHits = [];
-    this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.dockCloses = []; this.floatButtons = []; this.foldButtons = []; this.liftButtons = []; this.holdButtons = []; this.closeButtons = []; this.wireChips = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
+    this.presses.clear(); this.spines = []; this.headCtl.clear();
     this.raised = { floats: [], menus: [] };
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a dock, a float) takes away the images under it;
@@ -3987,27 +3968,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // The controls on its top right corner (× ⧉ ⋯, drawn after the frame): where they start, so the title ends before them.
     const closes = !dock && cover === undefined && r.cols >= 10 && this.closesByMouse(id);
     const floats = focused && !float && !dock && cover === undefined && r.cols >= 12 && leaves(this.root).length > 1 && !this.ctx?.hostLayer?.isDrawer(this) && !refusal(this.layout, { op: "float", tile: id }, this.layoutCtx(USER));
-    const floatX = r.col + r.cols - (closes ? 4 : 3), menuX = (floats ? floatX : closes ? r.col + r.cols - 2 : r.col + r.cols - 1) - 2;
     const menus = cover === undefined && r.cols >= 14;
     // The fold glyph, left of the ⋯ where the tile can fold to a spine: ◂ to a vertical one (tiles side by side), ▾ to a
     // horizontal one (stacked); a click folds it, alt+click folds it the other way (tile.collapse, as alt+h and alt+H).
     const foldDir = menus && !float && r.cols >= 20 ? this.foldDirOf(id) : null;
-    const foldX = menuX - 2;
     // A list that can be held off its home (a #tag's list, PIE-855): ○, or ● while held, left of those; a click is tile.hold.
     const holdK = kindOf(pane)?.hold, listHeld = menus && !float && r.cols >= 24 && holdK ? holdK.held(pane) : null;
-    const holdX = (foldDir ? foldX : menuX) - 2;
-    const titleModeX = menus && pane.writtenTitle && r.cols >= 28 ? (listHeld !== null ? holdX : foldDir ? foldX : menuX) - 7 : null;
-    const liftX = (titleModeX ?? (listHeld !== null ? holdX : foldDir ? foldX : menuX)) - 2;
     const lifts = menus && r.cols >= 24;
+    const at = cornerSlots(r, { closes, floats, menus, fold: !!foldDir, hold: listHeld !== null, titleMode: menus && !!pane.writtenTitle && r.cols >= 28, lifts });
     const lifting = this.layout.lift?.tile === id ? this.layout.lift : null;
     const liftBadge = lifting ? `lifted ${lifting.reach}${lifting.by.kind === "agent" ? ` @${lifting.by.id}` : ""}` : "";
-    const badgeWidth = Math.min(width(liftBadge), Math.max(0, liftX - r.col - 10));
-    const fits = Math.max(1, (lifts ? liftX - (badgeWidth ? badgeWidth + 1 : 0) : titleModeX ?? (listHeld !== null ? holdX : foldDir ? foldX : menuX)) - r.col - 4);
+    const badgeWidth = Math.min(width(liftBadge), Math.max(0, at.liftX - r.col - 10));
+    const fits = Math.max(1, (lifts ? at.liftX - (badgeWidth ? badgeWidth + 1 : 0) : at.end) - r.col - 4);
 
     const arrival = this.arriving(id);
     const bright = (TONE[lv.tone] % 8) + 8;
     const head = (float ? `${fg(C.yellow)}${peekSource(this.layout, id) !== undefined ? "⤢" : FRAME_GLYPHS.float} ${RESET}` : "") + this.header(id, r, keys, !joined && lv.border !== "none", float ? 2 : 0, r.col + 3 + fits);
-    if (float) this.floatButtons.push({ id, row: r.row, from: r.col + 2, to: r.col + 5 });
+    if (float) this.presses.record({ kind: "float", id, row: r.row, from: r.col + 2, to: r.col + 5, ...this.floatPress(id) });
     const view = inner.cols >= 1 && inner.rows >= 1 ? this.drawn(id, pane, inner, focused, typing) : null;
     // A kept session still needs an entry point when its reader is not taking keys.
     const held = pane instanceof ReaderPane && pane.holdsKeys && !this.entered.in(pane);
@@ -4032,8 +4009,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // (PIE-815): the header inside shows it wrapped, and tile.info gives it to an agent.
     // A ◄ or → mark cut off by the title's end isn't a click (PIE-855): past it is the border, or the corner's controls.
     const titleEnd = r.col + 3 + width(title);
-    this.headPresses = this.headPresses.filter(c => c.id !== id || c.to <= titleEnd);
-    this.wireChips = this.wireChips.flatMap(c => (c.id !== id || c.to <= titleEnd ? [c] : c.from < titleEnd - 1 ? [{ ...c, to: titleEnd - 1 }] : []));
+    this.presses.keep(c => (c.id !== id || c.to <= titleEnd || (c.kind !== "head" && c.kind !== "wire") ? [c] : c.kind === "wire" && c.from < titleEnd - 1 ? [{ ...c, to: titleEnd - 1 }] : []));
     const shownTitle = pane instanceof ReaderPane && pane.msg ? headedTitle(pane.titleNote!, pane.surface.src) : null;
     if (shownTitle && !visibleText(title).includes(shownTitle)) this.cutTitles.add(id); else this.cutTitles.delete(id);
     // One hint row: a tile whose keys the screen's hint row says for its kind (the board's lanes, outline, backlinks), or
@@ -4053,50 +4029,29 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
     const foot = nests ? "" : fitHint(armed ? `${fg(C.yellow)}${modeHint([{ key: "enter", action: "tile.open", label: "opens it" }], () => undefined)} · any other key cancels` : hint, Math.max(0, r.cols - 4)).text;
     canvas.box(r, float && !arrival ? fgRgb(floatTheme(lv).border) : frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
-    if (badgeWidth) canvas.text(liftX - badgeWidth - 1, r.row, fg(C.yellow) + liftBadge + RESET, badgeWidth);
-    if (lifts) {
-      canvas.text(liftX, r.row, fg(C.yellow) + (this.layout.lift?.tile === id ? "⇣" : "⇡") + RESET, 1);
-      this.liftButtons.push({ id, row: r.row, from: liftX, to: liftX + 1 });
-    }
+    if (badgeWidth) canvas.text(at.liftX - badgeWidth - 1, r.row, fg(C.yellow) + liftBadge + RESET, badgeWidth);
+    const row = r.row, button = (kind: Press["kind"], x: number, glyph: string, sgr: string, does: Pick<Press, "label" | "action" | "args" | "alt" | "altMods">) =>
+      this.presses.draw(canvas, { kind, id, row, from: x, to: x + width(glyph), right: true, ...does }, glyph, sgr);
+    if (lifts) button("lift", at.liftX, lifting ? "⇣" : "⇡", fg(C.yellow), lifting ? { label: "drop the lift", action: "tile.zoom", args: { reach: lifting.reach, on: false } } : { label: "lift over its column", action: "tile.zoom", args: { reach: "column", on: true } });
     if (arrival) canvas.text(r.col + 2, r.row, fg(bright) + BOLD + "*" + RESET, 1);
     let markerX = r.col + 3;
     for (const p of pointers) {
       const label = `@${p.agent}${p.line ? `:${p.line}` : ""}`;
       const size = Math.min(width(label), r.col + r.cols - 2 - markerX);
       if (size <= 0) break;
-      this.pointerHits.push({ id, row: r.row + r.rows - 1, from: markerX, to: markerX + size, agent: p.agent });
+      this.presses.record({ kind: "pointer", id, row: r.row + r.rows - 1, from: markerX, to: markerX + size, label: `@${p.agent}`, action: "agent.visit", args: { agent: p.agent } });
       markerX += size + 1;
     }
     // `edge=bar`: a bar down its left side in the tone (the tile colour for neutral; a state's colour while it has one), over the frame's side.
     if (lv.edge === "bar" && r.rows > 2) for (let y = r.row + 1; y < r.row + r.rows - 1; y++) canvas.text(r.col, y, (edgeC === "tile" || edgeC === toned ? edge(toned ?? "tile") : frameInk) + "▌" + RESET, 1);
     // Frame buttons run the same tile actions as keys, so policy and running-program checks agree.
-    if (closes) {
-      const x = r.col + r.cols - 2;
-      canvas.text(x, r.row, `${fg(focused ? C.grey : C.dark)}${FRAME_GLYPHS.close}${RESET}`, 1);
-      this.closeButtons.push({ id, row: r.row, from: x, to: x + 1 });
-    }
-    if (floats) {
-      canvas.text(floatX, r.row, `${fg(C.dark)}${FRAME_GLYPHS.float}${RESET}`, 1);
-      this.floatButtons.push({ id, row: r.row, from: floatX, to: floatX + 1 });
-    }
-    if (foldDir) {
-      canvas.text(foldX, r.row, `${fg(focused ? C.grey : C.dark)}${foldDir === "h" ? FRAME_GLYPHS.foldDown : FRAME_GLYPHS.foldLeft}${RESET}`, 1);
-      this.foldButtons.push({ id, row: r.row, from: foldX, to: foldX + 1 });
-    }
-    if (titleModeX !== null) {
-      const label = pane.systemTitle ? "[sys]" : "[name]";
-      canvas.text(titleModeX, r.row, fg(C.grey) + label + RESET, label.length);
-      this.headPresses.push({ id, row: r.row, from: titleModeX, to: titleModeX + label.length, press: () => this.run("tile.title.mode", {}, this.nameOf(id)) });
-    }
-    if (listHeld !== null) {
-      canvas.text(holdX, r.row, `${fg(listHeld ? C.yellow : focused ? C.grey : C.dark)}${listHeld ? FRAME_GLYPHS.held : FRAME_GLYPHS.hold}${RESET}`, 1);
-      this.holdButtons.push({ id, row: r.row, from: holdX, to: holdX + 1 });
-    }
-    if (menus) {
-      const x = menuX;
-      canvas.text(x, r.row, `${fg(focused ? C.grey : C.dark)}${FRAME_GLYPHS.menu}${RESET}`, 1);
-      this.menuButtons.push({ id, row: r.row, from: x, to: x + 1, right: r.col + r.cols - x });
-    }
+    const quiet = fg(focused ? C.grey : C.dark);
+    if (closes) button("close", at.closeX, FRAME_GLYPHS.close, quiet, { label: "close", action: "tile.close" });
+    if (floats) button("float", at.floatX, FRAME_GLYPHS.float, fg(C.dark), this.floatPress(id));
+    if (foldDir) button("fold", at.foldX, foldDir === "h" ? FRAME_GLYPHS.foldDown : FRAME_GLYPHS.foldLeft, quiet, { label: "fold to a spine", action: "tile.collapse", args: { on: true }, alt: { action: "tile.collapse", args: { on: true, dir: "h" } }, altMods: 28 });
+    if (at.titleModeX !== null) button("head", at.titleModeX, pane.systemTitle ? "[sys]" : "[name]", fg(C.grey), { label: "switch name/sys", action: "tile.title.mode" });
+    if (listHeld !== null) button("hold", at.holdX, listHeld ? FRAME_GLYPHS.held : FRAME_GLYPHS.hold, fg(listHeld ? C.yellow : focused ? C.grey : C.dark), { label: listHeld ? "let go: follow its home" : "hold it off its home", action: "tile.hold" });
+    if (menus) button("menu", at.menuX, FRAME_GLYPHS.menu, quiet, { label: "menu", action: "tile.menu" });
     const out: Placement[] = [];
     if (!view) return out;
     if (view.headerBand) {
@@ -4133,7 +4088,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const x = end - size;
       lineEnds.set(y, x - 1);
       canvas.text(x, inner.row + y, fg(C.dark) + label + RESET, size);
-      this.pointerHits.push({ id, row: inner.row + y, from: x, to: x + size, agent: p.agent });
+      this.presses.record({ kind: "pointer", id, row: inner.row + y, from: x, to: x + size, label: label, action: "agent.visit", args: { agent: p.agent } });
     }
     // The surface under what it drew and its padding, never over a picture drawn under the text (a header's backdrop:
     // Kitty shows it only through cells on the default background, so the surface yields there).
@@ -4173,7 +4128,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const put = (text: string, sgr: string, hit?: number) => {
       // In cells: a wide glyph in a title takes two (PIE-809).
       const cells = width(text);
-      if (hit !== undefined && x < max) this.heads.push({ id: hit, from: x, to: Math.min(max, x + cells), row: r.row });
+      if (hit !== undefined && x < max) this.presses.record({ kind: "title", id: hit, from: x, to: Math.min(max, x + cells), row: r.row, label: "the title: a drag moves it, a double click opens its title", action: "tile.title" });
       this.headOut += sgr + text + RESET; x += cells;
     };
     const pane = this.panes.get(id)!;
@@ -4197,7 +4152,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (set && set.ids.length > 1) {
       const stripRoom = room >= 2 * width(this.numLabel(id) + this.displayTitle(id)) ? room : max - x;
       const [strip] = withStripOwner(this.tileId(id), stripRoom, () => tabStrip(set.ids.map((t, i) => ({ label: this.displayTitle(t), key: this.numLabel(t).trim(), on: i === set.active, hit: { action: "tab.select", tile: this.tileId(t) } })), { id: "tabs", width: stripRoom, at: x, overflow: "share", style: tileTabs() }));
-      for (const h of strip!.hits) if (h.action === "tab.select" && h.from < max) this.heads.push({ id: set.ids.find(t => this.tileId(t) === h.tile)!, from: h.from, to: Math.min(max, h.to), row: r.row });
+      for (const h of strip!.hits) if (h.action === "tab.select" && h.from < max) this.presses.record({ kind: "title", id: set.ids.find(t => this.tileId(t) === h.tile)!, from: h.from, to: Math.min(max, h.to), row: r.row, label: `tab ${h.label}`, action: "tab.select" });
       put(strip!.text, "");
       if (x >= max) return this.headOut;
     } else {
@@ -4213,7 +4168,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (wire) {
       const from = xNow() + 1;
       put(wire, fg(C.lmagenta));
-      this.wireChips.push({ id, row: r.row, from, to: xNow(), wire: "open" });
+      this.presses.record({ kind: "wire", id, row: r.row, from, to: xNow(), ...this.wirePress(id, "open") });
     }
     this.putMarks(id, put, xNow, r.row);
     if (ctl.some(c => !c.chip)) this.headCtl.add(id);
@@ -4221,7 +4176,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       put(" · ", fg(C.dark));
       const from = xNow();
       put(c.text, c.sgr);
-      if (c.press) this.headPresses.push({ id, row: r.row, from, to: xNow(), press: c.press });
+      if (c.act) this.presses.record({ kind: "head", id, row: r.row, from, to: xNow(), label: visibleText(c.text).trim(), action: c.act.action, ...(c.act.args ? { args: c.act.args } : {}), run: c.act.run });
     }
     return this.headerTail(id, put, xNow, r.row, max, focused, framed);
   }
@@ -4240,7 +4195,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const sp = visibleText(own.title).trim() ? own : { ...own, title: `${this.numLabel(id)}${this.nameOf(id)}` };
     // A spine of a tile that closes has its × (PIE-794): a click closes it without opening it (tile.close, as ^W x).
     const closes = this.closesByMouse(id) && (this.collapsed.get(id)?.dir === "h" ? r.cols >= 6 : r.rows >= 3);
-    const x = (col: number, row: number) => { canvas.text(col, row, `${fg(focused ? C.grey : C.dark)}${FRAME_GLYPHS.close}${RESET}`, 1); this.closeButtons.push({ id, row, from: col, to: col + 1 }); };
+    const x = (col: number, row: number) => this.presses.draw(canvas, { kind: "close", id, row, from: col, to: col + 1, label: "close", action: "tile.close" }, FRAME_GLYPHS.close, fg(focused ? C.grey : C.dark));
     if (this.collapsed.get(id)?.dir === "h") {
       const at = closes ? { ...r, cols: r.cols - 2 } : r;
       drawHSpine(canvas, at, { key: `spine:${id}`, title: sp.title, colour: focused ? C.white : C.cyan, marks: sp.marks, cellStyle: focused ? selected() : undefined });
@@ -4436,13 +4391,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number, max: number, focused: boolean, framed: boolean): string {
     // A list a #tag opened (PIE-855) follows its reader's tags until held: ◄ and the reader, a click opens ^W P's follows row.
     const p = this.panes.get(id)!, home = kindOf(p)?.home?.(p);
-    if (home && kindOf(p)?.hold?.held(p) === false) { const from = xNow(); put(` ${FRAME_GLYPHS.follows} ${home}`, fg(C.lmagenta)); this.wireChips.push({ id, row, from: from + 1, to: xNow(), wire: "follows" }); }
+    if (home && kindOf(p)?.hold?.held(p) === false) { const from = xNow(); put(` ${FRAME_GLYPHS.follows} ${home}`, fg(C.lmagenta)); this.presses.record({ kind: "wire", id, row, from: from + 1, to: xNow(), ...this.wirePress(id, "follows") }); }
     const dr = dockOf(this.root, id);
     // A click on it undocks it where it is (tile.dock on=false).
     if (dr) {
-      const from = xNow(); put(` ${EDGE_GLYPH[dr.edge]} docked`, fg(C.brown)); this.dockLabels.push({ id, row, from: from + 1, to: xNow() });
+      const from = xNow(); put(` ${EDGE_GLYPH[dr.edge]} docked`, fg(C.brown)); this.presses.record({ kind: "dock-label", id, row, from: from + 1, to: xNow(), label: "undock it where it is", action: "tile.dock", args: { on: false } });
       // A dock that slides shut says how, by mouse: [×] closes it as Esc in it does.
-      if (dr.open && policyOfNode(this.layout, dr).collapsible) { const x = xNow(); put(` [${FRAME_GLYPHS.close}]`, fg(C.grey)); this.dockCloses.push({ id, row, from: x + 1, to: xNow() }); }
+      if (dr.open && policyOfNode(this.layout, dr).collapsible) {
+        const x = xNow(), shuts = chainOf(this.root, id).some(c => c.policy?.shuts);
+        put(` [${FRAME_GLYPHS.close}]`, fg(C.grey));
+        this.presses.record({ kind: "dock-close", id, row, from: x + 1, to: xNow(), ...(shuts ? { label: "close it, as Esc in it does", action: "tile.close" } : { label: "slide the dock shut, as Esc in it does", action: "tile.slide", args: { open: false } }) });
+      }
     }
     const verbs = WIRE_VERBS;
     const glyphs = FRAME_GLYPHS;
@@ -4459,7 +4418,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       verbs.forEach((verb, i) => {
         const from = xNow() + 1;
         put(labels[i]!, fg(C.lmagenta));
-        this.wireChips.push({ id, row, from, to: xNow(), wire: verb });
+        this.presses.record({ kind: "wire", id, row, from, to: xNow(), ...this.wirePress(id, verb) });
       });
     }
     // The chain it is in (PIE-700): the tiles whose links end here, and, for the reader an open from outside (the drawer's
@@ -4468,7 +4427,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // What an agent may do here (PIE-639): free says nothing; a click cycles it (tile.agent), as ^W g does.
     if (ag !== "free") {
       const room = max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 8, full = ` ${AGENT_GLYPH[ag]} ${AGENT_WORDS[ag]}`, text = full.length <= room ? full : ` ${AGENT_GLYPH[ag]}`;
-      const from = xNow(); put(text, fg(ag === "off" ? C.lred : C.yellow)); this.agentChips.push({ id, row, from: from + 1, to: xNow() });
+      const from = xNow(); put(text, fg(ag === "off" ? C.lred : C.yellow)); this.presses.record({ kind: "agent", id, row, from: from + 1, to: xNow(), label: `agents: ${AGENT_WORDS[ag]} · a click changes it`, action: "tile.agent" });
     }
     return this.headOut;
   }
@@ -4484,7 +4443,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const m of this.marksOn(id)) {
       const from = xNow();
       put(` ${markLabel(m)} `, chipStyle(C.magenta));
-      this.markHits.push({ id, n: m.n, row, from, to: xNow() });
+      this.presses.record({ kind: "mark", id, row, from, to: xNow(), label: `${markLabel(m)}: dismiss`, action: "block.unmark", args: { n: m.n } });
     }
   }
 
@@ -4941,7 +4900,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const act = [...cards].reverse().map(c => c.at(k.x, k.y)).find(Boolean);
         if (act) { void (this.linking && (act.action === "tile.link" || act.action === "tile.pick") ? this.linking.desk : this).dispatch.press(act.action, act.args, act.tile); return; }
       }
-      const b = this.menuButtons.find(b => k.y === b.row && k.x >= b.from && k.x < b.to);
+      const b = this.presses.find("menu", k.x, k.y);
       // Only a click opens the menu. A hover over the control opens nothing (Evan, Oct 19 12:30 PM: "the menu is coming
       // up just on hovering? that's distracting"); the controls card is x-ray's and ?'s.
       if (b && k.action === "down" && k.button === 0) {
@@ -5608,7 +5567,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     })));
   }
   private drawDocks(canvas: Canvas, area: Rect) {
-    this.dockHits = [];
     const all = this.dockChoices();
     if (!all.length) return;
     tabStrip(all, { id: `${this.name}:docks`, width: Infinity, direct: true });
@@ -5621,8 +5579,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const h of strip.hits) {
         const t = tabs.find(t => t.hit.tile === h.tile);
         if (!t) continue;
-        if (vertical) for (let y = h.from; y < h.to; y++) this.dockHits.push({ id: t.id, dock: t.dock, from: r.col, to: r.col + 1, row: r.row + y });
-        else this.dockHits.push({ id: t.id, dock: t.dock, from: r.col + h.from, to: r.col + h.to, row: r.row });
+        const seg: Omit<Press, "row" | "from" | "to"> = { kind: "dock", id: t.id, label: `${t.label}: show it`, action: t.hit.action, args: t.hit.args, alt: t.alt, altMods: 8, handle: { shows: shown(t.dock.kid)[0] ?? t.id, edge: t.dock.edge } };
+        if (vertical) for (let y = h.from; y < h.to; y++) this.presses.record({ ...seg, from: r.col, to: r.col + 1, row: r.row + y });
+        else this.presses.record({ ...seg, from: r.col + h.from, to: r.col + h.to, row: r.row });
       }
       this.raised.menus.push(r);
     }
@@ -7101,20 +7060,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     };
     const rowsOutside = <T extends { from: number; to: number; row: number }>(hits: T[]): T[] => hits.flatMap(h =>
       outside({ col: h.from, row: h.row, cols: h.to - h.from, rows: 1 }).map(b => ({ ...h, from: b.col, to: b.col + b.cols })));
-    this.heads = rowsOutside(this.heads);
-    this.markHits = rowsOutside(this.markHits);
-    this.dockLabels = rowsOutside(this.dockLabels);
-    this.agentChips = rowsOutside(this.agentChips);
-    this.pointerHits = rowsOutside(this.pointerHits);
-    this.floatButtons = rowsOutside(this.floatButtons);
-    this.liftButtons = rowsOutside(this.liftButtons);
-    this.foldButtons = rowsOutside(this.foldButtons);
-    this.holdButtons = rowsOutside(this.holdButtons);
-    this.closeButtons = rowsOutside(this.closeButtons);
-    this.wireChips = rowsOutside(this.wireChips);
-    this.menuButtons = rowsOutside(this.menuButtons);
-    this.dockCloses = rowsOutside(this.dockCloses);
-    this.headPresses = rowsOutside(this.headPresses);
+    this.presses.keep(h => (h.kind === "dock" ? [h] : rowsOutside([h])));
     const spotsOutside = <T extends { y: number; from: number; to: number }>(hits: T[]): T[] =>
       rowsOutside(hits.map(h => ({ ...h, row: h.y }))).map(h => ({ ...h, y: h.row }));
     this.keySpots = spotsOutside(this.keySpots);
@@ -7225,7 +7171,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       anchor = { col: Number(m[1]), row: Number(m[2]) };
     } else {
       // Under its ⋯ as last drawn, else under its top right corner.
-      const b = this.menuButtons.find(x => x.id === t.id), r = this.rectsNow().get(t.id) ?? (this.isFloat(t.id) ? this.floatRect(this.floats.find(f => f.id === t.id)!) : undefined);
+      const b = this.presses.on(t.id, "menu")[0], r = this.rectsNow().get(t.id) ?? (this.isFloat(t.id) ? this.floatRect(this.floats.find(f => f.id === t.id)!) : undefined);
       anchor = b ? { col: b.from, row: b.row + 1, right: true } : r ? { col: r.col + r.cols - 1, row: r.row + 1, right: true } : { col: 0, row: 0 };
     }
     this.overlays.push(tileMenu<Desk>({ title: `${this.nameOf(t.id)} · ${shortTileId(this.tileId(t.id))}`, rows: every, at: anchor, look: w => this.lookAt(this.panes.get(t.id)!, w).values, ...(q ? { q } : {}) }));
@@ -7812,7 +7758,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private floatDock(id: number, x: number, y: number): Drop<number> | null {
     const refuse = (to: DropPlace<number>) => refusal(this.layout, dropOp(id, to), this.layoutCtx(USER));
-    const handles = this.dockHits.map(h => ({ from: h.from, to: h.to, row: h.row, shows: shown(h.dock.kid)[0] ?? h.id, edge: h.dock.edge }));
+    const handles = this.dockHandles();
     const onHandle = handleDrop(handles, this.area, x, y, id, refuse);
     if (onHandle) return onHandle;
     const tiles = this.dropTiles(this.panes.get(id)), d = dropAt(tiles, this.area, x, y, id, true, refuse);
@@ -7863,12 +7809,37 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return true;
   }
 
+  /**
+   * A press on a frame control (PIE-1530): the action it was drawn with, through the dispatcher as its key and `act` run
+   * it (policy and running-program checks agree), without taking the keys there first; alt and the like run its alt.
+   */
+  private pressOn(p: Press, mods = 0) {
+    if (p.run) { p.run(); return this.redraw(); }
+    const a = this.presses.choose(p, mods);
+    return this.run(a.action, a.args ?? {}, this.nameOf(p.id));
+  }
+  /** ◘ on a tile's header: on a float it puts it back, on a pinned tile it floats it (tile.float either way, as ^W f). */
+  private floatPress(id: number): Pick<Press, "label" | "action" | "args"> {
+    return peekSource(this.layout, id) !== undefined ? { label: "put it back", action: "tile.float", args: { on: false, where: "right" } } : { label: this.isFloat(id) ? "put it back" : "float it", action: "tile.float" };
+  }
+  /** A header's ◄ (what it follows: ^W P on that row) or → ⏎ marks (where its opens land: pick the wire's tile, PIE-855). */
+  private wirePress(id: number, wire: "follows" | WireVerb): Pick<Press, "label" | "action" | "args" | "run"> {
+    if (wire === "follows") return { label: "what it follows: ^W P", action: "layout.policy", run: () => this.openWires(id, "follows") };
+    return { label: `${wire} wire: pick its tile`, action: "tile.link", args: { ask: true, verb: wire } };
+  }
+  /** The shut docks' strip segments as a drag's drop handles read them. */
+  private dockHandles() {
+    return this.presses.kind("dock").map(h => ({ from: h.from, to: h.to, row: h.row, shows: h.handle!.shows, edge: h.handle!.edge }));
+  }
   /** A float moved since the last paint is where the layout has it now (paints are coalesced; a press may come first). */
   private floatsWhereTheyAre() {
-    this.hits = this.hits.map(([id, r]) => { const f = this.floats.find(x => x.id === id); return [id, f ? this.floatRect(f) : r]; });
-    this.floatButtons = this.floatButtons.map(b => { const f = this.floats.find(x => x.id === b.id); if (!f) return b; const r = this.floatRect(f); return { ...b, row: r.row, from: r.col + 2, to: r.col + 5 }; });
-    this.closeButtons = this.closeButtons.map(b => { const f = this.floats.find(x => x.id === b.id); if (!f) return b; const r = this.floatRect(f); return { ...b, row: r.row, from: r.col + r.cols - 2, to: r.col + r.cols - 1 }; });
-    this.menuButtons = this.menuButtons.map(b => { const f = this.floats.find(x => x.id === b.id); if (!f) return b; const r = this.floatRect(f); return { ...b, row: r.row, from: r.col + r.cols - b.right, to: r.col + r.cols - b.right + 1 }; });
+    this.hits = this.hits.map(([id, r]) => {
+      const f = this.floats.find(x => x.id === id);
+      if (!f) return [id, r];
+      const now = this.floatRect(f);
+      this.presses.move(id, r, now);
+      return [id, now];
+    });
   }
   /** Whether (x, y) is on tile `id`'s frame as drawn: its header row or an edge (where a drag moves or sizes it). */
   private onFrame(id: number, x: number, y: number): boolean {
@@ -7935,7 +7906,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Where a header's grip ends: just past its last label (its number and title, or its tabs, and marks). */
   private gripEnd(r: Rect): number {
     const inRow = (h: { row: number; from: number; to: number }) => h.row === r.row && h.from >= r.col && h.to <= r.col + r.cols;
-    const ends = [...this.heads.filter(inRow), ...this.markHits.filter(inRow)].map(h => h.to);
+    const ends = [...this.presses.kind("title").filter(inRow), ...this.presses.kind("mark").filter(inRow)].map(h => h.to);
     return Math.min(r.col + r.cols - 1, (ends.length ? Math.max(...ends) : r.col + 3) + 1);
   }
 
@@ -7946,7 +7917,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const pane = this.panes.get(id)!, receive = from && pane !== from ? kindOf(pane)?.receive?.(pane, from, this) : null;
       if (this.isFloat(id) && !receive) return [];
       const set = tabsOf(this.root, id);
-      return [{ id, rect, ...(receive ? { receive } : {}), ...(this.isFloat(id) ? { floating: true } : {}), ...(set && set.ids.length > 1 ? { tabs: this.heads.filter(h => h.row === rect.row && set.ids.includes(h.id) && h.from >= rect.col && h.to <= rect.col + rect.cols).map(h => ({ id: h.id, from: h.from, to: h.to })) } : {}) }];
+      return [{ id, rect, ...(receive ? { receive } : {}), ...(this.isFloat(id) ? { floating: true } : {}), ...(set && set.ids.length > 1 ? { tabs: this.presses.kind("title").filter(h => h.row === rect.row && set.ids.includes(h.id) && h.from >= rect.col && h.to <= rect.col + rect.cols).map(h => ({ id: h.id, from: h.from, to: h.to })) } : {}) }];
     });
   }
 
@@ -8071,7 +8042,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (!this.dragging && Math.abs(k.x - h.x) + Math.abs(k.y - h.y) < 1) return;
         // Where it would land (a dock's handle on the hint row first), with the reason policy refuses it, if any.
         const refuse = (to: DropPlace<number>) => refusal(this.layout, dropOp(h.id, to), this.layoutCtx(USER));
-        const handles = this.dockHits.map(x => ({ from: x.from, to: x.to, row: x.row, shows: shown(x.dock.kid)[0] ?? x.id, edge: x.dock.edge }));
+        const handles = this.dockHandles();
         // Over a group (PIE-696): its own drop zones say where it would land inside; the tile moves in whole.
         const into = handleDrop(handles, this.area, k.x, k.y, h.id, refuse) ? null : this.groupDropAt(k.x, k.y, h.id);
         if (into) { this.dragging = { src: h.id, drop: null, x: k.x, y: k.y, into }; return this.redraw(); }
@@ -8104,11 +8075,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (k.action === "down") {
       // A dock strip's segment on its edge (the App's strip hover routes it first): its action, alt (mods 8) its alt.
-      const ds = this.dockHits.find(h => h.row === k.y && k.x >= h.from && k.x < h.to);
-      if (ds) {
-        const seg = this.dockChoices(ds.dock.edge).find(t => t.id === ds.id), press = seg && (((k.mods ?? 0) & 8) ? seg.alt : seg.hit);
-        if (press) return this.run(press.action, press.args, this.nameOf(ds.id));
-      }
+      const ds = this.presses.find("dock", k.x, k.y);
+      if (ds) return this.pressOn(ds, k.mods);
       if (this.linking) return this.linkAt(this, k.x, k.y);
       // A right-click in a tile opens its menu at the pointer (tile.menu), unless what's under it takes it itself (a
       // program that asked for the mouse, a step's box: their own choice opens). The tile gets the keys first.
@@ -8133,40 +8101,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // label dismisses the mark, a dock's "⇤ dock" pins it, its [×] shuts it as Esc in it does (a list whose
       // container shuts its dock, by its close), a control a tile put there (the backlinks' status) does what its key
       // does. A float's header carries the same controls: they're asked first, so its title drag doesn't swallow them.
-      const at = (h: { id: number; row: number; from: number; to: number }) => hit?.[0] === h.id && h.row === k.y && k.x >= h.from && k.x < h.to;
-      const pointer = this.pointerHits.find(at);
-      if (pointer) return this.run("agent.visit", { agent: pointer.agent });
-      const mh = this.markHits.find(at);
-      if (mh) return this.run("block.unmark", { n: mh.n });
-      const dx = this.dockCloses.find(at);
-      if (dx) return chainOf(this.root, dx.id).some(c => c.policy?.shuts) ? this.run("tile.close", {}, this.nameOf(dx.id)) : this.run("tile.slide", { open: false }, this.nameOf(dx.id));
-      const dl = this.dockLabels.find(at);
-      if (dl) return this.run("tile.dock", { on: false }, this.nameOf(dl.id));
-      const ac = this.agentChips.find(at);
-      if (ac) return this.run("tile.agent", {}, this.nameOf(ac.id));
-      const hp = this.headPresses.find(at);
-      if (hp) { hp.press(); return this.redraw(); }
-      // ⧉ on a tile's header: on a float it puts it back, on a pinned tile it floats it (tile.float either way, as ^W f).
-      const fb = this.floatButtons.find(at);
-      if (fb) return this.run("tile.float", peekSource(this.layout, fb.id) !== undefined ? { on: false, where: "right" } : {}, this.nameOf(fb.id));
-      // × on a tile's frame: it closes (tile.close, as ^W x), without taking the keys there first.
-      const xb = this.closeButtons.find(at);
-      if (xb) return this.run("tile.close", {}, this.nameOf(xb.id));
-      // ◂ ▾ on a tile's frame: it folds to a spine (tile.collapse, as alt+h), alt-click the other way (alt+H), without taking the keys.
-      // ○ ● on a list's frame: it is held off its home or let go (tile.hold, as p in it), without taking the keys.
-      const hb = this.holdButtons.find(at);
-      if (hb) return this.run("tile.hold", {}, this.nameOf(hb.id));
-      const lb = this.liftButtons.find(at);
-      if (lb) return this.run("tile.zoom", this.layout.lift?.tile === lb.id ? { reach: this.layout.lift.reach, on: false } : { reach: "column", on: true }, this.nameOf(lb.id));
-      const ob = this.foldButtons.find(at);
-      if (ob) {
-        const alt = ((k.mods ?? 0) & 28) !== 0;
-        return this.run("tile.collapse", { on: true, ...(alt ? { dir: "h" } : {}) }, this.nameOf(ob.id));
-      }
-      // ◄ → ⏎ marks on a header (PIE-855): ^W P opens on that row (what it follows, where its opens land).
-      const wc = this.wireChips.find(at);
-      if (wc) return wc.wire === "follows" ? this.openWires(wc.id, "follows") : this.run("tile.link", { ask: true, verb: wc.wire }, this.nameOf(wc.id));
-      const titleHit = this.heads.find(h => h.row === k.y && k.x >= h.from && k.x < h.to && !!hit && (h.id === hit[0] || !!tabsOf(this.root, hit[0])?.ids.includes(h.id)));
+      const press = this.presses.at(k.x, k.y, hit?.[0]);
+      if (press) return this.pressOn(press, k.mods);
+      const titleHit = this.presses.kind("title").find(h => h.row === k.y && k.x >= h.from && k.x < h.to && !!hit && (h.id === hit[0] || !!tabsOf(this.root, hit[0])?.ids.includes(h.id)));
       this.titleClick = titleHit && !(k.mods ?? 0) ? { id: titleHit.id, x: k.x, y: k.y } : null;
       // A float: a press gives it the keys and brings it to the top; its title moves it, its ◢ corner sizes it.
       if (hit && this.isFloat(hit[0])) {
@@ -8198,7 +8135,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const [pid, pane] of this.panes) if (pid !== id && pane instanceof ReaderPane) pane.surface.selection = null;
       if (k.y === r.row) {
         // The header: a tab's label shows it; pressing anywhere on it can start a drag (the tab under the pointer, or the tile).
-        const tab = this.heads.find(h => h.row === r.row && k.x >= h.from && k.x < h.to);
+        const tab = this.presses.find("title", k.x, r.row);
         const set = tabsOf(this.root, id);
         const grab = tab && set?.ids.includes(tab.id) ? tab.id : id;
         // Shift+click on a title picks the tile to gather with others (tile.select): no focus, no drag.

@@ -254,7 +254,7 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     const click = (x: number, y: number, button = 0) => { press({ kind: "mouse", action: "down", button, x, y }); press({ kind: "mouse", action: "up", button, x, y }); };
     // The person: a click on the reader's ⋯ opens it; one click on zoom runs it.
     sc.render(app);
-    const b = (stage().menuButtons as any[]).find(x => stage().nameOf(x.id) === "reader");
+    const b = (stage().presses.kind("menu") as any[]).find(x => stage().nameOf(x.id) === "reader");
     click(at.col + b.from, at.row + b.row);
     await until(() => overlay()?.name === "tile menu", "the ⋯ opens the reader's menu");
     const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => /\bzoom\s+\^W z/.test(l));
@@ -286,7 +286,7 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     click(at.col + t.col + 4, at.row + t.row + 4, 2);
     expect(overlay()).toBeNull();
     sc.render(app);
-    const tb = (stage().menuButtons as any[]).find(x => stage().nameOf(x.id) === "clicks");
+    const tb = (stage().presses.kind("menu") as any[]).find(x => stage().nameOf(x.id) === "clicks");
     click(at.col + tb.from, at.row + tb.row);
     await until(() => overlay()?.name === "tile menu", "the terminal's ⋯ opens its menu");
     expect(overlay()!.items.map(x => x.group)).toContain("Terminal");
