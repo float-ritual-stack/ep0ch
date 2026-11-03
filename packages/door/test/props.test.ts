@@ -37,6 +37,13 @@ async function withState<T>(f: () => Promise<T> | T): Promise<T> {
 }
 const P = (...kv: [string, string][]) => kv.map(([key, value]) => ({ key, value }));
 
+/** What the stand-in services answer for the lists a reader asks of every board: nothing declared, no proposals. */
+const QUIET: Record<string, unknown> = {
+  "styles.list": { sheets: [], problems: [], complete: true }, "callouts.types": { types: [], problems: [], complete: true },
+  "headings.styles": { styles: [], problems: [], complete: true }, "components.schemas": { schemas: [], problems: [], complete: true },
+  "draft.proposals.list": { proposals: [] },
+};
+
 describe("the summary line", () => {
   test("Detail's segments: stage label, repeats joined, a roadmap item's status left out, control characters dropped", () => {
     const props = P(["type", "roadmap-item"], ["status", "open"], ["work-stage", "doing"], ["priority", "high"], ["track", "soil"], ["track", "tools"], ["track", "soil"]);
@@ -101,7 +108,7 @@ function fakeSource(notes: Record<string, Msg>, redraw = () => {}): Source {
       }),
     }),
     propertyRecords: async () => null,
-    send(...a: any[]) { return (this as any).request(...a); }, request: async () => ({ blocks: [], completeness: { kind: "complete" } }),
+    send(...a: any[]) { return (this as any).request(...a); }, request: async (action: string) => (QUIET[action] ?? { blocks: [], completeness: { kind: "complete" } }),
     toMsgs: () => [],
   };
   return { board, redraw };
@@ -211,7 +218,7 @@ describe("live figures: the query grammar", () => {
   // A stand-in service: site.answer's figure producer, with the asks it received. The query itself is the service's
   // (site-produce.test.ts), so the door's part is what it sends: the figure's props, and what it makes of the answer.
   const fake = (seen: any[], extra: Record<string, unknown> = {}): any => ({
-    send(...a: any[]) { return (this as any).request(...a); }, request: async (_a: string, p: any) => { seen.push(p.produce); return { produced: { kind: "figure", blocks: [block("a", "Rake leaves")], truncated: false, ...extra } }; },
+    send(...a: any[]) { return (this as any).request(...a); }, request: async (_a: string, p: any) => { if (QUIET[_a]) return QUIET[_a]; seen.push(p.produce); return { produced: { kind: "figure", blocks: [block("a", "Rake leaves")], truncated: false, ...extra } }; },
     toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", properties: [] })),
   });
 
