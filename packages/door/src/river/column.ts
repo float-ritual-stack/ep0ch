@@ -37,6 +37,7 @@ import type { WriteBoard } from "../mcp-writes";
 import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
 import { CLOSE_KEY, type ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
+import { readerFacts } from "../desk/builtin-tiles";
 import type { TileSpec } from "../desk/tiles";
 import { LineField } from "../surface/line";
 import { popupHint, completerOf, completionOf, lookupCompletion, type CompletionBoard } from "../surface/completer";
@@ -1096,7 +1097,7 @@ export function riverColumnKind(): TileKind {
     press: (_p, k) => modeBinding(FLOW_KEYS, k) ?? null,
     // A swipe sideways steps to the column beside, as h and l do.
     sideways: (_p, dir) => modeBinding(FLOW_KEYS, { kind: dir < 0 ? "left" : "right" }) ?? null,
-    accepts: { notes: true },
+    accepts: { notes: true }, facts: readerFacts,
     take: (p, m, desk, by) => { const c = p as RiverColumn; if (c.holdsKeys || c.editing) return holdsEdit("the column"); c.hold(m, desk, by); return null; },
     holdsWork: p => (p as RiverColumn).unsaved() || (p as RiverColumn).editing,
     shows: p => (p as RiverColumn).noteOf() ?? null,

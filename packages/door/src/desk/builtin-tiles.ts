@@ -21,7 +21,7 @@ import { mountKinds } from "./screen-tile";
 import { laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
 import { HUB_SOURCE } from "./lanes";
 import { riverColumnKind } from "../river/column";
-import { kindOf, registerTileKind, registerTileSource, tileKind, tileSource, type TileKind } from "./tile-kinds";
+import { kindOf, registerTileKind, registerTileSource, terminalFacts, tileKind, tileSource, type KindFacts, type KindFactsAsk, type TileKind } from "./tile-kinds";
 import { dailyDraft, editor, shell } from "./tiles";
 import { words } from "../text";
 import { TREE_ACTIONS } from "./tree";
@@ -37,8 +37,22 @@ import { prop } from "../props";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */
 /** A reader kind's parts, for a kind that is a reader with more (the glass extension's post-it, ext/glass). */
-export const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "view" | "take" | "describe"> = {
+/**
+ * A reader's facts (PIE-1523): its trail (history), its pin, the edit it holds and the person's keys in it. Any kind
+ * whose tiles are readers answers with it (a river column, the settings card, a screen's own reader).
+ */
+export function readerFacts(p: Pane, ask: KindFactsAsk): KindFacts {
+  // A function, not a const: kinds made as their modules load (the settings card) take it through an import cycle.
+  if (!(p instanceof ReaderPane)) return {};
+  return {
+    history: true, lists: false, pinned: p.pinned, holdable: p.pinnable,
+    ...(p.holdsKeys ? { holdsKeys: true } : {}),
+    ...(p.editing && !(ask.leavesDraft && p.surface.drafting) ? { editing: sessionName(p) } : {}),
+  };
+}
+export const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "view" | "take" | "describe" | "facts"> = {
   previews: true,
+  facts: readerFacts,
   accepts: { notes: true },
   // Its header's backdrop (PIE-598), when it draws one or the setting turned it off.
   describe: p => { const h = (p as ReaderPane).surface.headerBackdrop(); return h.backdrop || !h.on ? { header: h } : {}; },
@@ -149,7 +163,7 @@ const builtins = (): TileKind[] => [
     describe: (p, full) => { const source = (p as PreviewPane).source; return { ...reading.describe!(p, full), ...("file" in source ? { source: sourceName(source) } : {}) }; },
   },
   {
-    kind: "pty", openArgs: ["cmd", "cwd", "file"], about: "a program in a terminal (cmd=\"nvim draft.md\", file=<path it edits>, cwd=<folder>)", noun: "a terminal tile",
+    kind: "pty", facts: terminalFacts, openArgs: ["cmd", "cwd", "file"], about: "a program in a terminal (cmd=\"nvim draft.md\", file=<path it edits>, cwd=<folder>)", noun: "a terminal tile",
     keys: [
       { key: "e", label: "editor", spec: () => { const f = dailyDraft(); return { cmd: [...words(editor()), f], file: f, name: "editor" }; } },
       { key: "s", label: "shell" },

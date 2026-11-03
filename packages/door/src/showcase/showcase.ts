@@ -48,6 +48,7 @@ import { FramedScreen } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
 import { terminalSections } from "./restart";
+import { kindSections } from "./kinds";
 import { AgentsPane } from "../desk/agents-panel";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -531,24 +532,7 @@ export const SECTIONS: Section[] = [
     aside: "the brief here is its spec: one tile of the brief kind, which knows the briefs and steps them (, .); `act screen.spec` reads it as the data a note would hold · the Welcome (C on the menu) is one too: notes marked [welcome::true], in its Welcome view's hand-set order (alt+↑ alt+↓ or a drag in its list, `act welcome.move`), the first read when it opens; this outline seeds two · the home base is a spec the same way (`home`): bare `ep0ch` in a folder that names no outline (no --ws, EP0CH_WS or .ep0ch) opens it, to open, make or import one here or on a machine; `--machine box-a --ws fern` where box-a has no fern makes nothing there: the home base says so and offers the one here, creating it there (`home.new name=fern machine=box-a`, or `--create`), or `home.cancel`",
     stage: () => openScreen("brief"),
   },
-  {
-    key: "kinds", need: "add a kind of tile (a built-in, or an extension's whole tile); fill a container from data", part: "the tile-kind registry: registerTileKind, one TileKind entry per kind (make, keys, actions, policy, accepts, save); serviceKind for a tile the service draws; a tile source fills columns (hub:<id>, one query tile per view)", files: "src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/query.ts",
-    aside: "the left tile is a service-drawn kind (ServiceTile) whose rows are the registry itself; an extension's kind registers the same way (PIE-507, PIE-1506): tiles[] with run (a program in a terminal), render (a shipped render script's view, its list the door's one ListView: the what-changed extension's list in the changes section, ^W o W) or view (a query, as a query tile). Over the reader, columns filled from the house board's hub: a query tile per view, as the board's lanes are",
-    stage(n, show) {
-      // The registry listed by a tile drawn the way an extension's is: its render answers rows, the door draws them.
-      const list = serviceKind({
-        kind: "showcase.kinds", about: "the registry, listed",
-        render: async req => ({
-          title: "tile kinds",
-          lines: tileKinds().flatMap(k => [`${fg(C.lcyan)}${k.kind}${RESET}${k.keys?.length ? ` ${fg(C.dark)}^W o ${k.keys.map(x => x.key).join(" ")}${RESET}` : ""}`, `  ${fg(C.grey)}${k.about}${RESET}`]),
-        }),
-      }).make({ kind: "showcase.kinds" });
-      const r = new ReaderPane();
-      // The hub's views as query tiles: a columns container its tile source (hub:<id>) fills, as the board's lanes.
-      const lanes = n.hub ? [columnsOf<number>([], { key: "lanes", source: `hub:${n.hub.id}` })] : [];
-      return deskOf({ title: "showcase · kinds", panes: [list, r], layout: ([a, b]) => pair("row", 0.4, leaf(a!), lanes.length ? splitOf("col", [...lanes, leaf(b!)], [0.45, 0.55]) : leaf(b!)) }, show, [[r, n.notebook]]);
-    },
-  },
+  ...kindSections({ deskOf, row }),
   {
     key: "echonet", need: "read echomail: the message areas of every outline the door reaches (named views and tagged notes, and each subscription's source boards), a message with its FidoNet footer, the nodelist (EchoNet, PIE-779)",
     part: "a screen spec of four kinds (echo.areas, the model and the band; echo.messages; echo.reader, a ReaderPane with SurfaceHost.header and .footer on its outline's board; echo.nodelist), every list a blocks.query, new by unread:me, a message read by blocks.markRead; r and q in the shared composer (passage.act); a newer original is taken with the echonet extension's own actions",
@@ -730,7 +714,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "links-open", need: "open a picked link for real, not as a preview: in the reader it came from, or in a new detail", part: "the links tile's open (backlinks.open: ⏎ and a double click in its home reader or the tile linked to it as a target, alt+⏎ and an alt-click in a new detail beside it; the list keeps its subject until b) over one preview following its selection; independent select and open wires (tile.link verb=select|open), said on the header", files: "src/desk/backlinks-pane.ts, src/desk/desk.ts (openFromTile, showFrom, openFrom), src/desk/screen-layout.ts (placement, selectTargets)",
+    key: "links-open", need: "open a picked link for real, not as a preview: in the reader it came from, or in a new detail", part: "the links tile's open (backlinks.open: ⏎ and a double click in its home reader or the tile linked to it as a target, alt+⏎ and an alt-click in a new detail beside it; the list keeps its subject until b) over one preview following its selection; independent select and open wires (tile.link verb=select|open), said on the header", files: "src/desk/backlinks-pane.ts, src/desk/desk.ts (openFromTile, showFrom, openBy), src/desk/screen-layout.ts (placement, selectTargets)",
     aside: "each backlink row quotes the line that links here and the anchor it names; opening it lands on that line (marked, esc lets go) · the stage is what `b` makes in a detail: j k flip through the previews, ⏎ opens the pick in the detail (the list keeps the shed's links: ⏎ again opens the next row; b, in the detail or the list, aims it at what the detail shows now), alt+⏎ opens it in a new detail beside; tile.link verb=open to a reader from the list keeps it still while the preview flips, and ⏎ lands in it · the header's Kind, Stage and Sort (K w s, or a click) narrow and order all three groups (a link's target decides: its kind, stage and dates), the counters X with →outlinks ♦resources ←backlinks beside it, and each control stays in its slot whatever its value · an agent's open is the same action, attributed, and never takes your keys",
     stage(n, show) {
       const d = detailPane(), links = new BacklinksPane("detail", true), p = new PreviewPane({ tile: "backlinks" });
@@ -754,7 +738,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "lists-open", need: "open notes from any list the same way (a links tile, a ::links block in a note, a river column's links): select and preview, replace in the list's home, a new detail beside; and find where a reader is in the outline", part: "one list model (PIE-794): a list's home and subject; Desk.openFromTile → landFrom asks landing() (its link, a container's opens-into, its home, a flow's next column), a reader's take keeps its pin; an inline row's click selects (SurfaceHost.preview → showFrom); reader.reveal (alt+r, a click on the crumbs); growth by room (the policy's readable, the layout's room operation) and a spine's ×", files: "src/desk/desk.ts (openFromTile, landFrom, revealInOutline, makeRoom), src/desk/screen-layout.ts (landing, room), src/desk/builtin-tiles.ts (take), src/surface/note.ts (inline rows, previewRow), src/desk/backlinks-pane.ts (home, subject)",
+    key: "lists-open", need: "open notes from any list the same way (a links tile, a ::links block in a note, a river column's links): select and preview, replace in the list's home, a new detail beside; and find where a reader is in the outline", part: "one list model (PIE-794): a list's home and subject; Desk.openFromTile → placement() asks landing() (its link, a container's opens-into, its home, a flow's next column), a reader's take keeps its pin; an inline row's click selects (SurfaceHost.preview → showFrom); reader.reveal (alt+r, a click on the crumbs); growth by room (the policy's readable, the layout's room operation) and a spine's ×", files: "src/desk/desk.ts (openFromTile, placeOpen, revealInOutline, makeRoom), src/desk/screen-layout.ts (landing, room), src/desk/builtin-tiles.ts (take), src/surface/note.ts (inline rows, previewRow), src/desk/backlinks-pane.ts (home, subject)",
     aside: "the detail in the middle is held on the Bike shed, whose own ::links lists its links: a click on a row selects it and the preview on the right follows (it previews the detail's selection), as j k in a links tile · a double click (or ⏎ on the row) replaces the detail's note, kept in its history (alt+← comes back) · the detail is held, so its navigation is its own: the outline on the left stays where it was; alt+r, or a click on the detail's crumbs, shows the note there · in the Herdr Tree, alt+r likewise reveals the selected row at its physical source (PIE-995) · an alt-click opens a new detail beside it; keep alt-clicking and, past a readable width (the layout's `readable`, ^W P), the earlier details fold to spines (never the first), and a spine's × closes it without opening it · b in the detail opens its links tile, which keeps the shed's links as you open them, until b again",
     stage(n, show) {
       const tree = new TreePane(), d = detailPane(), p = new PreviewPane({ tile: "detail" });

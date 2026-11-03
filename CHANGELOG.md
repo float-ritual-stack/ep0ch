@@ -10,6 +10,25 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Every open lands through one owner (PIE-1522)
+
+- Keys, clicks, links, `act` and the drawer all ask `placement()` once; the drawer decides no placements of its own.
+- **Deliberate changes:**
+  - A fresh open on the welcome reads the note there.
+  - A drawer tile with no reader to land in hands its open to the screen.
+  - A drawer list's header names its open wire once.
+  - The board's fresh open lands in its readers row.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
+- **Fix:** wrapped table cells keep their colour codes whole, so no raw escape fragments show at narrow widths (PIE-1524).
+
+### An extension's tile can hold your keys (PIE-1523)
+
+- A tile kind says what its tiles are now (an edit, a program running, your keys in it, a pin); the desk asks the kind instead of checking which built-in tile it is.
+- An extension's `tiles[].holds` (`{ "keys": true, "edit": "…" }`) makes its tile hold your keys while you're on it: agents don't move, resize, float or close it, as with a terminal you're in.
+- **Try it:** `ep0ch --showcase`, section `kind-facts`.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### One walk through every row container (PIE-1521)
 
 - j and k step through a collection, a figure's rows, a `::links` list, an inline list and an extension's list the same way: step within, say "past the edge", land first or last. One row-container interface replaces a branch per shape.

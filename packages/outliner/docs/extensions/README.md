@@ -1606,6 +1606,11 @@ A drawn one, and a view, from the same manifest shape:
   full name a layout saved). The door's tile-kind registry resolves a saved tile of one to this kind the moment it
   registers, and the tile saves under the new name; nothing in the door maps old kinds to new by hand. A name the door
   still has a live kind under is refused with the kind, and so is one of the extension's own.
+- `holds` says what a tile of the kind holds while the person's keys are on it, as a reader's edit or a terminal they're
+  in does (PIE-1523): `{ "keys": true }` makes it the typing rule's tile then (an agent doesn't move, resize, float or
+  close it, and no open lands in it), and `"edit": "a hand of patience"` is what an agent's refusal names it by. The
+  door reads it through `TileKind.facts`, the same hook its readers and terminals answer; the showcase's `kind-facts`
+  section shows one.
 - **`defaultOn: true`** (a built-in only): on wherever the service runs. The host installs it into the user folder (or
   the outline's own) at start when no copy is installed, unless `.off/<id>` there says it was uninstalled
   (`extensions.uninstall` writes it, `extensions.install` takes it back). what-changed is one: the door's +N new never
@@ -1647,6 +1652,7 @@ A drawn tile carries `render: "<script name>"` instead of `command`, a view `vie
 | default policy | `policy` (the layout design's per-container settings) |
 | what it accepts | `accepts` (tile kinds it takes as drops; empty: none) |
 | what it replaces | `replaces` (retired kinds whose saved tiles open as this one and save under it; absent: none) |
+| what it holds | `holds` (`keys`, `edit`): its `facts` while the person's keys are on a tile of it; absent: nothing |
 | how it saves | `save: "args"`: a screen stores the kind and its args, nothing else |
 | where it can run | `host`: a program's command is a path on the service's host, so a door on another machine shows the kind as unavailable; a drawn tile and a view run anywhere the service answers |
 

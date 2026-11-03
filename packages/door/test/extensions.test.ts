@@ -16,7 +16,7 @@ import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { primitiveLines } from "../src/components";
 import { Desk } from "../src/desk/desk";
-import { kindForKey, tileKind } from "../src/desk/tile-kinds";
+import { factsOf, kindForKey, tileKind } from "../src/desk/tile-kinds";
 import { bindExtensions, EXT_ACTIONS, extensionList, loadExtensions, mentionsExtension } from "../src/extensions";
 import { missingKind } from "../src/desk/tile-kinds";
 import { declaredKeys, hintKeys, traceActions } from "../src/surface/actions";
@@ -640,6 +640,25 @@ process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? {
     expect(tileKind("tarot.reading")).toBeDefined();
     bindExtensions(list);
   });
+
+  test("a tile kind's manifest says what it holds (PIE-1523): tiles[].holds reaches the door's kind, which holds the keys while they're on a tile of it", async () => {
+    const dir = join(extDir, "patience");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "extension.json"), JSON.stringify({
+      contract: 2, id: "patience", version: 1, name: "Patience", run: ["bun", "hand.ts"],
+      tiles: [{ kind: "hand", name: "Patience", run: ["bun", "hand.ts"], holds: { keys: true, edit: "a hand of patience" } }],
+    }));
+    writeFileSync(join(dir, "hand.ts"), "console.log('♠ 7');\n");
+    await app.loadExtensions(true);
+    await until(() => !!tileKind("patience.hand"), "the patience kind", 15_000);
+    expect(extensionList()!.tileKinds.find(t => t.kind === "patience.hand")!.holds).toEqual({ keys: true, edit: "a hand of patience" });
+    const hand = { kind: "patience.hand" } as never;
+    expect(factsOf(hand, { keys: true, actor: { kind: "agent", id: AS } })).toMatchObject({ typing: true, holdsKeys: true, editing: "a hand of patience" });
+    expect(factsOf(hand, { keys: false })).toEqual({});
+    rmSync(dir, { recursive: true, force: true });
+    await app.loadExtensions(true);
+    await until(() => !tileKind("patience.hand"), "the patience kind gone", 15_000);
+  }, 30_000);
 
   test("a failed read of the service's list keeps what was bound, and says so", async () => {
     await app.loadExtensions();
