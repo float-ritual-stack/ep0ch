@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A laptop's install says installed when its own sessions came over (PIE-1564, PIE-1557)
+
+- **A deploy's `laptop:` line tells the truth.** `blocked` means one of the laptop's own sessions didn't come back on the new code. An outline it reaches on another machine, with a terminal host left and no session running, no longer counts, and install stops waiting 20 seconds on each one.
+- **No deploy-record warning on a linked install.** A link's install names no outline, so the deploying machine records it from the receipt, and its line says under which deploy note and outline.
+- **`session upgrade --all` skips those terminal hosts too;** `session list` still shows them.
+- **Named agents restart once per deploy.** When the checkout moves and another pass follows on the new code, that pass restarts them, so a live agent isn't interrupted twice.
+- **Run:** `ep0ch install --apply` (door code).
+
+
 ### A comment's ctrl+r tells a failed read from a reload, and a tiny box still names the copy (PIE-1560)
 
 - **Offline, ctrl+r says so.** With the outline unreachable, reloading a posted comment's edit says `couldn't read it now · your text is kept · ctrl+r tries again`, and the conflict and your words stay. It no longer takes comments the door already holds for a reload.

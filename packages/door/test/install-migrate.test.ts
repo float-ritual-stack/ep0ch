@@ -13,7 +13,10 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { hostLive } from "../src/discover";
+import { createServer, type Server } from "node:net";
 import { hostRequest } from "../src/socket";
+import { sessionSocket } from "../src/session/place";
+import { encode, Frames, type ClientMsg, type SessionInfo } from "../src/session/protocol";
 import { ownScratch, stopUnder, until, wholeEnv } from "./scratch";
 
 const linux = process.platform === "linux";
@@ -379,7 +382,6 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(latest.blocks[0]!.text).toContain("Who: person");
 
     // A newer host protocol reaches a laptop that can only dial out; the real installer hands over its remote session.
-    const { createServer } = await import("node:net");
     const reservation = createServer();
     await new Promise<void>(resolve => reservation.listen(0, "127.0.0.1", resolve));
     const port = (reservation.address() as import("node:net").AddressInfo).port;
@@ -409,7 +411,22 @@ const connector = connectLink({server: "http://127.0.0.1:${port}", machine: "tra
 process.once("SIGTERM",()=>{connector.stop();process.exit(0)});
 `);
     fakeSystemctl("start", "ep0ch-link");
-    let linkedClient = Bun.spawn([bun, join(root, "linked-client.ts")], { cwd: clientHome, env: clientEnv, stdout: "ignore", stderr: Bun.file(join(root, "linked-client.log")) });
+    // PIE-1564: outlines this laptop reaches on another machine, each with a terminal host left and no session running.
+    const scratchServers = ["pear", "plum"].map(name => {
+      const dir = join(clientEnv.EP0CH_STATE, "sessions/far-plot", name);
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      writeFileSync(join(dir, "place.json"), JSON.stringify({ outline: name, machine: "far-plot" }));
+      return createServer(() => {}).listen(join(dir, "pty.sock"));
+    });
+    // A named agent on the laptop, its hc a fake that logs: each start is a live agent interrupted.
+    const hcLog = join(root, "hc.log"), grove = join(clientHome, "grove");
+    mkdirSync(join(grove, ".ep0ch"), { recursive: true });
+    writeFileSync(join(grove, ".ep0ch/config.toml"), 'ws = "allotment"\n');
+    writeFileSync(join(grove, ".ep0ch/agents.toml"), `[[agent]]\npersona = "fern"\nfolder = ${JSON.stringify(grove)}\nprogram = "/bin/sh"\n`);
+    writeFileSync(join(clientBin, "hc"), `#!/bin/sh\ncase "$1" in\n  ls) echo '{"terminals":[]}' ;;\n  get) exit 1 ;;\n  *) echo "$1" >>'${hcLog}'; echo '{"address":"fern"}' ;;\nesac\n`, { mode: 0o755 });
+    // PIE-1557: as the link's service runs it, with no outline named.
+    const { EP0CH_WS: _ws, EP0CH_SOCKET: _socket, ...linkEnv } = clientEnv;
+    let linkedClient = Bun.spawn([bun, join(root, "linked-client.ts")], { cwd: clientHome, env: linkEnv, stdout: "ignore", stderr: Bun.file(join(root, "linked-client.log")) });
     writeFileSync(join(root, "roaming-client.ts"), readFileSync(join(root, "linked-client.ts"), "utf8").replace('machine: "travel"', 'machine: "roam"').replace("fictional-key", "fictional-roam-key").replace("link-state.json", "roam-link-state.json"));
     const roamingClient = Bun.spawn([bun, join(root, "roaming-client.ts")], { cwd: clientHome, env: clientEnv, stdout: "ignore", stderr: Bun.file(join(root, "roaming-client.log")) });
     try {
@@ -428,7 +445,11 @@ process.once("SIGTERM",()=>{connector.stop();process.exit(0)});
       const travel = report.linked.join("\n").split("\nroam:")[0];
       expect(travel).not.toContain("blocked");
       expect(travel).not.toContain("no session runs");
+      expect(travel).not.toContain("deploy record");
       expect(travel.match(/session was handed over/g)?.length).toBe(2);
+      expect(delivered.out).toContain(`recorded under deploy`);
+      // Two passes, the checkout moved in the first: the agent is started once, by the new code's.
+      expect(readFileSync(hcLog, "utf8").trim().split("\n")).toHaveLength(1);
       const linkedList = Bun.spawnSync([bun, join(clientRepo, "packages/door/src/main.ts"), "session", "list", "--json"], { cwd: clientHome, env: clientEnv, stdout: "pipe", stderr: "pipe" });
       const sessions = JSON.parse(linkedList.stdout.toString()) as { place: { outline: string }; code: { commit: string } }[];
       expect(sessions.map(s => [s.place.outline, s.code.commit]).sort()).toEqual([["allotment", linkedHead], ["compost", linkedHead]]);
@@ -446,7 +467,28 @@ process.once("SIGTERM",()=>{connector.stop();process.exit(0)});
       expect(repeatedRecord.blocks[0]!.id).not.toBe(record.blocks[0]!.id);
       expect(repeatedRecord.blocks[0]!.text).toContain(`travel: installed ${linkedHead}`);
       expect(repeatedRecord.blocks[0]!.text).not.toContain("install pending");
+
+      // One of the laptop's own sessions, on the old code, goes at its handover and doesn't come back: blocked, for it alone.
+      const figDir = join(clientEnv.EP0CH_STATE, "sessions/local/fig");
+      mkdirSync(figDir, { recursive: true, mode: 0o700 });
+      writeFileSync(join(figDir, "place.json"), JSON.stringify({ outline: "fig" }));
+      const figInfo = { pid: 4343, started: 0, proto: 1, code: { dir: join(clientRepo, "packages/door"), commit: oldHead }, state: figDir, socket: join(figDir, "session.sock"), control: null, place: { outline: "fig" }, dir: figDir, outline: { host: "", workspace: "fig", socket: "" }, screen: null, clients: [], terminals: [] };
+      const fig: Server = createServer(sock => {
+        const frames = new Frames<ClientMsg>();
+        sock.on("error", () => {});
+        sock.on("data", (d: Buffer) => { for (const m of frames.push(d)) { if (m.t === "query") sock.write(encode({ t: "info", info: figInfo as unknown as SessionInfo })); if (m.t === "upgrade") { sock.destroy(); fig.close(); } } });
+      }).listen(sessionSocket(figDir));
+      scratchServers.push(fig);
+      const blocked = Bun.spawn([bun, join(clientRepo, "packages/door/src/main.ts"), "install", "--apply", "--as-client", "--json"], { cwd: clientHome, env: linkEnv, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+      const [blockedOut, blockedCode] = await Promise.all([new Response(blocked.stdout).text(), blocked.exited]);
+      const blockedReport = JSON.parse(blockedOut);
+      expect({ code: blockedCode, ok: blockedReport.ok }).toEqual({ code: 1, ok: false });
+      // The scratch laptop has steps left for a person too (no Herdr); of its sessions, only fig counts.
+      expect(blockedReport.notDone.filter((s: string) => /session/.test(s))).toEqual([expect.stringContaining("fig: the session didn't answer the handoff")]);
+      // A plain client's install (an ssh leg, no receipt) with nowhere to write still says so (PIE-1557).
+      expect(blockedReport.notes.join("\n")).toContain("deploy record could not be saved");
     } finally {
+      for (const server of scratchServers) server.close();
       roamingClient.kill(); await roamingClient.exited;
       linkedClient.kill(); await linkedClient.exited;
       const end = Bun.spawn([bun, join(clientRepo, "packages/door/src/main.ts"), "session", "end", "--all", "--yes"], { env: clientEnv, cwd: clientHome, stdout: "ignore", stderr: "ignore" });

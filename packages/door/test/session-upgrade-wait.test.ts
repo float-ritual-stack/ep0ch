@@ -58,24 +58,26 @@ test("a session that never comes back still says no session runs, with the comma
   expect(r.message).toContain("starts one");
 });
 
-// Codex on #1262: `upgradeAll` listed only the sessions that answered, so one between daemons whose successor never
-// came up was skipped and install said installed. A session install planned to hand over, or one whose terminal host
-// still runs, is checked whether it answers the listing or not.
-test("upgradeAll counts a planned session missing from the listing, and one whose terminal host runs alone", async () => {
+// Codex on #1262: `upgradeAll` listed only the sessions that answered, so a planned one between daemons whose successor
+// never came up was skipped and install said installed: it is checked by folder, whether it answers or not.
+// PIE-1564: a terminal host alone is no session install planned. A machine's folder keeps one after its door has gone,
+// so counting them said "blocked" on every deploy, with each one's wait, for sessions that weren't running.
+test("upgradeAll counts a planned session that never comes back, and not a terminal host left with no session", async () => {
   const state = mkdtempSync(join(root, "state-")), was = process.env.EP0CH_STATE;
   process.env.EP0CH_STATE = state;
   try {
     const { upgradeAll } = await import("../src/session/client");
     const { recordPlace } = await import("../src/session/place");
     const { mkdirSync } = await import("node:fs");
-    // orchard: its terminal host runs, no daemon answers, and none comes back. quince: planned, and nothing runs at all.
-    const orchard = join(state, "sessions", "local", "orchard"), quince = join(state, "sessions", "local", "quince");
+    // quince: planned, and nothing runs. orchard, on another machine: its terminal host runs, and no session was planned.
+    const orchard = join(state, "sessions", "plot", "orchard"), quince = join(state, "sessions", "local", "quince");
     for (const dir of [orchard, quince]) mkdirSync(dir, { recursive: true });
-    recordPlace({ outline: "orchard", dir: orchard });
+    recordPlace({ outline: "orchard", machine: "plot", dir: orchard });
     const host = createServer(() => {}); host.listen(ptyHostSocket(orchard)); servers.push(host);
-    const rs = await upgradeAll({ handoff: true, wait: 300, expected: [{ outline: "quince", dir: quince }] });
-    expect(rs.map(r => r.ok)).toEqual([false, false]);
-    expect(rs.map(r => r.message).join("\n")).toContain("no session runs for orchard");
-    expect(rs.map(r => r.message).join("\n")).toContain("no session runs for quince");
+    const t = Date.now(), rs = await upgradeAll({ handoff: true, expected: [{ outline: "quince", dir: quince }] });
+    expect(rs).toHaveLength(1);
+    expect(rs[0]).toMatchObject({ ok: false, message: expect.stringContaining("no session runs for quince") });
+    expect(Date.now() - t).toBeLessThan(5000);
+    expect(await upgradeAll({ handoff: true })).toEqual([]);
   } finally { if (was === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was; }
 });
