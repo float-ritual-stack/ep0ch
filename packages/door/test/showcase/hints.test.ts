@@ -150,9 +150,6 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       const card = d.hintGet().cards.find(c => c.tile === "reader")!;
       expect(card.lines.join(" ")).toContain("fold");
       expect(card.lines.join(" ")).toContain("where a select lands");
-      // Each control on its frame names the action a click runs, from the press map the frame was painted into (PIE-1530).
-      expect(card.lines).toContain("menu: tile.menu");
-      expect(card.lines.some(l => l.startsWith("fold to a spine: tile.collapse on=true"))).toBe(true);
       expect(card.choices).toBeUndefined();
       const controls = h.screen().split("\n");
       expect(controls.some(l => /zoom\s+\^W z/.test(l))).toBe(false);

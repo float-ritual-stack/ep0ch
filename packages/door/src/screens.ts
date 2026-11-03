@@ -44,7 +44,7 @@ import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
 import { Showcase } from "./showcase/showcase";
 import { openScreen } from "./desk/screen-specs";
-import { installableScreen, madeScreen, resolveScreen, screenNameProblem, screenNames, screenSlug, screenTargetArg, screenTitle } from "./desk/screen-spec";
+import { installableScreen, madeScreen, resolveScreen, screenNames, screenTargetArg, screenTitle } from "./desk/screen-spec";
 import { itemKey, menuRows, type MenuItem } from "./desk/menu-rows";
 import { screenNoteProblems } from "./desk/screen-notes";
 import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
@@ -468,8 +468,6 @@ function returnToScreen(ctx: Ctx, wanted: Screen, actor: Actor) {
 /** Whether `screen.open` (and `ep0ch --screen`) knows `name`: a menu item by any of its names, or a registered screen. */
 export const knownScreen = (name: string): boolean => !!itemNamed(name) || resolveScreen(name) !== null;
 
-/** Why `ep0ch --screen <name>` is refused before the door starts: only a name no screen could have; a made or an extension's screen (the showcase's Waiting) is the door's to find once it has read the outline (PIE-1533). */
-export const earlyScreenRefusal = (name: string): string | null => (!knownScreen(name) && screenNameProblem(screenSlug(name)) ? unknownScreen(name) : null);
 /** The refusal for a screen nobody knows: the names there are, and the command to try. */
 export function unknownScreen(name: string): string {
   const names = [...new Set([...screenNames(), ...menuItems().filter(i => !i.action).map(i => i.label.toLowerCase())])];

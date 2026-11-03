@@ -216,7 +216,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(spines()).not.toContain("detail");
     // A spine's × closes it without opening it (tile.close, as ^W x).
     const gone = spines()[0]!;
-    const closes = () => { screen(); const st = stage() as any; return st.presses.kind("close").find((c: any) => c.id === st.idNamed(gone)); };
+    const closes = () => { screen(); const st = stage() as any; return st.closeButtons.find((c: any) => c.id === st.idNamed(gone)); };
     await until(() => !!closes(), "the spine's ×", 5000);
     await stage().dispatch.act({ action: "tile.close", tile: gone }, { kind: "user" });
     expect(made()).not.toContain(gone);

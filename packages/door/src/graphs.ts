@@ -177,7 +177,6 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     return out;
   },
 
-  kpi: (p, w) => KINDS.stat!(p, w),
 
   rank: (p, w, link) => {
     const items: Props[] = p.items ?? [];
@@ -190,27 +189,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     });
   },
 
-  funnel: (p, w) => KINDS.rank!({ items: (p.steps ?? []).map((s: Props) => ({ label: s.label, value: s.display ?? s.value, raw: s.value })) }, w),
 
-  waterfall: (p, w) => {
-    const items: Props[] = p.items ?? [];
-    const lw = Math.min(Math.max(...items.map(i => vwidth(String(i.label)))), Math.max(1, Math.floor(w / 3)));
-    // The scale holds the highest the running total gets to, not just the largest step (a rise past the first bar's
-    // height would draw past the bar's end).
-    let peak = 0, sum = 0;
-    for (const [i, it] of items.entries()) { sum = i === 0 || i === items.length - 1 ? num(it.value) : sum + num(it.value); peak = Math.max(peak, Math.abs(sum), Math.abs(num(it.value))); }
-    const bw = Math.max(8, Math.min(36, w - lw - 10)), total = Math.max(peak, 1);
-    const cells = (v: number) => Math.round((Math.abs(v) / total) * bw);
-    let run = 0;
-    return items.flatMap((it, i) => {
-      const v = num(it.value), first = i === 0, last = i === items.length - 1;
-      let row: string;
-      if (first || last) { row = fg(last ? ACCENT : HI) + rep("█", cells(v)) + fg(DIM) + rep("-", bw - cells(v)); run = v; }
-      else { const end = cells(run), start = cells(run + v); row = fg(DIM) + rep("-", Math.min(start, end)) + fg(v < 0 ? C.lblue : ACCENT) + rep("█", Math.abs(end - start)) + fg(DIM) + rep("-", bw - Math.max(start, end)); run += v; }
-      const out = rowLines(String(it.label), lw).map((label, n) => `${fg(HI)}${pad(label, lw)}${n ? "" : `  ${row}${fg(last ? ACCENT : v < 0 ? C.lblue : INK)}  ${String(v).padStart(4)}`}${RESET}`);
-      return last ? [fg(DIM) + rep("·", lw + bw + 8) + RESET, ...out] : out;
-    });
-  },
 
   spark: (p) => {
     const glyphs = sparkGlyphs((p.data ?? []).map(num));
@@ -218,7 +197,6 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     return p.caption ? [s, fg(DIM) + p.caption + RESET] : [s];
   },
 
-  plot: (p, w) => KINDS.spark!({ ...p, caption: p.labels ? `${p.labels[0]} … ${p.labels.at(-1)}` : p.caption }, w),
 
   // A share (`value: 0.4`, or a live count of `done:`), or with `limit:` a budget (PIE-578): each value drawn to the
   // limit, the limit a mark at the bar's end, the headroom said beneath (an overrun in red). Rows `- label: 48`
@@ -251,19 +229,6 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     return out;
   },
 
-  gantt: (p, w) => {
-    const items: Props[] = p.items ?? [], lw = Math.min(Math.max(...items.map(i => vwidth(String(i.label)))), Math.max(1, Math.floor(w / 3)));
-    const bw = Math.max(10, Math.min(56, w - lw - 3));
-    const rows = items.flatMap(it => {
-      const s = Math.round(num(it.start) * bw), e = Math.max(s + 1, Math.round(num(it.end) * bw)), c = s + Math.round((e - s) * num(it.complete ?? 0));
-      const active = num(it.complete) > 0 && num(it.complete) < 1;
-      return rowLines(String(it.label), lw).map((label, n) => `${fg(active ? ACCENT : HI)}${pad(label, lw)}${n ? "" : `  ${fg(DIM)}${rep("-", s)}${fg(active ? ACCENT : HI)}${rep("█", c - s)}${fg(active ? C.blue : DIM)}${rep("░", e - c)}${fg(DIM)}${rep("-", bw - e)}`}${RESET}`);
-    });
-    const ticks: string[] = p.ticks ?? [];
-    const axis = rep(" ", lw + 2) + ticks.map((t, i) => t.padEnd(i === ticks.length - 1 ? 0 : Math.floor(bw / Math.max(1, ticks.length - 1)))).join("");
-    const marker = p.progress !== undefined ? [rep(" ", lw + 2 + Math.round(num(p.progress) * bw)) + fg(ACCENT) + "▾" + RESET] : [];
-    return [...marker, ...rows, fg(DIM) + axis + RESET];
-  },
 
   tree: (p, w) => treeRows<Props>(p.nodes ?? [], n => n.children ?? []).flatMap(({ node: n, lead }) =>
     rowLines(lead + n.label + (n.meta ? "  " + n.meta : ""), w, undefined, { hang: vwidth(lead) }).map(line => fg(n.accent ? ACCENT : HI) + line + RESET)),

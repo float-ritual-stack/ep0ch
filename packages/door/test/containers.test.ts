@@ -89,7 +89,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(message()).toContain("an agent (container-agent-505) docked tree to the left edge");
     // The person drags claude's header onto the dock's segment on the left edge (a shut dock is a strip there): it goes in, with the tree.
     render();
-    const h = D().presses.kind("dock").find((x: any) => x.id === idOf("tree"));
+    const h = D().dockHits.find((x: any) => x.id === idOf("tree"));
     expect(h).toBeTruthy();
     const c = rect("claude");
     render(); mouse("down", c.col + 4, c.row); mouse("drag", c.col + 6, c.row); render(); mouse("drag", h.from, h.row); render();
@@ -106,7 +106,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     key({ kind: "tab" });
     expect(tile("now").dock).toBe("shut");
     render();
-    expect(new Set(D().presses.kind("dock").map((x: any) => x.id))).toEqual(new Set([idOf("tree"), idOf("claude"), idOf("now")]));   // the edge strip names all three
+    expect(new Set(D().dockHits.map((x: any) => x.id))).toEqual(new Set([idOf("tree"), idOf("claude"), idOf("now")]));   // the edge strip names all three
     for (let i = 0; i < 6; i++) { key({ kind: "tab" }); expect(["tree", "claude", "now"]).not.toContain(get().focus); }
   });
 

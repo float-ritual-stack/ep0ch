@@ -1,8 +1,8 @@
 {
-  "revision": "aa5e68dd12c6a75a04e4dd4249e0b757de593088",
+  "revision": "7b865a6554344f91dea8004af472101eb4f42d47",
   "patterns": {
     "width-length": {
-      "count": 247,
+      "count": 245,
       "sites": [
         "packages/door/src/agent-fleet.ts:9566dd856b2d71fd",
         "packages/door/src/art-view.ts:68df40cd5e12d1a5",
@@ -123,8 +123,6 @@
         "packages/door/src/graphs.ts:78b886c07ed505e7",
         "packages/door/src/graphs.ts:78b886c07ed505e7",
         "packages/door/src/graphs.ts:f5e3f53dbf809fe8",
-        "packages/door/src/graphs.ts:fe678e71b0cf29ad",
-        "packages/door/src/graphs.ts:fe678e71b0cf29ad",
         "packages/door/src/graphs.ts:3f549e5e075f01cb",
         "packages/door/src/graphs.ts:a80fadbd7c90a6a1",
         "packages/door/src/graphs.ts:44b040af2cdbc86d",
@@ -254,7 +252,7 @@
       ]
     },
     "pad-end": {
-      "count": 44,
+      "count": 43,
       "sites": [
         "packages/door/src/agent-fleet.ts:3e3caff4753d37d",
         "packages/door/src/agent-fleet.ts:3e3caff4753d37d",
@@ -273,7 +271,6 @@
         "packages/door/src/figures/annotate.ts:a64f57db9ae85a51",
         "packages/door/src/figures/annotate.ts:e2ccab0c740c36d6",
         "packages/door/src/figures/days.ts:8a07b2ca556642fe",
-        "packages/door/src/graphs.ts:fe678e71b0cf29ad",
         "packages/door/src/library/cli.ts:b4c310c5bd7384f",
         "packages/door/src/mcp-access-matrix.ts:9ae101c122e78a27",
         "packages/door/src/mcp-access-matrix.ts:9ae101c122e78a27",
@@ -377,11 +374,11 @@
   "files": {
     "packages/claude-mod/hooks/register.ts": 2898,
     "packages/door/src/app.ts": 2008,
-    "packages/door/src/desk/desk.ts": 8542,
+    "packages/door/src/desk/desk.ts": 8607,
     "packages/door/src/desk/screen-layout.ts": 2358,
-    "packages/door/src/screens.ts": 2239,
+    "packages/door/src/screens.ts": 2237,
     "packages/door/src/showcase/showcase.ts": 2138,
-    "packages/door/src/surface/note.ts": 13127,
+    "packages/door/src/surface/note.ts": 13105,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4671,
@@ -392,6 +389,6 @@
     "packages/outliner/src/server.ts": 4568,
     "packages/outliner/src/store.ts": 6485,
     "packages/outliner/src/tree-controller.ts": 3251,
-    "packages/outliner/src/types.ts": 2974
+    "packages/outliner/src/types.ts": 2912
   }
 }

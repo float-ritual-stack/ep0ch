@@ -18,6 +18,7 @@
 import type { Rect } from "../canvas";
 import { isAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { columnOf, placeFlow, tidyFlow, type Cover, type PlacedColumn } from "./flow";
+import { resolveKind } from "./tile-kinds";
 
 export type Dir = "left" | "right" | "up" | "down";
 /** row: kids side by side; col: one over another. */
@@ -1029,7 +1030,8 @@ export const EDGE_GLYPH: Record<Dir, string> = { left: "\u2190", right: "\u2192"
 /** An edge in words, as the status bar says it: "a dock on the top". */
 export const EDGE_WORD: Record<Dir, string> = { left: "left", right: "right", up: "top", down: "bottom" };
 /** A kind name a saved layout, a screen spec or an agent may still use for another kind (PIE-705: `detail` is a reader that starts held). */
-export const canonKind = (kind: string): string => (kind === "detail" ? "reader" : kind);
+/** A kind as a saved layout or policy names it, in the kinds there are now: a retired name reads as the kind that serves it (canonSpec's names). */
+export const canonKind = (kind: string): string => (kind === "detail" || kind === "pinned" ? "reader" : resolveKind(kind));
 export const isDir = (x: unknown): x is Dir => typeof x === "string" && (DIRS as readonly string[]).includes(x);
 
 /**

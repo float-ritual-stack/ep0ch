@@ -1,7 +1,7 @@
 // EchoNet (PIE-779): outlines as nodes on a FidoNet-style store-and-forward network. The tosser (the outliner's echonet
 // extension) copies an area's messages from the outline it starts in (its origin) into each outline subscribed to it;
-// this module is how the door reads those shapes. Pure: no I/O. The shapes are the extension's
-// (packages/outliner/extensions/echonet/shapes.ts), and nothing else is assumed of a block:
+// this module is how the door reads those shapes. Pure: no I/O. The shapes are outline-core's
+// (`echonet-shapes.ts`, which the extension gets bundled), and nothing else is assumed of a block:
 //
 //   an area:          [echo::<name>] on a block with a [query::…] (a view, a board lane): its messages are its children,
 //                     what its query matches, and the notes tagged [echo::<name>]; a name only posted to is an area too
@@ -21,13 +21,15 @@ import { subject, type Msg } from "../board";
 import { ago, bbsDate, rowLines } from "../text";
 import { actorName } from "@ep0ch/outline-core/attribution";
 import { prop } from "../props";
+import { fromOf as copyFrom, kindOf, parseFrom, values } from "@ep0ch/outline-core/echonet-shapes";
+
+/** The shapes are outline-core's: the door reads a message, a copy's `from` and a post to an area with the tosser's own rules. */
+export { isMessage, parseFrom, postsTo, values } from "@ep0ch/outline-core/echonet-shapes";
 
 export const NODELIST = "nodelist";
 export const TOSS = "toss";
 /** A seen-by mark's kind: the tosser's whole-note mark on an original, one per node it reached. */
 export const SEEN_BY = "echo-seen-by";
-/** EchoNet's own notes: never a message. */
-const OWN_TYPES: ReadonlySet<string> = new Set([NODELIST, TOSS, "echo-ledger", "echo-undeliverable"]);
 /** Every note carrying a tag (areas, postings), every subscription, every source board: what an outline's areas are made of. */
 export const TAGGED_QUERY = "echo";
 export const SUBSCRIPTIONS_QUERY = "subscribe";
@@ -39,28 +41,8 @@ export const tossesQuery = (nodelist: string) => `parent:((${nodelist})) type=${
 /** `outline@machine`: a node's address. */
 export const nodeName = (outline: string, machine: string) => `${outline}@${machine}`;
 
-/** `outline@machine/id` (a copy's `from`): the node it came from and the block it copies there. */
-export function parseFrom(s: string | undefined): { node: string; id: string } | null {
-  const m = /^\s*([a-z0-9][a-z0-9-]*@[A-Za-z0-9._-]+)\/([0-9a-f-]{36})\s*$/i.exec(s ?? "");
-  return m ? { node: m[1]!, id: m[2]! } : null;
-}
-
-/** Every value of a key: repeated tokens and comma lists. */
-export function values(m: Msg, key: string): string[] {
-  const raw = m.properties.filter(p => p.key === key).map(p => p.value);
-  return [...new Set(raw.flatMap(v => v.split(",")).map(v => v.trim()).filter(Boolean))];
-}
 /** A copy's `from` in EchoNet's shape, whatever other `from` the note holds (`[from::karen]`). */
-export const fromOf = (m: Msg): { node: string; id: string } | null => {
-  for (const v of m.properties.filter(p => p.key === "from").map(p => p.value)) { const f = parseFrom(v); if (f) return f; }
-  return null;
-};
-const has = (m: Msg, key: string) => prop(m, key) !== undefined;
-/** A message: a note an area may carry. Never a copy, a view, a subscription, a source board or EchoNet's own. */
-export const isMessage = (m: Msg) =>
-  !fromOf(m) && !OWN_TYPES.has(prop(m, "type")?.trim() ?? "") && !has(m, "echo-source") && !has(m, "subscribe") && !has(m, "query") && prop(m, "type")?.trim() !== "virtual-branch";
-/** Whether a note posts to the area `name` (one of its `echo` values, any case). */
-export const postsTo = (m: Msg, name: string) => values(m, "echo").some(v => v.toLowerCase() === name.toLowerCase());
+export const fromOf = (m: Msg): { node: string; id: string } | null => parseFrom(copyFrom(m));
 
 export type AreaKind = "local" | "sub";
 
@@ -113,7 +95,7 @@ export function areasIn(tagged: readonly Msg[], subscriptions: readonly Msg[], s
     return a;
   };
   for (const b of tagged) {
-    if (b.deleted || fromOf(b) || has(b, "subscribe") || has(b, "echo-source") || OWN_TYPES.has(prop(b, "type")?.trim() ?? "")) continue;
+    if (b.deleted || !["area", "posting"].includes(kindOf(b))) continue;
     const query = prop(b, "query")?.trim();
     for (const tag of values(b, "echo")) {
       const a = entry(tag);

@@ -429,7 +429,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     // column.*, are the inner screen's tiles' kind's: the desk's kind check refuses them on the outer tile.)
     const q = await act("tile.open", { kind: "river", name: "quay" }, "side");
     const qn = String(D.layoutGet().tiles.findIndex((x: any) => x.name === "quay") + 1);
-    for (const sel of ["quay", q.tile, qn, `#${qn}`]) expect(await act("tile.info", {}, sel)).toMatchObject({ name: "quay", kind: "river" });
+    for (const sel of ["quay", q.tile, qn, `#${qn}`]) expect(await act("tile.info", {}, sel)).toMatchObject({ name: "quay", kind: "screen", mount: { screen: "river" } });
     await act("tile.close", {}, "quay");
     // Its program ended (an agent doesn't end one by closing it): left running, leaving would carry it into the drawer.
     await act("tile.type", { text: "exit\\n" }, "shell");

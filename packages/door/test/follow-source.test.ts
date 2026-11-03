@@ -24,7 +24,7 @@ describe.skipIf(!outliner)("what a reader shows: its select wires (PIE-814, PIE-
   const r = (name: string) => pane(name) as ReaderPane;
   const mine = (action: string, args: Record<string, unknown>, tile: string) => D().dispatch.act({ action, args, tile }, { kind: "user" });
   const act = (action: string, args: Record<string, unknown>, tile: string) => app.act({ action, args, tile, as: "follow-agent" }) as Promise<any>;
-  const chip = (name: string) => { render(); const id = [...D().names].find(([, n]: any) => n === name)[0]; return D().presses.kind("head").find((c: any) => c.id === id); };
+  const chip = (name: string) => { render(); const id = [...D().names].find(([, n]: any) => n === name)[0]; return D().headPresses.find((c: any) => c.id === id); };
   /** The chip's words, as the frame draws them (and checked to be on the frame). */
   const chipText = (name: string) => {
     const c = chip(name), text = r(name).headControls(60, D())?.[0]?.text ?? null;

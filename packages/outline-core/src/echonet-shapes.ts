@@ -1,5 +1,7 @@
 // EchoNet's shapes (PIE-779): what each block is to the network, read from its properties alone. Pure, no I/O: the
-// tosser (echonet.ts) and `ep0ch echo` (src/echo-cli.ts) read blocks with it, so both name the same things the same way.
+// tosser (the echonet extension, which gets it bundled in its link-grammar.js: an extension is a folder `ext add` copies),
+// `ep0ch echo` (src/echo-cli.ts) and the door's reader (packages/door/src/echonet/net.ts) read blocks with it, so all
+// name the same things the same way.
 //
 //   an area      [echo::<name>] on a block with a query (a view, a board lane): its messages are its children, the
 //                notes tagged [echo::<name>], and what its query matches (`parent:this OR echo=<name> OR <query>`)
@@ -9,7 +11,7 @@
 //   a copy       [from::<outline>@<machine>/<id>] …: never a message itself, so nothing bounces between nodes
 //   EchoNet's own  [type::nodelist], [type::toss], [type::echo-ledger], [type::echo-undeliverable]
 
-import { firstLineWithoutPropertyTokens } from "./link-grammar.js";
+import { firstLineWithoutPropertyTokens } from "./property-parse";
 /** A property as the service sends it: a wire block's `{ key, value }`, or a record's `{ key, values }` (`context.block`, outline-core's block record). */
 export interface Property { key: string; value?: string; values?: string[] }
 export interface Block {
@@ -28,8 +30,13 @@ export function parseNode(text: string | undefined): Node | undefined {
 /** One machine, whatever domain it was named with (`float-2` and `float-2.tailnet.ts.net`). */
 export const sameMachine = (a: string, b: string) => a.toLowerCase().split(".")[0] === b.toLowerCase().split(".")[0];
 
-/** A copy's `from`: the node it came from and the note it copies there. */
-export const FROM = /^([a-z0-9][a-z0-9-]*@[\w.-]+)\/([0-9a-f-]{36})$/;
+/** A copy's `from`: the node it came from and the note it copies there (any case; `parseFrom` also trims). */
+export const FROM = /^([a-z0-9][a-z0-9-]*@[\w.-]+)\/([0-9a-f-]{36})$/i;
+/** `<node>/<id>` read as the node and the block it copies there; null for any other text. */
+export function parseFrom(text: string | undefined): { node: string; id: string } | null {
+  const m = FROM.exec(text?.trim() ?? "");
+  return m ? { node: m[1]!, id: m[2]! } : null;
+}
 export const OWN_TYPES: ReadonlySet<string> = new Set(["nodelist", "toss", "echo-ledger", "echo-undeliverable"]);
 
 const raw = (block: Pick<Block, "properties">, key: string) => block.properties.filter((p) => p.key === key).flatMap((p) => p.values ?? (p.value === undefined ? [] : [p.value]));
@@ -39,7 +46,7 @@ export const values = (block: Pick<Block, "properties">, key: string) =>
   [...new Set(raw(block, key).flatMap((v) => v.split(",")).map((v) => v.trim()).filter(Boolean))];
 /** A copy's `from` in EchoNet's shape (`<node>/<id>`), whatever other `from` the note holds (`[from::karen]`). */
 export const fromOf = (block: Pick<Block, "properties">) => raw(block, "from").map((v) => v.trim()).find((v) => FROM.test(v));
-export const isCopy = (block: Block) => fromOf(block) !== undefined;
+export const isCopy = (block: Pick<Block, "properties">) => fromOf(block) !== undefined;
 export const trashed = (block: Block) => !!(block.effectiveDeletedRootId || block.deletedAt);
 /** A highlight, comment or question (`type::annotation`), or a reply in its thread (`type::annotation-reply`). */
 export const isMark = (block: Block) => ["annotation", "annotation-reply"].includes(prop(block, "type") ?? "");
@@ -48,18 +55,18 @@ export const isMarkCopy = (block: Block) => isCopy(block) && ["annotation", "ann
 
 export type Kind = "copy" | "own" | "source" | "subscription" | "area" | "posting" | "other";
 /** What a block is to EchoNet. A copy is a copy before anything else: it never posts, names an area or subscribes. */
-export function kindOf(block: Block): Kind {
+export function kindOf(block: Pick<Block, "properties">): Kind {
   if (isCopy(block)) return "copy";
-  if (OWN_TYPES.has(prop(block, "type") ?? "")) return "own";
+  if (OWN_TYPES.has(prop(block, "type")?.trim() ?? "")) return "own";
   if (prop(block, "echo-source") !== undefined) return "source";
   if (prop(block, "subscribe") !== undefined) return "subscription";
   if (!values(block, "echo").length) return "other";
   return prop(block, "query") !== undefined ? "area" : "posting";
 }
 /** A message: a note an area may carry. Never a copy, a view, a subscription or EchoNet's own. */
-export const isMessage = (block: Block) => {
+export const isMessage = (block: Pick<Block, "properties">) => {
   const kind = kindOf(block);
-  return (kind === "posting" || kind === "other") && prop(block, "query") === undefined && prop(block, "type") !== "virtual-branch";
+  return (kind === "posting" || kind === "other") && prop(block, "query") === undefined && prop(block, "type")?.trim() !== "virtual-branch";
 };
 
 /** A mask's `*` matches anything, dots included (`ep0ch.*`, `rexall-*`, `*`); the rest is literal, any case. */
@@ -93,7 +100,7 @@ export function areaQuery(area: Block): string {
   return query ? `parent:((${area.id})) OR (${query})` : `parent:((${area.id}))`;
 }
 /** Whether a note posts to the area `name` (one of its `echo` values, any case). */
-export const postsTo = (block: Block, name: string) => values(block, "echo").some((value) => value.toLowerCase() === name.toLowerCase());
+export const postsTo = (block: Pick<Block, "properties">, name: string) => values(block, "echo").some((value) => value.toLowerCase() === name.toLowerCase());
 
 /** The areas a node offers, by name: the area blocks that name each (views, lanes) and whether notes post to it. */
 export interface AreaEntry { readonly name: string; readonly blocks: Block[]; readonly postings: number }
@@ -114,7 +121,7 @@ export function areasIn(tagged: readonly Block[]): Map<string, AreaEntry> {
   return areas;
 }
 
-/** A note's title: outline-core's, through the bundled grammar. */
+/** A note's title: the first line without its property tokens. */
 export const firstLine = (text: string) => firstLineWithoutPropertyTokens(text) ?? "";
 
 /** `[key::value]` set on a note's first line: replaced where it is, else added at its end; `undefined` takes it out. */

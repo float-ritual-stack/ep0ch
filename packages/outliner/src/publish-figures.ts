@@ -96,7 +96,6 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
     return `<div class="fig-stats">${items.map((it, i) => `<div class="fig-tile${(marked ? it.accent : i === items.length - 1) ? " accent" : ""}">` +
       `<span class="v">${esc(fmt(it.value))}</span><span class="l">${esc(it.label)}</span></div>`).join("")}</div>`;
   },
-  kpi: (p, href) => KINDS.stat!(p, href),
 
   // A row's box is a checklist step's where the page lends it (PIE-864: a button on the owner's page), else a glyph.
   check: (p, href) => `<ul class="fig-list fig-check">${records(p.items).map(it =>
@@ -109,7 +108,6 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
     return `<div class="fig-bars">${items.map(i => `<div class="fig-bar${i.accent ? " accent" : i.muted ? " muted" : ""}"><span class="l">${rowText(i.label, i.block, href)}</span>` +
       `<span class="track"><span class="fill" style="width:${pct(num(i.value) / max)}"></span></span><span class="v">${esc(fmt(i.value))}</span></div>`).join("")}</div>`;
   },
-  funnel: (p, href) => KINDS.rank!({ items: records(p.steps).map(s => ({ label: s.label, value: s.display ?? s.value })) }, href),
 
   timeline: (p, href) => `<ol class="fig-timeline">${records(p.events).map(e =>
     `<li class="${e.state === "now" ? "now" : e.state === "next" ? "next" : ""}"><span class="d">${esc(e.date)}</span><span class="t">${rowText(e.label, e.block, href)}` +
@@ -215,7 +213,6 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
     const line = d.map((v, i) => `<span${i === d.length - 1 ? ` class="accent"` : ""}>${steps[Math.min(7, Math.max(0, Math.round((v / max) * 7)))]}</span>`).join("");
     return `<p class="fig-spark" aria-label="${esc(d.join(", "))}">${line}</p>${p.caption ? `<p class="dim">${esc(p.caption)}</p>` : ""}`;
   },
-  plot: (p, href) => KINDS.spark!({ ...p, caption: Array.isArray(p.labels) && p.labels.length ? `${p.labels[0]} … ${p.labels.at(-1)}` : p.caption }, href),
 
   tree: (p) => {
     const walk = (nodes: Props[]): string => `<ul>${nodes.map(n => `<li${n.accent ? ` class="accent"` : ""}>${esc(n.label)}${n.meta ? ` <span class="dim">${esc(n.meta)}</span>` : ""}` +

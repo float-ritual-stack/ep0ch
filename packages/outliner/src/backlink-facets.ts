@@ -98,9 +98,7 @@ export function facetRulesFromBlocks(
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-export function isOpenBacklinkStage(bucket: BacklinkStageBucket | undefined): boolean {
-  return bucket === "waiting" || bucket === "draft" || bucket === "active";
-}
+export { isOpenBacklinkStage } from "@ep0ch/outline-core/backlink-view";
 
 /** `outbox-item` → "Outbox item". */
 export function humanizeBacklinkKind(kind: string): string {

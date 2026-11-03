@@ -10,13 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
-### The reader's keys come from one table (PIE-1527)
+### Eight features that existed twice keep one copy (PIE-1528)
 
-- Every reader key, its hint and its line in `?` come from one table. A key you rebind can't be taken by an extension, and a custom binding with arguments works. shift+↑/↓ steps reading, and shift+⏎ and ctrl+⏎ act as ⏎.
-- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
-
-- **Frame controls:** every click on a tile's frame goes through one press map, so x-ray and hints name the same action the click runs (PIE-1530).
-- **Fix:** PgDn in a table collection pages one screen, not to the last row (PIE-1529).
+- **Your layouts open as they did:** a saved `thread`, `tags`, `board`, `river` or `pinned` tile opens the same tile and saves under the kind that serves it: a links tile with Children alone, the facets tile on the tags facet, `screen=board` / `screen=river`, a reader pinned to its page.
+- **Your keys:** `tile.open kind=thread|tags|board|river|pinned` still work; `^W o #`, `^W o k` and `^W o v` still open the tags, the board and the river. The tags tile's title now says `facets`.
+- **The pinned page waits in a reader:** a reader pinned to a `[[page]]` that doesn't exist yet says so and shows it once a note has `[page::…]`; `ep0ch --screen pinned` is that reader.
+- **Figures:** `graph-kpi`, `graph-plot`, `graph-gantt`, `graph-waterfall` and `graph-funnel` are gone (use stat, spark, rank). No note in pie or float-hub used them but one funnel (Remote hover lag), which loki rewrites as a rank at deploy.
+- **One copy:** the backlink view and EchoNet's message shapes live in outline-core. EchoNet keeps the forgiving reading of each: a `type` with stray spaces and a `from` in any case count.
+- **Run:** `ep0ch install --apply`; GRAMMAR moves by one (deleted figure kinds), PROTOCOL and the schema don't. EchoNet's extension is version 9: reinstall it where it's installed.
 
 ### Waiting is an extension, and any screen can have a menu row (PIE-1525)
 

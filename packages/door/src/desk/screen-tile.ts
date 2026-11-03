@@ -3,7 +3,7 @@
 // preview), never a copy: a desk of its own inside the tile, through the showcase's FramedScreen (src/showcase/frame.ts),
 // whose terminal is the tile's rectangle. Three things mount this way:
 //
-// - a whole screen (`tile.open kind=screen screen=board target=<hub>`, or the older `board` and `river` kinds);
+// - a whole screen (`tile.open kind=screen screen=board target=<hub>`; a layout saved with the older `board` or `river` kind opens as one);
 // - a part of one (`part=lanes`: the container of that key alone, `partSpec`), whose opens land where the mount's do;
 // - a group: tiles gathered from this screen into one tile (`tile.group`), laid out as a screen of their own, so a tab
 //   set's tab can hold a split ("splits in my tabs").
@@ -70,8 +70,7 @@ export class ScreenTile implements Pane {
   private home: string | null = null;
 
   constructor(readonly kind: string, spec: Partial<TileSpec> = {}, private readonly exhibit?: Exhibit, given?: ReadonlyMap<string, Pane>) {
-    // The older kinds name their screen by their kind (a saved `board` tile is the board, mounted).
-    this.screen = typeof spec.screen === "string" && spec.screen ? spec.screen : kind === "board" || kind === "river" ? kind : null;
+    this.screen = typeof spec.screen === "string" && spec.screen ? spec.screen : null;
     this.args = spec.args && typeof spec.args === "object" ? { ...spec.args } : {};
     this.part = typeof spec.part === "string" && spec.part ? spec.part : null;
     this.label = typeof spec.label === "string" && spec.label ? spec.label : null;
@@ -212,10 +211,10 @@ export class ScreenTile implements Pane {
   /** Its controls on the header: full screen, in or out, and a group's spill. */
   headControls(_room: number, desk: DeskApi) {
     if (this.exhibit || this.problem || !this.framed) return null;
-    const run = (name: string, args: Record<string, unknown> = {}) => ({ action: name, ...(Object.keys(args).length ? { args } : {}), run: () => void desk.perform?.(name, args, USER, this) });
+    const run = (name: string, args: Record<string, unknown> = {}) => () => void desk.perform?.(name, args, USER, this);
     return [
-      ...(this.screen ? [{ text: "▲ full", sgr: fg(C.grey), act: run("mount.out") }] : [{ text: "■ spill", sgr: fg(C.grey), act: run("tile.group", { on: false }) }]),
-      { text: this.inside ? "◄ out" : "⏎ in", sgr: fg(this.inside ? C.yellow : C.grey), act: run("mount.enter", { on: !this.inside }) },
+      ...(this.screen ? [{ text: "▲ full", sgr: fg(C.grey), press: run("mount.out") }] : [{ text: "■ spill", sgr: fg(C.grey), press: run("tile.group", { on: false }) }]),
+      { text: this.inside ? "◄ out" : "⏎ in", sgr: fg(this.inside ? C.yellow : C.grey), press: run("mount.enter", { on: !this.inside }) },
     ];
   }
 
@@ -328,35 +327,34 @@ const mountable = (): string[] => screenNames().filter(n => n !== "desk" && n !=
 /** A tile's mounted screen's dispatcher: its kind's, or an exhibit's (the showcase's BBS reader, an unregistered kind), so act and clicks reach it. */
 export const mountDispatch = (p: Pane, kind: TileKind | undefined): Dispatcher | null => kind?.dispatcher?.(p) ?? (p instanceof ScreenTile ? p.dispatch : null);
 
-/** The mount kinds: `screen` (any screen, a part, a group), and the board and river by their own older kinds. */
+/**
+ * The mount kind, `screen`: any screen, a part of one, a group. The board and river were kinds of their own: a layout
+ * saved with one opens it as `screen=board` or `screen=river` (canonSpec), and ^W o k and ^W o v still open them.
+ */
 export function mountKinds(): TileKind[] {
-  const of = (kind: string, key: string | null, about: string): TileKind => ({
-    kind, about, ...(key ? { keys: [{ key, label: kind }] } : {}),
-    noun: kind === "screen" ? "a mounted screen" : `a ${kind} tile`,
-    make: s => new ScreenTile(kind, s),
-    actions: MOUNT_ACTIONS,
-    openArgs: ["screen", "part", "target", "label", "inner", "args"],
-    check: s => (kind !== "screen" || s.screen || s.inner ? null : `a mount names its screen (screen=${mountable().join(", ")}), and part=<container> for a part of it`),
-    // ^W o m with no screen named: the person picks one (a part by part= through act).
-    ...(kind === "screen" ? { choices: async () => ({ title: "mount a screen here", items: mountable().map(n => ({ label: n, spec: { screen: n } })) }) } : {}),
-    // A whole screen keeps its own keys while it's in an edit (or the person went in), answers its own actions (the board's card.*) and animates.
-    takesKeys: p => (p as ScreenTile).holdsKeys(),
-    dispatcher: p => (p as ScreenTile).dispatch,
-    tick: p => (p as ScreenTile).tick(),
-    holdsWork: p => (p as ScreenTile).holdsWork(),
-    shows: p => (p as ScreenTile).current(),
-    start: (p, env) => { if (env.home) (p as ScreenTile).setHome(`${env.home}:${env.id}`); },
-    describe: (p, full) => (p as ScreenTile).layoutOf(full),
-    view: p => { const t = p as ScreenTile, m = t.current(); return { viewport: { screen: t.screenShown?.title ?? null, selected: m?.id ?? null, in: t.inside } }; },
-  });
   return [
-    of("screen", "m", "a screen mounted here (screen=<name> target=<what it opens on>, part=<a container of it>): its own tiles live, folding to a spine; ^W u pops it out to the full screen"),
     {
-      ...of("board", "k", "the kanban board as a tile; tile.preview gives its card to a preview tile"),
-      // The board's own preview strip gives its place to the preview tile (collapsed to a spine, as its `c` does).
-      previewSource: async (p, name, actor) => { await (p as ScreenTile).ownPreview(false, actor); return `tile:${name}`; },
+      kind: "screen", replaces: ["board", "river"], noun: "a mounted screen",
+      about: "a screen mounted here (screen=<name> target=<what it opens on>, part=<a container of it>): its own tiles live, folding to a spine; ^W u pops it out to the full screen. The board's (screen=board) tile.preview gives its card to a preview tile; the river's (screen=river) columns and open rule are its own",
+      keys: [{ key: "m", label: "screen" }, { key: "k", label: "board", spec: () => ({ screen: "board" }) }, { key: "v", label: "river", spec: () => ({ screen: "river" }) }],
+      make: s => new ScreenTile("screen", s),
+      actions: MOUNT_ACTIONS,
+      openArgs: ["screen", "part", "target", "label", "inner", "args"],
+      check: s => (s.screen || s.inner ? null : `a mount names its screen (screen=${mountable().join(", ")}), and part=<container> for a part of it`),
+      // ^W o m with no screen named: the person picks one (a part by part= through act).
+      choices: async () => ({ title: "mount a screen here", items: mountable().map(n => ({ label: n, spec: { screen: n } })) }),
+      // A whole screen keeps its own keys while it's in an edit (or the person went in), answers its own actions (the board's card.*) and animates.
+      takesKeys: p => (p as ScreenTile).holdsKeys(),
+      dispatcher: p => (p as ScreenTile).dispatch,
+      tick: p => (p as ScreenTile).tick(),
+      holdsWork: p => (p as ScreenTile).holdsWork(),
+      shows: p => (p as ScreenTile).current(),
+      start: (p, env) => { if (env.home) (p as ScreenTile).setHome(`${env.home}:${env.id}`); },
+      describe: (p, full) => (p as ScreenTile).layoutOf(full),
+      view: p => { const t = p as ScreenTile, m = t.current(); return { viewport: { screen: t.screenShown?.title ?? null, selected: m?.id ?? null, in: t.inside } }; },
+      // A preview follows what it selects; the whole board's own preview strip gives its place to it (collapsed to a spine, as its `c` does).
+      previewSource: async (p, name, actor) => { const t = p as ScreenTile; if (t.screen === "board" && !t.part) await t.ownPreview(false, actor); return `tile:${name}`; },
     },
-    of("river", "v", "the river (Quay) as a tile, its columns and open rule its own"),
     { kind: "filling", about: "a place holder in a mounted part, until its source fills it", noun: "a place holder", placeholder: true, make: s => new FillingTile(s.label) },
   ];
 }

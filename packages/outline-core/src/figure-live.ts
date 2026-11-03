@@ -10,7 +10,7 @@
 //
 // Per kind, what the results become:
 //   check     one row per block; done: "<filter>" marks which are ticked; note: <property>
-//   stat/kpi  items: [{ label, query|view }] → each value is a live count
+//   stat      items: [{ label, query|view }] → each value is a live count
 //   rank      group: <property> → a bar per value, counted by the service (its `groups`, every match)
 //   table     columns: [title, <property>, updated, author, …]
 //   tabs      group: <property> → one tab per value the service groups, each a table of its results (columns: as
@@ -96,9 +96,9 @@ export function sortProblem(message: string, sort: string, direction: string): s
   return /^Sort direction /.test(message) ? `direction: ${direction} · ${message}` : /^Sort /.test(message) ? `sort: ${sort} · ${message}` : message;
 }
 
-/** A figure that asks per item (`stat`/`kpi` with an item's own `query:` or `view:`). */
+/** A figure that asks per item (`stat` with an item's own `query:` or `view:`). */
 export const asksPerItem = (kind: string, p: Props) =>
-  (kind === "stat" || kind === "kpi") && Array.isArray(p.items) && p.items.some((i: Props) => i?.query || i?.view);
+  kind === "stat" && Array.isArray(p.items) && p.items.some((i: Props) => i?.query || i?.view);
 
 /**
  * What a figure asks with: `props`, what its answer is drawn with (`source: backups` is its query, figures of days ask

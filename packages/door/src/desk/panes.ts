@@ -326,10 +326,9 @@ export interface Pane {
   folded?(on: boolean): void;
   /**
    * Controls for its header after its title, when they fit in `room` columns (the backlinks' status: sort, kind,
-   * stage), each its text, colour and the action a click on it runs (the desk's press map records it); null when they
-   * don't fit (it draws them itself).
+   * stage), each its text, colour and what a click on it does; null when they don't fit (it draws them itself).
    */
-  headControls?(room: number, desk: DeskApi): { text: string; sgr: string; act?: OwnPress; chip?: true }[] | null;
+  headControls?(room: number, desk: DeskApi): { text: string; sgr: string; press?: () => void; chip?: true }[] | null;
 }
 
 
@@ -340,13 +339,6 @@ export interface Pane {
  */
 export function runOwn(set: ActionSet<any, any>, name: string, args: Record<string, unknown>, on: { pane: Pane; desk: DeskApi }) {
   void (on.desk.press ? on.desk.press(on.pane, set, name, args) : Dispatcher.of(set, { ...on, standing: true }, () => on.desk.ctx).press(name, args));
-}
-
-/** A header control's press: the action it names, run as `runOwn` (or the desk's `perform`) runs it. */
-export interface OwnPress { action: string; args?: Record<string, unknown>; run: () => void }
-/** A tile's own action as a header control's press (runOwn). */
-export function ownPress(set: ActionSet<any, any>, name: string, args: Record<string, unknown>, on: { pane: Pane; desk: DeskApi }): OwnPress {
-  return { action: name, ...(Object.keys(args).length ? { args } : {}), run: () => runOwn(set, name, args, on) };
 }
 
 /** Row `n` (from 1) of `count`, or why not. */
@@ -484,13 +476,26 @@ export class ReaderPane implements Pane, AttachedOwner {
     desk.redraw();
     return { pinned: this.pinned, ...(this.pinPage ? { page: this.pinPage } : {}) };
   }
+  /** Its page didn't resolve when last asked (no note has `[page::…]` yet): it says so, and asks again as the outline changes. */
+  pageMissing = false;
+  private pageAsk: Timer | null = null;
+  /** Ask for the page it's pinned to and show it (`pinnedTo`); a page that isn't there yet is waited for (onEvent asks again). */
+  async resolvePin(desk: DeskApi) {
+    const page = this.pinPage;
+    if (!page || this.msg) return;
+    const res = await this.context(desk).board.resolvePage(page).catch(() => null);
+    if (this.pinPage !== page) return;
+    this.pageMissing = !(res?.status === "resolved" && res.block);
+    if (res?.block && !this.pageMissing) this.pinnedTo(res.block, desk);
+    desk.redraw();
+  }
   /** Start pinned: to `page` (shown once the page resolves, `pinnedTo`), else on the note it was saved with. */
   pinTo(page?: string) { this.pinned = this.pinnable; if (page) this.pinPage = page; }
   /** The page it's pinned to resolved to `block` (the tile joined a desk): show it, unless a note is open there already. */
   pinnedTo(block: Msg, desk: DeskApi) { if (this.pinPage && !this.msg) { this.pageNote = block.id; this.show({ ...block, address: this.noteAddress }, desk); } else if (this.pinPage && this.msg?.id === block.id) this.pageNote = block.id; }
   unsaved() { return this.surface.unsaved(); }
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
-  dispose() { this.offOutlineEvents?.(); this.surface.dispose(); }
+  dispose() { if (this.pageAsk) clearTimeout(this.pageAsk); this.offOutlineEvents?.(); this.surface.dispose(); }
   /**
    * A reader the person owns is a "detail" (the glossary's word: it keeps the note opened into it), which a host may
    * label ("detail 1" in the board's readers row); one its screen owns is a "reader". The pin chip says whether it's pinned.
@@ -519,10 +524,10 @@ export class ReaderPane implements Pane, AttachedOwner {
 
   headControls(room: number, desk: DeskApi) {
     if (!this.pinnable) return null;
-    const act = ownPress(READER_ACTIONS, "reader.pin", {}, { pane: this, desk });
+    const press = () => void runOwn(READER_ACTIONS, "reader.pin", {}, { pane: this, desk });
     const ways = this.pinPage ? [this.stateLabel(), "▣ pinned", "▣"] : this.pinned ? [this.stateLabel(), "▣"] : ["□ pin", "□"];
     const text = ways.find(w => width(w) <= room);
-    return text ? [{ text, sgr: fg(this.pinned ? C.yellow : C.grey), act, chip: true as const }] : null;
+    return text ? [{ text, sgr: fg(this.pinned ? C.yellow : C.grey), press, chip: true as const }] : null;
   }
   /** P and the state chip open the same policy controls. */
   private pickSource(desk: DeskApi) {
@@ -713,7 +718,7 @@ export class ReaderPane implements Pane, AttachedOwner {
     const nav = this.wantNav ? this.wantNav : this.surface.saveNav();
     const note = this.msg && !this.msg.id.startsWith("file:") ? this.msg.id : this.want;
     // A pinned reader comes back on its page, not on the last note it showed: no history to keep.
-    if (this.pinPage) return { mode: "pinned", page: this.pinPage, ...this.noteAddress, ...this.marginSpec() };
+    if (this.pinPage) return { mode: "pinned", page: this.pinPage, ...(this.label ? { label: this.label } : {}), ...this.noteAddress, ...this.marginSpec() };
     if (this.pinnable) return { ...(this.pinned ? { mode: "pinned" } : {}), ...(note ? { note } : {}), ...(nav ? { nav } : {}), ...this.noteAddress, ...this.marginSpec() };
     return { ...(nav ? { nav } : {}), ...this.noteAddress, ...this.marginSpec() };
   }
@@ -729,6 +734,7 @@ export class ReaderPane implements Pane, AttachedOwner {
   /** What an empty one says it's for: where its notes come from, and how to get one there. */
   protected emptyFor(): string {
     if (this.missing) return `the note it held (${this.missing}) isn't in this outline (gone, or the screen was made on another outline) · open one here, or ^W x closes it`;
+    if (this.pinPage) return this.pageMissing ? `No [[${this.pinPage}]] page on this outline yet. It shows here once a note has [page::${this.pinPage}]; this reader waits for it` : `pinned to [[${this.pinPage}]] · asking the outline for it…`;
     if (this.landsFrom.length) return `what you open in ${this.landsFrom.join(" or ")} lands here`;
     return "keeps the note opened into it · alt+l in another tile, then a click here, sends that tile's opens here";
   }
@@ -743,7 +749,13 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   save(desk: DeskApi) { return this.surface.save(this.host(desk)); }
   loadComments(desk: DeskApi) { return this.surface.loadComments(this.host(desk)); }
-  onEvent(desk: DeskApi) { this.surface.onEvent(this.host(desk)); }
+  onEvent(desk: DeskApi) {
+    this.surface.onEvent(this.host(desk));
+    // A page it waits for (pinned to one that isn't there yet): the outline changed, so ask again.
+    if (!this.pinPage || this.msg || !this.pageMissing) return;
+    if (this.pageAsk) clearTimeout(this.pageAsk);
+    this.pageAsk = setTimeout(() => { this.pageAsk = null; void this.resolvePin(desk); }, 400);
+  }
   /** The draft, comment session or property panel holding the reader's keys, or null while reading. */
   sessionOf() { return this.surface.sessionOf(); }
   /** j k, arrows, PgUp PgDn, space, Home End scroll the note while it is shown (not under a draft or a comment; see NoteSurface.scrollKey). */
@@ -913,7 +925,7 @@ export class ActivityPane implements Pane {
     return false;
   }
   click(_x: number, y: number, desk: DeskApi) { const i = this.drawnItems[y] ?? -1; if (i >= 0 && i < (this.rows?.length ?? 0) && i !== this.sel) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
-  headControls(_w: number, desk: DeskApi) { return [{ text: "r reload", sgr: fg(C.grey), act: ownPress(ACTIVITY_ACTIONS, "activity.reload", {}, { pane: this, desk }) }]; }
+  headControls(_w: number, desk: DeskApi) { return [{ text: "r reload", sgr: fg(C.grey), press: () => runOwn(ACTIVITY_ACTIONS, "activity.reload", {}, { pane: this, desk }) }]; }
   wheel(dir: 1 | -1, desk: DeskApi) { const i = this.sel + dir; if (i >= 0 && i < (this.rows?.length ?? 0)) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
 }
 
@@ -951,7 +963,7 @@ export class WhoPane implements Pane {
     };
   }
   key(k: Key, desk: DeskApi): boolean { if (ch(k) === "r") { runOwn(WHO_ACTIONS, "who.refresh", {}, { pane: this, desk }); return true; } return false; }
-  headControls(_w: number, desk: DeskApi) { return [{ text: "r refresh", sgr: fg(C.grey), act: ownPress(WHO_ACTIONS, "who.refresh", {}, { pane: this, desk }) }]; }
+  headControls(_w: number, desk: DeskApi) { return [{ text: "r refresh", sgr: fg(C.grey), press: () => runOwn(WHO_ACTIONS, "who.refresh", {}, { pane: this, desk }) }]; }
 }
 
 export const WHO_ACTIONS = actionSet<{ pane: WhoPane; desk: DeskApi }>()("who", {

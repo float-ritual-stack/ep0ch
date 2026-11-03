@@ -36,7 +36,7 @@ describe.skipIf(!outliner)("who saves the board's layout, against a scratch outl
     const desk = new Desk(undefined, { layout: "board" });
     app.push(desk);
     desk.render((desk as any).ctx);
-    const tile = [...(desk as any).panes.values()].find((p: any) => p.kind === "board");
+    const tile = [...(desk as any).panes.values()].find((p: any) => p.kind === "screen");
     await until(() => !!tile?.screen, "the board in its tile");
     tile.render(120, 40);
     await Bun.sleep(300);

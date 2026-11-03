@@ -25,7 +25,7 @@ const mod = await import(ROWS) as {
   targetOf(ref: unknown): { label: string; ref: string } | null;
 };
 const modArgs = await import(MOD_ARGS) as { sameReference(a: unknown, b: unknown): boolean };
-const ECHONET = "../../outliner/extensions/echonet/shapes";
+const ECHONET = "../../outliner/extensions/echonet/link-grammar.js";
 const echonet = await import(ECHONET) as { firstLine(text: string): string };
 const TIDY = "../../outliner/extensions/tidy/tidy-line", LISTS = "../../outliner/extensions/structure/lists";
 const tidy = await import(TIDY) as { tidyPassage(lines: string[], fenced?: readonly number[]): { replacement: string }; tidyLine(line: string): string };

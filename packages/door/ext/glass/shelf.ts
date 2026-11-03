@@ -14,7 +14,7 @@ import { modeBinding, modeHint, type ModeKey } from "../../src/surface/modes";
 import type { Key } from "../../src/term";
 import { TONE_INDEX } from "../../src/theme";
 import { openAddress } from "../../src/desk/outline-boards";
-import { ownPress, runOwn, type DeskApi, type Pane } from "../../src/desk/panes";
+import { runOwn, type DeskApi, type Pane } from "../../src/desk/panes";
 import { PostIt, readPostIt } from "./post-it";
 import type { TileKind, KindHost } from "../../src/desk/tile-kinds";
 import { ActionRefused } from "../../src/surface/actions";
@@ -43,8 +43,8 @@ export class Shelf implements Pane {
   headStatus() { return { glyph: "▤", sgr: fg(TONE_INDEX[this.colour]) }; }
   headControls(_room: number, desk: DeskApi) {
     return [
-      { text: this.colour, sgr: fg(TONE_INDEX[this.colour]), chip: true as const, act: ownPress(SHELF_ACTIONS, "shelf.colour", {}, { pane: this, desk }) },
-      ...(["list", "grid"] as const).map(set => ({ text: set, sgr: fg(set === this.layout ? C.lcyan : C.dark), chip: true as const, act: ownPress(SHELF_ACTIONS, "shelf.layout", { set }, { pane: this, desk }) })),
+      { text: this.colour, sgr: fg(TONE_INDEX[this.colour]), chip: true as const, press: () => runOwn(SHELF_ACTIONS, "shelf.colour", {}, { pane: this, desk }) },
+      ...(["list", "grid"] as const).map(set => ({ text: set, sgr: fg(set === this.layout ? C.lcyan : C.dark), chip: true as const, press: () => runOwn(SHELF_ACTIONS, "shelf.layout", { set }, { pane: this, desk }) })),
     ];
   }
   private sync() {

@@ -9,7 +9,7 @@ import { keyName } from "../../src/surface/actions";
 import type { Key } from "../../src/term";
 import { C, fg } from "../../src/style";
 import { rowLines } from "../../src/text";
-import { ownPress, READER_ACTIONS, ReaderPane, runOwn, type DeskApi } from "../../src/desk/panes";
+import { READER_ACTIONS, ReaderPane, runOwn, type DeskApi } from "../../src/desk/panes";
 import { reading, readerFromSpec, startReader } from "../../src/desk/builtin-tiles";
 import type { KindHost, TileKind } from "../../src/desk/tile-kinds";
 import { readNote } from "../../src/desk/outline-boards";
@@ -59,11 +59,11 @@ export class PostIt extends ReaderPane {
   }
   headControls(room: number, desk: DeskApi) {
     return [
-      { text: "◂", chip: true as const, sgr: fg(C.cyan), act: ownPress(POST_IT_ACTIONS, "postit.flip", { by: -1 }, { pane: this, desk }) },
-      { text: "▸", chip: true as const, sgr: fg(C.cyan), act: ownPress(POST_IT_ACTIONS, "postit.flip", { by: 1 }, { pane: this, desk }) },
-      { text: this.sticky ? "◆" : "◇", chip: true as const, sgr: fg(C.yellow), act: ownPress(POST_IT_ACTIONS, "postit.stick", {}, { pane: this, desk }) },
-      { text: "peel", chip: true as const, sgr: fg(C.yellow), act: ownPress(POST_IT_ACTIONS, "postit.peel", {}, { pane: this, desk }) },
-      ...(room >= 14 ? [{ text: "drop", chip: true as const, sgr: fg(C.grey), act: ownPress(POST_IT_ACTIONS, "postit.drop", {}, { pane: this, desk }) }] : []),
+      { text: "◂", chip: true as const, sgr: fg(C.cyan), press: () => void runOwn(POST_IT_ACTIONS, "postit.flip", { by: -1 }, { pane: this, desk }) },
+      { text: "▸", chip: true as const, sgr: fg(C.cyan), press: () => void runOwn(POST_IT_ACTIONS, "postit.flip", { by: 1 }, { pane: this, desk }) },
+      { text: this.sticky ? "◆" : "◇", chip: true as const, sgr: fg(C.yellow), press: () => void runOwn(POST_IT_ACTIONS, "postit.stick", {}, { pane: this, desk }) },
+      { text: "peel", chip: true as const, sgr: fg(C.yellow), press: () => void runOwn(POST_IT_ACTIONS, "postit.peel", {}, { pane: this, desk }) },
+      ...(room >= 14 ? [{ text: "drop", chip: true as const, sgr: fg(C.grey), press: () => void runOwn(POST_IT_ACTIONS, "postit.drop", {}, { pane: this, desk }) }] : []),
     ];
   }
   override spec() { return { ...super.spec(), sticky: this.sticky, hover: this.hover, by: this.by }; }

@@ -442,7 +442,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect(app.refusal()).toBeNull();
     const at = S().stageRect;
     sc.render(app);
-    const b = (stage().presses.kind("menu") as any[]).find(x => stage().nameOf(x.id) === "reader");
+    const b = (stage().menuButtons as any[]).find(x => stage().nameOf(x.id) === "reader");
     const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
     click(at.col + b.from, at.row + b.row);
     await until(() => stage().overlays.top()?.name === "tile menu", "the reader's menu");

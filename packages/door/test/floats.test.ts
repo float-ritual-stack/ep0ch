@@ -105,7 +105,7 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
     await mine("tile.float", {}, "reader");
     await act("block.mark", { reason: "look here", id: D().pane("reader").msg.id }, "reader");
     render();
-    const marked = () => D().presses.kind("mark").find((h: any) => D().nameOf(h.id) === "reader");
+    const marked = () => D().markHits.find((h: any) => D().nameOf(h.id) === "reader");
     await until(() => { render(); return !!marked(); }, "the mark's label on the float's header");
     const m = marked();
     click(m.from + 1, m.row);
@@ -119,7 +119,7 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
     await mine("tile.focus", {}, "reader");
     render();
     const r = get().tiles.find(t => t.name === "activity")!.rect;
-    const corner = (D().presses.kind("close") as any[]).find(b => D().nameOf(b.id) === "activity");
+    const corner = (D().closeButtons as any[]).find(b => D().nameOf(b.id) === "activity");
     expect(corner).toMatchObject({ row: r.row, from: r.col + r.cols - 2 });
     const click = (x: number, y: number) => { key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y }); };
     click(r.col + r.cols - 2, r.row);

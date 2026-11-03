@@ -8,7 +8,7 @@ test("dated items become a timeline, boxes a checklist, dotted rows a table; oth
   expect(figurePatch("Plan\n- [x] dig\n- [ ] sow\n- [ ] water", "graph-check")).toEqual({ patch: [{ observed: "- [x] dig\n- [ ] sow\n- [ ] water", replacement: "::graph-check\n---\n---\n- [x] dig\n- [ ] sow\n- [ ] water\n::" }] });
   expect("patch" in figurePatch("Jars\n- beans · 4 · full\n- peas · 2 · half\n- corn · 0 · empty", "graph-table")).toBe(true);
   expect(figurePatch(dated, "graph-check")).toEqual({ why: "no list whose every row has its shape" });
-  expect(figurePatch(dated, "graph-funnel")).toMatchObject({ why: expect.stringContaining("write it yourself") });
+  expect(figurePatch(dated, "graph-tree")).toMatchObject({ why: expect.stringContaining("write it yourself") });
 });
 
 // PIE-1252 walked (PIE-1402): check, compare, decision and table each come as a patch from the lines a writer types.
