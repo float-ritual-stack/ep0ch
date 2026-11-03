@@ -433,7 +433,7 @@ export const MENU_ACTIONS = actionSet<{ menu: MainMenu; ctx: Ctx }>()("menu", {
  * What the shell's actions run on: the door, the screen they act from (the top one), and `again`: another action run
  * through the same dispatcher as the same actor (a menu item that is another action's key, the Shell item's `!`).
  */
-export interface ShellOn { ctx: Ctx; here?: Screen; again?(name: string, args: Record<string, unknown>): Promise<unknown> }
+export interface ShellOn { ctx: Ctx; here?: Screen; /** Where the person's own press is (the drawer, a group): PIE-1552. */ keysAt?: Screen; again?(name: string, args: Record<string, unknown>): Promise<unknown> }
 
 export { SHELL_IDLE_MS };
 
@@ -823,8 +823,8 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     touches: "screen", replay: "safe", says: () => ({ text: "· opened the keys window · ⏎ runs a row · esc closes it", ms: 6000 }),
     args: { filter: { type: "string", optional: true, about: "the words to filter by: a key (^W x), an action (tile.close), a scope (note, board) or what it does" } },
     examples: [{ act: "keys.open filter=board", does: "opens the keys window on the board's keys" }, { act: "keys.open filter=\"^W\"", does: "opens it on the ^W keys" }],
-    async run({ filter }, { here, again }, actor) {
-      if (here?.openKeys) return here.openKeys(filter, actor);
+    async run({ filter }, { here, keysAt, again }, actor) {
+      const at = keysAt?.openKeys ? keysAt : here; if (at?.openKeys) return at.openKeys(filter, actor);   // where the person's keys are: one layout holds it and its opener (PIE-1552)
       if (!again) throw new ActionRefused("this screen can't open another one");
       return again("screen.open", { name: "keys", ...(filter ? { target: filter } : {}) });
     },

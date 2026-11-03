@@ -97,7 +97,8 @@ export class KeysPane implements Pane {
     return modeHint(KEYS_WINDOW_KEYS, a => KEYS_WINDOW_ACTIONS.def(a));
   }
   typing() { return !!this.field || !!this.record; }
-  claims(_k: Key) { return !!this.field || !!this.record; }
+  /** Typing a filter or a rebind, every key; as a tile, esc and q too (they close it), so the drawer never takes them to leave (PIE-1552). */
+  claims(k: Key) { return !!this.field || !!this.record || (!this.screen && (k.kind === "esc" || (k.kind === "char" && !k.ctrl && !k.pasted && k.ch === "q"))); }
   spec() { return { state: { filter: this.filter, tab: this.tab, ...(this.screen ? { screen: true } : {}) } }; }
 
   /** Every binding now (worked out again when the keymap changes). */
