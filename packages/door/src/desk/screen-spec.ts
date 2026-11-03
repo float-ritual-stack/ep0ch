@@ -17,7 +17,7 @@
 import { useScreenTables, type KeyTable } from "../surface/keymap";
 import { isTileKind } from "./tile-kinds";
 import { canonKind } from "./layout";
-import { canonSpec, type LayoutSpec } from "./tiles";
+import type { LayoutSpec } from "./tiles";
 import { isKeyName } from "../surface/actions";
 
 /** One key of a screen's key map: the key by its one name (`keyName`: `L`, `,`, `alt+c`, `esc`, `alt+left`), the action it runs, and with what. */
@@ -360,8 +360,8 @@ useScreenTables(() => {
 
 /** Mounts nest this deep at most: a screen holding a mount holding a mount… (four: the top, then three below it). */
 export const MAX_MOUNT_DEPTH = 4;
-/** The screens a spec mounts, by name (a `screen` tile, read as canonSpec reads a saved one: an old `board` tile mounts the board). */
-const mountsIn = (spec: ScreenSpec): string[] => savedNodes(spec.layout.root).flatMap(n => { if (n.t !== "leaf") return []; const s = canonSpec(n as never) as { screen?: unknown }; return typeof s.screen === "string" && s.screen ? [s.screen] : []; });
+/** The screens a spec mounts, by name (a `screen` tile; a saved one of the retired `board` and `river` kinds mounts that screen, as canonSpec reads it). */
+const mountsIn = (spec: ScreenSpec): string[] => savedNodes(spec.layout.root).flatMap(n => (n.t === "leaf" ? [typeof n.screen === "string" && n.screen ? n.screen : n.kind === "board" || n.kind === "river" ? n.kind : ""] : [])).filter(Boolean);
 /**
  * Why `screen` can't be mounted under `chain` (the screens held one inside the next, outermost first; "group" is a
  * group's tiles, never a screen), or null: it is in the chain already (itself, or A holding B holding A: said as the
