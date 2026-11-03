@@ -111,7 +111,8 @@ import { probeSocket } from "./socket-probe";
 import { actionOf, thisTurn, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { QueryWatches, type WatchConnection } from "./query-watches";
 import { machineryBlind, machineryChange } from "./watch-machinery";
-import { copyAnswers, eventOf, extensionMay, isAsyncOnly, isHostAction, isWatchable, isWholeOutlineRead, replayOnce, type NotHandledHere } from "./actions";
+import { copyAnswers, eventOf, extensionMay, isAsyncOnly, isHostAction, isWatchable, isWholeOutlineRead, replayOnce, type ActionName, type NotHandledHere } from "./actions";
+import type { WireAnswer } from "./wire";
 import { LineWatches } from "./line-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -237,6 +238,9 @@ function claimedExtensionActor(value: unknown, depth = 0): string | undefined {
  * Who asks for a run (`extensions.act`, `r` on an `@name` line), as the request declares it: absent is a person,
  * and a declared one must be a person, the system, or an agent with its actor id.
  */
+/** One sync answer, checked against its action's row in the wire contract (wire.ts): `case "x": result = wired(action, …)`. */
+const wired = <A extends ActionName>(_action: A, result: WireAnswer<A>): WireAnswer<A> => result;
+
 function declaredRequester(request: OutlinerRequest, action: string): MutationProvenance | undefined {
   const requestedBy = declaredActor(request);
   if (requestedBy && (!["user", "agent", "system"].includes(requestedBy.author) || (requestedBy.author === "agent" && !requestedBy.actorId?.trim()))) {
@@ -2095,7 +2099,8 @@ export class OutlinerServer {
   }
 
   /** Every answer's envelope: the result, at the store's sequence now. Handlers return a result or throw. */
-  private answered(request: OutlinerRequest, result: unknown): OutlinerResponse {
+  /** A successful answer: checked against the action's row in the wire contract (wire.ts), so drift fails the check. */
+  private answered<A extends ActionName>(request: { id: string; action: A }, result: WireAnswer<A>): OutlinerResponse {
     return { id: request.id, ok: true, result, sequence: this.store.sequence };
   }
 
@@ -2124,7 +2129,8 @@ export class OutlinerServer {
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
     if (this.linkReader) {
       const answer = await this.linkReader(request);
-      if (answer) return this.answered(request, answer.result);
+      // Another machine's host answered it, checked against the same contract there.
+      if (answer) return this.answered(request, answer.result as WireAnswer<typeof request.action>);
     }
     if (request.action === "update" && request.replaceSection !== undefined) {
       const block = this.store.require(request.blockId);
@@ -2269,7 +2275,7 @@ export class OutlinerServer {
             } else reordered = { ...reordered, semantic: { ...reordered.semantic, deep: "ids" in found ? { ...found.deep, found: 0 } : found } };
           }
           // A model answer cannot resurrect an address renamed or deleted while it ranked.
-          result = { addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return { ...address, ...(match.score !== undefined ? { score: match.score } : {}) }; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context };
+          result = ({ addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return { ...address, ...(match.score !== undefined ? { score: match.score } : {}) }; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context });
           this.tallySearch(reordered.semantic);
         } finally { this.activeGotoRankings--; }
       } else if (request.query?.trim()) {
@@ -2283,8 +2289,8 @@ export class OutlinerServer {
         this.activeGotoRankings++;
         const note = result.context ? { note: { title: result.context.title, path: result.context.path } } : {};
         try {
-          result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...note });
-          if (request.deep === true) result = await this.deepen(request.query, result, note);
+          result = wired(request.action, await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...note }));
+          if (request.deep === true) result = wired(request.action, await this.deepen(request.query, result, note));
         } finally { this.activeGotoRankings--; }
         this.tallySearch(result.semantic);
         // A model answer cannot resurrect a deleted or edited candidate.
@@ -2380,12 +2386,12 @@ export class OutlinerServer {
       if (!request.mutation || typeof request.mutation !== "object") throw new Error("quote needs mutation: who quotes (the person, or an agent with its actor id)");
       const input = readQuoteInput(request.input);
       let result: QuoteReceipt;
-      if (input.place.kind === "into") result = await quoteInto(this.store, this.draftPatches, input, request.mutation);
+      if (input.place.kind === "into") result = wired(request.action, await quoteInto(this.store, this.draftPatches, input, request.mutation));
       else {
         const quoted = this.store.quote(input, request.mutation);
         // One write group, one undo step: the door's ctrl+z and `extensions.undo` take it back whole.
         const undo = this.extensionCalls.writes.keepMade("quote", [quoted.block.id]);
-        result = { ...quoted, ...(undo ? { undo } : {}) };
+        result = wired(request.action, { ...quoted, ...(undo ? { undo } : {}) });
       }
       return this.answered(request, result);
     }
@@ -2411,39 +2417,39 @@ export class OutlinerServer {
       request.action === "extensions.install" || request.action === "extensions.uninstall" || request.action === "extensions.undo" || request.action === "extensions.args" ||
       request.action === "extensions.configure") {
       try {
-        let result: unknown;
+        let result: WireAnswer<typeof request.action>;
         if (request.action === "extensions.undo") {
           // An action's write group taken back whole (PIE-784), as whoever asks: the person, or an agent.
           if (typeof request.undo !== "string") throw new Error("extensions.undo needs undo: the id an action's answer gave (its undo)");
-          result = await this.extensionCalls.undo(request.undo, declaredRequester(request, "extensions.undo") ?? { author: "user" });
+          result = wired(request.action, await this.extensionCalls.undo(request.undo, declaredRequester(request, "extensions.undo") ?? { author: "user" }));
           // The run's writes are back; a door that held its layout transaction takes the layout back too (PIE-957).
           this.broadcast({ id: crypto.randomUUID(), domain: "script", action: "scripts.undone", sequence: this.store.sequence, undone: { run: request.undo } });
         } else if (request.action === "extensions.args") {
           // What an action asks for (PIE-784), with the choices it has on this block: what a client prompts with.
           if (typeof request.extension !== "string" || typeof request.extensionAction !== "string") throw new Error("extensions.args needs extension and extensionAction");
           if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("blockId must be a block id");
-          result = this.extensionCalls.argChoices(request.extension, request.extensionAction, request.blockId);
+          result = wired(request.action, this.extensionCalls.argChoices(request.extension, request.extensionAction, request.blockId));
         } else if (request.action === "extensions.install") {
           if (typeof request.extension !== "string") throw new Error("extensions.install needs extension: a built-in's name (extensions.list's available)");
           if (request.where !== undefined && request.where !== "user" && request.where !== "outline") throw new Error("where is user (every outline this host serves) or outline (this one's own)");
-          result = await this.installExtension(request.extension, request.where);
+          result = wired(request.action, await this.installExtension(request.extension, request.where));
         } else if (request.action === "extensions.configure") {
           if (typeof request.extension !== "string") throw new Error("extensions.configure needs extension: an installed extension's name");
-          result = await this.configureExtension(request.extension, { config: request.config, set: request.set, unset: request.unset }, request.secrets);
+          result = wired(request.action, await this.configureExtension(request.extension, { config: request.config, set: request.set, unset: request.unset }, request.secrets));
         } else if (request.action === "extensions.uninstall") {
           if (typeof request.extension !== "string") throw new Error("extensions.uninstall needs extension: an installed extension's name");
-          result = await this.uninstallExtension(request.extension, request.demo as "keep" | "remove", declaredRequester(request, "extensions.uninstall"));
+          result = wired(request.action, await this.uninstallExtension(request.extension, request.demo as "keep" | "remove", declaredRequester(request, "extensions.uninstall")));
         } else if (request.action === "extensions.bar") {
           // A command-palette source (PIE-656): it only answers; picking a row goes through open, extensions.act or a copy.
           if (typeof request.extension !== "string" || typeof request.source !== "string") throw new Error("extensions.bar needs extension and source");
           if (typeof request.query !== "string" || request.query.length > 500) throw new Error("query must be text up to 500 characters");
           if (request.near !== undefined && typeof request.near !== "string") throw new Error("near must be a block id");
           if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive whole number");
-          result = await this.extensionCalls.bar({
+          result = wired(request.action, await this.extensionCalls.bar({
             extension: request.extension, source: request.source, query: request.query,
             ...(request.near !== undefined ? { near: request.near } : {}),
             ...(request.limit !== undefined ? { limit: request.limit } : {}),
-          });
+          }));
         } else if (request.action === "extensions.list") {
           if (request.reload !== undefined && typeof request.reload !== "boolean") throw new Error("reload must be true or false");
           if (request.reload) {
@@ -2471,11 +2477,11 @@ export class OutlinerServer {
             return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}), ...(keys.length ? { keys } : {}), ...(held ? { held } : {}), ...(settings ? { settings } : {}) };
           }));
           // Resource providers: the folders' (listed) and the legacy registry's.
-          result = { ...listed, extensions, resourceProviders: this.resourceProviders, grants: this.agentRequests.grants(), ...this.extensionRules.list(), ...this.extensionPages.listed() };
+          result = wired(request.action, { ...listed, extensions, resourceProviders: this.resourceProviders, grants: this.agentRequests.grants(), ...this.extensionRules.list(), ...this.extensionPages.listed() });
         } else if (request.action === "extensions.schedule.run") {
           // Run a schedule now (PIE-754), recorded like any run of it.
           if (typeof request.extension !== "string" || typeof request.entry !== "string") throw new Error("extensions.schedule.run needs extension and entry (action:<id> or handler:<key>)");
-          result = await this.extensionSchedules.runNow(request.extension, request.entry);
+          result = wired(request.action, await this.extensionSchedules.runNow(request.extension, request.entry));
         } else {
           if (typeof request.extension !== "string" || typeof request.extensionAction !== "string") throw new Error("extensions.act needs extension and extensionAction");
           if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("blockId must be a block id");
@@ -2488,7 +2494,7 @@ export class OutlinerServer {
             ? scriptsAt(this.store, this.extensionRegistry.list().extensions, { blockId: request.blockId, line: request.line }).find(e => e.script && e.name === request.extension.slice(7))
             : undefined;
           if (script?.state === "failed") throw new Error(script.error);
-          result = await this.extensionCalls.act({
+          result = wired(request.action, await this.extensionCalls.act({
             ...(request.clientId ? { clientId: request.clientId } : {}),
             ...(typeof request.invitation === "string" ? { invitation: request.invitation } : {}),
             ...(request.button && typeof request.button.block === "string" ? { button: { block: request.button.block, ...(Number.isSafeInteger(request.button.line) ? { line: request.button.line } : {}) } } : {}),
@@ -2499,7 +2505,7 @@ export class OutlinerServer {
             ...(request.line !== undefined ? { line: request.line } : {}),
             ...(request.args !== undefined ? { args: request.args } : {}),
             ...(typeof request.slots === "string" ? { slots: request.slots } : {}),
-          });
+          }));
         }
         return this.answered(request, result);
       } catch (error) {
@@ -2514,11 +2520,11 @@ export class OutlinerServer {
     if (request.action === "echonet.bulletin" || request.action === "echonet.put" || request.action === "echonet.take") {
       if (!this.outlinesFolder || !this.outline?.name) throw new Error(`${request.action} is served by an outline host, for a named outline`);
       const folder = outlineLayout(this.outlinesFolder).folder(this.outline.name);
-      let result: unknown;
-      if (request.action === "echonet.bulletin") result = { bulletin: readBulletin(folder) };
-      else if (request.action === "echonet.take") result = takePackets(folder, request.for, request.ack);
+      let result: WireAnswer<typeof request.action>;
+      if (request.action === "echonet.bulletin") result = wired(request.action, { bulletin: readBulletin(folder) });
+      else if (request.action === "echonet.take") result = wired(request.action, takePackets(folder, request.for, request.ack));
       else {
-        result = putPacket(folder, request.from, request.packet);
+        result = wired(request.action, putPacket(folder, request.from, request.packet));
         this.tossOnArrival();
       }
       return this.answered(request, result);
@@ -2527,14 +2533,14 @@ export class OutlinerServer {
       let result: NoteAddress | RenderedNote;
       if (request.action === "notes.address") {
         if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("notes.address takes blockId: a block id, or none for the outline and machine alone");
-        result = await this.noteAddress(request.blockId);
+        result = wired(request.action, await this.noteAddress(request.blockId));
       } else {
         if (typeof request.blockId !== "string") throw new Error("notes.render needs blockId");
         if (request.format !== "markdown" && request.format !== "html") throw new Error("notes.render's format is markdown or html");
         if (request.audience !== undefined && request.audience !== "tailnet" && request.audience !== "public") throw new Error("notes.render's audience is tailnet (the default) or public");
-        result = await this.inServicePublisher().renderNote(this.store.require(request.blockId).id, request.format, {
+        result = wired(request.action, await this.inServicePublisher().renderNote(this.store.require(request.blockId).id, request.format, {
           ...(request.audience ? { audience: request.audience } : {}), ...(request.marks === true ? { marks: true } : {}),
-        });
+        }));
       }
       return this.answered(request, result);
     }
@@ -2603,7 +2609,7 @@ export class OutlinerServer {
       (!destination || !clientSupportsRole(destination, "detail"))) {
       throw new Error("Resource documents require a Detail destination");
     }
-    let result: unknown;
+    let result: WireAnswer<typeof request.action>;
     if (request.action === "resources.open") {
       const target = this.normalizeNavigationTarget(request.target);
       if (target.kind !== "resource") {
@@ -2614,7 +2620,7 @@ export class OutlinerServer {
         true,
         target.revision,
       );
-      result = this.presentResource(description, destination);
+      result = wired(request.action, this.presentResource(description, destination));
     } else if (request.action === "resources.refresh") {
       const local = this.presentResource(
         this.store.resources.describe(request.resourceId, true),
@@ -2625,7 +2631,7 @@ export class OutlinerServer {
         request.resourceId,
         true,
       );
-      result = this.presentResource(description, destination);
+      result = wired(request.action, this.presentResource(description, destination));
     } else if (request.action === "computed.execute") {
       const local = this.presentResource(
         this.store.resources.describe(request.resourceId, true),
@@ -2640,7 +2646,7 @@ export class OutlinerServer {
         this.store.resources.describe(request.resourceId, true),
         destination,
       );
-      result = { receipt, description } satisfies ComputedExecutionResult;
+      result = wired(request.action, { receipt, description } satisfies ComputedExecutionResult);
     } else {
       const input = normalizeResourceProviderCommandInput(request.input);
       const resource = this.store.resources.require(request.resourceId);
@@ -2671,7 +2677,7 @@ export class OutlinerServer {
         this.store.resources.describe(resource.id, true),
         destination,
       );
-      result = { receipt, description } satisfies ResourceProviderCommandResult;
+      result = wired(request.action, { receipt, description } satisfies ResourceProviderCommandResult);
     }
     return this.answered(request, result);
   }
@@ -2681,7 +2687,7 @@ export class OutlinerServer {
     subscribedClient?: OutlinerClientRegistration,
   ): OutlinerResponse {
     try {
-      let result: unknown;
+      let result: WireAnswer<typeof request.action>;
       const action = request.action;
       if (isHostAction(action)) throw new Error(`${action} is answered by the outline host, never by one outline`);
       if (isAsyncOnly(action)) throw new Error(`${action} requires asynchronous dispatch`);
@@ -2692,11 +2698,11 @@ export class OutlinerServer {
           this.scriptAnswers.delete(request.requestId);
           if (request.error !== undefined) waiting.reject(new Error(request.error));
           else waiting.resolve(request.result);
-          result = { accepted: true };
+          result = wired(action, { accepted: true });
           break;
         }
         case "ping":
-          result = {
+          result = wired(action, {
             status: "ready",
             protocolVersion: PROTOCOL,
       grammarVersion: GRAMMAR,
@@ -2704,39 +2710,39 @@ export class OutlinerServer {
             location: { hostname: this.hostname, machine: localMachineName(this.outlinesFolder), workspaceRoot: this.store.workspaceRoot, database: this.store.database.filename, stateDirectory: this.host ? this.stateDirectory : dirname(this.store.database.filename) },
             ...(this.outline ? { outline: { ...this.outline } } : {}),
             ...(this.host ? { host: this.host() } : {}),
-          };
+          });
           break;
         case "blocks.query": {
           // Machinery (PIE-867): a question that doesn't say leaves out what tools stamped `[machine::…]`.
           const question = request.query && typeof request.query === "object" ? { ...request.query, machinery: request.query.machinery ?? DEFAULT_MACHINERY } : request.query;
-          result = request.fields === undefined
+          result = wired(action, request.fields === undefined
             ? this.store.queryBlocks(question)
-            : this.store.queryProjectedBlocks(question, request.fields);
+            : this.store.queryProjectedBlocks(question, request.fields));
           break;
         }
         case "blocks.read":
-          result = this.store.readBlocks(request.ids, request.fields);
+          result = wired(action, this.store.readBlocks(request.ids, request.fields));
           break;
         case "blocks.grep":
-          result = grepBlocks(this.store.liveBlocks(), request);
+          result = wired(action, grepBlocks(this.store.liveBlocks(), request));
           break;
         case "blocks.records":
-          result = readBlockRecords(this.store, request.ids, request.includeTrashed);
+          result = wired(action, readBlockRecords(this.store, request.ids, request.includeTrashed));
           break;
         case "blocks.census":
-          result = this.store.blockSizeCensus();
+          result = wired(action, this.store.blockSizeCensus());
           break;
         case "blocks.facets":
-          result = this.store.blockFacets(request.blockIds);
+          result = wired(action, this.store.blockFacets(request.blockIds));
           break;
         case "site.answer":
-          result = answerSite(this.store, request, Date.now, siteBudget());
+          result = wired(action, answerSite(this.store, request, Date.now, siteBudget()));
           break;
         case "site.sources": {
           if (typeof request.blockId !== "string" || !request.blockId.trim()) throw new Error("site.sources needs blockId: the note whose generated regions are asked, for example { blockId: \"PIE-12\" }");
           const blockId = this.store.resolveBlockRef(request.blockId).id;
           const read = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalizeResourceProjectionRequest({ blockId })), false));
-          result = readSources({
+          result = wired(action, readSources({
             store: this.store, projections: read.projections,
             sequenceSource: (blockId, button, text) => this.scriptRuns.sequenceSource(blockId, button, text),
             transformOf: (id) => {
@@ -2745,39 +2751,39 @@ export class OutlinerServer {
                 ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code }
                 : { kind: "extension", label: ext?.name ?? id };
             },
-          }, request);
+          }, request));
           break;
         }
         case "template.use":
-          result = templateUse(this.store, request);
+          result = wired(action, templateUse(this.store, request));
           break;
         case "template.props":
-          result = templatePropsOf(this.store, request);
+          result = wired(action, templatePropsOf(this.store, request));
           break;
         case "mcp.access.status":
-          result = this.mcpAccess();
+          result = wired(action, this.mcpAccess());
           break;
         case "agents.yolo":
-          result = this.setYolo(request);
+          result = wired(action, this.setYolo(request));
           break;
         case "waiting.list":
-          result = waitingAsks(this.store);
+          result = wired(action, waitingAsks(this.store));
           break;
         case "agents.held":
-          result = { held: this.agentRequests.held() };
+          result = wired(action, { held: this.agentRequests.held() });
           break;
         case "mcp.access.configure":
-          result = this.store.configureMcpAccess(request.level);
+          result = wired(action, this.store.configureMcpAccess(request.level));
           break;
         case "views.read": {
           const options = { limit: request.limit, offset: request.offset, expectedRevision: request.expectedRevision };
-          result = request.format === "tree"
+          result = wired(action, request.format === "tree"
             ? this.store.readSavedView(request.viewId, options, "tree")
-            : this.store.readSavedView(request.viewId, options);
+            : this.store.readSavedView(request.viewId, options));
           break;
         }
         case "views.planWrite":
-          result = this.store.planViewWrites({ viewIds: request.viewIds, blockId: request.blockId, text: request.text });
+          result = wired(action, this.store.planViewWrites({ viewIds: request.viewIds, blockId: request.blockId, text: request.text }));
           break;
         case "extensions.render": {
           if (typeof request.blockId !== "string") throw new Error("extensions.render needs blockId");
@@ -2785,14 +2791,14 @@ export class OutlinerServer {
           const targets: readonly string[] = RENDER_TARGETS;
           if (!targets.includes(request.target)) throw new Error(`target must be one of ${RENDER_TARGETS.join(", ")}`);
           if (request.fallback !== undefined && !targets.includes(request.fallback)) throw new Error(`fallback must be one of ${RENDER_TARGETS.join(", ")}`);
-          result = { results: this.extensionCalls.render(request.blockId, request.line, request.target as RenderTarget, request.fallback as RenderTarget | undefined) };
+          result = wired(action, { results: this.extensionCalls.render(request.blockId, request.line, request.target as RenderTarget, request.fallback as RenderTarget | undefined) });
           break;
         }
         case "query.matches":
-          result = this.store.matchQuery(request.expression, request.blockIds, { text: request.text, subtreeRootId: request.subtreeRootId, this: request.this });
+          result = wired(action, this.store.matchQuery(request.expression, request.blockIds, { text: request.text, subtreeRootId: request.subtreeRootId, this: request.this }));
           break;
         case "blocks.authored-links":
-          result = readAuthoredLinks(this.store, request.ownerBlockId);
+          result = wired(action, readAuthoredLinks(this.store, request.ownerBlockId));
           break;
         case "resources.projection.read": {
           const normalized = normalizeResourceProjectionRequest(request);
@@ -2805,42 +2811,42 @@ export class OutlinerServer {
           if (request.materialize === true) void this.extensionCalls.refreshOutput(normalized.blockId, "open").catch(() => {});
           const read = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalized), request.materialize === true), normalized.line);
           const decorations = normalized.line === undefined ? this.extensionRules.decorations(normalized.blockId) : [];
-          result = decorations.length ? { ...read, decorations } : read;
+          result = wired(action, decorations.length ? { ...read, decorations } : read);
           break;
         }
         case "children":
-          result = this.store.children(request.parentId);
+          result = wired(action, this.store.children(request.parentId));
           break;
         case "files.complete":
-          result = this.store.resources.completeFilesystemPaths(request.prefix);
+          result = wired(action, this.store.resources.completeFilesystemPaths(request.prefix));
           break;
         case "files.read":
-          result = this.store.resources.readFilesystemReference(request.path);
+          result = wired(action, this.store.resources.readFilesystemReference(request.path));
           break;
         case "workspace.snapshot":
-          result = this.store.readWorkspaceSnapshot(request.view);
+          result = wired(action, this.store.readWorkspaceSnapshot(request.view));
           break;
         case "tree.index":
-          result = this.store.readTreeIndex(request.view);
+          result = wired(action, this.store.readTreeIndex(request.view));
           break;
         case "tree.query":
-          result = this.store.queryTree(request.query);
+          result = wired(action, this.store.queryTree(request.query));
           break;
         case "tree.focus":
-          result = this.store.focusTree(request.query);
+          result = wired(action, this.store.focusTree(request.query));
           break;
         case "tree.search":
           if (request.semantic) throw new Error("Semantic search requires asynchronous dispatch");
-          result = visibleGotoResults(readGoto(this.store, request), request.limit);
+          result = wired(action, visibleGotoResults(readGoto(this.store, request), request.limit));
           break;
         case "door.event":
           this.broadcast({ id: request.id, domain: "door", action: request.body.kind, sequence: this.store.sequence, door: request.body });
           this.extensionRules.doorEvent(request.body);
-          result = { received: true }; break;
-        case "events.subscribe": result = { subscribed: true, client: subscribedClient ?? request.client }; break;
+          result = wired(action, { received: true }); break;
+        case "events.subscribe": result = wired(action, { subscribed: true, client: subscribedClient ?? request.client }); break;
         case "changes.since":
           result = // The feed is also how a client catches up on what it missed, so it holds everything unless asked: `hide`/`only` are for readers.
-          this.store.changes.since(request.sequence, request.limit, request.machinery === undefined ? "show" : parseMachineryMode(request.machinery));
+          wired(action, this.store.changes.since(request.sequence, request.limit, request.machinery === undefined ? "show" : parseMachineryMode(request.machinery)));
           break;
         case "clients.list":
           if (
@@ -2852,67 +2858,67 @@ export class OutlinerServer {
           ) {
             throw new Error(`Invalid client role: ${String(request.role)}`);
           }
-          result = this.listClients(request.role);
+          result = wired(action, this.listClients(request.role));
           break;
         case "working-selection.get":
-          result = this.store.workingSelections.get(request.ownerClientId);
+          result = wired(action, this.store.workingSelections.get(request.ownerClientId));
           break;
         case "working-selection.save":
-          result = this.store.workingSelections.save(request.input);
+          result = wired(action, this.store.workingSelections.save(request.input));
           break;
         case "working-selection.recoverable":
-          result = this.store.workingSelections.recoverable(request.ownerClientId, this.listClients().map(client => client.clientId));
+          result = wired(action, this.store.workingSelections.recoverable(request.ownerClientId, this.listClients().map(client => client.clientId)));
           break;
         case "working-selection.resume":
-          result = this.store.workingSelections.resume(request.ownerClientId, request.selectionId, request.expectedRevision,
-            this.listClients().map(client => client.clientId));
+          result = wired(action, this.store.workingSelections.resume(request.ownerClientId, request.selectionId, request.expectedRevision,
+            this.listClients().map(client => client.clientId)));
           break;
         case "clients.update":
-          result = this.updateClient(request.clientId, request);
+          result = wired(action, this.updateClient(request.clientId, request));
           break;
         case "resource-sources.create":
-          result = this.store.resources.createSource(request.input);
+          result = wired(action, this.store.resources.createSource(request.input));
           break;
         case "resource-sources.list":
-          result = this.store.resources.listSources();
+          result = wired(action, this.store.resources.listSources());
           break;
         case "resource-sources.get":
-          result = this.store.resources.requireSource(request.sourceId);
+          result = wired(action, this.store.resources.requireSource(request.sourceId));
           break;
         case "resource-sources.rebind":
-          result = { sources: this.store.resources.rebindFilesystemRoot(request.root) };
+          result = wired(action, { sources: this.store.resources.rebindFilesystemRoot(request.root) });
           break;
         case "computed.invocations.create":
-          result = this.store.resources.createComputedInvocation(request.input);
+          result = wired(action, this.store.resources.createComputedInvocation(request.input));
           break;
         case "computed.invocations.revise":
-          result = this.store.resources.reviseComputedInvocation(request.input);
+          result = wired(action, this.store.resources.reviseComputedInvocation(request.input));
           break;
         case "computed.handlers.resolve":
-          result = this.store.resources.resolveComputedHandler(request.reference);
+          result = wired(action, this.store.resources.resolveComputedHandler(request.reference));
           break;
         case "computed.executions.list":
-          result = this.store.resources.computedExecutionHistory(request.resourceId);
+          result = wired(action, this.store.resources.computedExecutionHistory(request.resourceId));
           break;
         case "resources.intern":
-          result = this.store.resources.intern(request.input);
+          result = wired(action, this.store.resources.intern(request.input));
           break;
         case "resources.intern-filesystem":
-          result = this.store.resources.internFilesystem(request.input);
+          result = wired(action, this.store.resources.internFilesystem(request.input));
           break;
         case "resources.lookup-filesystem": {
           const lookup = this.store.resources.resolveAuthoredReference({
             kind: "filesystem",
             path: request.path,
           });
-          result = lookup.kind === "ready" ? this.store.resources.require(lookup.resourceId) : null;
+          result = wired(action, lookup.kind === "ready" ? this.store.resources.require(lookup.resourceId) : null);
           break;
         }
         case "resources.get":
-          result = this.store.resources.require(request.resourceId);
+          result = wired(action, this.store.resources.require(request.resourceId));
           break;
         case "resources.relocate":
-          result = this.store.resources.relocate(request.input);
+          result = wired(action, this.store.resources.relocate(request.input));
           break;
         case "resources.write-filesystem": {
           const destination = this.clientById(request.destinationClientId);
@@ -2925,42 +2931,42 @@ export class OutlinerServer {
           );
           this.requireAvailableResourceCapability(local, "write", true);
           this.store.resources.writeFilesystem(request.input);
-          result = this.presentResource(
+          result = wired(action, this.presentResource(
             this.store.resources.describe(request.input.resourceId, true),
             destination,
-          );
+          ));
           break;
         }
         case "resources.retention.get":
-          result = this.store.resources.retentionPolicy();
+          result = wired(action, this.store.resources.retentionPolicy());
           break;
         case "resources.retention.configure":
-          result = this.store.resources.configureRetention(request.input);
+          result = wired(action, this.store.resources.configureRetention(request.input));
           break;
         case "resources.retention.inspect":
-          result = this.store.resources.inspectRetention(
+          result = wired(action, this.store.resources.inspectRetention(
             request.resourceId,
             this.activeResourceRevisions(request.resourceId),
-          );
+          ));
           break;
         case "resources.retention.pin":
-          result = this.store.resources.pinRetention(request.input);
+          result = wired(action, this.store.resources.pinRetention(request.input));
           break;
         case "resources.retention.unpin":
-          result = this.store.resources.unpinRetention(request.pinId);
+          result = wired(action, this.store.resources.unpinRetention(request.pinId));
           break;
         case "resources.retention.reference":
-          result = this.store.resources.referenceRetention(request.input);
+          result = wired(action, this.store.resources.referenceRetention(request.input));
           break;
         case "resources.retention.unreference":
-          result = this.store.resources.unreferenceRetention(request.referenceId);
+          result = wired(action, this.store.resources.unreferenceRetention(request.referenceId));
           break;
         case "resources.collect":
-          result = this.store.resources.collectRetention(
+          result = wired(action, this.store.resources.collectRetention(
             request.mode,
             request.resourceId,
             this.activeResourceRevisions(request.resourceId),
-          );
+          ));
           break;
         case "resources.describe": {
           const destination = request.destinationClientId === undefined ? undefined : this.clientById(request.destinationClientId);
@@ -2968,68 +2974,68 @@ export class OutlinerServer {
           if (target.kind !== "resource") {
             throw new Error("Resource description target must be a resource");
           }
-          result = this.presentResource(
+          result = wired(action, this.presentResource(
             this.store.resources.describe(
               target.resourceId,
               true,
               target.revision,
             ),
             destination,
-          );
+          ));
           break;
         }
         case "attention.get":
           this.attentionClient(request.targetClientId);
-          result = this.attentionState(request.targetClientId);
+          result = wired(action, this.attentionState(request.targetClientId));
           break;
         case "attention.mark":
-          result = this.setAttention(request.input, false);
+          result = wired(action, this.setAttention(request.input, false));
           break;
         case "attention.advance":
-          result = this.setAttention(request.input, true);
+          result = wired(action, this.setAttention(request.input, true));
           break;
         case "attention.clear":
-          result = this.clearAttention(request.input);
+          result = wired(action, this.clearAttention(request.input));
           break;
         case "attention.acknowledge":
-          result = this.acknowledgeAttention(request.input);
+          result = wired(action, this.acknowledgeAttention(request.input));
           break;
         case "workflows.start":
-          result = this.startWorkflow(request.input);
+          result = wired(action, this.startWorkflow(request.input));
           break;
         case "workflows.get":
-          result = this.workflows.get(request.runId);
+          result = wired(action, this.workflows.get(request.runId));
           break;
         case "workflows.list":
-          result = this.workflows.list(request.limit);
+          result = wired(action, this.workflows.list(request.limit));
           break;
         case "workflows.structure":
-          result = this.workflows.structure(request.runId);
+          result = wired(action, this.workflows.structure(request.runId));
           break;
         case "workflows.plan":
-          result = this.workflows.savePlan(request.input);
+          result = wired(action, this.workflows.savePlan(request.input));
           break;
         case "workflows.transition":
-          result = this.transitionWorkflow(request.input);
+          result = wired(action, this.transitionWorkflow(request.input));
           break;
         case "workflows.cancel":
-          result = this.cancelWorkflow(request.runId);
+          result = wired(action, this.cancelWorkflow(request.runId));
           break;
         case "workflows.promotion.preview":
-          result = this.workflows.previewPromotion(request.input);
+          result = wired(action, this.workflows.previewPromotion(request.input));
           break;
         case "workflows.promotion.commit":
-          result = this.workflows.commitPromotion(request.input, request.provenance);
+          result = wired(action, this.workflows.commitPromotion(request.input, request.provenance));
           break;
         case "blocks.context":
-          result = this.store.blockContext(request.blockId);
+          result = wired(action, this.store.blockContext(request.blockId));
           break;
         case "browsing-context.get": {
           const contextId = this.normalizeContextId(request.contextId);
-          result = {
+          result = wired(action, {
             contextId,
             target: this.browsingContextTargets.get(contextId) ?? null,
-          };
+          });
           break;
         }
         case "browsing-context.publish": {
@@ -3063,16 +3069,16 @@ export class OutlinerServer {
               unavailable = error instanceof Error ? error.message : String(error);
             }
           }
-          result = {
+          result = wired(action, {
             contextId,
             target,
             ...(preview ? { preview } : {}),
             ...(unavailable ? { unavailable } : {}),
-          } satisfies BrowsingContextPublication;
+          } satisfies BrowsingContextPublication);
           break;
         }
         case "navigation.link.get":
-          result = this.navigationLinkState(request.source);
+          result = wired(action, this.navigationLinkState(request.source));
           break;
         case "navigation.link.set": {
           this.navigationView(request.source);
@@ -3080,19 +3086,19 @@ export class OutlinerServer {
           const before = this.navigationLinks.get(key);
           if (request.destination === null) this.navigationLinks.delete(key);
           else { this.navigationView(request.destination, true); this.navigationLinks.set(key, {...request.destination}); }
-          result = this.navigationLinkState(request.source);
+          result = wired(action, this.navigationLinkState(request.source));
           const after = this.navigationLinks.get(key);
           if (before?.clientId !== after?.clientId || before?.region !== after?.region) this.emitClientView("navigation.link.set", request.source.clientId);
           break;
         }
         case "navigation.resolve":
-          result = this.resolveNavigationTarget(
+          result = wired(action, this.resolveNavigationTarget(
             request.sourceClientId,
             this.navigationIntent(request.intent),
             request.preserveSource,
             request.sourceRegion,
             request.destination,
-          );
+          ));
           break;
         case "navigation.dispatch": {
           const intent = this.navigationIntent(request.intent);
@@ -3128,7 +3134,7 @@ export class OutlinerServer {
               ...(request.focusTarget !== undefined ? {focus: request.focusTarget} : {}),
             };
           }
-          result = { ...route, command } satisfies OutlinerNavigationDispatch;
+          result = wired(action, { ...route, command } satisfies OutlinerNavigationDispatch);
           break;
         }
         case "ui.command.send": {
@@ -3200,24 +3206,24 @@ export class OutlinerServer {
             }
             this.store.requireActive(capture.hostBlockId);
           }
-          result = { accepted: true, command: request.command };
+          result = wired(action, { accepted: true, command: request.command });
           break;
         }
         case "get":
-          result = this.store.require(request.blockId);
+          result = wired(action, this.store.require(request.blockId));
           break;
         case "proposals.outcomes":
-          result = proposalOutcomes(this.store, request);
+          result = wired(action, proposalOutcomes(this.store, request));
           break;
         case "block.revisions":
-          result = request.revision !== undefined ? this.store.revisionText(request.blockId, request.revision) : request.latest ? this.store.revisions(request.blockId, true) : this.store.revisions(request.blockId);
+          result = wired(action, request.revision !== undefined ? this.store.revisionText(request.blockId, request.revision) : request.latest ? this.store.revisions(request.blockId, true) : this.store.revisions(request.blockId));
           break;
         case "create":
-          result = this.store.create(titled(request.text), request.parentId, request.author, request.provenance,
-            { position: request.position, requestId: request.requestId });
+          result = wired(action, this.store.create(titled(request.text), request.parentId, request.author, request.provenance,
+            { position: request.position, requestId: request.requestId }));
           break;
         case "notes.create":
-          result = request.dryRun === true ? { placement: this.store.placeNote(titled(request.text ?? ""), readNewNoteIntent(request.intent)) } : this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance);
+          result = wired(action, request.dryRun === true ? { placement: this.store.placeNote(titled(request.text ?? ""), readNewNoteIntent(request.intent)) } : this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance));
           break;
         case "notes.route": {
           // PIE-1010: the moves are ext:route's; who asked is recorded beside them.
@@ -3225,111 +3231,111 @@ export class OutlinerServer {
           if (request.all !== undefined && typeof request.all !== "boolean") throw new Error("all is true or false");
           if (request.dryRun !== undefined && typeof request.dryRun !== "boolean") throw new Error("dryRun is true or false");
           const requestedBy = declaredRequester(request, "notes.route");
-          result = this.routing.run({ ...(request.ref ? { ref: request.ref } : {}), ...(request.all ? { all: true } : {}), ...(request.dryRun ? { dryRun: true } : {}), ...(requestedBy ? { requestedBy } : {}) });
+          result = wired(action, this.routing.run({ ...(request.ref ? { ref: request.ref } : {}), ...(request.all ? { all: true } : {}), ...(request.dryRun ? { dryRun: true } : {}), ...(requestedBy ? { requestedBy } : {}) }));
           break;
         }
         case "template.stamp": {
           const { id: _id, action: _action, ...stamp } = request;
-          result = stampTemplate(this.store, stamp);
+          result = wired(action, stampTemplate(this.store, stamp));
           break;
         }
-        case "mentions.ingest": result=this.mentions.ingest(request.message); break;
-        case "mentions.list": result=this.mentions.list(request.scope,request.limit); break;
-        case "mentions.message": result=this.mentions.message(request.messageKey); break;
-        case "mentions.clear": result=this.mentions.clear(request.scope); break;
-        case "mentions.save": result=this.mentions.save(request.messageKey); break;
+        case "mentions.ingest": result=wired(action, this.mentions.ingest(request.message)); break;
+        case "mentions.list": result=wired(action, this.mentions.list(request.scope,request.limit)); break;
+        case "mentions.message": result=wired(action, this.mentions.message(request.messageKey)); break;
+        case "mentions.clear": result=wired(action, this.mentions.clear(request.scope)); break;
+        case "mentions.save": result=wired(action, this.mentions.save(request.messageKey)); break;
         case "bookmarks.root":
-          result = this.store.bookmarksRoot();
+          result = wired(action, this.store.bookmarksRoot());
           break;
         case "bookmarks.status":
-          result = this.store.bookmarkStatus(request.targetBlockId);
+          result = wired(action, this.store.bookmarkStatus(request.targetBlockId));
           break;
         case "bookmarks.resolve":
-          result = this.store.resolveBookmark(request.recordId);
+          result = wired(action, this.store.resolveBookmark(request.recordId));
           break;
         case "bookmarks.toggle":
-          result = this.store.toggleBookmark(
+          result = wired(action, this.store.toggleBookmark(
             request.targetBlockId,
             request.expectedRecordId,
             request.label,
             request.author,
             request.provenance,
-          );
+          ));
           break;
         case "bookmarks.remove":
-          result = this.store.removeBookmark(request.recordId, request.expectedRevision);
+          result = wired(action, this.store.removeBookmark(request.recordId, request.expectedRevision));
           break;
         case "annotations.list":
-          result = this.store.listAnnotationThreads(request.query);
+          result = wired(action, this.store.listAnnotationThreads(request.query));
           break;
         case "annotations.get":
-          result = this.store.getAnnotation(request.annotationId);
+          result = wired(action, this.store.getAnnotation(request.annotationId));
           break;
         case "annotations.create":
-          result = this.store.createAnnotation(
+          result = wired(action, this.store.createAnnotation(
             request.requestId,
             request.input,
             request.author,
             request.provenance,
-          );
+          ));
           break;
         case "annotations.reply":
-          result = this.store.replyToAnnotation(
+          result = wired(action, this.store.replyToAnnotation(
             request.requestId,
             request.input,
             request.author,
             request.provenance,
-          );
+          ));
           // `@name` in a person's reply asks an agent that answers in threads (marginalia's Ask, ADR 0004 contract 6).
           if (!(result as AnnotationBatchReceipt).deduplicated) this.agentRequests.threadWritten((result as AnnotationBatchReceipt).annotations, request.author ?? "user");
           break;
         case "annotations.batch":
-          result = this.store.createAnnotationBatch(
+          result = wired(action, this.store.createAnnotationBatch(
             request.requestId,
             request.operations,
             request.author,
             request.provenance,
-          );
+          ));
           if (!(result as AnnotationBatchReceipt).deduplicated) this.agentRequests.threadWritten((result as AnnotationBatchReceipt).annotations, request.author ?? "user");
           break;
         case "annotations.reconcile":
-          result = this.store.reconcileAnnotationThreads(request.input);
+          result = wired(action, this.store.reconcileAnnotationThreads(request.input));
           break;
         case "annotations.approve-resolution":
-          result = this.store.approveAnnotationResolution(request.input);
+          result = wired(action, this.store.approveAnnotationResolution(request.input));
           break;
         case "annotations.agent-package":
-          result = this.store.getAnnotationAgentPackage(request.annotationId);
+          result = wired(action, this.store.getAnnotationAgentPackage(request.annotationId));
           break;
         case "annotations.agent-receipt":
-          result = this.store.getAnnotationAgentReceipt(request.requestId);
+          result = wired(action, this.store.getAnnotationAgentReceipt(request.requestId));
           break;
         case "annotations.propose-agent":
-          result = this.store.proposeAnnotationAgentResolution(request.requestId, request.input);
+          result = wired(action, this.store.proposeAnnotationAgentResolution(request.requestId, request.input));
           break;
         case "annotations.review-agent":
-          result = this.store.reviewAnnotationAgentResolution(request.input);
+          result = wired(action, this.store.reviewAnnotationAgentResolution(request.input));
           break;
         case "annotations.agent-evidence":
-          result = this.store.summarizeAnnotationAgentEvidence(request.limit);
+          result = wired(action, this.store.summarizeAnnotationAgentEvidence(request.limit));
           break;
         case "annotations.read":
-          result = this.store.markAnnotationThreadRead(request.annotationId, readerKey(request.reader ?? PERSON_READER));
+          result = wired(action, this.store.markAnnotationThreadRead(request.annotationId, readerKey(request.reader ?? PERSON_READER)));
           break;
         case "blocks.markRead":
           if (!Array.isArray(request.blocks) || !request.blocks.every((b: unknown) => !!b && typeof (b as { id?: unknown }).id === "string" && Number.isFinite((b as { revision?: unknown }).revision)))
             throw new Error("blocks.markRead needs blocks: [{ id, revision }], each block read and the revision it was shown at");
-          result = { marked: this.store.readMarks.markShown(readerKey(request.reader ?? PERSON_READER), request.blocks) };
+          result = wired(action, { marked: this.store.readMarks.markShown(readerKey(request.reader ?? PERSON_READER), request.blocks) });
           break;
         case "annotations.lifecycle":
-          result = this.store.setAnnotationLifecycle(
+          result = wired(action, this.store.setAnnotationLifecycle(
             request.input,
             request.mutation,
-          );
+          ));
           break;
         case "annotations.update":
           if (!request.mutation || typeof request.mutation !== "object") throw new Error("annotations.update needs mutation: who edits it ({ author: \"user\" } or { author: \"agent\", actorId })");
-          result = this.store.updateAnnotation(request.input, request.mutation);
+          result = wired(action, this.store.updateAnnotation(request.input, request.mutation));
           break;
         case "annotations.tldr": {
           if (!request.mutation || typeof request.mutation !== "object") throw new Error("annotations.tldr needs mutation: who asks for it");
@@ -3344,39 +3350,39 @@ export class OutlinerServer {
             this.agentRequests.tldrRemoved(root.block.id);
             if (!faces.length) throw new Error("this thread has no TL;DR to take away");
             for (const r of faces) this.store.delete(r.block.id, request.mutation.author === "agent" ? { author: "agent", ...(request.mutation.actorId ? { actorId: request.mutation.actorId } : {}) } : { author: "user" });
-            result = { removed: faces.map(r => r.block.id) };
+            result = wired(action, { removed: faces.map(r => r.block.id) });
             break;
           }
           if (typeof request.body === "string" && request.body.trim()) {
             const by = request.mutation.author === "agent" ? "agent" : "user";
-            result = { written: this.store.replyToAnnotation(request.requestId ?? crypto.randomUUID(),
+            result = wired(action, { written: this.store.replyToAnnotation(request.requestId ?? crypto.randomUUID(),
               { annotationId: root.block.id, body: request.body.trim(), source: by, properties: { kind: TLDR_KIND } },
-              by, by === "agent" && request.mutation.actorId ? { actorId: request.mutation.actorId } : undefined).annotations[0] };
+              by, by === "agent" && request.mutation.actorId ? { actorId: request.mutation.actorId } : undefined).annotations[0] });
           } else throw new Error("annotations.tldr asking @margin requires asynchronous dispatch");
           break;
         }
         case "roadmap.items.create":
-          result = this.store.createRoadmapItem(
+          result = wired(action, this.store.createRoadmapItem(
             request.input,
             request.author,
             request.provenance,
-          );
+          ));
           break;
         case "deliveries.sync":
-          result = this.store.syncDelivery(request.input, request.mutation);
+          result = wired(action, this.store.syncDelivery(request.input, request.mutation));
           break;
         case "deliveries.ensure":
-          result = this.store.ensureDelivery(
+          result = wired(action, this.store.ensureDelivery(
             request.input,
             request.author,
             request.provenance,
-          );
+          ));
           break;
         case "capture.create":
           if (request.expectedDraftRevision !== undefined || request.requestId === this.store.quickCaptureDraft()?.requestId) {
             this.requireCaptureOwner(request.ownerClientId);
           }
-          result = this.store.capture(
+          result = wired(action, this.store.capture(
             request.requestId,
             titled(request.text),
             request.source,
@@ -3384,21 +3390,21 @@ export class OutlinerServer {
             request.author,
             request.provenance,
             request.expectedDraftRevision,
-          );
+          ));
           break;
         case "capture.retitle":
-          result = this.store.retitleCapture(
+          result = wired(action, this.store.retitleCapture(
             request.blockId,
             request.expectedRevision,
             request.title,
             request.mutation,
-          );
+          ));
           break;
         case "capture.owner.get":
-          result = this.currentCaptureOwner();
+          result = wired(action, this.currentCaptureOwner());
           break;
         case "capture.owner.claim":
-          result = this.claimCaptureOwner(request.clientId, request.location, request.transferToken);
+          result = wired(action, this.claimCaptureOwner(request.clientId, request.location, request.transferToken));
           break;
         case "capture.owner.handoff": {
           this.requireCaptureOwner(request.clientId);
@@ -3408,46 +3414,46 @@ export class OutlinerServer {
           }
           this.captureTransfer = {token: crypto.randomUUID(), clientId: request.clientId,
             requestId: draft.requestId, revision: draft.revision, deadline: Date.now() + 30_000};
-          result = {token: this.captureTransfer.token};
+          result = wired(action, {token: this.captureTransfer.token});
           break;
         }
         case "capture.draft.get":
-          result = this.store.quickCaptureDraft();
+          result = wired(action, this.store.quickCaptureDraft());
           break;
         case "draft.proposals.list":
           if (typeof request.blockId !== "string" || !request.blockId) throw Error("draft.proposals.list needs blockId");
-          result = this.draftPatches.proposalsBeside(request.blockId);
+          result = wired(action, this.draftPatches.proposalsBeside(request.blockId));
           break;
         case "edit-recovery.start":
-          result = this.editRecovery.start(request.input);
+          result = wired(action, this.editRecovery.start(request.input));
           break;
         case "edit-recovery.get":
-          result = this.editRecovery.get(request.recoveryId);
+          result = wired(action, this.editRecovery.get(request.recoveryId));
           break;
         case "edit-recovery.list":
-          result = this.editRecovery.list(request.blockId,request.includeHistory);
+          result = wired(action, this.editRecovery.list(request.blockId,request.includeHistory));
           break;
         case "edit-recovery.restore":
-          result = this.editRecovery.restore(request.recoveryId,request.requestId,request.version);
+          result = wired(action, this.editRecovery.restore(request.recoveryId,request.requestId,request.version));
           break;
         case "edit-recovery.refresh":
-          result = this.editRecovery.refresh(request.recoveryId,request.expectedRevision);
+          result = wired(action, this.editRecovery.refresh(request.recoveryId,request.expectedRevision));
           break;
         case "edit-recovery.propose":
-          result = this.editRecovery.propose(request.recoveryId,request.expectedRevision,request.proposal);
+          result = wired(action, this.editRecovery.propose(request.recoveryId,request.expectedRevision,request.proposal));
           break;
         case "edit-recovery.commit":
-          result = this.editRecovery.commit(request.recoveryId,request.expectedRevision,titled(request.text),request.basedOnRevision,request.mutation,request.identityChanges);
+          result = wired(action, this.editRecovery.commit(request.recoveryId,request.expectedRevision,titled(request.text),request.basedOnRevision,request.mutation,request.identityChanges));
           break;
         case "edit-recovery.discard":
-          result = this.editRecovery.discard(request.recoveryId,request.expectedRevision);
+          result = wired(action, this.editRecovery.discard(request.recoveryId,request.expectedRevision));
           break;
         case "edit-recovery.separate":
-          result = this.editRecovery.separate(request.recoveryId,request.expectedRevision,request.mutation);
+          result = wired(action, this.editRecovery.separate(request.recoveryId,request.expectedRevision,request.mutation));
           break;
         case "capture.draft.save":
           this.requireCaptureOwner(request.input.ownerClientId);
-          result = this.store.database.transaction(() => {
+          result = wired(action, this.store.database.transaction(() => {
             const reviewed = request.input.recovery;
             if (!reviewed) return this.store.saveQuickCaptureDraft(request.input);
             const draft = this.store.quickCaptureDraft();
@@ -3460,48 +3466,48 @@ export class OutlinerServer {
             // The note, history receipt and capture pointer advance together;
             // failure of any capture guard rolls back the recovery commit too.
             return this.store.saveQuickCaptureDraft(request.input, block.revision);
-          })();
+          })());
           break;
         case "capture.draft.clear":
           this.requireCaptureOwner(request.ownerClientId);
-          result = this.store.clearQuickCaptureDraft(request.expectedRevision);
+          result = wired(action, this.store.clearQuickCaptureDraft(request.expectedRevision));
           break;
         case "checklist.query":
-          result = this.store.queryChecklist(request.blockId, request.query);
+          result = wired(action, this.store.queryChecklist(request.blockId, request.query));
           break;
         case "checklist.search":
-          result = this.store.searchChecklist(request.query);
+          result = wired(action, this.store.searchChecklist(request.query));
           break;
         case "checklist.update":
-          result = this.store.updateChecklist(request.blockId, request.input, request.mutation);
+          result = wired(action, this.store.updateChecklist(request.blockId, request.input, request.mutation));
           break;
         case "fragments.read":
-          result = this.store.readFragment(request.blockId, request.fragmentId);
+          result = wired(action, this.store.readFragment(request.blockId, request.fragmentId));
           break;
         case "fragments.at":
-          result = this.store.partAt(request.blockId, request.line, request.next === true);
+          result = wired(action, this.store.partAt(request.blockId, request.line, request.next === true));
           break;
         case "transclusions.read":
-          result = this.store.readTransclusions(request.targets, { hostBlockId: request.hostBlockId, maxDepth: request.maxDepth });
+          result = wired(action, this.store.readTransclusions(request.targets, { hostBlockId: request.hostBlockId, maxDepth: request.maxDepth }));
           break;
         case "fragments.candidates":
-          result = this.store.fragmentCandidates(request.query);
+          result = wired(action, this.store.fragmentCandidates(request.query));
           break;
         case "fragments.ensure":
-          result = this.store.ensureFragment(request.blockId, request.lineIndex, request.expectedRevision, request.mutation);
+          result = wired(action, this.store.ensureFragment(request.blockId, request.lineIndex, request.expectedRevision, request.mutation));
           break;
         case "drafts.hold":
           if (!this.hasClient(request.clientId)) throw new Error("A draft is held by a connected client: subscribe with that clientId first");
-          result = this.draftHolds.hold(request.blockId, request.clientId, request.revision, request.leaseMs);
+          result = wired(action, this.draftHolds.hold(request.blockId, request.clientId, request.revision, request.leaseMs));
           break;
         case "drafts.heartbeat":
-          result = this.draftHolds.heartbeat(request.holdId, request.revision);
+          result = wired(action, this.draftHolds.heartbeat(request.holdId, request.revision));
           this.stalledHolds.delete(request.holdId);
           break;
         case "drafts.release": {
           this.stalledHolds.delete(request.holdId);
           const released = this.draftHolds.list().find(hold => hold.holdId === request.holdId);
-          result = { released: this.draftHolds.release(request.holdId) };
+          result = wired(action, { released: this.draftHolds.release(request.holdId) });
           // The draft closed: a note that waited to route while it was held routes now (PIE-1010).
           if (released) this.routing.draftReleased(released.blockId);
           break;
@@ -3514,48 +3520,48 @@ export class OutlinerServer {
           void this.askHolder(hold, { kind: "read" }).then(answer => {
             if ("text" in answer && typeof answer.text === "string") this.agentRequests.touched(hold.blockId, answer.text);
           }).catch(() => {});
-          result = { touched: true };
+          result = wired(action, { touched: true });
           break;
         }
         case "drafts.answer":
-          result = this.answerHolder(request.requestId, request.clientId, request.answer, request.error);
+          result = wired(action, this.answerHolder(request.requestId, request.clientId, request.answer, request.error));
           break;
         case "update":
-          result = this.store.update(request.blockId, titled(request.text!), request.expectedRevision, request.mutation, "text", request.identityChanges);
+          result = wired(action, this.store.update(request.blockId, titled(request.text!), request.expectedRevision, request.mutation, "text", request.identityChanges));
           break;
         case "move":
-          result = moveNote(this.store, request.blockId, request, request.expectedRevision, request.mutation);
+          result = wired(action, moveNote(this.store, request.blockId, request, request.expectedRevision, request.mutation));
           break;
         case "delete":
-          result = this.store.delete(request.blockId, request.mutation, { revision: request.expectedRevision, ifEmpty: request.ifEmpty });
+          result = wired(action, this.store.delete(request.blockId, request.mutation, { revision: request.expectedRevision, ifEmpty: request.ifEmpty }));
           break;
         case "trash.restore":
-          result = this.store.restore(request.blockId, request.mutation);
+          result = wired(action, this.store.restore(request.blockId, request.mutation));
           break;
         case "trash.purge":
           this.store.purge(request.blockId, request.confirmation);
-          result = { purged: request.blockId };
+          result = wired(action, { purged: request.blockId });
           break;
         case "virtual.occurrences.order":
           // The view as a person or agent names it (an id, ((id)), a prefix, a Work ID or a [[page]]).
-          result = this.store.virtualBranchOrder(this.store.resolveBlockRef(request.viewId).id);
+          result = wired(action, this.store.virtualBranchOrder(this.store.resolveBlockRef(request.viewId).id));
           break;
         case "virtual.occurrences.place":
-          result = this.store.placeVirtualOccurrences(request.input, request.mutation);
+          result = wired(action, this.store.placeVirtualOccurrences(request.input, request.mutation));
           break;
         case "virtual.occurrences.move":
-          result = this.store.moveVirtualOccurrences(request.input, request.mutation);
+          result = wired(action, this.store.moveVirtualOccurrences(request.input, request.mutation));
           break;
         case "virtual.occurrences.reorder":
-          result = this.store.reorderVirtualOccurrences(
+          result = wired(action, this.store.reorderVirtualOccurrences(
             request.viewId,
             request.orderedBlockIds,
             request.mutation,
-          );
+          ));
           break;
         case "blocks.resolve": {
           if (!Array.isArray(request.refs) || request.refs.length > 200 || request.refs.some(ref => typeof ref !== "string")) throw new Error("refs is a list of at most 200 strings");
-          result = { resolved: request.refs.map(ref => {
+          result = wired(action, { resolved: request.refs.map(ref => {
             try {
               const found = this.store.lookupBlockRef(ref, "note");
               if (found.kind === "found") return { ref, id: found.block.id };
@@ -3564,86 +3570,86 @@ export class OutlinerServer {
               return { ref, error: found.message };
             } catch (error) {
         if (isSqliteBusy(error)) throw error; return { ref, error: error instanceof Error ? error.message : String(error) }; }
-          }) };
+          }) });
           break;
         }
         case "references.resolve":
-          result = this.store.resolveBlockReferences(request.text);
+          result = wired(action, this.store.resolveBlockReferences(request.text));
           break;
         case "callouts.types":
-          result = this.calloutTypes();
+          result = wired(action, this.calloutTypes());
           break;
         case "headings.styles":
-          result = this.headingStyles();
+          result = wired(action, this.headingStyles());
           break;
         case "styles.list":
-          result = this.styleSheets();
+          result = wired(action, this.styleSheets());
           break;
         case "rules.preview": {
           if (typeof request.note !== "string" || typeof request.text !== "string") throw new Error("rules.preview needs note and text");
           if (request.note.length > 4_000 || request.text.length > 20_000) throw new Error("rules.preview: the note is at most 4000 characters and the text 20000");
-          result = this.extensionRules.preview(request.note, request.text);
+          result = wired(action, this.extensionRules.preview(request.note, request.text));
           break;
         }
         case "components.usage":
-          result = this.store.componentUsage();
+          result = wired(action, this.store.componentUsage());
           break;
         case "components.schemas":
-          result = this.componentSchemas();
+          result = wired(action, this.componentSchemas());
           break;
         case "references.backlinks":
-          result = this.store.queryBacklinks(request.query);
+          result = wired(action, this.store.queryBacklinks(request.query));
           break;
         case "pages.resolve":
-          result = this.store.resolvePageAddress(request.address);
+          result = wired(action, this.store.resolvePageAddress(request.address));
           break;
         case "pages.follow":
-          result = this.store.followPageAddress(
+          result = wired(action, this.store.followPageAddress(
             request.address,
             request.author,
             request.provenance,
-          );
+          ));
           break;
         case "pages.complete":
           if (request.semantic !== undefined && typeof request.semantic !== "boolean") throw new Error("semantic must be a boolean");
           if (request.semantic) throw new Error("Semantic search requires asynchronous dispatch");
-          result = this.store.completePageAddresses(request.query, request.limit, request.contextBlockId);
+          result = wired(action, this.store.completePageAddresses(request.query, request.limit, request.contextBlockId));
           break;
         case "pages.rename":
-          result = this.store.renamePageAddress(
+          result = wired(action, this.store.renamePageAddress(
             request.blockId,
             request.address,
             request.expectedRevision,
-          );
+          ));
           break;
         case "pages.alias":
-          result = this.store.addPageAlias(request.blockId, request.address);
+          result = wired(action, this.store.addPageAlias(request.blockId, request.address));
           break;
         case "pages.remove":
-          result = this.store.removePageAddress(
+          result = wired(action, this.store.removePageAddress(
             request.blockId,
             request.address,
             request.expectedRevision,
-          );
+          ));
           break;
         case "work-ids.status":
-          result = this.store.workIdAllocatorStatus();
+          result = wired(action, this.store.workIdAllocatorStatus());
           break;
         case "work-ids.configure":
-          result = this.store.configureWorkIdPrefix(request.prefix);
+          result = wired(action, this.store.configureWorkIdPrefix(request.prefix));
           break;
         case "work-ids.allocate":
-          result = this.store.allocateWorkId(
+          result = wired(action, this.store.allocateWorkId(
             request.blockId,
             request.expectedRevision,
             request.mutation,
-          );
+          ));
           break;
         case "properties.patch":
-          result = this.store.patchProperties(request.blockId, request.expectedRevision, request.operations, request.mutation, request.keepUpdated === true);
+          result = wired(action, this.store.patchProperties(request.blockId, request.expectedRevision, request.operations, request.mutation, request.keepUpdated === true));
           break;
         case "activity.recent":
-          result = this.store.recentEditActivity({
+          result = wired(action, this.store.recentEditActivity({
             afterCursor: request.afterCursor,
             since: request.since,
             limit: request.limit,
@@ -3653,37 +3659,37 @@ export class OutlinerServer {
             machinery: parseMachineryMode(request.machinery),
             ...(request.actorId !== undefined ? { actorId: request.actorId } : {}),
             ...(request.beforeCursor !== undefined ? { beforeCursor: request.beforeCursor } : {}),
-          });
+          }));
           break;
         case "properties.catalog":
-          result = this.store.propertyCatalog(
+          result = wired(action, this.store.propertyCatalog(
             request.key,
             request.prefix,
             request.limit,
             request.propertyScope,
             request.keys === true,
-          );
+          ));
           break;
         case "properties.preview":
-          result = previewPropertyParse(request.text);
+          result = wired(action, previewPropertyParse(request.text));
           break;
         case "properties.inventory":
-          result = this.store.propertyInventory(request);
+          result = wired(action, this.store.propertyInventory(request));
           break;
         case "selection.get":
-          result = this.store.getSelection();
+          result = wired(action, this.store.getSelection());
           break;
         case "selection.set":
-          result = this.store.setSelection(request.blockId);
+          result = wired(action, this.store.setSelection(request.blockId));
           break;
         case "navigation.state":
-          result = this.store.navigationState();
+          result = wired(action, this.store.navigationState());
           break;
         case "navigation.back":
-          result = this.store.navigateHistory("back");
+          result = wired(action, this.store.navigateHistory("back"));
           break;
         case "navigation.forward":
-          result = this.store.navigateHistory("forward");
+          result = wired(action, this.store.navigateHistory("forward"));
           break;
         default: {
           // What's left is declared async or the host's (actions.ts), refused above: a new sync action fails here until handled.
@@ -3905,7 +3911,7 @@ export class OutlinerServer {
    * Share sessions and reader presence (share-sessions.ts). A share's link is made from the public listener's URL the
    * publisher gave; a scope must be a live note that isn't `[publish::never]` (or under one), or the whole outline.
    */
-  private async shareRequest(request: OutlinerRequest): Promise<unknown> {
+  private async shareRequest(request: OutlinerRequest) {
     const publicUrl = this.publisherAddress().publicUrl;
     switch (request.action) {
       case "outline.snapshot": {

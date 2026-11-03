@@ -16,7 +16,7 @@ const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 interface Reference {bare?:boolean;kind:'block'|'address';value:string;start:number;end:number;}
 /** `blockId` is null only in a message kept before unresolved references were dropped. */
 interface StoredReference extends Reference {blockId:string|null;excerpt:string;}
-interface StoredMessage extends MentionMessage {key:string;receivedAt:string;references:StoredReference[];notChecked:string[];}
+export interface StoredMessage extends MentionMessage {key:string;receivedAt:string;references:StoredReference[];notChecked:string[];}
 function required(value:unknown,name:string,max=512):string{
  if(typeof value!=='string'||!value.trim()||value.length>max||/[\u0000-\u001f]/.test(value))throw Error(`${name} must be nonempty text, at most ${max} characters`);
  return value;

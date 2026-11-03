@@ -4134,7 +4134,7 @@ export class OutlinerStore {
       if (!current) throw new Error(`Block has no registered page address: ${blockId}`);
       const nextText = patchPropertyText(block.text, [{
         op: "replace",
-        ordinal: pageTokens[0].ordinal,
+        ordinal: pageTokens[0]!.ordinal,
         value: nextAddress.displayAddress,
       }]);
       // The text edit carries the rename: syncing the declared page moves the
