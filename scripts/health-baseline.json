@@ -1,5 +1,5 @@
 {
-  "revision": "9fbad01f253257814a09d3294e0d59f4108cef17",
+  "revision": "34ecd65b14a27826fef509aba4e2cf737eeae09d",
   "patterns": {
     "width-length": {
       "count": 241,
@@ -374,7 +374,7 @@
     "packages/door/src/desk/screen-layout.ts": 2358,
     "packages/door/src/screens.ts": 2239,
     "packages/door/src/showcase/showcase.ts": 2138,
-    "packages/door/src/surface/note.ts": 12911,
+    "packages/door/src/surface/note.ts": 12883,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4671,

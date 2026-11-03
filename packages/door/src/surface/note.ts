@@ -123,6 +123,8 @@ import type { FragmentKind, ShareSession } from "@ep0ch/outline-core/protocol";
 import { startsTable, tableCells } from "@ep0ch/outline-core/table-shape";
 import { blockdownHooks, drawIn, embedOnly, linkSink, NO_READER, readableSource, sequenceStart, tagInto } from "./blockdown-context";
 export { embedOnly, readableSource } from "./blockdown-context";
+import { copyControls, pickTarget } from "./note-targets";
+export { COPY_ROWS, pickTarget } from "./note-targets";
 import { ActionRefused, actionSet, boundNow, def, keyCaption, agentLabel, agentWords, asActor, type ActionDef, type ActionSet, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { holdsEdit, NOBODY } from "../whereabouts";
@@ -420,15 +422,6 @@ interface HeaderBlock {
   wholeMarks?: { row: number; from: number; to: number; thread: string }[];
 }
 
-/**
- * Which of the targets under one cell a press presses, for every host (the reader's click, a river column's: PIE-1543):
- * a copy control first, then a link, a thread mark or another control, then a region's mark (over a fold at the same
- * gutter cell), then whatever is there.
- */
-export function pickTarget(at: readonly Hit[]): Hit | undefined {
-  return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "start" in h || ("follow" in h && h.follow)) ?? at.find(h => "region" in h) ?? at[0];
-}
-
 /** A note drawn once (NoteSurface.digest, PIE-1543): its header and body rows, each with every press target on them. */
 export interface DrawnNote {
   header: { lines: string[]; targets: Hit[] };
@@ -532,11 +525,8 @@ interface Element {
 /** What ⏎ does on a kept-draft line's control. */
 const UNSENT_VERB: Record<UnsentOp, string> = { diff: "show what your edit changed against the note now", copy: "open its copy", dismiss: "let it go (its copy stays on disk)", add: "add the lines the note doesn't have into an edit", keep: "keep it as a note under this one", show: "show the old edits" };
 /** The copy control of a code block, a quote or a callout (PIE-638). */
-const COPY_GLYPH = "⧉";
 /** The zoom control's glyph (PIE-780): a part fills the tile. */
 const ZOOM_GLYPH = "⤢";
-/** How many of a block's first rows its copy control looks through for a free cell. */
-export const COPY_ROWS = 4;
 /** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
 const verbOf = (e: Element, open: boolean) =>
   e.link?.ext ? extVerb(e.link.ext)
@@ -618,36 +608,6 @@ const printableBlock = (s: string) => printable(s, "", { lines: true });
 /** A link drawn: its text, tagged with its place in `drawn` (what [ ], ⏎ and a click find it by). */
 const tagged = tagInto;
 
-/**
- * The copy control (PIE-638) on a code block, a quote and a callout: a dim ⧉ at the block's top right edge, bright while
- * its block (`now`) holds the `[ ]` position, put into `lines` on its first row with a free cell there (a long first
- * line fills its row; never over a code cell it would hide). A code span is a target with no control: it copies its
- * contents. `at`: where a doc row is in `lines` (null: not shown); `bx`: the body's inset. One placement for every host
- * that draws a note (the reader's scroll window, a digest's whole note: PIE-1543); a click is block.copy, as y is.
- */
-function copyControls(lines: string[], doc: Doc, o: { at: (docRow: number) => number | null; bx: number; w: number; now: number | null }): Hit[] {
-  const hits: Hit[] = [];
-  doc.blocks.forEach((b, n) => {
-    if (b.kind === "span") {
-      for (const cell of b.cells!) {
-        const at = o.at(cell.row);
-        if (at !== null && cell.from + o.bx < o.w) hits.push({ row: at, from: cell.from + o.bx, to: Math.min(o.w, cell.to + o.bx), block: n });
-      }
-      return;
-    }
-    if (b.col + o.bx >= o.w) return;
-    for (let r = b.row; r < b.row + Math.min(b.rows, COPY_ROWS); r++) {
-      const at = o.at(r);
-      if (at === null || at >= lines.length) continue;
-      const put = putCell(lines[at]!, b.col + o.bx, COPY_GLYPH, fg(n === o.now ? C.lcyan : C.dark));
-      if (put === null) continue;
-      lines[at] = put;
-      hits.push({ row: at, from: b.col + o.bx, to: b.col + o.bx + 1, block: n });
-      break;
-    }
-  });
-  return hits;
-}
 
 /**
  * An extension view's picture (PIE-827) as rows `width` wide, laid out as a note's image line is (doc.ts mediaRows: its
