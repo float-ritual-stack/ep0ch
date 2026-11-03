@@ -16,6 +16,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Settling stamps the finding** with `outcome`, `after` and `settled-at`, so one table joins what was said and what happened. Findings settled before this get their outcome, with `after: not kept`.
 - **One table replaces two:** "Each finding" and "What the writer did" become "What Jev said, and what happened"; pie's page upgrades itself on the next finding.
 - **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### tv shows the system: agents, health, the board and Herdr's panes (PIE-1535)
 
 - **`tv ep0ch-agents`:** every Claude session here, working, done or blocked and why; its newest messages as the preview. ctrl-g opens one in a door tile, alt-r restarts it, alt-k stops it.
