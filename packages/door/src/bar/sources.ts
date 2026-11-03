@@ -1,3 +1,4 @@
+import { join, relative, resolve } from "node:path";
 import { overrideWords } from "@ep0ch/outliner/extension-update";
 import { openAddress, outlineBoards, readTarget } from "../desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
@@ -28,6 +29,8 @@ import { formFields, SELECTOR } from "./form";
 import { actionLead, actionPage, typeLine } from "../surface/action-page";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
+import { doorExtState, type ExtFacts } from "../setup/ext-links";
+import type { OwnedLink } from "../setup/links";
 import { openNote, QUERY_SCOPE, registerBarSource } from "./source";
 import { extensionList, extensionParts, PART_KINDS, partKind, scriptBindings, scriptActions, scriptNamed, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
@@ -502,7 +505,7 @@ const SCREENS: BarSource = {
   },
 };
 
-interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make" | "settings"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string; scripts?: { name: string; about: string }[] }
+interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make" | "settings" | "door"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string; scripts?: { name: string; about: string }[] }
 
 /** A description's first sentence: what an extension says it is, at a glance. A sentence ends before a capital (shout's "ends in !!! drawn as a band" is one). */
 const firstSentence = (text: string | undefined) => (text ?? "").replace(/\s+/g, " ").trim().match(/^.*?[.!?](?=\s+["'(\[*_`]*[\p{Lu}\d]|\s*$)/u)?.[0] ?? (text ?? "").trim();
@@ -539,6 +542,25 @@ function extensionFacts(e: ExtensionEntry, then: string): string {
  * installs one, `extensions.install`), and, once a name is typed, removing one (`extensions.uninstall`), keeping its demo
  * notes or not. `&` is the door's: an extension's bar source can't take it.
  */
+/** The door's own folder (packages/door): its ext/ holds the door's userland extensions. */
+const DOOR_DIR = resolve(import.meta.dir, "../..");
+const INSTALL_LINKS = "ep0ch install --apply";
+/** The door's userland extensions (`ext/<name>/` with an ext.json, PIE-1537), as install sees them: setup/facts.ts's doorExtFacts, read when the list is. */
+const doorExts = async (): Promise<ExtFacts[]> => (await import("../setup/facts")).doorExtFacts(DOOR_DIR).exts;
+const tilde = (p: string) => { const h = process.env.HOME; return h && p.startsWith(h + "/") ? `~${p.slice(h.length)}` : p; };
+const LINK_WORDS: Record<OwnedLink["state"], string> = { ours: "linked", missing: "not linked yet", replace: "links another checkout's copy", taken: "something install didn't make is there" };
+/** Its preview, all from the facts: its about, its state, each link (the file in the folder, where it goes, its state). */
+function doorExtMarkdown(e: ExtFacts): string {
+  const st = doorExtState(e);
+  return [
+    `**${e.name}** · a door extension · ${st.words}`, "", e.about ?? "", "",
+    ...(e.problem ? [`> [!warning] ${e.problem}: install links none of it. Once that's fixed, \`${INSTALL_LINKS}\` links it.`, ""] : []),
+    ...(e.links.length ? ["Its links:", ...e.links.map(l => `- \`${relative(e.dir, l.src)}\` → \`${tilde(l.dest)}\` · ${LINK_WORDS[l.state]}${l.state === "taken" && l.was ? ` (${tilde(l.was)})` : ""}`), ""] : []),
+    st.linked ? "Install keeps these links; deleting the folder takes them away at the next install." : `\`${INSTALL_LINKS}\` makes the links it can (never over a file it didn't make).`,
+    "", `\`${tilde(e.dir)}\``,
+  ].join("\n");
+}
+
 /** What an install or remove row runs, for its pick and its copied line alike; the rest open a page or a form. */
 const extRequest = (d: ExtRow): [string, Record<string, unknown>] | null =>
   d.block ? null : d.kind === "install" ? ["extensions.install", { id: d.id }] : d.kind === "remove" ? ["extensions.uninstall", { id: d.id, demo: d.demo! }] : null;
@@ -547,9 +569,13 @@ const EXTENSIONS: BarSource = {
   id: "extensions", title: "extensions", prefix: "&", by: "door",
   about: "the outline's extensions: the Extensions hub, each installed one's page (⏎ opens it: its README, what it adds, its demo notes; its row says when its settings need you: needs setup, failing), each one's settings once a name is typed (⏎ opens its form, drawn from its configSchema), the ones the repo has that aren't installed (⏎ installs one with its demo notes), and, with its name typed, removing one",
   main: { empty: false, typed: true, most: 4 },
-  rows(q, host) {
+  async rows(q) {
     const l = extensionList();
-    if (!l) return [];
+    // The door's own extension folders (PIE-1537): listed whatever the service says, since install links them, not the service.
+    const door = await doorExts().catch(() => [] as ExtFacts[]);
+    const doorRows = door.map((e): BarRow => ({ key: `door:${e.name}`, label: e.name, detail: [doorExtState(e).words, firstSentence(e.about)].filter(Boolean).join(" · "), group: `door extensions (packages/door/ext) · ${door.length}`, chip: "door", oneLine: true, data: { kind: "door", id: e.name, about: e.about } satisfies ExtRow }));
+    const typedNow = !!q.trim();
+    if (!l) { const hits = filtered(doorRows, q, r => [r.label, r.detail ?? ""]); return typedNow ? hits.map(({ group: _g, ...r }) => r) : hits; }
     const rows: BarRow[] = [{ key: "make", label: "make your own", detail: "ep0ch-extend skill · ep0ch docs extensions", group: "make", oneLine: true, data: { kind: "make", id: "" } satisfies ExtRow }];
     // A script an extension ships is part of that extension's row, not one of its own (PIE-1283).
     const installed = l.extensions.filter(e => e.state !== "shadowed" && !e.partOf), all = installed.length + (l.available?.length ?? 0);
@@ -564,6 +590,7 @@ const EXTENSIONS: BarSource = {
     // failing) until something is typed (`settings tidy`), as removing is: the rest are in each one's preview, in words.
     const needing = installed.filter(e => settingsNeedYou(e.settings));
     for (const e of q.trim() ? installed.filter(e => e.settings) : needing) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: settingsChip(e.settings!), ...(q.trim() ? {} : { group: `settings that need you · ${needing.length}` }), oneLine: true, data: { kind: "settings", id: e.id } satisfies ExtRow });
+    rows.push(...doorRows);
     for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: firstSentence(a.description), group: `not installed · ${l.available!.length}`, oneLine: true, data: { kind: "install", id: a.id, about: a.description, scripts: a.scripts } satisfies ExtRow });
     // Removing one is offered once its name is typed, both ways, so the demo notes never go by a stray ⏎.
     if (q.trim()) for (const e of installed) {
@@ -575,9 +602,13 @@ const EXTENSIONS: BarSource = {
     const hits = filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as ExtRow).id]);
     return typed ? hits.map(({ group: _g, ...r }) => r) : hits;
   },
-  preview(row) {
+  async preview(row) {
     const d = row.data as ExtRow;
     if (d.kind === "make") return { markdown: "To make the outline do something new (a button, a rule, a script, an extension), use the **ep0ch-extend** skill.\n\nFrom a shell: `ep0ch --skill ep0ch-extend`, then read that file.\n\nThe reference: `ep0ch docs extensions`. Over MCP: `ep0ch://skills/ep0ch-extend` and `ep0ch://docs/extensions`." };
+    if (d.kind === "door") {
+      const e = (await doorExts().catch(() => [] as ExtFacts[])).find(x => x.name === d.id);
+      return e ? { markdown: doorExtMarkdown(e) } : { lines: [`${d.id} isn't in ${tilde(join(DOOR_DIR, "ext"))} now`] };
+    }
     if (d.kind === "settings") {
       const e = extensionList()?.extensions.find(x => x.id === d.id && x.state !== "shadowed");
       return e?.settings ? { markdown: settingsMarkdown(e, e.settings) } : { lines: [`${d.id} has no settings now`] };
@@ -595,12 +626,22 @@ const EXTENSIONS: BarSource = {
     return { lines: [row.label, "", row.refused ?? ""] };
   },
   command(row) {
+    // A door extension's command is a shell command (in its preview to copy), not an act line.
     const req = extRequest(row.data as ExtRow);
     return req ? shownLine(req[0], req[1]) : null;
   },
   async pick(row, host, how) {
     const d = row.data as ExtRow;
     if (row.refused) throw new ActionRefused(row.refused);
+    if (d.kind === "door") {
+      // Install owns these links (it links every door extension at once), so ⏎ says the state and the command.
+      const e = (await doorExts()).find(x => x.name === d.id);
+      if (!e) throw new ActionRefused(`${d.id} isn't in ${tilde(join(DOOR_DIR, "ext"))} now`);
+      const st = doorExtState(e);
+      const message = st.linked ? `${e.name}: ${st.words}` : `${e.name}: ${st.words} · ${INSTALL_LINKS} links it`;
+      host.ctx.flash(message);
+      return { message };
+    }
     if (d.kind === "make") {
       const message = "Use the ep0ch-extend skill: ep0ch --skill ep0ch-extend; reference: ep0ch docs extensions";
       host.ctx.flash(message);

@@ -32,5 +32,5 @@ ctrl-g = "actions:open"
 
 [actions.open]
 description = "Open it in the door (ep0ch open, as the agent television)"
-command = "ep0ch-tv board-open '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
-mode = "fork"
+command = "ep0ch-tv board-open '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'; exec ep0ch-tv again ep0ch-board"
+mode = "execute"

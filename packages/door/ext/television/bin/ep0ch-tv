@@ -17,6 +17,7 @@
 #   ep0ch-tv outlines                  this machine's outlines and the machines opened before: name, machine, problem, as shown
 #   ep0ch-tv outline-preview <name> <machine> <problem>   an outline's newest notes
 #   ep0ch-tv launch <name> <machine>   the door on that outline (exec)
+#   ep0ch-tv again <channel>           tv on that channel again (exec): how every action comes back to tv (below)
 #
 # The system channels (PIE-1535), from commands that answer in JSON (lib/rows.ts draws each row; a row's key is out of
 # view, and every action reads its row again by that key):
@@ -114,8 +115,21 @@ case "$cmd" in
     [ -n "$name" ] && set -- --ws "$name"
     [ -n "$machine" ] && set -- "$@" --machine "$machine"
     exec bun "$door" "$@" ;;
+  again)
+    # Every action that should come back to tv runs in tv's execute mode and ends `; exec ep0ch-tv again <channel>`
+    # (PIE-1538). tv 0.15.9's fork mode leaves it dead after one action: the next key ends it with "Error: channel
+    # closed" (its event loop's pause and resume race), whatever the action runs, `true` included. Execute hands the
+    # terminal over and never comes back, so the action starts tv again in the same process: what was typed, the row
+    # and the ctrl-s source start fresh. Execute gives the action the terminal as stdout, so as the door's ctrl+t picker
+    # (EP0CH_PICK_OUT, the file the door reads the answer from, pick.ts) tv starts again --inline with its stdout there
+    # (fullscreen tv asks for the cursor on its stdout and crashes when that's a file).
+    ch=${1:-}
+    case "$ch" in ''|*[!0-9A-Za-z_-]*) printf 'ep0ch-tv: again takes a channel name\n' >&2; exit 2 ;; esac
+    if [ -n "${EP0CH_PICK_OUT:-}" ]; then exec tv --inline "$ch" >"$EP0CH_PICK_OUT"
+    elif [ -t 1 ]; then exec tv "$ch"
+    else exec tv --inline "$ch"; fi ;;
   agents|agent-preview|agent-open|agent-restart|agent-stop|health|health-preview|health-fix|board|prs|board-preview|board-open|herdr|pane-preview|pane-focus|pane-attach)
     rows "$cmd" "$@" ;;
   *)
-    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+    sed -n '2,/^set -eu/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac

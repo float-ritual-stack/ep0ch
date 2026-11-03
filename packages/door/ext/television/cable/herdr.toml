@@ -26,8 +26,8 @@ alt-a = "actions:attach"
 
 [actions.focus]
 description = "Focus its tab in herdr (herdr tab focus)"
-command = "ep0ch-tv pane-focus '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
-mode = "fork"
+command = "ep0ch-tv pane-focus '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'; exec ep0ch-tv again herdr"
+mode = "execute"
 
 [actions.attach]
 description = "Attach to its herdr session (herdr session attach)"

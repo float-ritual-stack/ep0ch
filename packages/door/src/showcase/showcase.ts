@@ -52,7 +52,7 @@ import { kindSections } from "./kinds";
 import { AgentsPane } from "../desk/agents-panel";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join as joinPath } from "node:path";
+import { join as joinPath, resolve } from "node:path";
 import { registerTileKind, serviceKind, ServiceTile, tileKind, tileKinds, UnavailableTile, type KindHost, type TileKind } from "../desk/tile-kinds";
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
@@ -973,7 +973,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "extensions", need: "bind an extension the service runs, and draw a rich component's view", part: "the extension binding: extensions.list read at start and on every extensions event; handler lines and @name requests drawn by extensionRegion (a component through primitiveLines), their actions ext.* in EXT_ACTIONS (the line's key, a click on its control, act), tile kinds through serviceKind (^W o T for tarot)", files: "src/extensions.ts, src/components.ts, src/projection.ts, src/desk/tile-kinds.ts",
-    aside: "in an edit, @ at a line's start offers the agents (@tidy) with what each does and when it runs (PIE-592) · the outliner's example extensions (moon, horoscope, fancy-horror, tarot, tidy, and almanac: a scheduled program whose ext.almanac.write-day, by act or at 06:05, writes a dated note under the Almanac page over its own connection, as ext:almanac), copied into the showcase's own config dir when try-it names the checkout; without them the lines are properties and the list on the left says so",
+    aside: "in an edit, @ at a line's start offers the agents (@tidy) with what each does and when it runs (PIE-592) · the outliner's example extensions (moon, horoscope, fancy-horror, tarot, tidy, and almanac: a scheduled program whose ext.almanac.write-day, by act or at 06:05, writes a dated note under the Almanac page over its own connection, as ext:almanac), copied into the showcase's own config dir when try-it names the checkout; without them the lines are properties and the list on the left says so · the door's own extension folders (ext/<name>/ with an ext.json, as television) are listed too, here and on the extensions screen (ctrl+k, &: about, links, linked or why not; ⏎ says the state and ep0ch install --apply); the showcase's are made up, kite and lantern (PIE-1537)",
     stage(n, show) {
       // What the service's list bound, drawn the way a service tile is: each extension, what it answers, its actions' keys.
       const list = serviceKind({
@@ -994,7 +994,7 @@ export const SECTIONS: Section[] = [
               ...(e.schedules ?? []).flatMap(x => [`  ${fg(C.grey)}schedule ${x.entry} ${fg(C.dark)}${x.every ? `every ${x.every}` : `cron ${x.cron}`}${x.once === "host" ? ` · once per host${x.runsIn ? ` · runs in ${x.runsIn}` : ""}` : ""}${RESET}`,
                 `    ${fg(C.dark)}${x.running ? "running · " : ""}${x.last ? `last ${x.last.ok ? x.last.message ?? "ok" : `failed: ${x.last.error ?? ""}`}` : "not run yet"} · next ${x.next.slice(0, 16).replace("T", " ")}${RESET}`]),
             ]).concat(l.tileKinds.map(t => `${fg(C.lcyan)}${t.kind}${RESET} ${fg(C.dark)}tile kind${RESET}`));
-          return { title: "extensions", lines: rows };
+          return { title: "extensions", lines: [...rows, ...(m => m.doorExtFacts(resolve(import.meta.dir, "../..")).exts.map(e => `${fg(C.lcyan)}${e.name}${RESET} ${fg(C.dark)}door extension (PIE-1537) · ${m.doorExtState(e).words}${RESET}`))(await import("../setup/facts"))] };
         },
       }).make({ kind: "showcase.extensions" });
       const r = new ReaderPane();

@@ -124,8 +124,9 @@ if [ "$showcase" = 1 ]; then
   set -- --no-daemon --ws showcase --showcase
   [ -z "$sname" ] || set -- "$@" --screen "$sname"
   [ -z "$starget" ] || set -- "$@" "$starget"
+  # The seed's made-up door extension folders (seed.ts seedDoorExts), listed on the extensions screen as television is.
   cd "$here" && EP0CH_STATE="$base/door" EP0CH_CONTROL="$base/door/door.sock" EP0CH_OUTLINES="$base/outlines" EP0CH_SOCKET= EP0CH_MACHINE= \
-    bun src/main.ts --here "$@"
+    EP0CH_EXT_ROOT="$base/config/door-ext" bun src/main.ts --here "$@"
   exit $?
 fi
 

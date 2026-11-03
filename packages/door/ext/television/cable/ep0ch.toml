@@ -35,10 +35,10 @@ ctrl-d = "actions:detail"
 
 [actions.open]
 description = "Open in the door (ep0ch open, as the agent television)"
-command = "ep0ch-tv open '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_-]+)\\x1b.*$/$1/}'"
-mode = "fork"
+command = "ep0ch-tv open '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_-]+)\\x1b.*$/$1/}'; exec ep0ch-tv again ep0ch"
+mode = "execute"
 
 [actions.detail]
 description = "Show in the Outliner's Tree and its Detail"
-command = "ep0ch-tv detail '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_-]+)\\x1b.*$/$1/}'"
-mode = "fork"
+command = "ep0ch-tv detail '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_-]+)\\x1b.*$/$1/}'; exec ep0ch-tv again ep0ch"
+mode = "execute"

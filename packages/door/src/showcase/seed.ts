@@ -220,6 +220,7 @@ if (request.input.request === "describe the beds") {
   console.log(JSON.stringify({ok: true, value: {}}));
 } else console.log(JSON.stringify({ok: true, value: {reply: ${JSON.stringify(reply)}}}));`);
   }
+  if (opts.ticketsConfig) seedDoorExts(opts.ticketsConfig);
   notes.scriptTarget = await make(notes.root.id, "Planting checklist\n- [ ] Prepare the seed labels");
   notes.scripts = await make(notes.root.id, [
     "Seed report [script::seed-report] [results::keep] [effects::write] [keys::alt+S]",
@@ -1030,4 +1031,24 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
     if (hit) notes.ventRail = (await board.get(hit.id)) ?? hit;
   }
   return { root, notes };
+}
+
+/**
+ * Two made-up door extension folders (`ext/<name>/ext.json`, PIE-1537) for the extensions screen (ctrl+k, &) to list
+ * as it lists television: kite's links not made yet, lantern's waiting on a program that isn't on PATH. The showcase
+ * reads them through EP0CH_EXT_ROOT (set here, in the showcase's own process), the way install reads the door's own ext/.
+ */
+export function seedDoorExts(config: string): string {
+  const root = join(config, "door-ext");
+  const ext = (name: string, manifest: object, files: Record<string, string>) => {
+    mkdirSync(join(root, name, "cable"), { recursive: true });
+    writeFileSync(join(root, name, "ext.json"), JSON.stringify(manifest, null, 2));
+    for (const [f, text] of Object.entries(files)) writeFileSync(join(root, name, "cable", f), text);
+  };
+  ext("kite", { about: "kite channels for the garden: the beds (kite-beds) and what's sown this week (kite-sown)", links: [{ from: "cable", into: [join(config, "kite-home", "cable")] }] },
+    { "kite-beds.toml": "[metadata]\nname = \"kite-beds\"\n", "kite-sown.toml": "[metadata]\nname = \"kite-sown\"\n" });
+  ext("lantern", { about: "lantern channels for the shed: the bikes (lantern-bikes)", requires: ["lantern-showcase-tv"], links: [{ from: "cable", into: ["~/.config/lantern/cable"] }] },
+    { "lantern-bikes.toml": "[metadata]\nname = \"lantern-bikes\"\n" });
+  process.env.EP0CH_EXT_ROOT = root;
+  return root;
 }

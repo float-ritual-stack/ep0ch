@@ -6,6 +6,7 @@ import { Mirror } from "../../src/mirror";
 import { KeyDecoder } from "../../src/term";
 import { declaredKeys, traceActions } from "../../src/surface/actions";
 import { Desk } from "../../src/desk/desk";
+import { XRAY_HOLD_MS } from "../../src/xray-hold";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 import { visible } from "../../src/style";
@@ -145,7 +146,19 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     const actions: string[] = [];
     const off = traceActions(a => actions.push(a.name));
     try {
+      // A press alone shows nothing: a ctrl chord never flashes the controls (Evan, Nov 3); a release or another key first drops them.
       decoder.feed("\x1b[?15u\x1b[57442;5u");
+      expect(d.hintGet().xray).toBe(false);
+      decoder.feed("\x1b[57442;1:3u");
+      await Bun.sleep(XRAY_HOLD_MS + 100);
+      expect(d.hintGet().xray).toBe(false);
+      decoder.feed("\x1b[57442;5u");
+      h.press({ kind: "char", ch: "]", ctrl: true });
+      await Bun.sleep(XRAY_HOLD_MS + 100);
+      expect(d.hintGet().xray).toBe(false);
+      // Held: they show once ctrl has been down XRAY_HOLD_MS.
+      decoder.feed("\x1b[57442;5u");
+      await Bun.sleep(XRAY_HOLD_MS + 100);
       expect(d.hintGet().xray).toBe(true);
       const card = d.hintGet().cards.find(c => c.tile === "reader")!;
       expect(card.lines.join(" ")).toContain("fold");

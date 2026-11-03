@@ -83,6 +83,7 @@ import { BAR_ACTIONS, type BarOn } from "./bar/actions";
 import { onBarSources, type BarHost } from "./bar/source";
 import type { Msg } from "./board";
 import { HeldAsks } from "./held-asks";
+import { XrayHold } from "./xray-hold";
 import { DoorReporter, onStatusChange, statusHolders, waitingCounts, waitingOnYou } from "./desk/program-status";
 
 const STATUS_BUTTON_ACTIONS = actionSet<{ surface: NoteSurface; host: SurfaceHost; standing: boolean }>()("note", { "button.press": NOTE_ACTIONS.def("button.press")!, "button.slot": NOTE_ACTIONS.def("button.slot")! });
@@ -685,7 +686,7 @@ export class App implements Ctx {
       const { program } = this.keyLayers();
       const sink = !program || program.over ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
       return sink ? (bytes: string) => {
-        if (this.escSpent(bytes)) return;
+        this.xrayHold.drop(); if (this.escSpent(bytes)) return; // a chord typed into a program drops a waiting ctrl hold too
         this.drawer.desks().map(d => d.liftedDesk).find(Boolean)?.dropLiftElsewhere();
         sink(bytes);
       } : null;
@@ -1429,16 +1430,15 @@ export class App implements Ctx {
 
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private xrayLeader = false;
+  private xrayHold = new XrayHold(on => void this.dispatch.press("xray", on === undefined ? {} : { on }));
   /** `w`: which layer takes it, the door's own over everything first: the person's whereabouts' answer (keyLayers, PIE-1438). */
   private route(k: Key, w: KeyLayers): void {
     if (k.kind === "alt" && k.ch === "?") { void this.dispatch.press("text.reveal"); return; }
     if (k.kind === "mouse" && isHover(k)) void this.dispatch.press("text.hover", { x: k.x, y: k.y, alt: !!((k.mods ?? 0) & 8) });
     else if (k.kind === "mouse") { this.overflow.clear(); this.hover.mouse(k); }
     else this.overflow.keys();
-    if (k.kind === "modifier") {
-      if (w.over !== "bar" && this.dispatch.has("xray")) void this.dispatch.press("xray", k.event === "tap" ? {} : { on: k.event === "press" });
-      return;
-    }
+    if (k.kind === "modifier") { if (w.over !== "bar" && this.dispatch.has("xray")) this.xrayHold.modifier(k.event); return; }
+    this.xrayHold.drop();
     const leader = this.xrayLeader;
     if (k.kind !== "mouse") this.xrayLeader = w.over !== "bar" && k.kind === "char" && !!k.ctrl && k.ch === "]";
     if (w.over !== "bar" && leader && k.kind === "char" && !k.ctrl && k.ch === "?" && this.dispatch.has("xray")) { void this.dispatch.press("xray"); return; }

@@ -29,15 +29,15 @@ alt-k = "actions:stop"
 
 [actions.open]
 description = "Open it in a door terminal tile (claude attach, as the agent television)"
-command = "ep0ch-tv agent-open '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
-mode = "fork"
+command = "ep0ch-tv agent-open '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'; exec ep0ch-tv again ep0ch-agents"
+mode = "execute"
 
 [actions.restart]
 description = "Restart it at a safe moment (ep0ch agent restart)"
-command = "ep0ch-tv agent-restart '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
-mode = "fork"
+command = "ep0ch-tv agent-restart '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'; exec ep0ch-tv again ep0ch-agents"
+mode = "execute"
 
 [actions.stop]
 description = "Stop it (claude stop; its conversation is kept)"
-command = "ep0ch-tv agent-stop '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
-mode = "fork"
+command = "ep0ch-tv agent-stop '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'; exec ep0ch-tv again ep0ch-agents"
+mode = "execute"
