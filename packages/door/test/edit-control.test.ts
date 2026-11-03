@@ -81,6 +81,18 @@ describe("the edit control's keys are one table the keymap rebinds (PIE-1542)", 
     } finally { rebind({}); }
   });
 
+  test("a cmd (super) rebind of draft.undo undoes in a draft and in a line field", async () => {
+    rebind({ "draft.undo": ["super+z"] });
+    try {
+      for (const h of [sessionHost("note edit"), lineHost()]) {
+        for (const k of typeKeys("chard")) await h.press(k);
+        await h.press({ kind: "super", ch: "z" });
+        await Bun.sleep(0);
+        expect({ host: h.name, text: h.text() }).toEqual({ host: h.name, text: "" });
+      }
+    } finally { rebind({}); }
+  });
+
   test("a rebind of draft.undo works in every host: a note's edit, a comment, the composer, the inspector and a line field (the power bar's)", async () => {
     rebind({ "draft.undo": ["alt+e"] });
     try {
@@ -121,6 +133,31 @@ describe("an inspector field takes a paste as the edit control does (PIE-1542)",
   });
 });
 
+describe("typing while a save lands is held, never shown and then dropped (PIE-1542 review)", () => {
+  test("an inspector field: keys pressed while its save is in flight change nothing; what's saved is what was shown", async () => {
+    const ins = new Inspector(), saved: string[] = [];
+    let land!: () => void;
+    await ins.edit("title", "", [], false, "test:held", v => { saved.push(v); return new Promise<void>(r => { land = r; }); });
+    for (const k of typeKeys("beans")) ins.key(k);
+    const r = ins.key(ctrl("s"));
+    expect(r).toEqual({ op: "save" });
+    const saving = ins.input("save");
+    await Bun.sleep(0);
+    ins.key({ kind: "char", ch: "!" });
+    expect(ins.field!.session.draft.text).toBe("beans");
+    land(); await saving;
+    expect(saved).toEqual(["beans"]);
+  });
+  test("a draft session holds keys while its submit is in flight", async () => {
+    let land!: () => void;
+    const s = DraftSession.open({ place: "test:held-session", back: "", label: "held", what: "held", verb: "save", leaveWrites: false, submit: () => new Promise(r => { land = () => r({ ok: true }); }) }, { text: "beans" }, {});
+    const done = s.submit();
+    s.key({ kind: "char", ch: "!" }, { completer: null, run: () => {} });
+    expect(s.draft.text).toBe("beans");
+    land(); await done;
+  });
+});
+
 describe("a word is one rule, by grapheme (PIE-1542)", () => {
   test("a combining accent and an astral character stay inside their word", () => {
     const line = "the café \u{1D400}bc garden";
@@ -151,5 +188,22 @@ describe("the capture contract, in every host that types (PIE-1542)", () => {
       await Bun.sleep(0);
       expect({ host: h.name, text: h.text() }).toEqual({ host: h.name, text: "plant beans" });
     }
+  });
+});
+
+describe("a table edited as cells keeps the keys inside its cells (PIE-1542 review)", () => {
+  test("shift+↑ and shift+↓ move between cells, as ↑ ↓ do, never selecting across the separator", async () => {
+    const { elementEdit } = await import("../src/surface/element-editor");
+    const d = new Draft("test", 0, "Beds\n| crop | bed |\n| --- | --- |\n| beans | one |\n| kale | two |");
+    const e = elementEdit(d);
+    e.on = true;
+    d.place(3, 3);
+    const ran: [string, unknown][] = [];
+    for (const kind of ["up", "down"] as const) {
+      const took = e.key({ kind, shift: true }, (action, args) => { ran.push([action, args]); });
+      expect(took).toBe(true);
+    }
+    expect(ran).toEqual([["rich.move", { direction: "up" }], ["rich.move", { direction: "down" }]]);
+    expect(d.selection()).toBeNull();
   });
 });

@@ -520,7 +520,8 @@ export class Draft {
     const bound = modeBinding(DRAFT_KEYS, k);
     // cmd+c copies the selection; it never types, and never ends a put-aside's second esc.
     if (bound?.action === "draft.copy") return "copy";
-    if (k.kind === "super") return "keep";
+    // A cmd (super) key nothing binds never types; one the table binds (a rebind to cmd+z) runs below.
+    if (k.kind === "super" && !bound) return "keep";
     const was = this.discard.take(true), armed = this.undoArmed > 0 && Date.now() - this.undoArmed >= UNDO_ASK_PAUSE_MS;
     this.discard.clear(); this.undoArmed = 0;
     if (chord && this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a") return "attach";
