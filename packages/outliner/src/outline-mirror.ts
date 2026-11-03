@@ -214,8 +214,9 @@ export class OutlineMirror<B> {
     if (this.closed) return { error: "isn't served: this process is stopping" };
     if (!this.exists()) return { error: "hasn't arrived yet (its backup hasn't been followed here)" };
     // A copy that couldn't be snapshotted is tried again on the same clock as a newer one (PIE-1546): a failure retried
-    // on every read rebuilt every copy of an away machine on every link read.
-    if ((!this.current && !this.problem) || this.now() - this.checkedAt >= CHECK_EVERY_MS) {
+    // on every read rebuilt every copy of an away machine on every link read. A read that comes while one is being
+    // taken waits for it.
+    if (this.refreshing || (!this.current && !this.problem) || this.now() - this.checkedAt >= CHECK_EVERY_MS) {
       this.refreshing ??= this.refresh().finally(() => { this.refreshing = null; });
       await this.refreshing;
     }

@@ -63,3 +63,26 @@ test("an away machine's copies are snapshotted one at a time, and each says its 
     expect(Date.parse(read.asOf)).toBeGreaterThan(Date.now() - 60_000);
   }
 });
+
+test("a read that comes while a failed copy is snapshotted again waits for that snapshot (PIE-1546)", async () => {
+  const folder = copies("orchard");
+  let clock = 1_000_000, attaches = 0;
+  const gate = Promise.withResolvers<void>();
+  const mirror = new OutlineMirror("orchard", "laptop", folder, {
+    schema: () => SCHEMA_VERSION, now: () => clock, log: () => {},
+    attach: async () => {
+      if (++attaches === 1) throw new Error("the copy's host didn't answer");
+      await gate.promise;
+      return { board: "orchard", close() {} };
+    },
+  });
+  cleanups.push(() => mirror.close());
+  expect(await mirror.read()).toMatchObject({ error: "can't be read: the copy's host didn't answer" });
+  clock += 15_000;
+  const retrying = mirror.read();
+  await Bun.sleep(20);
+  const during = mirror.read();
+  gate.resolve();
+  expect(await retrying).toMatchObject({ board: "orchard" });
+  expect(await during).toMatchObject({ board: "orchard" });
+});
