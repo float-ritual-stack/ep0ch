@@ -74,7 +74,13 @@ async function setup() {
     const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { exitCode, stdout, stderr, json: exitCode === 0 ? JSON.parse(stdout) as Record<string, unknown> : undefined };
   };
-  return { store, agent };
+  /** The plain CLI (`outliner update|create|comment|move|delete …`), as an agent or the person runs it. */
+  const cli = async (args: string[]) => {
+    const child = Bun.spawn(["bun", "src/cli.ts", ...args], { cwd: join(import.meta.dir, ".."), env: cliEnv, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { exitCode, stdout, stderr, json: exitCode === 0 ? JSON.parse(stdout) as Record<string, unknown> : undefined };
+  };
+  return { store, agent, cli };
 }
 
 describe("the Claude mod's path (outliner agent <op>)", () => {
@@ -141,5 +147,94 @@ describe("the Claude mod's path (outliner agent <op>)", () => {
     const r = await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "beans", replacement: "beans, kale" }] });
     expect(r.exitCode).toBe(0);
     expect(store.require(note.id).text).toBe("Seed list\n\nTomatoes, beans, kale.");
+  });
+});
+
+describe("the plain CLI's writes, attributed to an agent (outliner update|create|comment|move|delete --author agent)", () => {
+  const as = ["--author", "agent", "--actor", "verifier/claude-code@shed"];
+  const seed = (store: OutlinerStore) => {
+    const note = store.create("Seed list\n\nTomatoes, beans.");
+    const shed = store.create("Shed");
+    const child = store.create("Sow in trays", note.id);
+    return { note, shed, child };
+  };
+  const writes = (n: ReturnType<typeof seed>): Array<[string, string[]]> => [
+    ["update", ["update", "--id", n.note.id, "--text", "Seed list\n\nKale.", "--expected", String(n.note.revision)]],
+    ["create", ["create", "--parent", n.note.id, "--text", "Water at dusk"]],
+    ["move", ["move", "--id", n.child.id, "--parent", n.shed.id, "--expected", String(n.child.revision)]],
+    ["delete", ["delete", "--id", n.child.id, "--expected", String(n.child.revision)]],
+  ];
+  const unchanged = (store: OutlinerStore, n: ReturnType<typeof seed>) => {
+    expect(store.require(n.note.id).text).toBe("Seed list\n\nTomatoes, beans.");
+    expect(store.require(n.note.id).revision).toBe(n.note.revision);
+    expect(store.require(n.child.id).parentId).toBe(n.note.id);
+    expect(store.require(n.child.id).deletedAt).toBeFalsy();
+    // The proposals are comments on the notes; no block was made, moved or trashed.
+    expect(store.children(n.note.id).map(b => b.text)).toContain("Sow in trays");
+    expect(store.children(n.note.id).map(b => b.text)).not.toContain("Water at dusk");
+  };
+
+  test("at propose, update, create, move and delete each become a proposal; a comment lands, as it does over MCP", async () => {
+    const { store, cli } = await setup();
+    const n = seed(store);
+    store.configureMcpAccess("propose");
+    for (const [name, args] of writes(n)) {
+      const r = await cli([...args, ...as]);
+      expect({ name, exitCode: r.exitCode, stderr: r.stderr }).toMatchObject({ name, exitCode: 0 });
+      expect({ name, ...r.json }).toMatchObject({ name, outcome: "proposed" });
+    }
+    unchanged(store, n);
+    const c = await cli(["comment", "--id", n.note.id, "--whole", "--text", "Peas too?", "--request-id", "c-1", "--expected", String(n.note.revision), ...as]);
+    expect(c.exitCode).toBe(0);
+  });
+
+  test("at read, each is refused in the gate's words, a comment too", async () => {
+    const { store, cli } = await setup();
+    const n = seed(store);
+    store.configureMcpAccess("read");
+    const words = noWritesWords("read", { outline: "garden", machine: "shed" });
+    const all = [...writes(n), ["comment", ["comment", "--id", n.note.id, "--whole", "--text", "Peas too?", "--request-id", "c-1", "--expected", String(n.note.revision)]] as [string, string[]]];
+    for (const [name, args] of all) {
+      const r = await cli([...args, ...as]);
+      expect({ name, exitCode: r.exitCode }).toEqual({ name, exitCode: 1 });
+      expect(r.stderr).toContain(words);
+    }
+    unchanged(store, n);
+  });
+
+  test("a new top-level note can't be proposed, in the gate's words", async () => {
+    const { store, cli } = await setup();
+    store.configureMcpAccess("propose");
+    const r = await cli(["create", "--text", "Loose seeds", ...as]);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("A new top-level note can't be proposed");
+  });
+
+  test("the person's own console (--author user) stays ungated, as nvim would", async () => {
+    const { store, cli } = await setup();
+    const n = seed(store);
+    store.configureMcpAccess("read");
+    const r = await cli(["update", "--id", n.note.id, "--text", "Seed list\n\nKale.", "--expected", String(n.note.revision), "--author", "user"]);
+    expect(r.exitCode).toBe(0);
+    expect(store.require(n.note.id).text).toBe("Seed list\n\nKale.");
+  });
+
+  test("at full an agent's CLI writes apply, loki's work stage and work set too", async () => {
+    const { store, cli } = await setup();
+    const n = seed(store);
+    store.configureMcpAccess("full");
+    const r = await cli([...writes(n)[0]![1], ...as]);
+    expect(r.exitCode).toBe(0);
+    expect(store.require(n.note.id).text).toBe("Seed list\n\nKale.");
+    store.configureWorkIdPrefix("PIE");
+    store.create("Work [type::work-queue] [project::garden]");
+    const loki = ["--author", "agent", "--actor", "loki"];
+    const made = await cli(["work", "create", "--title", "Turn the heap", "--project", "garden", "--arc", "beds", "--track", "beds", "--priority", "low", ...loki]);
+    expect(made.exitCode).toBe(0);
+    const { workId, blockId } = made.json as { workId: string; blockId: string };
+    expect((await cli(["work", "stage", workId, "doing", ...loki])).exitCode).toBe(0);
+    expect((await cli(["work", "set", workId, "arc", "paths", ...loki])).exitCode).toBe(0);
+    const props = store.require(blockId).properties;
+    expect(props).toEqual(expect.arrayContaining([expect.objectContaining({ key: "work-stage", value: "doing" }), expect.objectContaining({ key: "arc", value: "paths" })]));
   });
 });

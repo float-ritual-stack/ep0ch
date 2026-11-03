@@ -806,10 +806,8 @@ async function gatedAgentOperation(operation: AgentOperationName, input: Record<
   const writes = operation === "view-order" ? Array.isArray(input.ids) && input.ids.length > 0
     : operation === "touch-file" ? true : operation === "figure-fit" ? input.comment === true : !!definition?.writes;
   if (!writes || !actor) return run(client, operation, input, actor);
-  const [{ effectiveLevel, gate }, { agentWrite }, { canonicalLocalMachineName }] = await Promise.all([import("./write-gate"), import("./agent-write"), import("./machine-name")]);
-  const status = await client.request<McpAccessStatus>({ action: "mcp.access.status" });
-  const { level } = effectiveLevel(status, { local: true });
-  const where = paths.outline ? { where: { outline: paths.outline, machine: paths.machine ?? canonicalLocalMachineName() } } : {};
+  const [{ gate }, { agentWrite }] = await Promise.all([import("./write-gate"), import("./agent-write")]);
+  const { level, where } = await localAgentLevel();
   if (!definition) {
     const decided = gate({ tool: operation.replace(/-/g, "_"), level, ...where });
     if (decided.becomes === "refused") throw new Error(decided.why);
@@ -825,6 +823,38 @@ async function gatedAgentOperation(operation: AgentOperationName, input: Record<
   const { mark, ...rest } = given;
   const args = operation === "edit-comment" ? { ...rest, edit: mark } : operation === "view-order" ? { ...given, ref: given.ref ?? given.view } : given;
   return agentWrite(client, { definition, args, command: { operation, input } }, actor, level, where);
+}
+
+/** The level a session on this machine writes at in this outline, and the outline's address for the gate's words. */
+async function localAgentLevel() {
+  const [{ effectiveLevel }, { canonicalLocalMachineName }] = await Promise.all([import("./write-gate"), import("./machine-name")]);
+  const status = await client.request<McpAccessStatus>({ action: "mcp.access.status" });
+  const { level } = effectiveLevel(status, { local: true });
+  const where = paths.outline ? { where: { outline: paths.outline, machine: paths.machine ?? canonicalLocalMachineName() } } : {};
+  return { level, where };
+}
+
+/**
+ * A plain CLI write (`update`, `create`, `new`, `comment`, `move`, `delete`, `restore`) the CLI attributes to an agent
+ * asks the write gate as the agent tool it equals (PIE-1544): refused, it prints the gate's words and exits 1; proposed,
+ * it answers the proposal the tool makes; applied, it returns null and the command runs as written. The person's own
+ * writes (`--author user`) never come here.
+ */
+async function gateCliWrite(author: string, values: { actor?: string; session?: string }, tool: string, args: Record<string, unknown>, command: { operation: AgentOperationName; input: Record<string, unknown> }): Promise<unknown | null> {
+  if (author !== "agent") return null;
+  const [{ gate }, { agentWrite }, { AGENT_TOOL_DEFINITIONS }] = await Promise.all([import("./write-gate"), import("./agent-write"), import("@ep0ch/outline-core/agent-tool-definitions")]);
+  await client.requireCompatibleService();
+  const { level, where } = await localAgentLevel();
+  const decided = gate({ tool, level, top: tool === "outline_create" && args.parent === "root", ...where });
+  if (decided.becomes === "refused") {
+    console.error(`error: ${decided.why}`);
+    process.exit(1);
+  }
+  if (decided.becomes === "applied") return null;
+  const definition = AGENT_TOOL_DEFINITIONS.find(d => d.name === tool)!;
+  const actor = { actorId: values.actor!, ...(values.session ? { sessionId: values.session } : {}) };
+  const defined = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+  return agentWrite(client, { definition, args: defined(args), command: { operation: command.operation, input: defined(command.input) } }, actor, level, where);
 }
 
 /**
@@ -1022,6 +1052,7 @@ switch (command) {
     // An agent's comment says which agent (--author agent --actor <id>); the person's stays the default.
     const author = writerAuthor(values.author, values.actor);
     if (author === "system") throw new Error("--author must be user or agent for a comment");
+    await gateCliWrite(author, values, "outline_comment", { ref: values.id }, { operation: "comment", input: { ref: values.id, body } });
     directResult = await createBlockComment(client, {
       requestId: values["request-id"], author,
       ...(author === "agent" ? {provenance: {actorId: values.actor!, ...(values.session ? {sessionId: values.session} : {})}} : {}),
@@ -1075,6 +1106,9 @@ switch (command) {
     });
     if (!values.text) throw new Error("create requires --text");
     const author = writerAuthor(values.author, values.actor);
+    const created = { parent: values.parent ?? "root", text: values.text };
+    const proposed = await gateCliWrite(author, values, "outline_create", created, { operation: "create", input: created });
+    if (proposed) { directResult = proposed; break; }
     request = {
       action: "create",
       text: values.text,
@@ -1097,6 +1131,8 @@ switch (command) {
       strict: true,
     });
     const author = writerAuthor(values.author, values.actor);
+    // A new note lands at the top level (or beside --near), which no proposal can carry.
+    await gateCliWrite(author, values, "outline_create", { parent: "root", text: values.text ?? "" }, { operation: "create", input: {} });
     await client.requireCompatibleService();
     request = {
       action: "notes.create",
@@ -1126,6 +1162,9 @@ switch (command) {
       strict: true,
     });
     if (!values.id || values.text === undefined) throw new Error("update requires --id and --text");
+    const edit = { ref: values.id, text: values.text, expectedRevision: parseRevision(values.expected) };
+    const proposed = await gateCliWrite(writerAuthor(values.author, values.actor), values, "outline_edit", edit, { operation: "edit", input: edit });
+    if (proposed) { directResult = proposed; break; }
     request = {
       action: "update",
       blockId: values.id,
@@ -1153,6 +1192,10 @@ switch (command) {
       strict: true,
     });
     if (!values.id) throw new Error("move requires --id and --expected (the revision you read)");
+    const moved = { ref: values.id, parent: values.parent, before: values.before, after: values.after,
+      position: values.position ? Number(values.position) : undefined, revision: parseRevision(values.expected) };
+    const proposed = await gateCliWrite(writerAuthor(values.author, values.actor), values, "outline_move", moved, { operation: "move", input: moved });
+    if (proposed) { directResult = proposed; break; }
     request = {
       action: "move",
       blockId: values.id,
@@ -1206,6 +1249,10 @@ switch (command) {
     if (!values.id) throw new Error(`${command} requires --id`);
     if (values.expected !== undefined && command !== "delete") throw new Error("--expected is for delete: trash only the block at that revision");
     if (values["if-empty"] && command !== "delete") throw new Error("--if-empty is for delete: trash only a block with no text and no children");
+    const trashed = { ref: values.id, ...(values.expected !== undefined ? { revision: parseRevision(values.expected) } : {}) };
+    const proposed = await gateCliWrite(writerAuthor(values.author, values.actor), values, command === "delete" ? "outline_trash" : "outline_restore", trashed,
+      { operation: command === "delete" ? "trash" : "restore", input: trashed });
+    if (proposed) { directResult = proposed; break; }
     request = command === "delete"
       ? { action: "delete", blockId: values.id, ...(values.expected !== undefined ? { expectedRevision: parseRevision(values.expected) } : {}), ...(values["if-empty"] ? { ifEmpty: true } : {}), mutation: writerMutation(values) }
       : { action: "trash.restore", blockId: values.id, mutation: writerMutation(values) };

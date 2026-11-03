@@ -96,7 +96,8 @@ source evidence or distinguish authored glyphs from controls.
   writes at (`effectiveLevel`: the setting, the maker's `full`, a local session's `full` on an outline whose owner set
   none, its cap) and, for a tool at that level, applied, proposed as a patch, proposed as a comment, or refused in the
   words every surface says. The MCP gateway and stdio server, the netmail drain, the CLI's agent operations (the
-  Claude mod's path), a script's tools, `place()`, `scripts.run` and the extension grants ask it; the one level order
+  Claude mod's path) and its plain writes attributed to an agent (`update`, `create`, `new`, `comment`, `move`,
+  `delete`, `restore` with `--author agent`; `--author user`, the person's console, stays ungated), a script's tools, `place()`, `scripts.run` and the extension grants ask it; the one level order
   is outline-core's `MCP_ACCESS_LEVELS` (`lowerLevel`, `atLeast`). `src/agent-write.ts` carries out a gated write
   for the CLI and scripts; `src/mcp-write.ts`'s `applyWrite` makes the proposals.
 - `src/block-grep.ts` scans live note text for matching source lines; `goto-search.ts` adds context lines and exact-phrase priority to ranked search. Their shared wire shapes and line context live in `outline-core/text-search.ts`. Clients use `blocks.grep` or `tree.search`, never fetch the whole outline to search it.
