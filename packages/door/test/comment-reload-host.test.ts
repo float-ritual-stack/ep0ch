@@ -26,7 +26,7 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
   afterAll(async () => { board?.close(); other?.close(); await scratch.dispose(); });
 
   /** A note with one posted comment, in its edit with a word typed; the comment then changed elsewhere and ctrl+s refused. */
-  async function refused(title: string) {
+  async function refused(title: string, rows = 8) {
     const id = (await board.request("create", { parentId: null, text: `${title}\nThe plot by the shed.`, author: "user" })).id as string;
     const m = (await board.get(id))!;
     const posted = await board.comment(`req-${id}`, id, m.revision!, "How deep is the bed?", null);
@@ -42,8 +42,9 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     const now = (await other.comments(id))[0]!;
     await other.updateComment(posted.id, now.revision!, "How deep should the bed be?");
     // Drawn as it's typed, in a small tile: what ctrl+s says comes after this, and must not push the text out of view.
-    s.render(28, 8, h);
+    s.render(28, rows, h);
     s.key(ctrl("s"), h);
+    s.render(28, rows, h);                  // the frame the key paints, before the answer
     await until(() => d.status.conflict !== null, "the stale refusal");
     return { s, h, d };
   }
@@ -118,16 +119,68 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     expect(d.text).toBe("How deep should the bed be?");
   }, 30_000);
 
+  test("at the zoomed size, what ctrl+s says never pushes the typed row out of view", async () => {
+    for (const rows of [7, 8, 9, 10]) {
+      const { s, h } = await refused(`Zoomed save ${rows}`, rows);
+      const lines = s.render(28, rows, h).lines.map(visible);
+      expect({ rows, saved: lines.join("\n").includes("! not saved") || lines.join("\n").includes("not saved:") }).toEqual({ rows, saved: true });
+      expect({ rows, typed: lines.join("").replace(/[\s│]+/g, "").includes("now") }).toEqual({ rows, typed: true });
+    }
+  }, 30_000);
+
+  test("keys and a paste during a held reload land, in order, on the words it loaded", async () => {
+    const { s, h, d } = await refused("Held reload");
+    process.kill(scratch.pid!, "SIGSTOP");
+    try {
+      s.key(ctrl("r"), h);
+      await until(() => d.status.phase === "reloading", "the reload's read");
+      for (const c of "ab") s.key(char(c), h);
+      s.key({ kind: "paste", text: "pasted" }, h);
+      s.key(char("c"), h);
+      expect(d.text).toBe("How deep is the bed? now");
+    } finally { process.kill(scratch.pid!, "SIGCONT"); }
+    await until(() => d.status.phase === null && d.text.includes("should"), "the loaded words", 10_000);
+    expect(d.text).toBe("How deep should the bed be?abpastedc");
+  }, 30_000);
+
+  test("a note's edit holds keys through its reload the same way", async () => {
+    const id = (await board.request("create", { parentId: null, text: "Seed list\nbeans", author: "user" })).id as string;
+    const m = (await board.get(id))!;
+    const s = new NoteSurface(), h = host();
+    s.show(m, h);
+    s.startDraft(m, h);
+    const d = s.draft!;
+    s.key(char("!"), h);
+    await other.update(id, "Seed list\npeas", m.revision!, USER);
+    d.status.changedElsewhere = true;
+    process.kill(scratch.pid!, "SIGSTOP");
+    try {
+      s.key(ctrl("r"), h);
+      await until(() => d.status.phase === "reloading", "the reload's read");
+      s.key(char("x"), h);
+      s.key({ kind: "paste", text: "yz" }, h);
+    } finally { process.kill(scratch.pid!, "SIGCONT"); }
+    await until(() => d.status.phase === null && d.text.includes("peas"), "the current text", 10_000);
+    expect(d.text).toBe("Seed list\npeasxyz");
+  }, 30_000);
+
   // Last: it stops the host.
   test("with the host stopped ctrl+r says it couldn't read, keeps the text and the conflict", async () => {
     const { s, h, d } = await refused("Stopped host");
     const typed = d.text, conflict = d.status.conflict;
-    await scratch.stop();
-    await s.act("comment.reload", {}, h, USER);
+    // The host hangs mid-read, the person keeps typing, then it dies: what they typed lands on the kept text.
+    process.kill(scratch.pid!, "SIGSTOP");
+    const reload = s.act("comment.reload", {}, h, USER);
+    await until(() => d.status.phase === "reloading", "the reload's read");
+    s.key(char("!"), h);
+    s.key({ kind: "paste", text: "kept" }, h);
+    expect(d.text).toBe(typed);
+    await scratch.stop(1);
+    await reload;
     await until(() => !s.session?.busy, "the reload's answer", 15_000);
     expect(d.note).toContain("couldn't read");
     expect(d.note).not.toContain("loaded");
-    expect(d.text).toBe(typed);
+    expect(d.text).toBe(`${typed}!kept`);
     expect(d.status.conflict).toBe(conflict);
     // In the zoomed 30×12 reader too: why it wasn't saved, what to press, and that the read failed, over the typed row.
     const shown = s.render(28, 7, h).lines.map(visible).join("").replace(/[\s│]+/g, "");

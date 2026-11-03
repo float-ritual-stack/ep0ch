@@ -205,7 +205,12 @@ export class DraftSession {
    */
   /** A submit is on its way to its target: keys wait for it (`key`). */
   private submitting = false;
+  /** Keys and pastes that came during a reload, in order, and the text it started from. */
+  private heldKeys: { k: Key; host: Parameters<DraftSession["key"]>[1] }[] = [];
+  private heldOn = "";
   key(k: Key, host: { run(cmd: DraftCommand): void; completer?: Completer | null }): void {
+    // What a person writes always lands: during a reload their keys and pastes wait, then go in on what it left (`replayHeld`).
+    if (this.status.phase === "reloading") { this.heldKeys.push({ k, host }); return; }
     // While a submit is in flight the keys are held (PIE-1542 review): typing then would show and be lost with the field.
     if (!this.open || this.draft.busy || this.submitting) return;
     // The default attachment (PIE-626): a session's draft completes from its own connection, whoever hosts it; a host
@@ -336,15 +341,35 @@ export class DraftSession {
   }
 
   /** ctrl+r: after a stale refusal, start over from what the service has now (the target's way). */
-  async reload(): Promise<void> {
+  async reload(replay = true): Promise<void> {
     if (!this.open) return;
     if (!this.target.reload) { this.status.say("nothing to reload"); return; }
     if (this.draft.busy) return;
+    this.heldOn = this.draft.text;
+    try { await this.reloading(); } finally { if (replay) this.replayHeld(); }
+  }
+
+  /**
+   * What was typed or pasted during the reload goes in now, in order, on what the draft holds: after the words it loaded
+   * (the cursor at their end), or where it was on the kept text. A host with more to do after the reload calls this itself.
+   */
+  replayHeld() {
+    const held = this.heldKeys, d = this.draft, said = d.note;
+    this.heldKeys = [];
+    if (!held.length) return;
+    if (d.text !== this.heldOn) d.place(d.lines.length - 1, d.lines.at(-1)!.length);
+    for (const { k, host } of held) this.key(k, host);
+    // Typing clears the line; what the reload said is still news (unless a replayed key said something of its own).
+    if (!d.note) this.status.say(said);
+    this.env.redraw?.();
+  }
+
+  private async reloading(): Promise<void> {
     let r: Awaited<ReturnType<NonNullable<DraftTarget["reload"]>>>;
-    // Keys and draft writes wait for it: what they'd add now the reload's rebase would drop (PIE-1560).
+    // Keys wait for it and an agent's writes are refused: what they'd add now the reload's rebase would drop (PIE-1560).
     this.status.phase = "reloading";
     // A read that fails isn't a reload: the conflict stands and the draft says why (PIE-1560).
-    try { r = await this.target.reload(this, { phase: p => { this.status.phase = p; this.env.redraw?.(); } }); }
+    try { r = await this.target.reload!(this, { phase: p => { this.status.phase = p; this.env.redraw?.(); } }); }
     catch (e) { this.status.say(`couldn't read it now · your text is kept · ctrl+r tries again (${e instanceof Error ? e.message : String(e)})`); return; }
     finally { this.status.phase = null; }
     if (typeof r === "string") this.status.say(r);

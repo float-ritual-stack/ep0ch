@@ -2369,7 +2369,7 @@ export class NoteSurface {
     // choice (PIE-472) under its step.
     // The comment being written inline (PIE-770) is a box of rows under its passage, after an expanded thread's.
     const inlineRect = attachedRect("inline", bw, h - top, { min: { cols: 24, rows: 8 } });
-    const inlineBox = writing?.cs.place === "inline" ? composerBox(writing.d, writing.f, Math.min(inlineRect.cols, 96), Math.max(5, Math.min(inlineRect.rows, h - top + 2))) : null; if (inlineBox && inlineBox.lines.length !== this.composerDrawn) { this.composerDrawn = inlineBox.lines.length; if (this.composerAsked === this.scroll) this.revealComposer = true; this.composerAsked = null; /* what a key asked for grew its box, the note where it was then: the text stays in view; a resize or a wheel never moves the note (PIE-1560) */ }
+    const inlineBox = writing?.cs.place === "inline" ? composerBox(writing.d, writing.f, Math.min(inlineRect.cols, 96), Math.max(5, Math.min(inlineRect.rows, h - top + 2))) : null; if (inlineBox && inlineBox.lines.length * 100 + (inlineBox.frame?.row ?? 0) !== this.composerDrawn) { this.composerDrawn = inlineBox.lines.length * 100 + (inlineBox.frame?.row ?? 0); if (this.composerAsked === this.scroll) this.revealComposer = true; this.composerAsked = null; /* what a key asked for reshaped its box (its height, or its status over the text), the note where it was then: the text stays in view; a resize or a wheel never moves the note (PIE-1560) */ }
     const threads = this.threadPanels(m, rendered, noteLines, bw, mcols === 0, inlineBox?.lines, host, drawn);
     const sm = this.sourcesMode;
     const sourceRect = attachedRect("inline", bw, Math.min(20, h - top - 2));

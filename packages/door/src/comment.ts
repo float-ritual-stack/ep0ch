@@ -286,7 +286,8 @@ export class CommentSession {
   }
 
   key(k: Key, env: CommentEnv): "keep" | "close" {
-    if (this.busy || k.kind === "mouse") return "keep";
+    // A reload holds the person's keys rather than dropping them (its session replays them on what it leaves).
+    if ((this.busy && this.writing?.status.phase !== "reloading") || k.kind === "mouse") return "keep";
     if (this.mode === "select") {
       const a = this.passage!.key(k, this.room);
       if (a === "close") {
@@ -513,13 +514,14 @@ export class CommentSession {
     if (!w || this.target?.kind !== "edit") return;
     this.busy = waitingText("the note again"); env.redraw();
     // The session's reload, as a note's edit takes: what it says (the revision, the copy) goes on the one status line.
-    try { await w.reload(); } finally { this.busy = null; }
+    try { await w.reload(false); } finally { this.busy = null; }
     const t = this.target;
     if (t?.kind === "edit" && w.open) {
       const th = this.threads.find(x => x.id === t.thread.id);
       const now = t.mark.reply ? th?.replies.find(x => x.id === t.mark.id) : th;
       if (th && now?.revision !== undefined) this.target = { kind: "edit", thread: th, mark: { ...t.mark, revision: now.revision, body: now.body } };
     }
+    w.replayHeld();
     env.redraw();
   }
 

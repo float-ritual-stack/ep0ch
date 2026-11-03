@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### What you type during a reload lands, and a save's status keeps your typed row in view (PIE-1560)
+
+- **Nothing typed during ctrl+r is lost.** Keys and pastes wait while the read is out, then go in, in order, after the words it loaded, or on your kept text if the read failed.
+- **A refused save in a small tile** no longer pushes the row you're typing below the tile's foot.
+- **Run:** nothing; the door picks it up on its next start.
+
 ### A laptop's install says installed when its own sessions came over (PIE-1564, PIE-1557)
 
 - **A deploy's `laptop:` line tells the truth.** `blocked` means one of the laptop's own sessions didn't come back on the new code. An outline it reaches on another machine, with a terminal host left and no session running, no longer counts, and install stops waiting 20 seconds on each one.
