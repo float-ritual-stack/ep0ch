@@ -403,6 +403,12 @@ export interface NoteRouteRun {
  */
 export const MCP_ACCESS_LEVELS = ["none", "read", "propose", "full"] as const;
 export type McpAccessLevel = typeof MCP_ACCESS_LEVELS[number];
+/** The lower of two levels: what an outline's grant and a caller's cap leave. The one order is MCP_ACCESS_LEVELS'. */
+export const lowerLevel = (a: McpAccessLevel, b: McpAccessLevel): McpAccessLevel => MCP_ACCESS_LEVELS.indexOf(a) <= MCP_ACCESS_LEVELS.indexOf(b) ? a : b;
+/** Whether `level` allows at least `need`. */
+export const atLeast = (level: McpAccessLevel, need: McpAccessLevel): boolean => MCP_ACCESS_LEVELS.indexOf(level) >= MCP_ACCESS_LEVELS.indexOf(need);
+/** Whether a string is one of the levels. */
+export const isMcpAccessLevel = (value: unknown): value is McpAccessLevel => (MCP_ACCESS_LEVELS as readonly unknown[]).includes(value);
 /**
  * A request an agent or an extension wrote that waits for a person's `r` (PIE-888, `agents.held`): the note it is in
  * (and the line, from 0, -1 when it is only in a draft), the agent that would answer, and why it waits.
@@ -429,6 +435,11 @@ export interface McpAccessStatus {
    */
   yolo?: true;
   configured?: McpAccessLevel;
+  /**
+   * The owner set a level (`ep0ch mcp access <level>`); false when `none` is only the default. A session on this machine
+   * (the Claude mod, the CLI's agent operations) writes as `full` on an outline whose owner never set one (PIE-1544).
+   */
+  set?: boolean;
 }
 
 /**

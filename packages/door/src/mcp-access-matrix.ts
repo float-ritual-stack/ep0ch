@@ -18,11 +18,11 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseActor } from "@ep0ch/outline-core/attribution";
-import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
+import { atLeast, isMcpAccessLevel, MCP_ACCESS_LEVELS, type McpAccessLevel, type McpAccessStatus } from "@ep0ch/outline-core/protocol";
 import { canonicalLocalMachineName, isLocalMachine } from "@ep0ch/outliner/machine-name";
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { CAP_KEY, capSettings, MATRIX_DAYS, readMcpAccessFiles, type McpAccessFiles } from "@ep0ch/outliner/mcp-access-files";
-import { LEVELS, levelFor, mcpEnvFile, pathCapEntry, STDIO_SUBJECT, type McpCaller } from "./mcp-writes";
+import { levelFor, mcpEnvFile, pathCapEntry, STDIO_SUBJECT, type McpCaller } from "./mcp-writes";
 import { readUsage, usageDir, type Usage } from "./mcp-usage";
 import { ago } from "./text";
 import { hostRequest, SocketBoard } from "./socket";
@@ -149,11 +149,11 @@ export function buildMatrix(input: MatrixInput): AccessMatrix {
       const { caller: c, machine } = callerFor(p, caller.via === "path" ? caller.name : undefined, capped ? () => cap.level : undefined);
       return levelFor(status, c, machine, where);
     });
-    const level = asked.reduce((a, b) => LEVELS.indexOf(b) > LEVELS.indexOf(a) ? b : a);
+    const level = asked.reduce((a, b) => atLeast(a, b) ? a : b);
     const usageHere = g.machine === (input.readFrom ?? input.localMachine);
     const mine = usageHere ? recent.filter(r => r.outline === g.outline && sameName(callerOfActor(r.actor).name, caller.name)) : [];
     const last = mine.reduce<string | null>((a, r) => !a || r.time > a ? r.time : a, null);
-    const limitedBy = LEVELS.indexOf(level) > LEVELS.indexOf(g.level) ? "owner" : cap && LEVELS.indexOf(cap.level) < LEVELS.indexOf(g.level) ? "cap" : "grant";
+    const limitedBy = !atLeast(g.level, level) ? "owner" : cap && !atLeast(cap.level, g.level) ? "cap" : "grant";
     return { caller: caller.name, outline: g.outline, machine: g.machine, level, grant: g.level, cap, limitedBy, usage: usageHere ? { calls: mine.length, lastCall: last } : null,
       why: whyOf(caller, g, level, cap, parsedCap?.invalid) };
   }));
@@ -166,7 +166,7 @@ function whyOf(caller: MatrixCaller, g: Grant, level: McpAccessLevel, cap: Matri
   const grant = g.level === "none" ? `${o} has no MCP access set (it is none)` : `${o} allows ${g.level}${g.yolo ? " (the grant; yolo is on, so agents act as full for now)" : ""}`;
   if (!cap) return level === g.level ? `${grant}; ${caller.name} comes in as a client and is not capped` : `${grant}; ${caller.name} is the outline's owner, so it has ${level}`;
   const capSays = invalid ? `EP0CH_MCP_PATH_ACCESS has an invalid entry for ${cap.entry}; access is none (fail closed)` : cap.entry ? `EP0CH_MCP_PATH_ACCESS has ${cap.entry}=${cap.level}` : `no entry names it, so the default cap is propose`;
-  if (LEVELS.indexOf(cap.level) < LEVELS.indexOf(g.level)) return `${grant}; ${caller.name} is capped at ${cap.level} on its named path (${capSays})`;
+  if (!atLeast(cap.level, g.level)) return `${grant}; ${caller.name} is capped at ${cap.level} on its named path (${capSays})`;
   return `${grant}; ${caller.name}'s cap is ${cap.level === g.level ? "the same" : `${cap.level}, higher`} (${capSays}), so the outline's level is what it gets`;
 }
 
@@ -209,7 +209,7 @@ const machineFlag = (machine: string, local: string) => machine === local ? "" :
 
 /** What it takes for `caller` to have `want` in an outline: the caps entry, the outline's grant, or both; or why not. */
 export function planChange(m: AccessMatrix, who: { caller: string; outline: string; machine?: string; level: string }): Plan | { error: string } {
-  if (!(LEVELS as readonly string[]).includes(who.level)) return { error: `level is one of ${LEVELS.join(", ")} (got ${JSON.stringify(who.level)})` };
+  if (!isMcpAccessLevel(who.level)) return { error: `level is one of ${MCP_ACCESS_LEVELS.join(", ")} (got ${JSON.stringify(who.level)})` };
   const want = who.level as McpAccessLevel;
   const ci = m.callers.findIndex(c => sameName(c.name, who.caller));
   if (ci < 0) return { error: `no caller ${who.caller} (${m.callers.map(c => c.name).join(", ") || "none seen"})` };
@@ -227,13 +227,13 @@ export function planChange(m: AccessMatrix, who: { caller: string; outline: stri
   const capStep = (): Step => ({ kind: "cap", key, level: want, command: `ep0ch mcp access --cap ${key}=${want}`,
     affects: `only ${caller.name} in ${g.outline}; written to ${m.caps.file} (${CAP_KEY}), read by the gateway on its next request` });
   if (want === cell.level) return { caller: caller.name, outline: g.outline, machine: g.machine, level: want, steps, said: `${caller.name} already has ${want} in ${g.outline}@${g.machine}; nothing to change` };
-  if (caller.via === "client" && g.owner && caller.principals.includes(g.owner) && want !== "none" && LEVELS.indexOf(want) < LEVELS.indexOf(cell.level))
+  if (caller.via === "client" && g.owner && caller.principals.includes(g.owner) && want !== "none" && !atLeast(want, cell.level))
     return { error: `${caller.name} made ${g.outline}, so it keeps full there whatever the grant says (only none, which denies everyone, takes it away): ep0ch mcp access none --ws ${g.outline}${machineFlag(g.machine, m.localMachine)}` };
   if (caller.via === "client") steps.push(grantStep());
-  else if (LEVELS.indexOf(want) < LEVELS.indexOf(cell.level)) steps.push(capStep());
+  else if (!atLeast(want, cell.level)) steps.push(capStep());
   else {
-    if (cell.cap && LEVELS.indexOf(cell.cap.level) < LEVELS.indexOf(want)) steps.push(capStep());
-    if (LEVELS.indexOf(cell.grant) < LEVELS.indexOf(want)) steps.push(grantStep());
+    if (cell.cap && !atLeast(cell.cap.level, want)) steps.push(capStep());
+    if (!atLeast(cell.grant, want)) steps.push(grantStep());
   }
   if (capElsewhere && steps.some(x => x.kind === "cap"))
     return { error: `${caller.name}'s cap is written where the gateway reads it, on ${m.readFrom}: run \`ssh ${m.readFrom} ep0ch mcp access --cap ${key}=${want}\` there` };

@@ -17,7 +17,7 @@ import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetK
 import { existsSync, readdirSync } from "node:fs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { allowedSubjects, issuerFromPublishableKey, originOfHost } from "@ep0ch/outline-core/signin";
-import type { HostedOutlineList, HostedOutlineSummary, McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import { lowerLevel, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { outlinesDir } from "./discover";
 import { aboutListing, answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
 import { liveFromEnv, type LiveMachines } from "./mcp-live";
@@ -590,7 +590,6 @@ export function startGateway(opts: {
  * same cap again after the owner's `full` (a scratch outline's maker).
  */
 function cappedOutlines(outlines: McpOutlines, cap: (where?: { outline: string; machine: string }) => McpAccessLevel): McpOutlines {
-  const order: McpAccessLevel[] = ["none", "read", "propose", "full"];
   return {
     ...outlines,
     async board(named, how) {
@@ -601,8 +600,7 @@ function cappedOutlines(outlines: McpOutlines, cap: (where?: { outline: string; 
         get(target, key) {
           if (key === "mcpAccessStatus") return async () => {
             const status = await target.mcpAccessStatus();
-            const most = cap(target.address);
-            const level = order.indexOf(most) < order.indexOf(status.level) ? most : status.level;
+            const level = lowerLevel(cap(target.address), status.level);
             return { ...status, level, canRead: status.canRead && level !== "none" };
           };
           const value = Reflect.get(target, key, target) as unknown;

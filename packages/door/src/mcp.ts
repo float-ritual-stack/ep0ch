@@ -31,7 +31,7 @@ import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, Respo
 import { recordUsage, usageShape, usageCommand } from "./mcp-usage";
 import { CAP_KEY, gatherMatrix, hostSourceFor, matrixLines, setPathCap } from "./mcp-access-matrix";
 import { callRegistry, callShown } from "./mcp-calls";
-import { proposalOutcomesOn, sharedToolDefinition, sharedToolRefusal, actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, takesPersona, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, PERSONA_PROPERTY, personaRefusal, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { proposalOutcomesOn, sharedToolDefinition, sharedToolRefusal, actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, gate, noWritesWords, commentOnResourceOn, isResourceRef, isWriteTool, takesPersona, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, PERSONA_PROPERTY, personaRefusal, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 
 type RpcId = string | number | null;
@@ -1152,7 +1152,8 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
     if ("error" in target) return toolError(target.error);
     if (target.home) return toolError("Run the script on the outline's home machine");
     const status = withLevel(await target.board.mcpAccessStatus(), caller, target.board.address);
-    if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
+    const decided = gate({ tool: "script_run", level: status.level, where: gateWhere(outlines, target) });
+    if (decided.becomes === "refused") return toolError(decided.why!);
     try {
       const refused = sharedToolRefusal("script_run", args);
       if (refused) return toolError(refused);
@@ -1200,9 +1201,10 @@ async function adminTool(outlines: McpOutlines, admin: McpOutlineAdmin, tool: "o
   } catch (e) { return toolError((e as Error).message); }
 }
 
-const writeRefusal = (outlines: McpOutlines, { board, served }: McpBoard, level: McpAccessLevel) =>
-  `MCP access is ${level} for ${board.address.outline}@${board.address.machine}${served.source === "mirror" ? ` (as its mirror on ${outlines.machine} carries it)` : ""}, which takes no writes; ` +
-  `its owner runs \`ep0ch mcp access propose --ws ${board.address.outline}\` (proposals) or \`… full …\` (applied) on ${board.address.machine} to allow them.`;
+/** The outline a refusal names, as the gate words it: a mirror says whose copy it read. */
+const gateWhere = (outlines: McpOutlines, { board, served }: McpBoard) =>
+  ({ ...board.address, ...(served.source === "mirror" ? { via: `as its mirror on ${outlines.machine} carries it` } : {}) });
+const writeRefusal = (outlines: McpOutlines, target: McpBoard, level: McpAccessLevel) => noWritesWords(level, gateWhere(outlines, target));
 
 /**
  * A write tool: the block addressed as the reads address it, checked against the outline's access, then applied
@@ -1229,11 +1231,9 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   const { board } = target;
   const status = withLevel(await target.board.mcpAccessStatus(), caller, target.board.address);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
-  if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
-  if (tool === "outline_assign_id") { const why = assignIdRefusal(status.level); if (why) return toolError(why); }
-  if (tool === "outline_restore") { const why = restoreRefusal(status.level); if (why) return toolError(why); }
-  const settlementRefusal = proposalSettlementRefusal(tool, status.level);
-  if (settlementRefusal) return toolError(settlementRefusal);
+  // The gate (outliner src/write-gate.ts) says what this write becomes; applyWrite asks it again where the write lands.
+  const decided = gate({ tool, level: status.level, where: gateWhere(outlines, target), top: tool === "outline_create" && target.id === "root" });
+  if (decided.becomes === "refused") return toolError(decided.why!);
   // A trashed note has no record in a read; outline_restore is about one, and outline_trash on one answers unchanged.
   const found = (await board.records([target.id])).records.find(r => r.id === target.id);
   if (!found && tool === "outline_restore" && target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: a trashed note isn't in its mirror, so outline_restore isn't queued; restore it there.`);

@@ -29,6 +29,7 @@ import { MAX_DEADLINE_MS } from "./extension-manifest";
 import type { Address, SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
+import { gate } from "./write-gate";
 
 /** A command or URL as a run note says it: what ran, how it ended, how much, and its first lines. */
 function reachLine(step: HostStep): string {
@@ -472,7 +473,7 @@ export class ScriptRuns {
       if (!plan.ok && plan.kind === "refused") throw new Error(plan.reason);
       const result = await client.request<{ outcome: string; reason?: string; proposalId?: string }>({
         action: "draft.patch", blockId: site.thisId, revision: draft.revision, patches: plan.spans, mutation: writer, current: true,
-        ...(plan.mark ? { mark: { text: plan.mark } } : {}), ...(plan.ok && (!request.mcpAccess || request.mcpAccess === "full") ? {} : { propose: true as const }),
+        ...(plan.mark ? { mark: { text: plan.mark } } : {}), ...(plan.ok && (!request.mcpAccess || gate({ tool: "outline_patch", level: request.mcpAccess }).becomes === "applied") ? {} : { propose: true as const }),
       });
       const said = plan.ok ? plan.summary : plan.reason;
       lines.push(`\nplace: ${result.outcome === "applied" ? said : `proposed instead: ${result.reason ?? said}`}`);

@@ -24,6 +24,7 @@ import { navigateOutlinerLink, parseOutlinerLinkUri, resolveOutlinerLinkTarget }
 import { blockDisplayTitle } from "./references";
 import type { MentionCollection } from "./mentions-types";
 import type { AnnotationBatchReceipt } from "./types";
+import type { McpAccessStatus } from "@ep0ch/outline-core/protocol";
 import type { BlockActivityKind, HostedOutlineArchival, HostedOutlineDeletion, HostedOutlineSummary, BlockReadField, BlockSearchQuery, CaptureReceipt, MutationProvenance, RoadmapItemCreateInput } from "./types";
 import {
   completeWorkItem,
@@ -791,6 +792,25 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
 }
 
 /**
+ * An agent operation from a session on this machine (the Claude mod's path, PIE-1544): a write asks the write gate at
+ * the outline's MCP access, as the gateway's do, so at propose it becomes a proposal and at read it is refused in the
+ * same words. A session writes as `full` where the owner never set a level (src/write-gate.ts effectiveLevel).
+ */
+type AgentOperationName = import("./agent-tools").AgentOperation;
+async function gatedAgentOperation(operation: AgentOperationName, input: Record<string, unknown>, actor: { actorId: string; sessionId?: string } | undefined, run: (c: typeof client, op: AgentOperationName, i: Record<string, unknown>, a: typeof actor) => Promise<unknown>): Promise<unknown> {
+  const { AGENT_TOOL_DEFINITIONS } = await import("@ep0ch/outline-core/agent-tool-definitions");
+  // outline_reply's edit is its own operation; the tool takes it back as `edit`.
+  const definition = AGENT_TOOL_DEFINITIONS.find(d => d.operation === (operation === "edit-comment" ? "reply" : operation));
+  if (!definition?.writes || !actor) return run(client, operation, input, actor);
+  const [{ effectiveLevel }, { agentWrite }, { canonicalLocalMachineName }] = await Promise.all([import("./write-gate"), import("./agent-write"), import("./machine-name")]);
+  const status = await client.request<McpAccessStatus>({ action: "mcp.access.status" });
+  const { level } = effectiveLevel(status, { local: true });
+  const { mark, ...rest } = input;
+  const args = operation === "edit-comment" ? { ...rest, edit: mark } : operation === "view-order" ? { ...input, ref: input.view } : input;
+  return agentWrite(client, { definition, args, command: { operation, input } }, actor, level, paths.outline ? { where: { outline: paths.outline, machine: paths.machine ?? canonicalLocalMachineName() } } : {});
+}
+
+/**
  * `agent <operation> [--actor ID] [--session ID] [--json TEXT | --stdin]`: one agent operation on a JSON
  * input, printed as compact JSON. Writes are `author: agent`, attributed to --actor. A refusal exits 1
  * with the reason on stderr.
@@ -811,7 +831,7 @@ async function runAgentCommand(args: string[]): Promise<number> {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("the input is a JSON object");
     const actor = values.actor?.trim() ? { actorId: values.actor.trim(), ...(values.session ? { sessionId: values.session } : {}) } : undefined;
     await client.requireCompatibleService();
-    const result = await runAgentOperation(client, operation as (typeof AGENT_OPERATIONS)[number], input as Record<string, unknown>, actor);
+    const result = await gatedAgentOperation(operation as (typeof AGENT_OPERATIONS)[number], input as Record<string, unknown>, actor, runAgentOperation);
     console.log(JSON.stringify(result));
     return 0;
   } catch (error) {

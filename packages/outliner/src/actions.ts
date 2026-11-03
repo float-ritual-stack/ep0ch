@@ -5,6 +5,7 @@
  * async path answers it, and the change event a successful answer broadcasts. The service's gates read the rows:
  *
  * - `OutlineHost` answers `host` rows itself, and a read-only host answers `copy` ones (`copyAnswers`).
+ * - `OutlinerServer`'s dispatcher writes every answer's envelope and retries a busy database once, except `once` rows.
  * - `OutlinerServer` refuses on a read-only copy what `copyAnswers` doesn't, gates an extension's grant by `extensionMay`,
  *   throws for `host` and `async` rows in its sync `handle`, and builds the broadcast with `eventOf`.
  * - `Turns` (loop-watch.ts) puts `whole` reads last; `QueryWatches` keeps `watch` reads (`isWatchable`).
@@ -46,6 +47,11 @@ export interface ActionDecl<R = OutlinerRequest> {
   ext?: "read" | "write" | "mail";
   /** Only the async path answers it (`handleAsync`); the sync `handle` refuses it. */
   async?: true;
+  /**
+   * It acts outside the store (a provider command, a deploy, a button's sequence), so a busy database never replays it:
+   * the dispatcher retries every other request once when none of it landed (server.ts `handleAsync`).
+   */
+  once?: true;
   /** A read a client may watch (ADR 0004): outline-core's `WATCHABLE_ACTIONS`, which the table test holds to these rows. */
   watch?: true;
   /** A read that walks the whole outline: it waits behind every other request (loop-watch.ts, PIE-625). */
@@ -110,9 +116,9 @@ export const ACTIONS = {
   "annotations.review-agent": { event: onAnnotation },
   "annotations.tldr": {},
   "annotations.update": { event: onAnnotation },
-  "artifacts.backfill": { async: true },
-  "artifacts.deploy": { async: true },
-  "artifacts.dns": { async: true },
+  "artifacts.backfill": { async: true, once: true },
+  "artifacts.deploy": { async: true, once: true },
+  "artifacts.dns": { async: true, once: true },
   "artifacts.import": { async: true },
   "artifacts.lease": { async: true },
   "artifacts.list": { copy: true, async: true },
@@ -285,7 +291,7 @@ export const ACTIONS = {
   "resource-sources.list": {},
   "resource-sources.rebind": {},
   "resources.collect": { event: (_, { result }) => { const r = result as ResourceRetentionCollectionReceipt; return r.evicted.length === 0 && r.purged.length === 0 ? null : catalog(r.resourceId ?? undefined); } },
-  "resources.command.execute": { async: true, event: (_, { result }) => catalog((result as ResourceProviderCommandResult).receipt.resourceId) },
+  "resources.command.execute": { async: true, once: true, event: (_, { result }) => catalog((result as ResourceProviderCommandResult).receipt.resourceId) },
   "resources.describe": {},
   "resources.follow-authored": { async: true, event: interned },
   "resources.get": {},
@@ -312,7 +318,7 @@ export const ACTIONS = {
   "scripts.answer": {},
   "scripts.render": { ext: "read", async: true },
   "scripts.run": { async: true },
-  "scripts.sequence": { async: true },
+  "scripts.sequence": { async: true, once: true },
   "scripts.stop": { async: true },
   "search.picked": { async: true },
   "search.picks": { async: true },
@@ -384,6 +390,8 @@ export type NotHandledHere = { [A in keyof Table]: Table[A] extends { async: tru
 export const isHostAction = (action: unknown): boolean => row(String(action))?.host === true;
 /** Answered only by the async path (`handleAsync`). */
 export const isAsyncOnly = (action: unknown): boolean => row(String(action))?.async === true;
+/** Never replayed after a busy database (its row's `once`). */
+export const replayOnce = (action: unknown): boolean => row(String(action))?.once === true;
 /** What a read-only copy answers: plain reads and the copy's own (its pages, shares and snapshots). */
 export const copyAnswers = (action: unknown): boolean => { const d = row(String(action)); return d?.read === true || d?.copy === true; };
 /** What an extension's grant may make of an action: `read`, `write`, `mail`, or undefined (refused). */

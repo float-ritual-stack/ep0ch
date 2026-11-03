@@ -21,7 +21,7 @@ import type { KindHost, TileKind } from "./tile-kinds";
 import { RowView } from "../scroll";
 import { applyPlan, gatherMatrix, hostSource, levelText, matrixLines, planChange, type AccessMatrix, type GrantSource, type MatrixCell, type Plan } from "../mcp-access-matrix";
 import { canonicalLocalMachineName } from "../notes-cli";
-import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import { MCP_ACCESS_LEVELS, type McpAccessLevel } from "@ep0ch/outline-core/protocol";
 
 export const ACCESS_MATRIX_KIND_NAME = "access-matrix";
 
@@ -51,7 +51,7 @@ const usageWords = (c: MatrixCell) => !c.usage ? `no usage records: they are the
 /** The keys of the matrix's hint row (key() below runs them): the plan levels are the `n r p f` of access.plan. */
 const ACCESS_KEYS: readonly ModeKey[] = [
   ...["h", "j", "k", "l"].map(key => ({ key, action: "access.pick", label: "pick" })),
-  ...(["n", "r", "p", "f"] as const).map((key, i) => ({ key, action: "access.plan", args: { level: ["none", "read", "propose", "full"][i] }, label: "plan a level" })),
+  ...(["n", "r", "p", "f"] as const).map((key, i) => ({ key, action: "access.plan", args: { level: MCP_ACCESS_LEVELS[i] }, label: "plan a level" })),
   { key: "enter", action: "access.apply", label: "apply" }, { key: "esc", action: "access.cancel", label: "cancel" }, { key: "R", action: "access.refresh", label: "read again" },
 ];
 
