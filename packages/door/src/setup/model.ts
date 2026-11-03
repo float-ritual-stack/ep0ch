@@ -297,6 +297,8 @@ export interface Facts {
   art?: { dir: string; packs: number; fromEnv: boolean };
   /** The Litestream units (replicators, mirror followers) and how far each replica trails (backups.ts); doctor only. */
   backups?: BackupFacts;
+  /** The machine itself: failed user units, the nightly run, the test runs, the load (machine-health.ts); doctor only. */
+  machine?: import("./machine-health").MachineHealth;
   /** The restic backup job (PIE-607, src/backup/): its units, settings, restic, the secrets, its state and alert. */
   restic?: BackupSetupFacts;
 }

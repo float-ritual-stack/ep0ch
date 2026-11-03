@@ -8,6 +8,7 @@ import { hyperOn } from "../hyper";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { CHANGE_AGENT } from "../desk/drawer-program";
 import { backupChecks } from "./backups";
+import { machineChecks } from "./machine-health";
 import { resticChecks } from "../backup/setup";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
 import { ep0ch, sessionFlags } from "../session/place";
@@ -169,6 +170,8 @@ export function doctorChecks(f: Facts): Check[] {
   if (f.backups) for (const c of backupChecks(f.backups, f.home)) add("backups", c.name, c.status, c.detail, c.fix);
   // and the restic job (PIE-607): its units, each outline's newest snapshot, the mirrors, the drill
   if (f.restic) for (const c of resticChecks(f.restic)) add("backups", c.name, c.status, c.detail, c.fix);
+  // the machine itself (PIE-1535): failed user units, the nightly run on main, the test runs, the load
+  if (f.machine) for (const c of machineChecks(f.machine)) add("machine", c.name, c.status, c.detail, c.fix);
   // EchoNet's tossers (PIE-798): a toss that moved nothing writes no log, so when each last ran is said here.
   for (const h of f.echonet ?? []) add("echonet", h.outline, h.status === "ok" ? "ok" : "behind", h.detail, h.fix);
 

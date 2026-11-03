@@ -1,0 +1,43 @@
+# Agent sessions on this machine (packages/door/ext/television, PIE-1535): every Claude session `ep0ch agent ls --json`
+# lists, background and interactive, with what it's doing (working, done, idle, or blocked and why: claude's own
+# waitingFor), where it runs and when it last wrote. The preview is its newest messages. ctrl-g opens a background one in
+# a door terminal tile (claude attach, as the agent television), alt-r restarts it at a safe moment (ep0ch agent
+# restart), alt-k stops it (claude stop: it asks nothing; the conversation is kept). A terminal's own session says
+# where it runs instead. Enter prints the session id. Each row's session id is out of view (ansi = true, an empty OSC 8 link), as the ep0ch channel's.
+[metadata]
+name = "ep0ch-agents"
+description = "Agent sessions here: what each is doing, its newest messages; ctrl-g opens it in a door tile, alt-r restarts, alt-k stops"
+requirements = ["ep0ch-tv"]
+
+[source]
+command = "ep0ch-tv agents"
+ansi = true
+no_sort = true
+frecency = false
+output = "{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}"
+
+[preview]
+command = "ep0ch-tv agent-preview '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
+
+[ui.preview_panel]
+size = 55
+
+[keybindings]
+ctrl-g = "actions:open"
+alt-r = "actions:restart"
+alt-k = "actions:stop"
+
+[actions.open]
+description = "Open it in a door terminal tile (claude attach, as the agent television)"
+command = "ep0ch-tv agent-open '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
+mode = "fork"
+
+[actions.restart]
+description = "Restart it at a safe moment (ep0ch agent restart)"
+command = "ep0ch-tv agent-restart '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
+mode = "fork"
+
+[actions.stop]
+description = "Stop it (claude stop; its conversation is kept)"
+command = "ep0ch-tv agent-stop '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
+mode = "fork"

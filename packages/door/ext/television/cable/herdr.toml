@@ -1,0 +1,35 @@
+# Herdr's panes on this machine (packages/door/ext/television, PIE-1535): every running herdr session (herdr session
+# list --json), each pane in it (herdr api snapshot) with its workspace and tab, the agent herdr sees in it and its
+# state, its title and folder. The preview is the pane's screen, read-only (herdr pane read). Enter focuses its tab;
+# alt-a attaches to its session (herdr session attach). Nothing here types into a pane.
+[metadata]
+name = "herdr"
+description = "Herdr's panes here: the program in each and its screen; enter focuses its tab, alt-a attaches to the session"
+requirements = ["herdr", "ep0ch-tv"]
+
+[source]
+command = "ep0ch-tv herdr"
+ansi = true
+no_sort = true
+frecency = false
+output = "{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}"
+
+[preview]
+command = "ep0ch-tv pane-preview '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
+
+[ui.preview_panel]
+size = 60
+
+[keybindings]
+enter = "actions:focus"
+alt-a = "actions:attach"
+
+[actions.focus]
+description = "Focus its tab in herdr (herdr tab focus)"
+command = "ep0ch-tv pane-focus '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
+mode = "fork"
+
+[actions.attach]
+description = "Attach to its herdr session (herdr session attach)"
+command = "ep0ch-tv pane-attach '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
+mode = "execute"

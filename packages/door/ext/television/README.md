@@ -1,7 +1,8 @@
 # television: the outline in tv
 
-A userland extension of the door: three [television](https://github.com/alexpasmantier/television) (`tv`) channels
-that read the outline the way the `git-log` channel reads a repository, and a helper they call. Nothing in the door
+A userland extension of the door: [television](https://github.com/alexpasmantier/television) (`tv`) channels that
+read the outline the way the `git-log` channel reads a repository, four that show the system around it (agent sessions,
+health, the workboard, Herdr's panes), and a helper they call. Nothing in the door
 imports this folder. Delete it and the door works as before; the next `ep0ch install` takes away its links.
 
 | Channel | What it lists | Enter prints | Other keys |
@@ -9,6 +10,10 @@ imports this folder. Delete it and the door works as before; the next `ep0ch ins
 | `tv ep0ch` | the outline's notes, three ways (`ctrl-s` cycles): **Tree**, the outline depth first as Tree orders it, drawn with `├─ │ └─`, each level's titles in their own colour and what a note is (work id, stage, type) dim beside it; **Recent**, the newest notes; **All**, every note, newest first, as `title · path` (tv matches on what's shown) | `((id))` for each note chosen | `ctrl-g` opens it in the running door; `ctrl-d` shows it in the Outliner's Tree and its Detail |
 | `tv ep0ch-files [<folder>]` | the files under `<folder>` (default: here), relative; a path holding a `'` or a `]` is left out (tv pastes fields into commands unescaped, and `]` would end the token) | `[file::<absolute path>]` for each file chosen | |
 | `tv ep0ch-outlines` | this machine's outlines, then each machine you've opened before, with its outlines | opens the door on it: `ep0ch --ws <name> [--machine <ssh-name>]` | |
+| `tv ep0ch-agents` | every Claude session here (`ep0ch agent ls --json`), background and in a terminal: working, done, idle or **blocked and why** (claude's `waitingFor`: a permission prompt, a dialog), where it runs, when it last wrote; the preview is its newest messages, from its transcript | the session id | `ctrl-g` opens a background one in a door terminal tile (`claude attach`, as the agent television); `alt-r` restarts it at a safe moment (`ep0ch agent restart`); `alt-k` stops it (`claude stop`, no question; the conversation is kept). A terminal's own session says where it runs instead |
+| `tv ep0ch-health` | one row per check, worst first: `ep0ch doctor --json` (the stack, the host, backups, Herdr, Claude, and the machine: failed user units, the nightly run on main, box-test, the load), `ep0ch link status --json` and each door session's code against main (`ep0ch session list --json`, here and on each machine whose link is up); the preview is the check's detail and its fix | leaves tv and runs the fix the row shows in the terminal, its output kept there | |
+| `tv ep0ch-board` | the workboard (`ctrl-s` cycles): Doing, Review, Validate, Needs you (the Waiting on Evan view's query) and open PRs (`gh pr list`); the outline is the door's rule, so `EP0CH_WS=pie` or a folder whose `.ep0ch` names it | `((id))` | `ctrl-g` opens it in the running door (a PR: the PIE-n it names) |
+| `tv herdr` | every pane of every running Herdr session (`herdr session list --json`, `herdr api snapshot`): workspace, tab, the agent Herdr sees and its state, title and folder; the preview is the pane's screen, read-only | focuses its tab (`herdr tab focus`) | `alt-a` attaches to its session; nothing types into a pane |
 
 `Tab` picks several entries (tv's `toggle_selection`); Enter prints one output per line. A note's preview is the same
 from each of the `ep0ch` channel's sources.
@@ -43,6 +48,12 @@ Kitchen sink  · showcase
 
 The preview of a note is the note as the door draws it (`ep0ch show <id> --ansi`, the note surface), of a file its start
 (`bat` when it's there), of an outline its newest notes. `ctrl-x` lists a channel's actions, `ctrl-t` switches channel.
+
+The system channels' rows come from commands that already answer in JSON, drawn by `lib/rows.ts` (one verb per read,
+one per action: `ep0ch-tv agents`, `ep0ch-tv health`, `ep0ch-tv board "<query>"`, `ep0ch-tv herdr` …). Each row's key
+(a session id, a check, a note id, `session~pane`) is out of view as the notes' ids are, and every action reads its row
+again by that key, so a stale line never acts on something else. The board's sources are queries in the views'
+grammar, in `cable/ep0ch-board.toml`: change them there.
 
 ## Which outline
 
