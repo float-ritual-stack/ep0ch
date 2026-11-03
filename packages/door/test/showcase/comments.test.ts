@@ -6,6 +6,7 @@
 import { unsent } from "../../src/draft-session";
 import { UNDO_ASK_PAUSE_MS } from "../../src/edit";
 import { osc52 } from "../../src/surface/selection";
+import { resetKeys, setKeys } from "../../src/surface/keymap";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../../src/app";
@@ -854,4 +855,27 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     expect((await board.get(id))!.text).toBe(saved);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
+
+  test("one text field (PIE-1542): draft.undo rebound to alt+e takes a paste back in the edit, its hint says alt+e, and ctrl+z says where it went", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "undo" }, as: "test-agent" });
+    const reader = () => S().stages.get(S().sel)?.top?.pane("reader");
+    await until(() => !!reader(), "the undo section's reader");
+    const draft = () => reader().surface.draft;
+    press({ kind: "enter" });
+    if (!draft()) { ch("e"); ch("e"); }
+    await until(() => !!draft(), "the person's edit");
+    press({ kind: "paste", text: "Pickled beans\nshelf two" });
+    await until(() => draft().text.includes("Pickled beans\nshelf two"), "the paste in the edit");
+    setKeys("draft.undo", ["alt+e"]);
+    try {
+      expect(plain(sc.render(app).lines.join("\n"))).toContain("alt+e undo");
+      press({ kind: "char", ch: "z", ctrl: true });
+      await until(() => draft().note.includes("alt+e"), "ctrl+z says where undo went");
+      expect(draft().text).toContain("Pickled beans");
+      press({ kind: "alt", ch: "e" });
+      await until(() => !draft().text.includes("Pickled beans"), "alt+e takes the paste back in one step");
+    } finally { resetKeys("draft.undo"); }
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
 });
