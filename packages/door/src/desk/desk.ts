@@ -53,7 +53,7 @@ import { authorName, whoOf, USER, type Actor, type OutlineEvent, requesterOf } f
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { LayoutHistory, specTileIds, type LayoutEntry } from "./layout-history";
-import { adoptTile, groupWith, undoOrder, type Adopt, type AdoptHost } from "./undo-across";
+import { adoptTile, groupWith, stepThere, undoDesk, undoOrder, type Adopt, type AdoptHost } from "./undo-across";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
@@ -1036,7 +1036,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const txns = new Set(entries.flatMap(e => (e.txn ? [e.txn] : [])));
     const asked: [Desk, LayoutEntry[]][] = [[this, entries], ...this.relatives().filter(d => d !== this && [...txns].some(t => d.history.forTxn(t)))
       .map(d => [d, [...txns].flatMap(t => d.history.entriesOf(t)).sort((a, b) => b.seq - a.seq)] as [Desk, LayoutEntry[]])];
-    for (const [d, es] of asked) { const why = d.undoRefusal(es, actor); if (why) throw new ActionRefused(why); }
+    for (const [d, es] of asked) { const why = d.undoRefusal(es, actor, this); if (why) throw new ActionRefused(why); }
     const { plan, adopt } = undoOrder(asked, d => [...d.panes.keys()].map(i => d.tileId(i)));
     let steps = 0;
     for (const [d, es] of plan) steps += d.undoEntries(es, actor, keepFocus || actor.kind === "agent", adopt);
@@ -1045,11 +1045,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return steps;
   }
   /** Why `entries` can't be taken back here now, or null: what `undoEntries` checks, asked first and changing nothing. */
-  private undoRefusal(entries: LayoutEntry[], actor: Actor): string | null {
-    if (this.keysHere() && this.holdsKeys()) return "you are typing; ctrl+z (layout.undo) puts it back when you are done";
+  private undoRefusal(entries: LayoutEntry[], actor: Actor, from: Desk): string | null {
+    if (this.keysHere() && this.keysDesk().holdsKeys()) return "you are typing; ctrl+z (layout.undo) puts it back when you are done";
     if (actor.kind === "agent" && !entries.every(e => e.party === partyOf(actor) || e.owner === partyOf(actor))) return `the ${this.layoutSelf().name}'s change isn't yours: an agent undoes its own`;
     for (const entry of entries) { const later = this.history.after(entry).find(e => entry.txn !== undefined ? e.txn !== entry.txn : e.party !== entry.party);
-      if (later) return `the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}`; }
+      if (later) { const who = `${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}`; return this === from ? `the layout changed since (${who}); undo that first${later.party === "you" ? ": ctrl+z" : ""}` : stepThere(this.layoutSelf().name, who, !!this.ctx?.hostLayer?.isDrawer(this) && !this.ctx.hostLayer.drawnRect?.(), this.rawKeys()); } }
     // An agent never takes the person's focus: an undo that would close the tile their keys are on is theirs to make.
     const on = this.panes.has(this.focus) ? this.tileId(this.focus) : null, last = entries.at(-1);
     if (actor.kind === "agent" && this.keysHere() && on && last && !specTileIds(last.before).includes(on)) return `the person is on ${this.nameOf(this.focus)}, which this undo would close: an agent leaves their tile alone`;
@@ -3527,7 +3527,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const from = this.idOf(p);
     if (from !== undefined && p.msg) this.placeNote(p.msg, { from, note: p.msg.id, history: true, keep: false }, by);
   }
-  layoutUndoSeq(): number | undefined { return this.history.newest()?.seq; }
+  layoutUndoSeq(): number | undefined { return undoDesk<Desk>(this).history.newest()?.seq; }
   untrash(board: object): boolean {
     if (board !== this.ctx.board) return false;
     this.run("note.untrash", {}, this.nameOf(this.focus));
@@ -5151,8 +5151,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (((k.kind === "char" && !k.ctrl && k.ch === "d") || k.kind === "delete") && pane?.subject?.()) return this.run("note.trash", {}, this.nameOf(this.focus));
       if (k.kind === "char" && k.ctrl && k.ch === "z") {
         // The newest of a layout change and a trash (PIE-957): a layout change is taken back as a trash is brought back.
-        const trashed = lastTrashed(this.ctx.board, USER)?.seq, laid = this.history.newest()?.seq;
-        if (laid !== undefined && (trashed === undefined || laid > trashed)) return this.run("layout.undo", {}, this.nameOf(this.focus));
+        const trashed = lastTrashed(this.ctx.board, USER)?.seq, owner = undoDesk<Desk>(this), laid = owner.history.newest()?.seq;
+        if (laid !== undefined && (trashed === undefined || laid > trashed)) return owner.run("layout.undo", {}, owner.nameOf(owner.focus));
         if (trashed !== undefined) return this.run("note.untrash", {}, this.nameOf(this.focus));
       }
     }

@@ -2,12 +2,28 @@
 // drawer), a gather into a group and a spill out of one are each one transaction on every desk they touched; undoing it
 // rebuilds each desk's shape from before, and a tile those shapes name by its id (`t-…`) is the same instance put back,
 // never a second one made by name. Desk applies it; the choices here are plain.
+import { LEAVE_PART } from "../hint-parts";
+import { keyCaption } from "../surface/actions";
+import { hintKey } from "../surface/modes";
+import { ESCAPE_CHORD } from "./pty";
 import { tileRegistry } from "./tile-registry";
 import { specTileIds, type LayoutEntry } from "./layout-history";
 import { savedNodes } from "./screen-spec";
 import { ScreenTile } from "./screen-tile";
 import type { Pane } from "./panes";
 import type { TileSpec } from "./tiles";
+
+/** Whose layout a ctrl+z on `desk` takes back (PIE-1569): it or a desk holding it, whichever changed last (a group's gather is its holder's). */
+export function undoDesk<D extends { history: { newest(): { seq: number } | null }; holder?: { desk(): unknown } | null }>(desk: D): D {
+  let best = desk;
+  for (let d = desk.holder?.desk() as D | undefined; d; d = d.holder?.desk() as D | undefined) if ((d.history.newest()?.seq ?? -1) > (best.history.newest()?.seq ?? -1)) best = d;
+  return best;
+}
+/** A refusal said from another layout (PIE-1559), short enough for 80 columns: what changed there, and how the person gets to its ctrl+z: the drawer's key when it's away, else a click; out of its program first. */
+export function stepThere(name: string, change: string, away: boolean, inProgram: boolean): string {
+  const go = away ? keyCaption(hintKey({ action: "host.toggle", key: "alt+a", label: "" }) ?? "alt+a") : "click it", out = inProgram ? `${keyCaption(hintKey(LEAVE_PART) ?? ESCAPE_CHORD)}, ` : "";
+  return `${name} changed since (${change}); ${go}, ${out}then ctrl+z there`;
+}
 
 /** What gives a claimed tile up: a desk being put back (`releaseTile`). */
 export interface Releases { releaseTile(rid: string): Pane | undefined }
