@@ -386,8 +386,11 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     await new Promise<void>(resolve => reservation.close(() => resolve()));
     const clientEnv = { ...env, HOME: clientHome, PATH: [clientBin, dirname(bun), "/usr/bin", "/bin"].join(":"), EP0CH_OUTLINES: clientOutlines, EP0CH_STATE: join(root, "linked-client-state"), EP0CH_SOCKET: sock, EP0CH_WS: "allotment", EP0CH_DAILY_AGENT: "sh", XDG_CONFIG_HOME: join(clientHome, ".config"), XDG_STATE_HOME: join(clientHome, ".local/state") };
     writeFileSync(join(root, "start-linked-session.ts"), readFileSync(join(root, "start-session.ts"), "utf8").replaceAll(repo, clientRepo));
-    const started = Bun.spawnSync([bun, join(root, "start-linked-session.ts")], { cwd: clientHome, env: clientEnv, stdout: "pipe", stderr: "pipe", timeout: 60_000 });
-    expect({ code: started.exitCode, error: started.stderr.toString(), out: started.stdout.toString() }).toMatchObject({ code: 0 });
+    // Two sessions on the laptop, one per outline (PIE-1550: both came over to the new code, and install said blocked).
+    for (const ws of ["allotment", "compost"]) {
+      const started = Bun.spawnSync([bun, join(root, "start-linked-session.ts")], { cwd: clientHome, env: { ...clientEnv, EP0CH_WS: ws }, stdout: "pipe", stderr: "pipe", timeout: 60_000 });
+      expect({ ws, code: started.exitCode, error: started.stderr.toString(), out: started.stdout.toString() }).toMatchObject({ code: 0 });
+    }
     const wire = join(repo, "packages/outline-core/src/protocol.ts");
     writeFileSync(wire, readFileSync(wire, "utf8").replace(/export const PROTOCOL = (\d+);/, (_, n) => `export const PROTOCOL = ${Number(n) + 1};`));
     const installer = join(repo, "packages/door/src/setup/apply.ts");
@@ -421,6 +424,14 @@ process.once("SIGTERM",()=>{connector.stop();process.exit(0)});
       expect(report.linked.join("\n")).toContain("roam: away; install queued for its next connection");
       expect(await roamingClient.exited).toBe(0);
       expect(report.linked.join("\n")).toContain("session was handed over");
+      // Both of its sessions handed over, nothing left not done (PIE-1550), and both serve on the installed code.
+      const travel = report.linked.join("\n").split("\nroam:")[0];
+      expect(travel).not.toContain("blocked");
+      expect(travel).not.toContain("no session runs");
+      expect(travel.match(/session was handed over/g)?.length).toBe(2);
+      const linkedList = Bun.spawnSync([bun, join(clientRepo, "packages/door/src/main.ts"), "session", "list", "--json"], { cwd: clientHome, env: clientEnv, stdout: "pipe", stderr: "pipe" });
+      const sessions = JSON.parse(linkedList.stdout.toString()) as { place: { outline: string }; code: { commit: string } }[];
+      expect(sessions.map(s => [s.place.outline, s.code.commit]).sort()).toEqual([["allotment", linkedHead], ["compost", linkedHead]]);
       expect(sh(["git", "-C", clientRepo, "rev-parse", "HEAD"])).toBe(linkedHead);
       expect(readFileSync(join(clientHome, "new-garden-support"), "utf8")).toBe("installed by the target code");
       expect(await linkedClient.exited).toBe(0);
