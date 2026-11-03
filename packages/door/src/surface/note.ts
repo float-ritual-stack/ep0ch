@@ -7616,7 +7616,9 @@ export class NoteSurface {
         if (mode.place === "tile" && host.attachment !== "sources") return undefined;
         y += host.attachment ? 0 : this.drawn?.heroRows ?? 0;
         const r = mode.rect;
-        if (this.floatAt(x, y, host) === "comment") return undefined;
+        // Another attachment drawn over it there takes the click (the layer's order: the last painted is on top).
+        const over = this.floatAt(x, y, host);
+        if (over && over !== "sources") return undefined;
         if (mode.place === "inline" && y < (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) return undefined;
         if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) {
           if (this.floatAt(x, y, host) === "sources") { run("sources.focus", { on: true }); return true; }
@@ -8278,7 +8280,7 @@ export class NoteSurface {
     const split = !float && this.attachments.divider(x, y);
     if (split) { this.splitDrag = split; return; }
     const sm = this.sourcesMode, r = sm?.rect;
-    if (sm && (sm.place !== "tile" || host.attachment === "sources") && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) && this.floatAt(x, y, host) !== "comment" && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
+    if (sm && (sm.place !== "tile" || host.attachment === "sources") && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) && (!float || float === "sources") && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
       if (y >= r.y + sm.footer) { this.gesture.press(x, y); return; }
       void this.runKey("sources.select", { phase: "start", row: y - r.y - 1 + sm.view.top, col: x - r.x }, host);
       return;
