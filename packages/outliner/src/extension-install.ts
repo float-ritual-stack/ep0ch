@@ -215,8 +215,9 @@ function removeRoot(id: string, outlineFolder: string | undefined): { root: stri
     if (!has(root)) throw new Error(`No extension ${id} in ${root}`);
     return { root };
   }
+  // A scratch environment with no user folder is refused as before (targetRoot), never sent looking in ~/outlines.
   const roots = copyRoots({
-    user: userExtensionsFolderInUse() ? userExtensionsDirectory() : null,
+    user: targetRoot(undefined),
     outlines: outlinesFolder({ EP0CH_OUTLINES: process.env.EP0CH_OUTLINES }, homedir()),
   });
   const found = roots.filter((root) => has(root.path));
