@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { backupDatabase, formatPlan, handoverLines, hostReady, hostVerb, linkSummary, migrationRecovery, outlinesToMigrate, setupCommand, tilde } from "../src/setup/apply";
 import { applyLinks } from "../src/setup/links";
 import { skillLinkFacts } from "../src/setup/skill-links";
-import { extFacts } from "../src/setup/ext-links";
+import { doorExtState, extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { ownScratch, stopUnder, wholeEnv } from "./scratch";
 import { builtinChecks, doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
@@ -904,8 +904,21 @@ describe("the door's extensions (packages/door/ext): their links", () => {
     const d = door();
     expect(on(d, { TELLY_CONFIG: join(d.home, "elsewhere") }).exts[0]!.links[0]!.dest).toBe(join(d.home, "elsewhere", "cable", "files.toml"));
     const without = on(d, {}, () => null);
-    expect(without.exts[0]).toMatchObject({ links: [], problem: "telly isn't on PATH" });
+    // Its links are still listed, each with its state (the extensions screen shows them); install makes none of them.
+    expect(without.exts[0]!.problem).toBe("telly isn't on PATH");
+    expect(without.exts[0]!.links.map(l => l.state)).toEqual(["missing", "missing", "missing"]);
     expect(extStep(withExt(without))).toMatchObject({ status: "skip", why: "nothing to link; not linked: telly: telly isn't on PATH" });
+  });
+
+  test("linked, then its program leaves PATH: the links stay listed as linked, and install neither makes nor takes any (PIE-1537)", () => {
+    const d = door();
+    applyLinks(extStep(withExt(on(d))).links!, () => {});
+    const without = on(d, {}, () => null);
+    expect(without.exts[0]!.problem).toBe("telly isn't on PATH");
+    expect(without.exts[0]!.links.map(l => l.state)).toEqual(["ours", "ours", "ours"]);
+    expect(without.stale).toEqual([]);
+    expect(extStep(withExt(without)).status).toBe("skip");
+    expect(doorExtState(without.exts[0]!).words).toBe("telly isn't on PATH · 3 of 3 linked");
   });
 
   test("deleting the extension, the last one: install's recorded links are taken away next time, and nothing else", () => {
