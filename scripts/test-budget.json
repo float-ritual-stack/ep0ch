@@ -1,5 +1,6 @@
 {
   "about": "Seconds of summed test time (each file's JUnit <testsuite> time, hooks included) a nightly run may take: per package (total), any one file (file), and files with a budget of their own (files). Over any of them, the nightly is red; at 80% of a total, a warning. Only Evan raises it; scripts/test-budget.ts propose prints a new one (PIE-1422).",
+  "estimated": true,
   "measured": "2026-11-03: float-box's own per-test times from that night's nightly log (main 60d13be78, the door at --parallel=8), each file's hooks added from CI's JUnit of 2026-11-01 (main d2501da62) scaled to float-box, plus 25%; outline-core's total is a 30 s floor",
   "packages": {
     "door": {
