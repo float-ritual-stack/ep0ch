@@ -19,6 +19,13 @@ are its record. The outliner's entries from then are kept below, under
 - `waiting.pick` is now `list.pick tile=waiting`; `r` reload is gone (the list reads again on change).
 - **Run:** `ep0ch install --apply`. PROTOCOL moves (extensions.list carries `screens`); loki sets the number at merge.
 
+### An extension's tile can hold your keys (PIE-1523)
+
+- A tile kind says what its tiles are now (an edit, a program running, your keys in it, a pin); the desk asks the kind instead of checking which built-in tile it is.
+- An extension's `tiles[].holds` (`{ "keys": true, "edit": "…" }`) makes its tile hold your keys while you're on it: agents don't move, resize, float or close it, as with a terminal you're in.
+- **Try it:** `ep0ch --showcase`, section `kind-facts`.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### One walk through every row container (PIE-1521)
 
 - j and k step through a collection, a figure's rows, a `::links` list, an inline list and an extension's list the same way: step within, say "past the edge", land first or last. One row-container interface replaces a branch per shape.

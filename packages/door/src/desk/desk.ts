@@ -108,7 +108,7 @@ import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNam
 import { W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { effective as withKeymap, movedInTable } from "../surface/keymap";
 import { panelFoot, panelLines, panelPauseMs, tileKeys, type PanelGroup } from "./key-panel";
-import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, RETIRED_KINDS, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
+import { allKindActions, busyFor, factsOf, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, RETIRED_KINDS, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 import { prop } from "../props";
 
 /**
@@ -757,7 +757,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   // ── the layout's one way to change (PIE-513) ──
 
-  /** What a tile is, as the layout's rules need it (its kind, its kind's policy, what keeps it, what it holds). */
   /**
    * A list's home (PIE-794): the reader it belongs to (the links tile's), where its opens land when nothing else says,
    * if that reader is reachable and isn't the list itself. Held or following, it is the home: ⏎ replaces its note
@@ -767,7 +766,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id), name = p ? kindOf(p)?.home?.(p) : null;
     const bound = p && boundSource.get(p);
     const r = name ? bound && bound !== NO_SOURCE ? bound : this.pane(name) : undefined;
-    return r !== p && r instanceof ReaderPane ? this.pathTo(r) : undefined;
+    return r && r !== p && factsOf(r).history ? this.pathTo(r) : undefined;
   }
 
   /** What a tile's policy layers read of it (its kind and the kind's own policy): `facts` without the rest, for the questions asked of every tile on every frame. */
@@ -776,24 +775,22 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { kind: this.unregistered.get(id)?.kind ?? p?.kind ?? "tile", ...(k?.policy ? { policy: k.policy } : {}) };
   }
 
+  /** What tile `id` is for the layout's rules: what its kind says of it (`TileKind.facts`, PIE-1523), with what only the desk knows. */
   private facts(id: number, actor?: Actor): TileFacts {
     const p = this.panes.get(id), k = kindOf(p), src = this.sourced.get(id);
     // A new note's tile (PIE-591) closes with its edit for the person: closeTile leaves the edit first (never lost).
-    const closesWithEdit = !!actor && actor.kind !== "agent" && !!madeFor(p);
-    const how = src ? tileSource(src.source)?.source.drop : undefined;
-    const home = this.homeName(id);
+    const { holdable, holdsKeys, typing: _typing, holds, lists, ...said } = factsOf(p, { keys: id === this.focus, leavesDraft: !!actor && actor.kind !== "agent" && !!madeFor(p), actor });
+    const how = src ? tileSource(src.source)?.source.drop : undefined, home = this.homeName(id);
     return {
-      deliberate: p?.deliberate, clearsOnClose: p?.clearsOnClose?.(), history: p instanceof ReaderPane,
+      deliberate: p?.deliberate, clearsOnClose: p?.clearsOnClose?.(), ...said,
       ...this.kindFacts(id),
-      ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), pinned: p instanceof ReaderPane && p.pinned, available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? (!!k?.previews && !(p instanceof ReaderPane))), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.pinnable && !this.layout.altReaders.has(id) && !this.listFed(id),
+      ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? lists ?? !!k?.previews), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: !!holdable && !this.layout.altReaders.has(id) && !this.listFed(id),
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
       ...(k?.follower ? { follower: true } : {}),
       ...(k?.opensOnScreen ? { opensOut: true } : {}),
       ...(home !== undefined ? { home } : {}),
-      ...(p instanceof ReaderPane && p.editing && !(closesWithEdit && p.surface.drafting) ? { editing: sessionName(p) } : {}),
-      ...(p instanceof PtyPane && p.running ? { running: p.run.cmd[0] ?? "a program" } : {}),
-      ...(p && (this.holdsWork(p) || (p instanceof ReaderPane && p.holdsKeys)) ? { holds: true } : {}),
+      ...(p && (holds || holdsKeys || this.holdsWork(p)) ? { holds: true } : {}),
     };
   }
   /**
@@ -1908,7 +1905,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   holdsPrograms(): boolean { return this.running().length > 0; }
   /** Shown or not, for a screen a host draws itself (the drawer's tiles): its tiles' repaints reach the door only while shown. */
   shownAs(on: boolean) { if (this.ctx && this.onScreen !== on) { this.onScreen = on; for (const a of this.arrivals.values()) a.at = this.clock(); for (const p of this.panes.values()) p.shownAs?.(on && this.shownNow(p)); } }
-  /** The programs this desk runs (the agent isn't one of them: it lives in the host layer, PIE-513). */
   /** Its terminal tiles with a program running, or kept for them in a session's terminal host (not drawn since a handoff). */
   private running() { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && (p.running || (!!p.keptAs && ptyBackend().holds(p.keptAs)))); }
   /**
@@ -1988,7 +1984,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A tile `p` can follow (PIE-814): one with a selection (a tree, a links list) or another reader, here. */
   private followable(id: number, p: ReaderPane): boolean {
     const q = this.panes.get(id);
-    return !!q && q !== p && (!!kindOf(q)?.previews || (q instanceof ReaderPane && q.pinnable));
+    return !!q && q !== p && (!!kindOf(q)?.previews || !!factsOf(q).holdable);
   }
   /** DeskApi.followSource: the tile reader `p` follows by a link (its preview verb), and whether it's out of sight now. */
   followSource(p: ReaderPane): { name: string; hidden: boolean; id: number } | null {
@@ -2134,7 +2130,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private follow(at: number, m: Msg, by: Actor) {
     for (const to of selectTargets(this.layout, at)) {
       const p = this.panes.get(to);
-      if (to !== at && !(p instanceof ReaderPane && (p.editing || p.holdsKeys))) this.openInto(to, m, by, true, at);
+      if (to !== at && !busyFor(factsOf(p))) this.openInto(to, m, by, true, at);
     }
     for (const w of this.ext.get(at) ?? []) if (w.verb === "select") {
       const t = this.extTarget(at, "select", w);
@@ -2384,11 +2380,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return !!this.applyPlacement(m, { from, to: this.idOf(p)!, note: m.id, keys: false }, by, "preview");
   }
   private previewLanding(p: Pane, m: Msg, by: Actor, from: number): boolean {
-    if (this.keptFrom(p, by) || (p instanceof ReaderPane && (p.editing || p.holdsKeys))) return false;
+    // A tile holding an edit or the person's keys, or a pinned reader (PIE-1207), keeps its note: the select wire waits.
+    const said = factsOf(p);
+    if (this.keptFrom(p, by) || busyFor(said) || said.pinned) return false;
     const changed = this.showing(p)?.id !== m.id, now = Date.now(), last = this.walks.get(p);
     const walking = !!last && last.from === from && now - last.at < WALK_MS && last.shown === this.showing(p)?.id;
-    // A pinned reader keeps its note: the select wire into it waits until it's unpinned (PIE-1207).
-    if (p instanceof ReaderPane && p.pinned) return false;
     const take = () => kindOf(p)?.take?.(p, m, this, by);
     const why = p instanceof ReaderPane && !walking ? p.surface.track(take) : take();
     if (why) return false;
@@ -2576,7 +2572,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The person's keys to the first tile of `kind` (waiting's ⏎, the tree's open): `tile.focus`, as their key does. */
   focusKind(kind: TileKindName, actor: Actor = USER) {
     // A pinned reader keeps what it has (an open doesn't land there), so it isn't the one to go to.
-    const id = this.all().find(i => { const p = this.panes.get(i); return p?.kind === kind && !(p instanceof ReaderPane && p.pinned); });
+    const id = this.all().find(i => { const p = this.panes.get(i); return p?.kind === kind && !factsOf(p).pinned; });
     if (id !== undefined && id !== this.focus) this.focusTile(this.nameOf(id), actor);
   }
 
@@ -3122,7 +3118,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   keys(): ScreenKeys {
     const f = this.panes.get(this.focus), via = this.readerOfFocus(), viaId = this.idOf(via);
     const name = viaId !== undefined ? this.nameOf(viaId) : f ? this.nameOf(this.focus) : null;
-    const typing = !!f && (this.rawKeys() || !!this.personIn() || !!kindOf(f)?.takesKeys?.(f) || !!f.typing?.());
+    const typing = !!f && (this.rawKeys() || !!this.personIn() || !!kindOf(f)?.takesKeys?.(f) || !!f.typing?.() || !!factsOf(f, { keys: true }).typing);
     const busy = this.holdsKeys();
     const inner = f instanceof ScreenTile && !this.contentCover(this.focus).fold ? f.inner?.keys() : null;
     const address = inner?.address ?? (f ? this.tileId(this.focus) : null);
@@ -6698,7 +6694,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!p) return;
       const m = this.showing(p);
       out.push({ id: this.tileId(id), name: this.nameOf(id), kind: p.kind, depth, label: this.displayTitle(id), showing: m ? { id: m.id, title: subject(m), ...(prop(m, "work-id") ? { workId: prop(m, "work-id") } : {}), ...(prop(m, "page") ? { page: prop(m, "page") } : {}) } : null,
-        focused: id === this.focus, collapsed: this.collapsed.has(id), float: this.isFloat(id), docked: !!how.docked, tab: !!how.tab, shown: how.shown ?? true, ...(p instanceof ReaderPane && p.pinned ? { pinned: true } : {}) });
+        focused: id === this.focus, collapsed: this.collapsed.has(id), float: this.isFloat(id), docked: !!how.docked, tab: !!how.tab, shown: how.shown ?? true, ...(factsOf(p).pinned ? { pinned: true } : {}) });
     };
     const walk = (n: LNode, depth: number, docked: boolean) => {
       if (n.t === "leaf") return line(n.id, depth, { docked });
