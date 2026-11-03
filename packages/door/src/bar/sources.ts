@@ -554,7 +554,7 @@ function doorExtMarkdown(e: ExtFacts): string {
   const st = doorExtState(e);
   return [
     `**${e.name}** · a door extension · ${st.words}`, "", e.about ?? "", "",
-    ...(e.problem ? [`> [!warning] ${e.problem}: nothing is linked. Once that's fixed, \`${INSTALL_LINKS}\` links it.`, ""] : []),
+    ...(e.problem ? [`> [!warning] ${e.problem}: install links none of it. Once that's fixed, \`${INSTALL_LINKS}\` links it.`, ""] : []),
     ...(e.links.length ? ["Its links:", ...e.links.map(l => `- \`${relative(e.dir, l.src)}\` → \`${tilde(l.dest)}\` · ${LINK_WORDS[l.state]}${l.state === "taken" && l.was ? ` (${tilde(l.was)})` : ""}`), ""] : []),
     st.linked ? "Install keeps these links; deleting the folder takes them away at the next install." : `\`${INSTALL_LINKS}\` makes the links it can (never over a file it didn't make).`,
     "", `\`${tilde(e.dir)}\``,
@@ -626,7 +626,7 @@ const EXTENSIONS: BarSource = {
     return { lines: [row.label, "", row.refused ?? ""] };
   },
   command(row) {
-    if ((row.data as ExtRow).kind === "door") return INSTALL_LINKS;
+    // A door extension's command is a shell command (in its preview to copy), not an act line.
     const req = extRequest(row.data as ExtRow);
     return req ? shownLine(req[0], req[1]) : null;
   },

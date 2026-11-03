@@ -23,7 +23,7 @@ export interface ExtFacts {
   dir: string;
   about?: string;
   links: OwnedLink[];
-  /** Why none of its links are made (a program it needs isn't on PATH, an `into` that doesn't apply, a bad ext.json). */
+  /** Why install makes none of its links (a program it needs isn't on PATH, an `into` that doesn't apply, a bad ext.json); `links` still says each one's state. */
   problem?: string;
 }
 
@@ -68,7 +68,9 @@ export function extFacts(extRoot: string, o: { env: Env; home: string; bin: stri
       try { files = readdirSync(join(dir, l.from)).filter(f => !f.startsWith(".")).sort(); } catch { problem ||= `${l.from}/ isn't there`; }
       for (const f of files) { const src = join(dir, l.from, f), dest = join(into, f); links.push(linkAt(src, dest)); }
     }
-    exts.push(problem ? { ...base, links: [], problem } : { ...base, links });
+    // Its links are kept beside a problem, each with its state (one made before stays listed as linked); install makes
+    // none of a problem's (plan.ts extStep), and the extensions screen still shows them.
+    exts.push(problem ? { ...base, links, problem } : { ...base, links });
   }
   // Links into ext/ whose file is gone: install made them (nothing else points into a checkout's ext/), so it takes them away.
   const stale = staleLinks(dirs, [extRoot]);
@@ -77,8 +79,8 @@ export function extFacts(extRoot: string, o: { env: Env; home: string; bin: stri
 
 /** A door extension's state in a few words, for the extensions screen and the showcase: why none of its links are made, else how many are. */
 export function doorExtState(e: ExtFacts): { words: string; linked: boolean } {
-  if (e.problem) return { words: e.problem, linked: false };
   const ours = e.links.filter(l => l.state === "ours").length;
+  if (e.problem) return { words: ours ? `${e.problem} · ${ours} of ${e.links.length} linked` : e.problem, linked: false };
   if (ours === e.links.length) return { words: e.links.length ? "linked" : "nothing to link", linked: true };
   return { words: `${ours} of ${e.links.length} linked`, linked: false };
 }

@@ -760,5 +760,9 @@ describe.skipIf(!outliner)("the showcase: the door's own extension folders (PIE-
     // ⏎, as the agent: the state and the command that links it; nothing is linked by the screen.
     const picked = await h.app.act({ action: "bar.pick", args: { scope: "extensions", query: "kite", n: 1 }, as: "test-agent" });
     expect(JSON.stringify(picked)).toContain("kite: 0 of 2 linked · ep0ch install --apply links it");
+    // The install command is a shell command, not an act line: copying the row refuses and says where it is.
+    await h.app.dispatch.press("bar.open", { scope: "extensions", query: "kite" }); await (h.app as any).bar.settled();
+    expect(() => (h.app as any).bar.commandLine(1)).toThrow(/runs no act line/);
+    await h.app.dispatch.press("bar.close", {});
   });
 });

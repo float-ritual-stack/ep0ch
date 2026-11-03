@@ -187,7 +187,7 @@ function linksStep(id: "ext" | "skills", title: string, links: readonly OwnedLin
 export function extStep(f: Facts): Step {
   const exts = f.ext?.exts ?? [];
   const skipped = exts.filter(e => e.problem).map(e => `${e.name}: ${e.problem}`);
-  return linksStep("ext", "Link the door's extensions (packages/door/ext)", exts.flatMap(e => e.links), f.ext?.stale ?? [], f.ext ? [f.ext.root] : [], f.ext?.record,
+  return linksStep("ext", "Link the door's extensions (packages/door/ext)", exts.filter(e => !e.problem).flatMap(e => e.links), f.ext?.stale ?? [], f.ext ? [f.ext.root] : [], f.ext?.record,
     skipped.map(x => `not linked: ${x}`));
 }
 
