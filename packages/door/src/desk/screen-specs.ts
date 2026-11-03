@@ -3,7 +3,6 @@
 import type { Screen } from "../app";
 import { briefKind, briefSpec } from "../brief/brief";
 import { pinnedKind, pinnedSpec } from "../hub/pinned";
-import { WAITING_KIND, waitingSpec } from "../hub/waiting";
 import { welcomeKinds, welcomeSpec } from "../hub/welcome";
 import { HOME_KIND, homeSpec } from "../home";
 import { boardSpec } from "./delivery";
@@ -20,11 +19,10 @@ import { registerTileKind, tileKind } from "./tile-kinds";
 
 /** The built-in screens' kinds and specs (once: every module that opens a screen asks). */
 export function registerBuiltinScreens(): void {
-  for (const k of [WAITING_KIND, ...welcomeKinds(), briefKind(), pinnedKind(), HOME_KIND, BLANK_KIND, LIBRARY_KIND, KEYS_KIND, ...echoKinds()]) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [...welcomeKinds(), briefKind(), pinnedKind(), HOME_KIND, BLANK_KIND, LIBRARY_KIND, KEYS_KIND, ...echoKinds()]) if (!tileKind(k.kind)) registerTileKind(k);
   const have = new Set(screenNames());
   const add = (name: string, of: Parameters<typeof registerScreen>[1], target?: string) => { if (!have.has(name)) registerScreen(name, of, target ? { target } : {}); };
   add("desk", () => deskSpec());
-  add("waiting", () => waitingSpec());
   add("welcome", () => welcomeSpec());
   add("brief", () => briefSpec());
   add("pinned", args => pinnedSpec(args), "address");

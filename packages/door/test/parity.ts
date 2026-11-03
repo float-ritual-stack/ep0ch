@@ -15,7 +15,7 @@
 // separately so its long walks don't wait behind the desk and its tiles (PIE-901). PARITY_ONLY=<label,…> narrows
 // any of them (it splits on commas; `-t` picks a label holding one).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { FULL_MARKERS } from "../src/overflow";
@@ -130,7 +130,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   beforeAll(async () => {
     restore.push(useSearchClock(clock));
     const env = { ...process.env };
-    restore.push(() => { for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "VISUAL", "EDITOR", "EP0CH_EDIT_ARM"]) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } });
+    restore.push(() => { for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "VISUAL", "EDITOR", "EP0CH_EDIT_ARM", "HOME", "PATH", "EP0CH_SSH"]) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } });
     process.env.EP0CH_STATE = join(scratch.root, "door");
     mkdirSync(process.env.EP0CH_STATE, { recursive: true, mode: 0o700 });
     // The daily layout's agent: a program that prints nothing, so no prompt arrives between two looks.
@@ -139,6 +139,16 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     process.env.EP0CH_EDIT_ARM = "600000";
     // ctrl+e hands the note to $EDITOR: one that exits at once, so the probe goes on.
     process.env.VISUAL = process.env.EDITOR = "true";
+    // The home base looks for machines (SSH config, tailnet, ssh): none here, so it never reaches a real machine and its
+    // rows don't change while it is probed. Its SSH config is the scratch HOME's, a tailscale that answers nothing, and an
+    // ssh that fails (PIE-1526: it had read real outlines over ssh, and its rows arrived between a key and its look).
+    const bin = join(scratch.root, "bin");
+    mkdirSync(join(scratch.root, "home"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "tailscale"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    process.env.HOME = join(scratch.root, "home");
+    process.env.PATH = `${bin}:${process.env.PATH}`;
+    process.env.EP0CH_SSH = "false";
     // Over the whole door, as on a screen without tiles, not in a tile beside the note (PIE-417): whether that
     // tile's editor had exited by the time the probe looked was a race, so runs explored different input states.
     // The tile's own path is desk-tiles.test.ts's (a fake editor that waits).
@@ -775,7 +785,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const COUNTS: Record<string, { looks: number; paints: number; host: number }> = {
     // Oct 28, float-box: 367 looks, 1,911 paints, 631 round trips (its `/` state: the bar's keys and the builds they end); 1,515
     // looks before a look read the paint it followed.
-    "echonet: messages": { looks: 460, paints: 2400, host: 790 },
+    // Nov 2 (PIE-1526): 368 looks, 2,104 paints, 828 round trips (823 to 832 across runs). The same keys (1,025 then 1,028) and
+    // builds (394 then 398) as Oct 28; each area read is the same 11 queries. What grew is how often the screen reads its areas
+    // again: once per burst of outline changes (EchoNet.changed), 21 times a run before #1162 and 27 now, as more of the probes'
+    // actions write (door.event, scripts.render). Spread over a week of merges (#1109 697, #1173 767, #1162 806, #1196 829).
+    "echonet: messages": { looks: 460, paints: 2400, host: 1040 },
     // 963, 5,587 and 2,167; 4,196 looks before. The paints: ~4 a build (setup down, enter, enter, each key painting) over ~600
     // builds, and one a probe's key over ~3,000 keys; the round trips ~2 a build, and one a key typed in the bar.
     "echonet: a message read": { looks: 1200, paints: 7000, host: 2710 },

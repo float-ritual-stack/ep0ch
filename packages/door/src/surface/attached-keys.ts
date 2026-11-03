@@ -27,13 +27,6 @@ export const SOURCE_FIELD_KEYS: readonly ModeKey[] = keyTable("source field", "a
   row("esc", "sources.field", "keep field", { op: "cancel" }), row("enter", "sources.field", "save", { op: "save" }), row("ctrl+s", "sources.field", "save", { op: "save" }),
   row("ctrl+z", "sources.field", "undo typing", { op: "key", value: "ctrl+z" }), row("click", "sources.field", ""),
 ]);
-/**
- * Zoom into a part of a reader's note (PIE-780): W on the part the [ ] position (else the reading line) is in, a click on
- * the ⤢ at a figure's, a table's or a heading's right edge; esc (or back) returns to the whole note.
- */
-export const ZOOM_KEYS: readonly ModeKey[] = keyTable("reader zoom", "a part of a note zoomed (W)", [
-  row("W", "element.zoom", "zoom into this part"), row("click", "element.zoom", ""), row("esc", "element.zoom", "whole note", { on: false }),
-]);
 export const REPLIES_CONTROLS = ["note.thread.full", "note.thread.groups", "note.thread.close"] as const;
 
 export const REORDER_KEYS: readonly ModeKey[] = keyTable("reorder", "moving a note among its siblings", [
@@ -45,7 +38,6 @@ export const REORDER_KEYS: readonly ModeKey[] = keyTable("reorder", "moving a no
 export const TREE_MOVE_KEYS = REORDER_KEYS.map(binding => ({ ...binding, action: "tree.move", ...(binding.action === "note.move.undo" ? { args: { undo: true } } : {}) }));
 export const COLUMN_MOVE_KEYS = keyTable("river column moves", "moving a river column's card among its siblings", TREE_MOVE_KEYS.map(binding => ({ ...binding, action: "column.move" })), "", "river");
 export const LIST_MOVE_KEYS = TREE_MOVE_KEYS.map(binding => ({ ...binding, action: "note.move" }));
-export const READER_MOVE_KEYS = REORDER_KEYS.filter(binding => binding.action === "note.move" && binding.args?.step !== "in" && binding.args?.step !== "out");
 
 export const REPLIES_KEYS: readonly ModeKey[] = keyTable("replies", "a note's replies, t in a reader", [
   row("esc", "note.thread.close", "close replies"), row("q", "note.thread.close", "close replies"), row("t", "note.thread.close", "close replies"),
@@ -104,14 +96,6 @@ export const ATTACHED_KEYS = [SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPL
 /** A hint row from rows (key, the action it runs, its word): the reader's reading keys below and every picker's, so one drawing reads them all. */
 export const hintOf = (rows: readonly ModeKey[]): string => modeHint(rows, () => undefined);
 export const rk = (key: string, action: string, label: string, args?: Record<string, unknown>): ModeKey => ({ key, action, label, ...(args ? { args } : {}) });
-/** Reading a note: the keys the hint row names, on the actions they run (NOTE_ACTIONS). */
-export const STEP_KEYS = ["up", "down", "j", "k"].map(key => rk(key, "reading.step", "blocks/rows", { by: key === "up" || key === "k" ? -1 : 1 }));
-export const ELEMENT_STEP_KEYS = ["[", "]"].map(key => rk(key, "element.select", "elements", { by: key === "[" ? -1 : 1 }));
-export const SECTION_KEYS = ["(", ")"].map(key => rk(key, "fold.select", "sections", { by: key === "(" ? -1 : 1 }));
-export const READING_KEYS: readonly ModeKey[] = [
-  rk("f", "fold.toggle", "fold"), rk("M", "margin", "comments mode"), rk("R", "note.reply", "reply"), rk("t", "note.thread", "thread"), rk("i", "props", "properties"),
-  rk("z", "callouts", "callouts"), rk("u", "up", "up"), rk("C", "passage.select", "comment"), rk("m", "threads", "comments"),
-];
 /** A picker's own keys: the move and ⏎ that choose a row, and esc; `action` is what choosing runs. */
 export const chooseKeys = (action: string): ModeKey[] => [rk("j", action, "choose"), rk("k", action, "choose"), rk("enter", action, "choose"), rk("esc", action, "cancel", { cancel: true })];
 /** The placement menu: arrows select, ⏎ chooses, esc closes. */

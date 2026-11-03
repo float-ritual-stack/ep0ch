@@ -69,7 +69,7 @@ import { join } from "node:path";
 import { hyperBindings, hyperLabel, hyperOn } from "../hyper";
 import { scriptBindings } from "../extensions";
 import { containerKeys, leafNames, slotNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
-import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
+import { saveScreenNote, ScreenConflict, screenNote, screenNotes, trashScreenNote } from "./screen-notes";
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme } from "../theme";
 import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term";
@@ -2279,11 +2279,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.redraw();
   }
 
-  /** DeskApi.previewsEmpty: every preview following tile `from`'s selection here shows nothing yet. */
+  /** DeskApi.previewsEmpty: some preview follows tile `from`'s selection here, and none shows anything yet (a reader still reading the note a saved layout had it on counts as showing it). */
   previewsEmpty(from: Pane): boolean {
-    const id = this.idOf(from);
-    // A reader still reading the note a saved layout had it on counts as showing it: the list's first row never replaces it.
-    return id === undefined || this.followers(id).every(p => p === from || (!this.showing(p) && !(p instanceof ReaderPane && (p.want || p.wantNote()))));
+    const id = this.idOf(from), f = id === undefined ? [] : this.followers(id).filter(p => p !== from);
+    return f.length > 0 && f.every(p => !this.showing(p) && !(p instanceof ReaderPane && (p.want || p.wantNote())));
   }
 
   /** A list's home (the reader it belongs to), if it has one here. */
@@ -6383,7 +6382,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     p.personClickAt = Date.now();
     if (!p.running && p.exited !== null) { p.restart(); return { ...this.tileAnswer(this.tile(name).id), restarted: true }; }
     if (!p.running) throw new ActionRefused(`${name}'s program hasn't started`);
-    this.ptyIn = p; this.chord = null;
+    this.ptyIn = p; this.chord = null; if (this.ctx.hostLayer?.isDrawer(this)) this.ctx.hostLayer.enteredTab?.(p);   // in the drawer, the drawer takes the keys in (PIE-1526)
     // Said by what its header calls it (the drawer's own tile: what runs in it, never its tile name).
     const said = (p as Pane).headName?.() ?? name;
     if (send) { p.input(send); this.ctx.flash(`sent ctrl+] to ${said}`); }
@@ -6512,8 +6511,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (refused) throw new ActionRefused(refused);
     name = screenSlug(title);
     // A screen as data (specData): this one's spec with the layout as it is now, never the file it keeps itself in.
-    const { saves: _saves, stays: _stays, ...rest } = this.spec;
-    const spec: ScreenSpec = { ...rest, name, title, layout: this.layoutSpec() };
+    const { saves: _saves, stays: _stays, menu: _menu, ...rest } = this.spec, menu = screenNote(name)?.spec.menu;   // its menu row is its note's (screen.menu, menu-rows.ts), never the copy it opened with
+    const spec: ScreenSpec = { ...rest, name, title, layout: this.layoutSpec(), ...(menu ? { menu } : {}) };
     // The shape written, as it is now: a change made while the note is being written is still a change.
     const shape = this.shapeNow();
     let saved;
@@ -6567,6 +6566,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { screen: name, note: n.id, trashed: true };
   }
   private deleteArm: { name: string; at: number } | null = null;
+  /** Screen note `name` written elsewhere (screen.menu, src/desk/menu-rows.ts): the next save is checked against it. */ noteWritten(name: string, at: { id: string; revision: number }) { if (this.madeAs === name || this.layoutName === name) this.madeBase = at; }
   /** This desk is a screen of the person's own (blank, or one they made), not a built-in with a name of its own. */
   private madeHere(): boolean { return this.madeAs !== null || !!madeScreen(this.spec.name) || (!!this.spec.layouts && !this.spec.saves); }
   /** The layout as last saved or loaded by name, to say on the hint row when it's changed since. */

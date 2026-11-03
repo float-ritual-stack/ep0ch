@@ -276,3 +276,10 @@ test("a list draws as text, Markdown, a page's <ul> and CSV: its groups, its row
   expect(renderComponent(output, "csv").body).toBe("label,detail\nPea trellis,next\nBean *poles*,\nNeeds a spade,\nSpade,shed");
   expect(renderComponent(validateComponent({ data: [], view: { type: "list", rows: [], empty: "no seeds yet" } }), "terminal").body).toBe("no seeds yet");
 });
+
+test("a list may name the title of the tile it fills (PIE-1525), one line; a list in a note draws without it", () => {
+  const out = validateComponent({ data: [], view: { type: "list", title: "outbox · 2 waiting on 2 people", rows: [], empty: "nobody owes you" } });
+  expect((out.view as { title?: string }).title).toBe("outbox · 2 waiting on 2 people");
+  expect(renderComponent(out, "terminal").body).toBe("nobody owes you");
+  expect(() => validateComponent({ data: [], view: { type: "list", title: "two\nlines", rows: [] } })).toThrow(/title.*one line/);
+});

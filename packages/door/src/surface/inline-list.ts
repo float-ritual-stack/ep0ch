@@ -16,6 +16,14 @@ export class InlineList {
   before = 0;
   after = 0;
 
+  /** The rows of list `key` wholly inside this window, each with the lines it spans (a page there, PgUp PgDn: PIE-1529); null when it draws none of them. */
+  shown(key: string): Map<string, number> | null {
+    const own = this.rows.filter(r => r.target.listRow?.key === key && r.target.listRow.row);
+    if (!own.length) return null;
+    const top = this.before + Math.max(0, this.view.top), end = this.view.room > 0 ? top + this.view.room : Infinity;
+    return new Map(own.filter(r => r.first >= top && r.last < end).map(r => [`${r.target.listRow!.row}|${r.target.listRow!.group ?? ""}`, r.last - r.first + 1]));
+  }
+
   draw(key: number, lines: string[], width: number, targets: LinkTarget[], current: string | null, height?: number): string[] {
     const parsed = extractLinks(lines), byTag = new Map<number, typeof parsed.ranges>();
     for (const r of parsed.ranges) {

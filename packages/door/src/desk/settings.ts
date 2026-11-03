@@ -3,7 +3,7 @@ import { USER } from "../socket";
 import { openSettings, settingsSubject } from "../surface/settings";
 import { ReaderPane, READER_ACTIONS, type DeskApi, type PaneView } from "./panes";
 import type { TileKind } from "./tile-kinds";
-import { readerFacts } from "./builtin-tiles";
+import { readerFacts } from "./reader-facts";
 import { AttachedTilePane } from "./attached-tile";
 
 /** A reader hosting the same card: the subject and its write path stay with NoteSurface. */
