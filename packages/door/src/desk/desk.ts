@@ -99,7 +99,7 @@ import { tileMenu } from "./tile-menu";
 import { KeysPane } from "./keys-window";
 import { TrailPane } from "./trail-tile";
 import { filtered } from "../bar/filter";
-import { ScreenTile } from "./screen-tile";
+import { mountDispatch, ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
 import { tileRegistry } from "./tile-registry";
 import { ListsBeneath } from "./in-place";
@@ -2980,13 +2980,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private mountIn(req: ActRequest): Dispatcher | null {
     const head = req.tile?.slice(0, req.tile.indexOf("/")) ?? "";
     const t = head ? this.dispatch.tile(head) : null, p = t ? this.pane(t.name) : undefined;
-    return p ? kindOf(p)?.dispatcher?.(p) ?? null : null;
+    return p ? mountDispatch(p, kindOf(p)) : null;
   }
   /** The request as the mounted screen reads it: the rest of the path names its tile. */
   private pathRest(req: ActRequest): ActRequest { const rest = req.tile!.slice(req.tile!.indexOf("/") + 1); return { ...req, ...(rest ? { tile: rest } : { tile: undefined }) }; }
   /** The screen mounted in the tile with the keys (a group, a board in a tile), when it takes an open: the person's open naming no tile lands in there, as its own reader's would (PIE-651). */
   focusedMount(): { name: string; dispatch: Dispatcher } | null {
-    const p = this.panes.get(this.focus), dsp = p ? kindOf(p)?.dispatcher?.(p) ?? null : null;
+    const p = this.panes.get(this.focus), dsp = p ? mountDispatch(p, kindOf(p)) : null;
     return dsp?.has("open") ? { name: this.nameOf(this.focus), dispatch: dsp } : null;
   }
   /** The dispatcher of the whole screen in the tile a request names (a board in a tile), if it names one. */
@@ -2994,7 +2994,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // By the dispatcher's grammar (a name, an id, a number, an alias, a block id), as every other tile= is read.
     const t = req.tile ? this.dispatch.tile(req.tile) : null;
     const p = t ? this.pane(t.name) : undefined;
-    return p ? kindOf(p)?.dispatcher?.(p) ?? null : null;
+    return p ? mountDispatch(p, kindOf(p)) : null;
   }
 
   /**
@@ -3022,7 +3022,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // outline's preview): a note action runs only in a reader, so the tile itself is never meant.
     for (const { from, to, verb } of this.layout.wires) if (verb === "select" && this.panes.get(to) instanceof ReaderPane) more.set(to, [...(more.get(to) ?? []), this.nameOf(from)]);
     return all.map((id, i) => {
-      const p = this.panes.get(id)!, rd = p instanceof ReaderPane ? p : null, name = this.nameOf(id), aliases = more.get(id), mount = kindOf(p)?.dispatcher?.(p);
+      const p = this.panes.get(id)!, rd = p instanceof ReaderPane ? p : null, name = this.nameOf(id), aliases = more.get(id), mount = mountDispatch(p, kindOf(p)) ?? undefined;
       const { fold, cover } = this.contentCover(id);
       return {
         name, id: this.tileId(id), n: i + 1, kind: this.unregistered.get(id)?.kind ?? p.kind, role: tileRegistry.roleOf(p), shown: shown.has(id),

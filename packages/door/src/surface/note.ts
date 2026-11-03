@@ -3,7 +3,8 @@ import { panelMode } from "./panel-mode";
 import { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, HISTORY, NAV_VERSION, savedPlace, placeOf, readNav, type Place, type Zoom, type FigureChoice, type SavedNav } from "./navigation";
 export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, TRAIL_CHIP, HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
 import { collectionHint, listBinding } from "./list-keys";
-import { listMode, collectionAtReading, collectionAtCursor, collectionBinding, collectionKey, collectionTextStop, type ListMode } from "./list-mode";
+import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
+import { collectionAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
@@ -138,7 +139,7 @@ import { askInBar } from "../bar/ask";
 import { argQuestion } from "../bar/form";
 import type { ActionInfo } from "./actions";
 import { parseTileAddress } from "../desk/tile-address";
-import { buttonLineLook, buttonMarks, describeButtonMarks, type ButtonLookups } from "../button-check";
+import { buttonIn, buttonLineLook, buttonMarks, describeButtonMarks, slotButton, type ButtonLookups } from "../button-check";
 import { useRegion, type UseSite } from "../template-use";
 import { propQuestion } from "../template-stamp";
 import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
@@ -1252,10 +1253,11 @@ export class NoteSurface {
     if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label)} · ⏎ runs ${printable(e.link.press.act.replaceAll("\n", " -> "))}`;
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ${hintOf([rk("enter", "element.open", verbOf(e, false)), ...(e.kind === "resource" ? [rk("y", "block.copy", "copy")] : [])])}`;
     // A table row's label keeps its columns' gaps: one space each here, since two spaces part a hint row's keys (hintKeys).
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ${hintOf([rk("enter", "element.open", verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))), ...(opens(e) ? [rk("alt+enter", "element.open", "new", { fresh: true })] : []), ...(e.kind === "resource" || e.kind === "block" ? [rk("y", "block.copy", "copy")] : []), ...(e.kind === "task" ? [rk("space", "task.status", "done/to do"), rk("ctrl+z", "task.undo", "undo")] : [])])}${collectionAtCursor(this) ? ` · ${collectionHint()}` : this.figureHint()} · ${this.zoomHint()}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ${hintOf([rk("enter", "element.open", verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))), ...(opens(e) ? [rk("alt+enter", "element.open", "new", { fresh: true })] : []), ...(e.kind === "resource" || e.kind === "block" ? [rk("y", "block.copy", "copy")] : []), ...(e.kind === "task" ? [rk("space", "task.status", "done/to do"), rk("ctrl+z", "task.undo", "undo")] : [])])}${this.collectionAtCursor() ? ` · ${collectionHint()}` : this.figureHint()} · ${this.zoomHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
+    const b = this.buttonAtReading()?.link?.press; if (b) return `press ${printable(b.label ?? "")} · ⏎ runs ${printable(b.act.replaceAll("\n", " -> "))}`;
     return null;
   }
 
@@ -1276,7 +1278,7 @@ export class NoteSurface {
   /** The zoom's keys (PIE-780) as the hint says them, read from ZOOM_KEYS: the way in, or while zoomed the way back. */
   private zoomHint(): string {
     const k = ZOOM_KEYS.find(k => k.key !== "click" && (k.args?.on === false) === !!this.zoom)!;
-    return `${keyCaption(k.key)} ${this.zoom ? k.label : "zoom"}`;
+    return hintOf([{ ...k, label: this.zoom ? k.label : "zoom" }]);
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
@@ -4655,6 +4657,8 @@ export class NoteSurface {
         return true;
       }
       if (!this.cur && this.links[this.link]) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
+      const b = this.buttonAtReading(); // the reading line (j k) on a ::button's block (PIE-1518): ⏎ presses it, no ] first
+      if (b && (!fresh || b.link?.press?.alt)) { void this.runKey("button.press", { n: this.elems.indexOf(b) + 1, ...(fresh ? { alt: true } : {}) }, host); return true; }
       return false;
     }
     if ((c === "(" || c === ")") && this.msg && !this.msg.partial) { void this.runKey("fold.select", { by: c === ")" ? 1 : -1 }, host); return true; }
@@ -4827,14 +4831,14 @@ export class NoteSurface {
     const tile = messageContext.getStore()?.tile;
     // The keys still to ask go with the answer (a re-pick asks filled slots too, so they can't be read again from `empty`).
     const later = keys.slice(1), rest = `${later.length ? ` next=${later.join(",")}` : ""}${run ? " run=true" : ""}`;
-    const then = `button.slot note=${block} line=${line} key=${key}${rest}${tile ? ` --tile ${tile}` : ""}`;
+    const then = `button.slot note=${block} line=${line} label=${JSON.stringify(button.label)} key=${key}${rest}${tile ? ` --tile ${tile}` : ""}`;
     const what = keys.length > 1 ? `${key} (${button.slots.findIndex(s => s.key === key) + 1} of ${button.slots.length})` : key;
     if (q?.kind === "tile") {
       host.ctx.flash(`${button.label}: choose a tile for ${key}`);
       return d.act({ action: "tile.pick", args: { then, prompt: `${button.label}: choose a tile for ${what}` }, ...(tile ? { tile } : {}) }, actor);
     }
     return askInBar(host.ctx as never, `${button.label}: ${what}`, [q ?? { name: "value", type: "text", label: key, free: true, required: true }], {}, actor,
-      answers => d.act({ action: "button.slot", args: { note: block, line, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}), ...(run ? { run: true } : {}) }, ...(tile ? { tile } : {}) }, actor));
+      answers => d.act({ action: "button.slot", args: { note: block, line, label: button.label, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}), ...(run ? { run: true } : {}) }, ...(tile ? { tile } : {}) }, actor));
   }
 
   /**
@@ -4844,16 +4848,11 @@ export class NoteSurface {
    * the person is asked again (a re-pick); with `ask`, the next empty slot is asked after it.
    */
   async setButtonSlot(a: { note?: string; line?: number; label?: string; key?: string; value?: string; ask?: boolean; next?: string; run?: boolean }, host: SurfaceHost, actor: Actor): Promise<unknown> {
-    const m = a.note && a.note !== this.msg?.id ? await host.ctx.board.get(a.note) : await this.whole();
+    const m = await host.ctx.board.get(a.note ?? this.requireNote().id); // the service's text, never this reader's copy, which catches up (PIE-1518)
     if (!m) throw new ActionRefused(`no note ${a.note}: button.slot note=<id> takes the note the button is written in`);
-    const buttons = buttonCallsOf(m.text);
-    const hits = a.line !== undefined ? buttons.filter(b => b.line === a.line! - 1) : a.label !== undefined ? buttons.filter(b => b.label === a.label || b.label.toLowerCase().includes(a.label!.toLowerCase())) : buttons.filter(b => b.slots.length);
-    const names = buttons.filter(b => b.slots.length).map(b => `line ${b.line + 1} "${b.label}" (${b.slots.map(s => s.key).join(", ")})`).join("; ");
-    if (!hits.length) throw new ActionRefused(`no ${a.line !== undefined ? `button on line ${a.line}` : a.label !== undefined ? `button called "${a.label}"` : "button with a slot"} in this note; ${names ? `buttons with slots: ${names}` : "none has a slot (a button with act=\"… tile={target}\" target= has one)"}`);
-    if (hits.length > 1) throw new ActionRefused(`${hits.length} buttons match (${names}); say line=<n>`);
-    const button = hits[0]!;
-    const key = a.key ?? (button.empty[0] ?? (button.slots.length === 1 ? button.slots[0]!.key : undefined));
-    if (!key || !button.slots.some(s => s.key === key)) throw new ActionRefused(`${button.label} has ${button.slots.length ? `the slots ${button.slots.map(s => s.key).join(", ")}; say key=<one>` : "no slot"} (write target= on its line and {target} where it goes)`);
+    if (this.msg?.id === m.id && !this.msg.partial && this.msg.revision !== m.revision) { this.refresh({ ...m, childIds: this.msg.childIds }); host.redraw(); }
+    const named = slotButton(buttonCallsOf(m.text), a); if ("refused" in named) throw new ActionRefused(named.refused);
+    const { button, key } = named;
     if (a.value === undefined) return this.askSlots(m.id, button, [key], host, actor, !!a.run);
     const given = await this.slotValue(m.id, button, key, a.value, host, actor);
     const line = button.line, before = m.text.split("\n")[line] ?? "", after = withButtonSlot(before, key, given);
@@ -5218,50 +5217,43 @@ export class NoteSurface {
     else if (rows[1] > this.scroll + d.room) this.scroll = Math.min(rows[0], rows[1] - d.room);
   }
 
+  /** The collection whose row the `[ ]` position is on, or null (PIE-1501): its list keys are the position's. */
+  collectionAtCursor(): ListHandle<any> | null { return collectionAtCursor(this.rowWorld()); }
+
+  /** What the last layout drew, lent to the row containers (row-container.ts); a pick lands as a click's does when there's a host. */
+  private rowWorld(host?: SurfaceHost): RowWorld<Element> {
+    const d = this.drawn, text = this.msg?.text.split("\n") ?? [];
+    return {
+      elems: this.elems, inline: this.inlineLists, lists: this.listsDrawn, cursor: this.selectedElement(), wanted: this.rowWanted(),
+      lineOf: e => { const s = d?.doc.source[e.row - d.top]; return s === undefined ? undefined : d!.lines[s]; },
+      text: line => text[line] ?? "",
+      pick: (l, row) => { if (host) void this.listHost(host).picked(l, row); else this.selectListRow(l, row.id, row.group); },
+      selectInline: (e, row) => { this.selectInlineRow(e, row); },
+    };
+  }
+
+  /**
+   * j k (reading.step): the container the `[ ]` position is in steps its rows (row-container.ts); past its edge, or off
+   * every container, the reading line walks on to the next block with text, and lands on the first (j) or last (k) row of
+   * a container drawn there. `through`: walk past the container the position is in instead of stepping it.
+   */
   stepReading(by: 1 | -1, through = false, host?: SurfaceHost) {
-    const current = this.selectedElement();
-    // The [ ] position on a collection's row (PIE-1501): the collection steps its own rows (down or up a grid, along a
-    // lane); past an edge the walk goes on through the note, as it came in. No mode: this is the one row step for a
-    // collection, as the inline branch below is for a figure's or a ::links' rows. The pick lands as a click's does
-    // (listHost.picked: the [ ] position, and the preview following it).
-    const onRow = collectionAtCursor(this);
-    const land = (l: ListHandle<any>, row: ListViewRow<any>) => { if (host) void this.listHost(host).picked(l, row); else this.selectListRow(l, row.id, row.group); };
-    if (onRow && !through) {
-      const row = onRow.view.step(PERSON, by);
-      if (row) { land(onRow, row); return; }
-      // k from its first row, with the block's own text above the rows (a saved view's last body line): onto that text.
-      if (by < 0 && collectionTextStop(this)) { this.letGo(); return; }
-      through = true;
+    const world = this.rowWorld(host), inside = rowContainerAt(world), was = this.selectedElement();
+    if (inside && !through) {
+      if (inside.step(by) !== "edge") return;
+      // k from its first row, with the block's own text above the rows: onto that text.
+      if (by < 0 && inside.lead) { this.letGo(); return; }
     }
-    const here = onRow ? null : collectionAtReading(this);
-    if (here && !through && by > 0) { this.enterList(here, true, "first"); return; }
-    const figure = current?.link?.figure?.figure;
-    const links = current?.link?.listRow?.key;
-    if (figure || (links && !current.link?.inlineList && !this.listsDrawn.some(l => l.key === links && l.collection))) {
-      const entries = this.elems.filter(e => figure ? e.kind === "row" && e.link?.figure?.figure === figure : e.link?.listRow?.key === links && e.link?.listRow?.row !== undefined);
-      const entry = entries[0];
-      const inline = current.link?.inlineList ?? entry?.link?.inlineList;
-      if (inline && entry) {
-        const list = this.inlineLists.get(inline.key)!;
-        const row = current.link?.inlineList ? current.link.inlineList.row + by : by > 0 ? 0 : list.rows.length - 1;
-        this.selectInlineRow(entry, Math.max(0, Math.min(list.rows.length - 1, row)));
-      }
-      return;
-    }
-    const inline = current?.link?.inlineList;
-    if (inline) {
-      const list = this.inlineLists.get(inline.key)!;
-      const row = inline.row + by;
-      if (row >= 0 && row < list.rows.length) { this.selectInlineRow(current!, row); return; }
-    }
-    // Leaving a collection's block (its rows scrolled by their own picks): walk on, never a screen of it at a time.
-    const leaving = !!here || !!onRow;
+    // The reading line on a container's block, the position off its rows (esc let go of it): j goes into it.
+    const here = inside ? null : rowContainerOn(world, this.readingSourceLine(), by);
+    if (here && !through && by > 0 && here.land("first")) return;
     this.letGo();
     const d = this.drawn;
     if (!d) return;
-    const rows = this.readingRows();
+    const rows = this.readingRows(), from = this.readingSourceLine();
     const visible = rows && rows[1] > this.scroll && rows[0] < this.scroll + d.room;
-    if (!leaving && visible && (by > 0 ? rows[1] > this.scroll + d.room : rows[0] < this.scroll)) {
+    // A tall block a screen at a time; leaving a container's block walks on, never a screen of it at a time.
+    if (!inside && !here && visible && (by > 0 ? rows[1] > this.scroll + d.room : rows[0] < this.scroll)) {
       this.scroll = by > 0 ? Math.min(rows[1] - 1, this.scroll + d.room) : Math.max(rows[0], this.scroll - d.room);
       return;
     }
@@ -5269,20 +5261,14 @@ export class NoteSurface {
     let row = visible ? (by > 0 ? rows[1] : rows[0] - 1) : this.scroll;
     while (row >= 0 && row < d.doc.source.length) {
       const source = d.doc.source[row]!, line = d.lines[source];
-      if (line !== undefined && sourceLines[line]?.trim()) {
-        this.letGo(); this.foldSel = null;
+      // The next line with text; a container's block drawn in several parts (a figure's frame and rows) is one stop.
+      if (line !== undefined && sourceLines[line]?.trim() && !(visible && line === from && rowContainerOn(world, line, by))) {
+        this.foldSel = null;
         this.readingLine(line);
         const p = this.foldsIn(this.msg!).points.find(p => d.lines[p.line] === line && this.previews(p));
         if (p) { this.foldSel = p.key; this.selectListPoint(); }
-        const candidates = this.elems.filter(e => e.link?.inlineList && d.lines[d.doc.source[e.row - d.top]!] === line);
-        const entry = by > 0 ? candidates[0] : candidates.at(-1);
-        if (entry) {
-          const list = this.inlineLists.get(entry.link!.inlineList!.key)!;
-          this.selectInlineRow(entry, by > 0 ? 0 : list.rows.length - 1);
-        }
-        // A collection drawn in this block: the walk goes into it, at its first row going down, its last going up (PIE-1491).
-        const collection = collectionAtReading(this);
-        if (collection && !(by > 0 && collectionTextStop(this))) this.enterList(collection, true, by > 0 ? "first" : "last");
+        const landed = rowContainerOn(world, line, by);
+        if (landed && !(by > 0 && landed.lead)) landed.land(by > 0 ? "first" : "last");
         this.revealReading();
         const block = this.readingRows();
         if (by < 0 && visible && block && block[1] - block[0] > d.room) this.scroll = Math.max(block[0], block[1] - d.room);
@@ -5290,12 +5276,10 @@ export class NoteSurface {
       }
       row += by;
     }
-    // Nothing that way. From a row (the collection ends or starts the note): the walk stays on its edge row. From off
-    // one (a saved view opened as its own note is only its rows, which no source line names): j lands on the kept pick,
-    // else its first row; k on its last.
-    if (onRow) { const edge = by > 0 ? onRow.view.pickable().at(-1) : onRow.view.pickable()[0]; if (edge) land(onRow, edge); return; }
-    const only = this.listsDrawn.find(l => l.collection);
-    if (only) { const row = (by > 0 ? only.view.picked(PERSON) : null) ?? (by > 0 ? only.view.pickable()[0] : only.view.pickable().at(-1)); if (row) land(only, row); }
+    // Nothing that way: from a container the position stays on its edge (or the control it was on); from off one, a
+    // collection no line names (a saved view opened as its own note) takes it: j its kept pick, else its first row; k its last.
+    if (inside) { if (!inside.land(by > 0 ? "last" : "first") && was) this.selectElement(was); return; }
+    loneCollection(world)?.land(by > 0 ? "first" : "last");
   }
 
   sourceLineAt(y: number): number | null {
@@ -5361,6 +5345,8 @@ export class NoteSurface {
     if (lb?.row) { try { this.listViews.get(lb.key)?.pick(PERSON, lb.row, lb.group); } catch { /* a row the list no longer draws */ } }
   }
 
+  /** The ::button the reading line is on, in view, with no element current: what ⏎ presses there (PIE-1518). */
+  buttonAtReading() { const d = this.drawn, r = this.readingRows(); return d && r && !this.cur && this.link < 0 ? buttonIn(this.elems, d.top + Math.max(r[0], d.scroll), d.top + Math.min(r[1], d.scroll + d.room)) : null; }
   /** The current element while the person can see it (or it's about to be brought into view). */
   inView(): Element | null {
     const e = this.selectedElement(), d = this.drawn;
@@ -10269,7 +10255,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const spend = invitation !== undefined ? () => ds!.spend(invitation, actor) : undefined;
         if (!await insertCompletion(board, d, target, item, own, still, actor, spend)) throw new Error("the draft changed while the reference was checked; ask again");
       } catch (e) { throw new ActionRefused(`not inserted: ${e instanceof Error ? e.message : String(e)}`); }
-      if (r.pickKey) await recordCompletionPick(board, r.pickKey, item.insertion);
+      if (r.pickKey) await recordCompletionPick(board, r.pickKey, item, target.query);
       surface.noteAgent(actor, `inserted ${item.insertion}`);
       host.redraw();
       return { ...out, inserted: item.insertion, dirty: d.dirty };
@@ -10906,7 +10892,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ n, by, row }, { surface, host }, actor) {
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("say n= (an element, 0 lets go) or by=1 / by=-1");
       // Letting go of a collection's row (esc) ends the peek that followed it, as leaving a list did (PIE-849, PIE-1501).
-      if (n === 0) { if (collectionAtCursor(surface)) host.retirePeeks?.(USER); surface.letGo(); host.redraw(); return { current: null }; }
+      if (n === 0) { if (surface.collectionAtCursor()) host.retirePeeks?.(USER); surface.letGo(); host.redraw(); return { current: null }; }
       if (by !== undefined) {
         if (!surface.step(by < 0 ? -1 : 1)) throw new ActionRefused("nothing to step to: this note has no links, folds, figure rows, embeds, resource projections or comments");
         surface.previewRow(host);
@@ -11012,7 +10998,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: {
       note: { type: "string", optional: true, about: "the note the button is written in (a block id; default the one shown)" },
       line: { type: "number", optional: true, about: "the line of the button, from 1 (the note's text; with note=)" },
-      label: { type: "string", optional: true, about: "or: the button's label (or part of it)" },
+      label: { type: "string", optional: true, about: "or: the button's label (or part of it); with line=, its whole label: a moved line is found by it, a gone button refused" },
       key: { type: "string", optional: true, about: "the slot (the word on the line a {key} fills); default the first empty one" },
       value: { type: "string", optional: true, about: "what it holds: a tile's name, id or drawer.agent; a note's id; any text. Left out, the person is asked" },
       ask: { type: "boolean", optional: true, about: "after this, ask for the next empty slot of the same button (the person's)" },
@@ -12113,7 +12099,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "reading.step": def({
-    summary: "move within a live figure or links list by rows, keeping its boundary until Esc; elsewhere move the reading line by logical blocks, a screen at a time in a tall block",
+    summary: "step the rows of the container the [ ] position is in (a collection, a live figure, a links list), walking on past its edge; elsewhere move the reading line by logical blocks, landing on a container's first or last row, a screen at a time in a tall block",
     touches: "tile", replay: "safe", person: "the reading position belongs to the person", keys: "↑ ↓ j k",
     args: { by: { type: "number", about: "1 next block, -1 previous block" }, through: { type: "boolean", optional: true, about: "on a collection's block: walk past it instead of into it (j or k at its edge)" } },
     examples: [

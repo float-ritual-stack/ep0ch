@@ -53,7 +53,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
     process.env.EP0CH_DAILY_AGENT = "sh";
     // The glyphs example in the outline's own extensions folder (a test run reads no user folder).
-    cpSync(join(outliner!, "extensions", "glyphs"), join(scratch.outlines, scratch.name, "extensions", "glyphs"), { recursive: true });
+    for (const id of ["glyphs", "issues"]) cpSync(join(outliner!, "extensions", id), join(scratch.outlines, scratch.name, "extensions", id), { recursive: true });
     board = new SocketBoard(await scratch.start());
     await board.info();
     const garden = await board.createBlock(null, "Garden plan\nbeds and paths");
@@ -771,6 +771,66 @@ describe.skipIf(!outliner)("the power bar", () => {
     const ruled = await board.get(picked.result.written[0]);
     expect(ruled?.text).toBe("═".repeat(32));
     expect(ruled?.parentId).toBe((desk.paneNamed("reader") as any).msg.id);
+  });
+
+  test("an extension's bar source with a query grammar (Issues' $): its line offers the extension's query words, and the source hears the pick (PIE-1508)", async () => {
+    const seeds = await board.createBlock(null, "Seed table [issue::#15]\nnames and packets");
+    const told: unknown[][] = [];
+    const real = board.completionPicked.bind(board);
+    board.completionPicked = (...a: Parameters<SocketBoard["completionPicked"]>) => { told.push(a); return real(...a); };
+    try {
+      key(ctrlK); type("$");
+      await until(() => peek().bar?.scope === "ext.issues.issue-notes", "the issue notes scope");
+      type("seed sw");
+      const c = () => lineCompleter((app as any).bar.input)?.shown;
+      await until(() => !!c() && !c()!.loading && c()!.items.some(i => i.from === "ext.issues.issue-words"), "the extension's query words", 10_000);
+      expect(c()!.target.kind).toBe("query");
+      const at = c()!.items.findIndex(i => i.from === "ext.issues.issue-words");
+      expect(c()!.items[at]!.insertion).toBe('issue="#15"');
+      expect(await lineCompleter((app as any).bar.input)!.accept(at)).toBe(true);
+      expect(peek().bar.query).toBe('issue="#15"');
+      await until(() => peek().bar.rows.some((r: any) => r.key === seeds.id), "the notes about issue 15");
+      // A query line is no act line: the actions source names no row for it ("no action issue=… here").
+      expect(peek().bar.rows.map((r: any) => r.source)).not.toContain("actions");
+      expect(peek().bar.rows[0].key).toBe(seeds.id);
+      expect(told).toContainEqual(["query", expect.any(String), expect.objectContaining({ source: "ext.issues.issue-words", outcome: "accepted", query: "seed sw", row: expect.objectContaining({ insertion: 'issue="#15"' }) })]);
+      // The line changed after the pick: the source hears it was edited, once, with the line as it read then.
+      type(" AND type=x");
+      await until(() => told.some(a => (a[2] as any)?.outcome === "edited"), "the edit told", 10_000);
+      expect(told.find(a => (a[2] as any)?.outcome === "edited")![2]).toMatchObject({ source: "ext.issues.issue-words", text: expect.stringMatching(/^issue="#15" /) });
+      expect(told.filter(a => (a[2] as any)?.outcome === "edited")).toHaveLength(1);
+    } finally { board.completionPicked = real; closeBar(); }
+  });
+
+  test("a click on a row of the bar line's completion list takes it, as Tab does (PIE-1508's walk)", async () => {
+    try {
+      key(ctrlK); type("$seed sw");
+      const c = () => lineCompleter((app as any).bar.input)?.shown;
+      await until(() => !!c() && !c()!.loading && c()!.items.some(i => i.from === "ext.issues.issue-words"), "the extension's query words", 10_000);
+      const lines = frame(), y = lines.findIndex(l => l.includes('» issue="#15"') || l.includes('  issue="#15"  '));
+      expect(y).toBeGreaterThan(0);
+      const x = lines[y]!.indexOf('issue="#15"') + 2;
+      for (let n = 0; n < 2 && peek().bar.query !== 'issue="#15"'; n++) {
+        key({ kind: "mouse", action: "down", x, y, button: 0 } as Key);
+        key({ kind: "mouse", action: "up", x, y, button: 0 } as Key);
+        await Bun.sleep(50);
+      }
+      expect(peek().bar.query).toBe('issue="#15"');
+    } finally { closeBar(); }
+  });
+
+  test("a query line's extension rows shown and closed with none chosen: their source hears ignored (PIE-1508)", async () => {
+    const told: unknown[][] = [];
+    const real = board.completionPicked.bind(board);
+    board.completionPicked = (...a: Parameters<SocketBoard["completionPicked"]>) => { told.push(a); return real(...a); };
+    try {
+      key(ctrlK); type("=seed");
+      const c = () => lineCompleter((app as any).bar.input)?.shown;
+      await until(() => !!c() && !c()!.loading && c()!.items.some(i => i.from === "ext.issues.issue-words"), "the extension's query words on =", 10_000);
+      key({ kind: "esc" });
+      await until(() => told.some(a => (a[2] as any)?.outcome === "ignored"), "the ignore told");
+      expect(told.find(a => (a[2] as any)?.outcome === "ignored")).toEqual(["query", undefined, { outcome: "ignored", source: "ext.issues.issue-words", query: "seed" }]);
+    } finally { board.completionPicked = real; closeBar(); }
   });
 
   test("what changed while the bar is open keeps the lit row lit and the notes found", async () => {

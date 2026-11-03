@@ -4,7 +4,7 @@
 // tile= that names no tile now. One reader for the editor's live marks and the save's warning, so they can never disagree.
 // Pure over its lookups; a save is never refused by it.
 
-import { BUTTON_OWN, buttonCallAt, buttonCallsOf, slotArgs } from "@ep0ch/outline-core/button-call";
+import { BUTTON_OWN, buttonCallAt, buttonCallsOf, slotArgs, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import { COMPONENT_OPEN, splitWords } from "@ep0ch/outline-core/component-block";
 import { lineWords } from "@ep0ch/outline-core/action-line";
 import { closest } from "./cli-words";
@@ -135,4 +135,33 @@ export async function buttonMarks(text: string, ask: ButtonLookups): Promise<But
 export function describeButtonMarks(marks: readonly ButtonMark[], max = 2): string {
   if (!marks.length) return "";
   return marks.slice(0, max).map(m => m.message).join(" · ") + (marks.length > max ? ` · and ${marks.length - max} more` : "");
+}
+
+/**
+ * The `::button` a `button.slot` names among a note's `buttons` (read now, from the service), and the slot: by `line` (from 1),
+ * else `label`, else the one with a slot. A line that moved since the press asked (a line written above it, PIE-1518) is found
+ * by its label and slot when one button has both; a button gone is refused, never swapped for another. A refusal says what's there.
+ */
+export function slotButton(buttons: readonly ButtonCall[], a: { line?: number; label?: string; key?: string }): { button: ButtonCall; key: string } | { refused: string } {
+  const has = (b: ButtonCall, key: string) => b.slots.some(s => s.key === key);
+  // With line= and label= (a pick's answer carries both), the button is the one with that label: on its line, else (its line moved)
+  // the one button with that label and slot. Gone, or no longer one, is refused: never another button that has a slot of that name.
+  const same = (b: ButtonCall) => a.label === undefined || b.label === a.label;
+  const atLine = a.line !== undefined ? buttons.filter(b => b.line === a.line! - 1 && same(b)) : [];
+  const moved = a.label !== undefined && a.key !== undefined && a.line !== undefined && !atLine.some(b => has(b, a.key!)) ? buttons.filter(b => b.label === a.label && has(b, a.key!)) : [];
+  if (a.label !== undefined && a.line !== undefined && !atLine.length && moved.length !== 1) return { refused: `the button "${a.label}" ${moved.length ? `is on ${moved.length} lines now` : "isn't in this note any more"}: nothing was written; press it again` };
+  const hits = a.line !== undefined ? (moved.length === 1 ? moved : atLine) : a.label !== undefined ? buttons.filter(b => b.label === a.label || b.label.toLowerCase().includes(a.label!.toLowerCase())) : buttons.filter(b => b.slots.length);
+  const names = buttons.filter(b => b.slots.length).map(b => `line ${b.line + 1} "${b.label}" (${b.slots.map(s => s.key).join(", ")})`).join("; ");
+  if (!hits.length) return { refused: `no ${a.line !== undefined ? `button on line ${a.line}` : a.label !== undefined ? `button called "${a.label}"` : "button with a slot"} in this note; ${names ? `buttons with slots: ${names}` : "none has a slot (a button with act=\"… tile={target}\" target= has one)"}` };
+  if (hits.length > 1) return { refused: `${hits.length} buttons match (${names}); say line=<n>` };
+  const button = hits[0]!;
+  const key = a.key ?? (button.empty[0] ?? (button.slots.length === 1 ? button.slots[0]!.key : undefined));
+  if (!key || !has(button, key)) return { refused: `${button.label} has ${button.slots.length ? `the slots ${button.slots.map(s => s.key).join(", ")}; say key=<one>` : "no slot"} (write target= on its line and {target} where it goes)` };
+  return { button, key };
+}
+
+/** The one `::button` (a press with its label) among a reader's `elems` drawn on rows `from` to `to` (end excluded), else null. */
+export function buttonIn<E extends { row: number; link?: { press?: { label?: string } } }>(elems: readonly E[], from: number, to: number): E | null {
+  const hits = elems.filter(e => e.link?.press?.label !== undefined && e.row >= from && e.row < to);
+  return hits.length === 1 ? hits[0]! : null;
 }

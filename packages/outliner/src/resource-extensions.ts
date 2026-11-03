@@ -319,7 +319,7 @@ export interface ExtensionCallFor {
   readonly agent?: string;
 }
 
-type ExtensionOperation = "resolve" | "read" | "changed" | "run" | "act" | "respond" | "decorate" | "bar" | "source";
+type ExtensionOperation = "resolve" | "read" | "changed" | "run" | "act" | "respond" | "decorate" | "bar" | "source" | "picked";
 /** What one call runs: the install, its manifest's part a call needs, its folder and stamp. */
 interface InstalledCall {
   install: { manifest: string; enabled: boolean; config: Record<string, unknown>; credentials: Record<string, import("typebox").Static<typeof Credential> | { file: string } | { group: string; key: string }> };
@@ -492,7 +492,7 @@ export class ResourceExtensionRuntime {
    */
   async invokeLoaded(
     extension: LoadedExtension,
-    operation: "read" | "run" | "act" | "respond" | "decorate" | "bar" | "source",
+    operation: "read" | "run" | "act" | "respond" | "decorate" | "bar" | "source" | "picked",
     input: unknown,
     deadlineMs?: number,
     callFor: ExtensionCallFor = {},

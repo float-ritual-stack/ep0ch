@@ -13,7 +13,7 @@ import { isEscapedAt, PROPERTY_KEY_SOURCE, propertyTokenMatches } from "./proper
 import { formFieldChipProblems, formSettingChipProblems } from "./form-fields";
 import { USE_NAME, useCallsOf } from "./template-use";
 import { BUTTON_NAME, buttonCallsOf } from "./button-call";
-import { graphKind, propsWithoutRules } from "./figure-props";
+import { figureSource, figureYaml, graphKind, propsWithoutRules, unknownFigureKeys } from "./figure-props";
 import { BUILTIN_COMPONENT_SCHEMAS } from "./component-schema";
 
 export type SyntaxWarningKind = "fence" | "page-link" | "property" | "component" | "literal" | "form-field" | "figure";
@@ -105,10 +105,16 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
   }
 
   // A figure whose props are written without their `---` lines (PIE-941): drawn as Markdown rows, so it says so.
+  // A key it doesn't take, with the one it may mean (PIE-1513's sentence): drawn without it, so it says so.
   for (const c of componentBlocks(lines)) {
     const kind = c.end > c.start ? graphKind(c) : null;
-    const problem = kind ? propsWithoutRules(kind, lines.slice(c.start + 1, c.end)) : null;
-    if (problem) out.push({ kind: "figure", line: c.start, end: c.end, message: `${problem} (line ${c.start + 1})` });
+    if (!kind) continue;
+    const body = lines.slice(c.start + 1, c.end);
+    const problem = propsWithoutRules(kind, body);
+    if (problem) { out.push({ kind: "figure", line: c.start, end: c.end, message: `${problem} (line ${c.start + 1})` }); continue; }
+    // A YAML key it doesn't take (PIE-1518): the reader's own check (figureProps' warning), said when the note is written.
+    const read = figureYaml(figureSource(body, undefined, false, c.attrs));
+    if ("yaml" in read) for (const w of unknownFigureKeys(kind, read.yaml)) out.push({ kind: "figure", line: c.start, end: c.end, message: `the ::${c.name} on line ${c.start + 1} ${w}` });
   }
 
   const unterminated = scanLiteralRegions(text).unterminated;
