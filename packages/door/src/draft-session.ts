@@ -191,8 +191,11 @@ export class DraftSession {
    * or hands it off is a command the host runs as its action (`run`): save, close (esc on nothing changed),
    * discard (the second esc on changed text: put aside), editor, pick (insert from a picker), reload, copy. Nothing while a write lands.
    */
+  /** A submit is on its way to its target: keys wait for it (`key`). */
+  private submitting = false;
   key(k: Key, host: { run(cmd: DraftCommand): void; completer?: Completer | null }): void {
-    if (!this.open || this.draft.busy) return;
+    // While a submit is in flight the keys are held (PIE-1542 review): typing then would show and be lost with the field.
+    if (!this.open || this.draft.busy || this.submitting) return;
     // The default attachment (PIE-626): a session's draft completes from its own connection, whoever hosts it; a host
     // that passes `completer: null` opts out, one that passes its own (a note's, with the draft's note as context) keeps it.
     const completer = host.completer === undefined ? defaultCompleter(this.draft, this.env.board, () => this.env.redraw?.()) : host.completer;
@@ -215,7 +218,9 @@ export class DraftSession {
     // an approval); a write underneath someone else's open draft of the same block is not.
     const why = this.target.blockId ? agentRefusal(actor, { board: this.env.board, blockId: this.target.blockId, except: this }) : null;
     if (why) return { ok: false, why };
-    const r = await this.target.submit(this, recordAs(d, actor), { asked: actor, away });
+    this.submitting = true;
+    let r: Awaited<ReturnType<DraftTarget["submit"]>>;
+    try { r = await this.target.submit(this, recordAs(d, actor), { asked: actor, away }); } finally { this.submitting = false; }
     if (r.ok) {
       // Undo survives the save: an edit of this note opened again on what was written takes up its history, stopping
       // at the save to ask before it takes saved text back (PIE-1414).

@@ -469,13 +469,13 @@ test("a render has no sh or fetch, and below full MCP access they are refused in
 
   const refusals: string[] = [];
   const proposing = hostApi(client, { actorId: "mcp:seed-agent" }, { mcpAccess: "propose", onStep: s => { if (s.phase === "refused") refusals.push(`${s.tool}: ${s.error}`); } });
-  await expect(proposing.act("tile.open")).rejects.toThrow("MCP access is propose: a run may not dispatch door actions (act); ep0ch mcp access full lets it");
-  await expect(proposing.sh(["true"])).rejects.toThrow("MCP access is propose: a run may not run commands (sh); ep0ch mcp access full lets it");
-  await expect(proposing.fetch("http://127.0.0.1:9/")).rejects.toThrow("MCP access is propose: a run may not fetch URLs (fetch); ep0ch mcp access full lets it");
+  await expect(proposing.act("tile.open")).rejects.toThrow("act dispatches door actions and can't be proposed: it needs full access (this outline's is propose).");
+  await expect(proposing.sh(["true"])).rejects.toThrow("sh runs commands and can't be proposed: it needs full access (this outline's is propose).");
+  await expect(proposing.fetch("http://127.0.0.1:9/")).rejects.toThrow("fetch fetches URLs and can't be proposed: it needs full access (this outline's is propose).");
   await Bun.sleep(0);
   expect(refusals).toEqual([
-    "sh: MCP access is propose: a run may not run commands (sh); ep0ch mcp access full lets it",
-    "fetch: MCP access is propose: a run may not fetch URLs (fetch); ep0ch mcp access full lets it",
+    "sh: sh runs commands and can't be proposed: it needs full access (this outline's is propose).",
+    "fetch: fetch fetches URLs and can't be proposed: it needs full access (this outline's is propose).",
   ]);
   const full = hostApi(client, { actorId: "mcp:seed-agent" }, { mcpAccess: "full" });
   expect((await full.sh(["true"])).exit).toBe(0);

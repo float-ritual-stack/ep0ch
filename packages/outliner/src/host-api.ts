@@ -11,14 +11,15 @@
  * Every write is `author: agent`, attributed to `actor`; a wrong call is refused with the tool's arguments and a call
  * that works, as the tools answer an agent.
  */
-import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, toolArgsSpec, type AgentToolDefinition } from "@ep0ch/outline-core/agent-tool-definitions";
+import { AGENT_TOOL_DEFINITIONS, toolArgsSpec, type AgentToolDefinition } from "@ep0ch/outline-core/agent-tool-definitions";
 import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
-import { findBlocks, runAgentOperation, resolveRef, type AgentActor, type AgentToolsClient, type FindInput } from "./agent-tools";
+import { findBlocks, runAgentOperation, type AgentActor, type AgentToolsClient, type FindInput } from "./agent-tools";
 import { readsOtherNotes } from "./block-query";
 import { blockDisplayTitle } from "./references";
-import { applyWrite, type McpWriteTool } from "./mcp-write";
+import { agentWrite } from "./agent-write";
+import { gate } from "./write-gate";
 import type { McpAccessLevel, QuestionFacet } from "@ep0ch/outline-core/protocol";
-import type { AnnotationRecord, AnnotationThread, VisibleBlock, VisibleBlockCollection } from "./types";
+import type { VisibleBlock, VisibleBlockCollection } from "./types";
 import { WorkToolRefusal } from "./work-tools";
 import { answerShape, shapeOfAnswer, type ScriptQueryRecord } from "./line-watches";
 import { programEnv } from "./program-env";
@@ -219,25 +220,9 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
       if (typeof command === "string") throw new WorkToolRefusal(`${definition.name}: ${command}`);
       let result: unknown;
       if (options.mcpAccess && definition.writes) {
-        if (!actor || !AGENT_TOOL_SURFACES[definition.name]?.gateway) throw new WorkToolRefusal(`${definition.name} is not an MCP write tool`);
-        const target = definition.target ?? "ref";
-        const { [target]: ref, ...writeInput } = checked.args;
-        let blockId: string;
-        if (definition.name === "outline_reply" || definition.name === "outline_resolve_thread") {
-          const mark = await client.request<AnnotationRecord>({ action: "annotations.get", annotationId: String(writeInput.edit ?? writeInput.thread) });
-          const subject = mark.originalTarget.representation.subject;
-          if (subject.kind !== "block") throw new WorkToolRefusal("MCP script replies need a note's thread");
-          blockId = subject.blockId;
-        } else if (definition.name === "outline_create" && String(ref).trim() === "root") blockId = "root"; // the top level, as the tool and the CLI take it
-        else blockId = (await resolveRef(client, String(ref))).id;
-        const outcome = await applyWrite({
-          request: (action, args) => client.request({ action, ...args } as Parameters<AgentToolsClient["request"]>[0]),
-          info: () => client.requireCompatibleService(),
-          comments: async id => (await client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: id }, includeResolved: true } }))
-            .map(t => ({ id: t.block.id, replies: t.replies.map(r => ({ id: r.block.id })) })),
-        }, { tool: definition.name as McpWriteTool, blockId, input: writeInput, ...(typeof writeInput.revision === "number" ? { revision: writeInput.revision } : {}) },
-        { level: options.mcpAccess, actor, uri: id => `((${id}))` });
-        result = outcome.outcome === "proposed" ? outcome : outcome.detail;
+        // A run an agent started writes as the write gate says at its access (src/agent-write.ts).
+        if (!actor) throw new WorkToolRefusal(`${definition.name} writes: this run has no actor`);
+        result = await agentWrite(client, { definition, args: checked.args, command }, actor, options.mcpAccess, { always: true });
       } else if (command.operation === "find" && options.thisId) {
         // A query in a script's note reads `this` (`parent:this`): the tool's arguments don't name it, the run's Site does.
         result = await findBlocks(client, { ...command.input, this: options.thisId } as FindInput);
@@ -371,8 +356,10 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     : Promise.reject(new WorkToolRefusal("resolve answers for a note: run this script from a note, or pass at= (this run has no note)"));
   if (options.kind === "render") return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, query, resolve });
   // act, sh and fetch reach past the outline: below full MCP access a run may not, in the same words.
-  const belowFull = (what: string) => options.mcpAccess && options.mcpAccess !== "full"
-    ? new WorkToolRefusal(`MCP access is ${options.mcpAccess}: a run may not ${what}; ep0ch mcp access full lets it`) : undefined;
+  const belowFull = (tool: "act" | "sh" | "fetch") => {
+    const decided = options.mcpAccess ? gate({ tool, level: options.mcpAccess }) : undefined;
+    return decided?.becomes === "refused" ? new WorkToolRefusal(decided.why!) : undefined;
+  };
   /** One reach as a step: started, then done with what `summary` keeps of its answer, or refused with why. */
   const reach = async <T>(tool: string, input: Record<string, unknown>, work: () => Promise<T>, summary: (answer: T) => unknown): Promise<T> => {
     const seq = step({ tool, writes: false, phase: "start", input });
@@ -401,7 +388,7 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     const list = Array.isArray(argv) ? argv.map(String) : [];
     const input = { argv: list, ...(opts?.cwd !== undefined ? { cwd: String(opts.cwd) } : {}), ...(opts?.stdin !== undefined ? { stdin: `${String(opts.stdin).length} chars` } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}) };
     return reach("sh", input, async () => {
-      const refused = belowFull("run commands (sh)");
+      const refused = belowFull("sh");
       if (refused) throw refused;
       if (!Array.isArray(argv) || !list.length || !list[0]) throw new WorkToolRefusal('sh takes the command as a list, with no shell: sh(["gh", "issue", "list"])');
       const what = `sh ${list[0]}`;
@@ -431,7 +418,7 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
   const fetchUrl = (url: string, init: FetchInit = {}, signal?: AbortSignal): Promise<FetchResult> => {
     const method = String(init?.method ?? "GET").toUpperCase();
     return reach("fetch", { url: String(url), method, ...(init?.timeoutMs !== undefined ? { timeoutMs: init.timeoutMs } : {}) }, async () => {
-      const refused = belowFull("fetch URLs (fetch)");
+      const refused = belowFull("fetch");
       if (refused) throw refused;
       let parsed: URL | undefined;
       try { parsed = new URL(String(url)); } catch { /* answered below */ }
@@ -464,8 +451,8 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     }
     return [...named].map(([name, origin]) => ({ name, origin }));
   }, answer => ({ names: answer.length }));
-  const act = (name: string, args: Record<string, unknown> = {}) => options.mcpAccess && options.mcpAccess !== "full"
-    ? Promise.reject(belowFull("dispatch door actions (act)"))
+  const act = (name: string, args: Record<string, unknown> = {}) => belowFull("act") !== undefined
+    ? Promise.reject(belowFull("act"))
     : options.act
     ? options.act(name, args)
     : Promise.reject(new WorkToolRefusal("act needs a connected door; run this script from the door's power bar"));

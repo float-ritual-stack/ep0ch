@@ -515,8 +515,10 @@ export class TunePane implements Pane {
   }
 
   key(k: Key, desk: DeskApi): boolean {
-    const intent = this.view.intent(k);
-    if (intent) { this.run(desk, "tune.field", intent); return true; }
+    // A field being typed in is the edit control's; what it asks of the inspector (save, cancel, a choice) is tune.field.
+    const field = this.view.key(k);
+    if (field === true) { desk.redraw(); return true; }
+    if (field) { this.run(desk, "tune.field", field); return true; }
     const c = ch(k);
     const sec = this.shown();
     const other = [...SECTIONS.values()].find(s => s.key === c && s !== sec);

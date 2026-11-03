@@ -52,7 +52,7 @@ import { isSystemNote, systemNoteKind } from "./note-placement";
 import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { readSavedView } from "./saved-view-read";
 import { parseWorkId } from "./work-ids";
-import { refuseDroppedStructure, WorkToolRefusal, type WorkToolsClient } from "./work-tools";
+import { refuseDroppedStructure, replaceSectionText, WorkToolRefusal, type WorkToolsClient } from "./work-tools";
 import type {
   AnnotationBatchReceipt,
   AnnotationRecord,
@@ -613,6 +613,8 @@ export interface EditInput {
   at?: string;
   /** Allow dropping a `[page::…]` or an anchor other notes link to. */
   allowStructural?: boolean;
+  /** The write gate said propose (src/write-gate.ts): the new text goes beside the note as one patch for its owner. */
+  propose?: true;
 }
 
 export interface EditResult {
@@ -920,6 +922,7 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
   }
   if (input.at !== undefined) {
     if (input.append === undefined) throw new WorkToolRefusal("at takes append: { append: \"One more entry\", at: \"^log\" }");
+    if (input.propose) throw new WorkToolRefusal("outline_edit's at places an output region and can't be proposed: append without at, or use outline_patch (this outline takes proposals)");
     const result = await client.request<DraftPatchResult & { anchor?: string; message: string }>({
       action: "outputs.place", blockId: block.id, at: input.at, mode: "append", content: input.append,
       producer: { id: block.id, name: actor.actorId }, mutation: mutationOf(actor),
@@ -932,18 +935,21 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
   } else if (input.replaceSection !== undefined) {
     const { heading, body } = input.replaceSection ?? {};
     if (typeof heading !== "string" || typeof body !== "string") throw new WorkToolRefusal("replaceSection needs a heading and a body");
-    const updated = await client.request<Block & { section: NonNullable<EditResult["section"]> }>({
-      action: "update", blockId: block.id, replaceSection: { heading, body },
-      expectedRevision, mutation: mutationOf(actor), allowStructural: input.allowStructural,
-    });
-    const lost = input.allowStructural === true ? droppedStructure(block.text, updated.text) : undefined;
-    const dropped = lost ? [...lost.pages, ...lost.anchors.map(anchor => `^${anchor}`)] : [];
-    return {
-      id: updated.id, ref: `((${updated.id}))`, revision: updated.revision, previousRevision: block.revision,
-      diff: shortDiff(block.text, updated.text), section: updated.section,
-      ...(dropped.length ? { dropped } : {}),
-      ...(await warned(client, updated.text, updated.id, updated.id, { before: block.text, at: { note: updated.id, revision: updated.revision, actorId: actor.actorId } })),
-    };
+    if (input.propose) next = replaceSectionText(block.text, heading, body, block.id).text;
+    else {
+      const updated = await client.request<Block & { section: NonNullable<EditResult["section"]> }>({
+        action: "update", blockId: block.id, replaceSection: { heading, body },
+        expectedRevision, mutation: mutationOf(actor), allowStructural: input.allowStructural,
+      });
+      const lost = input.allowStructural === true ? droppedStructure(block.text, updated.text) : undefined;
+      const dropped = lost ? [...lost.pages, ...lost.anchors.map(anchor => `^${anchor}`)] : [];
+      return {
+        id: updated.id, ref: `((${updated.id}))`, revision: updated.revision, previousRevision: block.revision,
+        diff: shortDiff(block.text, updated.text), section: updated.section,
+        ...(dropped.length ? { dropped } : {}),
+        ...(await warned(client, updated.text, updated.id, updated.id, { before: block.text, at: { note: updated.id, revision: updated.revision, actorId: actor.actorId } })),
+      };
+    }
   } else {
     const addition = requireText(input.append, "The text to append");
     next = addition.startsWith("\n") ? `${block.text.replace(/\s+$/, "")}${addition}` : `${block.text.replace(/\s+$/, "")}\n\n${addition}`;
@@ -952,6 +958,8 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
   if (next === block.text) {
     return { id: block.id, ref: `((${block.id}))`, revision: block.revision, previousRevision: block.revision, diff: "" };
   }
+  // At propose access the whole new text is one patch beside the note (draft.patch's proposal), for its owner to take.
+  if (input.propose) return { ...(await patchDraft(client, { ref: block.id, revision: block.revision, patches: [{ observed: block.text, replacement: next }], propose: true, ...(input.allowStructural === true ? { allowStructural: true } : {}) }, actor)), id: block.id, ref: `((${block.id}))`, message: "proposed beside the note: this outline takes proposals" };
   // Only an explicit boolean true skips the guard ("true" or 1 do not), and what it let go is said in the result.
   let dropped: string[] = [];
   if (input.allowStructural !== true) await refuseDroppedStructure(client, block, next);

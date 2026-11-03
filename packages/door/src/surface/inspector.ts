@@ -3,7 +3,8 @@ import { paintRange, rowsOf, SELECT_BG, Selection, type Pos } from "./selection"
 import { DraftSession, type SessionEnv } from "../draft-session";
 import { USER } from "../socket";
 import { DRAFT_ACTIONS } from "../edit";
-import { ActionRefused, keyName, keyOfName } from "./actions";
+import { selectClicks } from "./editor";
+import { ActionRefused, keyOfName } from "./actions";
 import type { Key } from "../term";
 import { rowLines } from "../text";
 
@@ -41,6 +42,8 @@ export class Inspector extends RowView {
       place, back: `e on ${key} brings it back`, label: "inspector-field", what: `${key} in the inspector`, verb: "save", leaveWrites: false,
       submit: async s => { try { return { ok: true, result: await write(s.draft.text) }; } catch (e) { return { ok: false, why: e instanceof Error ? e.message : String(e) }; } },
     }, { text: value }, env);
+    // ⏎ saves the value; shift+⏎ and a pasted line break are text (the edit control's rule, PIE-1542).
+    session.draft.enterSaves = true;
     if (session.draft.restored === null && value) session.draft.anchor = { row: 0, col: 0 };
     this.field = { key, session, choices, selected: multiple ? 0 : choices.indexOf(value), multiple, note: "", saving: false };
   }
@@ -75,21 +78,24 @@ export class Inspector extends RowView {
       await landing;
     }
   }
-  intent(k: Key): { op: string; value?: string; n?: number } | null {
+  /**
+   * A key for the field: its choices' own keys (↑ ↓ j k pick, space toggles) come back as the op its host's action runs,
+   * as do save and cancel; everything else is the edit control's (src/edit.ts: the one key table, the esc ladder, a paste
+   * as one step and its line breaks as text), typed here: true. Null with no field.
+   */
+  key(k: Key): { op: string; value?: string; n?: number } | true | null {
     const f = this.field;
     if (!f) return null;
-    if (k.kind === "esc") return { op: "cancel" };
-    if (k.kind === "enter" || k.kind === "char" && k.ctrl && k.ch === "s") return { op: "save" };
-    if (f.choices.length && (k.kind === "up" || k.kind === "down" || k.kind === "char" && (k.ch === "j" || k.ch === "k"))) return { op: "pick", n: f.selected + (k.kind === "up" || k.kind === "char" && k.ch === "k" ? -1 : 1) };
-    if (f.multiple && k.kind === "char" && k.ch === " ") return { op: "toggle" };
-    if (k.kind === "paste") return { op: "text", value: k.text };
-    if (k.kind === "char" && k.pasted) return { op: "text", value: k.ch };
-    const name = keyName(k);
-    return name ? { op: "key", value: name } : null;
+    if (f.choices.length && (k.kind === "up" || k.kind === "down" || k.kind === "char" && !k.ctrl && !k.pasted && (k.ch === "j" || k.ch === "k"))) return { op: "pick", n: f.selected + (k.kind === "up" || k.kind === "char" && k.ch === "k" ? -1 : 1) };
+    if (f.multiple && k.kind === "char" && k.ch === " " && !k.pasted) return { op: "toggle" };
+    let op: { op: string } | null = null;
+    f.session.key(k, { completer: null, run: cmd => { op = cmd === "save" ? { op: "save" } : cmd === "close" || cmd === "discard" ? { op: "cancel" } : null; } });
+    return op ?? true;
   }
   fieldDraw(w: number, at = 0) {
     const f = this.field!, d = f.session.draft;
-    const room = Math.max(1, rowLines(d.text, Math.max(4, w - 4)).length);
+    // Every line of the value (a paste keeps its line breaks), each wrapped to the field.
+    const room = Math.max(1, d.lines.reduce((n, l) => n + rowLines(l, Math.max(4, w - 4)).length, 0));
     const head = rowLines(`    ${f.key}:`, w), input = d.render(Math.max(4, w - 4), room);
     this.editorRect = { x: 4, y: at + head.length, w: Math.max(4, w - 4), h: input.length };
     const lines = [...head, ...input.map(l => `    ${l}`)];
@@ -120,7 +126,11 @@ export class Inspector extends RowView {
     this.pressed = at; this.selection = null;
     const r = this.editorRect;
     this.editorPressed = !!this.field && at.col >= r.x && at.col < r.x + r.w && at.row >= r.y && at.row < r.y + r.h;
-    if (this.editorPressed) this.placeField(at, false);
+    if (!this.editorPressed) return;
+    this.placeField(at, false);
+    // A double click selects a word, a triple the line: the edit control's, as in every field (PIE-1542).
+    const d = this.field!.session.draft, n = d.clicks.press(at.col, at.row);
+    if (n > 1) void selectClicks(d, n);
   }
   extend(at: Pos) { if (this.editorPressed) this.placeField(at, true); else if (this.pressed) this.selection = new Selection(this.pressed, at); }
   release() { this.pressed = null; this.editorPressed = false; }
