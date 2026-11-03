@@ -67,7 +67,8 @@ describe("showcase: completion placement (PIE-1511)", () => {
         expect(p.lines.some(l => /sow-wk\d+.*│ .*What goes in the cold/.test(l) || /[│█] +│ .*What goes in the cold/.test(l))).toBe(true);
         expect(p.at.cols!).toBeLessThan(cols - 40);
       }
-      const left = p.lines[0]!.indexOf("┌─  ");
+      // The popup's frame has no title, so its top edge is unbroken (PIE-1518 took the gap out of an untitled frame).
+      const left = p.lines[0]!.search(/┌─+┐/);
       expect(shape(p.lines, left, p.at.cols!)).toMatchSnapshot(`A at ${cols}`);
       // ((Sowing week lower down, on a 36-row screen: its list is taller than a third of the screen. Where it won't fit
       // under the caret: the sheet along the bottom at 200 (list left, preview right), and near the bottom it goes above
@@ -86,7 +87,7 @@ describe("showcase: completion placement (PIE-1511)", () => {
           expect(sheet.length).toBeLessThanOrEqual(Math.ceil(lines.length / 3) + 2);
           expect(sheet.find(l => /» Sowing week/.test(l))).toMatch(/» Sowing week \d+ .*│ /);
           expect(lines.slice(0, top - 1).some(l => l.includes("plan ((Sowing week"))).toBe(true);   // the caret's line is above the sheet
-          expect(shape(sheet, sheet[0]!.indexOf("┌─  "), cols)).toMatchSnapshot("B at 200");
+          expect(shape(sheet, sheet[0]!.search(/┌─+┐/), cols)).toMatchSnapshot("B at 200");
           seen.push("snapped");
         }
       }
