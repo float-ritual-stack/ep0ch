@@ -7,7 +7,8 @@
 #
 # The test-time budget (PIE-1422, scripts/test-budget.ts against scripts/test-budget.json at main): over it, the night
 # is red and one ticket, "Over test budget: investigate", carries the files that grew since the last green night; at 80%
-# of a package's total, a warning line goes under the day's build log. A green night within budget keeps its times as
+# of a package's total, a warning line goes under the day's build log; so does an over-budget night while the budget
+# still says `"estimated": true` (never measured): a warning and the measured budget, not a red night. A green night within budget keeps its times as
 # the next night's comparison (last-green.tsv beside nightly.tsv). The row's seventh column is the budget's verdict.
 #
 # Red on main is a ticket, never a rerun (AGENTS.md). The ticket goes to pie's queue, high, as loki, with the log's path
@@ -35,6 +36,8 @@ md=$(mktemp) line=$(mktemp)
 bun "$repo/scripts/test-budget.ts" compare --log "$log" --budget-at "$sha" --last "$dir/last-green.tsv" --markdown "$md" --line "$line" >/dev/null
 budget=$?
 case $budget in 0) verdict=ok;; 3) verdict=near;; 4) verdict=over;; *) verdict=none;; esac
+# Over a budget still marked estimated (never measured): a warning like near, never red; its line says so.
+[ "$verdict" = ok ] && grep -q '^over the estimated' "$line" && verdict=estimated
 # A green night within budget is the next one's "since the last green night".
 if [ "$code" = 0 ] && [ "$verdict" != over ] && grep -q "^test-time	" "$log"; then
   { echo "# $day ${sha:0:12}"; grep "^test-time	" "$log"; } > "$dir/last-green.tsv.new" && mv "$dir/last-green.tsv.new" "$dir/last-green.tsv"
@@ -44,7 +47,7 @@ final=$code
 printf '%s\t%s\t%s\t%ss\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "${sha:0:12}" "$final" "$secs" "$count" "$log" "$verdict" >> "$dir/nightly.tsv"
 
 cli() { EP0CH_WS=pie EP0CH_MACHINE=float-2 bun "$repo/packages/outliner/src/cli.ts" "$@"; }
-if [ "$verdict" = near ]; then
+if [ "$verdict" = near ] || [ "$verdict" = estimated ]; then
   # Under the day's build log (yesterday's when today's isn't written yet at 04:00).
   under=
   for d in "$day" "$(date -d yesterday +%F)"; do

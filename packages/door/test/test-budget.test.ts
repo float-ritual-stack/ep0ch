@@ -107,6 +107,37 @@ describe("holding a run to the budget", () => {
   });
 });
 
+describe("an estimated budget and the raise", () => {
+  const overLog = () => files("est-over.log", log({ "test/kettle.test.ts": 45, "test/teapot.test.ts": 9 }));
+  test("while the budget says it is estimated, an over-budget night warns, prints a measured budget and exits 0; measured, it is red", () => {
+    const last = files("est-last.tsv", `# 2026-03-01 abc123def456\n${lastGreen}`);
+    const line = join(dir, "est-line.txt");
+    const estimated = run("compare", "--log", overLog(), "--budget", files("est.json", JSON.stringify({ ...budget, estimated: true })), "--last", last, "--line", line);
+    expect(estimated.code).toBe(0);
+    expect(estimated.out).toContain("test-budget: over the estimated test budget: no ticket");
+    expect(estimated.out).toContain("door/test/kettle.test.ts  45.0 s of 30.0 s");
+    expect(estimated.out).toContain("a measured budget from this run: door 68 s, outliner 13 s, 1 file of its own");
+    expect(estimated.out).toContain("propose --log");
+    expect(readFileSync(line, "utf8")).toStartWith("over the estimated test budget");
+    const measured = run("compare", "--log", overLog(), "--budget", files("measured.json", JSON.stringify(budget)), "--last", last);
+    expect(measured.code).toBe(4);
+    expect(measured.out).toContain("test-budget: over test budget: investigate");
+  });
+
+  test("propose --write raises the budget in place, measured from then on; a run that fails leaves the file as it was", () => {
+    const path = files("raise.json", JSON.stringify({ about: "made up", estimated: true, ...budget }));
+    const raised = run("propose", "--log", overLog(), "--budget", path, "--write");
+    expect(raised.code).toBe(0);
+    const after = JSON.parse(readFileSync(path, "utf8")) as Budget & { estimated?: boolean };
+    expect(after.estimated).toBeUndefined();
+    expect(after.about).toBe("made up");
+    expect(after.packages.door).toEqual({ total: 68, file: 30, files: { "test/kettle.test.ts": 57 } });
+    const before = readFileSync(path, "utf8");
+    expect(run("propose", "--log", join(dir, "no-such.log"), "--budget", path, "--write").code).not.toBe(0);
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+});
+
 describe("the budget itself", () => {
   test("propose: these times plus 25%, a file of its own only past the package's default, the note on top kept", () => {
     const p = propose(timesOf(log({ "test/kettle.test.ts": 40, "test/teapot.test.ts": 8 })), { about: "made up", packages: { door: { total: 1, file: 30 } } }, "today");

@@ -10,20 +10,25 @@
 //   bun scripts/test-budget.ts compare --log <file> [--budget <file> | --budget-at <rev>] [--last <file>] [--markdown <file>] [--line <file>]
 //        the comparison, printed (--markdown: as a pie request's body; --line: one line for the build log);
 //        exit 0 within budget, 3 near it (80%), 4 over, 5 no test times in the log or no budget
-//   bun scripts/test-budget.ts propose --log <file> [--budget <file>]
-//        a budget at these times plus 25%, printed: Evan's raise, `! bun scripts/test-budget.ts propose --log <log> > scripts/test-budget.json`
+//   bun scripts/test-budget.ts propose --log <file> [--budget <file>] [--write]
+//        a budget at these times plus 25%, printed; --write puts it in the budget file itself (a temp file, renamed
+//        once whole): Evan's raise, `! bun scripts/test-budget.ts propose --log <log> --write`
+//
+// A budget with `"estimated": true` was never measured on float-box: over it, the night warns (exit 0, "over the
+// estimated test budget") and prints the measured budget this run would give, rather than going red on a guess.
+// propose writes a measured one (no `estimated`), and from then on over is red.
 //
 // A file's time is its JUnit <testsuite> time: its tests and its hooks (a beforeAll that starts a scratch host counts).
 // --last defaults to the nightly's last green run (<state>/ep0ch/nightly/last-green.tsv), so a box-test run and the
 // nightly say the same thing.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 /** package → test file → seconds. */
 export type Times = Map<string, Map<string, number>>;
 export type PackageBudget = { total: number; file: number; files?: Record<string, number> };
-export type Budget = { about?: string; measured?: string; packages: Record<string, PackageBudget> };
+export type Budget = { about?: string; estimated?: boolean; measured?: string; packages: Record<string, PackageBudget> };
 
 export const NEAR = 0.8;
 export const HEADROOM = 1.25;
@@ -69,7 +74,8 @@ export type PackageRow = { pkg: string; seconds: number; budget: number | null; 
 export type FileRow = { pkg: string; file: string; seconds: number; budget: number };
 export type GrowthRow = { pkg: string; file: string; seconds: number; was: number | null; budget: number };
 export type Verdict = {
-  status: "ok" | "near" | "over" | "none";
+  /** estimated: over a budget whose numbers were never measured, a warning and no red. */
+  status: "ok" | "near" | "over" | "estimated" | "none";
   packages: PackageRow[];
   /** Files past their own budget. */
   over: FileRow[];
@@ -106,16 +112,21 @@ export function compare(budget: Budget, now: Times, last?: Times): Verdict {
   }
   over.sort((a, b) => b.seconds - b.budget - (a.seconds - a.budget));
   grew.sort((a, b) => b.seconds - (b.was ?? 0) - (a.seconds - (a.was ?? 0)));
-  return { status, packages, over, grew, hasLast: !!last };
+  const said = status as Verdict["status"];
+  return { status: said === "over" && budget.estimated ? "estimated" : said, packages, over, grew, hasLast: !!last };
 }
 
 const s = (n: number) => n >= 120 ? `${(n / 60).toFixed(1)} min` : `${n.toFixed(1)} s`;
 const pct = (n: number | null) => n === null ? "no budget" : `${Math.round(n * 100)}%`;
-const HEAD = { ok: "within test budget", near: "near test budget (80%): watch it", over: "over test budget: investigate", none: "no test times in this run" } as const;
+const HEAD = {
+  ok: "within test budget", near: "near test budget (80%): watch it", over: "over test budget: investigate",
+  estimated: "over the estimated test budget: no ticket, its numbers were never measured on float-box", none: "no test times in this run",
+} as const;
+const RAISE = "`! bun scripts/test-budget.ts propose --log <this log> --write`";
 const GREW_SHOWN = 15;
 
 /** The comparison as text, for a terminal and the run's log. */
-export function render(v: Verdict, lastLabel = "the last green night"): string {
+export function render(v: Verdict, lastLabel = "the last green night", proposal?: Budget): string {
   const out = [`test-budget: ${HEAD[v.status]}`];
   if (v.status === "none") return `${out[0]} (packages without JUnit, or a commit from before PIE-1422)`;
   for (const p of v.packages) out.push(`  ${p.pkg.padEnd(13)} ${s(p.seconds).padStart(9)} of ${p.budget === null ? "—" : s(p.budget)} (${pct(p.share)})`);
@@ -132,7 +143,11 @@ export function render(v: Verdict, lastLabel = "the last green night"): string {
       if (v.grew.length > GREW_SHOWN) out.push(`    and ${v.grew.length - GREW_SHOWN} more`);
     }
   }
-  if (v.status === "over" || v.status === "near") out.push(`  the budget is ${BUDGET_PATH}; only Evan raises it (\`! bun scripts/test-budget.ts propose --log <this log> > ${BUDGET_PATH}\`)`);
+  if (v.status === "estimated" && proposal) {
+    const own = Object.values(proposal.packages).reduce((n, b) => n + Object.keys(b.files ?? {}).length, 0);
+    out.push(`  a measured budget from this run: ${Object.entries(proposal.packages).filter(([p]) => v.packages.some(r => r.pkg === p)).map(([p, b]) => `${p} ${b.total} s`).join(", ")}, ${own} file${own === 1 ? "" : "s"} of ${own === 1 ? "its" : "their"} own (${RAISE} writes it)`);
+  }
+  if (v.status === "over" || v.status === "near") out.push(`  the budget is ${BUDGET_PATH}; only Evan raises it (${RAISE})`);
   return out.join("\n");
 }
 
@@ -207,16 +222,27 @@ function main(argv: string[]): number {
     return 0;
   }
   const args = new Map<string, string>();
-  for (let i = 0; i < rest.length; i += 2) args.set(rest[i]!, rest[i + 1] ?? "");
+  const write = rest.includes("--write");
+  const pairs = rest.filter(a => a !== "--write");
+  for (let i = 0; i < pairs.length; i += 2) args.set(pairs[i]!, pairs[i + 1] ?? "");
   const logPath = args.get("--log");
   if ((cmd !== "compare" && cmd !== "propose") || !logPath) {
-    console.error("usage: bun scripts/test-budget.ts compare --log <file> [--budget <file> | --budget-at <rev>] [--last <file>] [--markdown <file>] [--line <file>]\n       bun scripts/test-budget.ts propose --log <file> [--budget <file>]");
+    console.error("usage: bun scripts/test-budget.ts compare --log <file> [--budget <file> | --budget-at <rev>] [--last <file>] [--markdown <file>] [--line <file>]\n       bun scripts/test-budget.ts propose --log <file> [--budget <file>] [--write]");
     return 2;
   }
+  if (!existsSync(logPath)) { console.error(`test-budget: no log at ${logPath}`); return 2; }
   const now = timesOf(readFileSync(logPath, "utf8"));
   const budget = readBudget(args, root);
+  const proposed = () => propose(now, budget, `${new Date().toISOString().slice(0, 10)}, from ${logPath}, plus 25%`);
   if (cmd === "propose") {
-    console.log(JSON.stringify(propose(now, budget, `${new Date().toISOString().slice(0, 10)}, from ${logPath}, plus 25%`), null, 2));
+    const text = `${JSON.stringify(proposed(), null, 2)}\n`;
+    if (!write) { process.stdout.write(text); return 0; }
+    if (!now.size) { console.error(`test-budget: no test times in ${logPath}, so nothing to write`); return 5; }
+    // Whole or not at all: a temp file beside it, renamed over it.
+    const path = args.get("--budget") ?? join(root, BUDGET_PATH);
+    writeFileSync(`${path}.tmp`, text);
+    renameSync(`${path}.tmp`, path);
+    console.log(`test-budget: wrote ${path} from ${logPath}`);
     return 0;
   }
   if (!budget) { console.log(`test-budget: no budget to compare with (${args.get("--budget-at") ? `${BUDGET_PATH} at ${args.get("--budget-at")}` : args.get("--budget") ?? BUDGET_PATH})`); return 5; }
@@ -225,12 +251,12 @@ function main(argv: string[]): number {
   const last = lastText === null ? undefined : timesOf(lastText);
   const v = compare(budget, now, last);
   const label = lastText === null ? undefined : labelOf(lastText);
-  console.log(render(v, label));
+  console.log(render(v, label, v.status === "estimated" ? proposed() : undefined));
   const md = args.get("--markdown");
   if (md) writeFileSync(md, markdown(v, label, logPath));
   const line = args.get("--line");
   if (line) writeFileSync(line, summary(v));
-  return { ok: 0, near: 3, over: 4, none: 5 }[v.status];
+  return { ok: 0, near: 3, over: 4, estimated: 0, none: 5 }[v.status];
 }
 
 if (import.meta.main) process.exit(main(process.argv.slice(2)));

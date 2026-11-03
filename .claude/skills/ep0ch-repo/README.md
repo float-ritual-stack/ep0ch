@@ -18,7 +18,7 @@ instead (`hooks/guards.ts`):
 | `bun test --parallel` on float-2 | `scripts/agent-env <name> --test -- timeout 900 bun test <files>`; `scripts/box-test` |
 | a whole-suite `bun test` / `bun run test…` (no test file named) on float-box or float-2, outside `scripts/agent-env` | `scripts/box-test <package>`; a few files: `scripts/agent-env <name> --test -- timeout 900 bun test <files>` |
 | `gh pr merge` into main when the PR changes `PROTOCOL` to anything but main's plus one | the number to use, and the rebase |
-| an Edit, Write or Bash write of `scripts/test-budget.json` (reads, `git add`/`commit` and `scripts/test-budget.ts` still run) | make the files that grew fast again; Evan raises it himself (`! bun scripts/test-budget.ts propose --log <log> > scripts/test-budget.json`) |
+| an Edit, Write or Bash write of `scripts/test-budget.json`: a redirection, `cp`/`mv` onto it, an interpreter whose code names it, `test-budget.ts propose --write` (reads, `git add`/`commit` and the comparison still run) | make the files that grew fast again; Evan raises it himself (`! bun scripts/test-budget.ts propose --log <log> --write`) |
 
 - The command is read the way a shell splits it (`hooks/shell.ts`): `;`, `&&` and pipes split it, wrappers such as
   `timeout`, `env`, `sudo`, `scripts/agent-env … --` and `bash -c '…'` are looked through, and quoted text and heredoc
