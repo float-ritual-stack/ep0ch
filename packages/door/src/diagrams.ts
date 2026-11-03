@@ -8,7 +8,7 @@
 // every diagram type Mermaid 12.1 has, synchronous, no browser or DOM, a few ms a render), loaded only when a note first
 // holds one; what it makes is kept in the cache, so a note's diagram is rendered once.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { mediaCache, mediaChanged } from "./media";
 import { theme, type Rgb } from "./theme";
@@ -251,4 +251,93 @@ function mixColours(a: string, b: string, t: number): string | null {
 /** `svg` with its root's `width` and `height` times `k` (its viewBox kept): drawn sharp at a wide tile's size. */
 export function scaleSvg(svg: string, k: number): string {
   return svg.replace(/<svg\b[^>]*>/i, root => root.replace(/\b(width|height)\s*=\s*"([\d.]+)"/g, (_, a: string, v: string) => `${a}="${Math.round(Number(v) * k)}"`));
+}
+
+// ── links in an SVG ───────────────────────────────────────────────────────────
+
+/** An `<a href>` in an SVG, and the part of the picture it covers (fractions of it, across and down). */
+export interface PictureLink { href: string; label: string; box: { x: number; y: number; w: number; h: number } }
+
+/** The `<a>` elements of `svg`, in order: each one's href (`href` or `xlink:href`) and its words. */
+export function svgAnchors(svg: string): { href: string; label: string }[] {
+  const out: { href: string; label: string }[] = [];
+  for (const m of svg.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
+    const href = /\b(?:xlink:)?href\s*=\s*"([^"]*)"|\b(?:xlink:)?href\s*=\s*'([^']*)'/i.exec(m[1]!);
+    const value = (href?.[1] ?? href?.[2] ?? "").replace(/&amp;/g, "&").trim();
+    if (!value) continue;
+    const words = m[2]!.replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
+    // A link with no words of its own (a shape) is named by where it goes: the page, the block, the address.
+    out.push({ href: value, label: words || value.replace(/^\[\[([^\]|]+).*$/, "$1").replace(/^\(\(([^)|]+)\|?([^)]*)\)\)$/, (_, id: string, l: string) => l || id) });
+  }
+  return out;
+}
+
+/** How wide the masks a link's box is found from are drawn: enough for a cell's accuracy in the widest reader. */
+const MASK_PX = 480;
+
+/**
+ * Where each `<a href>` of `svg` is drawn, as fractions of the picture: each link alone is drawn as a mask (every
+ * other element hidden, its own shapes and words white; librsvg keeps transforms and nesting), and its box is where
+ * the mask has ink. A link that draws nothing (an empty `<a>`) has no box and is left out.
+ */
+export async function svgLinkBoxes(svg: string): Promise<PictureLink[]> {
+  const anchors = svgAnchors(svg);
+  if (!anchors.length) return [];
+  const sharp = (await import("sharp")).default;
+  let k = 0;
+  const stamped = svg.replace(/<a\b/gi, m => `${m} data-ep0ch-link="${k++}"`);
+  const out: PictureLink[] = [];
+  let n = 0;
+  for (const m of svg.matchAll(/<a\b([^>]*)>/gi)) {
+    const i = n++;
+    if (!/\bhref\s*=/i.test(m[1]!)) continue;
+    const anchor = anchors.shift();
+    if (!anchor) break;
+    const style = `<style>*{visibility:hidden}[data-ep0ch-link="${i}"],[data-ep0ch-link="${i}"] *{visibility:visible;fill:#fff;stroke:#fff}</style>`;
+    const mask = stamped.replace(/(<svg\b[^>]*>)/i, `$1${style}`);
+    const { data, info } = await sharp(Buffer.from(mask)).resize({ width: MASK_PX, withoutEnlargement: false }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
+    for (let y = 0; y < info.height; y++) for (let x = 0; x < info.width; x++) {
+      if (data[(y * info.width + x) * 4 + 3]! > 24) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    if (x1 < 0) continue;
+    out.push({ ...anchor, box: { x: x0 / info.width, y: y0 / info.height, w: (x1 + 1 - x0) / info.width, h: (y1 + 1 - y0) / info.height } });
+  }
+  return out;
+}
+
+/** The links of each SVG file, by its path and when it last changed: null while they're being found. */
+const linkCache = new Map<string, { stamp: string; links: PictureLink[] | null }>();
+
+/**
+ * The links in the SVG file at `path` (an [img::…svg] line, a fence's or a script's picture), with the part of the
+ * picture each covers; null while they're found (off the draw path: a redraw follows), [] for none or not an SVG.
+ */
+export function pictureLinks(path: string): PictureLink[] | null {
+  if (!/\.svg$/i.test(path)) return [];
+  let stamp: string;
+  try { const st = statSync(path); stamp = `${st.mtimeMs}:${st.size}`; } catch { return []; }
+  const hit = linkCache.get(path);
+  if (hit && hit.stamp === stamp) return hit.links;
+  const entry: { stamp: string; links: PictureLink[] | null } = { stamp, links: null };
+  linkCache.set(path, entry);
+  let svg = "";
+  try { svg = readFileSync(path, "utf8"); } catch { entry.links = []; return []; }
+  if (!/<a\b/i.test(svg)) { entry.links = []; return []; }
+  svgLinkBoxes(svg).then(links => { entry.links = links; }, () => { entry.links = []; }).finally(() => mediaChanged());
+  return null;
+}
+
+/**
+ * Where an SVG link's href goes, as the reader opens a link: `((id))` (or `((id|label))`) a block, `[[page]]` a page, a
+ * web address the browser; anything else (`#frag`, `javascript:`) nowhere.
+ */
+export function pictureLinkTarget(href: string, label: string): { block: string; label: string } | { page: string; label: string } | { url: string; label: string } | null {
+  const h = href.trim();
+  const block = /^\(\(([^)|^]+)(?:\^[^)|]*)?(?:\|[^)]*)?\)\)$/.exec(h);
+  if (block) return { block: block[1]!.trim(), label };
+  const page = /^\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/.exec(h);
+  if (page) return { page: page[1]!.trim(), label };
+  if (/^https?:\/\//i.test(h)) return { url: h, label };
+  return null;
 }

@@ -6,11 +6,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
-import { describeMermaid, describeSvg, FENCE_PICTURES, fencePicture as picture, flattenSvgVars, forgetFencePictures, pictureColours, pictureRoom } from "../src/diagrams";
+import { describeMermaid, describeSvg, FENCE_PICTURES, fencePicture as picture, flattenSvgVars, forgetFencePictures, pictureColours, pictureLinkTarget, pictureRoom, svgLinkBoxes } from "../src/diagrams";
 
 /** The picture a 44-column reader asks for. */
 const fencePicture = (lang: string, src: string, cols = 44) => picture(lang, src, pictureRoom(cols, 9, 18));
-import { renderDoc, type DocEnv } from "../src/doc";
+import { linkCells, renderDoc, type DocEnv } from "../src/doc";
 import { media } from "../src/media";
 import { visible } from "../src/style";
 import { until } from "./scratch";
@@ -123,5 +123,30 @@ describe("a picture fence in a note", () => {
     await until(() => media(asset, "img").state === "ready", "the svg file read as an image");
     const doc = renderDoc(`Plan\n\n[img::${asset}] [size::full]`, env());
     expect(doc.images).toHaveLength(1);
+  });
+});
+
+describe("links laid out in an SVG", () => {
+  const LINKED = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" viewBox="0 0 400 200"><rect width="400" height="200" fill="#123"/><g transform="translate(200,100)"><a href="[[Bike shed]]"><rect width="100" height="50" fill="#456"/></a></g><a href="#nowhere"><rect width="10" height="10"/></a></svg>`;
+
+  test("each <a href> has the box it draws, transforms and all; its target is a page, a block or a web address", async () => {
+    const [shed, frag] = await svgLinkBoxes(LINKED);
+    expect(shed!.href).toBe("[[Bike shed]]");
+    expect(shed!.box.x).toBeCloseTo(0.5, 1); expect(shed!.box.y).toBeCloseTo(0.5, 1);
+    expect(shed!.box.w).toBeCloseTo(0.25, 1); expect(shed!.box.h).toBeCloseTo(0.25, 1);
+    expect(frag!.href).toBe("#nowhere");
+    expect(pictureLinkTarget("[[Bike shed]]", "x")).toEqual({ page: "Bike shed", label: "x" });
+    expect(pictureLinkTarget("((abc123|the shed))", "x")).toEqual({ block: "abc123", label: "x" });
+    expect(pictureLinkTarget("https://example.com/plot", "x")).toEqual({ url: "https://example.com/plot", label: "x" });
+    expect(pictureLinkTarget("javascript:alert(1)", "x")).toBeNull();
+  });
+
+  test("its cells are one tagged press over the rows and columns it covers; a link to nowhere is left out", async () => {
+    const links = await svgLinkBoxes(LINKED), lines = Array.from({ length: 10 }, () => ""), targets: unknown[] = [];
+    linkCells(lines, 0, { col: 2, cols: 40, rows: 10 }, links, (to, text) => { targets.push(to); return `<${targets.length - 1}>${text}`; });
+    expect(targets).toEqual([{ page: "Bike shed", label: "Bike shed" }]);
+    const rows = lines.flatMap((l, r) => (l ? [r] : []));
+    expect(rows).toEqual([5, 6, 7]);
+    expect(visible(lines[5]!).indexOf("<")).toBe(22);
   });
 });

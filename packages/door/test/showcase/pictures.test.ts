@@ -14,7 +14,7 @@ describe("showcase: pictures", () => {
   const h = useShowcaseScreen(160);
   const act = (action: string, args: Record<string, unknown> = {}, tile?: string) => h.app.dispatch.act({ action, args, tile }, { kind: "user" }) as Promise<any>;
   const stage = () => h.S().stage(SECTIONS.findIndex(s => s.key === "pictures")).top as Desk;
-  const panes = () => [...stage().panes.values()];
+  const panes = () => [...(stage() as any).panes.values()];
   const reader = () => panes().find(p => p instanceof ReaderPane) as ReaderPane;
   const icat = () => panes().find(p => p instanceof PtyPane) as PtyPane;
 
@@ -25,7 +25,7 @@ describe("showcase: pictures", () => {
     await until(() => !!reader()?.msg, "the pictures note in the reader");
     // Tall enough for the whole note: every picture in view.
     const draw = (w = 96) => reader().render(w, 300, false, d);
-    await until(() => (draw().placements ?? []).length >= 5, "five pictures placed", 20_000);
+    await until(() => (draw().placements ?? []).length >= 6, "six pictures placed", 20_000);
     const text = draw().lines.map(visible);
     for (const said of ["mermaid diagram: flowchart, 5 nodes", "mermaid diagram: sequence, 3 participants", "mermaid diagram: state, 3 states", "svg picture: 360×90"]) {
       expect(text.some(l => l.includes(`▣ ${said}`)), `${said}\n${text.join("\n")}`).toBe(true);
@@ -34,12 +34,23 @@ describe("showcase: pictures", () => {
     await until(() => { const ps = draw(44).placements ?? []; return ps.length >= 5 && ps.every(p => p.col + p.cols <= 44); }, "the pictures at 44 columns", 20_000);
 
     // ~: the note as written, the fences' text; again, the pictures.
-    await act("decor.raw", { on: true }, reader().name);
+    await act("decor.raw", { on: true }, "reader");
     const raw = draw();
     expect(raw.lines.map(visible).some(l => l.includes("Frost tonight?"))).toBe(true);
-    expect((raw.placements ?? []).filter(p => !p.key.startsWith("hero"))).toHaveLength(1);
-    await act("decor.raw", { on: false }, reader().name);
+    // What stays a picture as written: the [img::] line and the script's banner (a line's output, not a fence).
+    expect((raw.placements ?? []).filter(p => !p.key.startsWith("hero"))).toHaveLength(2);
+    await act("decor.raw", { on: false }, "reader");
     expect((draw().placements ?? []).length).toBeGreaterThanOrEqual(5);
+
+    // The banner a render script drew as SVG: its two links are elements, and ⏎ on one opens its page.
+    await until(() => draw().lines.some(l => visible(l).includes("Bike shed")) || (draw().placements ?? []).length >= 6, "the banner drawn", 20_000);
+    const els = (await act("elements", {}, "reader")).elements as { n: number; target?: string }[];
+    const shed = els.find(e => e.target === "Bike shed"), book = els.find(e => e.target === "Allotment notebook");
+    expect(shed, JSON.stringify(els)).toBeDefined();
+    expect(book, JSON.stringify(els)).toBeDefined();
+    await act("element.select", { n: shed!.n }, "reader");
+    const opened = await act("element.open", {}, "reader");
+    expect(opened).toMatchObject({ kind: "link", title: "Bike shed" });
 
     // The made-up icat asked, was answered, and drew: one placement in its tile, under its own key.
     const t = icat();

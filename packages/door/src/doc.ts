@@ -13,7 +13,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // media lines as image slots the caller fills with Kitty placements.
 import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
-import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
+import { ADORN, LINK_END, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, waitingText, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FigureInfo, type FiguresEnv, type RowInline } from "./graphs";
@@ -27,7 +27,7 @@ import { buttonCallAt, buttonCallsOf, type ButtonCall } from "@ep0ch/outline-cor
 import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
-import { fencePicture, fencePictureOf, PICTURE_SCALE, pictureRoom } from "./diagrams";
+import { fencePicture, fencePictureOf, PICTURE_SCALE, pictureLinks, pictureLinkTarget, pictureRoom, type PictureLink } from "./diagrams";
 import { embedOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
@@ -1091,9 +1091,38 @@ export function mediaRows(spec: MediaSpec, W: number, env: DocEnv, line: number,
     const box = isHero ? heroBox(size, hero!, W, Math.min(hero!.height ?? env.maxImageRows, env.maxImageRows), env.cellW, env.cellH) : imageBox(size, spec, W, env);
     if (entry.state === "ready") image = { line: 0, media: entry, ...(hero ? { look: hero.pixels } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}), ...box };
     for (let r = 0; r < box.rows; r++) lines.push("");
+    // An SVG's links (PIE-1555): each <a href> a press over the cells it covers, under the picture, as a link in the text is.
+    if (entry.state === "ready" && env.tag && !isHero) linkCells(lines, 0, box, pictureLinks(entry.path) ?? [], env.tag);
   }
   lines.push(caption(entry, spec, W, env, line, isHero));
   return { lines, caption: lines.length - 1, entry, ...(image ? { image } : {}) };
+}
+
+/**
+ * `links` (fractions of a picture drawn at `box`, from row `at` of `lines`) as tagged blank cells over the parts they
+ * cover: the reader steps to them and a click or ⏎ opens them, as it does a link in the text.
+ */
+export function linkCells(lines: string[], at: number, box: { col: number; cols: number; rows: number }, links: readonly PictureLink[], tag: (to: LinkTarget, text: string) => string): void {
+  const spans = new Map<number, { c0: number; c1: number; head: string }[]>();
+  for (const l of links) {
+    const to = pictureLinkTarget(l.href, l.label);
+    if (!to) continue;
+    // One tag for the link, on every row it covers: one element to step to, not one a row.
+    const head = [...tag(to, " ")][0]!;
+    // To the nearest cell edge (an antialiased edge is a pixel short), at least one cell.
+    const c0 = box.col + Math.round(l.box.x * box.cols), c1 = Math.min(box.col + box.cols, Math.max(c0 + 1, box.col + Math.round((l.box.x + l.box.w) * box.cols)));
+    const r0 = Math.min(box.rows - 1, Math.round(l.box.y * box.rows)), r1 = Math.min(box.rows, Math.max(r0 + 1, Math.round((l.box.y + l.box.h) * box.rows)));
+    for (let r = r0; r < r1; r++) spans.set(r, [...(spans.get(r) ?? []), { c0, c1, head }]);
+  }
+  for (const [r, row] of spans) {
+    let line = "", col = 0;
+    for (const s of row.sort((a, b) => a.c0 - b.c0)) {
+      if (s.c0 < col) continue;
+      line += " ".repeat(s.c0 - col) + s.head + " ".repeat(s.c1 - s.c0) + LINK_END;
+      col = s.c1;
+    }
+    lines[at + r] = line;
+  }
 }
 
 export function imageBox(m: { width: number; height: number }, spec: MediaSpec, W: number, env: DocEnv): { col: number; cols: number; rows: number } {

@@ -82,7 +82,10 @@ export const imagesText = (dir = SHOWCASE_ASSETS) => [
  * [img::…svg] line, each drawn as a picture under kitty graphics and as its source (with what it is) without.
  */
 export const picturesText = (dir = SHOWCASE_ASSETS) => [
-  SEED.pictures,
+  `${SEED.pictures} [season::autumn] [beds::three]`,
+  "plot-banner::",
+  "",
+  "The banner above is a render script's SVG (Plot banner, under this note): its title and properties laid out, its two links pressed like any link ([ ] to them, ⏎ or a click). Change [season::] and it's drawn again.",
   "",
   "Each fence below is drawn as its picture, the reader's width; ~ shows the note as written, the fences' text again. Without kitty graphics they stay text, their first row saying what they draw.",
   "",
@@ -127,6 +130,28 @@ export const picturesText = (dir = SHOWCASE_ASSETS) => [
 ].join("\n");
 
 /**
+ * The pictures section's render script (PIE-1555): a banner drawn as SVG from the note's title and properties, with
+ * two links laid out in it, returned as an image primitive's `svg`. Made up.
+ */
+export const PLOT_BANNER = [
+  "Plot banner [script::plot-banner] [mode::render]",
+  "```js",
+  "const get = key => (this.properties.find(p => p.key === key)?.values ?? []).join(\", \");",
+  "const esc = s => String(s).replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\");",
+  "const season = get(\"season\") || \"spring\", beds = get(\"beds\") || \"some\";",
+  "const tone = { spring: \"#4f9c6b\", summer: \"#c9a23f\", autumn: \"#b8683a\", winter: \"#5f7fb8\" }[season] ?? \"#5f7fb8\";",
+  "const leaves = Array.from({ length: 9 }, (_, i) => `<circle cx=\"${40 + i * 70}\" cy=\"${30 + (i % 3) * 14}\" r=\"${8 + (i % 4) * 3}\" fill=\"${tone}\" opacity=\"0.5\"/>`).join(\"\");",
+  "return view.image({ alt: `banner: ${this.title}`, svg: `<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"640\" height=\"180\" viewBox=\"0 0 640 180\">",
+  "  <rect width=\"640\" height=\"180\" rx=\"10\" fill=\"#0d121b\"/>${leaves}",
+  "  <text x=\"32\" y=\"100\" fill=\"#c8d0dc\" font-family=\"DejaVu Sans, sans-serif\" font-size=\"34\">${esc(this.title)}</text>",
+  "  <text x=\"32\" y=\"130\" fill=\"${tone}\" font-family=\"DejaVu Sans, sans-serif\" font-size=\"16\">${esc(season)} · ${esc(beds)} beds</text>",
+  "  <a href=\"[[Bike shed]]\"><rect x=\"32\" y=\"142\" width=\"150\" height=\"28\" rx=\"6\" fill=\"#1b2a3d\"/><text x=\"46\" y=\"162\" fill=\"#4fb3c7\" font-family=\"DejaVu Sans, sans-serif\" font-size=\"15\">the bike shed ›</text></a>",
+  "  <a href=\"[[Allotment notebook]]\"><rect x=\"200\" y=\"142\" width=\"150\" height=\"28\" rx=\"6\" fill=\"#1b2a3d\"/><text x=\"214\" y=\"162\" fill=\"#4fb3c7\" font-family=\"DejaVu Sans, sans-serif\" font-size=\"15\">the notebook ›</text></a>",
+  "</svg>` });",
+  "```",
+].join("\n");
+
+/**
  * The gallery section's note (PIE-827): the outliner's gallery extension draws its child notes as cards with their
  * `[cover::]` pictures, and `pic::` one picture, each through the `image` primitive. Nothing is written for them.
  */
@@ -145,6 +170,7 @@ export const galleryCards = (dir = SHOWCASE_ASSETS) => [
   `Beetroot, Boltardy [cover::${dir}/seed-packet.webp]\nSow March to July, thin to a hand apart.`,
   `The plot at dusk [cover::${dir}/allotment-dusk.jpg]\nFrom the gate, after the watering.`,
   `Notice board [cover::${dir}/allotment-notice.png]\nPaper white: dimmed as it's drawn.`,
+  `Plot plan [cover::${dir}/plot-plan.svg]\nAn SVG file: a card's cover as any picture is.`,
 ];
 
 /** The artifacts section's files (PIE-793): fictional, made for it, a React one (Tone and Tailwind) and an HTML one (three r128). */

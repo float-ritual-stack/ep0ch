@@ -4,6 +4,7 @@ import { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, TRAIL_CHIP, HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
+import { fencePicture, PICTURE_SCALE, pictureRoom } from "../diagrams";
 import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
@@ -616,12 +617,29 @@ const tagged = tagInto;
  * placePictures finds it; its caption is a link to the file, so `[ ]` stops on it and ⏎ opens it, as on a note's image.
  */
 function pictureRows(node: ImagePrimitive, width: number, env: DocEnv, drawn: Link[]): string[] {
-  const r = mediaRows(imagePrimitiveSpec(node), width, { ...env, image: undefined }, -1);
+  // A script's own drawing (PIE-1555, `svg` in place of `src`): made into an SVG file once by its content, as a ```svg
+  // fence is (src/diagrams.ts), then drawn as that file. Its alt text says it until it's ready, or why it can't be.
+  let spec = node.svg === undefined ? imagePrimitiveSpec(node) : null;
+  if (node.svg !== undefined) {
+    const made = env.graphics ? fencePicture("svg", node.svg, pictureRoom(width, env.cellW, env.cellH)) : null;
+    const what = node.alt?.trim() || made?.label || "svg picture";
+    if (!made || made.state !== "ready") {
+      const why = !made ? "" : made.state === "drawing" ? " · drawing" : ` · ✗ ${made.reason}`;
+      return [fg(made?.state === "error" ? C.lred : C.dark) + ellipsize(`${made ? "◌" : "▣"} ${what}${why}`, width) + RESET];
+    }
+    const entry = media(made.path, "img"), own = entry.state !== "error" && entry.width ? Math.ceil(entry.width / PICTURE_SCALE / env.cellW) : width;
+    spec = { ...imagePrimitiveSpec({ ...node, svg: undefined, src: made.path }), ...(node.size === undefined ? { size: { cells: Math.max(1, Math.min(width, own)) } } : {}) };
+  }
+  // Its links (an SVG's <a href>) are the reader's elements, as a link in the text is.
+  const r = mediaRows(spec!, width, { ...env, image: undefined, tag: (to, text) => tagged(drawn, to, text) }, -1);
+  // A script's drawing is named by what it says it is, not by the file it was made into.
+  if (node.svg !== undefined) r.lines[r.caption] = fg(C.dark) + ellipsize(`▣ ${node.alt?.trim() || "svg picture"}`, width) + RESET;
   const lines = [...r.lines];
   if (r.image) lines[r.image.line] = " ".repeat(r.image.col) + tagged(drawn, { role: "picture", picture: r.image }, " ".repeat(r.image.cols));
   // `caption: false` (PIE-839): the picture alone, once its rows are kept for it; where it isn't drawn, the caption says what it is.
   if (node.caption === false && r.caption > 0) return lines.slice(0, r.caption);
-  lines[r.caption] = tagged(drawn, { media: r.entry.path }, lines[r.caption]!);
+  // A file's caption opens the file; a script's drawing has no file a person keeps.
+  if (node.svg === undefined) lines[r.caption] = tagged(drawn, { media: r.entry.path }, lines[r.caption]!);
   return lines;
 }
 
