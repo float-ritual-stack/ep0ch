@@ -42,3 +42,17 @@ test("a narrow table draws each row as a card with every cell, labelled, linked 
   // Wide, it is a table still.
   expect(renderGraph("table", props, 120, link).map(strip).join("\n")).toContain(" ┊ ");
 });
+
+// PIE-1524: at 60 columns a cell whose word is longer than its column was cut inside the code span's colour code: its
+// first row came out empty and its second began `;204;146;214m`. The cut sees through colour, which takes no room.
+test("a wrapped cell's long styled word is cut between glyphs, never inside a colour code", () => {
+  const props = `headers: [Cut, Where, Instead]\nrows: [["thread tile kind", "\`door/src/desk/builtin-tiles.ts:195\`", "an alias"]]`;
+  const lines = renderGraph("table", props, 60, undefined, undefined, { present: t => t }).map(strip);
+  const at = lines.findIndex(l => l.includes("thread tile kind"));
+  const where = lines.slice(at, at + 2).map(l => l.split("┊")[2]!.trim());
+  expect(where.join("").replace("…", "")).toMatch(/^door\/src\/desk\/builtin-tiles\.ts:/);
+  for (const l of lines) expect(l).not.toMatch(/\d+m|\x1b/);
+  // Every row of the table keeps its columns lined up.
+  const seps = [lines[at - 2]!, lines[at]!, lines[at + 1]!].map(l => [...l].map((c, i) => (c === "┊" ? i : -1)).filter(i => i >= 0).join());
+  expect(new Set(seps).size).toBe(1);
+});

@@ -86,6 +86,8 @@ export function paint(s: string): string {
 }
 
 const ANSI_RE = /\x1b\[[\d;]*m/g;
+/** One colour code, kept whole when a string is cut into glyphs (splitVisible). */
+const SGR_PART = /(\x1b\[[\d;]*m)/;
 
 // ── presentation marks: a link's colour (src/refs.ts) and inline Markdown styles (src/inline.ts) ──
 // Placed in read-mode text before it's wrapped, turned into colour and SGR styles after (colourBody), so
@@ -226,16 +228,23 @@ export function balanceTags(lines: string[]): string[] {
 }
 
 /**
- * `s` (plain text, link tags and marks, no colour) split after its first `n` cells: the one cut of text to a width
+ * `s` (text, link tags, marks and colour codes) split after its first `n` cells: the one cut of text to a width
  * (PIE-1291). By glyph, never through a wide or joined one, and at least one glyph when `n` is 1 or more, so a loop of
  * cuts always moves on. A link open at the cut is closed in the head and re-opened in the tail; a tag that opens right
- * at the cut goes with the tail, one that closes there with the head.
+ * at the cut goes with the tail, one that closes there with the head. A colour code takes no room and is never cut
+ * (PIE-1524: a code span's colour cut in two drew `;204;146;214m` in a table cell); one at the cut goes with the tail,
+ * and the colours the head set are set again at the tail's start, so the rest of a styled word stays styled.
  */
 export function splitVisible(s: string, n: number): [string, string] {
-  const gs = graphemes(s);
-  let seen = 0, open = -1, i = 0;
+  const gs = s.includes("\x1b") ? s.split(SGR_PART).flatMap(p => (SGR_PART.test(p) ? [p] : graphemes(p))) : graphemes(s);
+  let seen = 0, open = -1, i = 0, styled = "";
   for (; i < gs.length; i++) {
     const g = gs[i]!;
+    if (g.startsWith("\x1b[") && g.endsWith("m")) {
+      if (seen >= n && seen > 0) break;
+      styled = g === RESET || g === "\x1b[m" ? "" : styled + g;
+      continue;
+    }
     if (isTag(g)) {
       const end = g.codePointAt(0) === TAG_END;
       if (seen >= n && !end) break;
@@ -246,7 +255,7 @@ export function splitVisible(s: string, n: number): [string, string] {
     if (seen + gw > n && (seen > 0 || n < 1)) break;
     seen += gw;
   }
-  const head = gs.slice(0, i).join(""), tail = gs.slice(i).join("");
+  const head = gs.slice(0, i).join(""), rest = gs.slice(i).join(""), tail = rest && styled + rest;
   if (open < 0) return [head, tail];
   return [head + LINK_END, tail ? linkTag(open) + tail : ""];
 }
