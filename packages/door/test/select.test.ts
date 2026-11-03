@@ -522,6 +522,27 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     expect(d.surface.describe().selection?.text).toBe("Water the seedlings every morning.");
   });
 
+  test("in an edit, a double click selects a word whole: a combining accent and an astral character stay in it (PIE-1542)", async () => {
+    const { d, r } = await openCard();
+    key(char("e"));
+    await until(() => !!d.surface.editing && !!d.surface.draft, "the edit");
+    const draft = d.surface.draft!;
+    draft.place(2, draft.lines[2]!.length);
+    draft.pasteText(" cafe\u0301 \u{1D400}bc beds");
+    // "beds" in cells: the accent draws in its letter's cell and the astral letter in one, two UTF-16 units fewer.
+    const at = where(frame(), "beds", r), w = { x: at.x - 2, y: at.y };
+    await Bun.sleep(500);
+    click({ x: w.x - 6, y: w.y }); click({ x: w.x - 6, y: w.y });          // on the "e" before the accent
+    await until(() => draft.selectedText() !== null, "the word selected");
+    expect(draft.selectedText()).toBe("cafe\u0301");
+    await Bun.sleep(500);
+    click({ x: w.x - 3, y: w.y }); click({ x: w.x - 3, y: w.y });          // on the "b" after the astral letter
+    await until(() => !!draft.selectedText()?.endsWith("bc"), "the next word selected");
+    expect(draft.selectedText()).toBe("\u{1D400}bc");
+    key({ kind: "esc" }); key({ kind: "esc" }); key({ kind: "esc" });       // the selection, then put aside unsaved
+    await until(() => !d.surface.editing, "the edit closed");
+  });
+
   test("the keyboard mode: v, then j and End, then y", async () => {
     const { d } = await openCard();
     writes.length = 0;

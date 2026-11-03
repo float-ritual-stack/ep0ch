@@ -10,7 +10,7 @@ import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
-import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS, hintOf, rk, chooseKeys, PLACEMENT_KEYS, FIELD_KEYS, CHILDREN_KEYS, replyHint, figureKeys, LET_GO_KEYS, gripKeys, backKeys } from "./attached-keys";
+import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, NOTE_EDIT_KEYS, ATTACHED_KEYS, hintOf, rk, chooseKeys, PLACEMENT_KEYS, FIELD_KEYS, CHILDREN_KEYS, replyHint, figureKeys, LET_GO_KEYS, gripKeys, backKeys } from "./attached-keys";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey, type ModeName } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
@@ -124,7 +124,7 @@ import { startsTable, tableCells } from "@ep0ch/outline-core/table-shape";
 import { ActionRefused, actionSet, boundNow, def, keyCaption, agentLabel, agentWords, asActor, type ActionDef, type ActionSet, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { holdsEdit, NOBODY } from "../whereabouts";
-import { draftState, editHint, editorClick, openInEditor, renderEditor, previewRows, wheelTarget, writtenBy, type EditFrame } from "./editor";
+import { draftState, editHint, editorClick, selectClicks, openInEditor, renderEditor, previewRows, wheelTarget, writtenBy, type EditFrame } from "./editor";
 import { composerBody, composerBox, placeBox, type ComposerBox } from "./composer";
 import { attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedSide, type AttachedPlace, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { Attachments, type AttachedState, type AttachmentDef, type AttachmentKind, type SplitFrame } from "./attachments";
@@ -1499,7 +1499,7 @@ export class NoteSurface {
     this.modes.push({ name: "list-preview", of: this.listEditor, word: "children", noun: "the children edit", holdsKeys: true,
       editing: () => !!this.listEditor.field, covers: () => false, rows: () => null,
       ended: () => !this.listEditor.field,
-      key: k => { const intent = this.listEditor.intent(k); if (intent) void this.runKey("list.preview.field", intent, host); return true; },
+      key: k => { const field = this.listEditor.key(k); if (field && field !== true) void this.runKey("list.preview.field", field, host); else host.redraw(); return true; },
       click: (x, y) => {
         const r = this.listPreview.rect;
         if (!r || x < r.col || x >= r.col + r.cols || y <= r.row || y >= r.row + r.rows) return undefined;
@@ -3393,7 +3393,8 @@ export class NoteSurface {
     if (elementEdit(s.draft).key(k, (action, args = {}) => { void this.runKey(action, args, host); })) { host.redraw(); return true; }
     // A note's own edit runs actions where the person types (PIE-1076): ctrl+k lists them, ⏎ on a / line runs it.
     if (s.draft === this.draft && !completionOf(s.draft)?.items.length) {
-      if (k.kind === "char" && k.ctrl && k.ch === "k" && !k.shift) { void this.runKey("edit.actions", {}, host); return true; }
+      const own = modeBinding(NOTE_EDIT_KEYS, k);
+      if (own && !("shift" in k && k.shift)) { void this.runKey(own.action as never, (own.args ?? {}) as never, host); return true; }
       // Only a line that names an action, with the cursor at its end: `/tmp is full` is prose, and ⏎ is its new line.
       const line = s.draft.lines[s.draft.row] ?? "", here = k.kind === "enter" && s.draft.col === line.length ? actionHereAt(line, line.length, s.draft.lines, s.draft.row) : null;
       if (here && host.ctx.dispatch?.has(here.query.split(/\s/)[0]!)) { void this.runKey("edit.run", {}, host); return true; }
@@ -4318,22 +4319,6 @@ export class NoteSurface {
     return (this.drafting ?? (this.session?.mode === "compose" ? this.session.writing : null) ?? this.listEditor.field?.session)?.draft ?? null;
   }
 
-  /** A double click in a draft selects the word under the cursor, a triple click its line: two draft.place, as a drag would. */
-  private async selectInDraft(d: Draft, n: number, host: SurfaceHost) {
-    const line = d.lines[d.row] ?? "";
-    let from = 0, to = line.length;
-    if (n === 2) {
-      const word = /[\p{L}\p{N}_\-]/u, at = Math.min(d.col, line.length);
-      from = at; to = at;
-      while (from > 0 && word.test(line[from - 1]!)) from--;
-      while (to < line.length && word.test(line[to]!)) to++;
-      if (from === to) return;
-    }
-    const row = d.row + 1;
-    await this.runKey("draft.place", { line: row, col: from + 1 }, host);
-    await this.runKey("draft.place", { line: row, col: to + 1, extend: true }, host);
-  }
-
   /**
    * The comment being written as its own tile draws it (PIE-846, place `tile`): the one edit control (renderEditor) in
    * the tile's `w` × `h` cells, the passage quoted above the text as split and popup quote it, its preview's pictures
@@ -4436,11 +4421,17 @@ export class NoteSurface {
     const d = cs?.mode === "compose" && cs.place === "tile" ? cs.composer : null;
     if (!d) return false;
     if (k.action === "wheel-up" || k.action === "wheel-down") { this.writeWheel(d, k.action === "wheel-down" ? 1 : -1, { x, y }); host.redraw(); return true; }
-    if (k.action === "down") { this.tileDrag = false; this.writePress(d, x, y, false); host.redraw(); return true; }
+    if (k.action === "down") {
+      this.tileDrag = false;
+      const n = d.clicks.press(x, y);
+      if (this.writePress(d, x, y, false)) this.draftSelecting = n > 1 ? selectClicks(d, n, (action, args) => this.runKey(action as never, args as never, host)) : null;
+      host.redraw(); return true;
+    }
     if (k.action === "drag") { this.tileDrag = true; this.writePress(d, x, y, true); host.redraw(); return true; }
     if (k.action === "up") {
-      if (!this.tileDrag) this.writeClick(d, x, y, host);
-      else if (d.selectedText()?.trim() && copyOnSelect()) void this.runKey("draft.copy", {}, host);
+      const r = d.clicks.release(x, y);
+      if (!this.tileDrag && r.click) this.writeClick(d, x, y, host);
+      else if (this.tileDrag || r.copy) void (this.draftSelecting ?? Promise.resolve()).then(() => { if (d.selectedText()?.trim() && copyOnSelect()) void this.runKey("draft.copy", {}, host); host.redraw(); });
       this.tileDrag = false;
       host.redraw();
       return true;
@@ -7607,8 +7598,9 @@ export class NoteSurface {
         const binding = modeBinding(mode.keys!, k);
         if (binding) run(binding.action, { ...binding.args, ...(binding.action === "sources.refresh" ? { all: P.open === null } : {}) });
         else {
-          const intent = mode.view.intent(k);
-          if (intent) run("sources.field", intent);
+          const field = mode.view.key(k);
+          if (field && field !== true) run("sources.field", field);
+          else if (field) host.redraw();
         }
         return true;
       },
@@ -8309,7 +8301,7 @@ export class NoteSurface {
       this.restoreCursor(false);
       this.shiftPress = shift && this.editPress;
       const d = this.writingDraft;
-      this.draftSelecting = this.editPress && d && n > 1 && !shift ? this.selectInDraft(d, n, host) : null;
+      this.draftSelecting = this.editPress && d && n > 1 && !shift ? selectClicks(d, n, (action, args) => this.runKey(action as never, args as never, host)) : null;
       if (this.editPress) host.redraw();
       return;
     }

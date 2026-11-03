@@ -1,5 +1,5 @@
 {
-  "revision": "0ec278ca6dd99d88d19092549caa0a60321a3183",
+  "revision": "9e9ee4be5c98e01f26a246fbe109f67dc508f082",
   "patterns": {
     "width-length": {
       "count": 243,
@@ -188,7 +188,7 @@
         "packages/door/src/surface/editor.ts:1746cff03332e3fa",
         "packages/door/src/surface/element-editor.ts:ad73c971150dbbfc",
         "packages/door/src/surface/element-editor.ts:d92cf1ea02e539e",
-        "packages/door/src/surface/inspector.ts:12d9796441aeaf70",
+        "packages/door/src/surface/inspector.ts:c388a1c5506860a0",
         "packages/door/src/surface/list-view.ts:ee86ad0dec7295bc",
         "packages/door/src/surface/list-view.ts:ee956f7bd060eb10",
         "packages/door/src/surface/list-view.ts:ee956f7bd060eb10",
@@ -376,7 +376,7 @@
     "packages/door/src/desk/screen-layout.ts": 2358,
     "packages/door/src/screens.ts": 2239,
     "packages/door/src/showcase/showcase.ts": 2138,
-    "packages/door/src/surface/note.ts": 12989,
+    "packages/door/src/surface/note.ts": 12981,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4671,
