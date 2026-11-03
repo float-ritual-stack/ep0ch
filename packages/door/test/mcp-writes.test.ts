@@ -823,7 +823,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect((await tool("outline_comment", { uri: lamps, whole: true, body: "Order wicks" })).json.outcome).toBe("queued");
     await boardOn(far, "attic-notes", FAR).configureMcpAccess("none");
     const dropped = await pull();
-    expect(dropped.settled).toMatchObject([{ state: "refused", said: expect.stringContaining("MCP access for attic-notes is none here now") }]);
+    expect(dropped.settled).toMatchObject([{ state: "refused", said: expect.stringContaining("MCP access is none for attic-notes@") }]);
     await boardOn(far, "attic-notes", FAR).configureMcpAccess("full");
   }, 60_000);
 

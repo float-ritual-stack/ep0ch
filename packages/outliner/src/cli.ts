@@ -805,8 +805,15 @@ async function gatedAgentOperation(operation: AgentOperationName, input: Record<
   const [{ effectiveLevel }, { agentWrite }, { canonicalLocalMachineName }] = await Promise.all([import("./write-gate"), import("./agent-write"), import("./machine-name")]);
   const status = await client.request<McpAccessStatus>({ action: "mcp.access.status" });
   const { level } = effectiveLevel(status, { local: true });
-  const { mark, ...rest } = input;
-  const args = operation === "edit-comment" ? { ...rest, edit: mark } : operation === "view-order" ? { ...input, ref: input.view } : input;
+  // The operation's own check (ref and its aliases) first, so the gate's write names the block as the operation would.
+  const { AGENT_OPERATION_SPECS } = await import("./agent-tool-specs");
+  const { checkToolArgs } = await import("@ep0ch/outline-core/tool-args");
+  const spec = AGENT_OPERATION_SPECS[operation];
+  const checked = spec ? checkToolArgs(spec, input) : undefined;
+  if (checked && !checked.ok) return run(client, operation, input, actor);
+  const given = checked?.ok ? checked.args : input;
+  const { mark, ...rest } = given;
+  const args = operation === "edit-comment" ? { ...rest, edit: mark } : operation === "view-order" ? { ...given, ref: given.ref ?? given.view } : given;
   return agentWrite(client, { definition, args, command: { operation, input } }, actor, level, paths.outline ? { where: { outline: paths.outline, machine: paths.machine ?? canonicalLocalMachineName() } } : {});
 }
 

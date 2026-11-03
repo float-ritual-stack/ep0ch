@@ -5,6 +5,8 @@
 import { AGENT_TOOL_SURFACES, type AgentToolDefinition } from "@ep0ch/outline-core/agent-tool-definitions";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { editBlock, resolveRef, runAgentOperation, type AgentActor, type AgentOperation, type AgentToolsClient, type EditInput } from "./agent-tools";
+import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
+import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
 import { applyWrite, type McpWriteTool } from "./mcp-write";
 import type { AnnotationRecord, AnnotationThread } from "./types";
 import { gate, type GateWhere } from "./write-gate";
@@ -31,7 +33,12 @@ export async function agentWrite(client: AgentToolsClient, w: AgentWrite, actor:
   const top = name === "outline_create" && String(ref).trim() === "root";
   const decided = gate({ tool: name, level, top, ...(o.where ? { where: o.where } : {}) });
   if (decided.becomes === "refused") throw new WorkToolRefusal(decided.why!);
-  if (name === "outline_edit") return editBlock(client, { ...(w.command.input as unknown as EditInput), ...(decided.becomes === "applied" ? {} : { propose: true as const }) }, actor);
+  if (name === "outline_edit" && decided.becomes !== "applied") {
+    // The operation's own check first (ref and its aliases), as runAgentOperation makes it.
+    const checked = checkToolArgs(AGENT_OPERATION_SPECS.edit!, w.command.input);
+    if (!checked.ok) throw new WorkToolRefusal(checked.error);
+    return editBlock(client, { ...(checked.args as unknown as EditInput), propose: true }, actor);
+  }
   const viaApplyWrite = AGENT_TOOL_SURFACES[name]?.gateway === true && name !== "script_run" && (decided.becomes !== "applied" || o.always);
   if (!viaApplyWrite) return runAgentOperation(client, w.command.operation, w.command.input, actor);
   let blockId: string;
