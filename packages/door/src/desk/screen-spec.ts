@@ -96,6 +96,23 @@ export interface ScreenSpec {
   stays?: true;
   /** What ctrl+n (`note.new`) does here (PIE-591): the first rule matching the focused tile's kind; none, a float. */
   newNote?: NewNoteRule[];
+  /**
+   * Its row on the main menu (PIE-1525): the key that opens it there (one character), the label the row shows, and what
+   * the help screen says of it. Any screen may name one: a built-in's, an extension's (`screens[]`), one a person made
+   * (`screen.menu`). A key another row holds leaves this row keyless, said.
+   */
+  menu?: MenuRow;
+}
+
+/** A screen's row on the main menu (PIE-1525). */
+export interface MenuRow { key: string; label: string; about?: string }
+
+/** Why `m` can't be a menu row, or null: a key is one printable character, a label a few words. */
+export function menuRowProblem(m: { key?: unknown; label?: unknown; about?: unknown }): string | null {
+  if (typeof m.key !== "string" || [...m.key].length !== 1 || !/^[\x21-\x7e]$/.test(m.key)) return `a menu row's key is one character you can type (a letter, a digit, + ! …), not ${JSON.stringify(m.key ?? "")}`;
+  if (typeof m.label !== "string" || !m.label.trim() || m.label.trim().length > 16 || /[\n\r]/.test(m.label)) return `a menu row's label is one to 16 characters on one line, not ${JSON.stringify(m.label ?? "")}`;
+  if (m.about !== undefined && (typeof m.about !== "string" || m.about.length > 200)) return "a menu row's about is a line of up to 200 characters";
+  return null;
 }
 
 /** The rule of `spec`'s new notes for a focused tile of `kind` (PIE-591), or null: a float. */
@@ -149,11 +166,19 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
       ...(kinds(r.only) ? { only: kinds(r.only)! } : {}),
     } satisfies NewNoteRule;
   }) : (() => { throw new Error(`screen ${name}: newNote is a list of rules`); })();
+  let menu: MenuRow | undefined;
+  if (o.menu !== undefined) {
+    const m = (o.menu && typeof o.menu === "object" && !Array.isArray(o.menu) ? o.menu : {}) as Record<string, unknown>;
+    const bad = menuRowProblem(m);
+    if (bad) throw new Error(`screen ${name}: ${bad}`);
+    menu = { key: (m.key as string).toUpperCase(), label: (m.label as string).trim(), ...(typeof m.about === "string" && m.about.trim() ? { about: m.about.trim() } : {}) };
+  }
   const str = (k: string) => (typeof o[k] === "string" && o[k] ? { [k]: o[k] as string } : {});
   const spec: ScreenSpec = {
     name, title, layout,
     ...(keys ? { keys } : {}),
     ...(newNote ? { newNote } : {}),
+    ...(menu ? { menu } : {}),
     ...str("hint"), ...hintMap(o.hint), ...str("band"), ...str("home"), ...str("lands"), ...str("fresh"), ...str("saves"),
     ...(o.frame === "dotted" ? { frame: "dotted" as const } : {}),
     ...(o.digits === false ? { digits: false as const } : {}),
@@ -205,9 +230,14 @@ export interface ScreenRegistration {
   target?: string;
   /** A screen a person made (a screen note in the outline, src/desk/screen-notes.ts): its note's id and revision. */
   made?: { id: string; revision: number; title?: string };
+  /** A screen an extension ships (PIE-1525, its manifest's `screens[]`): the extension's id. It goes when the extension stops. */
+  extension?: string;
 }
 const specs = new Map<string, SpecOf>();
 const registrations = new Map<string, ScreenRegistration>();
+/** Goes up with every screen registered or forgotten: what a reader of the registry (the menu's rows) keys its copy on. */
+let version = 0;
+export const screensVersion = (): number => version;
 /** Why `name` can't be a screen's name, or null. */
 export const screenNameProblem = (name: string): string | null => (NAME.test(name) ? null : `a screen's name is a letter, then letters, digits, . - _, at most 40 (not ${JSON.stringify(name)})`);
 
@@ -234,6 +264,7 @@ export function screenTitleProblem(title: string): string | null {
       ? `a screen's name starts with a letter (${JSON.stringify(t)} would be ${slug})${tail ? ` · try ${JSON.stringify(tail)}` : ""}`
       : `a screen's name needs letters (${JSON.stringify(t)} has none to make a name from) · try ${JSON.stringify("my screen")}`;
   }
+  if (registrations.get(slug)?.extension) return `${slug} is the ${registrations.get(slug)!.extension} extension's screen · try ${JSON.stringify(`${t} 2`)} (saves as ${screenSlug(`${t} 2`)})`;
   if (builtinScreen(slug)) return `${slug} is a built-in screen's name · try ${JSON.stringify(`${t} 2`)} (saves as ${screenSlug(`${t} 2`)})`;
   return null;
 }
@@ -258,18 +289,48 @@ export function registerScreen(name: string, of: SpecOf, how: ScreenRegistration
   if (specs.has(name)) throw new Error(`screen ${name} is registered already`);
   specs.set(name, of);
   registrations.set(name, how);
+  version++;
 }
-/** Take out a screen a person made (its note was trashed, renamed or changed); a built-in never goes. */
+/** Take out a screen a person made (its note was trashed, renamed or changed) or an extension's (it stopped); a built-in never goes. */
 export function forgetScreen(name: string): boolean {
-  if (!registrations.get(name)?.made) return false;
+  const r = registrations.get(name);
+  if (!r?.made && !r?.extension) return false;
   specs.delete(name);
   registrations.delete(name);
+  version++;
   return true;
 }
 /** The note a screen a person made is kept in (its id and the revision this door read), or undefined for a built-in. */
 export const madeScreen = (name: string): { id: string; revision: number; title?: string } | undefined => registrations.get(name)?.made;
 /** A screen the door itself registers (desk, board, blank…): a screen note can't take its name. */
-export const builtinScreen = (name: string): boolean => specs.has(name) && !registrations.get(name)?.made;
+export const builtinScreen = (name: string): boolean => specs.has(name) && !registrations.get(name)?.made && !registrations.get(name)?.extension;
+/** The screens an extension the repo offers (not installed here) would add, with the words that install it (PIE-1525). */
+let installable = new Map<string, string>();
+export const useInstallableScreens = (m: Map<string, string>): void => { installable = m; };
+/** How to get screen `name` back, when an extension that isn't installed here adds it; else null. */
+export const installableScreen = (name: string): string | null => installable.get(name) ?? null;
+/** The extension whose screen `name` is (PIE-1525), or undefined. */
+export const extensionScreen = (name: string): string | undefined => registrations.get(name)?.extension;
+/** Who holds a screen name, in words: "the waiting extension", "a built-in", "a screen note". */
+export const screenHolder = (name: string): string => {
+  const r = registrations.get(name);
+  return !r ? "nobody" : r.extension ? `the ${r.extension} extension` : r.made ? "a screen you made" : "a built-in screen";
+};
+/**
+ * Every registered screen whose spec names a menu row (PIE-1525), in the order they were registered: built-ins, then
+ * extensions', then the ones people made. A spec that needs its target to be made has none.
+ */
+export function menuScreens(): { name: string; menu: MenuRow; title: string }[] {
+  const out: { name: string; menu: MenuRow; title: string }[] = [];
+  for (const [name, of] of specs) {
+    let spec: ScreenSpec | null = null;
+    try { spec = of(); } catch { /* a screen that needs its target names no row */ }
+    if (spec?.menu) out.push({ name, menu: spec.menu, title: registrations.get(name)?.made?.title || spec.title });
+  }
+  // Built-ins, then extensions', then made: the same order however the door's reads of them landed.
+  const rank = (name: string) => (registrations.get(name)?.made ? 2 : registrations.get(name)?.extension ? 1 : 0);
+  return out.sort((a, b) => rank(a.name) - rank(b.name));
+}
 /** The spec of the screen named `name`, or null. */
 export function screenSpec(name: string, args?: Record<string, unknown>): ScreenSpec | null {
   const of = specs.get(name);

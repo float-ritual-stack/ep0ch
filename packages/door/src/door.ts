@@ -85,12 +85,13 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
     // Requests held for the person's r (PIE-888): the status bar's count and the waiting-on-you list.
     void app.heldAsks.seed(o.board);
     void app.waitingAsks.seed(o.board);
-    // The service's extensions (PIE-512): their lines, actions and tile kinds, bound as soon as the list is read.
-    void app.loadExtensions();
+    // The service's extensions (PIE-512): their lines, actions, tile kinds and screens, bound as soon as the list is read.
+    const extensions = app.loadExtensions();
     // Whether another door already handed the outline's agents the person's permissions (PIE-973): the chip says so from the start.
     void app.syncYolo();
-    // The screens people made (screen notes), read before a screen opens: `--screen <name>` may name one.
-    await app.loadScreens();
+    // The screens people made (screen notes) and the extensions' (PIE-1525: Waiting), read before a screen opens:
+    // `--screen <name>` may name one, and a session may come back on one.
+    await Promise.all([app.loadScreens(), extensions]);
   } else { app.host = hostname(); app.workspace = "home base"; }
   // Served before any screen starts: terminal tiles are given its path (EP0CH_CONTROL) when they start.
   let refused = "";

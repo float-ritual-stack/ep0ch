@@ -4,6 +4,7 @@
 // edits elsewhere in the note, and reset when the reader shows another note. Keys, clicks and agents (the
 // action registry) all fold the same way. The service part runs against a throwaway outliner only.
 import { visible } from "../src/style";
+import { declaredKeys } from "../src/surface/actions";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -272,12 +273,12 @@ describe("a reader's folds, without a service", () => {
     await expect(empty.act("fold", { text: "x" }, h, AGENT)).rejects.toThrow("this reader shows no note");
   });
 
-  test("the registry lists the fold actions with their keys", () => {
-    const names = NOTE_ACTIONS.list().map(a => [a.name, a.keys]);
-    expect(names).toContainEqual(["fold", "( ) then f or enter, click, F"]);
-    expect(names).toContainEqual(["unfold", "( ) then f or enter, click, F"]);
-    expect(names).toContainEqual(["fold.toggle", "f, enter, click"]);
-    expect(names.map(n => n[0])).toContain("folds");
+  test("the registry lists the fold actions with their keys, read from the reader's key table (PIE-1527)", () => {
+    const keys = (name: string) => [...declaredKeys(NOTE_ACTIONS.list().find(a => a.name === name)!.keys)].sort();
+    expect(keys("fold")).toEqual(["F", "click"]);
+    expect(keys("unfold")).toEqual(["F", "click"]);
+    expect(keys("fold.toggle")).toEqual(["click", "ctrl+enter", "enter", "f", "shift+enter"]);
+    expect(NOTE_ACTIONS.list().map(a => a.name)).toContain("folds");
   });
 });
 

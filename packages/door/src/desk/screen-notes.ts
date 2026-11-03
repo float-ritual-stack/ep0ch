@@ -22,7 +22,7 @@ import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { subject, type Msg } from "../board";
 import { EditConflict, type Actor, type SocketBoard } from "../socket";
 import { ActionRefused } from "../surface/actions";
-import { builtinScreen, forgetScreen, madeScreen, readSpec, registerScreen, screenNameProblem, screenNames, screenSlug, screenTitleProblem, specData, type ScreenSpec } from "./screen-spec";
+import { builtinScreen, extensionScreen, forgetScreen, madeScreen, readSpec, registerScreen, screenNameProblem, screenNames, screenSlug, screenTitleProblem, specData, type ScreenSpec } from "./screen-spec";
 import { prop } from "../props";
 
 /** The property value that makes a block a screen note, and the one of the note they're kept under. */
@@ -120,6 +120,7 @@ export async function loadScreenNotes(board: Pick<ScreenStore, "byProp">): Promi
   for (const [name, same] of byName) {
     const ids = same.map(n => `((${n.id}))`).join(", ");
     if (builtinScreen(name)) wrong.push(`a screen note is named ${name}, a built-in screen's name: it isn't opened · rename it ([${SCREEN_TYPE}::…] in ${ids})`);
+    else if (extensionScreen(name)) wrong.push(`a screen note is named ${name}, the ${extensionScreen(name)} extension's screen: it isn't opened · rename it ([${SCREEN_TYPE}::…] in ${ids})`);
     else if (same.length > 1) wrong.push(`${same.length} screen notes are named ${name}: none is opened by that name · rename all but one (${ids})`);
     else if (!("problem" in same[0]!)) next.set(name, same[0]!);
   }
@@ -155,6 +156,7 @@ export async function saveScreenNote(board: ScreenStore, spec: ScreenSpec, actor
   const bad = screenNameProblem(spec.name) ?? (screenSlug(spec.title) === spec.name ? screenTitleProblem(spec.title) : null);
   if (bad) throw new ActionRefused(bad);
   if (builtinScreen(spec.name)) throw new ActionRefused(`${spec.name} is a built-in screen: a screen you make takes a name of its own (the built-ins: ${screenNames().filter(builtinScreen).join(", ")}) · try ${JSON.stringify(`${spec.title} 2`)}`);
+  if (extensionScreen(spec.name)) throw new ActionRefused(`${spec.name} is the ${extensionScreen(spec.name)} extension's screen: a screen you make takes a name of its own · try ${JSON.stringify(`${spec.title} 2`)}`);
   const clash = problems.find(p => p.includes(` are named ${spec.name}:`));
   if (clash) throw new ActionRefused(clash);
   const text = screenNoteText(spec);

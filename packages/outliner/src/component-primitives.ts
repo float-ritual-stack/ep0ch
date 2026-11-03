@@ -47,7 +47,7 @@ export const PRIMITIVE_FIELDS = {
   band: ["text", "level", "style", "pattern", "align", "row", "tone"],
   track: ["style", "pattern", "tone"],
   image: ["src", "alt", "size", "fit", "height", "caption"],
-  list: ["rows", "groups", "preview", "filter", "enter", "empty", "arrange", "size", "columns", "headers", "page"],
+  list: ["rows", "groups", "preview", "filter", "enter", "empty", "arrange", "size", "columns", "headers", "page", "title"],
 } as const satisfies Record<typeof PRIMITIVE_TYPES[number], readonly string[]>;
 
 export const RENDER_TARGETS = ["terminal", "markdown", "blockdown", "html", "json", "csv"] as const;
@@ -374,7 +374,8 @@ function listPrimitive(node: Record<string, unknown>, path: string): ListPrimiti
     ...(node.preview !== undefined ? { preview: node.preview as ListPrimitive["preview"] } : {}),
     ...(node.filter !== undefined ? { filter: node.filter as boolean } : {}),
     ...(node.enter !== undefined ? { enter: node.enter as boolean } : {}),
-    ...(node.empty !== undefined ? { empty: oneLineText(node.empty, `${path}.empty`) } : {}) };
+    ...(node.empty !== undefined ? { empty: oneLineText(node.empty, `${path}.empty`) } : {}),
+    ...(node.title !== undefined ? { title: oneLineText(node.title, `${path}.title`) } : {}) };
 }
 
 /** Checks a view tree against the catalogue and its bounds; returns a clean copy. */

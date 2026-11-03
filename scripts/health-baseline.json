@@ -1,8 +1,8 @@
 {
-  "revision": "da588beccb8b10424b6a057ce41d6bfa9f6fe090",
+  "revision": "6ca22f233c87afb7a7907967c4a99f9d2a9243a4",
   "patterns": {
     "width-length": {
-      "count": 248,
+      "count": 247,
       "sites": [
         "packages/door/src/agent-fleet.ts:9566dd856b2d71fd",
         "packages/door/src/art-view.ts:68df40cd5e12d1a5",
@@ -131,7 +131,6 @@
         "packages/door/src/graphs.ts:e8c6c22a8a8b103d",
         "packages/door/src/graphs.ts:e8c6c22a8a8b103d",
         "packages/door/src/graphs.ts:e8c6c22a8a8b103d",
-        "packages/door/src/hub/waiting.ts:97f9f446cca4ac82",
         "packages/door/src/hub/welcome.ts:faaada62ea92931f",
         "packages/door/src/hub/welcome.ts:ce412ace7ab42dc4",
         "packages/door/src/hub/welcome.ts:b986096d92c12a61",
@@ -255,7 +254,7 @@
       ]
     },
     "pad-end": {
-      "count": 45,
+      "count": 44,
       "sites": [
         "packages/door/src/agent-fleet.ts:3e3caff4753d37d",
         "packages/door/src/agent-fleet.ts:3e3caff4753d37d",
@@ -275,7 +274,6 @@
         "packages/door/src/figures/annotate.ts:e2ccab0c740c36d6",
         "packages/door/src/figures/days.ts:8a07b2ca556642fe",
         "packages/door/src/graphs.ts:fe678e71b0cf29ad",
-        "packages/door/src/hub/waiting.ts:ba13c6747814b619",
         "packages/door/src/library/cli.ts:b4c310c5bd7384f",
         "packages/door/src/mcp-access-matrix.ts:9ae101c122e78a27",
         "packages/door/src/mcp-access-matrix.ts:9ae101c122e78a27",
@@ -293,7 +291,7 @@
         "packages/door/src/screens.ts:f22938ccbbdd8066",
         "packages/door/src/screens.ts:f22938ccbbdd8066",
         "packages/door/src/screens.ts:f52106f869d619a",
-        "packages/door/src/screens.ts:dec1d725c4bbde4e",
+        "packages/door/src/screens.ts:8402bf48de851ad",
         "packages/door/src/setup/apply.ts:4af364a1b4016d5e",
         "packages/door/src/setup/doctor.ts:4a24cda534f7dd25",
         "packages/door/src/skills.ts:ebb126b75f7598af",
@@ -381,9 +379,9 @@
     "packages/door/src/app.ts": 2008,
     "packages/door/src/desk/desk.ts": 8607,
     "packages/door/src/desk/screen-layout.ts": 2358,
-    "packages/door/src/screens.ts": 2239,
+    "packages/door/src/screens.ts": 2237,
     "packages/door/src/showcase/showcase.ts": 2138,
-    "packages/door/src/surface/note.ts": 13128,
+    "packages/door/src/surface/note.ts": 13105,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4671,
