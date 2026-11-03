@@ -10,6 +10,26 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Every place you type is one text field (PIE-1542)
+
+- **One edit control:** the reader's edit, a comment, the composer, an inspector field, the power bar and line fields share one control for keys, paste, undo, the mouse and completion.
+- **Fixed:** a rebound `draft.undo` (Cmd+Z too) works inside a draft; a multi-line paste into an inspector field keeps every line and undoes in one step; double-click takes whole words with accents; typing while a field saves is kept; shift+arrows stay inside a table cell.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
+### Holding ctrl shows the frame controls after half a second
+
+- In a Kitty-protocol terminal (Rex) the controls cards waited for nothing; now a hold of 500 ms shows them, and a ctrl chord, typed into the door or a terminal tile, never does. A tap still toggles.
+
+### tv actions come back to a live tv; the extensions screen lists door extensions (PIE-1538, PIE-1537)
+
+- **A second action no longer leaves tv dead or blank:** tv 0.15.9's fork mode broke on the second press; actions relaunch tv instead.
+- **Television on the extensions screen:** each door extension folder shows its about, its links and whether install linked them, and says so when `tv` isn't on PATH.
+- **A PR in `tv ep0ch-board`** previews as formatted Markdown, drawn by glow, else bat.
+
+### Sysop writes a healthy machine's readings every 15 minutes
+
+- It still samples every minute, so a crossing, a trip, a calm or a wake-up writes at once; each write had re-run every door's live views on the outline.
+
 ### Eight features that existed twice keep one copy (PIE-1528)
 
 - **Your layouts open as they did:** a saved `thread`, `tags`, `board`, `river` or `pinned` tile opens the same tile and saves under the kind that serves it: a links tile with Children alone, the facets tile on the tags facet, `screen=board` / `screen=river`, a reader pinned to its page.
