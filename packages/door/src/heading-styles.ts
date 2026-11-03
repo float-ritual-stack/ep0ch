@@ -4,10 +4,10 @@
 import { BUILTIN_HEADING_STYLE_REGISTRY, headingStyleRegistry, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import { outlineList } from "./outline-lists";
 
-type HeadingBoard = { headingStyles?: () => Promise<{ styles: HeadingStyle[]; problems: string[] }> };
+type HeadingBoard = Partial<Pick<import("./socket").SocketBoard, "request">>;
 
 const HEADINGS = outlineList<HeadingStyle, HeadingStyleRegistry>(
-  (b: HeadingBoard) => (typeof b.headingStyles === "function" ? () => b.headingStyles!().then(r => ({ items: r.styles, problems: r.problems })) : undefined),
+  (b: HeadingBoard) => (typeof b.request === "function" ? () => b.request!("headings.styles", {}).then(r => ({ items: r.styles, problems: r.problems })) : undefined),
   headingStyleRegistry, BUILTIN_HEADING_STYLE_REGISTRY,
 );
 

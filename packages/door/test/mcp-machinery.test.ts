@@ -23,7 +23,7 @@ describe.skipIf(!outliner)("outline_query leaves machinery out of a recent-activ
     for (const [k, v] of Object.entries(scratch.env)) { oldEnv[k] = process.env[k]; process.env[k] = v; }
     board = new SocketBoard(sock);
     await board.info();
-    await board.configureMcpAccess("read");
+    await board.request("mcp.access.configure", { level: "read" });
     const page = await board.request("create", { parentId: null, text: "Notifications [page::notifications]", author: "user" });
     for (let i = 0; i < 200; i++) {
       await board.request("create", { parentId: page.id, text: `Seed order ${i} shipped [notify.key::mail:${i}] [notify.source::mail] [notify.state::unread] [machine::notification]`, author: "agent", provenance: { actorId: "notify-agent" } });

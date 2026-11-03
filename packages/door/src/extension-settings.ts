@@ -1,3 +1,4 @@
+import { requesterOf } from "./socket";
 // An extension's settings in the door (PIE-1343): what the service says of them (`extensions.list`'s `settings`, from
 // the manifest's configSchema and secrets) drawn as a chip on its power bar row and a settings row whose preview says
 // each field, and `ext.<id>.settings`, an action whose arguments are the schema's fields. A person's press opens the
@@ -149,7 +150,7 @@ export function settingsAction(e: ExtensionEntry, s: ExtensionSettings): ActionD
       }
       const say = asActor(on.ctx, actor);
       try {
-        const r = await on.ctx.board.configureExtension(e.id, change, actor);
+        const r = await on.ctx.board.request("extensions.configure", { extension: e.id, ...change, mutation: requesterOf(actor) });
         say.flash(`${name}'s settings saved in ${r.settings.file}${r.error ? ` · but ${oneWords(r.error)}` : ""}`);
         on.ctx.redraw();
         return r;

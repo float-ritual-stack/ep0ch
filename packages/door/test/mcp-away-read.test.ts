@@ -63,7 +63,7 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
     await far.create("porch-notes");
     garden = new SocketBoard(far.sock, undefined, "garden-notes");
     porch = new SocketBoard(far.sock, undefined, "porch-notes");
-    await garden.configureMcpAccess("full");
+    await garden.request("mcp.access.configure", { level: "full" });
     lantern = (await garden.request("create", { parentId: null, text: "Lantern log\nThe lantern burned until the moths came.", author: "agent" })).id;
     here = scratchDir("ep0ch-away-");
     mirrors = join(here, "mirrors");

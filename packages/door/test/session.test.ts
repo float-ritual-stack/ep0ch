@@ -16,7 +16,7 @@ import { App } from "../src/app";
 import { Mirror } from "../src/mirror";
 import { Draft } from "../src/edit";
 import { openInEditor } from "../src/surface/editor";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, requesterOf } from "../src/socket";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello } from "../src/session/protocol";
 import { FRAMES_IN_FLIGHT, SessionTerm, STEP_DOWN_AFTER, type Link } from "../src/session/session-term";
@@ -824,7 +824,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     const sock = await scratch.start();
     const b = new SocketBoard(sock);
     await b.info();
-    await b.installExtension("runbook");
+    await b.request("extensions.install", { extension: "runbook", mutation: requesterOf(USER) });
     plot = (await b.request("create", { parentId: null, text: "Allotment plot 7\nWater the leeks before noon", author: "agent" })).id;
     b.close();
     state = join(scratch.root, "door");
@@ -1158,7 +1158,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
       await until(() => existsSync(pidFile), "the runbook program's pid", 10000);
       const program = Number(readFileSync(pidFile, "utf8"));
       const previous = pid;
-      await b.uninstallExtension("runbook", "keep");
+      await b.request("extensions.uninstall", { extension: "runbook", demo: "keep", mutation: requesterOf(USER) });
       const cli = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), "session", "restart", "--all"], { env: { ...process.env, EP0CH_OUTLINES: scratch.outlines }, stdout: "pipe", stderr: "pipe" });
       const [output, error, code] = await Promise.all([new Response(cli.stdout).text(), new Response(cli.stderr).text(), cli.exited]);
       expect(code, output + error).toBe(0);
@@ -1166,7 +1166,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
       expect(pid).not.toBe(previous);
       await until(() => { try { process.kill(program, 0); return false; } catch { return true; } }, "the runbook program stopped", 5000);
       expect(readFileSync(join(dir, "session.log"), "utf8")).toContain("Run record could not be saved");
-    } finally { await b.installExtension("runbook"); a.close(); b.close(); }
+    } finally { await b.request("extensions.install", { extension: "runbook", mutation: requesterOf(USER) }); a.close(); b.close(); }
   }, 45000);
 
   test("ending asks while programs run in its tiles, then ends: every client told, the files gone", async () => {
@@ -1534,8 +1534,8 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
       client.type("\x0b");
       client.type("> agents.yolo on=true");
       client.type("\r");
-      for (let i = 0; i < 100 && !(await board.mcpAccessStatus()).yolo; i++) await Bun.sleep(50);
-      expect((await board.mcpAccessStatus()).yolo).toBe(true);
+      for (let i = 0; i < 100 && !(await board.request("mcp.access.status", {})).yolo; i++) await Bun.sleep(50);
+      expect((await board.request("mcp.access.status", {})).yolo).toBe(true);
       expect(await yolo()).toBe(true);
     };
     try {
@@ -1544,7 +1544,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
       await until(() => client.closed, "the old daemon to let go", 5000);
       client = await HandoffClient.attach(sessionSocket(dir), 200, 40);
       expect(await yolo()).toBe(true);
-      expect((await board.mcpAccessStatus()).yolo).toBe(true);
+      expect((await board.request("mcp.access.status", {})).yolo).toBe(true);
       await until(() => client.screen().includes("YOLO kept across the update"), "the YOLO handover notice", 5000);
 
       for (const how of ["end", "crash"] as const) {
@@ -1552,12 +1552,12 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
         if (how === "end") await request({ t: "end", force: true });
         else process.kill(daemonPid(), "SIGKILL");
         await until(() => client.closed, "the door to end", 5000);
-        for (let i = 0; i < 100 && (await board.mcpAccessStatus()).yolo; i++) await Bun.sleep(50);
-        expect((await board.mcpAccessStatus()).yolo === true).toBe(false);
+        for (let i = 0; i < 100 && (await board.request("mcp.access.status", {})).yolo; i++) await Bun.sleep(50);
+        expect((await board.request("mcp.access.status", {})).yolo === true).toBe(false);
         expect(await startSession(dir, ["--screen", "desk"])).toEqual({ ok: true });
         client = await HandoffClient.attach(sessionSocket(dir), 200, 40);
         expect(await yolo()).toBe(false);
-        expect((await board.mcpAccessStatus()).yolo === true).toBe(false);
+        expect((await board.request("mcp.access.status", {})).yolo === true).toBe(false);
       }
     } finally { client.close(); board.close(); }
   }, 60_000);
@@ -1661,10 +1661,10 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     await board.info();
     const textIs = async (text: string) => {
       for (let i = 0; i < 100; i++) {
-        if ((await board.readDraft(plot)).text === text) break;
+        if ((await board.request("drafts.read", { blockId: plot })).text === text) break;
         await Bun.sleep(50);
       }
-      expect((await board.readDraft(plot)).text).toBe(text);
+      expect((await board.request("drafts.read", { blockId: plot })).text).toBe(text);
     };
     try {
       // The handover invites e to carry on; it must not become draft text.

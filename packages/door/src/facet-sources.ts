@@ -1,3 +1,4 @@
+import { USER, requesterOf } from "./socket";
 import { facetRows, readFacetRows, type FacetRequest, type FacetResult, type FacetRow } from "@ep0ch/outline-core/facet-source";
 import { subject, type Msg } from "./board";
 import type { Actor, FacetAnswer } from "./socket";
@@ -64,7 +65,7 @@ export function extensionFacetSource(extension: string, declaration: { id: strin
   return {
     id: `ext.${extension}.${declaration.id}`, title: declaration.title,
     async query(request, desk) {
-      const answer = await desk.ctx.board.actExtension(extension, declaration.read);
+      const answer = await desk.ctx.board.request("extensions.act", { extension, extensionAction: declaration.read, clientId: desk.ctx.board.clientId, mutation: requesterOf(USER) });
       if (answer.answer === undefined) throw new Error(`${declaration.title} returned no rows; its read action must return answer as a JSON array`);
       const invalid: string[] = [];
       const rows = readFacetRows(answer.answer).filter(row => {

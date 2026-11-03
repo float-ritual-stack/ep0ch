@@ -302,14 +302,16 @@ describe("the drawer", () => {
       expect(d.app.agentsYolo).toBe(false);
       // A reconnect asks the service; the answer that says yes was read before another door's no arrived.
       let answer = (_: boolean) => {};
-      (d.A.board as any).mcpAccessStatus = () => new Promise(resolve => { answer = () => resolve({ yolo: true }); });
+      // The access status asked of the service, answered by the test (the board's other asks go to the host).
+      const asks = (status: () => Promise<unknown>) => { const real = d.A.board.send.bind(d.A.board); (d.A.board as any).request = (action: string, ...rest: [Record<string, unknown>?, number?, AbortSignal?]) => (action === "mcp.access.status" ? status() : real(action, ...rest)); };
+      asks(() => new Promise(resolve => { answer = () => resolve({ yolo: true }); }));
       const synced = d.A.syncYolo();
       d.app.event({ domain: "agents", action: "agents.yolo", yolo: false, sequence: 3 });
       answer(true); await synced;
       expect(d.app.agentsYolo).toBe(false);
       // A reconnect: the service holds yolo by the connection, so this door's hand-over is over unless the service still has it.
       await d.app.dispatch.press("agents.yolo", { on: true });
-      (d.A.board as any).mcpAccessStatus = async () => ({});
+      asks(async () => ({}));
       await d.A.syncYolo();
       expect(d.app.agentsYolo).toBe(false);
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }

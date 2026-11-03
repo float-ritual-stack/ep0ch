@@ -35,7 +35,7 @@ export function starterComponent(name: string): string {
 }
 
 /** What `component.new` needs of the board: the page it writes under, the note it writes, the names taken. */
-export type ComponentBoard = Pick<SocketBoard, "followPage" | "createBlock" | "listExtensions">;
+export type ComponentBoard = Pick<SocketBoard, "followPage" | "createBlock" | "request">;
 
 /**
  * Write the starter note for `::name` under the page `under` (made when missing, where new pages go), as `by`. Refused
@@ -45,7 +45,7 @@ export async function makeComponent(board: ComponentBoard, name: string, by: Act
   if (!COMPONENT_NAME.test(name)) throw new ActionRefused(`${JSON.stringify(name)} isn't a component's name: lowercase letters, digits and -, starting with a letter`);
   // A built-in's name draws the built-in, never a script (the same call agents' receipts make: agent-tools' scriptLoadProblems).
   if (BUILTIN_COMPONENT_SCHEMAS.some(c => c.id === name)) throw new ActionRefused(`${name} is taken: a built-in component is called that; pick another name`);
-  const listed = await board.listExtensions().catch(() => null);
+  const listed = await board.request("extensions.list", {}).catch(() => null);
   if (listed?.extensions.some(e => e.state !== "disabled" && ((e.script && e.name === name) || e.handlers.some(h => h.key === name))))
     throw new ActionRefused(`${name} is taken: a script answers to it already; call it, or pick another name`);
   const page = await board.followPage(under, by).catch((e: Error) => { throw new ActionRefused(`no page ${under}: ${e.message}`); });

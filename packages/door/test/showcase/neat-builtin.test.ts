@@ -24,7 +24,7 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     const { app, seeded } = h;
     await app.dispatch.act({ action: "section", args: { name: "neat" } }, USER);
     h.screen();
-    const listed = await h.board.listExtensions(true);
+    const listed = await h.board.request("extensions.list", { reload: true });
     const neat = listed.extensions.find(e => e.name === "neat" && e.script)!;
     expect(neat).toBeDefined();
     // The script is neat's (PIE-1283): one page, the extension's, and one row in the & list.
@@ -95,7 +95,7 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     const installed = await app.dispatch.act({ action: "extensions.install", args: { id: "neat" } }, { kind: "agent", id: "test-agent" }) as { state?: string; page?: string };
     expect(installed.state).toBe("active");
     expect((await board.get(installed.page!))!.text).toContain("Script **neat**");
-    const listed = await board.listExtensions(true);
+    const listed = await board.request("extensions.list", { reload: true });
     expect(listed.extensions.find(e => e.id === "neat")?.scripts?.[0]?.name).toBe("neat");
     await app.loadExtensions(true);
     await until(() => !!extensionList()?.extensions.some(e => e.id === "neat"), "neat installed in the door");
@@ -117,7 +117,7 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     }
     await until(() => !app.bar || app.bar.ended(), "the install pick closes the bar");
     await app.loadExtensions(true);
-    expect((await board.listExtensions(true)).extensions.find(e => e.id === "neat")?.state).toBe("active");
+    expect((await board.request("extensions.list", { reload: true })).extensions.find(e => e.id === "neat")?.state).toBe("active");
     await press(seeded.notes.neat.id);
   }, 40_000);
 
@@ -312,7 +312,7 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
   test("a script's name typed as an action runs it with a button's slots, and left= right= take pages and tiles", async () => {
     const { app, seeded } = h;
     await app.dispatch.act({ action: "section", args: { name: "neat" } }, USER);
-    const listed = await h.board.listExtensions(true);
+    const listed = await h.board.request("extensions.list", { reload: true });
     expect(listed.extensions.some(e => e.name === "neat" && e.script)).toBe(true);
     await app.loadExtensions(true);
     // A terminal the person keeps, and a tile to send to the far right.

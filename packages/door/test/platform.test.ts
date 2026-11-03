@@ -79,7 +79,7 @@ describe("review fixes without a service", () => {
       get: async () => { if (fail) throw new Error("socket closed"); return full; },
       comments: async () => [], ancestors: async () => [],
       // A partial note asks for its projections too (#1137); none here.
-      readResourceProjections: async () => ({ projections: [] }),
+      request: async (action: string) => (action === "resources.projection.read" ? { projections: [] } : Promise.reject(new Error(`the fake has no ${action}`))),
       // The board's outline dock reads its lists again on the reconnect (#182).
       roots: async () => [], children: async () => [],
     };

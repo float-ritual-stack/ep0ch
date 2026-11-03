@@ -74,7 +74,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     await here.start(); await far.start();
     await here.create("garden-notes"); await here.create("quiet-notes"); await far.create("attic-notes");
     const garden = boardOn(here, "garden-notes", HERE), quiet = boardOn(here, "quiet-notes", HERE), attic = boardOn(far, "attic-notes", FAR);
-    await garden.configureMcpAccess("full"); await quiet.configureMcpAccess("read"); await attic.configureMcpAccess("full");
+    await garden.request("mcp.access.configure", { level: "full" }); await quiet.request("mcp.access.configure", { level: "read" }); await attic.request("mcp.access.configure", { level: "full" });
     const make = async (b: SocketBoard, key: string, text: string) => { ids[key] = (await b.request("create", { parentId: null, text, author: "user" })).id; };
     await make(garden, "a", "Compost turning [type::chore] [area::garden] [stage::todo]\nFork it over on Sunday.");
     await make(garden, "b", "Water the beans [type::chore] [area::garden] [stage::done]");
@@ -169,9 +169,9 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
 
   test("a write the far box refuses is rejected, with why; another caller's queueId, or none, is not found", async () => {
     const gone = await tool("outline_comment", { uri: uriOf("lamps"), body: "Which lamp?", whole: true });
-    await boardOn(far, "attic-notes", FAR).configureMcpAccess("read");
+    await boardOn(far, "attic-notes", FAR).request("mcp.access.configure", { level: "read" });
     expect((await pull()).ok).toBe(true);
-    await boardOn(far, "attic-notes", FAR).configureMcpAccess("full");
+    await boardOn(far, "attic-notes", FAR).request("mcp.access.configure", { level: "full" });
     const r = (await tool("outline_write_status", { queueId: gone.json.queueId })).json;
     expect(r).toMatchObject({ state: "rejected", reason: expect.stringContaining("MCP access is read for attic-notes@") });
     const theirs = await callAs(OTHER, "outline_write_status", { queueId: gone.json.queueId });
@@ -244,11 +244,11 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     expect(r.matches[0].record.title).toContain("Boxes");
     const none = await tool("outline_query", { outline: "quiet-notes", query: "type=chore" });
     expect(none.isError).toBe(false);
-    await boardOn(here, "quiet-notes", HERE).configureMcpAccess("none");
+    await boardOn(here, "quiet-notes", HERE).request("mcp.access.configure", { level: "none" });
     const denied = await tool("outline_query", { outline: "quiet-notes", query: "type=chore" });
     expect(denied.isError).toBe(true);
     expect(denied.text).toContain("MCP access is none");
-    await boardOn(here, "quiet-notes", HERE).configureMcpAccess("read");
+    await boardOn(here, "quiet-notes", HERE).request("mcp.access.configure", { level: "read" });
     expect((await tool("outline_query", { outline: "garden-notes" })).text).toContain("query");
     expect((await tool("outline_query", { outline: "garden-notes", query: "type=chore", view: ids.view })).isError).toBe(true);
     expect((await tool("outline_query", { outline: "garden-notes", query: "type=chore", limit: 51 })).text).toContain("1 to 50");

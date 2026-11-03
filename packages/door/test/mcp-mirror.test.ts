@@ -51,7 +51,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     await home.create("attic-notes");
     garden = new SocketBoard(home.sock, undefined, "garden-notes");
     attic = new SocketBoard(home.sock, undefined, "attic-notes");
-    await garden.configureMcpAccess("read");
+    await garden.request("mcp.access.configure", { level: "read" });
     const made = await garden.request("create", { parentId: null, text: "Seed swap list\nRunner beans for the allotment next door.", author: "agent" });
     note = { id: made.id, uri: formatEp0chBlockUri({ outline: "garden-notes", machine: FAR, blockId: made.id }) };
     await attic.request("create", { parentId: null, text: "Trunk contents\nOld maps of the canal.", author: "agent" });
@@ -125,7 +125,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     const target = await outlines.board({ outline: "garden-notes" });
     if ("error" in target) throw new Error(target.error);
     await expect(target.board.request("create", { parentId: null, text: "Should not land", author: "agent" })).rejects.toThrow("read-only copy");
-    await expect(target.board.configureMcpAccess("full")).rejects.toThrow("read-only copy");
+    await expect(target.board.request("mcp.access.configure", { level: "full" })).rejects.toThrow("read-only copy");
     await expect(hostRequest(target.board.path, "outlines.create", { name: "sneaky" })).rejects.toThrow("read-only copies");
     expect(readdirSync(join(mirrorsFolder, FAR)).sort()).toEqual(["attic-notes.sqlite", "garden-notes.sqlite"]);
   });
@@ -176,7 +176,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     clock += 16_000;
     expect(JSON.parse((await tool("outline_read", { uri })).text).reachability.copy.file).toBe(`${FAR}/garden-notes.sqlite`);
     // A change that moves no block's time (the access revoked) still makes the restored copy the newer one.
-    await garden.configureMcpAccess("none");
+    await garden.request("mcp.access.configure", { level: "none" });
     try {
       const again = new Database(join(home.outlines, "garden-notes.sqlite"), { readonly: true });
       try { rmSync(join(resticDir, "garden-notes.sqlite"), { force: true }); again.run("VACUUM INTO ?", [join(resticDir, "garden-notes.sqlite")]); } finally { again.close(); }
@@ -184,7 +184,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
       const revoked = await tool("outline_read", { uri });
       expect(revoked.isError).toBe(true);
       expect(revoked.text).toContain("MCP access is none for garden-notes");
-    } finally { await garden.configureMcpAccess("read"); }
+    } finally { await garden.request("mcp.access.configure", { level: "read" }); }
     follow("garden-notes");
     clock += 16_000;
     expect((await tool("outline_read", { uri })).isError).toBe(false);
@@ -228,7 +228,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     mkdirSync(join(dir, FAR), { recursive: true });
     const file = join(dir, FAR, "garden-notes.sqlite");
     asSchemaBehind("garden-notes", file);
-    await garden.configureMcpAccess("full");
+    await garden.request("mcp.access.configure", { level: "full" });
     try {
       const copy = new Database(file); copy.run("PRAGMA user_version = 3"); copy.close();
       const queue = join(here, "queue");
@@ -243,7 +243,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
         expect(row.note).not.toContain("install --apply");
         expect(version(file)).toBe(3);
       } finally { await mirror.close(); }
-    } finally { await garden.configureMcpAccess("read"); }
+    } finally { await garden.request("mcp.access.configure", { level: "read" }); }
   }, 60_000);
 
   test("an older follower copy loses to the backup job's current one, and the other way round", async () => {

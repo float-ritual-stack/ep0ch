@@ -55,9 +55,9 @@ export async function registerTicket(b: SocketBoard, key: string): Promise<strin
   return r.resource.id;
 }
 
-/** Fetch a ticket's details into the service (`SocketBoard.refreshResource`). The service runs the extension. */
+/** Fetch a ticket's details into the service (`resources.refresh`). The service runs the extension. */
 export async function refreshTicket(b: SocketBoard, resourceId: string): Promise<void> {
-  await b.refreshResource(resourceId);
+  await b.request("resources.refresh", { resourceId });
 }
 
 /** The outliner's example extensions the showcase shows (PIE-507): one of each kind, and an @name agent. */

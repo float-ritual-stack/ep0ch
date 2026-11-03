@@ -165,7 +165,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     await board.info();
     await ticketSource(board);
     // What the app binds at start: the service's extensions, its resource providers (the made-up tickets' jira::) among them.
-    bindExtensions(await board.listExtensions());
+    bindExtensions(await board.request("extensions.list", {}));
     mkdirSync(join(scratch.workspace, "notes"), { recursive: true });
     file = join(scratch.workspace, "notes", "compost.md");
     writeFileSync(file, "# Compost rota\n\n- Turn the heap on Saturdays.\n- [ ] Buy a second fork\n");
@@ -378,7 +378,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     const reg = await board.followAuthored({ kind: "filesystem", path: "notes/compost.md" });
     await board.describeResource(reg.id, true);
     await expect(board.describeResource("00000000-0000-4000-8000-00000000dead", true)).rejects.toThrow();
-    await expect(board.refreshResource(reg.id)).rejects.toThrow();
+    await expect(board.request("resources.refresh", { resourceId: reg.id })).rejects.toThrow();
     let left = -1;
     for (let t = Date.now(); Date.now() - t < 5000 && left !== 0; await Bun.sleep(50)) left = await detailsNow();
     expect(left).toBe(0);

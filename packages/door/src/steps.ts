@@ -95,7 +95,7 @@ export const stepsLoading = (board: object) => (askingBy.get(board) ?? 0) > 0;
  * against the step as read), so a change doesn't make the steps blink out. Null before the first answer.
  */
 export function stepsOf(m: Msg, src: Source | null | undefined): ChecklistRead | null {
-  if (!src || m.partial || typeof (src.board as { checklist?: unknown }).checklist !== "function") return null;
+  if (!src || m.partial || typeof (src.board as { request?: unknown }).request !== "function") return null;
   let cache = readsBy.get(src.board);
   if (!cache) readsBy.set(src.board, (cache = new Map()));
   const hit = cache.get(m.id), c = cache;
@@ -110,7 +110,7 @@ export function stepsOf(m: Msg, src: Source | null | undefined): ChecklistRead |
   const b = src.board;
   askingBy.set(b, (askingBy.get(b) ?? 0) + 1);
   const done = () => askingBy.set(b, Math.max(0, (askingBy.get(b) ?? 1) - 1));
-  b.checklist(m.id, 1000).then(
+  b.request("checklist.query", { blockId: m.id, query: { limit: 1000, nested: "include" } }).then(
     read => { done(); c.set(m.id, { read, at, asking: false }); src.redraw(); },
     (e: Error) => { done(); c.set(m.id, { read: hit?.read ?? null, at, asking: false, error: e.message }); src.redraw(); },
   );

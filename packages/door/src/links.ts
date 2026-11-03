@@ -579,9 +579,9 @@ export function linkTargetOf(r: LinkRow): LinkTarget | null {
 }
 
 /** A note's links as an agent reads them: every row as the list numbers them, every group open, nobody's view changed. */
-export async function readLinks(board: Pick<SocketBoard, "authoredLinks" | "backlinks" | "children" | "facets">, id: string) {
+export async function readLinks(board: Pick<SocketBoard, "backlinks" | "children" | "facets" | "request">, id: string) {
   const ask = <T>(p: Promise<T>): Promise<Load<T>> => p.then(value => ({ kind: "ready" as const, value }), (e: Error) => ({ kind: "error" as const, message: `couldn't ask: ${e.message}` }));
-  const [links, backlinks, children] = await Promise.all([ask(board.authoredLinks(id)), ask(board.backlinks(id)), ask(readChildren(board, id))]);
+  const [links, backlinks, children] = await Promise.all([ask(board.request("blocks.authored-links", { ownerBlockId: id })), ask(board.backlinks(id)), ask(readChildren(board, id))]);
   const kinds = backlinks.kind === "ready" ? new Set(backlinkView(backlinks.value, DEFAULT_BACKLINK_VIEW_OPTIONS).kinds.map(k => k.kind)) : new Set<string>();
   return { rows: linkRows({ links, backlinks, children }, { shut: new Set(), kinds, backlinks: DEFAULT_BACKLINK_VIEW_OPTIONS }).map((r, i) => describeLinkRow(r, i + 1, false)) };
 }

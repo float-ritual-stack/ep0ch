@@ -23,10 +23,10 @@ import { liveTokensInLine, withoutTokens } from "@ep0ch/outline-core/heading-sty
 import { authorName, USER, type Actor, type PropertyToken, type PropertyPatch } from "./socket";
 import type { Msg } from "./board";
 
-type StyleBoard = { styleSheets?: () => Promise<{ sheets: StyleSheet[]; problems: string[] }> };
+type StyleBoard = Partial<Pick<import("./socket").SocketBoard, "request">>;
 
 const SHEETS = outlineList<StyleSheet, { sheets: readonly StyleSheet[] }>(
-  (b: StyleBoard) => (typeof b.styleSheets === "function" ? () => b.styleSheets!().then(r => ({ items: r.sheets, problems: r.problems })) : undefined),
+  (b: StyleBoard) => (typeof b.request === "function" ? () => b.request!("styles.list", {}).then(r => ({ items: r.sheets, problems: r.problems })) : undefined),
   items => ({ sheets: items }), { sheets: [] },
 );
 

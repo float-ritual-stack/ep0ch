@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { App } from "../src/app";
 import { openScreen } from "../src/desk/screen-specs";
-import { SocketBoard, USER } from "../src/socket";
+import { SocketBoard, USER, requesterOf } from "../src/socket";
 import type { Key } from "../src/term";
 import { Scratch, outliner } from "./scratch";
 
@@ -24,7 +24,7 @@ describe.skipIf(!outliner)("who a pressed script's write is recorded as (PIE-146
     await board.info();
     app = new App({ info: size, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey(_f: (k: Key) => void) {}, onResize() {}, stop() {}, resume() {} }, board, Date.now(), () => {});
     board.subscribe(e => { app.event(e); const ended = (e as { ended?: { run: string } }).ended; if (ended) over.add(ended.run); });
-    await board.installExtension("lens");
+    await board.request("extensions.install", { extension: "lens", mutation: requesterOf(USER) });
     await app.loadExtensions();
     app.push(openScreen("desk")!);
   }, 60_000);

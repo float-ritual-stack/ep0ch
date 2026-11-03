@@ -70,7 +70,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
   test("a writer can mint a one-upload link for the artifacts inbox, shown as a curl in a code block; a reader is not offered it", async () => {
     const names = async () => ((await rpc("tools/list")).body.result.tools as { name: string }[]).map(tool => tool.name);
     expect(await names()).not.toContain("artifact_upload_lease");
-    await board.configureMcpAccess("full");
+    await board.request("mcp.access.configure", { level: "full" });
     try {
       expect(await names()).toContain("artifact_upload_lease");
       const named = await tool("artifact_upload_lease", { outline: scratch.name, name: "orrery" });
@@ -84,7 +84,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
       expect(bad.isError).toBe(true);
       expect(bad.text).toContain("letters, numbers");
       expect((await tool("artifact_upload_lease", { outline: scratch.name })).isError).toBe(false);
-    } finally { await board.configureMcpAccess("read"); }
+    } finally { await board.request("mcp.access.configure", { level: "read" }); }
     const refused = await tool("artifact_upload_lease", { outline: scratch.name, name: "orrery" });
     expect(refused.isError).toBe(true);
   });
@@ -92,7 +92,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
   test.each(["grant", "named path"])("Loki listing and minting respect the %s denial", async denial => {
     const previous = process.env.EP0CH_MCP_PATH_ACCESS;
     try {
-      if (denial === "grant") await board.configureMcpAccess("none");
+      if (denial === "grant") await board.request("mcp.access.configure", { level: "none" });
       else process.env.EP0CH_MCP_PATH_ACCESS = "observer=none";
       const url = new URL(denial === "grant" ? "/mcp" : "/observer/mcp", gateway.url);
       const auth = await token({ aud: denial === "grant" ? RESOURCE : "https://mcp.example.test/observer/mcp" });
@@ -108,7 +108,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
       expect(refused.content[0].text).toContain("ep0ch mcp access read");
       expect((await request("tools/list")).tools).not.toContainEqual(expect.objectContaining({ name: "loki_lease" }));
     } finally {
-      await board.configureMcpAccess("read");
+      await board.request("mcp.access.configure", { level: "read" });
       if (previous === undefined) delete process.env.EP0CH_MCP_PATH_ACCESS;
       else process.env.EP0CH_MCP_PATH_ACCESS = previous;
     }
@@ -126,7 +126,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     delete process.env.EP0CH_MCP_PATH_ACCESS;
     mkdirSync(join(scratch.env.XDG_CONFIG_HOME!, "ep0ch"), { recursive: true });
     writeFileSync(file, line + "\n");
-    await board.configureMcpAccess("full");
+    await board.request("mcp.access.configure", { level: "full" });
     try {
       const auth = await token({ aud: "https://mcp.example.test/gpty/mcp" });
       const request = async (name: string, args: Record<string, unknown>) => {
@@ -143,7 +143,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
       expect(write.isError).toBe(true);
     } finally {
       unlinkSync(file);
-      await board.configureMcpAccess("read");
+      await board.request("mcp.access.configure", { level: "read" });
       if (previous === undefined) delete process.env.EP0CH_MCP_PATH_ACCESS;
       else process.env.EP0CH_MCP_PATH_ACCESS = previous;
     }
@@ -160,7 +160,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     machine = canonicalLocalMachineName();
     board = new SocketBoard(sock);
     await board.info();
-    await board.configureMcpAccess("read");
+    await board.request("mcp.access.configure", { level: "read" });
     const made = await board.request("create", { parentId: null, text: "Lantern inventory\nThree brass lanterns by the shed door.", author: "agent" });
     note = { id: made.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: made.id }) };
     // A second outline on the same host, never granted: its notes stay out of reach.
@@ -501,11 +501,11 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     expect((listed.body.result.resources as { uri: string }[]).map(r => r.uri)).toContain(uri);
     const read = await rpc("resources/read", { uri });
     expect(read.body.result.contents[0]).toMatchObject({ uri, mimeType: "text/markdown", text: one.text });
-    await board.configureMcpAccess("none");
+    await board.request("mcp.access.configure", { level: "none" });
     try {
       expect((await tool("outline_components", { outline: scratch.name })).isError).toBe(true);
       expect(((await rpc("resources/list")).body.result.resources as { uri: string }[]).some(r => r.uri === uri)).toBe(false);
-    } finally { await board.configureMcpAccess("read"); }
+    } finally { await board.request("mcp.access.configure", { level: "read" }); }
   });
 
   test("a record is sent once: body and properties, no text or header; a note naming itself isn't its own link or backlink", async () => {
@@ -674,12 +674,12 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     expect(hosted.outlines.map(o => o.name)).not.toContain("no-such-outline");
 
     // Revoking is the outline's own setting, at once: the next read is refused.
-    await board.configureMcpAccess("none");
+    await board.request("mcp.access.configure", { level: "none" });
     try {
       const revoked = await tool("outline_read", { uri: note.uri });
       expect(revoked.isError).toBe(true);
       expect(revoked.text).toContain("MCP access is none");
-    } finally { await board.configureMcpAccess("read"); }
+    } finally { await board.request("mcp.access.configure", { level: "read" }); }
   });
 
   test("config refuses to start without a resource, an issuer, or with plain http off loopback", async () => {

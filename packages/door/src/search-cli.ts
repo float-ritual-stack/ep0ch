@@ -107,7 +107,7 @@ export async function searchCommand(args: string[], io = { out: (s: string) => c
       if (opts["--cases"]) harvested.push(...(JSON.parse(readFileSync(opts["--cases"], "utf8")) as Case[]));
       const cases = harvested.filter(c => !have.has(e.caseKey(c.query, c.outline)));
       for (const name of EVAL_OUTLINES) {
-        const { picks } = await (await board(name)).searchPicks().catch(() => ({ picks: [] }));
+        const { picks } = await (await board(name)).request("search.picks", {}).catch(() => ({ picks: [] }));
         cases.push(...e.casesFromPicks(picks, name, new Set([...have, ...cases.map(c => e.caseKey(c.query, c.outline))])));
       }
       if (!rest.includes("--dry-run")) for (const c of cases) await e.keepCase(into, c);

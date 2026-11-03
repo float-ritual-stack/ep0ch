@@ -49,7 +49,7 @@ import { outlineChanged } from "../refs";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
-import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
+import { authorName, whoOf, USER, type Actor, type OutlineEvent, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
@@ -918,7 +918,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // The service answers { stopped: false } for a run that has already ended (or was started elsewhere): its transaction is
     // closed here as stopped. A request that failed (the service unreachable, a refusal) stops nothing, and says so.
     const failed: string[] = [];
-    const results = await Promise.all(runs.map(run => this.ctx.board.stopScript(run, actor).then(r => ({ run, ended: true as const, r }), (e: Error) => { failed.push(e.message); return { run, ended: false as const, r: null }; })));
+    const results = await Promise.all(runs.map(run => this.ctx.board.request("scripts.stop", { run, mutation: requesterOf(actor) }).then(r => ({ run, ended: true as const, r }), (e: Error) => { failed.push(e.message); return { run, ended: false as const, r: null }; })));
     const stopped: string[] = [];
     for (const { run, ended, r } of results) if (ended) { try { this.endTxn(run, r?.sequence ? "done" : "stopped", actor); } catch { /* gone */ } stopped.push(run); }
     asActor(this.ctx, actor).flash(failed.length ? `could not stop the dance: ${failed[0]}` : stopped.length ? results.some(r => r.ended && r.r?.sequence) ? "stopped; completed sequence steps remain; ctrl+z undoes what is reversible" : "stopped the dance; the layout is put back" : "nothing to stop", failed.length ? 6000 : undefined);

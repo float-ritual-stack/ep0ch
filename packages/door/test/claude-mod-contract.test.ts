@@ -70,7 +70,7 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
       return JSON.parse(stdout);
     };
     try {
-      await board.configureMcpAccess("full");
+      await board.request("mcp.access.configure", { level: "full" });
       const made = await call("outline_create", { ref: note, text: "Pear tree\nPlanted.", persona: "planter" });
       const id = made.uri.split("/b/")[1];
       const first = (await call("outline_read", { ref: id })).record;
@@ -423,7 +423,7 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     // The person's tick, as the door and the web page make it: one `checklist.update`, which gives the step an id of its own.
     const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
     try {
-      const read = await board.checklist(id, 100);
+      const read = await board.request("checklist.query", { blockId: id, query: { limit: 100, nested: "include" } });
       await board.setStep(id, read.items[0]!, read.revision, "approved");
     } finally { board.close(); }
     const ticked = askReadOf((await agent("read", { ref: id, depth: 0 })).out);

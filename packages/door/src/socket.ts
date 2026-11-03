@@ -322,7 +322,6 @@ export type CreatePlan = ViewCreatePlan;
 export type { ChecklistStatus as StepStatus } from "@ep0ch/outline-core/checklist-marks";
 import type { ChecklistStatus as StepStatus } from "@ep0ch/outline-core/checklist-marks";
 import { prop, propValues } from "./props";
-/** One checklist step as `checklist.query` reads it. */
 /** One checklist step as `checklist.query` reads it (the wire's item), less what only the service computes: the door also reads a draft's steps itself (src/steps.ts). */
 export type ChecklistStep = Omit<WireAnswer<"checklist.query">["items"][number], "markerStart" | "properties" | "parentStart"> & { markerStart?: number };
 /** What a step change does: set its status, or only give it a stable id (`^t-…`) so it can be linked. */
@@ -554,68 +553,12 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * A note's address (`notes.address`, PIE-767): its `ep0ch://` URI, and its web page on the tailnet (`page`) when the
-   * publisher said where it is opened; an artifact line's page is below that (PIE-793).
-   */
-  noteAddress(blockId: string): Promise<{ uri?: string; page?: string }> {
-    return this.request("notes.address", { blockId });
-  }
-
-  /**
-   * A note's resource projections (PIE-445): the stored details of each Resource its provider lines and
-   * its own provider property name. A read only: the service never registers or fetches for it.
-   */
-  readResourceProjections(blockId: string, opened = false): Promise<ResourceProjectionRead> {
-    // Opening a note is the one step: the service fetches in the background what isn't fetched or is stale.
-    return this.request("resources.projection.read", { blockId, materialize: true, ...(opened ? { opened: true } : {}) });
-  }
-
-  /**
    * Fetch the tickets a note shows now (`resources.projection.refresh`): a page's, or the ticket block's own.
    * Any client may; the answer is the note's projections after the fetch.
    */
   async refreshProjections(blockId: string, line?: number, actor: Actor = USER): Promise<ResourceProjectionRead> {
     // Who asks (`mutation`, as on extensions.act): an `@name` line asked again records them as who asked.
     return this.request("resources.projection.refresh", { blockId, ...(line !== undefined ? { line } : {}), mutation: requesterOf(actor) });
-  }
-
-  /**
-   * The extensions the service runs (`extensions.list`, PIE-507): each folder's handlers, actions and tile
-   * kinds.
-   */
-  listExtensions(reload = false, site: Pick<import("@ep0ch/outline-core/site").SiteAnswerRequest, "blockId" | "line" | "draft" | "chain"> = {}): Promise<ExtensionList> {
-    return this.request("extensions.list", { ...site, ...(reload ? { reload: true } : {}) });
-  }
-
-  /**
-   * Install one of the repo's extensions (`extensions.install`, as `ep0ch ext add <id>`): the service copies it in, loads
-   * it, and writes its page and demo notes under the outline's Extensions hub before it answers.
-   */
-  installExtension(id: string, actor: Actor = USER): Promise<ExtensionInstalled> {
-    return this.request("extensions.install", { extension: id, mutation: requesterOf(actor) });
-  }
-
-  /**
-   * Set an extension's settings (`extensions.configure`, PIE-1343): the service checks them against its configSchema
-   * and writes config.json on the machine that hosts the outline, then reads its folders again.
-   */
-  configureExtension(id: string, change: Omit<import("@ep0ch/outline-core/protocol").ExtensionsConfigureRequest, "extension">, actor: Actor = USER): Promise<import("@ep0ch/outline-core/protocol").ExtensionsConfigured> {
-    return this.request("extensions.configure", { extension: id, ...change, mutation: requesterOf(actor) });
-  }
-
-  /** Remove an installed extension (`extensions.uninstall`); its demo notes `keep` or `remove` (to Trash, unless changed). */
-  uninstallExtension(id: string, demo: "keep" | "remove", actor: Actor = USER): Promise<ExtensionUninstalled> {
-    return this.request("extensions.uninstall", { extension: id, demo, mutation: requesterOf(actor) });
-  }
-
-  /**
-   * Run an extension's action (`extensions.act`): the service runs it and applies what it writes, attributed to
-   * the extension (`author: agent`, `actorId: ext:<id>`), whoever asked. `blockId` (and `line`, for a handler
-   * line's action) is what it acts on; `args` a tile's own. `actor` is who asks (`mutation`: the person, or an
-   * agent by its own id), which the change feed records beside the extension's writes as `requestedBy`.
-   */
-  async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string>; slots?: string; passage?: Passage; invitation?: string; button?: { block: string; line?: number } } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
-    return this.request("extensions.act", { extension, extensionAction: action, ...target, clientId: this.clientId, mutation: requesterOf(actor) });
   }
 
   scriptAction?: (call: import("@ep0ch/outline-core/protocol").ScriptActionCall) => Promise<unknown>;
@@ -640,16 +583,6 @@ export class SocketBoard implements Board {
     return this.request("extensions.undo", { undo, mutation: requesterOf(actor) });
   }
 
-  /** End one running script (`scripts.stop`) by its run id (the undo its start answered with); `stopped` is false when it isn't running. */
-  stopScript(run: string, actor: Actor = USER): Promise<{ run: string; stopped: boolean; sequence?: true }> {
-    return this.request("scripts.stop", { run, mutation: requesterOf(actor) });
-  }
-
-  /** What an action asks for (`extensions.args`, PIE-784): each declared argument with its choices on `blockId` and its value when not given. */
-  extensionArgs(extension: string, action: string, blockId?: string): Promise<{ args: ExtensionArgChoice[] }> {
-    return this.request("extensions.args", { extension, extensionAction: action, ...(blockId ? { blockId } : {}) });
-  }
-
   /**
    * One of an extension's bar sources answers a query (`extensions.bar`, PIE-656): rows for the power bar, each
    * opening a block, running one of the extension's actions or copying text. It writes nothing. `near` is the note
@@ -657,15 +590,6 @@ export class SocketBoard implements Board {
    */
   barRows(extension: string, source: string, query: string, o: { near?: string; limit?: number; signal?: AbortSignal } = {}): Promise<ExtensionBarResult> {
     return this.request("extensions.bar", { extension, source, query, ...(o.near ? { near: o.near } : {}), ...(o.limit ? { limit: o.limit } : {}) }, undefined, o.signal);
-  }
-
-  /**
-   * A block's authored links (the outliner's `blocks.authored-links`, PIE-259): its Outlinks and its
-   * Resources as the service resolves them, each with where it points and why it can't. A read only: nothing
-   * is registered by listing it.
-   */
-  authoredLinks(ownerBlockId: string): Promise<AuthoredLinksSnapshot> {
-    return this.request("blocks.authored-links", { ownerBlockId });
   }
 
   /**
@@ -690,11 +614,6 @@ export class SocketBoard implements Board {
     // `unavailable`: the service won't refresh this one (a file is read as it is). `indeterminate` (a
     // ticket whose credentials the service only finds out about by trying) is worth one try.
     if (!fetch || resourceStored(d) || !d.capabilities?.refresh || d.capabilities.refresh.status === "unavailable") return d;
-    return this.request("resources.refresh", { resourceId });
-  }
-
-  /** Fetch a Resource again (`resources.refresh`: a ticket read from its provider, a web page fetched). */
-  refreshResource(resourceId: string): Promise<ResourceDescription> {
     return this.request("resources.refresh", { resourceId });
   }
 
@@ -785,36 +704,6 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * The outline's property index (`properties.catalog`): the keys starting with `prefix` (each value of each, counted), or
-   * with `key` the values of that key starting with `prefix`; most used first. What a filter's completion offers.
-   */
-  async propertyCatalog(key: string | undefined, prefix: string, limit = 30, keys = false): Promise<{ key: string; value: string; count: number }[]> {
-    // `keys` (with no key): one row per key, its notes counted, so a key with many values never crowds out the others.
-    return this.request("properties.catalog", { ...(key ? { key } : keys ? { keys: true } : {}), prefix, limit });
-  }
-
-  /** The outline's callout types (PIE-538): the types its notes declare with `[callout-type::name]`, and what's wrong with any. */
-  async calloutTypes(): Promise<{ types: CalloutType[]; problems: string[]; complete: boolean }> {
-    return this.request("callouts.types", {});
-  }
-  /** The outline's heading styles (PIE-599): those its notes declare with [heading-style::name]; the built-ins are outline-core's. */
-  async headingStyles(): Promise<{ styles: HeadingStyle[]; problems: string[]; complete: boolean }> {
-    return this.request("headings.styles", {});
-  }
-  /** The outline's style sheets (PIE-673): each [style-for::…] note or line with its style.* fields; the cascade is outline-core's. */
-  async styleSheets(): Promise<{ sheets: StyleSheet[]; problems: string[]; complete: boolean }> {
-    return this.request("styles.list", {});
-  }
-  /** What a rule note (its text, never saved) draws on a sample note's text (PIE-618: a component page's rule variations). */
-  async rulePreview(note: string, text: string): Promise<{ decorations: Decoration[]; problems: string[] }> {
-    return this.request("rules.preview", { note, text });
-  }
-  /** Every component's schema (PIE-618): the built-ins with the outline's own styles and types as values, then the extensions'. */
-  async componentSchemas(): Promise<{ schemas: ComponentSchema[]; problems: string[]; complete: boolean }> {
-    return this.request("components.schemas", {});
-  }
-
-  /**
    * Notes named the way a person types them (`blocks.resolve`, PIE-875): an id, ((id)), an id's first 8+ characters, a
    * Work ID of any prefix the outline has or a [[page]]. Each answers its block id, or why not (with a did-you-mean); 200 a request, the service's most.
    */
@@ -837,11 +726,6 @@ export class SocketBoard implements Board {
   async templateStamp(req: { of: string; parent?: string; title?: string; props?: Record<string, string>; for?: string; freeze?: string; as?: string; into?: string }, actor: Actor = USER): Promise<{ template: { id: string; title: string }; stamped: { id: string; title: string; parentId: string | null; blocks: number; frozen: number; for?: string }[]; skipped: { for: string; stamped: string }[]; warnings: string[]; said: string }> {
     const who = recorded(actor, "new").block;
     return this.request("template.stamp", { ...req, ...who });
-  }
-
-  /** The props a template declares (`template.props`): what a person is asked before it is stamped. */
-  templateProps(of: string): Promise<{ template: { id: string; title: string; how: string }; spec: PropsSpec; problems: string[] }> {
-    return this.request("template.props", { of });
   }
 
   /** The call a `::use` line makes (`template.use`), once; a drawing asks it watched (src/template-use.ts). */
@@ -1002,15 +886,6 @@ export class SocketBoard implements Board {
     return r.blocks.map(b => toMsg(b));
   }
 
-  /**
-   * Blocks matching property clauses (`type=roadmap-item work-stage=doing`). `list` asks for rows
-   * without full text (PIE-400 `fields`).
-   */
-  /** `sort`: created, updated or a property key (the service orders by it, and refuses one that isn't). */
-  async waitingAsks(): Promise<import("@ep0ch/outline-core/protocol").WaitingAsk[]> {
-    return this.request("waiting.list", {});
-  }
-
   async query(q: string, limit = 50, sort = "updated", direction: "asc" | "desc" = "desc", list = false): Promise<Msg[]> {
     const filters = q.split(/\s+/).filter(Boolean).map(t => { const i = t.indexOf("="); return i > 0 ? { key: t.slice(0, i), value: t.slice(i + 1) } : { key: t }; });
     const r = await this.request("blocks.query", { query: { limit: Math.min(1000, limit), filters, sort: { field: sort, direction } }, ...this.listFields(list) });
@@ -1082,24 +957,6 @@ export class SocketBoard implements Board {
     return (await this.request("agents.held", {})).held;
   }
 
-  /**
-   * A view's hand-set order (`virtual.occurrences.order`): every member, in the order its lanes, figures and Tree show.
-   * `view` is a ref the service resolves (an id, ((id)), a prefix, a Work ID, a [[page]]). A sorted view has none: the
-   * service refuses, naming the [sort::] to remove.
-   */
-  async viewOrder(view: string): Promise<ViewOrder> {
-    return this.request("virtual.occurrences.order", { viewId: view });
-  }
-
-  /**
-   * Moves blocks in a view's hand-set order in one step (`virtual.occurrences.move`), recorded as `actor`'s: one block
-   * `by` places (kept within what the view shows), `to` a position, `before`/`after` a member; or, with none, the
-   * blocks first in the order given. Refs are resolved by the service. The order after it, and what moved.
-   */
-  async moveInView(move: { view: string; blocks: string[]; by?: number; to?: number; before?: string; after?: string }, actor: Actor = USER): Promise<ViewOrder & { moved: string[] }> {
-    return this.request("virtual.occurrences.move", { input: move, mutation: mutationFor(actor) });
-  }
-
   /** Every matching id in service order, following blocks.query's continuation. */
   async queryIds(q: { expression?: string } & Pick<WireParams<"blocks.query">["query"], "text" | "subtreeRootId" | "sort" | "propertyScope" | "machinery" | "countMachinery">): Promise<{ ids: string[]; hint?: string; matches?: Map<string, PropertyMatch[]>; machineryLeftOut?: MachineryLeftOut }> {
     const { expression: where, ...narrow } = q;
@@ -1132,17 +989,9 @@ export class SocketBoard implements Board {
     return out;
   }
 
-  async mcpAccessStatus(): Promise<McpAccessStatus> {
-    return this.request("mcp.access.status", {});
-  }
-
   /** Yolo (PIE-973): this door hands the outline's agents the person's permissions in the service too (`on`), or takes them back (any door can). */
   async setAgentsYolo(on: boolean): Promise<boolean> {
     return (await this.request("agents.yolo", { clientId: this.clientId, on })).yolo;
-  }
-
-  async configureMcpAccess(level: McpAccessLevel): Promise<McpAccessStatus> {
-    return this.request("mcp.access.configure", { level });
   }
 
   /**
@@ -1310,18 +1159,6 @@ export class SocketBoard implements Board {
     return this.request("quote", { input: { subjects, place, ...(opts.as ? { as: opts.as } : {}), ...(opts.text ? { text: opts.text } : {}) }, mutation });
   }
 
-  async readThread(annotationId: string): Promise<{ thread: string; marked: number }> {
-    return this.request("annotations.read", { annotationId });
-  }
-
-  /**
-   * Blocks read (an EchoNet message opened), at the revisions they were shown at: out of `unread:me` until they change.
-   * `reader`: an agent's own id; the person's when left out.
-   */
-  async markRead(blocks: { id: string; revision: number }[], reader?: string): Promise<{ marked: number }> {
-    return this.request("blocks.markRead", { blocks, ...(reader ? { reader } : {}) });
-  }
-
   /**
    * How present a thread is (PIE-791): seen puts it away, kept keeps it, open brings it back, resolved closes a ticket.
    * It sets a state rather than adding anything, so repeating it is harmless.
@@ -1339,15 +1176,6 @@ export class SocketBoard implements Board {
   /** The outline's Inbox: the root the service made it as (`[system-view::inbox]`), or null. */
   async inboxId(): Promise<string | null> {
     return (await this.roots()).find(r => propValues(r, "system-view").includes("inbox"))?.id ?? null;
-  }
-
-  /**
-   * A thread's TL;DR (PIE-791): with `body`, the one written (a reply with `[kind::tldr]`); without, the agent that
-   * answers in threads is asked to write it (it lands in the background). Says which agent was asked.
-   */
-
-  async tldr(annotationId: string, actor: Actor = USER, body?: string, remove = false): Promise<WireAnswer<"annotations.tldr">> {
-    return this.request("annotations.tldr", { annotationId, ...(body ? { body } : {}), ...(remove ? { remove: true } : {}), mutation: mutationFor(actor) });
   }
 
   /** Replace a block's whole text, if it is still at `expectedRevision`. Throws EditConflict when it isn't. */
@@ -1634,11 +1462,6 @@ export class SocketBoard implements Board {
     return { workId: r.workId, workQueueId: r.workQueueId, block: toMsg(r.block) };
   }
 
-  /** Open items like a new one (`roadmap.items.similar`): the service's candidates and the ones it calls twins. */
-  similarItems(input: { title: string; body?: string }, timeoutMs = 8000): Promise<TwinAnswer> {
-    return this.request("roadmap.items.similar", { input }, timeoutMs);
-  }
-
   /** A new ask added under an open item instead (`roadmap.items.attach`): its words, dated, at the end of the item. */
   async attachToItem(input: { item: string; title: string; body?: string; sourceBlockId?: string }, actor: Actor = USER): Promise<{ attached: string; block: Msg }> {
     const who = recorded(actor, "new").block;
@@ -1655,9 +1478,6 @@ export class SocketBoard implements Board {
     this.request("search.picked", { query, blockId, rank, surface }).catch(() => undefined);
   }
 
-  /** The search picks the outline keeps, oldest first (`search.picks`). */
-  searchPicks() { return this.request("search.picks", {}); }
-
   // ── reference completion (the lookups Tree, Detail and Quick Capture use) ────────────────────────
 
   /**
@@ -1668,10 +1488,6 @@ export class SocketBoard implements Board {
     return this.request("pages.complete", {
       ...(query ? { query } : {}), limit, ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}),
     });
-  }
-
-  querySuggest(input: import("@ep0ch/outline-core/query-words").QuerySuggestRequest): Promise<import("@ep0ch/outline-core/query-words").QuerySuggestAnswer> {
-    return this.request("query.suggest", { ...input });
   }
   completionRows(input: CompletionRowsRequest, signal?: AbortSignal): Promise<CompletionRowsResult> {
     if (signal?.aborted) return Promise.reject(signal.reason);
@@ -1688,11 +1504,6 @@ export class SocketBoard implements Board {
    */
   completionPicked(key: string, insert: string | undefined, told: Omit<CompletionPickedRequest, "key" | "insert"> = {}): Promise<unknown> {
     return this.request("completion.picked", { key, ...(insert !== undefined ? { insert } : {}), ...told });
-  }
-
-  /** Workspace paths starting with `prefix`. */
-  completeFiles(prefix: string) {
-    return this.request("files.complete", { prefix });
   }
 
   /** A block with its ancestors. */
@@ -1721,11 +1532,6 @@ export class SocketBoard implements Board {
     return { ...toMsg(restored), ...(restored.renamedPages?.length ? { renamedPages: restored.renamedPages } : {}) };
   }
 
-  /** A note's checklist steps (docs/CHECKLIST_ITEMS.md), in source order, at the revision the service read. */
-  async checklist(blockId: string, limit = 200): Promise<ChecklistRead> {
-    return this.request("checklist.query", { blockId, query: { limit, nested: "include" } });
-  }
-
   /**
    * Set one step's status. The step is named by its id when it has a unique one, else by where it starts
    * at the revision it was read (the service then gives it an id); either way `evidence` must still match.
@@ -1745,29 +1551,6 @@ export class SocketBoard implements Board {
       blockId, input: { target, expectedEvidence: step.evidence, change }, mutation: mutationFor(actor),
     });
     return { block: toMsg(r.block), item: r.item, changed: r.changed };
-  }
-
-  /**
-   * `((note#…` / `((note^…` completion over every note, or only `blockIds` (PIE-762), by the service's fragment rules
-   * (PIE-424): each match with its note and, for one without an anchor, the anchor it would get; each note's anchors first.
-   */
-  fragmentCandidates(query: { noteQuery?: string; blockIds?: string[]; fragmentQuery: string; mode: "heading" | "id" | "passage"; limit: number; offset?: number; draft?: { blockId: string; text: string } }) {
-    return this.request("fragments.candidates", { query });
-  }
-
-  /** Give the heading, paragraph or list item on `lineIndex` of a note its anchor, if the note is still at `expectedRevision`; recorded as `actor`'s. */
-  ensureFragment(blockId: string, lineIndex: number, expectedRevision: number, actor: Actor = USER): Promise<{ fragmentId: string; created: boolean }> {
-    return this.request("fragments.ensure", { blockId, lineIndex, expectedRevision, mutation: mutationFor(actor) });
-  }
-
-  /** The part of a note holding `line` (from 0), else with `next` the first after it, as element.detach takes it, nothing written (`fragments.at`, PIE-780). */
-  partAt(blockId: string, line: number, next = false): Promise<PartAt> {
-    return this.request("fragments.at", { blockId, line, ...(next ? { next: true } : {}) });
-  }
-
-  /** `((id^fragment))`'s slice of its note (PIE-424). */
-  readFragment(blockId: string, fragmentId: string): Promise<FragmentRead> {
-    return this.request("fragments.read", { blockId, fragmentId });
   }
 
   /**
@@ -1891,38 +1674,12 @@ export class SocketBoard implements Board {
     await this.request("drafts.answer", { requestId: r.requestId, clientId: this.clientId, ...(answer ? { answer } : { error }) }).catch(() => {});
   }
 
-  /** A note's text as the draft someone holds has it now, or as saved (`drafts.read`). */
-  readDraft(blockId: string): Promise<{ route: "draft" | "saved"; text: string; revision: number }> {
-    return this.request("drafts.read", { blockId });
-  }
-
   /**
    * "Apply anyway": a proposal's patch as an ordinary edit by `actor` (`draft.proposal.apply`). `warning`: the
    * edit landed, but something after it didn't (the proposal couldn't be marked applied).
    */
   async resolveProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "resolved" | "open"; proposalId: string; message: string; undo?: string }> {
     return this.request("draft.proposal.resolve", { proposalId, mutation: requesterOf(actor) }, 120_000);
-  }
-
-  async applyProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "applied"; edits: { blockId: string; route: "draft" | "saved" }[]; warning?: string }> {
-    return this.request("draft.proposal.apply", { proposalId, mutation: requesterOf(actor) });
-  }
-
-  /**
-   * Dismiss a proposal without applying it (`draft.proposal.dismiss`, PIE-510): the service takes an older one's embed line
-   * out of the note it was proposed under (or the live draft of it), marks it dismissed and puts it in the Trash,
-   * all as `actor`, and refuses an agent's dismissal of another's proposal. `embedRemoved`: where the line was.
-   */
-  async dismissProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "dismissed"; proposalId: string; embedRemoved: "saved" | "draft" | null; warning?: string }> {
-    return this.request("draft.proposal.dismiss", { proposalId, mutation: requesterOf(actor) });
-  }
-
-  /**
-   * The open proposals beside note `blockId` (`draft.proposals.list`, PIE-725): a patch that didn't apply is a proposal block
-   * beside its note, never a line in its text. Each names the note line it is drawn after (its mark's, else the last).
-   */
-  async proposalsBeside(blockId: string): Promise<ProposalsBeside> {
-    return this.request("draft.proposals.list", { blockId });
   }
 
   close(): void {

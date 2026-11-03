@@ -578,13 +578,13 @@ export class EchoReader extends ReaderPane {
     if (fresh && actor.kind === "user") {
       m.fresh = false;
       if (area.fresh) area.fresh--;
-      void board?.markRead(shown).catch(e => {
+      void board?.request("blocks.markRead", { blocks: shown }).catch(e => {
         m.fresh = true;
         if (area.fresh !== null) area.fresh++;
         desk.ctx.flash(`couldn't mark ${subject(m.msg)} read: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e));
         desk.redraw();
       });
-    } else if (actor.kind === "agent") void board?.markRead(shown, actor.id).catch(() => {});
+    } else if (actor.kind === "agent") void board?.request("blocks.markRead", { blocks: shown, ...(actor.id ? { reader: actor.id } : {}) }).catch(() => {});
     // The list beside lights it, when it lists the same area.
     const ms = this.net?.messages;
     if (ms?.area?.key === area.key && ms.items === list) ms.at = i;

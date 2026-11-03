@@ -242,7 +242,7 @@ describe("the service sends what an Outlink's target is", () => {
     const done = await mk("Thank the swap hosts [type::outbox-item] [outbox::done]");
     const plain = await mk("Seed shelf");
     const owner = await mk(`((${waiting.id}))\n((${done.id}))\n((${plain.id}))`);
-    const snap = await board.authoredLinks(owner.id);
+    const snap = await board.request("blocks.authored-links", { ownerBlockId: owner.id });
     if (snap.kind !== "ready") throw new Error(snap.kind);
     const data: LinkData = { links: { kind: "ready", value: snap }, backlinks: { kind: "loading" } };
     const a = linkAcross(data, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "open" });
@@ -275,7 +275,7 @@ describe("a links tile with Children alone (PIE-693)", () => {
     const { BacklinksPane } = await import("../src/desk/backlinks-pane");
     let backlinksAsked = 0, redraws = 0;
     const board = {
-      children: async () => [kid], facets: async () => ({ facets: {}, missing: [] }), authoredLinks: async () => ({ kind: "ready", ownerId: "n1", ownerTextDigest: "x", outlinks: group([]), resources: group([]) }),
+      children: async () => [kid], facets: async () => ({ facets: {}, missing: [] }), request: async (action: string) => (action === "blocks.authored-links" ? { kind: "ready", ownerId: "n1", ownerTextDigest: "x", outlinks: group([]), resources: group([]) } : Promise.reject(new Error(`the fake has no ${action}`))),
       backlinks: () => { backlinksAsked++; return new Promise(() => {}); },
     };
     const desk = { ctx: { board, flash() {} }, redraw() { redraws++; }, tileShowing: () => note } as any;
@@ -300,7 +300,7 @@ describe("a links tile that opens its groups, read again on the way back (PIE-82
     const { BacklinksPane } = await import("../src/desk/backlinks-pane");
     const board = {
       children: async () => [], facets: async () => ({ facets: {}, missing: [] }),
-      authoredLinks: async (id: string) => ({ kind: "ready", ownerId: id, ownerTextDigest: "x", outlinks: group([]), resources: group([]) }),
+      request: async (action: string, p: { ownerBlockId: string }) => (action === "blocks.authored-links" ? { kind: "ready", ownerId: p.ownerBlockId, ownerTextDigest: "x", outlinks: group([]), resources: group([]) } : Promise.reject(new Error(`the fake has no ${action}`))),
       // The kettle's answer at once; the start note's never comes (still on the way when the person goes back).
       backlinks: (id: string) => (id === kettle.id
         ? Promise.resolve({ targetBlockId: id, completeness: { kind: "complete" }, sources: [source("Tea shelf", "note", "Note", undefined, "2026-03-05T00:00:00Z")] } as BacklinkCollection)

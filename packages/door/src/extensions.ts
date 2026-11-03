@@ -1,3 +1,4 @@
+import { requesterOf } from "./socket";
 import { extensionFacetSource, registerFacetSource, unregisterFacetSource } from "./facet-sources";
 import { errorDetails, type MessageDetails } from "./status-log";
 import type { FormFieldType } from "@ep0ch/outline-core/form-fields";
@@ -221,7 +222,7 @@ export function asScriptRun(req: { action: string; tile?: string; args?: Record<
  * call from a note runs the script the note's button would.
  */
 export async function scriptsAt(board: SocketBoard, name: string, block?: string, line?: number) {
-  const listed = await board.listExtensions(false, { blockId: block, ...(line !== undefined ? { line } : {}) });
+  const listed = await board.request("extensions.list", { blockId: block, ...(line !== undefined ? { line } : {}) });
   return { listed, scripts: listed.extensions.filter(e => e.script && e.name === name && (e.state === "active" || e.state === "failed")) };
 }
 
@@ -307,7 +308,7 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
       const say = asActor(on.ctx, actor);
       say.flash(`installing ${nameOf(id)}…`);
       try {
-        const r = await on.ctx.board.installExtension(id, actor);
+        const r = await on.ctx.board.request("extensions.install", { extension: id, mutation: requesterOf(actor) });
         say.flash(r.error ? `${nameOf(id)} is installed but ${r.state ?? "failed"}: ${oneLine(r.error)}` : `${nameOf(id)} installed · its page and demo notes are under Extensions${r.rulesEnabled ? ` · ${r.rulesEnabled} ${r.rulesEnabled === 1 ? "rule" : "rules"} switched back on` : ""}`);
         on.ctx.redraw();
         return r;
@@ -333,7 +334,7 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
       if (demo !== "keep" && demo !== "remove") throw new ActionRefused("say what becomes of its demo notes: demo=keep or demo=remove");
       const say = asActor(on.ctx, actor);
       try {
-        const r = await on.ctx.board.uninstallExtension(id, demo, actor);
+        const r = await on.ctx.board.request("extensions.uninstall", { extension: id, demo, mutation: requesterOf(actor) });
         say.flash(`${nameOf(id)} removed${r.demo.trashed ? ` · ${r.demo.trashed} demo ${r.demo.trashed === 1 ? "note" : "notes"} to Trash` : r.demo.left ? ` · its ${r.demo.left} demo notes kept` : ""}${r.demo.kept.length ? ` · kept ${r.demo.kept.length} you changed` : ""}${r.rulesDisabled ? ` · ${r.rulesDisabled} ${r.rulesDisabled === 1 ? "rule" : "rules"} switched off` : ""}`);
         on.ctx.redraw();
         return r;
@@ -475,7 +476,7 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
   if (!script) say.flash(`${name}: ${a.label.toLowerCase()}…`);
   try {
     // Who asked goes with it (`mutation`): the writes stay the extension's, the feed records this as `requestedBy`.
-    const r = await ctx.board.actExtension(extension, a.id, extension === "runbook" && a.id === "run-step" ? { ...target, args: undefined } : target, actor);
+    const r = await ctx.board.request("extensions.act", { extension, extensionAction: a.id, ...(extension === "runbook" && a.id === "run-step" ? { ...target, args: undefined } : target), clientId: ctx.board.clientId, mutation: requesterOf(actor) });
     if (r.confirmation) {
       const { message, argument, value } = r.confirmation;
       if (actor.kind === "agent") throw new ActionRefused(`${message} · confirm with with='${JSON.stringify({ [argument]: value })}'`);
@@ -620,7 +621,7 @@ export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: Ex
   // A form from the note (PIE-828): what it asks is the note's, so the service says it (a form it can't read is refused there).
   if (a.fieldsFrom === "block") {
     let specs: ExtensionArgChoice[];
-    try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch (err) { throw new ActionRefused(err instanceof Error ? err.message : String(err)); }
+    try { specs = (await ctx.board.request("extensions.args", { extension: e.id, extensionAction: a.id, ...(block ? { blockId: block } : {}) })).args; } catch (err) { throw new ActionRefused(err instanceof Error ? err.message : String(err)); }
     const open = specs.filter(x => (x.fromBlock || asks(x)) && !Object.hasOwn(given, x.name));
     if (!open.length) return run(given);
     const r = await askInBar(ctx, a.label, open.map(x => asQuestion(x.fromBlock ? { ...x, required: !!x.required } : x)), given, actor, run);
@@ -634,7 +635,7 @@ export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: Ex
   const form = optionals && declared.some(x => !asks(x));
   const ask = form ? [...declared.filter(x => x.required), ...declared.filter(x => !x.required)] : open;
   let specs: ExtensionArgChoice[];
-  try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch { specs = ask; }
+  try { specs = (await ctx.board.request("extensions.args", { extension: e.id, extensionAction: a.id, ...(block ? { blockId: block } : {}) })).args; } catch { specs = ask; }
   // In a form anything typed is an answer, except to a fixed list of choices (src/bar/form.ts, fieldQuestion).
   const questions = ask.map(x => asQuestion({ ...x, ...specs.find(y => y.name === x.name) })).map(q => form && !("free" in q) && !(q as { choices?: string[] }).choices?.length ? { ...q, free: true } : q);
   const r = form
@@ -969,7 +970,7 @@ let asking = 0;
 export async function loadExtensions(board: SocketBoard, reload = false): Promise<Bound | { error: string } | null> {
   const mine = ++asking;
   let list: ExtensionList;
-  try { list = await board.listExtensions(reload); } catch (e) {
+  try { list = await board.request("extensions.list", { ...(reload ? { reload: true } : {}) }); } catch (e) {
     if (mine !== asking) return null;
     return { error: oneLine(e instanceof Error ? e.message : String(e)) };
   }

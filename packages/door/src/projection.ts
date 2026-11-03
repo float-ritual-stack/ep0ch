@@ -456,7 +456,7 @@ function readOf(m: Msg, src: Source | null | undefined): ResourceProjectionRead 
     const c = cache;
     c.set(m.id, entry);
     if (c.size > 200) c.delete(c.keys().next().value!);
-    Promise.resolve().then(() => src.board.readResourceProjections(m.id)).then(
+    Promise.resolve().then(() => src.board.request("resources.projection.read", { blockId: m.id, materialize: true })).then(
       read => {
         // Its text is known only when the answer is for the revision asked: otherwise nothing of it may stand in for a later one.
         const { text: _gone, ...rest } = entry;

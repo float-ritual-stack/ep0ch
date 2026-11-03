@@ -105,7 +105,7 @@ import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_
 import { TONE_INDEX, surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject } from "../socket";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { blockRefText, embedOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { BUTTON_GROUP, deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
@@ -1298,7 +1298,7 @@ export class NoteSurface {
       if (m.resource) void this.loadComments(host);
       return true;
     }
-    if (m.partial || shellLines(m.text).some(line => line.open)) void host.ctx.board.readResourceProjections(m.id, true).catch(e => host.ctx.flash(String(e)));
+    if (m.partial || shellLines(m.text).some(line => line.open)) void host.ctx.board.request("resources.projection.read", { blockId: m.id, materialize: true, opened: true }).catch(e => host.ctx.flash(String(e)));
     if (m.partial) this.readWhole(host); else this.settleUnsent(m, host);
     void this.loadComments(host);
     this.takeReveal(m, host);
@@ -3172,7 +3172,7 @@ export class NoteSurface {
     if (actor.kind === "user" && this.editing) throw new ActionRefused("finish the draft before opening its thread");
     const previous = this.replyLinks;
     const m = this.requireNote();
-    const [replies, links, backlinks, thread] = await Promise.all([readReplies(host.ctx.board, m.id, host.conference), host.ctx.board.authoredLinks(m.id), host.ctx.board.backlinks(m.id), readThread(host.ctx.board, m, host.conference)]);
+    const [replies, links, backlinks, thread] = await Promise.all([readReplies(host.ctx.board, m.id, host.conference), host.ctx.board.request("blocks.authored-links", { ownerBlockId: m.id }), host.ctx.board.backlinks(m.id), readThread(host.ctx.board, m, host.conference)]);
     const out = { replies: replies.children.map(c => c.block.id), truncated: replies.truncated };
     // The opening token expires once the panel opens; refresh follows the same note and mode instead.
     if (actor.kind === "agent" || this.msg?.id !== m.id || (!refresh && host.still && !host.still())) return out;
@@ -3241,7 +3241,7 @@ export class NoteSurface {
   async quoteSelection(host: SurfaceHost, actor: Actor, quote?: string): Promise<string> {
     const m = this.requireNote(), passage = this.passageFor(actor, quote).note;
     const line = m.text.slice(0, passage.start).split("\n").length - 1;
-    const { items } = await host.ctx.board.fragmentCandidates({ blockIds: [m.id], fragmentQuery: passage.quote, mode: "passage", limit: 100 });
+    const { items } = await host.ctx.board.request("fragments.candidates", { query: { blockIds: [m.id], fragmentQuery: passage.quote, mode: "passage", limit: 100 } });
     const anchor = items.find(c => c.revision === m.revision && c.lineIndex === line && c.fragmentId)?.fragmentId;
     // The excerpt is frozen even when its source changes or an anchor cannot yet be written.
     return `> [!quote]\n${passage.quote.split("\n").map(l => `> ${l}`).join("\n")}\n> — ((${m.id}${anchor ? `^${anchor}` : ""}))\n\n`;
@@ -5315,7 +5315,7 @@ export class NoteSurface {
    * unread. Only the person's opening reads it; quietly, as a failure only leaves it unread.
    */
   readThread(thread: string, host: SurfaceHost) {
-    if (this.expanded.has(thread)) void host.ctx.board.readThread(thread).catch(() => {});
+    if (this.expanded.has(thread)) void host.ctx.board.request("annotations.read", { annotationId: thread }).catch(() => {});
   }
 
   /** A thread of the note shown, by id or its first 6+ characters. */
@@ -5987,12 +5987,12 @@ export class NoteSurface {
     if (m.revision === undefined) throw new ActionRefused("this note has no revision to anchor a line at");
     // The part of the note holding the line (a heading, a paragraph, a list item, a quote, a component), as the service
     // reads it: its anchor goes where that part's goes, and its label is the part's own.
-    const found = await board.partAt(m.id, at, next), part = found.part;
+    const found = await board.request("fragments.at", { blockId: m.id, line: at, ...(next ? { next: true } : {}) }), part = found.part;
     // The line was chosen in the text this reader read: a note saved since may hold another part there.
     if (found.revision !== m.revision) throw new ActionRefused("the note changed since it was read; it is read again, copy once more");
     if (!part) throw new ActionRefused(`line ${at + 1} is in no part of the note that takes an anchor (a heading, a paragraph, a list item, a quote, a component)`);
     let anchored: { fragmentId: string; created: boolean };
-    try { anchored = part.fragmentId ? { fragmentId: part.fragmentId, created: false } : await board.ensureFragment(m.id, part.lineIndex, m.revision, actor); }
+    try { anchored = part.fragmentId ? { fragmentId: part.fragmentId, created: false } : await board.request("fragments.ensure", { blockId: m.id, lineIndex: part.lineIndex, expectedRevision: m.revision, mutation: mutationFor(actor) }); }
     catch (e) {
       const said = e instanceof Error ? e.message : String(e);
       throw new ActionRefused(/changed since/.test(said) ? "not anchored: the note changed since it was read; it is read again, copy once more" : `not anchored: ${said}`);
@@ -7138,7 +7138,7 @@ export class NoteSurface {
     try {
       const was = P.answer?.sources[P.open ?? -1]?.key;
       P.answer = await host.ctx.board.siteSources(P.block);
-      const { schemas } = await host.ctx.board.componentSchemas();
+      const { schemas } = await host.ctx.board.request("components.schemas", {});
       for (const source of P.answer.sources) if (source.query.editable) {
         const props = schemas.find(x => x.id === source.name)?.props.filter(x => x.where === "yaml") ?? [];
         for (const p of props) if (!source.query.params.some(x => x.key === p.key)) source.query.params.push({ key: p.key, value: p.default ?? "" });
@@ -7414,7 +7414,7 @@ export class NoteSurface {
   private async setFigureParam(s: SourceEntry, P: SourcesPanel | null, block: string, revision: number, param: string | undefined, value: string | undefined, host: SurfaceHost, actor: Actor) {
     const cur = P && itemsOf(s, P.folds)[P.item];
     const key = param ?? (cur?.kind === "param" ? cur.key : undefined);
-    const { schemas } = await host.ctx.board.componentSchemas();
+    const { schemas } = await host.ctx.board.request("components.schemas", {});
     const prop = schemas.find(x => x.id === s.name)?.props.find(p => p.where === "yaml" && p.key === key);
     if (!prop) throw new ActionRefused(`choose a property of ${s.name} in Query`);
     const current = s.query.params.find(p => p.key === key)?.value ?? prop.default ?? "";
@@ -7469,7 +7469,7 @@ export class NoteSurface {
     return this.inTurn(async () => {
       const e = this.msg && this.sourceHistory.last(partyOf(actor), this.msg.id);
       if (e?.patch) {
-        const m = await host.ctx.board.readDraft(e.block), edit = e.edits[0]!;
+        const m = await host.ctx.board.request("drafts.read", { blockId: e.block }), edit = e.edits[0]!;
         await this.patchSource(e.block, m.revision, edit.after, edit.before, e.patch.start, host, actor);
         this.sourceHistory.drop(e);
         if (this.sourcesMode) await this.readSources(this.sourcesMode.panel, host);
@@ -7549,7 +7549,7 @@ export class NoteSurface {
     const row = drawnFields.rows[n - 1];
     if (!row) throw new ActionRefused(`::fields{key=${drawnFields.key}} has rows 1 to ${drawnFields.rows.length}`);
     let anchored: { fragmentId: string; created: boolean };
-    try { anchored = await host.ctx.board.ensureFragment(drawnFields.from, row.line, drawnFields.revision, actor); }
+    try { anchored = await host.ctx.board.request("fragments.ensure", { blockId: drawnFields.from, lineIndex: row.line, expectedRevision: drawnFields.revision, mutation: mutationFor(actor) }); }
     catch (e) {
       const said = e instanceof Error ? e.message : String(e);
       // The list was drawn from an older text: it is read again (watched), and the row anchors once it is.
@@ -7626,7 +7626,7 @@ export class NoteSurface {
       return await board.changeStep(ref.block, ref.step, ref.revision, changeOf(choice), actor);
     } catch (e) {
       if (!(e instanceof Refused) || ref.step.identity === "unique" || !/location changed/i.test(e.message)) throw e;
-      const now = await board.checklist(ref.block, 1000);
+      const now = await board.request("checklist.query", { blockId: ref.block, query: { limit: 1000, nested: "include" } });
       const same = now.items.filter(i => i.evidence === ref.step.evidence);
       if (same.length !== 1) throw e;
       return board.changeStep(ref.block, same[0]!, now.revision, changeOf(choice), actor);
@@ -7776,7 +7776,7 @@ export class NoteSurface {
     if (!m) return;
     // A scroll made while the fragment is looked up is the reader's own: it isn't undone.
     const from = this.scroll;
-    const read = await host.ctx.board.readFragment(m.id, fragment).catch((e: Error) => ({ error: e.message }));
+    const read = await host.ctx.board.request("fragments.read", { blockId: m.id, fragmentId: fragment }).catch((e: Error) => ({ error: e.message }));
     let now: Msg;
     try { now = await this.whole(); } catch { return; }
     if (now.id !== m.id) return;
@@ -7860,7 +7860,7 @@ export class NoteSurface {
   /** The part `at` names in `m` (PIE-780), read from the service: refused, with why, where there is none. */
   private async partOf(m: Msg, at: { line?: number; anchor?: string; follow?: true }, board: SocketBoard): Promise<Zoom> {
     if (at.anchor !== undefined) {
-      const r = await board.readFragment(m.id, at.anchor.replace(/^\^/, ""));
+      const r = await board.request("fragments.read", { blockId: m.id, fragmentId: at.anchor.replace(/^\^/, "") });
       if (r.status === "missing") throw new ActionRefused(`this note has no ^${at.anchor.replace(/^\^/, "")}`);
       if (r.status === "duplicate") throw new ActionRefused(`^${r.fragmentId} is in this note more than once: zoom by line= instead`);
       const f = r.fragment;
@@ -7869,7 +7869,7 @@ export class NoteSurface {
     const line = at.line ?? this.elementLine();
     if (line === undefined) throw new ActionRefused("nothing to zoom into here: put the [ ] position or the reading line on a figure, a table or a heading");
     // Where the reader is (no line= named): the part there, else the next one, as element.detach takes it.
-    const r = await board.partAt(m.id, line, at.line === undefined && !at.follow);
+    const r = await board.request("fragments.at", { blockId: m.id, line, ...((at.line === undefined && !at.follow) ? { next: true } : {}) });
     if (!r.part) throw new ActionRefused(`line ${line + 1} is in no part (a figure, a table, a heading's section, a callout, a list item or a paragraph): nothing to zoom into`);
     const p = r.part;
     // Its anchor's line as it reads (`head`): a part with no anchor is found again by it when lines move above it.
@@ -9657,7 +9657,7 @@ const PROPOSAL_DEFS = {
       const p = await host.ctx.board.get(target);
       if (p && isOpenProposal(p) && !proposalApplies(p)) throw new ActionRefused(NOT_APPLICABLE);
       try {
-        const r = await host.ctx.board.applyProposal(target, actor);
+        const r = await host.ctx.board.request("draft.proposal.apply", { proposalId: target, mutation: requesterOf(actor) });
         // Its embeds and the notes it changed are drawn again now, not when the outline's event comes.
         outlineChanged([target, ...r.edits.map(x => x.blockId)]);
         host.ctx.flash(`applied the proposal · ${r.edits.map(x => x.route === "draft" ? "into the draft being written" : "saved").join(", ")}${r.warning ? ` · but ${r.warning}` : ""}`, r.warning ? 8000 : undefined);
@@ -9679,7 +9679,7 @@ const PROPOSAL_DEFS = {
     async run({ id }, { surface, host }, actor) {
       const target = proposalTarget(id, surface);
       try {
-        const r = await host.ctx.board.dismissProposal(target, actor);
+        const r = await host.ctx.board.request("draft.proposal.dismiss", { proposalId: target, mutation: requesterOf(actor) });
         outlineChanged([target, ...(surface?.msg ? [surface.msg.id] : [])]);
         const line = r.embedRemoved === "saved" ? " · its embed line is out of the note" : r.embedRemoved === "draft" ? " · its embed line is out of the draft being written" : "";
         host.ctx.flash(`dismissed the proposal${line}${r.warning ? ` · but ${r.warning}` : ""}`, r.warning ? 8000 : undefined);
@@ -10726,7 +10726,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         // line answers a label never depends on which finished first.
         if (!matching(found).length && mayHaveProjections(m.text)) {
           for (const end = Date.now() + 10_000; ;) {
-            const read = await host.ctx.board.readResourceProjections(m.id).catch(() => null);
+            const read = await host.ctx.board.request("resources.projection.read", { blockId: m.id, materialize: true }).catch(() => null);
             if (!read) break;
             const drawn = drawnPresses(read);
             if (!drawingPending(read) || Date.now() > end) { found.push(...drawn.filter(d => !found.some(f => f.act === d.act && f.line === d.line && f.label === d.label))); break; }
@@ -11514,7 +11514,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         await surface.whole();
         const id = surface.threadId(thread), c = surface.comments?.find(x => x.id === id);
         if (!c?.tldr) throw new ActionRefused("this thread has no TL;DR to take away");
-        await host.ctx.board.tldr(id, actor, undefined, true);
+        await host.ctx.board.request("annotations.tldr", { annotationId: id, remove: true, mutation: mutationFor(actor) });
         await surface.loadComments(host);
         if (surface.session?.mode === "threads") surface.session.threads = surface.comments ?? surface.session.threads;
         asActor(host.ctx, actor).flash("took the TL;DR away");
@@ -11527,7 +11527,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       s.sel = i;
       const env = surface.env(host, actor);
       if (body) {
-        await env.board.tldr(s.threads[i]!.id, actor, body);
+        await env.board.request("annotations.tldr", { annotationId: s.threads[i]!.id, ...(body ? { body } : {}), mutation: mutationFor(actor) });
         s.threads = await env.reloadComments();
         surface.noteAgent(actor, "wrote a comment's TL;DR");
         host.redraw();
@@ -12446,7 +12446,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     ],
     async run({ run }, { host }, actor) {
       if (!run?.trim()) throw new ActionRefused("script.stop needs run=<the run's id>: the undo a script run answered with");
-      const r = await host.ctx.board.stopScript(run.trim(), actor);
+      const r = await host.ctx.board.request("scripts.stop", { run: run.trim(), mutation: requesterOf(actor) });
       asActor(host.ctx, actor).flash(r.stopped ? "stopped the script" : "that script isn't running");
       host.redraw();
       return r;

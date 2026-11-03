@@ -50,7 +50,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
   }, 20_000);
 
   test.each(["grep", "find", "read"])("whole-outline text tools: %s", async kind => {
-    await board.configureMcpAccess("read");
+    await board.request("mcp.access.configure", { level: "read" });
     const note = await board.createBlock(null, `Orchard log [season::autumn]\nBefore the watch.\nAmber moon over the orchard.\nAfter the watch.\nSee ((${target.id})).\n${Array.from({ length: 1101 }, (_, i) => `Harvest mark ${i}`).join("\n")}`);
     const loose = await board.createBlock(null, "Amber—moon\nWords separated by punctuation.");
     const trashed = await board.createBlock(null, "Old harvest");
@@ -132,7 +132,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       client.on("close", () => { upstream.destroy(); connections.delete(client); connections.delete(upstream); lines.close(); });
     });
     await new Promise<void>(r => proxy.listen(proxyPath, r));
-    await board.configureMcpAccess("full");
+    await board.request("mcp.access.configure", { level: "full" });
     const child = Bun.spawn([process.execPath, join(repo, "packages/door/src/main.ts"), "--ws", scratch.name, "mcp"], {
       cwd: scratch.root, env: { ...process.env, ...scratch.env, EP0CH_WS: "wrong-seedlings", EP0CH_SOCKET: proxyPath }, stdin: "pipe", stdout: "pipe", stderr: "pipe",
     });
@@ -212,10 +212,10 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       await mcpCommand(["mcp"], { input: linesOf([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "artifact_put", arguments: { name: "mcp-garden", kind: "html", content: "<h1>Agent garden</h1>" } } })]), write: line => lines.push(line), err: line => lines.push(line) });
       return JSON.parse(lines[0]!).result;
     };
-    await board.configureMcpAccess("read");
+    await board.request("mcp.access.configure", { level: "read" });
     expect((await call()).isError).toBe(true);
     expect(existsSync(join(scratch.outlines, ".artifacts/live/mcp-garden"))).toBe(false);
-    await board.configureMcpAccess("full");
+    await board.request("mcp.access.configure", { level: "full" });
     expect((await call()).isError).not.toBe(true);
     expect(readFileSync(join(scratch.outlines, ".artifacts/live/mcp-garden/index.html"), "utf8")).toBe("<h1>Agent garden</h1>");
   }, 30_000);
@@ -232,11 +232,11 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       return JSON.parse(out.trim()).result;
     };
     for (const level of ["read", "propose"] as const) {
-      await board.configureMcpAccess(level);
+      await board.request("mcp.access.configure", { level });
       expect((await call()).isError).toBe(true);
       expect((await board.queryNotes('type=suggestion component=query', 200, "show")).notes).toHaveLength(0);
     }
-    await board.configureMcpAccess("full");
+    await board.request("mcp.access.configure", { level: "full" });
     const result = await call();
     expect(result.isError).not.toBe(true);
     const suggestion = JSON.parse(result.content[0].text);

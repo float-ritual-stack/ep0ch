@@ -191,7 +191,7 @@ describe("the tuning (no service)", () => {
   });
   test("a nudge goes into the declaration it tunes: its width variant keeps winning, live as after the save", async () => {
     const sheets = [{ for: "global", block: "g", fields: { "list.gap": "1", "narrow.list.gap": "0" } }];
-    const src = { board: { styleSheets: async () => ({ sheets, problems: [] }) }, redraw() {} };
+    const src = { board: { request: async (action: string) => (action === "styles.list" ? { sheets, problems: [], complete: true } : Promise.reject(new Error(`the fake has no ${action}`))) }, redraw() {} };
     await sheetsReady(src);
     const t = tuningOf(src.board);
     t.set("global", "list.gap", "2", YOU);
@@ -206,7 +206,7 @@ describe("taking a value away (PIE-675, no service)", () => {
   const YOU = { kind: "user" as const };
   test("it leaves only the declaration it came from: an older one still shows, as it will after the save; the outline's answer settles it", async () => {
     const sheets = [{ for: "global", block: "g1", fields: { bg: "blue" } as Record<string, string> }, { for: "global", block: "g2", fields: { bg: "raised" } as Record<string, string> }];
-    const src = { board: { styleSheets: async () => ({ sheets, problems: [] }) }, redraw() {} };
+    const src = { board: { request: async (action: string) => (action === "styles.list" ? { sheets, problems: [], complete: true } : Promise.reject(new Error(`the fake has no ${action}`))) }, redraw() {} };
     await sheetsReady(src);
     const t = tuningOf(src.board);
     expect(lookFor(src, {}, 80).values.bg).toBe("raised");

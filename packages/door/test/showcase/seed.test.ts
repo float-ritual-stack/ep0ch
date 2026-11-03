@@ -137,7 +137,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     // Quoting the syntax (PIE-764): what backticks and a fence hold is drawn as written, and is no link or property.
     expect(drawn.some(l => l.includes("((transcript^t0817|at 08:17))"))).toBe(true);
     expect(await scope("key")).toEqual([]);
-    const links = await board.authoredLinks(seeded.notes.notebook.id);
+    const links = await board.request("blocks.authored-links", { ownerBlockId: seeded.notes.notebook.id });
     if (links.kind !== "ready") throw new Error(links.kind);
     expect(links.outlinks.entries.map(e => e.label).filter(l => ["at 08:17", "Compost heap", "transcript"].includes(l))).toEqual([]);
   });
@@ -182,7 +182,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
   }, 20_000);
 
   test("a figure can be linked to (PIE-580): the service slices the whole block for an anchor alone after its ::", async () => {
-    const read = await board.readFragment(seeded.notes.figures.id, "budget");
+    const read = await board.request("fragments.read", { blockId: seeded.notes.figures.id, fragmentId: "budget" });
     expect(read.status).toBe("resolved");
     if (read.status !== "resolved") return;
     const lines = seeded.notes.figures.text.split("\n");

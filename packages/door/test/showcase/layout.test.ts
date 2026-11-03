@@ -1239,7 +1239,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const other = new Scratch();
     const b = new SocketBoard(await other.start());
     await b.info();
-    await b.listExtensions(true);
+    await b.request("extensions.list", { reload: true });
     const before = await b.roots();
     const t = { info: { cols: 120, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     const a = new App(t as any, b, Date.now(), () => {});

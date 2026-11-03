@@ -192,7 +192,7 @@ export async function readRecords(board: SocketBoard, ids: string[], children: b
 
 /** Extension pages outside this export are named, rather than silently absent. */
 export async function exportLeftOut(board: SocketBoard, included: ReadonlySet<string>) {
-  const extensions = await board.listExtensions();
+  const extensions = await board.request("extensions.list", {});
   return Object.entries(extensions.pages ?? {}).filter(([, id]) => !included.has(id))
     .map(([extension, id]) => ({ id, extension, reason: "extension page outside selection" }));
 }

@@ -327,7 +327,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const proposal = (await board.get(seeded.race.proposal))!;
     expect([proposal.parentId, prop(proposal, "type"), prop(proposal, "proposal-status")]).toEqual([guide.id, "draft-proposal", "open"]);
     expect(seeded.race.retry).toEqual({ proposalId: seeded.race.proposal, deduped: true });
-    expect((await board.proposalsBeside(guide.id)).proposals.map(p => p.id)).toEqual([seeded.race.proposal]);
+    expect((await board.request("draft.proposals.list", { blockId: guide.id })).proposals.map(p => p.id)).toEqual([seeded.race.proposal]);
 
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "proposals" }, as: "test-agent" });
@@ -347,7 +347,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
 
   test("the proposals section resolves by key, click and agent action, and waiting counts follow", async () => {
     writeFileSync(join(scratch.root, "config", "pi-herdr-outliner", "extensions", "tidy", "config.json"), JSON.stringify({config: {answer: ["bun", "-e", `await Bun.stdin.text(); console.log(JSON.stringify({patches: [{observed: "grow beans", replacement: "grow peas"}], message: "Kept Tuesday and changed beans to peas."}));`]}}));
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     const make = async () => {
       const note = await board.request("create", {text: "Resolution garden\ngrow beans\ndelivery Monday", author: "user"});
       const proposal = await board.request("draft.patch", {blockId: note.id, revision: note.revision, propose: true, patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "moss"}});

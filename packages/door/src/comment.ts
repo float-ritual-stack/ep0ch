@@ -12,7 +12,7 @@ import { composerPlace } from "./surface/composer";
 import { modeHint, type ModeKey } from "./surface/modes";
 import { nextPlace, type AttachedPlace } from "./surface/attached";
 import type { Completer } from "./surface/completer";
-import { authorName, USER, type Actor, type AnnotationProps, type Comment, type CommentPassage, type SocketBoard } from "./socket";
+import { authorName, USER, type Actor, type AnnotationProps, type Comment, type CommentPassage, type SocketBoard, mutationFor } from "./socket";
 import { C, chip, ellipsize, fg, pad, RESET, selectedRow } from "./style";
 import { ch, isUp, isDown, type Key } from "./term";
 import { findPassage, isMiss, missMessage, passageAt } from "@ep0ch/outline-core/passage";
@@ -163,7 +163,7 @@ export { Outgoing };
 // ── the session a reader holds while commenting ───────────────────────────────
 
 export interface CommentEnv {
-  board: Pick<SocketBoard, "comment" | "commentOnResource" | "reply" | "setLifecycle" | "tldr" | "updateComment"> & Partial<ReferenceBoard>;
+  board: Pick<SocketBoard, "comment" | "commentOnResource" | "reply" | "setLifecycle" | "updateComment" | "request"> & Partial<ReferenceBoard>;
   fetch(id: string): Promise<Msg | null>;
   /** The reader shows the note as the service has it now. */
   setMsg(m: Msg): void;
@@ -565,7 +565,7 @@ export class CommentSession {
     const t = this.threads[this.sel];
     if (!t) return null;
     try {
-      const r = await env.board.tldr(t.id, env.actor ?? USER);
+      const r = await env.board.request("annotations.tldr", { annotationId: t.id, mutation: mutationFor(env.actor ?? USER) });
       const asked = "asked" in r ? r.asked : undefined;
       env.flash(`@${asked ?? "margin"} is writing the TL;DR`);
       // It lands in the background: read the thread again until its new face is there (an agent's write isn't

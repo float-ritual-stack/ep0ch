@@ -19,7 +19,7 @@ import { bindExtensions, type ExtensionList } from "../src/extensions";
 import type { LinkTarget } from "../src/refs";
 import { MainMenu } from "../src/screens";
 import { installTickets, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/tickets/install";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER, requesterOf } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { SHADE } from "../src/embeds";
 import { RULER_BG } from "../src/surface/selection";
@@ -103,7 +103,10 @@ function stub(read: () => ResourceProjectionRead | Promise<ResourceProjectionRea
   const b = {
     reads: 0,
     ancestors: async () => [], comments: async () => [],
-    readResourceProjections: async (id: string) => { b.reads++; expect(id).toBe(NOTE_ID); return read(); },
+    request: async (action: string, p: { blockId: string }) => {
+      if (action !== "resources.projection.read") throw new Error(`the fake has no ${action}`);
+      b.reads++; expect(p.blockId).toBe(NOTE_ID); return read();
+    },
   };
   return b;
 }
@@ -451,12 +454,12 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
 const at = r.input.target.blockId;
 process.stdout.write(JSON.stringify({ ok: true, value: { writes: Array.from({ length: 20 }, (_, i) => ({ op: "create", parentId: at, text: "Made-up synced row " + i })) } }));`);
     const end = Date.now() + 15_000;
-    while (!(await board.listExtensions(true))?.extensions.some(e => e.id === "syncrows" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
+    while (!(await board.request("extensions.list", { reload: true }))?.extensions.some(e => e.id === "syncrows" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
     const rows = await board.request("create", { parentId: null, text: "Synced rows", author: "user" });
     const since = Date.now() - 1;
     const mine = await board.request("create", { parentId: null, text: "Sort the seed packets", author: "user" });
     // Many more extension writes after it than the list's first page holds (a poll that refreshed a lot).
-    for (let i = 0; i < 6; i++) expect((await board.actExtension("syncrows", "sync", { blockId: rows.id })).written).toHaveLength(20);
+    for (let i = 0; i < 6; i++) expect((await board.request("extensions.act", { extension: "syncrows", extensionAction: "sync", blockId: rows.id, clientId: board.clientId, mutation: requesterOf(USER) })).written).toHaveLength(20);
     const first = await board.changedSince(since, 40);
     expect(first.map(m => m.id)).toContain(mine.id);
     expect(first.some(m => m.author === "ext:syncrows")).toBe(false);
@@ -469,7 +472,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { writes: Array.from({ le
     const followUp = await create(null, "Depot follow-up\nACME-12 again\njira::");
     let read: ResourceProjectionRead | undefined;
     const end = Date.now() + 10_000;
-    do { read = await board.readResourceProjections(followUp.id); if (read.projections[0]?.record) break; await Bun.sleep(50); } while (Date.now() < end);
+    do { read = await board.request("resources.projection.read", { blockId: followUp.id, materialize: true }); if (read.projections[0]?.record) break; await Bun.sleep(50); } while (Date.now() < end);
     const p = read!.projections[0]!;
     expect(p.record?.blockId).toBe(ticket.id);
     expect(await board.children(followUp.id)).toEqual([]);

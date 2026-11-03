@@ -2,7 +2,7 @@
 // card.reorder makes (`virtual.occurrences.move`: read, planned and written in one step, recorded as who ran it).
 import { boardFor, type Out } from "./notes-cli";
 import { subject } from "./board";
-import { USER, type Actor } from "./socket";
+import { USER, type Actor, mutationFor } from "./socket";
 import { prop } from "./props";
 
 export const VIEW_USAGE = `  ep0ch view order <view> [<id>…] [--json] [--as <agent id>] [--ws <name>] [--machine <ssh-name>]
@@ -34,7 +34,7 @@ export async function viewCommand(argsIn: string[], io: Out = { out: console.log
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
     // The service resolves the view and the members (ids, ((id)), prefixes, Work IDs, [[page]]s) and moves them.
-    const order = refs.length ? await board.moveInView({ view, blocks: refs }, actor) : await board.viewOrder(view);
+    const order = refs.length ? await board.request("virtual.occurrences.move", { input: { view, blocks: refs }, mutation: mutationFor(actor) }) : await board.request("virtual.occurrences.order", { viewId: view });
     const viewId = order.viewId;
     const byId = new Map((await board.readMany(order.blockIds, ["title", "properties"])).map(b => [b.id, b]));
     const rows = order.blockIds.map(id => {

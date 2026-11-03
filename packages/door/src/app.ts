@@ -543,7 +543,7 @@ export class App implements Ctx {
   private yoloEpoch = 0;
   async syncYolo(): Promise<void> {
     const epoch = ++this.yoloEpoch;
-    const said = (await this.board.mcpAccessStatus().catch(() => undefined))?.yolo === true;
+    const said = (await this.board.request("mcp.access.status", {}).catch(() => undefined))?.yolo === true;
     if (epoch !== this.yoloEpoch) return;
     // The service holds this door's yolo by its connection: after a reconnect it is gone (a restarted service or a dropped
     // connection ends it, and another door may have taken it back meanwhile). The person turns it on again.
@@ -562,7 +562,7 @@ export class App implements Ctx {
       if (on) { this.yoloHere = false; this.flash(`YOLO is off: the outline service didn't take it (${why})`, 8000, errorDetails(e)); }
       else {
         // A take-back that didn't reach the service must not look done: what the service says is what shows, and a click tries again.
-        const said = (await this.board.mcpAccessStatus().catch(() => undefined))?.yolo === true;
+        const said = (await this.board.request("mcp.access.status", {}).catch(() => undefined))?.yolo === true;
         if (epoch === this.yoloEpoch) this.yoloService = said;
         if (said) this.flash(`YOLO is still on: the outline service didn't take it back (${why}); click YOLO to try again`, 8000, errorDetails(e));
       }

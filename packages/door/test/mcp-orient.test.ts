@@ -61,7 +61,7 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
     board = new SocketBoard(sock);
     await board.info();
     // propose: reads, and a patch is always a proposal (the derived block this test needs).
-    await board.configureMcpAccess("propose");
+    await board.request("mcp.access.configure", { level: "propose" });
     const make = async (key: string, text: string, parentId: string | null = null) => {
       const b = await board.request("create", { parentId, text, author: "agent" });
       notes[key] = { id: b.id, revision: b.revision };

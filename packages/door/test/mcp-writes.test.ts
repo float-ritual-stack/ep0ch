@@ -98,7 +98,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     await here.start(); await far.start();
     for (const [h, name] of [[here, "garden-notes"], [here, "pond-notes"], [here, "quiet-notes"], [far, "attic-notes"]] as const) await h.create(name);
     const garden = boardOn(here, "garden-notes", HERE), pond = boardOn(here, "pond-notes", HERE), quiet = boardOn(here, "quiet-notes", HERE), attic = boardOn(far, "attic-notes", FAR);
-    await garden.configureMcpAccess("full"); await pond.configureMcpAccess("propose"); await quiet.configureMcpAccess("read"); await attic.configureMcpAccess("full");
+    await garden.request("mcp.access.configure", { level: "full" }); await pond.request("mcp.access.configure", { level: "propose" }); await quiet.request("mcp.access.configure", { level: "read" }); await attic.request("mcp.access.configure", { level: "full" });
     for (const b of [garden, pond, attic]) await b.request("work-ids.configure", { prefix: "GDN" });
     const make = async (b: SocketBoard, key: string, text: string) => { ids[key] = (await b.request("create", { parentId: null, text, author: "user" })).id; };
     await make(garden, "seeds", "Seed swap list [season::spring]\nRunner beans for the allotment next door.");
@@ -816,16 +816,16 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
   test("access narrowed on the far box since: a full write queued earlier lands as a proposal; none drops it", async () => {
     const lamps = formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.lamps! });
     expect((await tool("outline_create", { uri: lamps, text: "A box of matches" })).json.outcome).toBe("queued");
-    await boardOn(far, "attic-notes", FAR).configureMcpAccess("propose");
+    await boardOn(far, "attic-notes", FAR).request("mcp.access.configure", { level: "propose" });
     const narrowed = await pull();
     expect(narrowed.settled).toMatchObject([{ state: "proposed", said: expect.stringContaining("proposed as a comment") }]);
     const kids = await boardOn(far, "attic-notes", FAR).request("children", { parentId: ids.lamps! });
     expect(kids.some(k => k.text === "A box of matches")).toBe(false);
     expect((await tool("outline_comment", { uri: lamps, whole: true, body: "Order wicks" })).json.outcome).toBe("queued");
-    await boardOn(far, "attic-notes", FAR).configureMcpAccess("none");
+    await boardOn(far, "attic-notes", FAR).request("mcp.access.configure", { level: "none" });
     const dropped = await pull();
     expect(dropped.settled).toMatchObject([{ state: "refused", said: expect.stringContaining("MCP access is none for attic-notes@") }]);
-    await boardOn(far, "attic-notes", FAR).configureMcpAccess("full");
+    await boardOn(far, "attic-notes", FAR).request("mcp.access.configure", { level: "full" });
   }, 60_000);
 
   test("a write cut off mid-pull is tried again without landing twice; no answer keeps it waiting; a bad ledger stops the pull", async () => {
@@ -907,13 +907,13 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
       expect(denied.text).toContain("needs full access");
       expect((await tool(`outline_proposal_${op}`, { uri })).json.outcome).toBe("queued");
     }
-    await attic.configureMcpAccess("propose");
+    await attic.request("mcp.access.configure", { level: "propose" });
     try {
       const landed = await pull();
       expect(landed.settled.map(s => s.state)).toEqual(["refused", "refused"]);
       for (const id of pending) expect(prop((await attic.get(id))!, "proposal-status")).toBe("open");
       expect((await pull()).settled).toEqual([]);
-    } finally { await attic.configureMcpAccess("full"); follow("attic-notes"); }
+    } finally { await attic.request("mcp.access.configure", { level: "full" }); follow("attic-notes"); }
   }, 60_000);
 
   test("the hub's backup job reads the queues, and a queue waiting a day while its machine was online is an incident", () => {

@@ -801,7 +801,7 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     }
     await board.request("outputs.place", { blockId: step.id, producer: { id: step.id, name: "Seed check" }, here: "end", content: "seeds-ready",
       mutation: { author: "agent", actorId: "seed-check" } });
-    const read = await board.readDraft(step.id);
+    const read = await board.request("drafts.read", { blockId: step.id });
     expect(read.text).toContain("[!output]");
     expect(read.text).toContain("seeds-ready");
     expect((await board.children(step.id)).filter(b => b.text.includes("[type::draft-proposal]"))).toEqual([]);
@@ -810,10 +810,10 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
       expect((await board.get(step.id))!.text).toBe(step.text);
       await board.request("outputs.place", { blockId: step.id, producer: { id: step.id, name: "Render" }, here: "end", content: "Rendered result",
         mutation: { author: "agent", actorId: "render-script" } });
-      expect((await board.readDraft(step.id)).text).toContain("Rendered result");
+      expect((await board.request("drafts.read", { blockId: step.id })).text).toContain("Rendered result");
       expect(screen()).toContain("render-script");
       await app.dispatch.act({ action: "draft.undo", tile: "notes" }, USER);
-      expect((await board.readDraft(step.id)).text).toBe(read.text);
+      expect((await board.request("drafts.read", { blockId: step.id })).text).toBe(read.text);
       await app.dispatch.act({ action: "edit.close", tile: "notes", args: { discard: true } }, USER);
     }
     await app.dispatch.act({ action: "open", tile: "notes", args: { id: seeded.notes.outputRegions.id } }, USER);

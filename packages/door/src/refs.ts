@@ -230,7 +230,7 @@ export interface ResourceToken { raw: string; link: AuthoredResourceLink }
  */
 export function resourceTokensOf(m: { id: string; text: string }, src: Source | null | undefined): ResourceToken[] {
   if ((!MAY_HAVE_RESOURCE_TOKEN.test(m.text) && !mayHaveProviderToken(m.text)) || !isOutlineNote(m as never)) return [];
-  const s = ask(authoredBy, src, m.id, b => b.authoredLinks(m.id), c => changedSince(c.at, [m.id]))?.value;
+  const s = ask(authoredBy, src, m.id, b => b.request("blocks.authored-links", { ownerBlockId: m.id }), c => changedSince(c.at, [m.id]))?.value;
   if (s?.kind !== "ready") return [];
   return s.resources.entries.flatMap(link => {
     const raw = m.text.slice(link.firstSpan.start, link.firstSpan.end);

@@ -664,7 +664,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? {
   test("a failed read of the service's list keeps what was bound, and says so", async () => {
     await app.loadExtensions();
     expect(EXT_ACTIONS.has("ext.fancy-horror.ward")).toBe(true);
-    const broken = { listExtensions: async () => { throw new Error("the service went away"); } } as any;
+    const broken = { request: async () => { throw new Error("the service went away"); } } as any;
     expect(await loadExtensions(broken)).toEqual({ error: "the service went away" });
     expect(EXT_ACTIONS.has("ext.fancy-horror.ward")).toBe(true);
   }, 30_000);

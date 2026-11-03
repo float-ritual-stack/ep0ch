@@ -85,7 +85,7 @@ describe.skipIf(!outliner)("calls: a write records its call, call: finds it, a c
     for (const [k, v] of Object.entries(scratch.env)) { oldEnv[k] = process.env[k]; process.env[k] = v; }
     board = new SocketBoard(sock);
     await board.info();
-    await board.configureMcpAccess("full");
+    await board.request("mcp.access.configure", { level: "full" });
     target = (await board.request("create", { parentId: null, text: "Seed shelf [rank::1]\nA note a person wrote.", author: "user" })).id;
     const outlines = machineOutlines(undefined, l => logs.push(l));
     closeOutlines = outlines.close;

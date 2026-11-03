@@ -8,7 +8,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node
 import { join } from "node:path";
 import { Draft } from "../src/edit";
 import { recordAs } from "../src/draft-session";
-import { ACTOR_ID, actorIdOf, mutationFor, USER, SocketBoard, type Actor } from "../src/socket";
+import { ACTOR_ID, actorIdOf, mutationFor, USER, SocketBoard, type Actor, requesterOf } from "../src/socket";
 import { visible } from "../src/style";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
@@ -263,7 +263,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     cpSync(join(outliner!, "extensions", "tidy"), folder, {recursive: true});
     const patches = [{observed: "Remove this sentence.\n", replacement: ""}];
     writeFileSync(join(folder, "config.json"), JSON.stringify({config: {answer: ["bun", "-e", `await Bun.stdin.text(); console.log(${JSON.stringify(JSON.stringify({patches, message: "Removed the sentence."}))});`]}}));
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     const e = await editing("Garden\nRemove this sentence.\nKeep  these bytes.  \n\nStill typing");
     try {
       e.type(" here.");
@@ -339,7 +339,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
     await NOTE_ACTIONS.run("rich.move", { direction: "down" }, { surface: e.s, host: e.h, standing: true }, USER);
     const position = { row: e.d.row, col: e.d.col };
-    const read = await agent.readDraft(e.id);
+    const read = await agent.request("drafts.read", { blockId: e.id });
     const graph = `::graph-table\n---\nheaders: [Crop, Count]\nrows:\n  - ["Peas", 'O''Brien']\n---\n::`;
     const r = await agent.request("draft.patch", {
       blockId: e.id, revision: read.revision, mutation: { author: "agent", actorId: "tidy" },
@@ -566,7 +566,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
 
   /** tidy's intentional suggestion in a draft Evan has open, sent while his cursor is in it: it is a proposal beside the note, and his draft is as he typed it (PIE-725). */
   async function proposedInDraft(e: Awaited<ReturnType<typeof editing>>, typeInIt = false) {
-    const read = await agent.readDraft(e.id);
+    const read = await agent.request("drafts.read", { blockId: e.id });
     expect(read.route).toBe("draft");
     const start = read.text.indexOf("The peas");
     const observed = "The peas   climb  the net.";
@@ -694,12 +694,12 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
 const t = r.input.target, text = r.input.context.block.text;
 process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writes: [{ op: "update", blockId: t.blockId, expectedRevision: t.revision, text: text.replace(/ {2,}/g, " ") }] } }));`);
     const end = Date.now() + 15_000;
-    while (!(await board.listExtensions(true))?.extensions.some(e => e.id === "spacer" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
+    while (!(await board.request("extensions.list", { reload: true }))?.extensions.some(e => e.id === "spacer" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
     const e = await editing("Bike shed\nthe  pump   and the tubes\n\nstill to list:\n");
     e.type("lights");
     const since = board.lastSequence ?? 0;
     // An agent runs it, as itself: who asked goes with it; the edit is the extension's.
-    await agent.actExtension("spacer", "tidy", { blockId: e.id }, { kind: "agent", id: "helper-510" });
+    await agent.request("extensions.act", { extension: "spacer", extensionAction: "tidy", blockId: e.id, clientId: agent.clientId, mutation: requesterOf({ kind: "agent", id: "helper-510" }) });
     await until(() => e.d.text.includes("the pump and the tubes"), "the tidy in the draft");
     expect(e.d.text).toBe("Bike shed\nthe pump and the tubes\n\nstill to list:\nlights");
     expect(e.d.writers).toEqual([{ kind: "user" }, { kind: "agent", id: "ext:spacer" }]);
@@ -709,7 +709,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect(changes.filter(c => c.blockId === e.id && c.kind === "edit").at(-1)?.actor).toMatchObject({ author: "user", actorId: `${ACTOR_ID}+ext:spacer` });
     // Only the extension wrote it this time: still saved as the person's, naming the extension.
     const only = await editing("Tool wall\nthe  saw  and the plane\n");
-    await agent.actExtension("spacer", "tidy", { blockId: only.id }, { kind: "user" });
+    await agent.request("extensions.act", { extension: "spacer", extensionAction: "tidy", blockId: only.id, clientId: agent.clientId, mutation: requesterOf({ kind: "user" }) });
     await until(() => only.d.text.includes("the saw and the plane"), "the tidy in the second draft");
     expect(only.d.writers).toEqual([{ kind: "agent", id: "ext:spacer" }]);
     await NOTE_ACTIONS.run("edit.save", {}, { surface: only.s, host: only.h, standing: true }, { kind: "user" });
@@ -726,7 +726,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect(touched).toBe(1);
     cpSync(join(outliner!, "extensions", "tidy"), join(scratch.workspace, "extensions", "tidy"), { recursive: true });
     const end = Date.now() + 15_000;
-    while (!(await board.listExtensions(true))?.extensions.some(e => e.id === "tidy" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
+    while (!(await board.request("extensions.list", { reload: true }))?.extensions.some(e => e.id === "tidy" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
     const e = await editing("Bench list\n");
     e.type("the  vice   and the clamps");
     e.d.newline(false); e.s.render(50, 12, e.h);
@@ -748,8 +748,8 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     }));
     writeFileSync(join(dir, "run.ts"), 'await Bun.stdin.text(); console.log(JSON.stringify({ok: true, value: {reply: "Sow the peas.\\nWater the beds."}}));');
     const loaded = Date.now() + 15_000;
-    while (!(await board.listExtensions(true))?.extensions.some(e => e.id === "gardener" && e.state === "active") && Date.now() < loaded) await Bun.sleep(100);
-    expect((await board.listExtensions(true))?.extensions.find(e => e.id === "gardener")?.state).toBe("active");
+    while (!(await board.request("extensions.list", { reload: true }))?.extensions.some(e => e.id === "gardener" && e.state === "active") && Date.now() < loaded) await Bun.sleep(100);
+    expect((await board.request("extensions.list", { reload: true }))?.extensions.find(e => e.id === "gardener")?.state).toBe("active");
   }
 
   async function streamingGardener(chunks = ["Sow the peas.", "\n\nWater the beds."]) {
@@ -763,7 +763,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
       console.log(JSON.stringify({ reply: ${JSON.stringify(chunks[1])} }));
       console.log(JSON.stringify({ ok: true, value: {} }));
     `);
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     return gate;
   }
 
@@ -810,7 +810,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     const manifest = JSON.parse(readFileSync(join(folder, "extension.json"), "utf8"));
     writeFileSync(join(folder, "extension.json"), JSON.stringify({ ...manifest, secrets: { example: "Fictional test key" } }));
     writeFileSync(join(folder, "config.json"), JSON.stringify({ secrets: { example: { file: secret } } }));
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     const e = await editing("Redacted answer\n\n");
     e.type("@gardener plan the beds"); e.d.newline(false); e.type("Keep writing");
     try {
@@ -902,7 +902,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
       while (!existsSync(${JSON.stringify(gate)})) await Bun.sleep(20);
       process.stdout.write(" Then water.");`);
     writeFileSync(join(folder, "config.json"), JSON.stringify({ config: { answer: ["bun", command] } }));
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     const e = await editing("Margin garden\n\n");
     e.type("@margin plan the beds"); e.d.newline(false); e.type("My next thought");
     try {
@@ -924,7 +924,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     const folder = join(scratch.workspace, "extensions", "marginalia");
     cpSync(join(outliner!, "extensions", "marginalia"), folder, { recursive: true });
     writeFileSync(join(folder, "config.json"), JSON.stringify({ config: { answer: ["sh", "-c", "cat > /dev/null; echo 'A hand is about ten centimetres.'"], session: { start: ["{id}"], resume: ["{id}"] } } }));
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     await loadExtensions(board, true);
     const id = await create("Bean rows\nSow the beans a hand apart.");
     const s = new NoteSurface(), h = host();

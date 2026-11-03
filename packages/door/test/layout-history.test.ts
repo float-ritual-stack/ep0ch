@@ -8,7 +8,7 @@ import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { LayoutHistory } from "../src/desk/layout-history";
 import { MainMenu } from "../src/screens";
-import { SocketBoard, USER } from "../src/socket";
+import { SocketBoard, USER, requesterOf } from "../src/socket";
 import { INVITES } from "../src/surface/invite";
 import { actorRule } from "../src/surface/dispatch";
 import { NOBODY } from "../src/whereabouts";
@@ -254,7 +254,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     const run = await person(`ext.${ext.id}.run`, { block: note.id, b, invitation: INVITES.mint("you") }) as { undo: string };
     await untilAsync(async () => !names().includes(b), "the run closed a tile");
     expect(D().history.isOpen(run.undo)).toBe(true);
-    await board.stopScript(run.undo, USER);
+    await board.request("scripts.stop", { run: run.undo, mutation: requesterOf(USER) });
     await untilAsync(async () => names().includes(b), "the stopped run's layout put back", 8000);
     expect(names().sort()).toEqual(before.sort());
     expect(D().history.isOpen(run.undo)).toBe(false);
@@ -339,7 +339,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     await untilAsync(async () => !names().includes(b), "the run closed a tile");
     expect(D().history.isOpen("custom")).toBe(false);
     expect(D().history.isOpen(run.undo)).toBe(true);
-    await board.stopScript(run.undo, USER);
+    await board.request("scripts.stop", { run: run.undo, mutation: requesterOf(USER) });
     await untilAsync(async () => names().includes(b), "the stopped run's layout put back", 8000);
   }, 60_000);
 

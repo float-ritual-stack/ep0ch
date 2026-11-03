@@ -30,7 +30,7 @@ import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
-import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
+import { USER, type Actor, type OutlineEvent, type SocketBoard, mutationFor } from "../socket";
 import { C, chip, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ch, type Key, type TermInfo } from "../term";
 import { bbsDate, moreRow, waiting, waitingText, wrap } from "../text";
@@ -77,7 +77,7 @@ export async function welcomeView(board: SocketBoard): Promise<Msg | null> {
  */
 export async function findWelcome(board: SocketBoard): Promise<{ notes: Msg[]; view: Msg | null }> {
   const [notes, view] = await Promise.all([board.query(WELCOME_KEY, WELCOME_LIMIT, "created", "asc", true), welcomeView(board)]);
-  const ids = view ? (await board.viewOrder(view.id)).blockIds : [];
+  const ids = view ? (await board.request("virtual.occurrences.order", { viewId: view.id })).blockIds : [];
   return { notes: orderWelcome(notes, ids), view };
 }
 
@@ -378,10 +378,10 @@ export class WelcomeList implements Pane {
       view = await board.createBlock(null, WELCOME_VIEW_TEXT, actor);
       made = true;
       // Today's order (by title) is where it starts from, so one move changes one place.
-      if (items.length > 1) await board.moveInView({ view: view.id, blocks: items.map(x => x.id) }, actor);
+      if (items.length > 1) await board.request("virtual.occurrences.move", { input: { view: view.id, blocks: items.map(x => x.id) }, mutation: mutationFor(actor) });
       this.orderView = view;
     }
-    const r = await board.moveInView({ view: view.id, blocks: [m.id], ...(at.by !== undefined ? { by: at.by } : {}), ...(at.to !== undefined ? { to: at.to - 1 } : {}) }, actor);
+    const r = await board.request("virtual.occurrences.move", { input: { view: view.id, blocks: [m.id], ...(at.by !== undefined ? { by: at.by } : {}), ...(at.to !== undefined ? { to: at.to - 1 } : {}) }, mutation: mutationFor(actor) });
     await this.load(desk);
     const n = (this.items ?? []).findIndex(x => x.id === m.id);
     return { id: m.id, title: subject(m), n: n + 1, of: this.items?.length ?? 0, view: view.id, ...(made ? { made: true } : {}), order: r.blockIds };

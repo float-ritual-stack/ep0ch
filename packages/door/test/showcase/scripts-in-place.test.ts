@@ -40,7 +40,7 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
     const x = rows[y]!.indexOf("[Fold the source]") + 1;
     h.press({ kind: "mouse", action: "down", button: 0, x, y });
     h.press({ kind: "mouse", action: "up", button: 0, x, y });
-    await until(() => (app as any).message.includes("Source folded"), "the named fence's answer").catch(async error => { throw new Error(`${error.message}; status: ${(app as any).message}; registry: ${JSON.stringify((await board.listExtensions()).extensions.filter(e => e.name === "fold-source" || e.error?.includes("fold-source")))}`); });
+    await until(() => (app as any).message.includes("Source folded"), "the named fence's answer").catch(async error => { throw new Error(`${error.message}; status: ${(app as any).message}; registry: ${JSON.stringify((await board.request("extensions.list", {})).extensions.filter(e => e.name === "fold-source" || e.error?.includes("fold-source")))}`); });
     const layout = JSON.stringify(await app.act({ action: "layout.get", as: "test-agent" }));
     expect(layout).toContain('"collapsed":true');
     expect(screen()).toContain("used by ::button Fold the source");

@@ -12,7 +12,7 @@ import type { Desk } from "../../src/desk/desk";
 import { spanBg } from "../../src/surface/margin";
 import { MARGINALIA_FILE, type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
-import { SocketBoard, USER } from "../../src/socket";
+import { SocketBoard, USER, mutationFor } from "../../src/socket";
 import { subject } from "../../src/board";
 import { makeTile } from "../../src/desk/tiles";
 import type { ReaderPane } from "../../src/desk/panes";
@@ -314,7 +314,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     await until(() => /no TL;DR: no model is set up to write one · name one in .*config\.json/.test(cs()?.error ?? ""), "why, with the fix");
     expect((await oil()).tldr).toBeUndefined();
     // As it was: the seed's TL;DR back (the person's own, written), for the tests after.
-    await board.tldr((await oil()).id, USER, "Sewing machine oil on the hose reel, each spring.");
+    await board.request("annotations.tldr", { annotationId: (await oil()).id, body: "Sewing machine oil on the hose reel, each spring.", mutation: mutationFor(USER) });
     if (cs()) await stage().dispatch.press("comment.close", {}, "rota");
     await stage().dispatch.press("thread.toggle", { thread: (await oil()).id, expand: true }, "rota");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });

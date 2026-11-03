@@ -77,7 +77,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     await here.start(); await far.start();
     await far.create("attic-notes");
     const attic = boardOn(far, "attic-notes", FAR);
-    await attic.configureMcpAccess("full");
+    await attic.request("mcp.access.configure", { level: "full" });
     const make = async (key: string, text: string) => { ids[key] = (await attic.request("create", { parentId: null, text, author: "user" })).id; };
     await make("trunk", "Trunk contents [room::attic]\nOld maps of the canal.");
     await make("lamps", "Lamp list\nTwo oil lamps, one cracked.");
@@ -288,7 +288,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
   test.each(["full", "propose"] as const)("a live create at %s access whose answer is lost lands once after its parent is edited", async (access) => {
     // A stand-in link that passes everything to the laptop's host but loses the answer to one create.
     const board = boardOn(far, "attic-notes", FAR);
-    await board.configureMcpAccess(access);
+    await board.request("mcp.access.configure", { level: access });
     const parent = await board.request("create", { parentId: null, text: "Spare lamps", author: "user" });
     const proxy = join(dir, `lossy-${access}.sock`);
     let lose = true;
@@ -339,7 +339,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
       else expect(status.uri).toContain(landed[0]!.id);
       expect((await board.children(parent.id)).filter(n => n.text.includes("A lamp whose answer was lost")).map(n => n.id)).toEqual(landed.map(n => n.id));
       expect(await pull()).toMatchObject({ ok: true, taken: 0 });
-    } finally { gw.stop(); outlines.close(); server.close(); await board.configureMcpAccess("full"); }
+    } finally { gw.stop(); outlines.close(); server.close(); await board.request("mcp.access.configure", { level: "full" }); }
   }, 60_000);
 
   test("a host on another protocol is as good as away: the mirror serves, and the reason names the command to run on the laptop", async () => {
