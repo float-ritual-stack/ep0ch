@@ -358,6 +358,13 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await until(() => h.written.slice(before).join("").includes(Buffer.from(web).toString("base64")), "the web link on the clipboard");
     // A right-click on another row is that row's menu: the row is picked first, and its Note rows copy it.
     const plainLines = () => h.sc.render(h.app).lines.map((l: string) => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, ""));
+    // The seed's root rows are more than the tile holds and the tree keeps its pick (the notebook, near the end) in
+    // sight: picking Bean packet, then the row under it, brings it on screen without leaving it picked.
+    const beanRow = (d.pane(tree) as any).list().findIndex((r: any) => r.kind === "block" && subject(r.m) === "Bean packet");
+    expect(beanRow).toBeGreaterThanOrEqual(0);
+    await act("tree.pick", { n: beanRow + 1 }, tree);
+    await until(() => plainLines().some((l: string) => l.includes("Bean packet")), "the Bean packet row, picked");
+    await act("tree.pick", { n: beanRow + 2 }, tree);
     await until(() => plainLines().some((l: string) => l.includes("Bean packet")), "the Bean packet row");
     const bean = plainLines(), by = bean.findIndex((l: string) => l.includes("Bean packet")), bx = bean[by]!.indexOf("Bean packet") + 2;
     expect(subject((await board.get(d.pane(tree).subject!()!))!)).not.toBe("Bean packet");

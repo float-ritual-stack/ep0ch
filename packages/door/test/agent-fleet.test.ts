@@ -143,8 +143,15 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
     writeFileSync(join(dir, "pty-host-fake.sh"), `#!/bin/sh\n${join(dir, "versions/2.0.0")} 600 &\necho $! > ${join(dir, "kitty.pid")}\nwait\n`, { mode: 0o755 });
     ptyHostPid = Bun.spawn(["sh", join(dir, "pty-host-fake.sh"), "session", "pty-host", join(dir, "state/sessions/local/gurgle")], { stdio: ["ignore", "ignore", "ignore"] }).pid;
     for (let i = 0; i < 100 && !kittyPid; i++) { try { kittyPid = Number(readFileSync(join(dir, "kitty.pid"), "utf8")); } catch { Bun.sleepSync(50); } }
-    // One in a terminal no door holds (its parent is no terminal host): only where it runs can restart it.
-    paneKittyPid = Bun.spawn([join(dir, "versions/2.0.0"), "600"], { stdio: ["ignore", "ignore", "ignore"] }).pid;
+    // One in a terminal no door holds (its parent is no terminal host): only where it runs can restart it. Its parent
+    // exits at once, so its ancestry is init's and never this run's: a run under ssh, tmux or Herdr (the nightly's
+    // is over ssh) would otherwise name that as its place.
+    writeFileSync(join(dir, "orphan.sh"), `#!/bin/sh
+${join(dir, "versions/2.0.0")} 600 >/dev/null 2>&1 &
+echo $! > ${join(dir, "pane-kitty.pid")}
+`, { mode: 0o755 });
+    Bun.spawnSync(["sh", join(dir, "orphan.sh")], { stdio: ["ignore", "ignore", "ignore"] });
+    paneKittyPid = Number(readFileSync(join(dir, "pane-kitty.pid"), "utf8"));
     sessions = [
       { pid: paneKittyPid, cwd: "/x", kind: "interactive", sessionId: "ffff6666-0000-4000-8000-000000000006", name: "le-kitty", status: "idle" },
       { pid: kittyPid, cwd: "/x", kind: "interactive", sessionId: "eeee5555-0000-4000-8000-000000000005", name: "kitty-sr", status: "waiting", waitingFor: "dialog open" },

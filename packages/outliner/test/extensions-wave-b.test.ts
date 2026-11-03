@@ -501,10 +501,13 @@ test("a tile that is drawn rows or a view (PIE-1506): render names a shipped ren
 
 test("a default-on built-in (what-changed, PIE-1506) is on wherever the service runs: installed at start into the user folder, uninstalling it sticks across starts, and installing it again is wanted", async () => {
   const { list, client, root, outlineFolder } = await setup();
-  const { ensureDefaultOn, ensureDefaultOnFor } = await import("../src/extension-install");
+  const { defaultOnBuiltIns, ensureDefaultOn, ensureDefaultOnFor } = await import("../src/extension-install");
   const userDir = join(root, "user-extensions");
-  // Fresh: the host's step before an outline is served puts it in the user folder (every outline this host serves).
-  expect(await ensureDefaultOnFor(outlineFolder)).toEqual(["glass", "what-changed"]);
+  // Fresh: the host's step before an outline is served puts every default-on built-in (their manifests say which:
+  // glass, waiting, what-changed today) in the user folder (every outline this host serves).
+  const defaults = await defaultOnBuiltIns();
+  expect(defaults).toEqual(expect.arrayContaining(["glass", "what-changed"]));
+  expect(await ensureDefaultOnFor(outlineFolder)).toEqual(defaults);
   await until("what-changed to serve", async () => (await list(true)).extensions.find((entry) => entry.id === "what-changed" && entry.state === "active"));
   // The glass (PIE-1505) is a door module: listed with the module the door runs while it's served.
   expect((await list()).extensions.find((entry) => entry.id === "glass")).toMatchObject({ state: "active", door: "glass", runsCode: true });
