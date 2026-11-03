@@ -10,6 +10,32 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Pictures in door tiles: mermaid, SVG, and kitty images from programs (PIE-1555)
+
+- **Diagrams and SVG in notes:** a ```mermaid fence (drawn by pele), a ```svg fence and an `[img::*.svg]` draw as pictures sized to the tile, on a terminal with kitty graphics; elsewhere they stay text with a caption.
+- **Creative-coded headers and cards:** a script's `view.image({svg})` becomes a note's header or a board card, and an `<a href>` in it (a URL, `[[page]]` or `((id))`) opens by click or ⏎.
+- **Terminal tiles pass kitty images through:** `chafa`, `icat` and the like show their images in the tile, clipped to it.
+- **Run:** `ep0ch install --apply` on every machine (installs pele). GRAMMAR 31.
+
+### One wire contract for the door and the outline host (PIE-1375)
+
+- The requests and answers live in outline-core, and both sides compile against them, so a mismatch fails `bun run check`. Block ids, anchors and completion each have one copy; a bookmark that can't be read is skipped and named in `bookmarks.status`.
+- **Run:** `ep0ch install --apply`. GRAMMAR 32.
+
+### ⏎, a click and act open the same thing (PIE-1556)
+
+- The reader keeps one position, and every key, click and `act` go through one activation; `proposal.resolve` comes from the key table.
+
+### Esc reaches the program in a drawer tile (PIE-1554)
+
+- A Kitty key report cut across reads on a slow link waits for its rest, so vim gets Esc; a lone Esc stays instant. While a program has the keys, the drawer's hint says `^] steps out`.
+
+### Small fixes (PIE-1541, PIE-1545, PIE-1550)
+
+- A second click on a Jev findings row opens its card, and its problem column keeps its width.
+- Sources keeps your keys after a tile hands back to inline.
+- `ep0ch install --apply` says installed only when every session it handed over came back.
+
 ### One gate decides what an agent's write becomes (PIE-1544)
 
 - **Every surface asks it:** MCP, the gateway, scripts, the Claude mod (file touches too) and the plain CLI with `--author agent`. At `ep0ch mcp access propose` each write becomes a proposal, at `read` each is refused in the same words, at `full` each applies. `--author user` (your own console) stays ungated.
