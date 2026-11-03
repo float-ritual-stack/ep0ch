@@ -486,6 +486,14 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     '::view{query="collection=garden" layout=board group=stage} ^stages', "::", "",
     '::graph-table{query="collection=garden" columns="title, owner, stage" sort="title asc"} ^old', "::",
   ].join("\n"));
+  // A collection longer than any screen (PIE-1529): PgDn moves one screen of rows, in every layout.
+  notes.collectionLong = await make(notes.root.id, [
+    SEED.collectionLong, "Forty packets on the shelf, more than a screen holds. Step into the table and press PgDn: the pick moves one screen of rows, the reader following it; PgUp moves back one.",
+    "",
+    '::view{query="collection=packets" layout="table, gallery, feed" summary-properties="title, bed, sow" sort="title asc"} ^packets', "::",
+  ].join("\n"));
+  const crops = ["Bean", "Beet", "Carrot", "Chard", "Kale", "Leek", "Pea", "Radish"];
+  for (let i = 1; i <= 40; i++) await make(notes.collectionLong.id, `Packet ${String(i).padStart(2, "0")}: ${crops[(i - 1) % crops.length]} [collection::packets] [bed::${"ABCD"[(i - 1) % 4]}] [sow::${["March", "April", "May"][(i - 1) % 3]}]`);
   notes.listDemo = await make(notes.root.id, [
     `${SEED.listDemo} [type::daily-plan]`,
     "One ListView draws every list on this screen: the block below, the shelf under it and the links tile beside. Same rows, same keys, same actions.",

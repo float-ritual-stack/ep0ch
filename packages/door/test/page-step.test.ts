@@ -42,4 +42,15 @@ describe("the page step", () => {
     l.draw({ cols: 80, room: 20, focused: true, selection: true, primitive: { type: "list", rows, arrange, columns: ["title"] } } as any);
     expect(l.pageBy(1)).toBeGreaterThan(1);
   });
+  test.each(["table", "grid", "rows", undefined] as const)("ListView: drawn whole in a reader that scrolls, a %s collection pages by the reader's room (PIE-1529)", arrange => {
+    const rows = Array.from({ length: 40 }, (_, i) => ({ id: `r${i}`, label: `row ${i}`, cells: [`row ${i}`], do: { open: `r${i}` } }));
+    const l = new ListView("t");
+    l.set(rows);
+    const drawn = l.draw({ cols: 80, focused: true, selection: true, ...(arrange ? { primitive: { type: "list", rows, arrange, columns: ["title"] } } : {}) } as any);
+    expect(drawn.lines.length).toBeGreaterThan(16);
+    const page = l.pageBy(1, 16);
+    expect(page).toBeGreaterThan(0);
+    expect(page).toBeLessThan(16);
+    expect(l.pageBy(-1, 16)).toBe(-page);
+  });
 });

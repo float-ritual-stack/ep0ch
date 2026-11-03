@@ -108,6 +108,7 @@ export const marks: Record<string, string[]> = {
   "figure-settings": ["Sprint: the garden week", "THIS WEEK'S GARDEN WORK", "≡ settings"],
   collection: ["Garden collection", "table", "gallery", "feed", "board", "Water the beans"],
   sysop: ["Sysop watches the workshop", "Look now"],
+  "long-collection": ["Forty seed packets", "Packet 01: Bean"],
   "list-view": ["One list, three ways", "OUTBOX", "Waiting letters", "Shelf actions", "Copy this note"],
   "agent-focus": ["Plan for Saturday", "@fern:3", "@moss:5", "who's online"],
   presence: ["who's online", "last callers · live"],

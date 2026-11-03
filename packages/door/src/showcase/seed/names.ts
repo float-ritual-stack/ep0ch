@@ -147,6 +147,7 @@ export const SEED = {
   glass: "Links on the glass",
   glassTitle: "The spring planting schedule and the tools to carry across the garden before the afternoon rain arrives",
   collectionInline: "Garden collection inline",
+  collectionLong: "Forty seed packets",
   listDemo: "One list, three ways",
   society: "Allotment society",
   fieldsRail: "Where a key is written",

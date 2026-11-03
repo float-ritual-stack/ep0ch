@@ -2113,9 +2113,9 @@ export class NoteSurface {
       else if (b > this.scroll + room) this.scroll = Math.max(0, Math.min(a, b - room));
     };
     const current = this.elems.find(e => e.key === this.cur);
-    // An open choice under it (a step's status, a callout's type) comes in with it, as far as the element allows.
+    // An open choice under it (a step's status, a callout's type) comes in with it, as far as the element allows; a row, its whole item (a card, PIE-1529).
     this.lastReveal = this.reveal && !!current;
-    if (this.reveal && current) bringIn([current.row, picks && this.picker?.key === current.key ? Math.max(current.row + 1, top + picks.at + picks.lines) : current.row + 1]);
+    if (this.reveal && current) bringIn([Math.min(current.row, current.item?.[0] ?? current.row), picks && this.picker?.key === current.key ? Math.max(current.row + 1, top + picks.at + picks.lines) : Math.max(current.row + 1, current.item?.[1] ?? 0)]);
     this.reveal = false;
     // A card the person just opened comes into view (PIE-1255): spliced in above the row the reader keeps in place (a
     // whole-note card is at the top of the body), it would otherwise open out of sight, until a scroll.
@@ -4137,7 +4137,7 @@ export class NoteSurface {
       type: l => { if (this.listIn !== l.key) { this.enterList(l, true); if (l.collection) this.modes.push(listMode(this, l.key, l.title)); } l.view.startTyping(filterLine); },
       tune: (l, actor, standing) => this.run("settings", { list: l.key }, here(), actor, standing),
       choose: (l, action, keys) => here().overlay?.(listFieldPicker(l.title, action, keys, by => { void this.runList(action, { list: l.key, by }, here()); })),
-      redraw: () => host?.redraw(),
+      room: () => this.bodyRoom, redraw: () => host?.redraw(),
     };
   }
 

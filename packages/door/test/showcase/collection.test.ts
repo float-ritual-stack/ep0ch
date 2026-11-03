@@ -435,6 +435,38 @@ describe("showcase: a collection record (PIE-1281)", () => {
     await until(() => stage().pane("garden").surface.msg?.id === flowers[2]!.id, "Enter opens the page-two pick", 4000);
   }, 20_000);
 
+  // PIE-1529: a collection longer than the reader pages by what the reader shows, not by every row it drew.
+  test.each([["table", 177, false], ["table", 44, false], ["gallery", 177, false], ["feed", 120, false], ["table", 120, true]] as const)("PgDn in a long %s collection moves one screen of rows at %s columns (a saved view: %s), by key and by act", async (layout, cols, saved) => {
+    const tag = `bulk-${layout}-${cols}-${saved}`;
+    for (let i = 1; i <= 40; i++) await h.board.createBlock(null, `Bulk ${String(i).padStart(2, "0")} [collection::${tag}]`);
+    (h.app as any).term.info.rows = 30;
+    try {
+      await show(saved ? `Bulk rows [type::virtual-branch] [query::collection=${tag}] [layout::${layout}] [sort::title asc]` : `Bulk rows\n::view{query="collection=${tag}" layout=${layout} sort="title asc"}`, cols);
+      await until(() => lists()[0]?.view.pickable().length === 40, "forty rows", 8000);
+      await act("list.enter", { on: true });
+      await act("list.pick", { n: 1 });
+      const at = () => lists()[0].view.indexOf(PERSON, lists()[0].view.picked());
+      const seen = () => h.screen().includes(lists()[0].view.picked().label);
+      const onScreen = lists()[0].view.pickable().filter((r: any) => h.screen().includes(r.label)).length;
+      h.press({ kind: "pgdn" });
+      await until(() => at() > 0, `${layout} PgDn moves the pick`, 4000);
+      const page = at();
+      // A screen of rows, less one: never more rows than the reader's body holds lines, nor than the forty minus one;
+      // as cards (a narrow table, a gallery, a feed) no more than the cards on screen.
+      expect(page).toBeGreaterThan(0);
+      expect(page).toBeLessThan(Math.max(onScreen, (stage().pane("garden").surface as any).bodyRoom));
+      if (layout === "table" && cols === 177) expect(page).toBeGreaterThan(4);
+      await until(seen, `${layout} the picked row is on screen after PgDn`, 4000);
+      h.press({ kind: "pgdn" });
+      await until(() => at() === Math.min(39, 2 * page), `${layout} a second PgDn moves one more page`, 4000);
+      h.press({ kind: "pgup" });
+      await until(() => at() === page, `${layout} PgUp moves one page back`, 4000);
+      await act("list.step", { by: 1, page: true });
+      expect(at()).toBe(Math.min(39, 2 * page));
+      await until(seen, `${layout} the picked row is on screen after act`, 4000);
+    } finally { (h.app as any).term.info.rows = 60; }
+  }, 30_000);
+
   test("a narrow table's leading linked cell opens that note at the recorded revision", async () => {
     const notebook = await h.board.createBlock(null, "Flower notebook\n\nBefore the rain.");
     await h.board.request("update", { blockId: notebook.id, text: "Flower notebook\n\nAfter the rain.", expectedRevision: notebook.revision, mutation: { author: "user" } });
