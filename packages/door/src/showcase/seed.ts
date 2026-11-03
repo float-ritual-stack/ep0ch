@@ -648,6 +648,8 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.jevPage = await keepReview(board, notes.writeReview);
   // The writer follows the finding (PIE-1433): a second revision, so the page's row opens revision 1 beside it.
   notes.writeReview = await board.update(notes.writeReview.id, WRITE_REVIEW_FIXED, notes.writeReview.revision!, { kind: "agent", id: "moss" });
+  // Settled as a write through the service settles it (PIE-1539): the row then reads the passage after, and followed.
+  await board.request("suggestions.keep", { keep: { kind: "settle", note: notes.writeReview.id } });
   // Search says how sure it is (PIE-1197, PIE-1198): the eval's page and a run's report, as `ep0ch search eval --into` keeps them.
   ({ page: notes.searchEvals } = await keepSearchEval(board, notes.root, [
     { query: "what should I bring to the swap", expect: notes.jevPage },

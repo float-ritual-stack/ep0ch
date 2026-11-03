@@ -16,6 +16,13 @@ are its record. The outliner's entries from then are kept below, under
 - **New:** a floating list-children preview drags by its top edge and sizes by its corner (`list.preview.move`). The split's side and size are kept for Sources, settings and list children, as the edit preview's already were.
 - **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
 
+### Jev's suggestions page: one row per finding, before and after (PIE-1539)
+
+- **Each row reads whole:** the problem Jev named, the passage as it was, the passage after the write that settled it, and followed or ignored (blank while still open). Open a row for Jev's whole advice.
+- **Settling stamps the finding** with `outcome`, `after` and `settled-at`, so one table joins what was said and what happened. Findings settled before this get their outcome, with `after: not kept`.
+- **One table replaces two:** "Each finding" and "What the writer did" become "What Jev said, and what happened"; pie's page upgrades itself on the next finding.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### tv shows the system: agents, health, the board and Herdr's panes (PIE-1535)
 
 - **`tv ep0ch-agents`:** every Claude session here, working, done or blocked and why; its newest messages as the preview. ctrl-g opens one in a door tile, alt-r restarts it, alt-k stops it.

@@ -34,8 +34,8 @@ export const marks: Record<string, string[]> = {
   // A note to ask about beside wren, a demo agent session (PIE-1437).
   "ask-agent": ["Potting bench rota", "wren, a demo agent"],
   twins: ["Fix the back gate latch", "Queued"],
-  "at-revision": ["Jev's suggestions", "Each finding, newest first", "Roof on"],
-  "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],
+  "at-revision": ["Jev's suggestions", "What Jev said, and what happened", "Roof on"],
+  "write-review": ["Shed status tonight", "Jev's suggestions", "What Jev said, and what happened"],
   // A day plan whose sections come from one ::use (PIE-1492): the template's headings and the note's own tail.
   "template-steps": ["Garden day plan", "After the plan", "Close the gate."],
   "search-sure": ["Search evals", "EVERY RUN, NEWEST FIRST", "Cases by source"],
