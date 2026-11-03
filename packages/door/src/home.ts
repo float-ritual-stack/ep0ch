@@ -152,11 +152,13 @@ export class HomePane implements Pane {
   }
 
   private async loadMachines(desk: DeskApi) {
+    // Read before any wait: a home base closed while machines answer has no ctx left (PIE-1526).
+    const home = !!desk.ctx.home;
     const names = new Set([...(this.args.machine ? [this.args.machine] : []), ...await knownMachines()]);
     await Promise.all([...names].map(async machine => {
-      await this.loadMachine(machine, !!desk.ctx.home);
+      await this.loadMachine(machine, home);
       // SSH config also names logins to doors and unrelated servers. Only a host's answer makes one an offer.
-      if (desk.ctx.home && !this.machines.get(machine)?.outlines) this.machines.delete(machine);
+      if (home && !this.machines.get(machine)?.outlines) this.machines.delete(machine);
       desk.redraw();
     }));
   }
