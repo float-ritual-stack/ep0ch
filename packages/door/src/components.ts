@@ -184,10 +184,15 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       const rowLink = (index: number, text: string) => draw.row ? draw.row(index, text) : links[index] ? tag(links[index], text) : press(acts[index], text);
       if (!columns.length) throw new PrimitiveUnknown("a table needs columns");
       const widths = columns.map((c, i) => Math.max(vwidth(c), ...rows.map(r => vwidth(r[i] ?? ""))));
-      // Too wide: the widest columns give room first, down to 4 cells each.
-      while (widths.reduce((a, b) => a + b, 0) + 2 * (widths.length - 1) > w) {
-        const i = widths.indexOf(Math.max(...widths));
-        if (widths[i]! <= 4) break;
+      // `title`: the column a row is (a record table's problem, PIE-1541): it gives way last and wraps whole, never cut.
+      const title = Number.isInteger(n.title) && (n.title as number) >= 0 && (n.title as number) < columns.length ? n.title as number : -1;
+      // Too wide: the widest columns give room first, down to 4 cells each; the title column keeps a third of the room
+      // (at least 16) until every other column is down to 4, wrapping to as many lines as it needs.
+      const room = w - 2 * (widths.length - 1), keep = title >= 0 ? Math.min(widths[title]!, Math.max(16, Math.floor(room / 3))) : 0;
+      const over = () => widths.reduce((a, b) => a + b, 0) > room;
+      for (const floor of [(k: number) => (k === title ? keep : 4), () => 4]) while (over()) {
+        const i = widths.reduce((best, x, k) => (x > floor(k) && (best < 0 || x > widths[best]!) ? k : best), -1);
+        if (i < 0) break;
         widths[i]!--;
       }
       const line = (cells: string[]) => cells.map((c, i) => (i === cells.length - 1 ? pad(c, widths[i]!).trimEnd() : pad(c, widths[i]!))).join("  ");
@@ -195,7 +200,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
         fg(C.grey) + BOLD + columns.map((c, i) => { const cell = pad(c, widths[i]!); return draw.header ? draw.header(c, cell, i) : cell; }).join("  ") + UNBOLD + RESET,
         fg(C.dark) + widths.map(x => "─".repeat(x)).join("  ") + RESET,
         ...rows.flatMap((r, k) => {
-          const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!, draw.expanded?.(k) ? Infinity : undefined));
+          const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!, draw.expanded?.(k) || i === title ? Infinity : undefined));
           const own = rawRows[k]!.map(cellOf);
           // A row with a cell of its own draws cell by cell: that cell presses or opens, the rest take the row's link or act.
           const byCell = own.some(Boolean);

@@ -185,7 +185,8 @@ export class RowPresses {
   press(row: number, p: RowPress = {}): RowGesture {
     if ((p.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL) || p.button === MOUSE_MIDDLE) { this.last = null; return "fresh"; }
     const now = p.now ?? Date.now(), l = this.last;
-    const twice = !!l && l.row === row && (!!p.untimed || now - l.at < DOUBLE_MS);
+    // An untimed second press counts only on a list that already has the keys: the click that brings them back is a first.
+    const twice = !!l && l.row === row && ((!!p.untimed && !p.focusing) || now - l.at < DOUBLE_MS);
     // A third press starts afresh: a triple click is a double click and a single one, never two opens.
     this.last = twice ? null : { row, at: now };
     if (twice) return "open";

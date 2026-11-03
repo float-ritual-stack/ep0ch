@@ -371,6 +371,9 @@ describe("the door sessions (PIE-418), one per outline", () => {
     const step = buildPlan(laptop({ sessions: [session()] }), opts()).steps.find(s => s.id === "session")!;
     expect(step).toMatchObject({ id: "session", status: "do", commands: [`${ep0ch()}session upgrade --all`] });
     expect(step.why).toBe("garden (pid 4321) runs 40aaaaa, the checkout will be at 49bbbbb: a new daemon on that code takes it over; its 3 programs keep running and its 2 terminals attach again");
+    // Each one it hands over by its folder, so install checks it after even when the listing has lost it (Codex on #1262).
+    const folder = "/state/sessions/local/garden";
+    expect(buildPlan(laptop({ sessions: [session({ folder })] }), opts()).steps.find(s => s.id === "session")!.handover).toEqual([{ outline: "garden", dir: folder }]);
   });
   test("every session is said: one behind on a machine, one current", () => {
     const f = current();

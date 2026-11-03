@@ -77,8 +77,11 @@ export interface AttachmentDef<H extends AttachmentHost = AttachmentHost, V exte
   chip(): { col: number; row: number } | null;
   /** Its own refusal of a placement (the thread list only ever goes into a tile). */
   refuse?(want: AttachedPlace, side: AttachedSide | undefined, asked: string | undefined): string | null;
-  /** After it lands somewhere: its own follow-up (the keys to it, bringing it into view). */
-  placed?(want: AttachedPlace, host: H, side: AttachedSide | undefined): void;
+  /**
+   * After it lands somewhere: its own follow-up (the keys to it, bringing it into view); `was`: where it sat before
+   * (Sources back from its tile takes the keys the tile had, PIE-1545).
+   */
+  placed?(want: AttachedPlace, host: H, side: AttachedSide | undefined, was: AttachedPlace): void;
   /** Moving its float its own way (the comment's box is placed by its passage); default: the layer's. */
   move?(a: FloatMove, host: H): FloatRect | null;
 }
@@ -164,8 +167,9 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
     if (own) throw new ActionRefused(own);
     if (want === "tile" && !this.tiled(host)) throw new ActionRefused(`this reader has no tiles round it to put ${d.noun} in · ${d.actions.place} place=split shares the reader`);
     if (want === "split" && side) this.split(kind, side, undefined);
+    const was = o.place;
     await this.tiles[kind].place(o, want, this.tileHost(kind, host), side as AttachedSide | undefined);
-    d.placed?.(want, host, side as AttachedSide | undefined);
+    d.placed?.(want, host, side as AttachedSide | undefined, was);
     this.keep(kind);
     host.redraw();
     return want;

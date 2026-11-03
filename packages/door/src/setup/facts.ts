@@ -810,6 +810,6 @@ async function builtinCopies(outliner: string, outlines: string, env: Record<str
 async function doorSessions(env: Record<string, string | undefined>): Promise<SessionFact[]> {
   const { runningSessions } = await import("../session/place");
   const root = env.EP0CH_STATE ?? defaultStateDir(env);
-  return (await runningSessions(root)).map(({ info: i }) => ({ outline: i.place.outline, ...(i.place.machine ? { machine: i.place.machine } : {}), ...(i.place.socket ? { socket: i.place.socket } : {}), pid: i.pid, dir: i.code.dir, commit: i.code.commit, clients: i.clients.length, programs: i.terminals.length + (i.kept?.length ?? 0) }));
+  return (await runningSessions(root)).map(({ dir: folder, info: i }) => ({ outline: i.place.outline, folder, ...(i.place.machine ? { machine: i.place.machine } : {}), ...(i.place.socket ? { socket: i.place.socket } : {}), pid: i.pid, dir: i.code.dir, commit: i.code.commit, clients: i.clients.length, programs: i.terminals.length + (i.kept?.length ?? 0) }));
 }
 
