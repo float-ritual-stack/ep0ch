@@ -130,7 +130,9 @@ refactor into a risky rewrite. Evan: the MCP server "wraps the code used in the 
 
 The outline's access grant (`none | read | propose | full`, ADR 0002) and the door's per-tile agent rules
 (PIE-639) decide. Claude Code allows the server wholesale (`mcp__ep0ch` in the permission allow list), and the mod's
-`tool.check` asks only before `outline_archive`. A refusal is a tool error that says why, never a prompt.
+`tool.check` asks only before `outline_archive`. A refusal is a tool error that says why, never a prompt. That place is the
+outliner's `src/write-gate.ts` (PIE-1544): every surface an agent writes through, the Claude mod's CLI path included,
+asks it, and an outline whose owner never set a level takes a local session's writes as `full`.
 
 ## Not decided here
 
