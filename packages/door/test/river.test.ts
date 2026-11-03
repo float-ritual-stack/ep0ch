@@ -158,7 +158,23 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     // Sent, back to reading: the column holds no session.
     await until(() => !surfaceOf(2).session, "the sent comment", 8000);
     const t = await threads(notes.beans.id);
-    expect(t.find(x => x.body === "Which canes, bamboo?")?.originalTarget.anchor).toMatchObject({ kind: "whole-subject" });
+    const sent = t.find(x => x.body === "Which canes, bamboo?");
+    expect(sent?.originalTarget.anchor).toMatchObject({ kind: "whole-subject" });
+    await until(() => column(2).flat().some((r: any) => r.m.id === sent.block.id), "the comment among the column's replies", 5000);
+    // A second one, the note itself unchanged this time: only the comment's own change arrives, and it is among the
+    // column's replies at once, without reopening it; its whole-note [+] selects it there (PIE-1551).
+    const rev = (await current(notes.beans.id)).revision;
+    key(char("C"));
+    await until(() => surfaceOf(2).session?.mode === "compose", "the second comment");
+    type("Or hazel?");
+    key(ctrl("s"));
+    await until(() => !surfaceOf(2).session, "the second comment sent", 8000);
+    expect((await current(notes.beans.id)).revision).toBe(rev);
+    const second = (await threads(notes.beans.id)).find(x => x.body === "Or hazel?");
+    await until(() => column(2).flat().some((r: any) => r.m.id === second.block.id), "the second comment among the column's replies", 5000);
+    expect(screen()).toContain("2 replies");
+    column(2).host(river).showThread!(second.block.id);
+    expect(column(2).flat()[column(2).sel]?.m.id).toBe(second.block.id);
   });
 
   test("an agent's edit in the focused column doesn't take the person's keys; its line clears on their next key there", async () => {

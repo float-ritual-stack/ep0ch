@@ -752,8 +752,10 @@ export class RiverColumn extends ReaderPane {
     if (!e) return;
     if (e.action === "reconnected") this.surface.retry(this.host(desk));
     if (e.action === "reset") { this.load(desk); indexOf(desk.ctx.board).refresh(desk.ctx.board, () => desk.redraw(), true); return; }
-    const id = e.blockId;
-    const shows = !!id && ((this.source.kind === "block" && this.source.id === id) || !!this.items?.some(m => m.id === id || m.parentId === id) || this.fold.shows(this.items ?? [], id));
+    // A block the column lists, or a new one under a note it lists (a comment written from its own [comment] is a
+    // child the column has never seen: its parent is what the column shows, PIE-1551).
+    const lists = (id: string | null | undefined) => !!id && ((this.source.kind === "block" && this.source.id === id) || !!this.items?.some(m => m.id === id || m.parentId === id) || this.fold.shows(this.items ?? [], id));
+    const shows = lists(e.blockId) || lists(e.change?.parentId);
     if (shows) { if (this.reload) clearTimeout(this.reload); this.reload = setTimeout(() => { this.reload = null; this.load(desk); }, 800); }
     indexOf(desk.ctx.board).refresh(desk.ctx.board, () => desk.redraw());
   }

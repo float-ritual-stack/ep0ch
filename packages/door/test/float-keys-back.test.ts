@@ -151,4 +151,39 @@ describe.skipIf(!outliner)("closing a float gives the keys back to the terminal 
       expect(d.desk.focusName()).toBe("reader");
     } finally { d.quit(); }
   });
+  test("the keys window opened from a tile carried into the drawer opens there, readable, and closes back into it (PIE-1552)", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.press("tile.focus", {}, "reader");
+      await d.desk.dispatch.press("tile.drawer", { on: true }, "reader");    // ^W a, the person's keys in it
+      const drawer = d.app.drawer.desk!;
+      await until(() => d.app.drawer.entered && drawer.focusedName() === "reader", "the keys follow the reader into the drawer");
+      await d.feed("?");                                                   // the person's ?, in the drawer tile
+      await until(() => drawer.focusedName() === "keys", "the keys window has the keys, in the drawer");
+      expect(d.desk.pane("keys")).toBeUndefined();
+      d.paint();
+      const [, kr] = (drawer as any).hits.find(([id]: [number]) => (drawer as any).nameOf(id) === "keys");
+      expect(kr.rows).toBeGreaterThan(8);
+      await d.feed("\x1b");                                                // esc closes it
+      await until(() => !drawer.pane("keys"), "the keys window closes");
+      expect(d.app.drawer.entered).toBe(true);
+      expect(drawer.focusedName()).toBe("reader");
+    } finally { d.quit(); }
+  });
+  test("in a group the keys window opens among the group's tiles, filtered to the tile, and closes back into it (PIE-1552)", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.group", args: { with: "kettle" }, tile: "reader" }, USER);
+      const inner = () => (d.desk.pane("group") as any)?.inner as Desk | undefined;
+      await until(() => !!inner()?.pane("reader"), "the reader in a group");
+      await inner()!.dispatch.press("tile.focus", {}, "reader");
+      await d.feed("?");
+      await until(() => inner()!.focusedName() === "keys", "the keys window has the keys, in the group");
+      expect(d.desk.pane("keys")).toBeUndefined();
+      expect((inner()!.pane("keys") as any).filter).toBe("in:note");
+      await d.feed("\x1b");
+      await until(() => !inner()!.pane("keys"), "the keys window closes");
+      expect(inner()!.focusedName()).toBe("reader");
+    } finally { d.quit(); }
+  });
 });
