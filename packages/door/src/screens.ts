@@ -44,7 +44,8 @@ import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
 import { Showcase } from "./showcase/showcase";
 import { openScreen } from "./desk/screen-specs";
-import { madeScreen, resolveScreen, screenNames, screenTargetArg, screenTitle } from "./desk/screen-spec";
+import { madeScreen, menuScreens, resolveScreen, screenNames, screensVersion, screenTargetArg, screenTitle } from "./desk/screen-spec";
+import { screenInstallWords } from "./extensions";
 import { screenNoteProblems } from "./desk/screen-notes";
 import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
@@ -244,9 +245,13 @@ export class Logon implements Screen {
  * already there is refused (an agent's, on top of the person's desk, would start its programs twice).
  */
 /** `action`: the item runs a shell action instead of opening a screen (`!`, `screen.shell`). */
-interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: string; action?: "screen.shell" | "session.end" | "note.new" }
+/**
+ * `screen`: the registered screen whose spec names this row (PIE-1525: `menu` on a ScreenSpec, an extension's or a
+ * person's); `about` what the help screen says of it; `clash` why it has no key (`key` is "": another row holds it).
+ */
+interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: string; action?: "screen.shell" | "session.end" | "note.new"; screen?: string; about?: string; clash?: string }
 
-const ITEMS: MenuItem[] = [
+const BUILTIN_ITEMS: MenuItem[] = [
   { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n, !!ctx.machineryChanges), ctx.machineryChanges ? "since your last call, machinery too" : "since your last call, by people") },
   { key: "J", label: "Join", open: () => new Conferences() },
   { key: "K", label: "Kanban", open: () => openScreen("board"), one: "board" },
@@ -263,9 +268,8 @@ const ITEMS: MenuItem[] = [
   { key: "X", label: "Showcase", open: () => new Showcase(), one: "showcase" },
   // The daily brief (PIE-435), on the key line too: T for today (B is the Bulletin).
   { key: "T", label: "Today", open: () => openScreen("brief"), one: "brief" },
-  // float-hub's own views: its outbox items still waiting, and the welcome notes ([welcome::…] in the Welcome view's order; without
-  // any, the agents' [[claude-now]] page, which C pinned before).
-  { key: "O", label: "Waiting", open: () => openScreen("waiting"), one: "waiting" },
+  // The welcome notes ([welcome::…] in the Welcome view's order; without any, the agents' [[claude-now]] page, which C
+  // pinned before). Waiting (O) is the waiting extension's row since PIE-1525: its screen names it (`menu`).
   { key: "C", label: "Welcome", open: () => openScreen("welcome"), one: "welcome" },
   // Drop to shell, the BBS's drop to DOS: the person's login shell in their terminal, the door back when it exits.
   { key: "!", label: "Shell", open: () => null, action: "screen.shell" },
@@ -281,8 +285,35 @@ const ITEMS: MenuItem[] = [
   { key: "M", label: "Make a screen", open: () => openScreen("blank"), one: "blank" },
 ];
 
-/** Every screen the menu opens, by its key: what the parity test (PIE-506) presses every key on. */
-export const MENU_SCREENS: [string, (ctx: Ctx) => Screen | null][] = ITEMS.map(i => [i.key, i.open]);
+/** Every built-in screen the menu opens, by its key: what the parity test (PIE-506) presses every key on. */
+export const MENU_SCREENS: [string, (ctx: Ctx) => Screen | null][] = BUILTIN_ITEMS.map(i => [i.key, i.open]);
+
+/** Keys the menu answers itself (video, keys, help): a screen's row can't take one. */
+const MENU_OWN_KEYS: Record<string, string> = { V: "the menu's video key", H: "the menu's help key", "?": "the menu's keys window" };
+let menuCache: { version: number; items: MenuItem[] } | null = null;
+/**
+ * The main menu's rows (PIE-1525): the built-ins, then every registered screen whose spec names a row (`menu`: an
+ * extension's, then the ones people made), in the order they were registered. A row whose key another row (or the
+ * menu itself) holds is drawn without a key, its `clash` naming who holds it: capture never refuses.
+ */
+export function menuItems(): MenuItem[] {
+  const version = screensVersion();
+  if (menuCache?.version === version) return menuCache.items;
+  const items = [...BUILTIN_ITEMS];
+  for (const s of menuScreens()) {
+    const holder = items.find(i => i.key === s.menu.key)?.label ?? MENU_OWN_KEYS[s.menu.key];
+    items.push({
+      key: holder ? "" : s.menu.key, label: s.menu.label, open: () => openScreen(s.name), one: s.name, screen: s.name,
+      about: s.menu.about ?? s.title, ...(holder ? { clash: `${s.menu.key} is ${holder}'s: ${s.menu.label} has no key (a click or screen.open name=${s.name} opens it; screen.menu gives it another)` } : {}),
+    });
+  }
+  menuCache = { version, items };
+  return items;
+}
+/** A row's key as the pointer sends it: its letter, or ⏎ for one without a key (the click lit it first). */
+const itemKey = (i: MenuItem): Key => (i.key ? char(i.key) : ENTER);
+/** What the help screen and screen.list say of a row. */
+const aboutOf = (i: MenuItem): string => i.about ?? HELP[i.key] ?? "";
 
 export class MainMenu implements Screen {
   readonly ownsQuestion = true;
@@ -293,6 +324,7 @@ export class MainMenu implements Screen {
     this.ptr.frame();
     const art = screenArt("SHY-EMNU.ANS");
     if (!art) return new Help().render(ctx, this.ptr);
+    const ITEMS = menuItems();
     const slots = locate(art.rows, "Menu Cmd").sort((a, b) => a.row - b.row || a.col - b.col);
     // Read the slots column by column, the way the eye scans a three-column menu.
     const ordered = [...slots].sort((a, b) => a.col - b.col || a.row - b.row);
@@ -314,20 +346,21 @@ export class MainMenu implements Screen {
     const { lines, frame, rows } = artWithText(ctx, "menu", art, merged);
     // Each slot the art shows is its item's place for the mouse (a short pane cuts the art, and its slots).
     const left = Math.max(0, Math.floor((ctx.t.cols - art.width) / 2));
-    ordered.forEach((s, i) => { const item = ITEMS[i]; if (item && s.row < rows) this.ptr.spot({ y: s.row, x0: left + s.col, x1: left + s.col + 8, key: char(item.key), index: i }); });
-    const item = ITEMS[this.sel]!;
+    ordered.forEach((s, i) => { const item = ITEMS[i]; if (item && s.row < rows) this.ptr.spot({ y: s.row, x0: left + s.col, x1: left + s.col + 8, key: itemKey(item), index: i }); });
+    const item = ITEMS[Math.min(this.sel, ITEMS.length - 1)]!;
     const slotted = Math.min(ordered.length, ITEMS.length);
     lines.push("");
     // The key line: every key, each one clickable; the items without a slot in the art (the showcase and
     // today's brief) are named there, and lit when they're the one selected.
     const keys: (string | [string, Key, number])[] = [
       "|09[|15ep0ch|09] |11main menu |08(",
-      ...ITEMS.slice(0, slotted).map((i, n): [string, Key, number] => [`${n === this.sel ? "|15" : "|07"}${i.key}`, char(i.key), n]),
+      ...ITEMS.slice(0, slotted).map((i, n): [string, Key, number] => [`${n === this.sel ? "|15" : "|07"}${i.key}`, itemKey(i), n]),
       "|08)",
     ];
     const extras = ITEMS.slice(slotted).flatMap((i, j): (string | [string, Key, number])[] => {
       const n = slotted + j, on = n === this.sel;
-      return [" |08· ", [on ? `${chip(C.magenta)}${i.key} ${i.label}${RESET}` : `|15${i.key} |13${i.label}`, char(i.key), n]];
+      // A row without a key (another row holds its letter) is its label alone: a click lights and opens it.
+      return [" |08· ", [on ? `${chip(C.magenta)}${i.key ? `${i.key} ` : ""}${i.label}${RESET}` : `${i.key ? `|15${i.key} ` : ""}|13${i.label}`, itemKey(i), n]];
     });
     // The lit item's name at the width of the longest, so the line (and every key on it) stays put as it changes.
     const lit = ` |07: |15${item.label.padEnd(Math.max(...ITEMS.map(i => i.label.length)))}`;
@@ -362,13 +395,13 @@ export class MainMenu implements Screen {
       // The wheel is ↑ ↓; a click on an item is its key (see Pointer).
       if (k.action === "wheel-up" || k.action === "wheel-down") return this.key({ kind: k.action === "wheel-up" ? "up" : "down" }, ctx);
       let sent = false;
-      this.ptr.mouse(k, { sel: this.sel, select: i => { if (i !== this.sel) this.run("menu.select", { name: ITEMS[i]!.key }, ctx); }, send: key => { sent = true; this.key(key, ctx); } });
+      this.ptr.mouse(k, { sel: this.sel, select: i => { const it = menuItems()[i]; if (it && i !== this.sel) this.run("menu.select", { name: it.key || it.label }, ctx); }, send: key => { sent = true; this.key(key, ctx); } });
       if (!sent) ctx.redraw();
       return;
     }
     const by = k.kind === "left" ? -4 : k.kind === "right" ? 4 : k.kind === "up" ? -1 : k.kind === "down" || k.kind === "tab" ? 1 : 0;
     if (by) return this.run("menu.select", { by }, ctx);
-    else if (k.kind === "enter") return this.open(ITEMS[this.sel]!, ctx);
+    else if (k.kind === "enter") return this.open(menuItems()[this.sel] ?? menuItems()[0]!, ctx);
     // Esc closes things and never leaves (UI-GRAMMAR, "Esc"); the menu has nothing to close, so it says so. Goodbye is G
     // (or a click on it). q stays the menu's own letter, the Quay.
     else if (k.kind === "esc") return nothingToClose(ctx, "G logs off");
@@ -377,13 +410,13 @@ export class MainMenu implements Screen {
     // H, no item's letter: the help screen, every item and what it does (? is the keys window here as everywhere).
     else if (k.kind === "char" && !k.ctrl && k.ch.toUpperCase() === "H") return shellKey("screen.help", {}, this, ctx);
     else if (k.kind === "char" && !k.ctrl) {
-      const hit = ITEMS.findIndex(i => i.key === k.ch.toUpperCase());
-      if (hit >= 0) return this.open(ITEMS[hit]!, ctx);
+      const hit = menuItems().findIndex(i => i.key && i.key === k.ch.toUpperCase());
+      if (hit >= 0) return this.open(menuItems()[hit]!, ctx);
     }
     ctx.redraw();
   }
   /** A menu item, by key, ⏎ or click: `screen.open`, as an agent's is. */
-  private open(item: MenuItem, ctx: Ctx) { shellKey("screen.open", { name: item.key }, this, ctx); }
+  private open(item: MenuItem, ctx: Ctx) { shellKey("screen.open", { name: item.key || item.screen || item.label }, this, ctx); }
   /** The person's arrows, Tab and press on an item: the menu's own actions, as `you`. */
   private run<K extends keyof MenuArgs & string>(name: K, args: MenuArgs[K], ctx: Ctx) {
     this.ctx = ctx;
@@ -391,10 +424,14 @@ export class MainMenu implements Screen {
   }
   /** The lit item (0-based), for MENU_ACTIONS. */
   get selected() { return this.sel; }
-  set selected(i: number) { this.sel = ((i % ITEMS.length) + ITEMS.length) % ITEMS.length; }
+  set selected(i: number) { const n = menuItems().length; this.sel = ((i % n) + n) % n; }
   private ctx: Ctx | null = null;
   enter(ctx: Ctx) { this.ctx = ctx; }
-  describe() { return { kind: "main menu", selected: ITEMS[this.sel]!.key, items: ITEMS.map(i => `${i.key} ${i.label}`) }; }
+  describe() {
+    const items = menuItems(), lit = items[this.sel] ?? items[0]!;
+    const clashes = items.flatMap(i => (i.clash ? [i.clash] : []));
+    return { kind: "main menu", selected: lit.key || lit.label, items: items.map(i => (i.key ? `${i.key} ${i.label}` : i.label)), ...(clashes.length ? { problems: clashes } : {}) };
+  }
   readonly dispatch = new Dispatcher({ title: this.title, ctx: () => this.ctx }, [
     { set: MENU_ACTIONS, takes: "none", on: (_, how) => { if (!this.ctx) throw new ActionRefused("the main menu isn't shown yet"); return { menu: this, ctx: how.ctx }; } },
   ]);
@@ -422,12 +459,12 @@ export const MENU_ACTIONS = actionSet<{ menu: MainMenu; ctx: Ctx }>()("menu", {
     ],
     run({ name, by }, { menu, ctx }) {
       if ((name === undefined) === (by === undefined)) throw new ActionRefused("menu.select takes name=<item> or by=<steps>, one of them");
-      const at = name !== undefined ? ITEMS.indexOf(itemNamed(name)!) : menu.selected + by!;
+      const at = name !== undefined ? menuItems().indexOf(itemNamed(name)!) : menu.selected + by!;
       if (name !== undefined && at < 0) throw new ActionRefused(`no item ${JSON.stringify(name)} on the menu; screen.list lists them`);
       menu.selected = at;
-      const item = ITEMS[menu.selected]!;
+      const item = menuItems()[menu.selected]!;
       ctx.redraw();
-      return { selected: item.key, label: item.label };
+      return { selected: item.key || item.label, label: item.label };
     },
   }),
 });
@@ -456,7 +493,8 @@ function agentMayLeave(here: Screen | undefined) {
 /** A menu item by its key (`S`), its label (`Stats`) or another name for its screen (`board stats`, `river`). */
 function itemNamed(name: string): MenuItem | undefined {
   const n = name.trim().toLowerCase();
-  return ITEMS.find(i => i.key.toLowerCase() === n) ?? ITEMS.find(i => i.label.toLowerCase() === n || SCREEN_NAMES[i.key]?.includes(n));
+  const items = menuItems();
+  return items.find(i => i.key && i.key.toLowerCase() === n) ?? items.find(i => i.label.toLowerCase() === n || (i.screen ? i.screen.toLowerCase() === n : SCREEN_NAMES[i.key]?.includes(n)));
 }
 /** Returning to a screen respects the same save/leave decision as q. */
 function returnToScreen(ctx: Ctx, wanted: Screen, actor: Actor) {
@@ -475,7 +513,10 @@ export const knownScreen = (name: string): boolean => !!itemNamed(name) || resol
 
 /** The refusal for a screen nobody knows: the names there are, and the command to try. */
 export function unknownScreen(name: string): string {
-  const names = [...new Set([...screenNames(), ...ITEMS.filter(i => !i.action).map(i => i.label.toLowerCase())])];
+  const names = [...new Set([...screenNames(), ...menuItems().filter(i => !i.action).map(i => i.label.toLowerCase())])];
+  // A screen an extension adds that isn't installed here: the way back, said first (PIE-1525).
+  const install = screenInstallWords(name.trim());
+  if (install) return `no screen ${JSON.stringify(name)} here: ${install}`;
   return `no screen ${JSON.stringify(name)}, built in or made (a screen note) · screens: ${names.join(", ")} · try ep0ch --screen ${screenNames()[0] ?? "desk"} (screen.list says what each takes; ^W w saves one you make)`;
 }
 
@@ -493,7 +534,7 @@ async function blockTarget(given: string, ctx: Ctx): Promise<string> {
 const SCREEN_NAMES: Record<string, string[]> = {
   N: ["new scan", "newscan"], J: ["join conference", "conferences"], K: ["kanban", "board"], R: ["recent"], W: ["who's online", "who"],
   L: ["last callers"], F: ["file areas"], S: ["board stats"], Q: ["quay", "river"], B: ["art"], D: ["desk"], G: ["goodbye", "logoff", "log off"],
-  X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"], E: ["end session", "end"],
+  X: ["showcase"], T: ["today", "brief"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"], E: ["end session", "end"],
   I: ["library", "components"], "+": ["new note", "new", "note.new"], M: ["blank", "blank screen", "make a screen"],
   A: ["echonet", "message areas", "areas"],
 };
@@ -689,7 +730,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.open": def({
-    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: [{ keys: "N J K R W L F S Q B D G X T O C I E + A M n j k r w l f s q b d g x t o c i e a m", does: "the menu's letters open that screen", on: "menu" }, { keys: "⏎", does: "opens the lit menu item", on: "menu" }, { keys: "click", does: "on a menu item or its letter on the key line" }],
+    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: [{ keys: "N J K R W L F S Q B D G X T C I E + A M n j k r w l f s q b d g x t c i e a m", does: "the menu's letters open that screen (and a screen's own row: O Waiting, or one you added with screen.menu)", on: "menu" }, { keys: "⏎", does: "opens the lit menu item", on: "menu" }, { keys: "click", does: "on a menu item or its letter on the key line" }],
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
     // Logging off is the person's G alone, on their press too (an agent's never ends their session).
     personWith: a => ((itemNamed(a.name) ?? itemNamed(resolveScreen(a.name) ?? ""))?.key === "G" ? { always: "an agent doesn't log the person off; only G, pressed or clicked by them, does" } : null),
@@ -728,7 +769,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       // An item that is another action's key (the Shell's !) runs that action, through the dispatcher, as the same actor.
       if (item.action) return again ? again(item.action, {}) : Promise.reject(new ActionRefused(`${item.action} runs from the door's own dispatcher`));
       // The menu lights what it opens, so coming back it's where the person left it.
-      if (here instanceof MainMenu) here.selected = ITEMS.indexOf(item);
+      if (here instanceof MainMenu) here.selected = menuItems().indexOf(item);
       // By name: the brief, Waiting and the welcome are desks too (PIE-515: specs on it), and each is its own screen.
       const open = item.one && ctx.screens?.().find(x => x.name === item.one);
       // Already on the stack: go back down to it (never a second copy: a desk would start its programs twice).
@@ -1048,7 +1089,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     args: {},
     run(_, { ctx }) {
       return {
-        stack: (ctx.screens?.() ?? []).map(s => s.title), screens: ITEMS.map(i => ({ key: i.key, label: i.label, about: HELP[i.key] ?? "" })),
+        stack: (ctx.screens?.() ?? []).map(s => s.title), screens: menuItems().map(i => ({ key: i.key, label: i.label, about: aboutOf(i), ...(i.screen ? { screen: i.screen } : {}), ...(i.clash ? { problem: i.clash } : {}) })),
         // Every registered screen (`ep0ch --screen <name>`), with the argument its target fills.
         named: screenNames().map(name => ({ name, ...(screenTargetArg(name) ? { target: screenTargetArg(name) } : {}), ...(madeScreen(name) ? { made: true, title: screenTitle(name), note: madeScreen(name)!.id } : {}) })),
         // What's wrong with a screen note that kept it from being opened (a built-in's name, two notes with one name).
@@ -2175,7 +2216,7 @@ export class Help implements Screen {
     return {
       lines: [
         center(paint("|09─=|11[ |15ep0ch · a door into the outline |11]|09=─"), w), "",
-        ...ITEMS.map((i, n) => hotLine(ptr, 2 + n, w, [[`   |09[|15${i.key}|09] |11${i.label.padEnd(10)}|07${HELP[i.key] ?? ""}`, char(i.key), n]])),
+        ...menuItems().map((i, n) => hotLine(ptr, 2 + n, w, [[`   |09[|15${i.key || " "}|09] |11${i.label.padEnd(10)}|07${aboutOf(i)}`, i.key ? char(i.key) : char(String(n)), n]])),
         "", paint("|08   Kanban, Quay, Desk, Today, Waiting, Claude·now, Showcase and the message reader write: edits, comments, card moves, trash and restore"),
         paint("|08   go to the outline, recorded as you, or as the agent that did them. The other screens only read."),
         paint("|08   Video cycles Kitty+CRT → Kitty → plain cells (|15alt+v|08 anywhere). Art and stats are pixels; every word is real terminal text."),
@@ -2192,9 +2233,11 @@ export class Help implements Screen {
     if (k.kind !== "mouse") return back(this, ctx);
     if (k.action === "down" && !this.ptr.at(k.x, k.y)) return back(this, ctx);
     this.ptr.mouse(k, { sel: -1, select() {}, send: key => {
-      const item = key.kind === "char" ? ITEMS.find(i => i.key === key.ch) : undefined;
+      // A row's letter, or (a row without one) its place, which the click's key carries.
+      const items = menuItems();
+      const item = key.kind === "char" ? items.find(i => i.key === key.ch) ?? (/^\d+$/.test(key.ch) ? items[Number(key.ch)] : undefined) : undefined;
       back(this, ctx);
-      if (item) shellKey("screen.open", { name: item.key }, this, ctx);
+      if (item) shellKey("screen.open", { name: item.key || item.screen || item.label }, this, ctx);
     } });
   }
 }
@@ -2202,7 +2245,7 @@ const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
   S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks docks", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
-  D: "the desk: outline, reader, thread and live tiles you lay out yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (alt+v on every screen; alt+t the theme)", "?": "this screen", G: "log off (and remember this call); in a session only this terminal detaches, and everything keeps running for the next attach",
+  D: "the desk: outline, reader, thread and live tiles you lay out yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (alt+v on every screen; alt+t the theme)", "?": "this screen", G: "log off (and remember this call); in a session only this terminal detaches, and everything keeps running for the next attach",
   I: "the component library: a page per component (properties, each value drawn with its source, grids, every combination)",
   "!": "drop to shell: your login shell in this terminal; exit comes back here, tiles still running",
   E: "end the session: the door stops with its terminal tiles' programs (G only detaches this terminal); asks first when programs run",

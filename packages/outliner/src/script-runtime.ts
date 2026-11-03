@@ -2,6 +2,7 @@ import { actionScript } from "@ep0ch/outline-core/action-line";
 import { CodemodeSandbox, type CodemodeResult } from "@earendil-works/pi-codemode";
 import type { HostApi, RenderHostApi } from "./host-api";
 import { PRIMITIVE_FIELDS, PRIMITIVE_TYPES } from "./component-primitives";
+import { fromWallClock, readDate } from "@ep0ch/outline-core/dates";
 
 /** A fence whose code is JSX (`tsx`, `jsx`): its tags are view primitives. A `ts`/`js` fence stays TypeScript, so `<T>x` is a cast. */
 export const isJsxLanguage = (language: string | undefined) => language === "tsx" || language === "jsx";
@@ -100,6 +101,7 @@ export async function runScript(source: string, api: HostApi | RenderHostApi, si
       { name: "query", spread: true, execute: args => api.query(...args as Parameters<HostApi["query"]>) },
       ...("place" in api ? [{ name: "place", spread: true as const, execute: (args: unknown) => api.place(...args as Parameters<HostApi["place"]>) }] : []),
       { name: "resolve", spread: true, execute: args => api.resolve(...args as Parameters<HostApi["resolve"]>) },
+      { name: "date", spread: true, execute: args => scriptDate((args as unknown[])[0]) },
       // Bounded by the run: it ends with the run, and the run's deadline (the signal's) cuts it short.
       { name: "wait", spread: true, execute: args => wait(Number((args as unknown[])[0]), signal) },
     ],
@@ -112,6 +114,19 @@ export async function runScript(source: string, api: HostApi | RenderHostApi, si
   } finally {
     await sandbox.close();
   }
+}
+
+/**
+ * `date(text)` (PIE-1525): a date as people write it in a property (`2026-01-05 4:23 PM`, `Oct 20`, `2026-10-20..24`),
+ * read by outline-core's `readDate` as the views read one, in the service host's zone: `{ ms, at, endMs, end }` (its
+ * start and its end, epoch milliseconds and ISO), or null when it reads as no date.
+ */
+export function scriptDate(text: unknown): { ms: number; at: string; endMs: number; end: string } | null {
+  if (typeof text !== "string") return null;
+  const when = readDate(text.trim());
+  if (!when) return null;
+  const ms = when.instant ?? fromWallClock(when.from), endMs = when.instant ?? fromWallClock(when.to);
+  return { ms, at: new Date(ms).toISOString(), endMs, end: new Date(endMs).toISOString() };
 }
 
 /** `wait(ms)`: sleeps, or ends with the run (its deadline, its stop). */

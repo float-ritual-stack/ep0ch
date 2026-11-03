@@ -1,0 +1,49 @@
+{
+  "contract": 2,
+  "id": "waiting",
+  "version": 1,
+  "name": "Waiting",
+  "description": "Waiting on others: every outbox item still waiting for an answer, grouped by who it waits on, the longest wait first; the main menu's O opens it beside a reader.",
+  "defaultOn": true,
+  "demo": "demo",
+  "scripts": [
+    {
+      "name": "waiting",
+      "file": "scripts/waiting.js",
+      "about": "waiting:: — the outbox items still waiting for an answer ([type::outbox-item] [outbox::waiting]), grouped by who they wait on, the longest wait first; demo=only lists this extension's made-up ones"
+    }
+  ],
+  "tiles": [
+    {
+      "kind": "list",
+      "name": "Waiting",
+      "description": "the outbox items still waiting for an answer, by who they wait on, the longest wait first; j k pick (the reader beside shows it), ⏎ opens it, / filters",
+      "render": "waiting",
+      "replaces": [
+        "waiting"
+      ],
+      "args": {
+        "demo": {
+          "type": "string",
+          "description": "only: list the made-up items of this extension's demo, nothing else (left out: they're never listed)"
+        }
+      }
+    }
+  ],
+  "screens": [
+    {
+      "name": "waiting",
+      "title": "waiting on others",
+      "menu": { "key": "O", "label": "Waiting", "about": "waiting on others: outbox items still waiting, by who they wait on, longest first" },
+      "lands": "reader",
+      "layout": {
+        "focus": "waiting",
+        "root": {
+          "t": "split", "dir": "row", "ratio": 0.5,
+          "a": { "t": "leaf", "kind": "waiting.list", "name": "waiting", "wires": [{ "verb": "select", "to": "reader" }] },
+          "b": { "t": "leaf", "kind": "reader", "name": "reader" }
+        }
+      }
+    }
+  ]
+}

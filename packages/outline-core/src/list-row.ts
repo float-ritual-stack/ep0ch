@@ -72,6 +72,8 @@ export interface ListPrimitive {
   enter?: boolean;
   /** What an empty list says. */
   empty?: string;
+  /** The title of the tile it fills (PIE-1525: a render tile's frame, "outbox · 3 waiting on 2 people"); a list in a note ignores it. */
+  title?: string;
 }
 
 /** The most rows a list holds (a component's answer cuts each group to this, with `more`). */

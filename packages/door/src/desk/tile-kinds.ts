@@ -496,6 +496,7 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
           if (this.listNode) { const v = new ListView("other"); v.set(listRowsOf(node)); return v.draw({ primitive: node, cols: width, lines: 2, focused: false, selection: false, empty: node.empty }).lines; }
           this.listNode = node;
           this.list.set(listRowsOf(node));
+          this.showFirst(desk);
           const d = this.list.draw({ primitive: node, cols: width, lines: 2, focused, selection: true, room: h, empty: node.empty ?? "nothing here" });
           return d.lines.map((l, i) => markRow(d.rowAt[i] ?? null) + l);
         },
@@ -505,6 +506,18 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
     this.rowAt = marked.map(m => (m && m[1] !== "-" ? Number(m[1]) : null));
     const lines = drawn.map((l, i) => (marked[i] ? l.slice(marked[i]![0].length) : l));
     return { lines: lines.slice(0, h) };
+  }
+  /** The row last handed to the previews by itself (showFirst), so a redraw never asks twice. */
+  private shownFirst: string | null = null;
+  /**
+   * The picked row, to the previews its select wire feeds while they show nothing yet (PIE-1525: Waiting's reader shows
+   * the longest wait as it opens), as the tree does with its first row; a reader already showing something keeps it.
+   */
+  private showFirst(desk: DeskApi) {
+    const row = this.list.picked();
+    if (!row || row.id === this.shownFirst || !listOpenTarget(row)?.block || desk.shownNow?.(this) === false || !desk.hasPreviews?.(this) || !desk.previewsEmpty?.(this)) return;
+    this.shownFirst = row.id;
+    void this.listHost(desk).picked(this.handle(desk), row);
   }
   /** The picked row's note: what the tile is about (an extension's block action on it, `note.trash`, a wire's select). */
   subject(): string | null { const row = this.list.picked(); const to = row ? listOpenTarget(row) : null; return to?.block ?? null; }

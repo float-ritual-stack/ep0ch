@@ -129,7 +129,7 @@ power bar's run asks a choice from its options, and a button's empty `note` slot
 |---|---|
 | `scriptFence` | `packages/outliner/src/script-sources.ts:46` |
 | `propsUsed` | `packages/outliner/src/script-sources.ts:60` |
-| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:454` |
+| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:497` |
 
 **Script IDs:** a note's `[script::name]` is its power-bar and handler name; the action uses `ext.<id>.run`.
 **Find the action:** `ep0ch ext ls --ws <ws>` lists each name and ID; a script ID is `script-` plus the first 24 SHA-256 hex characters of its identity (note ID or file path), not its name.
@@ -205,7 +205,8 @@ write `rows.map(x => this.title + x)`, not `rows.map(function (x) { return this.
 | `sh(argv, { cwd?, stdin?, timeoutMs? })` | `{ exit, stdout, stderr, truncated? }`. Runs a command as the person, with no shell (`sh(["gh", "issue", "list"])`). A failing command answers its exit code; the run's deadline or `timeoutMs` kills it. Each stream is capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:399` |
 | `fetch(url, { method?, headers?, body?, timeoutMs? })` | `{ status, headers, text, truncated? }`, for http(s) URLs. Capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:135` |
 | `components()` | Every name a `::name` or a script answers to here, as `[{ name, origin }]`: the built-ins (`origin: "built-in"`), the extensions' and the scripts'. Action runs only. | `packages/outliner/src/host-api.ts:453` |
-| `wait(ms)` | Sleeps, then goes on. Ends with the run: its deadline or a stop cuts it short. | `packages/outliner/src/script-runtime.ts:103` |
+| `date(text)` | A date as people write it in a property (`2026-01-05 4:23 PM`, `Oct 20`, `2026-10-20..2026-10-24`), read as the views read one, in the service host's zone: `{ ms, at, endMs, end }` (its start and end as epoch milliseconds and ISO), or `null` when it reads as no date. Renders too. | `packages/outliner/src/script-runtime.ts:124` |
+| `wait(ms)` | Sleeps, then goes on. Ends with the run: its deadline or a stop cuts it short. | `packages/outliner/src/script-runtime.ts:106` |
 
 There is no `stop()` inside a script. Ending a run is the service's `scripts.stop` (see [Lifecycle](#lifecycle)).
 
@@ -267,23 +268,23 @@ has. The tone is one of `default`, `good`, `warn`, `bad`, `dim`, `accent`.
 
 | Builder | Fields (anything else is refused) | Source |
 |---|---|---|
-| `view.text` | `text`, `tone`, `strong`, `act`, `link`, `revision` | `packages/outliner/src/component-primitives.ts:393` |
-| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:399` |
-| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:402` |
-| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:409` |
-| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:416` |
-| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:423` |
-| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:449` |
-| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:460` |
-| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:466` |
-| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:484` |
-| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:487` |
-| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:490` |
-| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:495` |
-| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:511` |
-| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:518` |
-| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:406` |
-| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty`, `arrange`, `size`, `columns`, `headers`, `page` | `packages/outliner/src/component-primitives.ts:532` |
+| `view.text` | `text`, `tone`, `strong`, `act`, `link`, `revision` | `packages/outliner/src/component-primitives.ts:394` |
+| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:400` |
+| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:403` |
+| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:410` |
+| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:417` |
+| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:424` |
+| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:450` |
+| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:461` |
+| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:467` |
+| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:485` |
+| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:488` |
+| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:491` |
+| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:496` |
+| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:512` |
+| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:519` |
+| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:407` |
+| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty`, `arrange`, `size`, `columns`, `headers`, `page`, `title` | `packages/outliner/src/component-primitives.ts:533` |
 
 <!-- generated:view:end -->
 
@@ -320,7 +321,7 @@ primitive's label without the line. In a note the same press is `::button{label=
 
 | Entry | Source |
 |---|---|
-| `validatePrimitive` | `packages/outliner/src/component-primitives.ts:379` |
+| `validatePrimitive` | `packages/outliner/src/component-primitives.ts:382` |
 | `PRIMITIVE_TYPES` | `packages/outliner/src/component-primitives.ts:30` |
 | `PRIMITIVE_FIELDS` | `packages/outliner/src/component-primitives.ts:33` |
 | `MAX_NODES` | `packages/outliner/src/component-primitives.ts:137` |
@@ -331,11 +332,11 @@ The returned value becomes text, the same way in a run note and a drawn line:
 
 | Returned | Shown as | Source |
 |---|---|---|
-| `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:58` |
-| `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:61` |
-| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:329` |
+| `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:61` |
+| `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:71` |
+| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:337` |
 | `{ insert: "<line>" \| { text }, message? }` | an action run only (PIE-1507): the text goes at the person's cursor in the note the run is about, through the door's one insertion, one ctrl+z; `message` is the run's word, else `<script title> done`. The run note records `insert: <its first line>`. Checked as an action's `insert` is (text up to 8000 characters) | `packages/outliner/src/script-runs.ts:61` |
-| `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:58` |
+| `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:68` |
 
 ## Record shapes
 
@@ -361,14 +362,14 @@ examples lean on:
 | `BlockRecord` | `packages/outline-core/src/block-record.ts:14` |
 | `textRecord` | `packages/outliner/src/block-records.ts:38` |
 | `ScriptSiteGlobals` | `packages/outliner/src/script-runtime.ts:54` |
-| `bind` | `packages/outliner/src/script-runs.ts:138` |
+| `bind` | `packages/outliner/src/script-runs.ts:148` |
 
 ## Modes
 
 | Mode | Written | Runs | Draws or writes | Source |
 |---|---|---|---|---|
-| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:251` |
-| render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:172` |
+| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:259` |
+| render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:182` |
 | `componentCalls` (the `::name{}` line) | `::board{where="type=errand" group=status}` | the same as `board::`: a second spelling of a render script's line | the returned value, under the line | `packages/outliner/src/extension-handlers.ts:191` |
 | `pipelineCalls` (the `::=` line) | `::= (await resolve("this.owner")).values[0]` | like a render script whose code is `return (expression);` | the value, under the line | `packages/outliner/src/extension-handlers.ts:153` |
 
@@ -395,9 +396,9 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `slotProps` | `packages/outliner/src/script-runs.ts:66` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1021` |
-| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:460` |
+| `slotProps` | `packages/outliner/src/script-runs.ts:76` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1048` |
+| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:503` |
 
 ## A render script is a component
 
@@ -464,13 +465,13 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 
 | Entry | Source |
 |---|---|
-| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:323` |
+| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:331` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:787` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1839` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:221` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4803` |
 | `viaYolo` | `packages/outliner/src/server.ts:4826` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:594` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:612` |
 
 ## Lifecycle
 
@@ -504,11 +505,11 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 | Entry | Source |
 |---|---|
 | `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:318` |
-| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:340` |
-| `stopRun` | `packages/outliner/src/script-runs.ts:286` |
-| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:348` |
+| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:348` |
+| `stopRun` | `packages/outliner/src/script-runs.ts:294` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:356` |
 | `scripts.stop` | `packages/outliner/src/server.ts:763` |
-| `scripts.stop` request | `packages/outliner/src/types.ts:2546` |
+| `scripts.stop` request | `packages/outliner/src/types.ts:2510` |
 
 ## Traps
 

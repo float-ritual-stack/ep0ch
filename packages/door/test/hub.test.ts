@@ -1,42 +1,22 @@
-// float-hub's views: Waiting on others (outbox items still waiting, by who) and Claude · now (a pinned page).
+// float-hub's views: Waiting on others (PIE-1525: the waiting extension's list, screen and main-menu row) and Claude · now
+// (a pinned page). Waiting is a default-on built-in: the scratch host installs it at start, as the host does after a
+// deploy; uninstalling it takes its menu row and screen, installing brings them back. A screen a person made gets a row
+// the same way (screen.menu). Scratch services; every note is made up.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
-import { groupWaiting, sentAt, waitingOn, type WaitingPane } from "../src/hub/waiting";
 import { nowPage, type PinnedReader } from "../src/hub/pinned";
 import { openScreen } from "../src/desk/screen-specs";
-import { MainMenu } from "../src/screens";
+import { screenNames } from "../src/desk/screen-spec";
+import { forgetScreenNotes, loadScreenNotes } from "../src/desk/screen-notes";
+import { MainMenu, menuItems } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
-const item = (id: string, props: Record<string, string>, createdAt = 0): Msg =>
-  ({ id, text: id, parentId: null, childIds: [], createdAt, updatedAt: createdAt, author: null, properties: Object.entries({ type: "outbox-item", outbox: "waiting", ...props }).map(([key, value]) => ({ key, value })) });
-
-describe("what an outbox item waits on", () => {
-  test("sent is local time, 12-hour or 24-hour; without it, when the item was written", () => {
-    expect(sentAt(item("a", { sent: "2026-01-05 4:23 PM" }))).toBe(new Date(2026, 0, 5, 16, 23).getTime());
-    expect(sentAt(item("b", { sent: "2026-01-05 12:05 AM" }))).toBe(new Date(2026, 0, 5, 0, 5).getTime());
-    expect(sentAt(item("c", { sent: "2026-01-05 09:30" }))).toBe(new Date(2026, 0, 5, 9, 30).getTime());
-    expect(sentAt(item("d", { sent: "2026-01-05" }))).toBe(new Date(2026, 0, 5).getTime());
-    expect(sentAt(item("e", { sent: "last week" }, 42))).toBe(42);
-  });
-  test("waiting-on's name before the colon is who; the rest is what. Without one: to, and the title", () => {
-    expect(waitingOn(item("a", { "waiting-on": "Ada: which shelf do the jars go on?" }))).toEqual({ who: "Ada", what: "which shelf do the jars go on?" });
-    expect(waitingOn(item("b", { to: "Brook, Cyd" }))).toEqual({ who: "Brook, Cyd", what: "b" });
-    expect(waitingOn(item("c", {}))).toEqual({ who: "someone", what: "c" });
-  });
-  test("grouped by who (any case), oldest first in a group, the longest wait first", () => {
-    const g = groupWaiting([
-      item("cyd-new", { "waiting-on": "Cyd: b", sent: "2026-01-07 9:00 AM" }),
-      item("brook", { "waiting-on": "Brook: a", sent: "2026-01-08 6:35 PM" }),
-      item("cyd-old", { "waiting-on": "cyd: c", sent: "2026-01-02 9:00 AM" }),
-    ]);
-    expect(g.map(x => [x.who, x.items.map(m => m.id)])).toEqual([["cyd", ["cyd-old", "cyd-new"]], ["Brook", ["brook"]]]);
-  });
-});
+const rows = () => menuItems().map(i => (i.key ? `${i.key} ${i.label}` : i.label));
 
 describe.skipIf(!outliner)("the float-hub views", () => {
   const scratch = new Scratch();
@@ -46,6 +26,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
   const ch = (c: string) => press({ kind: "char", ch: c });
   const top = () => (app as any).stack.at(-1);
   const screen = () => top().render(app).lines.map(plain).join("\n");
+  const list = () => top().pane("waiting") as any;
   let outbox: Msg, ada: Msg, brook: Msg;
 
   beforeAll(async () => {
@@ -55,68 +36,92 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     const term = { info: { cols: 80, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
+    await app.loadExtensions(true);
     outbox = await board.createBlock(null, "Outbox");
   }, 30_000);
-  afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+  afterAll(async () => { forgetScreenNotes(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
-  test("the main menu names Waiting and Welcome at 80 columns without running off the edge", () => {
+  test("after a deploy, the main menu has O Waiting with no install step, at 80 columns without running off the edge", () => {
+    expect(screenNames()).toContain("waiting");
+    expect(rows()).toEqual(expect.arrayContaining(["O Waiting", "C Welcome"]));
     app.push(new MainMenu());
     const lines = top().render(app).lines.map(plain) as string[];
     const at = lines.findIndex(l => l.includes("O Waiting"));
     expect(at).toBeGreaterThan(0);
-    expect(lines[at]).toContain("C Welcome");
     for (const l of lines) expect(l.trimEnd().length).toBeLessThanOrEqual(80);
   });
 
-  test("with nothing waiting it says so, and an agent's pick is refused", async () => {
+  test("O opens Waiting: with nothing waiting it says so, and the demo's made-up asks are never listed", async () => {
     ch("O");
     expect(top().name).toBe("waiting");
-    await until(() => (top().pane("waiting") as WaitingPane).items !== null, "the waiting items asked for");
-    expect(screen()).toContain("Nobody owes you an answer.");
-    expect(screen()).toContain("+ New note · ctrl+n");
-    (app as any).lastInput = 0;                                                     // the person is idle
-    await expect(app.act({ action: "waiting.pick", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/nothing is waiting/);
+    await until(() => screen().includes("Nobody owes you an answer."), "the empty list, drawn by the extension");
+    expect(screen()).toContain("waiting on others · none");
   });
 
-  test("an item filed elsewhere shows up, grouped; the reader shows the one picked", async () => {
+  test("an item filed elsewhere shows up, grouped, oldest first; the reader shows the one picked; j picks the next", async () => {
     await board.createBlock(outbox.id, "Done already [type::outbox-item] [outbox::done] [to::Dot]");
     ada = await board.createBlock(outbox.id, "Ask Ada about the jars [type::outbox-item] [outbox::waiting] [ticket::JAM-1] [sent::2026-01-05 5:36 PM] [waiting-on::Ada: which shelf do the jars go on?]");
     brook = await board.createBlock(outbox.id, "Ask Brook about the tins [type::outbox-item] [outbox::waiting] [ticket::TIN-2] [sent::2026-01-08 6:35 PM] [waiting-on::Brook: how many bread tins]\nThe body of the ask.");
-    await until(() => (top().pane("waiting") as WaitingPane).items?.length === 2, "two waiting items, read again after the change");
+    await board.createBlock(outbox.id, "Ask ada again [type::outbox-item] [outbox::waiting] [sent::2026-01-09 9:00 AM] [waiting-on::ada: and the lids?]");
+    await until(() => screen().includes("outbox · 3 waiting on 2"), "three waiting items, read again after the change", 8000);
     const s = screen();
-    // Its title says it; the header draws as much as fits before the tile's ⋯ ⧉ ×.
-    expect((top().pane("waiting") as WaitingPane).title()).toContain("outbox · 2 waiting on 2 people");
-    expect(s).toContain("outbox · 2 waiting on 2");
+    expect(list().title()).toBe("outbox · 3 waiting on 2 people");
     expect(s).not.toContain("Done already");
-    expect(s.indexOf("Ada · 1 waiting")).toBeLessThan(s.indexOf("Brook · 1 waiting"));
+    expect(s.indexOf("Ada · 2 waiting")).toBeLessThan(s.indexOf("Brook · 1 waiting"));
+    expect(s.indexOf("which shelf")).toBeLessThan(s.indexOf("and the lids?"));
     expect(s).toMatch(/JAM-1 +which shelf/);
     const read = () => (top().pane("reader") as any)?.msg?.id;
     await until(() => read() === ada.id, "the longest wait picked and read");
-    ch("j");
+    ch("j"); ch("j");
     await until(() => screen().includes("The body of the ask."), "j picks the next; the reader follows");
-    ch("j");                                                                       // the last item: j stays
     expect(read()).toBe(brook.id);
-    expect((app.describe() as any).state).toMatchObject({ kind: "waiting", picked: 2, waiting: [{ who: "Ada" }, { who: "Brook" }] });
   });
 
-  test("agents pick by act, said on screen; never while the person is typing; bad picks are refused", async () => {
-    expect((app.actions() as any).actions.map((a: any) => a.name)).toEqual(expect.arrayContaining(["waiting.pick", "waiting.reload", "pane.split"]));
+  test("an agent picks by list.pick, said on screen; waiting.pick names the action that works", async () => {
     (app as any).lastInput = 0;                                                     // the person is idle
-    expect(await app.act({ action: "waiting.pick", args: { id: ada.id }, as: "test-agent" })).toMatchObject({ n: 1, of: 2, id: ada.id, who: "Ada" });
-    expect((app as any).message).toContain("an agent (test-agent) showed what Ada owes (1 of 2)");
-    // Shown where the list's select wire goes, as a tree's pick by an agent is (PIE-1207: no current note to keep).
-    expect((top().pane("reader") as any).msg?.id).toBe(ada.id);
-    await expect(app.act({ action: "waiting.pick", args: { n: 3 }, as: "test-agent" })).rejects.toThrow(/pick 1 to 2/);
-    await expect(app.act({ action: "waiting.pick", args: { id: "nope" }, as: "test-agent" })).rejects.toThrow(/no waiting item nope/);
-    await expect(app.act({ action: "waiting.pick", args: {}, as: "test-agent" })).rejects.toThrow(/n, id or by/);
-    // The person edits the note in the reader: an agent's pick would move it out from under them.
-    ch("2");
-    ch("e");
-    await until(() => !!top().readerPanes()[0]?.pane.draft, "the person's edit");
-    await expect(app.act({ action: "waiting.pick", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing/);
-    press({ kind: "esc" });
-    await until(() => !top().readerPanes()[0]?.pane.draft, "the edit closed");
-    expect(await app.act({ action: "waiting.reload", as: "test-agent" })).toMatchObject({ name: "waiting", waiting: 2 });
+    // The lists' one set: an agent's pick is its own (the person's stays where they left it), answered with the row.
+    const picked = await app.act({ action: "list.pick", tile: "waiting", args: { id: ada.id }, as: "test-agent" });
+    expect(JSON.stringify(picked)).toContain(ada.id);
+    expect((top().pane("reader") as any).msg?.id).toBe(brook.id);
+    await expect(app.act({ action: "waiting.pick", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/list\.pick/);
+    ch("q");
+  });
+
+  test("uninstalled, its menu row and screen go, and the refusal says how to bring it back; installed, both return with no restart", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "extensions.uninstall", args: { id: "waiting", demo: "keep" } });
+    await until(() => !screenNames().includes("waiting"), "the waiting screen gone with its extension", 8000);
+    expect(rows()).not.toContain("O Waiting");
+    expect(rows()).toContain("C Welcome");
+    await expect(app.act({ action: "screen.open", args: { name: "waiting" } })).rejects.toThrow(/extensions\.install id=waiting/);
+    await app.act({ action: "extensions.install", args: { id: "waiting" } });
+    await until(() => screenNames().includes("waiting"), "the waiting screen back", 8000);
+    expect(rows()).toContain("O Waiting");
+    await app.act({ action: "screen.open", args: { name: "O" } });
+    expect(top().name).toBe("waiting");
+    await until(() => screen().includes("outbox · 3 waiting on 2"), "the same list again");
+    ch("q");
+  });
+
+  test("a screen he made gets a row on the main menu; another door reads the same row; a taken key leaves it keyless, said", async () => {
+    app.push(openScreen("blank"));
+    await app.act({ action: "screen.save", args: { name: "Potting bench" } });
+    expect(top().name === "blank" || top().name === "potting-bench").toBe(true);
+    const r = await app.act({ action: "screen.menu", args: { key: "y", label: "Potting" } }) as any;
+    expect(r).toMatchObject({ screen: "potting-bench", menu: { key: "Y", label: "Potting" } });
+    expect(rows()).toContain("Y Potting");
+    // Another door on the outline reads the screen notes afresh: the row is in the note.
+    forgetScreenNotes();
+    expect(rows()).not.toContain("Y Potting");
+    await loadScreenNotes(board);
+    expect(rows()).toContain("Y Potting");
+    // C is Welcome's: the row stays, with no key, and the answer says who holds it.
+    const clash = await app.act({ action: "screen.menu", args: { name: "potting-bench", key: "C", label: "Potting" } }) as any;
+    expect(clash.problem).toMatch(/C is Welcome's/);
+    expect(rows()).toContain("Potting");
+    expect((new MainMenu().describe() as any).problems?.[0]).toMatch(/C is Welcome's/);
+    await app.act({ action: "screen.menu", args: { name: "potting-bench", off: true } });
+    expect(rows().some(r => r.includes("Potting"))).toBe(false);
     ch("q");
   });
 

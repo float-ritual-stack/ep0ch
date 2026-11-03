@@ -190,7 +190,12 @@ export interface ExtensionEntry {
   readonly partOf?: string;
   /** The door module its manifest names (PIE-1505): the door runs it while this extension is served. */
   readonly door?: string;
+  /** Its screens (PIE-1525): screen specs as data, for the door's screen registry while it's served. Opaque here. */
+  readonly screens?: readonly ExtensionScreen[];
 }
+
+/** A screen an extension ships (PIE-1525): its spec as data (`name`, `title`, `layout`, `menu`…), as the manifest wrote it. */
+export type ExtensionScreen = { readonly name: string } & Readonly<Record<string, unknown>>;
 
 export interface ExtensionsListResult {
   /** Goes up with every reload that changed anything. */
@@ -598,6 +603,7 @@ export class ExtensionRegistry {
         ...(script ? { script: { keys: script.keys ?? [], blockId: script.blockId, line: script.line, file: script.file, code: script.code } } : {}),
         ...(serving && extension.manifest.scripts?.length ? { scripts: extension.manifest.scripts } : {}),
         ...(serving && extension.manifest.door ? { door: extension.manifest.door } : {}),
+        ...(serving && extension.manifest.screens?.length ? { screens: extension.manifest.screens.map((screen) => structuredClone(screen)) } : {}),
         runsCode: !!extension?.script || !!extension?.command || !!extension?.manifest.tiles?.length || !!extension?.manifest.door,
         handlers: serving ? (extension.manifest.handlers ?? [])
           .filter((handler) => this.bound.get(handler.key)?.extension === extension)

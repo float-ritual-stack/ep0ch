@@ -68,8 +68,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { hyperBindings, hyperLabel, hyperOn } from "../hyper";
 import { scriptBindings } from "../extensions";
-import { containerKeys, leafNames, slotNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
-import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
+import { containerKeys, leafNames, slotNames, madeScreen, menuRowProblem, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
+import { saveScreenNote, ScreenConflict, screenNote, screenNotes, trashScreenNote } from "./screen-notes";
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme } from "../theme";
 import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term";
@@ -2289,6 +2289,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const id = this.idOf(from);
     // A reader still reading the note a saved layout had it on counts as showing it: the list's first row never replaces it.
     return id === undefined || this.followers(id).every(p => p === from || (!this.showing(p) && !(p instanceof ReaderPane && (p.want || p.wantNote()))));
+  }
+
+  /** DeskApi.hasPreviews: some preview here follows tile `from`'s selection. */
+  hasPreviews(from: Pane): boolean {
+    const id = this.idOf(from);
+    return id !== undefined && this.followers(id).some(p => p !== from);
   }
 
   /** A list's home (the reader it belongs to), if it has one here. */
@@ -6619,6 +6625,50 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { screen: name, note: n.id, trashed: true };
   }
   private deleteArm: { name: string; at: number } | null = null;
+
+  /**
+   * `screen.menu` (PIE-1525): give the screen named `name` that a person made (left out: this one) a row on the main menu,
+   * `key` (one character) opening it and `label` naming it; `off` takes the row away. Written into its screen note's
+   * spec (`menu`) through screen.save's path, checked against the revision this door read, so every door on the outline
+   * shows the same rows. The person's with no key opens the prompt ("Y Potting"). A key another row holds is kept, and
+   * the row drawn without it: the answer says who holds it.
+   */
+  async menuScreen(a: { name?: string; key?: string; label?: string; off?: boolean }, actor: Actor): Promise<Record<string, unknown>> {
+    const name = a.name !== undefined ? resolveScreen(a.name) ?? a.name : this.madeName();
+    if (!name) throw new ActionRefused("screen.menu adds a screen you made to the main menu: open one (^W r), or name it with name=<screen> (save this one first: ^W w)");
+    const note = screenNote(name);
+    if (!note) throw new ActionRefused(screenNames().includes(name) ? `${name} isn't a screen you made: its menu row is its own (a built-in's, or its extension's manifest)` : `no screen ${name} that a person made · screen.list names them`);
+    if (!a.off && a.key === undefined && a.label === undefined) {
+      if (actor.kind === "agent") throw new ActionRefused(`screen.menu needs key=<one character> and label=<a few words>, or off=true · e.g. screen.menu name=${name} key=Y label=${JSON.stringify(note.title.slice(0, 16))}`);
+      this.overlays.push(menuRowPrompt(name, note.spec.menu ? `${note.spec.menu.key} ${note.spec.menu.label}` : `${note.title.trim()[0]?.toUpperCase() ?? "Y"} ${note.title.slice(0, 16)}`));
+      this.redraw();
+      return { prompt: true, screen: name };
+    }
+    const { menu: _was, ...rest } = note.spec;
+    let spec: ScreenSpec;
+    if (a.off) {
+      if (!note.spec.menu) return { screen: name, menu: null, changed: false };
+      spec = rest;
+    } else {
+      const row = { key: (a.key ?? note.spec.menu?.key ?? "").trim().toUpperCase(), label: (a.label ?? note.spec.menu?.label ?? note.title).trim() };
+      const bad = menuRowProblem(row);
+      if (bad) throw new ActionRefused(`${bad} · e.g. screen.menu key=Y label=${JSON.stringify(note.title.slice(0, 16))}`);
+      spec = { ...rest, menu: { ...(note.spec.menu?.about ? { about: note.spec.menu.about } : {}), ...row } };
+    }
+    const base = madeScreen(name) ?? null;
+    const { note: saved } = await saveScreenNote(this.ctx.board, spec, actor, base);
+    if (this.madeAs === name || this.layoutName === name) this.madeBase = { id: saved.id, revision: saved.revision };
+    // Who holds its key, when someone does: the menu draws the row without it (src/screens.ts menuItems).
+    const row = (await import("../screens")).menuItems().find(i => i.screen === name);
+    this.redraw();
+    return { screen: name, menu: spec.menu ?? null, note: saved.id, revision: saved.revision, ...(row?.clash ? { problem: row.clash } : {}) };
+  }
+  /** The menu-row prompt chose `typed` ("Y Potting"): the person's screen.menu; refused, the prompt comes back with it. */
+  async menuFromPrompt(name: string, typed: string): Promise<void> {
+    const [key, ...words] = typed.trim().split(/\s+/);
+    const r = await this.dispatch.press("screen.menu", { name, key: key ?? "", label: words.join(" ") });
+    if (r === undefined) { this.overlays.push(menuRowPrompt(name, typed)); this.redraw(); }
+  }
   /** This desk is a screen of the person's own (blank, or one they made), not a built-in with a name of its own. */
   private madeHere(): boolean { return this.madeAs !== null || !!madeScreen(this.spec.name) || (!!this.spec.layouts && !this.spec.saves); }
   /** The layout as last saved or loaded by name, to say on the hint row when it's changed since. */
@@ -8408,6 +8458,17 @@ function screenSaver(name: string): DeskPicker {
     // The reason shows as it's typed, and ⏎ on a name that can't be saved leaves the prompt open with what was typed.
     hint: t => { const why = screenTitleProblem(t); return why ? { text: why, warn: true } : { text: `saves as ${screenSlug(t)}`, ...{} }; },
     done: (t, d) => void d.saveFromPrompt(t),
+  });
+}
+
+/** screen.menu's prompt (PIE-1525): a key, then the row's label ("Y Potting"); ⏎ adds the row to the main menu. */
+function menuRowPrompt(name: string, text: string): DeskPicker {
+  const split = (t: string) => { const [key, ...words] = t.trim().split(/\s+/); return { key: (key ?? "").toUpperCase(), label: words.join(" ") }; };
+  return linePrompt<Desk>({
+    name: "menu row", title: `add ${name} to the main menu: a key, then its label`, text, w: 80,
+    doing: t => { const r = split(t); return `${r.key} ${r.label} opens ${name} from the main menu`; },
+    hint: t => { const why = menuRowProblem(split(t)); return why ? { text: why, warn: true } : { text: "Y Potting: Y opens it, Potting is its row" }; },
+    done: (t, d) => void d.menuFromPrompt(name, t),
   });
 }
 

@@ -46,6 +46,8 @@ import { SECRET_GROUP_PATTERN, SECRET_KEY_PATTERN } from "./extension-secrets";
  */
 
 export const EXTENSION_ID_PATTERN = "^[a-z][a-z0-9-]{0,31}$";
+/** A screen's name, as the door's screen registry takes one (a letter, then letters, digits, . - _; at most 40). */
+const SCREEN_NAME_PATTERN = "^[A-Za-z][\\w.-]{0,39}$";
 const ID = Type.String({ pattern: EXTENSION_ID_PATTERN });
 /** What a file script's first line (`// ep0ch-script effects=write mode=render`, each setting optional) declares; null when the line isn't the opt-in. */
 export function scriptHeader(line: string): { effects: "read" | "write"; render: boolean } | null {
@@ -440,6 +442,12 @@ const ManifestV2 = Type.Object(
     }, { additionalProperties: false }))),
     actions: Type.Optional(Type.Array(Action, { maxItems: 32 })),
     tiles: Type.Optional(Type.Array(Tile, { maxItems: 8 })),
+    /**
+     * Whole screens for the door (PIE-1525): each a screen spec as data, as a screen note holds one (`name`, `title`,
+     * `layout`, and `menu: { key, label }` for a row on the main menu). Opaque here: the door's `readSpec` checks it and
+     * says a problem where extension problems are said. Registered while the extension is served, gone when it stops.
+     */
+    screens: Type.Optional(Type.Array(Type.Object({ name: Type.String({ pattern: SCREEN_NAME_PATTERN }) }, { additionalProperties: true }), { maxItems: 8 })),
     agents: Type.Optional(Type.Array(Agent, { maxItems: 8 })),
     rules: Type.Optional(Type.Array(RuleSchema, { maxItems: 16 })),
     facetSources: Type.Optional(Type.Array(Type.Object({
@@ -777,10 +785,15 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     if (action.on !== "outline") throw new ExtensionLoadError(`facet source ${source.id}: action ${source.read} needs on=outline (got ${action.on ?? "block"})`);
     if ((action.effects ?? "read") !== "read") throw new ExtensionLoadError(`facet source ${source.id}: action ${source.read} needs effects=read (got ${action.effects})`);
   }
+  const screenNames = new Set<string>();
+  for (const [index, screen] of (manifest.screens ?? []).entries()) {
+    if (screenNames.has(screen.name)) throw new ExtensionLoadError(`extension.json: screens/${index}/name ${screen.name} is declared twice`);
+    screenNames.add(screen.name);
+  }
   const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0 || barIds.size > 0;
   if (needsRun && !manifest.run && !script) throw new ExtensionLoadError("extension.json: handlers, actions, agents, sources and rules that decorate with code need run (the program each call starts)");
   // A script that declares nothing is a module (`[mode::module]`): imported by name, run by nothing.
-  if (!script && !needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length && !manifest.door) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, sources, rules, tiles, components, scripts or a door module");
+  if (!script && !needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length && !manifest.door && !screenNames.size) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, sources, rules, tiles, screens, components, scripts or a door module");
   const scripts = new Set<string>();
   const scriptFiles = new Map<string, string>();
   for (const script of manifest.scripts ?? []) {

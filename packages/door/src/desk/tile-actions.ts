@@ -22,6 +22,9 @@ import { lastTrashed, trashConfirm, trashNote, trashPlan, untrashNote } from "..
 import { subject } from "../board";
 import { renamedPagesNote } from "@ep0ch/outline-core/protocol";
 import { READER_MODES, tileKind, tileNoun, type TileKindName } from "./tile-kinds";
+import { screenNote } from "./screen-notes";
+/** The main-menu row a screen a person made names (PIE-1525), if any. */
+const madeMenu = (name: string) => screenNote(name)?.spec.menu;
 
 export type Where = Dir | "tabs" | "next" | "edge-left" | "edge-right" | "edge-up" | "edge-down";
 export const WHERE: readonly Where[] = ["left", "right", "up", "down", "tabs", "next", "edge-left", "edge-right", "edge-up", "edge-down"];
@@ -922,6 +925,25 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "screen.delete name=\"garden planning\"", does: "moves the garden planning screen note to the outline's Trash" },
     ],
     async run({ name }, { d }, actor) { return await d.deleteScreen(name, actor); },
+  }),
+  "screen.menu": def({
+    words: "add this screen to the main menu",
+    summary: "give a screen you made a row on the main menu (PIE-1525): key=<one character> opens it there, label=<a few words> names the row; off=true takes the row away. name= is the screen (left out: this one). Written into its screen note's spec (`menu`), checked against the revision this door read, so every door on the outline shows it, and a restart keeps it. A key another row holds is kept and the row drawn without it, said. The person's with no key opens the prompt (Y Potting)",
+    keys: [{ via: "the tile menu's row (⋯), or the power bar" }],
+    touches: "nothing", replay: "ask", confirms: true,
+    says: r => (r?.prompt ? null : r.menu ? `${r.menu.key} ${r.menu.label} opens ${r.screen} from the main menu${r.problem ? ` · ${r.problem}` : ""}` : `took ${r.screen} off the main menu`),
+    menu: { label: "add to the main menu", group: SCREEN, key: "", now: ({ d }) => { const n = d.madeName(); return n ? { args: { name: n }, ...(madeMenu(n) ? { label: "change its main-menu row" } : {}) } : { hide: true }; } },
+    args: {
+      name: { type: "string", kind: "screen", optional: true, about: "the screen you made (screen.list's made screens); left out, the one shown" },
+      key: { type: "string", optional: true, about: "the key that opens it on the main menu: one character (Y)" },
+      label: { type: "string", optional: true, about: "the row's label, up to 16 characters (Potting)" },
+      off: { type: "boolean", optional: true, about: "true takes its row off the main menu" },
+    },
+    examples: [
+      { act: "screen.menu name=garden-planning key=Y label=Potting", does: "puts Y Potting on the main menu, opening the garden planning screen" },
+      { act: "screen.menu name=garden-planning off=true", does: "takes garden planning's row off the main menu" },
+    ],
+    async run(a, { d }, actor) { return await d.menuScreen(a, actor); },
   }),
   "layout.load": loadLayout,
   "layout.undo": def({
