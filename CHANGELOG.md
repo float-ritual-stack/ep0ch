@@ -15,7 +15,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Waiting moved out of the door:** the waiting extension, on by default. O on the main menu opens the same list beside a reader, with no install step.
 - **Uninstall it:** ctrl+k, `&`, ⏎ on Waiting. O leaves the menu, and `ep0ch --screen waiting` says the command that brings it back. Installing returns both with no restart.
 - **Your own screens on the menu:** on a saved screen, ⋯ then "add to the main menu", a key and a label (Y Potting). It's written into the screen note, so every door shows it. Also `act screen.menu key=Y label=Potting`; `off=true` takes it away.
-- **For extensions:** `screens[]` in a manifest ships whole screens, with `menu` for a row; a render script's `view.list({ title })` names its tile, and `date(text)` reads a date as people write it.
+- **For extensions:** `screens[]` in a manifest ships whole screens, with `menu` for a row; a render script's `view.list({ title })` names its tile, and `await date(text)` reads a date as people write it.
 - `waiting.pick` is now `list.pick tile=waiting`; `r` reload is gone (the list reads again on change).
 - **Run:** `ep0ch install --apply`. PROTOCOL moves (extensions.list carries `screens`); loki sets the number at merge.
 

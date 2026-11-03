@@ -17,10 +17,12 @@ const where = `type=outbox-item outbox=waiting ${demoOnly ? "demo=waiting" : "NO
 const { rows: items } = await query({ where, limit: 500 });
 
 const one = (item, key) => (item.props[key]?.[0] ?? "").trim();
-// When each item's wait began: its `sent`, else when it was written (read for the ones without one).
-const unsent = items.filter(item => !date(one(item, "sent")));
-const written = new Map(unsent.length ? (await read(unsent.slice(0, 200).map(item => item.id))).filter(r => r && r.id).map(r => [r.id, Date.parse(r.created ?? r.createdAt ?? "") || Date.now()]) : []);
-const sentAt = item => date(one(item, "sent"))?.ms ?? written.get(item.id) ?? Date.now();
+// When each item's wait began: its `sent` (date() reads it as the views read a date), else when it was written.
+const sent = new Map(await Promise.all(items.map(async item => [item.id, (await date(one(item, "sent")))?.ms])));
+const unsent = items.filter(item => sent.get(item.id) === undefined).slice(0, 200);
+const when = v => (typeof v === "number" ? v : Date.parse(v ?? "")) || undefined;
+const written = new Map(unsent.length ? (await read(unsent.map(item => item.id))).filter(r => r && r.id).map(r => [r.id, when(r.created)]) : []);
+const sentAt = item => sent.get(item.id) ?? written.get(item.id) ?? Date.now();
 
 /** Who it waits on and what for: `waiting-on`'s "Name: question", else `to` and its title. */
 const waitingOn = item => {

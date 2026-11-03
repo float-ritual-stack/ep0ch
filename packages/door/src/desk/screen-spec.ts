@@ -327,7 +327,9 @@ export function menuScreens(): { name: string; menu: MenuRow; title: string }[] 
     try { spec = of(); } catch { /* a screen that needs its target names no row */ }
     if (spec?.menu) out.push({ name, menu: spec.menu, title: registrations.get(name)?.made?.title || spec.title });
   }
-  return out;
+  // Built-ins, then extensions', then made: the same order however the door's reads of them landed.
+  const rank = (name: string) => (registrations.get(name)?.made ? 2 : registrations.get(name)?.extension ? 1 : 0);
+  return out.sort((a, b) => rank(a.name) - rank(b.name));
 }
 /** The spec of the screen named `name`, or null. */
 export function screenSpec(name: string, args?: Record<string, unknown>): ScreenSpec | null {

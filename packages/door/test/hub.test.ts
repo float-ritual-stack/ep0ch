@@ -63,16 +63,20 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     ada = await board.createBlock(outbox.id, "Ask Ada about the jars [type::outbox-item] [outbox::waiting] [ticket::JAM-1] [sent::2026-01-05 5:36 PM] [waiting-on::Ada: which shelf do the jars go on?]");
     brook = await board.createBlock(outbox.id, "Ask Brook about the tins [type::outbox-item] [outbox::waiting] [ticket::TIN-2] [sent::2026-01-08 6:35 PM] [waiting-on::Brook: how many bread tins]\nThe body of the ask.");
     await board.createBlock(outbox.id, "Ask ada again [type::outbox-item] [outbox::waiting] [sent::2026-01-09 9:00 AM] [waiting-on::ada: and the lids?]");
-    await until(() => screen().includes("outbox · 3 waiting on 2"), "three waiting items, read again after the change", 8000);
+    // Written last, waiting longest: its sent date (read by date(), as the views read one) puts Cyd first.
+    await board.createBlock(outbox.id, "Ask Cyd about the gate [type::outbox-item] [outbox::waiting] [sent::2025-12-20 8:00 AM] [waiting-on::Cyd: the gate latch]");
+    await until(() => screen().includes("outbox · 4 waiting on 3"), "four waiting items, read again after the change", 8000);
     const s = screen();
-    expect(list().title()).toBe("outbox · 3 waiting on 2 people");
+    expect(list().title()).toBe("outbox · 4 waiting on 3 people");
+    expect(s.indexOf("Cyd · 1 waiting")).toBeLessThan(s.indexOf("Ada · 2 waiting"));
+    expect(s).toMatch(/\d+d +the gate latch/);
     expect(s).not.toContain("Done already");
     expect(s.indexOf("Ada · 2 waiting")).toBeLessThan(s.indexOf("Brook · 1 waiting"));
     expect(s.indexOf("which shelf")).toBeLessThan(s.indexOf("and the lids?"));
     expect(s).toMatch(/JAM-1 +which shelf/);
     const read = () => (top().pane("reader") as any)?.msg?.id;
-    await until(() => read() === ada.id, "the longest wait picked and read");
-    ch("j"); ch("j");
+    await until(() => !!read(), "the longest wait picked and read");
+    ch("j"); ch("j"); ch("j");
     await until(() => screen().includes("The body of the ask."), "j picks the next; the reader follows");
     expect(read()).toBe(brook.id);
   });
@@ -99,7 +103,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     expect(rows()).toContain("O Waiting");
     await app.act({ action: "screen.open", args: { name: "O" } });
     expect(top().name).toBe("waiting");
-    await until(() => screen().includes("outbox · 3 waiting on 2"), "the same list again");
+    await until(() => screen().includes("outbox · 4 waiting on 3"), "the same list again");
     ch("q");
   });
 
