@@ -61,10 +61,10 @@ test("picked more often and more lately comes first among equals, a preselected 
   // Two weeks halve a pick.
   expect(frecency({ n: 4, at: "2026-10-12T12:00:00Z" }, now)).toBeCloseTo(2);
   const components: SourceAnswer = { source: src("components"), rows: [
-    { id: "graph-kpi", label: "KPI", filter: "graph-kpi statistics", insert: "kpi" },
+    { id: "graph-meter", label: "Meter", filter: "graph-meter statistics", insert: "meter" },
     { id: "graph-stat", label: "Stat", filter: "graph-stat", insert: "stat" },
   ] };
-  expect(mergeSourceAnswers([components], "graph-stat", { now, picks: { [pickId("kpi")]: { n: 20, at: now.toISOString() } } })[0]!.label).toBe("Stat");
+  expect(mergeSourceAnswers([components], "graph-stat", { now, picks: { [pickId("meter")]: { n: 20, at: now.toISOString() } } })[0]!.label).toBe("Stat");
 });
 
 test("an insert two sources both answer is kept once, the better-ranked one", () => {
@@ -87,7 +87,7 @@ test("the matched letters the lists light are the matcher's: a word where it sit
   expect(searchMatchSpans("Seed swap sheet", "swap")).toEqual([5, 6, 7, 8]);
   expect(searchMatchSpans("Greenhouse", "gh")).toEqual([0, 5]);
   expect(searchMatchSpans("Greenhouse", "")).toEqual([]);
-  expect(searchMatchSpans("KPI", "graph-kpi")).toEqual([0, 1, 2]);
+  expect(searchMatchSpans("Rank", "graph-rank")).toEqual([0, 1, 2, 3]);
 });
 
 test("one detector: a reference keeps a title's own parentheses, and a hashtag is never inside a reference", () => {
@@ -127,7 +127,7 @@ test("a literal hit drops a local fuzzy-only guess even with high priority and m
   expect(rows[0]!.matches).toEqual([0, 1, 2]);
   const components: SourceAnswer = { source: src("components"), rows: [
     { label: "Tree", filter: "graph-tree", insert: "tree" },
-    { label: "KPI", filter: "graph-kpi", insert: "kpi" },
+    { label: "Meter", filter: "graph-meter", insert: "meter" },
   ] };
-  expect(mergeSourceAnswers([components], "graph-kpi").map(r => r.label)).toEqual(["KPI"]);
+  expect(mergeSourceAnswers([components], "graph-meter").map(r => r.label)).toEqual(["Meter"]);
 });

@@ -1711,40 +1711,9 @@ export interface GotoSearchCollection {
 export type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 
-interface BacklinkOccurrenceBase {
-  label: string;
-  snippet: string;
-  start: number;
-  end: number;
-}
-
-export type BacklinkOccurrence =
-  | (BacklinkOccurrenceBase & {
-      kind: "block" | "page" | "work-id";
-      /** The anchor it aims at (`((id^anchor))`, `[[page^anchor]]`, PIE-1247). */
-      fragmentId?: string;
-    })
-  | (BacklinkOccurrenceBase & {
-      kind: "property";
-      propertyKey: string;
-    });
-
-export type BacklinkReferenceGroup =
-  | {
-      kind: "block" | "page" | "work-id";
-      /** Grouped by the anchor aimed at too (PIE-1247): `((id^sowing))` and `((id))` are two groups. */
-      fragmentId?: string;
-      count: number;
-    }
-  | {
-      kind: "property";
-      propertyKey: string;
-      count: number;
-    };
-
-export const BACKLINK_STAGE_BUCKETS = ["waiting", "draft", "active", "done"] as const;
-/** Normalized lifecycle bucket; waiting, draft and active are open. */
-export type BacklinkStageBucket = (typeof BACKLINK_STAGE_BUCKETS)[number];
+export { BACKLINK_STAGE_BUCKETS } from "@ep0ch/outline-core/backlink-view";
+export type { BacklinkOccurrence, BacklinkReferenceGroup, BacklinkStageBucket, BacklinkSourceFacets, BacklinkSource } from "@ep0ch/outline-core/backlink-view";
+import type { BacklinkSource, BacklinkStageBucket } from "@ep0ch/outline-core/backlink-view";
 
 /**
  * Service-derived meaning of one backlink source, so every client groups,
@@ -1758,37 +1727,6 @@ export interface LinkTargetFacets {
   stage?: { property: string; value: string; bucket?: BacklinkStageBucket };
   createdAt: string;
   updatedAt: string;
-}
-
-export interface BacklinkSourceFacets {
-  /** Stable kind key, e.g. `comment`, `day-page`, `note` or a normalized `type::` value. */
-  kind: string;
-  /** Human label for the kind, e.g. "Outbox item". */
-  kindLabel: string;
-  /** Where the source sits relative to the queried target. */
-  placement: "self" | "descendant" | "other";
-  /** The first configured stage property the source declares. `bucket` is absent for an unmapped value. */
-  stage?: { property: string; value: string; bucket?: BacklinkStageBucket };
-  /** Present for comments and replies; a reply takes its thread's lifecycle. */
-  comment?: { resolved: boolean };
-}
-
-export interface BacklinkSource {
-  outline?: string;
-  machine?: string;
-  subtitle?: string;
-  blockId: string;
-  title: string;
-  parentContext: string;
-  createdAt: string;
-  updatedAt: string;
-  occurrenceCount: number;
-  referenceGroups: BacklinkReferenceGroup[];
-  occurrences: BacklinkOccurrence[];
-  occurrencesTruncated: boolean;
-  deletedRootId?: string;
-  /** Absent from services without the `references.backlinks.facets` capability. */
-  facets?: BacklinkSourceFacets;
 }
 
 export interface BacklinkQuery {

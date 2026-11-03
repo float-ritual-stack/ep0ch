@@ -21,18 +21,18 @@
 //      written at the origin come back from its bulletin into the copy's thread.
 //   6. the nodelist (`Nodelist [type::nodelist]`) is written again, with a `[type::toss]` log under it.
 //
-// Nothing that came over the network goes out again: a copy is never a message (shapes.ts), and a mark that came in
+// Nothing that came over the network goes out again: a copy is never a message (outline-core's echonet-shapes.ts), and a mark that came in
 // carries `netmail-from`. Offline is normal: a node that can't be reached is said in the nodelist, and what this node
 // has for it waits.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { BLOCK_ID_PATTERN, codeRangesOf, linkOccurrences, pageAddressReferences, pageAddressText } from "./link-grammar.js";
 import { lockFile } from "./lock";
 import { outline, type OutlineRequest, type Route } from "./outline";
 import {
+  BLOCK_ID_PATTERN, codeRangesOf, linkOccurrences, pageAddressReferences, pageAddressText,
   areaQuery, areasIn, type Block, firstLine, FROM, fromOf, glob, hasStar, isCopy, isMark, isMarkCopy, isMessage, kindOf, type Mask, masksIn, postsTo,
   type Node, nodeOf, parseMask, parseNode, prop, sameMachine, setHeaderProperty, trashed, values,
-} from "./shapes";
+} from "./link-grammar.js";
 
 interface Target { passage?: { quote?: string }; anchor?: { kind: string; exact?: string } }
 interface Mark {

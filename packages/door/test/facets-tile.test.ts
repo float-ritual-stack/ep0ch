@@ -144,7 +144,7 @@ describe.skipIf(!outliner)("the facets tile, against a scratch outline", () => {
   }, 20_000);
 
   test("the tags tile is this one opened on the tags facet", async () => {
-    expect(await act("tile.open", { kind: "tags", name: "tags", where: "right" }, "1")).toMatchObject({ name: "tags", kind: "tags" });
+    expect(await act("tile.open", { kind: "tags", name: "tags", where: "right" }, "1")).toMatchObject({ name: "tags", kind: "facets" });
     const t = () => D().describe().panes.find((p: any) => p.name === "tags");
     await until(() => t()?.facets?.length > 0, "the tags tile's facets");
     expect(t().facets.find((f: any) => f.key === "tag")).toMatchObject({ open: true });

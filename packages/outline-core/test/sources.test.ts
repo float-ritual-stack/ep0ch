@@ -48,6 +48,6 @@ test("code inside a component's body is still code", () => {
   expect(sourceCalls(text).map(c => c.kind)).toEqual(["if"]);
 });
 
-test("Sources counts a written waterfall's items", () => {
-  expect(figureItemCount("waterfall", { items: [{ label: "Start", value: 10 }, { label: "Used", value: -3 }] })).toBe(2);
+test("Sources counts a written rank's items", () => {
+  expect(figureItemCount("rank", { items: [{ label: "Start", value: 10 }, { label: "Used", value: -3 }] })).toBe(2);
 });

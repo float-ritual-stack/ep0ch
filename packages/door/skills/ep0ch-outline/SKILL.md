@@ -485,7 +485,7 @@ items:
 | kind | live from a query or view | static props |
 |---|---|---|
 | `check` | one row per block; `done: "<filter>"` ticks them | `items` |
-| `stat` / `kpi` | `items: [{ label, query \| view }]`, each a live count | `items` |
+| `stat` | `items: [{ label, query \| view }]`, each a live count | `items` |
 | `rank` | `group: <property>`, a bar per value | `items` |
 | `table` | `columns: [title, <property>, updated, author, …]`; a row opens its note | `headers`, `rows` |
 | `tabs` | `group: <property>`, a tab per value with its count, each a `table` (`columns:`); `order: [a, b]` first (shown even when empty), the rest alphabetically; `limit:` rows per tab | (hand-authored tabs are planned, PIE-533) |
@@ -495,7 +495,7 @@ items:
 | `matrix` | `down: <property>`, `across: <property>`: a count per pair, toned by share, totals beneath; `value: <property>` sums it instead; `order-down:`, `order-across:` | rows `- row: col=3 col2=1` |
 | `compare` | static only | `columns: [A, B]` (two or three), rows `- label: a \| b`; stacks under 60 columns |
 | `flow` | `from: <property>`, `to: <property>`: a flow per pair, counted | rows `- a → b: 7`; a source's total and its flows weighted by share, then the targets' totals |
-| `funnel`, `waterfall`, `spark`, `plot`, `gantt`, `tree` | static only | `steps`, `data`, `labels`, `nodes` … |
+| `spark`, `tree` | static only | `data`, `nodes` … |
 | `decision` | one option per note; its `decision-state` (chosen, rejected, open) picks ● × ○; `reason: <property>` | `options`, `text`, `status`, `date` |
 | `chat` | static only | `messages: [{ from, text, aside }]`, `you` |
 | `keys` | `actions: note` (a scope): the door's own keys, from the action registry; `learn: [edit]` | `keys: [{ keys, action, learn }]` |

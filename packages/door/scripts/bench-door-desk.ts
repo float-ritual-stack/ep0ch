@@ -49,7 +49,7 @@ const D = desk as unknown as { ctx: unknown; panes: Map<string, unknown>; dispos
 desk.render(D.ctx as never);
 for (const end = Date.now() + 20_000; D.panes.size === 0 && Date.now() < end;) await Bun.sleep(50);
 const act = (action: string, args: Record<string, unknown>) => app.act({ action, args, as: "bench" }).catch((e: Error) => console.error(`bench-door-desk: ${action}: ${e.message}`));
-await act("tile.open", { kind: "board", ...(values.hub ? { target: values.hub } : {}) });
+await act("tile.open", { kind: "screen", screen: "board", ...(values.hub ? { target: values.hub } : {}) });
 await act("tile.open", { kind: "query", query: values.query ?? "type=review-finding" });
 // The door draws as a person's does: a frame whenever something changed, at most every 50 ms.
 const drawing = setInterval(() => { try { (app as unknown as { paint(): void }).paint(); } catch { /* a frame that throws is the door's to report */ } }, 50);

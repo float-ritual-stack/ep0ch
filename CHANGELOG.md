@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Eight features that existed twice keep one copy (PIE-1528)
+
+- **Your layouts open as they did:** a saved `thread`, `tags`, `board`, `river` or `pinned` tile opens the same tile and saves under the kind that serves it: a links tile with Children alone, the facets tile on the tags facet, `screen=board` / `screen=river`, a reader pinned to its page.
+- **Your keys:** `tile.open kind=thread|tags|board|river|pinned` still work; `^W o #`, `^W o k` and `^W o v` still open the tags, the board and the river. The tags tile's title now says `facets`.
+- **The pinned page waits in a reader:** a reader pinned to a `[[page]]` that doesn't exist yet says so and shows it once a note has `[page::…]`; `ep0ch --screen pinned` is that reader.
+- **Figures:** `graph-kpi`, `graph-plot`, `graph-gantt`, `graph-waterfall` and `graph-funnel` are gone (use stat, spark, rank). No note in pie or float-hub used them but one funnel (Remote hover lag), which loki rewrites as a rank at deploy.
+- **One copy:** the backlink view and EchoNet's message shapes live in outline-core. EchoNet keeps the forgiving reading of each: a `type` with stray spaces and a `from` in any case count.
+- **Run:** `ep0ch install --apply`; GRAMMAR moves by one (deleted figure kinds), PROTOCOL and the schema don't. EchoNet's extension is version 9: reinstall it where it's installed.
+
+### Everything attached to a note places the same way (PIE-1536)
+
+- Settings, a comment, a list's children, Sources and the edit preview go through one attached layer: each opens inline, floating, split or popup and goes into a tile of its own the same way, and the one holding your keys is drawn on top.
+- **New:** a floating list-children preview drags by its top edge and sizes by its corner (`list.preview.move`). The split's side and size are kept for Sources, settings and list children, as the edit preview's already were.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### Jev's suggestions page: one row per finding, before and after (PIE-1539)
 
 - **Each row reads whole:** the problem Jev named, the passage as it was, the passage after the write that settled it, and followed or ignored (blank while still open). Open a row for Jev's whole advice.

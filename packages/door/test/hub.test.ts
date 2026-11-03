@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
-import { nowPage, type PinnedReader } from "../src/hub/pinned";
+import { nowPage } from "../src/hub/now";
+import type { ReaderPane } from "../src/desk/panes";
 import { openScreen } from "../src/desk/screen-specs";
 import { screenNames } from "../src/desk/screen-spec";
 import { tileKind } from "../src/desk/tile-kinds";
@@ -157,7 +158,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     // C opens the welcome notes now (test/welcome.test.ts); the pinned page is still a screen of its own.
     app.push(openScreen("pinned", nowPage()));
     expect(top().name).toBe("pinned");
-    await until(() => (top().pane("pinned") as PinnedReader).asked, "the page asked for");
+    await until(() => (top().pane("pinned") as ReaderPane).pageMissing, "the page asked for");
     expect(screen()).toContain("No [[claude-now]] page on this outline yet.");
     const page = await board.createBlock(null, "Claude · now [page::claude-now] [type::agent-status]\nStart here: the jam jars.");
     await until(() => screen().includes("Start here: the jam jars."), "the page, once it exists");
@@ -172,7 +173,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     const r = await app.act({ action: "open", args: { id: jar.id }, as: "test-agent" }) as { name: string };
     expect(r.name).not.toBe("pinned");
     await until(() => screen().includes("On the top shelf."), "the note beside the page");
-    expect((top().pane("pinned") as PinnedReader).msg?.id).toBe(page.id);
+    expect((top().pane("pinned") as ReaderPane).msg?.id).toBe(page.id);
     ch("q");
   });
 });

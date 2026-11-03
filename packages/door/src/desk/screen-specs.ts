@@ -2,7 +2,8 @@
 // desk, and the tile kinds those specs use, registered once as the door starts. `openScreen` makes one.
 import type { Screen } from "../app";
 import { briefKind, briefSpec } from "../brief/brief";
-import { pinnedKind, pinnedSpec } from "../hub/pinned";
+import { nowPage } from "../hub/now";
+import type { ScreenSpec } from "./screen-spec";
 import { welcomeKinds, welcomeSpec } from "../hub/welcome";
 import { HOME_KIND, homeSpec } from "../home";
 import { boardSpec } from "./delivery";
@@ -17,9 +18,20 @@ import type { Pane } from "./panes";
 import { outlineState, readState } from "../state";
 import { registerTileKind, tileKind } from "./tile-kinds";
 
+/**
+ * A page pinned on a screen of its own (`screen.open name=pinned address=<page>`): a reader pinned to the page, waiting
+ * for it to exist; opens from it land beside it. `address` its name (as in `[[claude-now]]`), `label` the screen's title.
+ */
+export function pinnedSpec(args: { address?: unknown; label?: unknown } = {}): ScreenSpec {
+  const now = nowPage();
+  const address = typeof args.address === "string" && args.address ? args.address : now.address;
+  const label = typeof args.label === "string" && args.label ? args.label : now.label;
+  return { name: "pinned", title: label, lands: "pinned", layout: { focus: "pinned", root: { t: "leaf", kind: "reader", name: "pinned", mode: "pinned", page: address, label } } };
+}
+
 /** The built-in screens' kinds and specs (once: every module that opens a screen asks). */
 export function registerBuiltinScreens(): void {
-  for (const k of [...welcomeKinds(), briefKind(), pinnedKind(), HOME_KIND, BLANK_KIND, LIBRARY_KIND, KEYS_KIND, ...echoKinds()]) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [...welcomeKinds(), briefKind(), HOME_KIND, BLANK_KIND, LIBRARY_KIND, KEYS_KIND, ...echoKinds()]) if (!tileKind(k.kind)) registerTileKind(k);
   const have = new Set(screenNames());
   const add = (name: string, of: Parameters<typeof registerScreen>[1], target?: string) => { if (!have.has(name)) registerScreen(name, of, target ? { target } : {}); };
   add("desk", () => deskSpec());

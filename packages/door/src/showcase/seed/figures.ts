@@ -2,7 +2,7 @@
 import { SEED } from "./names";
 
 /** Every `::graph-*` kind the door draws (src/graphs.ts); the figures note has one of each. */
-export const FIGURE_KINDS = ["check", "stat", "kpi", "rank", "table", "tabs", "timeline", "meter", "funnel", "waterfall", "spark", "plot", "gantt", "tree", "quadrant", "matrix", "compare", "flow"] as const;
+export const FIGURE_KINDS = ["check", "stat", "rank", "table", "tabs", "timeline", "meter", "spark", "tree", "quadrant", "matrix", "compare", "flow"] as const;
 
 /** The kinds the Markdown figures note shows (src/figures/), each in its Markdown form; the keys note has `keys`. */
 export const MARKDOWN_KINDS = ["decision", "chat", "uptime", "activity", "calendar", "annotate", "props", "example"] as const;
@@ -39,7 +39,6 @@ export function figuresText(gardenViewId: string, choresId: string): string {
     ...fig("check", ["title: Garden chores (live query)", 'query: "type=chore area=garden"', 'done: "stage=done"', "note: due"]),
     ...fig("stat", ["title: Garden chores by address (live)", "items:", `  - { label: by block, view: ((${gardenViewId})) }`, "  - { label: by page, view: [[garden-chores|Garden chores]] }"]),
     ...fig("stat", ["title: House jobs now (live)", "items:", '  - { label: queued, query: "type=roadmap-item project=house work-stage=queued" }', '  - { label: doing, query: "type=roadmap-item project=house work-stage=doing" }', '  - { label: done, query: "type=roadmap-item project=house work-stage=done" }']),
-    ...fig("kpi", ["title: Plot 14b", "items:", "  - { label: beds, value: 3 }", "  - { label: courgettes, value: 11 }", "  - { label: kg of onions, value: 4 }"]),
     ...fig("rank", ["title: House jobs by arc (live)", 'query: "type=roadmap-item project=house"', "group: arc"]),
     ...fig("table", ["title: House jobs (live)", 'query: "type=roadmap-item project=house"', "columns: [title, work-stage, priority]", "headers: [Job, Stage, Priority]"]),
     ...fig("tabs", ["title: House jobs by stage (live)", 'query: "type=roadmap-item project=house"', "group: work-stage", "order: [doing, review, queued, done]", "columns: [title, priority]"]),
@@ -48,11 +47,7 @@ export function figuresText(gardenViewId: string, choresId: string): string {
     ...fig("table", ["title: Chore queue by rank (live)", 'query: "type=chore"', "sort: rank", "direction: asc", "columns: [title, rank, area]", "headers: [Chore, Rank, Area]"]),
     ...fig("check", ["title: Garden chores (saved view)", `view: ((${gardenViewId}))`, 'done: "stage=done"']),
     ...fig("check", ["title: Chores still to do, by relation (live)", `query: "under:((${choresId})) type=chore NOT stage=done NOT title~hob"`, "note: due"]),
-    ...fig("funnel", ["title: Seed to plate", "steps:", "  - { label: sown, value: 40 }", "  - { label: sprouted, value: 31 }", "  - { label: planted out, value: 24 }", "  - { label: harvested, value: 18 }"]),
-    ...fig("waterfall", ["title: The food budget", "items:", "  - { label: start, value: 120 }", "  - { label: market, value: -45 }", "  - { label: plot saved, value: 20 }", "  - { label: end, value: 95 }"]),
     ...fig("spark", ["title: Rain this week (mm)", "data: [2, 0, 5, 11, 3, 0, 7]", "caption: Mon to Sun"]),
-    ...fig("plot", ["title: Courgettes picked", "data: [1, 3, 4, 2, 6, 5]", "labels: [Jul, Aug, Sep, Oct, Nov, Dec]"]),
-    ...fig("gantt", ["title: Autumn on the plot", "progress: 0.4", "ticks: [Sep, Oct, Nov]", "items:", "  - { label: dig over, start: 0, end: 0.3, complete: 1 }", "  - { label: plant garlic, start: 0.25, end: 0.6, complete: 0.5 }", "  - { label: mulch, start: 0.55, end: 1, complete: 0 }"]),
     ...fig("tree", ["title: The shed", "nodes:", "  - label: shelves", "    children:", "      - { label: pots }", "      - { label: seed tins, accent: true }", "  - label: hooks", "    children:", "      - { label: inner tubes, meta: left }", "      - { label: pump }"]),
     "The comparison kinds (PIE-575 to PIE-579): two properties at once, columns aligned by label, flows, a budget.",
     "",

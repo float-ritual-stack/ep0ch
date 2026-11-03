@@ -8,11 +8,10 @@ import { PtyPane } from "../src/desk/pty";
 import { declaredFacts, factsOf, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "../src/desk/tile-kinds";
 import { briefKind } from "../src/brief/brief";
 import { echoKinds } from "../src/echonet/screen";
-import { pinnedKind } from "../src/hub/pinned";
 import { welcomeKinds } from "../src/hub/welcome";
 
 registerBuiltinTiles();
-for (const k of [briefKind(), pinnedKind(), ...welcomeKinds(), ...echoKinds()]) if (!tileKind(k.kind)) registerTileKind(k);
+for (const k of [briefKind(), ...welcomeKinds(), ...echoKinds()]) if (!tileKind(k.kind)) registerTileKind(k);
 
 const AGENT = { kind: "agent", id: "wren" } as const;
 
@@ -60,7 +59,7 @@ describe("tile kinds state their own facts (PIE-1523)", () => {
     const readers = tileKinds().filter((k: TileKind) => {
       try { return k.make({ kind: k.kind }) instanceof ReaderPane; } catch { return false; }
     });
-    expect(readers.map(k => k.kind)).toEqual(expect.arrayContaining(["reader", "preview", "river.column", "settings", "brief", "pinned", "welcome.detail", "echo.reader"]));
+    expect(readers.map(k => k.kind)).toEqual(expect.arrayContaining(["reader", "preview", "river.column", "settings", "brief", "welcome.detail", "echo.reader"]));
     expect(readers.filter(k => !k.facts).map(k => k.kind)).toEqual([]);
   });
 });

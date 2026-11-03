@@ -1029,7 +1029,8 @@ export const EDGE_GLYPH: Record<Dir, string> = { left: "\u2190", right: "\u2192"
 /** An edge in words, as the status bar says it: "a dock on the top". */
 export const EDGE_WORD: Record<Dir, string> = { left: "left", right: "right", up: "top", down: "bottom" };
 /** A kind name a saved layout, a screen spec or an agent may still use for another kind (PIE-705: `detail` is a reader that starts held). */
-export const canonKind = (kind: string): string => (kind === "detail" ? "reader" : kind);
+/** A kind as a saved layout or policy names it: `detail` and `pinned` are readers now (the other retired names resolve in the registry). */
+export const canonKind = (kind: string): string => (kind === "detail" || kind === "pinned" ? "reader" : kind);
 export const isDir = (x: unknown): x is Dir => typeof x === "string" && (DIRS as readonly string[]).includes(x);
 
 /**

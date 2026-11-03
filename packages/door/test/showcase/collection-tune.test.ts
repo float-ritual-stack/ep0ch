@@ -435,4 +435,35 @@ describe("showcase: tune the collection's own record (PIE-1483)", () => {
     }
     h.app.t.cols = 177;
   }, 30_000);
+
+  test("a press where settings floats over Sources is the settings card's: the top attachment takes the pointer (PIE-1536 review)", async () => {
+    await show();
+    await act("sources.open");
+    await until(() => !!surface().sourcesMode, "Sources opens");
+    await act("sources.place", { place: "floating" });
+    await act("sources.focus", { on: false });
+    await act("list.enter", { on: true });
+    await act("settings");
+    await until(() => !!surface().panel?.card, "settings opens");
+    await act("settings.place", { place: "floating" });
+    h.screen();
+    const s = surface(), sm = s.sourcesMode!, card = s.panel!.card!;
+    expect(s.modes.active(sm)).toBe(false);
+    // A cell inside both frames, inside Sources' text, where settings is drawn on top.
+    const r = sm.rect, f = card.frame!;
+    let at: { x: number; y: number } | null = null;
+    for (let y = Math.max(r.y + 1, f.row + 1); y < Math.min(r.y + sm.footer, f.row + f.rows - 1) && !at; y++)
+      for (let x = Math.max(r.x, f.col + 1); x < Math.min(r.x + r.w, f.col + f.cols - 1) && !at; x++) if (s.floatAt(x, y) === "settings") at = { x, y };
+    expect(at).not.toBeNull();
+    const o = stage().layoutGet().tiles.find((t: any) => t.name === "garden")!.rect!, inner = (stage().pane("garden") as any).innerFrame ?? { col: 0, row: 0 };
+    const mouse = (action: "down" | "up") => stage().key({ kind: "mouse", action, button: 0, x: o.col + 1 - inner.col + at!.x, y: o.row + 1 - inner.row + at!.y } as never, stage().ctx!);
+    mouse("down"); mouse("up");
+    await Bun.sleep(50);
+    h.screen();
+    expect(s.modes.active(sm)).toBe(false);
+    expect(sm.view.pressed).toBeFalsy();
+    await act("settings.place", { place: "inline" });
+    await act("sources.place", { place: "split" });
+    await act("sources.close");
+  }, 20_000);
 });
