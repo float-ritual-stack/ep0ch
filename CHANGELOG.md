@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A posted comment's edit says what happened, and a narrow edit keeps "not saved" (PIE-1560)
+
+- **A comment's edit has the note edit's lifecycle.** While you edit a posted comment that changes elsewhere, it says `!! changed elsewhere`. A refused ctrl+s says `not saved` and where your words were copied, and ctrl+r (`^R reload` in its hint row) loads its words as they are now and names the copy.
+- **At 44 columns nothing important is cut.** The edit's state leads with `not saved` when it doesn't fit, and a copy's path keeps its file name, its folder shortened.
+- **Run:** nothing; the door picks it up on its next start.
+
+### pie's host keeps answering while the laptop sleeps (PIE-1546)
+
+- **No more 3-second queues behind the laptop's copies.** While the laptop was away, a backlinks or reference read in pie made the host snapshot every laptop copy at once (ten, two of them 50 MB) and ask each one for its whole index within a second. The big ones never made it, so none was kept, and the next read 15 seconds later did it all again, holding the loop for seconds each time.
+- **One snapshot at a time,** in a process, for every mirror (the host, the MCP gateway, the web client); a copy says its newest change from its file in one query, with no index read.
+- **A copy that couldn't be snapshotted waits for the next check** (15 s), as a changed one does, instead of being taken again on every read.
+- **A machine that doesn't answer is read from its copies at once,** asked again in the background every 30 s, and read live as soon as it answers; a links read no longer waits out the 1.5 s deadline every time.
+- **Run:** `ep0ch install --apply` on float-2 (host code only; no protocol or schema change).
+
 ### A program that exited in your drawer says so (PIE-1563)
 
 - **The drawer's foot follows it:** once its program ends, the foot reads `⏎ runs it again · esc or ^] back` instead of saying Esc is the program's.
