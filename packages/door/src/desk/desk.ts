@@ -3160,8 +3160,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   keys(): ScreenKeys {
     const f = this.panes.get(this.focus), via = this.readerOfFocus(), viaId = this.idOf(via);
     const name = viaId !== undefined ? this.nameOf(viaId) : f ? this.nameOf(this.focus) : null;
-    const typing = !!f && (this.rawKeys() || !!this.personIn() || !!kindOf(f)?.takesKeys?.(f) || !!f.typing?.() || !!factsOf(f, { keys: true }).typing);
-    const busy = this.holdsKeys();
+    const exited = this.waitsOnExit(), busy = exited ? this.holdsOtherKeys() : this.holdsKeys();   // an exited program isn't typed in and holds nobody back (PIE-1563)
+    const typing = !!f && ((this.rawKeys() && !exited) || !!this.personIn() || !!kindOf(f)?.takesKeys?.(f) || !!f.typing?.() || !!factsOf(f, { keys: true }).typing);
     const inner = f instanceof ScreenTile && !this.contentCover(this.focus).fold ? f.inner?.keys() : null;
     const address = inner?.address ?? (f ? this.tileId(this.focus) : null);
     const why = !busy ? undefined : this.rawKeys() ? `the person is typing in ${name} on the ${this.title}`
@@ -3221,9 +3221,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * choice, or in a terminal tile.
    * A screen built on the desk leaves its own keys to the desk then.
    */
-  holdsKeys(): boolean {
-    const f = this.panes.get(this.focus);
-    return !!this.overlays.top() || !!this.linking || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.choosingReader() || this.rawKeys() || (!!f && !!kindOf(f)?.takesKeys?.(f)) || !!f?.typing?.()
+  holdsKeys(): boolean { return this.rawKeys() || this.holdsOtherKeys(); }
+  private holdsOtherKeys(): boolean {   // all but a terminal tile: an overlay, a chord, an edit, a picker, a kind's own typing
+    const f = this.panes.get(this.focus); return !!this.overlays.top() || !!this.linking || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.choosingReader() || (!!f && !!kindOf(f)?.takesKeys?.(f)) || !!f?.typing?.()
       || [...this.models.values()].some(m => m.busy?.());
   }
   /** A hyper chord (PIE-699) is moving the keys: the edit, comment or panel the person is in is left as a click elsewhere leaves it (theirs stays open, PIE-812). False when it can't be left. */
@@ -3923,11 +3923,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Where the person types in a program, as Esc asks it (PIE-1431): `typing`, a terminal tile has their keys here or in a
    * group they went into; `over`, a menu or picker is open over it on the way (this desk's, or the group's).
    */
-  programKeys(): { typing: boolean; over: boolean } {
+  programKeys(): { typing: boolean; over: boolean; exited?: true } {   // exited: its tile waits for ⏎ or a way back (PIE-1563)
     const inner = this.keysDesk();
-    if (inner === this) return { typing: this.rawKeys(), over: this.overlayOpen() };
+    if (inner === this) return { typing: this.rawKeys() && !this.waitsOnExit(), over: this.overlayOpen(), ...(this.waitsOnExit() ? { exited: true as const } : {}) };
     const deeper = (this.panes.get(this.focus) as ScreenTile).inner!.programKeys();
-    return { typing: deeper.typing, over: deeper.over || this.overlayOpen() };
+    return { ...deeper, over: deeper.over || this.overlayOpen() };
   }
 
   /**
