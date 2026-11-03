@@ -6,7 +6,8 @@ import { DraftSession, type DraftTarget, type Outcome } from "../src/draft-sessi
 import { Refused, USER } from "../src/socket";
 import { visible } from "../src/style";
 import { elementEdit } from "../src/surface/element-editor";
-import { renderEditor } from "../src/surface/editor";
+import { renderEditor, saidRows } from "../src/surface/editor";
+import { composerBox } from "../src/surface/composer";
 import type { Key } from "../src/term";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -74,5 +75,50 @@ describe("the one status line", () => {
     expect(w.draft.text).toBe("Swap Fridays?");
     expect(w.draft.note).toContain("loaded its words at revision 4");
     expect(w.draft.note).toContain("your earlier draft is at");
+  });
+
+  // A stale posted comment's edit, ready to be drawn: the session, its draft and its env.
+  async function staleEdit(update: () => Promise<never>, reload: () => Promise<any[]>) {
+    const thread = { id: "c-3", author: "user", body: "Rake the leaves?", quote: "", at: 0, open: true, lifecycle: "open" as const, start: null, end: null, replies: [], revision: 2 };
+    const msg = { id: "note-leaves", title: "Leaves", text: "Leaves\nRake", revision: 1 } as any;
+    const env: any = { board: { updateComment: update }, fetch: async () => msg, setMsg() {}, reloadComments: reload, external() {}, flash() {}, redraw() {} };
+    const s = new CommentSession(msg, [thread as any], "threads");
+    expect(s.editMark(0)).toBeNull();
+    const w = s.writing!;
+    w.draft.key(char("!"));
+    s.key({ kind: "char", ch: "s", ctrl: true }, env);
+    await until(() => !w.busy && (w.status.conflict !== null || !!(s as any).error), "the refusal");
+    return { s, w, env, frame: (cols: number) => renderEditor(w.draft, s.composerFrame()!, cols, 20).map(visible).join("\n") };
+  }
+
+  test("a short split keeps a row of the text being typed under a stale edit's status", async () => {
+    const { s, w } = await staleEdit(async () => { throw new Refused("revision is stale"); }, async () => []);
+    const box = composerBox(w.draft, s.composerFrame()!, 30, 8, true);
+    expect(box.lines.length).toBeLessThanOrEqual(8);
+    expect(box.lines.map(visible).join("\n")).toContain("Rake the leaves?!");
+  });
+
+  test("a reload that can't read the comments says so, and the conflict stays", async () => {
+    const { s, w, env } = await staleEdit(async () => { throw new Refused("revision is stale"); }, async () => { throw new Error("offline"); });
+    await s.reload(env);
+    expect(w.draft.note).not.toContain("gone");
+    expect(w.draft.note).toContain("couldn't read");
+    expect(w.status.conflict).not.toBeNull();
+  });
+
+  test("a copy's file name stays whole in a narrow status, the full path kept for the reveal", () => {
+    const file = "a7ee1cbe-comment-edit-2026-11-03T20-42-17-561Z.md";
+    const rows = saidRows(`your draft is kept and copied to /home/gardener/.state/drafts/${file} · ctrl+r loads the current text`, 24, 4, 0);
+    expect(rows.length).toBeLessThanOrEqual(4);
+    expect(rows.map(visible).join("").replace(/\s+/g, "")).toContain(file);
+  });
+
+  test("an offline save names its copy at 44 columns, bounded like every status", async () => {
+    const { w, frame } = await staleEdit(async () => { throw new Error("offline"); }, async () => []);
+    const copy = w.status.savedCopy ?? frame(80).match(/[\w-]+-comment-edit-[\w-]+\.md/)?.[0];
+    expect(copy).toBeTruthy();
+    const at44 = frame(44);
+    expect(at44.split("\n").every(l => Bun.stringWidth(l) <= 44)).toBe(true);
+    expect(at44.replace(/\s+/g, "")).toContain(copy!.split("/").at(-1)!);
   });
 });

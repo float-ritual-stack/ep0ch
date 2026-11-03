@@ -403,8 +403,8 @@ export class CommentSession {
         // A stale edit is the session's to say (the conflict, where the words were copied, ctrl+r), as a note's edit is.
         refused: (why, stale) => { this.busy = null; this.error = stale ? null : why; this.stale = stale; },
         reread: async () => {
-          const now = await this.env!.reloadComments().catch(() => null);
-          if (!now) return null;
+          // A failed read throws (the session says so and keeps the conflict); only a missing comment is "gone".
+          const now = await this.env!.reloadComments();
           this.threads = now;
           const th = now.find(x => x.id === t.thread.id), x = m.reply ? th?.replies.find(r => r.id === m.id) : th;
           if (!x || x.revision === undefined) return null;
@@ -620,7 +620,6 @@ export class CommentSession {
     if (this.mode !== "compose" || !d || !t) return null;
     const w = 60;
     const status = (s: string, colour: number) => fg(colour) + s + RESET;
-    const state = this.busy ? status(this.busy, C.grey) : this.error ? status(`! ${this.error}`, C.lred) : null;
     const kind = this.props?.kind === "question" ? "question" : this.props?.kind === "explain" ? "explain" : "comment";
     const what = t.kind === "quote" ? kind : t.kind === "note" ? `${kind} on the whole note` : t.kind === "reply" ? `reply to ${authorName(t.thread.author)}` : `edit ${authorName(t.mark.author)}'s ${t.mark.reply ? "reply" : "comment"}`;
     const away = this.place === "popup" || this.place === "split" || this.place === "tile";
@@ -630,8 +629,9 @@ export class CommentSession {
       title: what,
       // The draft's own status line, as a note's edit draws it (PIE-1560): an edit's conflict or "changed elsewhere", and
       // what the draft said, drawn by the frame to its width.
-      draftStatus: { state: t.kind === "edit" && !!(d.status.conflict || d.status.changedElsewhere), said: state ? null : d.note || null },
-      status: [...(state ? [state] : d.note ? [] : [status(this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words") : d.dirty ? "unsent" : t.kind === "quote" || t.kind === "note" ? "type the comment · (( links a note" : "type the reply"), d.dirty ? C.yellow : C.dark)])],
+      // A refusal is said the same bounded way (an offline error names its copy at any width, PIE-1560).
+      draftStatus: { state: t.kind === "edit" && !!(d.status.conflict || d.status.changedElsewhere), said: this.busy ? null : this.error ? `! ${this.error}` : d.note || null, tone: this.error ? C.lred : C.yellow },
+      status: [...(this.busy ? [status(this.busy, C.grey)] : this.error || d.note ? [] : [status(this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words") : d.dirty ? "unsent" : t.kind === "quote" || t.kind === "note" ? "type the comment · (( links a note" : "type the reply"), d.dirty ? C.yellow : C.dark)])],
       context, by: writtenBy(d, t.kind === "edit" ? "save" : "send"), preview, pick: true, follow: true, place: this.place,
     };
   }

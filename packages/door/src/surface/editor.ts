@@ -12,6 +12,7 @@ import { DRAFT_ACTIONS, DRAFT_KEYS, keepCopy, patchLabel, type Draft } from "../
 import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
 import { drawEllipsized, C, fg, pad, RESET, visible, width, type LinkRange } from "../style";
+import { FULL_START, fullText } from "../overflow";
 import { inWindow, type Placement } from "../kitty";
 import type { LinkTarget } from "../refs";
 import { fitPaths, rowLines, rule, words } from "../text";
@@ -28,7 +29,7 @@ export interface EditFrame {
   /** Status lines under the title (already coloured): revision and state, the last thing that happened. */
   status: string[];
   /** The draft's own status line first, drawn to the frame's width (PIE-1560): its state, and what it said (up to four rows). */
-  draftStatus?: { state: boolean; said: string | null };
+  draftStatus?: { state: boolean; said: string | null; tone?: number };
   /** Context between the status and the text, such as the quoted passage. */
   context?: string[];
   /** Who else typed into this draft (an agent), shown so it is never silent. */
@@ -97,8 +98,7 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   })() : [];
   const top = [
     fg(C.yellow) + pad(`» ${f.title}`, tw) + ctls.map(c => " " + fg(C.lcyan) + c.text).join("") + RESET,
-    ...(f.draftStatus?.state ? editState(d, w, "") : []),
-    ...(f.draftStatus?.said ? saidRows(f.draftStatus.said, w, 4, C.yellow) : []),
+    ...draftStatusRows(d, f, w),
     ...f.status,
     ...lands,
     ...twin,
@@ -142,11 +142,35 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
  * What the wheel at `x`, `y` (the host's cells) over a draft drawn by renderEditor scrolls (PIE-846): its preview when
  * the pointer is over the preview, its text when over the text, else null (the host's own: the note around a comment).
  */
-/** What the draft says, on up to `rows` rows at `w`, a path in it shortened to its file rather than cut (PIE-1560). */
+/** How many of `n` are left once `taken` has its own. */
+const left = (n: number, taken: readonly unknown[]) => Math.max(0, n - taken.length);
+
+/** How many rows the draft's own status takes in a frame at `w` (a host sizing a box counts them). */
+export function draftStatusHeight(d: Draft, f: EditFrame, w: number): number { return draftStatusRows(d, f, w).length; }
+
+/** The draft's own status rows in a frame (its state, what it said), as renderEditor draws them and a host counts them. */
+export function draftStatusRows(d: Draft, f: EditFrame, w: number): string[] {
+  return [...(f.draftStatus?.state ? editState(d, w, "") : []), ...(f.draftStatus?.said ? saidRows(f.draftStatus.said, w, 4, f.draftStatus.tone ?? C.yellow) : [])];
+}
+
+/**
+ * What the draft says, on up to `rows` rows at `w`, a path in it shortened to its file rather than cut (PIE-1560). When
+ * the rows can't hold it all, the words before a copy's file name give way first; the last row keeps the whole text for
+ * the overflow reveal.
+ */
 export function saidRows(said: string, w: number, rows: number, colour: number): string[] {
+  const room = Math.max(4, w), long = said.split(" ").some(word => width(word) > room), fitted = fitPaths(said, long ? 0 : room * rows, room);
   // A word wider than a row (a copy's file name in a narrow tile) goes on across rows rather than being cut.
-  const room = Math.max(4, w), long = said.split(" ").some(word => width(word) > room), text = fitPaths(said, long ? 0 : room * rows, room).split(" ").map(word => width(word) > room ? (word.match(new RegExp(`.{1,${room}}`, "gu")) ?? [word]).join(" ") : word).join(" ");
-  return rowLines(text, w, rows).map(l => fg(colour) + pad(l, w) + RESET);
+  const chunk = (word: string) => width(word) > room ? (word.match(new RegExp(`.{1,${room}}`, "gu")) ?? [word]).join(" ") : word;
+  const words = fitted.split(" "), path = words.find(word => word.includes("/") && /\.\w+$/.test(word));
+  let out = rowLines(words.map(chunk).join(" "), w, rows);
+  if (path && !out.map(visible).join("").replace(/\s+/g, "").includes(path)) {
+    const named = rowLines(chunk(path), w, rows), lead = left(rows, named), before = fitted.slice(0, fitted.indexOf(path)).trim();
+    out = [...(lead && before ? rowLines(before, w, lead) : []), ...named].slice(0, rows);
+  }
+  const last = out.length - 1;
+  if (last >= 0 && visible(out.join(" ")) !== said && !out[last]!.includes(FULL_START)) out[last] = fullText(said, out[last]!);
+  return out.map(l => fg(colour) + pad(l, w) + RESET);
 }
 
 export function wheelTarget(d: Draft, x: number, y: number): "text" | "preview" | null {
