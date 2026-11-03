@@ -24,10 +24,11 @@ describe.skipIf(!outliner)("the showcase screen: a long collection (PIE-1529)", 
       await act("list.pick", { n: 1 });
       const at = () => list().view.indexOf(PERSON, list().view.picked());
       const seen = () => h.screen().includes(list().view.picked().label.split(":")[0]);
+      const onScreen = list().view.pickable().filter((r: any) => h.screen().includes(r.label.split(":")[0])).length;
       h.press({ kind: "pgdn" });
       await until(() => at() > 0, "PgDn moves the pick", 4000);
       const page = at();
-      expect(page).toBeLessThan((stage().pane("packets").surface as any).bodyRoom);
+      expect(page).toBeLessThan(onScreen);
       if (cols === 120) expect(page).toBeGreaterThan(4);
       await until(seen, "the picked packet is on screen", 4000);
       h.press({ kind: "pgdn" });

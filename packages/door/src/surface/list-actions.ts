@@ -30,7 +30,7 @@ export interface ListHost {
   keep?(list: ListHandle, words: string): void;
   choose?(list: ListHandle, action: "list.sort" | "list.group", keys: string[]): void;
   tune?(list: ListHandle, actor: Actor, standing: boolean): Promise<unknown>;
-  /** The lines of screen this host shows its lists in, when it draws them whole and scrolls itself (the reader): a page (PgUp PgDn) is what that much shows. */
+  /** The lines of screen this host shows `list` in, when it draws it whole and scrolls it itself (the reader: the inline window it scrolls a collection in, else its body): a page (PgUp PgDn) is what that much shows. */
   room?(list: ListHandle): number;
   redraw(): void;
 }

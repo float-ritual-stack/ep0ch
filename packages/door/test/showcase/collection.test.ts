@@ -451,10 +451,10 @@ describe("showcase: a collection record (PIE-1281)", () => {
       h.press({ kind: "pgdn" });
       await until(() => at() > 0, `${layout} PgDn moves the pick`, 4000);
       const page = at();
-      // A screen of rows, less one: never more rows than the reader's body holds lines, nor than the forty minus one;
-      // as cards (a narrow table, a gallery, a feed) no more than the cards on screen.
+      // A screen of rows, less one: fewer than the collection's window showed (a few cards, in a narrow table, a gallery or a
+      // feed); a saved view's rows are the note's own body, so fewer than the reader's body holds.
       expect(page).toBeGreaterThan(0);
-      expect(page).toBeLessThan(Math.max(onScreen, (stage().pane("garden").surface as any).bodyRoom));
+      expect(page).toBeLessThan(saved ? (stage().pane("garden").surface as any).bodyRoom : onScreen);
       if (layout === "table" && cols === 177) expect(page).toBeGreaterThan(4);
       await until(seen, `${layout} the picked row is on screen after PgDn`, 4000);
       h.press({ kind: "pgdn" });

@@ -4137,7 +4137,7 @@ export class NoteSurface {
       type: l => { if (this.listIn !== l.key) { this.enterList(l, true); if (l.collection) this.modes.push(listMode(this, l.key, l.title)); } l.view.startTyping(filterLine); },
       tune: (l, actor, standing) => this.run("settings", { list: l.key }, here(), actor, standing),
       choose: (l, action, keys) => here().overlay?.(listFieldPicker(l.title, action, keys, by => { void this.runList(action, { list: l.key, by }, here()); })),
-      room: () => this.bodyRoom, redraw: () => host?.redraw(),
+      room: l => { const i = [...this.inlineLists.values()].find(i => i.rows.some(r => r.target.listRow?.key === l.key)); return i?.windowed() ?? this.bodyRoom; }, redraw: () => host?.redraw(),
     };
   }
 
