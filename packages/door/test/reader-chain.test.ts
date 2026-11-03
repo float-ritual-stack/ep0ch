@@ -149,7 +149,9 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
       void lines;
       expect(chain(D(), "reader10")).toContain("← reader9");
       expect(chain(D(), "reader9")).toContain("opens land here");
-      expect(chain(drawerDesk(), "what-changed")).toContain("open → reader9");
+      // The list's own open words say it (PIE-1522: placement's hand-off to the screen shown), not a second `open →` beside them.
+      expect(drawerDesk().wireDescription("what-changed", "open")).toBe("reader9");
+      expect(chain(drawerDesk(), "what-changed")).not.toContain("open →");
     });
   });
 

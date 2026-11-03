@@ -368,17 +368,11 @@ export class AgentDrawer {
     return { changed: door?.whatChanged?.facts() ?? [] };
   }
 
-  /** Open block `id` on the screen shown, as its details open (a new detail when `fresh`), or where an open naming no tile lands. */
-  async openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: Reveal): Promise<{ tile: string | null; name?: string; id: string }> {
-    // The tile it comes from has a link to a tile of the screen (alt+l): that tile takes it, whatever has the keys (PIE-700).
-    const linked = from && !fresh && this.d ? await this.d.openOnLink(id, from, actor) : null;
-    if (linked) {
-      const at = this.d!.resolveTile(linked)!.tile;
-      return { tile: at.id!, name: at.name, id };
-    }
+  /** Open block `id` on the screen shown, where an open naming no tile lands there (a new detail when `fresh`): placement's, through the screen's own `openBy`. */
+  async openOnScreen(id: string, fresh: boolean, actor: Actor, reveal?: Reveal): Promise<{ tile: string | null; name?: string; id: string }> {
     const screen = tilesOf(this.host.screen?.());
     if (!screen) throw new ActionRefused("this screen has no tiles to open it in · q goes back to one");
-    const opened = screen.hasPlaces() ? await screen.openPlace(id, fresh ? "new-detail" : "detail", actor) : fresh ? await screen.openFresh(id, actor) : await screen.openLanding(id, actor);
+    const opened = await screen.openBy(id, { fresh, standing: false }, actor);
     if (reveal) screen.revealIn(opened.tile, reveal, actor);
     return opened;
   }
