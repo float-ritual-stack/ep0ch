@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A program that exited in your drawer says so (PIE-1563)
+
+- **The drawer's foot follows it:** once its program ends, the foot reads `⏎ runs it again · esc or ^] back` instead of saying Esc is the program's.
+- **Nobody is typing in a dead program:** you're no longer counted as typing there, so agents aren't held back by it.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### One draft view and one status line for every field (PIE-1560)
 
 - **An agent's patch never moves your place in a note's edit.** In raw text and in rich cells alike, the cursor stays on its row and a scrolled view on its top line while an agent's edit lands, before or after the edit was first drawn. Every field (the reader's edit, a comment, rich cells, a line field) now shares the one view module and the one status line.

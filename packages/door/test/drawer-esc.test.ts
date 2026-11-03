@@ -179,6 +179,23 @@ describe.skipIf(!outliner)("Esc reaches the program in a drawer tile (PIE-1554)"
       expect(foot()).toContain("esc steps out");
     } finally { d.quit(); }
   });
+
+  // PIE-1563: after the program exits, the one owner (Desk.programKeys, read by App.person) says so: the foot names what
+  // the exited tile offers, nobody is typing there, and agents aren't held back by a dead program.
+  test("once the drawer's program exits, the foot offers it again, and the person isn't typing in it", async () => {
+    const d = await door();
+    try {
+      const foot = () => { d.paint(); return (d.app.drawer.render(140, 40, "desk").lines as string[]).map(l => l.replace(/\x1b\[[\d;:]*m|\x1b\]8;[^\x07]*\x07/g, "")).find(l => l.includes("drawer ·")) ?? ""; };
+      expect(foot()).toContain("^] steps out");
+      d.agent()!.kill();                                            // the program ends (as `exit` would)
+      await until(() => d.agent()?.running === false, "the program exited");
+      expect(foot()).toContain("runs it again");
+      expect(foot()).not.toContain("esc is the program's");
+      const w = d.app.person();
+      expect(w.program).toEqual({ over: false, exited: true });
+      expect({ busy: w.busy, typingIn: w.typingIn }).toEqual({ busy: false, typingIn: null });
+    } finally { d.quit(); }
+  });
 });
 
 // The same cut report to a terminal tile on the screen (a grid tile), outside the drawer.
