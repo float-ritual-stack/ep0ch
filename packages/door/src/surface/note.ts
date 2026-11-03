@@ -470,7 +470,8 @@ const sameElementLink = (a: Link, b: Link) => a.press || b.press
   ? !!a.press && !!b.press && a.press.block === b.press.block && a.press.line === b.press.line && a.label === b.label
   : a.role === b.role && sameLink(a, b) && same(a.task, b.task, taskBase) && same(a.callout, b.callout, calloutBase)
     && same(a.figure, b.figure, figureElemBase) && a.inlineList?.key === b.inlineList?.key && a.inlineList?.row === b.inlineList?.row
-    && a.listRow?.key === b.listRow?.key && a.listRow?.row === b.listRow?.row && a.listRow?.group === b.listRow?.group;
+    && a.listRow?.key === b.listRow?.key && a.listRow?.row === b.listRow?.row && a.listRow?.group === b.listRow?.group
+    && a.proposal?.op === b.proposal?.op && a.proposal?.id === b.proposal?.id && a.unsent?.op === b.unsent?.op;
 const same = <T,>(a: T | undefined, b: T | undefined, base: (x: T) => unknown) => (a && b ? base(a) === base(b) : !a === !b);
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
@@ -764,17 +765,18 @@ export class NoteSurface {
    * group in turn under a heading, and no figure draws a control.
    */
   printed = false;
-  /** The link `[ ]` or a click selected, as an index into `links` (the river steps these; it draws its own body). */
-  private link = -1;
-  /** The elements the last reading render drew, in reading order; empty until one (and in the river). */
+  /** The elements the last layout drew (the reader's rows or a river column's digest), in reading order: the target index. */
   elems: Element[] = [];
-  /** The current element (its key): where `[ ]` is, what ⏎ acts on, what the ruler tints (PIE-441). */
+  /**
+   * The reading position (PIE-1556): the current element's key, the one place `[ ]`, a click and `act` put it, and what ⏎,
+   * a click and element.open act on and the ruler tints (PIE-441). There is no second cursor: a link is current as its element.
+   */
   private cur: string | null = null;
   /**
    * A link selected (`selectLink`) while the note wasn't laid out yet (shown again, not yet drawn): its element becomes
-   * current at the next layout, unless the selection moved meanwhile.
+   * the position at the next layout, unless the position moved meanwhile.
    */
-  private linkUnlaid: number | null = null;
+  private pendingLink: Link | null = null;
   /** A collection row picked before its element is drawn (a page turn, a row off the viewport): the [ ] position lands on it at the next layout (PIE-1501). */
   private pendingRow: { key: string; row: string; group?: string } | null = null;
   /** The collection row the [ ] position is about to land on (pendingRow), for what asks between the pick and the layout. */
@@ -850,7 +852,7 @@ export class NoteSurface {
   /** The fold point selected (its key), which `f` and ⏎ fold or unfold: the current element, when it's a fold. */
   private get foldSel(): string | null { return this.cur?.startsWith("fold:") ? this.cur.slice(5) : null; }
   private set foldSel(key: string | null) {
-    if (key !== null) { const e = this.elems.find(e => e.key === `fold:${key}`); if (e) this.setElem(e); else this.cur = `fold:${key}`; this.link = -1; }
+    if (key !== null) { const e = this.elems.find(e => e.key === `fold:${key}`); if (e) this.setElem(e); else this.cur = `fold:${key}`; }
     else if (this.foldSel !== null) this.cur = null;
   }
   private foldsOf: string | null = null;
@@ -1173,9 +1175,6 @@ export class NoteSurface {
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ${hintOf([rk("enter", "element.open", verbOf(e, false)), ...(e.kind === "resource" ? [rk("y", "block.copy", "copy")] : [])])}`;
     // A table row's label keeps its columns' gaps: one space each here, since two spaces part a hint row's keys (hintKeys).
     if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ${hintOf([rk("enter", "element.open", verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))), ...(opens(e) ? [rk("alt+enter", "element.open", "new", { fresh: true })] : []), ...(e.kind === "resource" || e.kind === "block" ? [rk("y", "block.copy", "copy")] : []), ...(e.kind === "task" ? [rk("space", "task.status", "done/to do"), rk("ctrl+z", "task.undo", "undo")] : [])])}${this.listAtCursor()?.collection ? ` · ${collectionHint()}` : this.figureHint()} · ${this.zoomHint()}`;
-    // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
-    const l = !this.cur ? this.links[this.link] : undefined;
-    if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
     const b = this.buttonAtReading()?.link?.press; if (b) return `press ${printable(b.label ?? "")} · ⏎ runs ${printable(b.act.replaceAll("\n", " -> "))}`;
     return null;
   }
@@ -2394,11 +2393,7 @@ export class NoteSurface {
     // Media become followable links too: [ ] selects, ⏎ opens with the system viewer. Media in a folded
     // section aren't drawn, so they aren't links until it's unfolded.
     const mediaLinks = doc.media.map(x => ({ media: x.path }));
-    if (this.links.filter(l => l.media).map(l => l.media).join("\n") !== mediaLinks.map(l => l.media).join("\n")) {
-      const sel = this.links[this.link];
-      this.links = [...this.links.filter(l => !l.media), ...mediaLinks];
-      this.link = sel ? this.links.findIndex(l => (sel.media ? l.media === sel.media : l === sel)) : -1;
-    }
+    if (this.links.filter(l => l.media).map(l => l.media).join("\n") !== mediaLinks.map(l => l.media).join("\n")) this.links = [...this.links.filter(l => !l.media), ...mediaLinks];
     // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
     const inset = " ".repeat(this.bx);
     // A card under its passage juts into the body's inset (PIE-1255), on its own background, so it reads as beside
@@ -3902,6 +3897,8 @@ export class NoteSurface {
     if (target) {
       const asked = this.askLeave("list.open", { list: l.key, id: row.id, where }, actor, host);
       if (asked) return asked;
+      // The person's open is on their [ ] position, as ⏎ on the row's element is (PIE-1556); an agent's leaves it.
+      if (standing) this.selectListRow(l, row.id, row.group);
       const result = await this.followTarget(target, { ...host, actor }, { link: true, fresh: where === "new", by: actor, standing });
       this.noteAgent(actor, `opened ${row.label}`);
       host.redraw();
@@ -4384,8 +4381,6 @@ export class NoteSurface {
       return true;
     }
     if (row.pick) return this.pickKey(row, k, host);
-    // r with several proposals in view, none current and none named by the binding, asks which (PIE-1533): [ ] goes to one's [resolve], r again resolves it.
-    if (row.action === "proposal.resolve" && !row.args?.block && !row.args?.id) { const t = this.resolveTarget(); if (t && "several" in t) { this.setElem(t.first); host.ctx.flash(`${t.several.length} proposals in view · r again resolves this one · ] then r offers the next`); host.redraw(); return true; } }
     // A row of the person's keymap carries its arguments as words, as `act` does: typed as the wire's are (a refusal is said).
     try { void this.runKey(row.action as keyof NoteActionArgs & string, (READER_KEYS.includes(row) ? row.args ?? {} : coerceActionArgs(row.action, NOTE_ACTIONS.argsOf(row.action) ?? {}, row.args ?? {})) as never, host, !!row.quiet); } catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e)); }
     return true;
@@ -4402,7 +4397,7 @@ export class NoteSurface {
       case "preview": return host.attachment === "list-preview" && !!this.previewPoint();
       case "resolvable": return !!this.resolveTarget();
       case "proposal": return !!m && (isOpenProposal(m) || !!this.currentProposal());
-      case "element": return !!this.cur || this.link >= 0;
+      case "element": return !!this.cur || !!this.pendingLink;
       case "tinted": return !!this.focusMark;
       case "zoomed": return !!this.zoom;
       case "settings": return !!m && !!this.settingsSchemaOf(m);
@@ -4420,6 +4415,13 @@ export class NoteSurface {
       case "detach": host.detach!(); return true;
       case "undo": return this.undoKey(host);
       case "enter": return this.enterKey(!!row.args?.fresh, host);
+      case "resolve": {
+        // With several proposals in view, none current and none named by the binding, r asks which (PIE-1533): [ ] goes to one's [resolve], r again resolves it.
+        const t = row.args?.block || row.args?.id ? null : this.resolveTarget();
+        if (t && "several" in t) { this.setElem(t.first); host.ctx.flash(`${t.several.length} proposals in view · r again resolves this one · ] then r offers the next`); host.redraw(); return true; }
+        void this.runKey("proposal.resolve", (row.args ?? {}) as never, host);
+        return true;
+      }
     }
   }
 
@@ -4452,13 +4454,26 @@ export class NoteSurface {
     if (!fresh && this.selectedFold()) { void this.runKey("fold.toggle", {}, host); return true; }
     if (e) {
       if (fresh && !opens(e) && !e.link?.press?.alt) return false;
-      void this.runKey(e.link?.press ? "button.press" : "element.open", e.link?.press ? { n: this.elems.indexOf(e) + 1, ...(fresh ? { alt: true } : {}) } : fresh ? { fresh } : {}, host);
+      void this.activate(e, host, fresh);
       return true;
     }
-    if (!this.cur && this.links[this.link]) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
+    // The position is a link selected before its element was laid out (link.select, then ⏎ before a paint): it follows.
+    if (!this.cur && this.pendingLink) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
     const b = this.buttonAtReading(); // the reading line (j k) on a ::button's block (PIE-1518): ⏎ presses it, no ] first
-    if (b && (!fresh || b.link?.press?.alt)) { void this.runKey("button.press", { n: this.elems.indexOf(b) + 1, ...(fresh ? { alt: true } : {}) }, host); return true; }
+    if (b && (!fresh || b.link?.press?.alt)) { void this.activate(b, host, fresh); return true; }
     return false;
+  }
+
+  /**
+   * The one activation (PIE-1556): ⏎ on the current element, a click on any element's target and `act` all end in the
+   * same action on it, by its number: a button's (or a view square's) press, else element.open, which decides by the
+   * element's kind (a link follows, a fold toggles, a step opens its choice, a proposal's control runs). `fresh`: alt+⏎,
+   * an alt-, ctrl- or middle-click: a new reader for what opens one, a press's alt= action.
+   */
+  private activate(e: Element, host: SurfaceHost, fresh = false): Promise<unknown> {
+    const n = this.elems.indexOf(e) + 1;
+    if (e.link?.press) return this.runKey("button.press", { n, ...(fresh ? { alt: true } : {}) }, host);
+    return this.runKey("element.open", { n, ...(fresh && opens(e) ? { fresh: true } : {}) }, host);
   }
 
   /**
@@ -5070,17 +5085,6 @@ export class NoteSurface {
     return body === undefined ? null : d.lines[body] ?? null;
   }
 
-  private stepLink(d: 1 | -1) {
-    const n = this.links.length;
-    if (n) this.link = d === 1 ? (this.link + 1) % n : this.link <= 0 ? n - 1 : this.link - 1;
-  }
-
-  /** ⏎ on a selected link: media open in the system viewer, blocks and pages open through the host. */
-  private follow(i: number, host: SurfaceHost, fresh = false): Promise<Msg | Outside | TagList | null> {
-    const l = this.links[i];
-    return l ? this.followTarget(l, host, { link: true, fresh }) : Promise.resolve(null);
-  }
-
   // ── elements: what [ ] walks, ⏎ acts on and the ruler tints (PIE-441) ─────
 
   /** The current element's figure's keys, for the hint: its tabs and its density. */
@@ -5090,7 +5094,7 @@ export class NoteSurface {
   }
 
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
-  letGo() { this.cur = null; this.link = -1; this.linkUnlaid = null; this.pendingRow = null; }
+  letGo() { this.cur = null; this.pendingLink = null; this.pendingRow = null; }
   /** The generated regions the last layout drew (src/output-region.ts): what `[ ]` stops on at each one's gutter mark. */
   private regionInfo = new Map<string, { label: string; target: LinkTarget }>();
   /** Their rows in the reader's content rows (header included), for `openRegionKey`. */
@@ -5118,14 +5122,14 @@ export class NoteSurface {
     const p = this.msg && this.foldsIn(this.msg).points.find(p => `fold:${p.key}` === e.key);
     if (p && this.previews(p)) this.selectListPoint();
     const l = e.link;
-    this.link = l ? this.links.findIndex(x => sameLink(x, l)) : -1;
+    this.pendingLink = null;
     // A row of an inline ::links (PIE-693): it's that component's selection too, and its preview follows.
     const lb = l?.listRow;
     if (lb?.row) { try { this.listViews.get(lb.key)?.pick(PERSON, lb.row, lb.group); } catch { /* a row the list no longer draws */ } }
   }
 
   /** The ::button the reading line is on, in view, with no element current: what ⏎ presses there (PIE-1518). */
-  buttonAtReading() { const d = this.drawn, r = this.readingRows(); return d && r && !this.cur && this.link < 0 ? buttonIn(this.elems, d.top + Math.max(r[0], d.scroll), d.top + Math.min(r[1], d.scroll + d.room)) : null; }
+  buttonAtReading() { const d = this.drawn, r = this.readingRows(); return d && r && !this.cur ? buttonIn(this.elems, d.top + Math.max(r[0], d.scroll), d.top + Math.min(r[1], d.scroll + d.room)) : null; }
   /** The current element while the person can see it (or it's about to be brought into view). */
   inView(): Element | null {
     const e = this.selectedElement(), d = this.drawn;
@@ -5139,12 +5143,12 @@ export class NoteSurface {
 
   /**
    * `[ ]`: the previous or next element in reading order, from the current one, or from the view when none
-   * is current. Where nothing is drawn (the river draws its own body), the links.
+   * is current, over the target index the last layout drew (the reader's rows or a river column's digest).
    * False when there's nothing to step to.
    */
   step(d: 1 | -1): boolean {
     const v = this.drawn ?? (this.digesting ? { top: 0, scroll: 0, room: Infinity } : null), es = this.elems;
-    if (!v) { if (!this.links.length) return false; this.cur = null; this.stepLink(d); return true; }
+    if (!v) return false;
     const n = es.length;
     if (!n) return false;
     // From the current element even when it's out of view (an agent's focus mark scrolled the reader):
@@ -5614,7 +5618,7 @@ export class NoteSurface {
     this.figureUI.set(f.key, { ...this.figureUI.get(f.key), tab: value });
     f.tab = value;
     if (select && this.inView()?.link?.figure?.figure === f.key) {
-      this.cur = `${figureElemBase({ figure: f.key, tab: value })}#0`; this.link = -1; this.reveal = true;
+      this.cur = `${figureElemBase({ figure: f.key, tab: value })}#0`; this.reveal = true;
       // Another key in this input chunk must see the new tab's rows before the host paints.
       const d = this.drawn, digest = this.digested;
       withFigureBoard(host.ctx.board, () => host.redraw(), () => {
@@ -6069,7 +6073,7 @@ export class NoteSurface {
       if (y === pr.row && !host.hasWiredPreview?.() && x >= pr.col + pr.cols - `[${this.listPreview.place} ▸]`.length) void this.runKey("placement.menu", { target: "list-preview" }, host);
       else if (y > pr.row) {
         const hit = this.previewHits.find(h => h.row === y && x >= h.from && x < h.to);
-        if (hit) void this.open(hit.link, host);
+        if (hit) { if (hit.link.choice !== undefined) void this.choose(hit.link.choice, host); else this.pressLink(hit.link, undefined, this.cur, undefined, !!host.freshClick, host); } // a choice row chooses; else its element's activation
         else void this.runKey("list.preview.edit", {}, host);
       }
       return true;
@@ -6156,104 +6160,53 @@ export class NoteSurface {
     // A link (in the text, the summary line, an embed's title, a figure's row): the `[ ]` position, then
     // it opens where ⏎ on it would.
     // A row of an open choice (a step's status, a callout's type) chooses it.
-    if (h.link.choice !== undefined) { void this.open(h.link, host, fresh); return true; }
+    if (h.link.choice !== undefined) { void this.choose(h.link.choice, host); return true; }
     return this.pressLink(h.link, h.elem ? this.elems.find(e => e.key === h.elem) : undefined, was, h.value, fresh, host);
   }
 
   /**
-   * A click on a link the surface drew, wherever its host drew it (a reader's own rows, the river's column, PIE-1392): the
-   * one place that decides what the click does. `e` is its element, `was` the `[ ]` position before the click, `value` a
+   * A press on a link the surface drew, wherever its host drew it (a reader's own rows, a river column's digest, PIE-1392):
+   * its element (`e`, else the one the target index holds for it) gets the one activation (`activate`), as ⏎ on it would;
+   * a list row selects first and opens on the second press. `was` is the `[ ]` position before the press, `value` a
    * summary-line value's key, `fresh` an alt-, ctrl- or middle-click.
    */
   private pressLink(link: Link, e: Element | undefined, was: string | null, value: string | undefined, fresh: boolean, host: SurfaceHost): boolean {
-    // A proposal's [apply] or [dismiss] (PIE-501): it becomes the `[ ]` position, and its action runs.
-    const pc = link.proposal;
-    if (pc?.op) { if (e) this.setElem(e); host.redraw(); void this.proposalControl(pc.op, pc.id, host); return true; }
-    // An `■ unsent` line's control: it becomes the `[ ]` position, and its action runs.
-    const uc = link.unsent;
-    if (uc) { if (e) this.setElem(e); host.redraw(); void this.runKey(`unsent.${uc.op}`, { kind: uc.kind }, host); return true; }
-    // A live figure's tab or density: it becomes the `[ ]` position, and figure.tab or figure.density runs.
-    if (link.role === "figure" && link.figure) { if (e) this.setElem(e); this.pressFigure(link.figure, host); host.redraw(); return true; }
-    // An image's caption control (PIE-532): the image becomes the `[ ]` position, and the control's action runs.
+    // An image's caption control (PIE-532), a click target only: the image becomes the `[ ]` position, and the control's action runs.
     if (link.role === "image" && link.image) { this.pressImage(link.image, host); return true; }
+    e ??= this.elems.find(x => x.link === link) ?? this.elems.find(x => !!x.link && sameElementLink(x.link, link));
+    if (!e) {
+      // A link with no element drawn for it: opened as ⏎ on it would be.
+      host.redraw();
+      const i = this.links.findIndex(x => sameLink(x, link));
+      if (i >= 0 && value === undefined) void this.runKey("link.follow", { n: i + 1, ...(fresh ? { fresh } : {}) }, host);
+      else if (value !== undefined) void this.followValue({ key: value, target: link.block ? { block: link.block } : { page: link.page! } }, host, { link: true });
+      else void this.followLink(link, host, fresh);
+      return true;
+    }
     // A row of an inline ::links (PIE-693), as a links tile's row (PIE-794, one list model): a click selects it (the [ ]
     // position; its preview and a preview linked to this reader follow), a second click on it, however long after, opens it (⏎, PIE-1541),
     // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
-    const lbk = link.listRow;
     // A figure's row is a list row like any other (Evan, Oct 21: a click selects and previews; it never opens at once).
     // A grid's cell (a live calendar's day, an activity cell) has nothing to preview: one click lists its notes, as ⏎
     // on it does (PIE-1457).
-    if (e && (lbk?.row || e.link?.inlineList) && !link.cell && !host.opensOnClick?.(link)) {
+    const lbk = link.listRow;
+    if ((lbk?.row || e.link?.inlineList) && !link.cell && !host.opensOnClick?.(link)) {
       const i = this.elems.indexOf(e), inline = e.link?.inlineList;
       const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
       const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was, untimed: e.key === was && !host.focusing });
       if (lbk?.row) {
         const n = this.listViews.get(lbk.key)!.indexOf(PERSON, { id: lbk.row, group: lbk.group }) + 1;
         void this.runList(g === "open" || fresh ? "list.open" : "list.pick", { list: lbk.key, n, ...(fresh ? { where: "new" } : {}) }, host);
-      } else void this.runKey(g === "open" || (g === "select" && fresh) ? "element.open" : "element.select", { n: i + 1, ...(fresh ? { fresh: true } : {}) }, host);
+      } else if (g === "open" || (g === "select" && fresh)) void this.activate(e, host, fresh);
+      else void this.runKey("element.select", { n: i + 1 }, host);
       host.redraw();
       return true;
     }
-    // A step's box: its status choice opens under it, as ⏎ on it does (PIE-472); a link (or a summary-line
-    // value) opens where ⏎ on it would. Both are element.open on that element.
-    // alt+click: a button's alt=, or, on one with slots and no alt= of its own, asking for its slots again (PIE-1298).
-    if (e) { void this.runKey(e.link?.press ? "button.press" : "element.open", { n: this.elems.indexOf(e) + 1, ...(fresh && e.link?.press ? { alt: true } : {}) }, host); host.redraw(); return true; }
-    const i = this.links.findIndex(x => sameLink(x, link));
-    if (i >= 0 && value === undefined) { void this.runKey("link.follow", { n: i + 1 }, host); return true; }
-    // A link drawn outside the note's elements and links (none today): opened as ⏎ on it would.
+    // Everything else is ⏎ on it: a link follows, a step's box opens its choice, a proposal's or a figure's control runs,
+    // a button presses (alt+click: its alt=, or asking for its slots again, PIE-1298).
+    void this.activate(e, host, fresh);
     host.redraw();
-    if (value !== undefined) void this.followValue({ key: value, target: link.block ? { block: link.block } : { page: link.page! } }, host, { link: true });
-    else void this.followTarget(link, host, { link: true });
     return true;
-  }
-
-  /**
-   * A click on a link a host drew itself from the digest (the river's note body, PIE-1392): its element gets the reader's
-   * click (`pressLink`: a button presses, a list row selects then opens, a step opens its choice); a picker row or a link
-   * outside the elements opens as `open` does. A host that kept its rows from an earlier draw holds that draw's link, so
-   * the element is found by what it is.
-   */
-  clickLink(l: Link, host: SurfaceHost, fresh = false): void {
-    if (l.choice === undefined) {
-      const el = this.elems.find(x => x.link === l) ?? this.elems.find(x => !!x.link && sameElementLink(x.link, l));
-      if (el) { this.pressLink(l, el, this.cur, undefined, fresh, host); return; }
-    }
-    void this.open(l, host, fresh);
-  }
-
-  /**
-   * Open a link the host drew itself (the river's note body): it becomes the selected `[ ]` link when
-   * it is one of them, then opens where ⏎ on it would.
-   */
-  open(l: Link, host: SurfaceHost, fresh = false): Promise<Msg | Outside | TagList | null> {
-    // A step's box opens its status choice; a row of an open choice chooses it (PIE-472).
-    if ((l.role === "task" || l.role === "callout") && l.choice !== undefined) { void this.choose(l.choice, host); return Promise.resolve(null); }
-    if (l.role === "callout" && l.callout) {
-      const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.callout && calloutBase(x.callout) === calloutBase(l.callout!));
-      if (e) { this.openCalloutPicker(e); host.redraw(); }
-      return Promise.resolve(null);
-    }
-    if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
-    if (l.unsent) { void this.runKey(`unsent.${l.unsent.op}`, { kind: l.unsent.kind }, host); return Promise.resolve(null); }
-    if (l.anchor) { void this.runKey("fields.anchor", { key: l.anchor.key, n: l.anchor.n }, host); return Promise.resolve(null); }
-    if (l.use) { void this.runKey("use.fill", { block: l.use.block, line: l.use.line + 1 }, host); return Promise.resolve(null); }
-    if (l.role === "image" && l.image) { this.pressImage(l.image, host); return Promise.resolve(null); }
-    if (l.role === "figure" && l.figure) {
-      const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.link?.figure && figureElemBase(x.link.figure) === figureElemBase(l.figure!));
-      if (e) this.setElem(e);
-      this.pressFigure(l.figure, host);
-      host.redraw();
-      return Promise.resolve(null);
-    }
-    if (l.role === "task" && l.task) {
-      const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.task && taskBase(x.task) === taskBase(l.task!));
-      if (e) { this.openPicker(e); host.redraw(); }
-      return Promise.resolve(null);
-    }
-    const i = this.links.findIndex(x => sameLink(x, l));
-    if (i >= 0) { this.cur = null; this.link = i; }
-    host.redraw();
-    return this.followTarget(l, host, { link: true, fresh });
   }
 
   /**
@@ -6467,9 +6420,10 @@ export class NoteSurface {
    */
   private keepCurrent(host?: SurfaceHost) {
     const drawn = (key: string) => this.elems.some(e => e.key === key);
-    const unlaid = this.linkUnlaid !== null && this.cur === null && this.link === this.linkUnlaid ? this.links[this.link] : undefined;
-    if (unlaid) this.cur = this.elems.find(e => e.link && sameLink(e.link, unlaid))?.key ?? null;
-    if (this.elems.length) this.linkUnlaid = null;
+    // A link selected before its element is drawn (not laid out yet, or folded away) waits until it is drawn, the position
+    // moves (setElem) or the note changes (letGo): a repaint that still doesn't draw it keeps it.
+    const unlaid = this.cur === null ? this.pendingLink : null, e = unlaid && this.elementOfLink(unlaid);
+    if (e) { this.cur = e.key; this.pendingLink = null; }
     const loading = !!this.src && (stepsLoading(this.src.board) || embedsLoading(this.src.board));
     if (this.cur && !this.foldSel && !drawn(this.cur)) {
       const a = this.stepRenamed, cur = this.cur;
@@ -7894,7 +7848,7 @@ export class NoteSurface {
   /** Where the reader is now, as back would come back to it. */
   private place(): Place | null {
     const m = this.msg;
-    return m ? { msg: m, position: structuredClone(this.position), cur: this.cur, link: this.link, folded: [...this.folded], previewLists: [...this.previewLists], previewOpen: [...this.previewOpen], expanded: [...this.expanded], foldedThreads: [...this.foldedThreads], seen: [...this.foldSeen], figures: [...this.figureUI], zoom: this.zoom } : null;
+    return m ? { msg: m, position: structuredClone(this.position), cur: this.cur, folded: [...this.folded], previewLists: [...this.previewLists], previewOpen: [...this.previewOpen], expanded: [...this.expanded], foldedThreads: [...this.foldedThreads], seen: [...this.foldSeen], figures: [...this.figureUI], zoom: this.zoom } : null;
   }
 
   /** Track an explicit navigation once; back returns to the note and position it left. */  track<T>(open: () => T): T {
@@ -7997,7 +7951,7 @@ export class NoteSurface {
   }
 
   private restorePlace(to: Place) {
-    Object.assign(this.position, structuredClone(to.position)); this.cur = to.cur; this.link = to.link;
+    Object.assign(this.position, structuredClone(to.position)); this.cur = to.cur;
     this.folded = new Set(to.folded); this.previewLists = new Map(to.previewLists); this.previewOpen = new Set(to.previewOpen); this.expanded = new Set(to.expanded); this.foldedThreads = new Set(to.foldedThreads); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures); this.zoom = to.zoom ?? null; this.zoomTurn++;
     // A zoom taken back onto a note that changed since: its part is read again for this revision.
     if (this.zoom && this.msg && !this.msg.partial && this.msg.revision !== this.zoom.revision) void this.followZoom(this.msg);
@@ -8752,7 +8706,7 @@ export class NoteSurface {
       editing: (this.modes.get("draft") as DraftMode | null)?.describe(),
       commenting: (this.modes.get("comment") as CommentMode | null)?.describe(),
       comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length, expanded: this.threadShown(c.id), ...(c.quotedIn?.length ? { quotedIn: c.quotedIn } : {}) })) } : null,
-      links: this.links.map((l, i) => ({ n: i + 1, ...l, reads: printable(linkText(l, this.msg?.text ?? "", this.src)), selected: i === this.link })),
+      links: (sel => this.links.map((l, i) => ({ n: i + 1, ...l, reads: printable(linkText(l, this.msg?.text ?? "", this.src)), selected: i === sel })))((s => (s ? this.links.findIndex(l => l === s || sameLink(l, s)) : -1))(this.selectedLink())),
       summary: this.msg ? (({ keys, source, text }) => ({ keys, source, text }))(this.summary(this.msg)) : null,
       folds: this.msg && !this.msg.partial ? this.describeFolds(this.msg) : null,
       elements: this.drawn || this.digesting ? { count: this.elems.length, current: this.describeElements().find(e => e.current) ?? null } : null,
@@ -8954,24 +8908,29 @@ export class NoteSurface {
   /** Bring the comment being written into view at the next paint (comment.place). */
   revealComposerNext() { this.revealComposer = true; }
   closeSession() { this.session = null; }
-  followLink(i: number, host: SurfaceHost, fresh = false) { return this.follow(i, host, fresh); }
+  /** A link with no element drawn for it (folded away, not laid out yet): followed where ⏎ on it would go. */
+  followLink(l: Link, host: SurfaceHost, fresh = false) { return this.followTarget(l, host, { link: true, fresh }); }
   clearLink() { this.letGo(); }
-  /** Where the reader's cursor is (its current element, its selected link) and what it folded: a host that reuses a digest keys on it. */
-  get cursorKey(): string { return `${this.cur ?? ""}|${this.link}|${[...this.folded].join("\u0001")}|${[...this.figureUI].map(([k, v]) => `${k}=${v.tab ?? ""}/${v.density ?? ""}`).join("\u0001")}`; }
+  /** Where the reader's position is (its current element) and what it folded: a host that reuses a digest keys on it. */
+  get cursorKey(): string { return `${this.cur ?? ""}|${[...this.folded].join("\u0001")}|${[...this.figureUI].map(([k, v]) => `${k}=${v.tab ?? ""}/${v.density ?? ""}`).join("\u0001")}`; }
+  /** The note's followable links, in order (link.follow's n=). */
+  noteLinks(): readonly Link[] { return this.links; }
+  /** The element the target index holds for link `l` (the one drawn as it), if any. */
+  elementOfLink(l: Link): Element | undefined { return this.elems.find(e => e.link === l) ?? this.elems.find(e => !!e.link && sameLink(e.link, l)); }
+  /** The note's nth link (from 0) becomes the position: its element, or, until it's drawn, the element it will be. */
   selectLink(i: number) {
     const l = this.links[i];
     if (!l) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`);
-    // The element it's drawn as becomes current (the ruler and ⏎ agree); none when it isn't drawn.
-    this.cur = this.elems.find(e => e.link && sameLink(e.link, l))?.key ?? null;
-    this.link = i;
-    this.linkUnlaid = this.cur === null && !this.elems.length ? i : null;
+    const e = this.elementOfLink(l);
+    if (e) { this.setElem(e); return; }
+    this.cur = null;
+    this.pendingLink = l;
   }
+  /** The link the position is on: the current element's, else one selected before it was drawn. */
+  selectedLink(): Link | null { return (this.cur ? this.elems.find(x => x.key === this.cur)?.link : undefined) ?? this.pendingLink; }
   goUp(host: SurfaceHost) { return this.up(host); }
-  /** The `[[address]]` the selected link names (the current element's, else `[ ]`'s), for `page.create`. */
-  selectedPage(): string | null {
-    const e = this.cur ? this.elems.find(x => x.key === this.cur) : undefined;
-    return e?.link?.page ?? this.links[this.link]?.page ?? null;
-  }
+  /** The `[[address]]` the selected link names, for `page.create`. */
+  selectedPage(): string | null { return this.selectedLink()?.page ?? null; }
 }
 
 /**
@@ -10314,7 +10273,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     ],
     async run({ n, fresh }, { surface, host }) { const m = surface.replyLinks, row = m?.rowsAt[n === undefined ? m.selected : n - 1];
       if (row?.kind === "fold") throw new ActionRefused("that row is a fold, not a post: note.thread.unfold shows what it hides");
-      const target = row && linkTargetOf(row); if (!target) return { opened: null }; surface.closeReplyLinks(); const note = await surface.open(target, host, fresh); return { opened: note && "id" in note ? note.id : null }; },
+      const target = row && linkTargetOf(row); if (!target) return { opened: null }; surface.closeReplyLinks(); const note = await surface.followLink(target, host, !!fresh); return { opened: note && "id" in note ? note.id : null }; },
   }),
   "note.thread.unfold": def({
     summary: "show the posts a fold row of the thread hides", keys: modeActionKeys(ATTACHED_KEYS, "note.thread.unfold"), touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
@@ -10588,7 +10547,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "link.follow n=1", does: "opens the note's first link where the view opens links" },
       { act: "link.follow n=2 fresh=true", does: "opens the note's second link in a new reader" },
     ],
-    async run({ n, fresh, ref }, { surface, host, standing }, actor) {
+    async run({ n, fresh, ref }, on, actor) {
+      const { surface, host, standing } = on;
       surface.requireNote();
       // While the person's comment is unsent here, they're asked first (PIE-785).
       const asked = surface.askLeave("link.follow", { ...(ref !== undefined ? { ref } : {}), ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
@@ -10599,13 +10559,15 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const m = await surface.followFromDraft(link, host);
         return m && "id" in m ? { opened: m.id, title: subject(m) } : { opened: null, ...(m ?? {}) };
       }
-      // The person's n= becomes their [ ] position; an agent's follows that link and leaves the position alone.
-      if (n !== undefined && standing) surface.selectLink(n - 1);
-      const links = surface.describe().links;
+      // The nth link, else the one the position is on. Drawn, it is its element's activation (element.open, PIE-1556),
+      // which makes the person's their [ ] position and leaves an agent's alone; not drawn, it's followed as ⏎ would.
+      const links = surface.noteLinks();
       if (n !== undefined && !links[n - 1]) throw new ActionRefused(`there is no link ${n}; the note has ${links.length}`);
-      const i = n !== undefined && !standing ? n - 1 : links.findIndex(l => l.selected);
-      if (i < 0) throw new ActionRefused("no link is selected; pass n");
-      const m = await surface.followLink(i, host, !!fresh);
+      const link = n !== undefined ? links[n - 1]! : surface.selectedLink();
+      if (!link) throw new ActionRefused("no link is selected; pass n");
+      const e = surface.elementOfLink(link);
+      if (e) { const r: unknown = await NOTE_ACTIONS.run("element.open", { n: surface.elems.indexOf(e) + 1, ...(fresh && opens(e) ? { fresh } : {}) }, on, actor); return r as { opened: string | null }; }
+      const m = await surface.followLink(link, host, !!fresh);
       // Outside the door (a web page, a file): the person's opened there; an agent's is given the address.
       if (m && "outside" in m) return { opened: null, ...m };
       // A #tag (PIE-800): the list it opened (or, for an agent, the notes carrying it).
@@ -10796,6 +10758,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const asked = surface.askLeave("element.open", { n: i, ...(row !== undefined ? { row } : {}), ...(fresh ? { fresh } : {}) }, actor, host, e.key);
         if (asked) return asked;
       }
+      // The person's activation is on their [ ] position (a click's element becomes it, as ⏎'s already is); an agent's leaves it.
+      if (standing && row === undefined) surface.selectElement(e);
       // A step's box opens the person's status choice; an agent sets the status itself.
       // A live figure's tab or density control: the figure's own action, with its rules and its provenance.
       if (e.kind === "figure" && e.link?.figure) {

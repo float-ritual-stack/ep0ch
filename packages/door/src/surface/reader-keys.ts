@@ -36,9 +36,10 @@ export type ReaderGuard = keyof typeof READER_GUARDS;
  * What the reader decides at the key, from what's in front of it: `page` scrolls a page of the room drawn, `fold-all`
  * folds every section or unfolds them, `task` toggles the current step, `undo` takes back the newest change made here
  * (of the `runs`), `enter` acts on the current element (a link follows, a fold toggles, a button presses), `detach`
- * puts the part read into a tile of its own.
+ * puts the part read into a tile of its own, `resolve` resolves the proposal in front of the reader, or, with several in
+ * view and none current, puts `[ ]` on the first one's [resolve] and says so (PIE-1533).
  */
-export type ReaderPick = "page" | "fold-all" | "task" | "undo" | "enter" | "detach";
+export type ReaderPick = "page" | "fold-all" | "task" | "undo" | "enter" | "detach" | "resolve";
 
 export interface ReaderKey extends ModeKey {
   /** Every guard must hold, else the key falls to the next row (and then out of the reader). */
@@ -88,7 +89,7 @@ export const READER_KEYS = keyTable<ReaderKey>("note", "a note being read", [
   r("i", "props", { start: "props", label: "properties", says: "open the property panel", when: ["note"] }),
   r("I", "props", { start: "props-full", args: { full: true }, label: "all properties", when: ["note"] }),
   // A proposal (PIE-501): the one shown, or the one whose embed or control is the current element.
-  r("r", "proposal.resolve", { label: "resolve", when: ["note", "resolvable"] }),
+  r("r", "proposal.resolve", { pick: "resolve", label: "resolve", when: ["note", "resolvable"] }),
   r("A", "proposal.apply", { label: "apply anyway", when: ["note", "proposal"] }),
   r("X", "proposal.dismiss", { label: "dismiss", when: ["note", "proposal"] }),
   // esc lets go of the current element, then of a focus mark, then of a zoom.
