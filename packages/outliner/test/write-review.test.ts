@@ -129,7 +129,8 @@ test("each finding the writer was told is a record with its passage and what was
   expect(answer.produced.titles?.[made.json.id]).toBe("Status tonight");
   // A record opened on its own reads: titled as a sentence, and a card of what it says, its note by title and linked.
   const finding = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=review-finding rule=stacked", machinery: "show" } })).blocks[0]!;
-  expect(finding.text.split("\n", 1)[0]).toStartWith("fix: dense in Status tonight");
+  // Its title is the problem, in the review's own words (PIE-1539); the whole advice is the record's `said`.
+  expect(finding.text.split("\n", 1)[0]).toMatch(/^fix: line \d+ stacks 3 points in one item \[/);
   // The fix offered is kept on the record, in a fence so its chips stay the note's, never the record's (PIE-1402).
   expect(finding.text).toContain("\nfix:\n```text\n- The swap table went up at nine and the jars were sorted by size.\n- The labels ran out halfway");
   expect(finding.properties.some(p => p.key === "needs")).toBe(false);

@@ -9,6 +9,8 @@
 // - `suggestion-outcome`: written once by `judgeSuggestion`'s verdict (the `finding-closed` pattern: records never
 //   change, the join is a later record): followed, a different figure, or ignored. A live figure can't join a record to
 //   a note's text, so the rule runs in code and leaves its verdict as a property the figures count.
+// - A review finding settled is also stamped with its `outcome`, the passage `after` it and `settled-at` (PIE-1539), so
+//   the suggestions page reads one row per finding: what Jev said, the passage before and after, what the writer did.
 //
 // Everything here is best-effort: the write has landed and its answer must not wait on, or fail for, bookkeeping.
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -20,6 +22,7 @@ import type { JevReading } from "./jev";
 import type { RequestInput } from "./client";
 import { writeShape, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
+import { editHunks } from "@ep0ch/outline-core/edit-merge";
 import { figuresIn, type FigureFit, type FigureFitReading } from "./figure-fit";
 import { jevScope, kitIn, sectionsOf, type ReviewReading, type WriteReview } from "./write-review";
 import { chips, chipValue, writeRecord, type RecordCache, type RecordWho, type RecordWriter } from "./records";
@@ -121,7 +124,7 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
           passage: f.passage, said: f.say, patch: f.patch ? "ready" : "none",
         }),
         fix: fixText(f.patch),
-      }, JEV, { title: `${f.advice ? "consider" : "fix"}: ${f.rubric} in ${keep.title || "untitled"}`.slice(0, 120), cache });
+      }, JEV, { title: `${f.advice ? "consider" : "fix"}: ${problemOf(f.say)}`.slice(0, 120), cache });
     }
     const asked = keep.review.jev === "asked";
     const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);
@@ -142,6 +145,16 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
  */
 export async function toldKeys(client: SuggestionClient, note: string): Promise<Set<string>> {
   return new Set((await read(client, `type=review-finding note=${note} NOT source=backfill`, 500)).flatMap(b => { const k = propsOf(b.text).key; return k ? [k] : []; }));
+}
+
+/**
+ * The problem a finding names, in its own words (PIE-1539): every review's `say` is "<the problem>: <the fix>", so the
+ * part before its first ": " is the row's title on the suggestions page, and the whole advice stays on the record.
+ */
+export function problemOf(say: string): string {
+  const colon = say.indexOf(": ");
+  const head = colon > 0 && colon <= 120 ? say.slice(0, colon) : say;
+  return head.length > 100 ? `${head.slice(0, 99).trimEnd()}…` : head;
 }
 
 /** Between the pieces of a fix that edits more than one place (a question's ask, and the line it left). */
@@ -169,13 +182,38 @@ export function fixOf(recordText: string): string[] {
  * address (pie's, made by hand) keeps its own, gaining only what a later version added (`upgradeSuggestionsPage`).
  */
 const QUIET_HEADING = "## Reviewed, nothing to fix";
+const FINDINGS_HEADING = "## What Jev said, and what happened";
+
+/**
+ * One row per finding (PIE-1539): its title is the problem, then the passage as it was and as the settling write left it,
+ * and the outcome, all stamped on the finding itself when it settles. Before, what was said and what the writer did were
+ * two tables with nothing joining their rows.
+ */
+const FINDINGS_SECTION = [
+  FINDINGS_HEADING,
+  "::graph-table",
+  "---",
+  "title: the problem, the passage before and after, and what the writer did",
+  "query: type=review-finding NOT source=backfill",
+  "machinery: show",
+  "columns: [note, passage, after, outcome, writer]",
+  "link: note",
+  // A row opens the finding itself, with Jev's whole advice; its note cell opens the note at the revision the review read (PIE-1433).
+  "at: revision",
+  "row: record",
+  "sort: created",
+  "direction: desc",
+  "limit: 30",
+  "---",
+  "::",
+];
 
 export const SUGGESTIONS_PAGE = [
   "Jev's suggestions [page::jevs-suggestions] [system-view::jev-suggestions]",
   "",
   "> [!summary] Every note an agent writes is reviewed: ship, or fix with the smallest fix.",
-  "> Each row is what the writer was told, the passage it was about, and what the writer did next.",
-  "> Mark a finding below: x when Jev was right, - (Reject) when it was wrong. The thresholds are tuned from your marks.",
+  "> Each row is one finding: the problem Jev named, the passage as it was, the passage after, and what the writer did (blank while it's still open).",
+  "> Open a row for Jev's whole advice, or its note for the passage as Jev read it. Mark a finding below: x when Jev was right, - (Reject) when it was wrong.",
   "",
   "::graph-stat",
   "---",
@@ -184,21 +222,7 @@ export const SUGGESTIONS_PAGE = [
   "---",
   "::",
   "",
-  "## Each finding, newest first",
-  "::graph-table",
-  "---",
-  "title: what each writer was told",
-  "query: type=review-finding NOT source=backfill",
-  "machinery: show",
-  "columns: [note, said, passage, rubric, patch, writer]",
-  "link: note",
-  // A row opens the note at the revision the review read, beside how it is now (PIE-1433).
-  "at: revision",
-  "sort: created",
-  "direction: desc",
-  "limit: 30",
-  "---",
-  "::",
+  ...FINDINGS_SECTION,
   "",
   QUIET_HEADING,
   "::graph-table",
@@ -209,20 +233,6 @@ export const SUGGESTIONS_PAGE = [
   "columns: [note, writer, revision, created]",
   "link: note",
   "at: revision",
-  "sort: created",
-  "direction: desc",
-  "limit: 30",
-  "---",
-  "::",
-  "",
-  "## What the writer did",
-  "::graph-table",
-  "---",
-  "title: followed, patched or ignored",
-  "query: type=suggestion-outcome",
-  "machinery: show",
-  "columns: [note, outcome, because, said, patched, writer]",
-  "link: note",
   "sort: created",
   "direction: desc",
   "limit: 30",
@@ -276,21 +286,49 @@ export const SUGGESTIONS_PAGE = [
  */
 export const REVIEW_RECORDS_RULE =
   "Review records read [rule-name::review-records] [rule-match::type=review-finding OR type=suggestion OR type=suggestion-outcome] " +
-  "[rule-decorate::card] [rule-place::prepend] [rule-fields::note, rubric, component, verdict, said, passage, outcome, because, writer]";
+  "[rule-decorate::card] [rule-place::prepend] [rule-fields::note, rubric, component, verdict, said, passage, after, outcome, because, writer]";
+
+/** A section of the page, by its heading: through its figure's closing `::` and the blank line after it. */
+function sectionAt(lines: readonly string[], heading: string): { from: number; to: number } | null {
+  const from = lines.findIndex(l => l.trim() === heading);
+  const close = from < 0 ? -1 : lines.findIndex((l, i) => i > from && l.trim() === "::");
+  if (close < 0) return null;
+  return { from, to: lines[close + 1] === "" ? close + 2 : close + 1 };
+}
 
 /**
  * An existing suggestions page with what a later version added and it lacks (PIE-1388): the quiet writes' section, with
  * when each was written, and (PIE-1433) `at: revision` on the review tables, so a row opens the note at the revision the
- * review read. Only added, never rewritten, so a page shaped by hand keeps its order and words; a page that has it is
- * returned as it is.
+ * review read. Added, never rewritten, so a page shaped by hand keeps its order and words; a page that has it is
+ * returned as it is. The one replacement (PIE-1539): the two tables a finding's row was split across, "Each finding"
+ * and "What the writer did", become the one table that joins them, where the first stood.
  */
 export function upgradeSuggestionsPage(text: string): string {
   let lines = text.split("\n");
   if (!lines.some(l => l.includes("query: type=review-quiet"))) {
     const section = SUGGESTIONS_PAGE.split("\n"), from = section.indexOf(QUIET_HEADING);
     const quiet = section.slice(from, section.indexOf("", from) + 1);
-    const before = lines.findIndex(l => l.trim() === "## What the writer did");
+    // After the findings: before the outcome table a page from before PIE-1539 has, or before the marks.
+    const anchor = (h: string) => lines.findIndex(l => l.trim() === h);
+    const before = anchor("## What the writer did") >= 0 ? anchor("## What the writer did") : anchor("## Was Jev right?");
     lines = before < 0 ? [...lines, "", ...quiet.slice(0, -1)] : [...lines.slice(0, before), ...quiet, ...lines.slice(before)];
+  }
+  if (!lines.some(l => l.trim() === FINDINGS_HEADING)) {
+    const split = sectionAt(lines, "## Each finding, newest first");
+    if (split) lines = [...lines.slice(0, split.from), ...FINDINGS_SECTION, "", ...lines.slice(split.to)];
+    else {
+      const before = lines.findIndex(l => l.trim() === QUIET_HEADING);
+      lines = before < 0 ? [...lines, "", ...FINDINGS_SECTION] : [...lines.slice(0, before), ...FINDINGS_SECTION, "", ...lines.slice(before)];
+    }
+    const did = sectionAt(lines, "## What the writer did");
+    if (did) lines = [...lines.slice(0, did.from), ...lines.slice(did.to)];
+  }
+  // The findings table from before rows opened the finding gets `row: record`, after its `at:` (or its `link: note`).
+  const found = sectionAt(lines, FINDINGS_HEADING);
+  if (found) {
+    const body = lines.slice(found.from, found.to), link = body.findIndex(l => l.trim() === "link: note");
+    const after = body.findIndex(l => l.startsWith("at:")) >= 0 ? body.findIndex(l => l.startsWith("at:")) : link;
+    if (link >= 0 && !body.some(l => l.startsWith("row:"))) lines = [...lines.slice(0, found.from + after + 1), "row: record", ...lines.slice(found.from + after + 1)];
   }
   // A review table's `link: note` gets `at: revision` after it, unless its figure says `at:` already.
   let query = "", out: string[] = [];
@@ -371,6 +409,8 @@ async function updateRun(client: SuggestionClient, day: string, change: { quiet?
 // ── The rule ───────────────────────────────────────────────────────────────
 
 export type Outcome = "followed" | "different" | "ignored";
+/** A verdict, and the write that settled it (none when no write touched what it was about). */
+export interface Verdict { outcome: Outcome; because: string; patched?: boolean; revision?: number }
 
 export interface OpenSuggestion {
   id: string;
@@ -406,7 +446,7 @@ function judgeFinding(
   s: Pick<OpenSuggestion, "component" | "at" | "rule" | "key" | "line">, baseline: string,
   window: readonly { revision: number; savedAt: string; text: string }[], schemas: readonly ComponentSchema[], closed: boolean,
   heard?: ReadonlyMap<number, Heard>, fix?: readonly string[],
-): { outcome: Outcome; because: string; patched?: boolean } | null {
+): Verdict | null {
   const rule = s.rule!, key = s.key ?? "";
   const facets = facetsOfKey(key);
   const was = writeShape(baseline, { facets }).find(f => f.key === key);
@@ -423,7 +463,7 @@ function judgeFinding(
   // heading renamed or gone reads the whole note.
   const within = (text: string) => kitSection ? sectionsOf(text).find(x => x.heading === kitSection.heading)?.text ?? text : text;
   for (const w of window) {
-    if (pieces?.length && pieces.every(p => within(w.text).includes(p))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true };
+    if (pieces?.length && pieces.every(p => within(w.text).includes(p))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true, revision: w.revision };
     // Jev's own judgment: followed only when Jev read the rewrite and didn't say it again; said again, it stands.
     const review = heard?.get(w.revision);
     if (review?.said.has(key) || review?.said.has(chipValue(key))) continue;
@@ -431,8 +471,8 @@ function judgeFinding(
     if (JEV_RULES.has(rule) && !was) {
       // A qa line code found by its words is gone when the line is; Jev's judgments wait for Jev to read the rewrite.
       const byWords = rule === "qa-for-evan" && !section;
-      if (rewritten && byWords) return { outcome: "followed", because: `revision ${w.revision} no longer has it` };
-      if (rewritten && review?.judged.has(scope)) return { outcome: "followed", because: `revision ${w.revision} rewrote it and Jev, reading it again, didn't say it` };
+      if (rewritten && byWords) return { outcome: "followed", because: `revision ${w.revision} no longer has it`, revision: w.revision };
+      if (rewritten && review?.judged.has(scope)) return { outcome: "followed", because: `revision ${w.revision} rewrote it and Jev, reading it again, didn't say it`, revision: w.revision };
       if (rewritten) rewrittenUnread ??= w.revision;
       continue;
     }
@@ -444,17 +484,17 @@ function judgeFinding(
       // Otherwise (the work rules): the passage it named was rewritten. A section by its text, a line by its words, a
       // note without a line by any change.
       : rewritten;
-    if (gone) return { outcome: "followed", because: rule === "kit" ? `revision ${w.revision} draws ${s.component}` : `revision ${w.revision} no longer has it` };
+    if (gone) return { outcome: "followed", because: rule === "kit" ? `revision ${w.revision} draws ${s.component}` : `revision ${w.revision} no longer has it`, revision: w.revision };
   }
   if (!closed) return null;
   if (rule === "kit") {
     const had = kitIn(baseline, schemas);
     for (const w of window) {
       const other = [...kitIn(w.text, schemas)].find(id => !had.has(id) && schemas.some(x => x.id === id && x.group === "figures"));
-      if (other) return { outcome: "different", because: `revision ${w.revision} draws ${other} instead` };
+      if (other) return { outcome: "different", because: `revision ${w.revision} draws ${other} instead`, revision: w.revision };
     }
   }
-  if (rewrittenUnread !== undefined) return { outcome: "ignored", because: `revision ${rewrittenUnread} rewrote it, but Jev never read it again` };
+  if (rewrittenUnread !== undefined) return { outcome: "ignored", because: `revision ${rewrittenUnread} rewrote it, but Jev never read it again`, revision: rewrittenUnread };
   return { outcome: "ignored", because: `${window.length} later write${window.length === 1 ? "" : "s"} within a day left it as it was` };
 }
 
@@ -477,7 +517,7 @@ export function judgeSuggestion(
   threadLifecycle?: string,
   /** A review finding's: what the later writes' reviews said and read, by revision (the ones in hand). */
   heard?: ReadonlyMap<number, Heard>,
-): { outcome: Outcome; because: string; patched?: boolean } | null {
+): Verdict | null {
   if (threadLifecycle === "kept") return { outcome: "followed", because: "the margin thread was kept" };
   if (s.rule) {
     const window = after.filter(w => Date.parse(w.savedAt) - s.at <= FOLLOW_WITHIN_MS).slice(0, FOLLOW_WITHIN_WRITES);
@@ -490,18 +530,28 @@ export function judgeSuggestion(
   // The whole window is read for the figure suggested before anything else settles it, so a different figure waits for the
   // window to close: the suggested one may still follow it.
   const followed = window.find(w => figuresIn(w.text, schemas).includes(suggested) && !had.has(suggested));
-  if (followed) return { outcome: "followed", because: `revision ${followed.revision} draws ${suggested}` };
+  if (followed) return { outcome: "followed", because: `revision ${followed.revision} draws ${suggested}`, revision: followed.revision };
   const closed = window.length >= FOLLOW_WITHIN_WRITES || now - s.at > FOLLOW_WITHIN_MS;
   if (!closed) return null;
   for (const write of window) {
     const other = figuresIn(write.text, schemas).find(name => !had.has(name));
-    if (other) return { outcome: "different", because: `revision ${write.revision} draws ${other} instead` };
+    if (other) return { outcome: "different", because: `revision ${write.revision} draws ${other} instead`, revision: write.revision };
   }
   return { outcome: "ignored", because: `${window.length} later write${window.length === 1 ? "" : "s"} within a day drew no figure` };
 }
 
 async function read(client: SuggestionClient, where: string, limit = 1000): Promise<Block[]> {
   return (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, machinery: "show", limit } })).blocks;
+}
+
+async function readPaged(client: SuggestionClient, where: string, page: number): Promise<Block[]> {
+  const all: Block[] = [];
+  for (let offset = 0; ;) {
+    const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, machinery: "show", sort: "created", limit: page, offset } });
+    all.push(...found.blocks);
+    if (!found.more || found.nextOffset === undefined) return all;
+    offset = found.nextOffset;
+  }
 }
 
 const openOf = (suggestions: Block[], outcomes: Block[]): OpenSuggestion[] => {
@@ -553,10 +603,78 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
       day: s.day ?? dayOf(s.at), suggestion: s.id, note, outcome: verdict.outcome, component: s.component, writer: s.writer ?? "unknown", harness: s.harness ?? "unknown", because: verdict.because,
       rule: s.rule ?? "figure-fit", rubric: s.rubric ?? "format", title: s.title ?? "none", passage: s.passage ?? "none", said: s.said ?? "none", patched: verdict.patched ? "yes" : "no",
     }), JEV, { title: `${verdict.outcome}${verdict.patched ? " (patched)" : ""}: ${s.rubric ?? s.component} in ${s.title ?? "a note"}`.slice(0, 120) });
+    if (s.rule) {
+      const settledText = verdict.revision === undefined ? undefined : verdict.revision === s.revision ? baseline : after.find(w => w.revision === verdict.revision)?.text;
+      await stampFinding(client, s.id, { outcome: verdict.outcome, after: afterOf(s, baseline, settledText, verdict), "settled-at": verdict.revision ?? "none" });
+    }
     written++;
     await updateRun(client, s.day ?? dayOf(s.at), {}).catch(() => undefined);
   }
   return written;
+}
+
+/** At most this many findings settled before PIE-1539 are stamped with their outcome by one pass. */
+const STAMP_PER_PASS = 25;
+/** The longest passage a stamp keeps of the text after. */
+const AFTER_MAX = 300;
+
+/**
+ * What the passage a finding named reads like after the write that settled it (PIE-1539), so its row shows before and
+ * after: the ready patch's text when it was applied; the section by its heading when the finding was about one; else
+ * what the one change over the finding's line made of it (edit-merge's line hunks), so an edit elsewhere in the same
+ * write is never shown as its after. `removed` when that change only deleted, `unchanged` when no write touched it.
+ */
+export function afterOf(s: Pick<OpenSuggestion, "line" | "fix">, baseline: string, text: string | undefined, verdict: Pick<Verdict, "patched">): string {
+  if (text === undefined) return "unchanged";
+  const clip = (t: string) => { const flat = t.replace(/\s+/g, " ").trim(); return flat.length > AFTER_MAX ? `${flat.slice(0, AFTER_MAX - 1).trimEnd()}…` : flat || "removed"; };
+  if (verdict.patched && s.fix?.length) return clip(s.fix.join(" ⋯ "));
+  const section = s.line ? sectionsOf(baseline).find(x => x.line + 1 === s.line) : undefined;
+  if (section) return clip(sectionsOf(text).find(x => x.heading === section.heading)?.text ?? "removed");
+  const hunks = editHunks(baseline, text) ?? [];
+  const lines = baseline.split("\n"), at = (s.line ?? 0) - 1;
+  // The finding's line as a range of the baseline; one with no line is about the whole note: its first change.
+  const from = at >= 0 && at < lines.length ? lines.slice(0, at).join("\n").length + (at ? 1 : 0) : -1, to = from + (lines[at]?.length ?? 0) + 1;
+  const hunk = from < 0 ? hunks[0] : hunks.find(h => h.end > h.start && h.start < to && h.end > from);
+  if (!hunk) return from < 0 ? "unchanged" : clip(lines[at] ?? "");
+  return clip(hunk.text.split("\n").filter(l => l.trim()).join(" / "));
+}
+
+/**
+ * Stamps a finding with its outcome (PIE-1539), once: a stamp, so views sorted by update don't take it as news. A finding
+ * recorded before its title was its problem (`fix: dense in <note>`) is retitled from its own `said` first, so its row
+ * explains itself like a new one. Never throws.
+ */
+async function stampFinding(client: SuggestionClient, id: string, props: Record<string, string | number>): Promise<void> {
+  try {
+    const record = await client.request<Block | null>({ action: "get", blockId: id } as RequestInput);
+    if (!record || propsOf(record.text).outcome) return;
+    const mutation = { author: "agent" as const, actorId: JEV.provenance!.actorId! };
+    let revision = record.revision;
+    const head = record.text.split("\n", 1)[0]!, cut = head.indexOf(" [type::review-finding]"), said = propsOf(record.text).said;
+    const title = cut < 0 ? head : head.slice(0, cut);
+    const problem = said && said !== "none" ? `${/^consider:/.test(title) ? "consider" : "fix"}: ${problemOf(said)}`.slice(0, 120) : title;
+    if (cut >= 0 && problem !== title) revision = (await client.request<Block>({ action: "update", blockId: id, text: problem + record.text.slice(cut), expectedRevision: revision, mutation } as RequestInput)).revision;
+    const operations = Object.entries(props).map(([key, value]) => ({ op: "append" as const, key, value: chipValue(String(value)) }));
+    await client.request({ action: "properties.patch", blockId: id, expectedRevision: revision, operations, mutation, keepUpdated: true } as RequestInput);
+  } catch { /* a stamp that can't be made now is made by a later pass (stampSettled) */ }
+}
+
+/** Findings settled before their outcome was stamped on them, stamped from their outcome record, a few each pass. */
+export async function stampSettled(client: SuggestionClient, page = 1000): Promise<void> {
+  // Paged (PIE-1539 review): one capped read would hand every pass the same first page, and a finding past it would never
+  // be stamped. Every outcome is read; findings are read a page at a time until a pass's worth are due.
+  const verdicts = new Map((await readPaged(client, "type=suggestion-outcome", page)).map(o => { const p = propsOf(o.text); return [p.suggestion, p] as const; }));
+  const due: Block[] = [];
+  for (let offset = 0; due.length < STAMP_PER_PASS;) {
+    const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: "type=review-finding", machinery: "show", sort: "created", limit: page, offset } });
+    due.push(...found.blocks.filter(b => !propsOf(b.text).outcome && verdicts.has(b.id)));
+    if (!found.more || found.nextOffset === undefined) break;
+    offset = found.nextOffset;
+  }
+  for (const b of due.slice(0, STAMP_PER_PASS)) {
+    const v = verdicts.get(b.id)!;
+    await stampFinding(client, b.id, { outcome: v.outcome ?? "unknown", after: v.patched === "yes" ? fixOf(b.text).join(" ⋯ ") || "not kept" : "not kept", "settled-at": /revision (\d+)/.exec(v.because ?? "")?.[1] ?? "none" });
+  }
 }
 
 /**
@@ -566,7 +684,9 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
  */
 export async function settleOpen(client: SuggestionClient, schemas: readonly ComponentSchema[], now = Date.now()): Promise<number> {
   try {
-    const open = openOf(await read(client, "(type=suggestion OR type=review-finding) created >= -30d"), await read(client, "type=suggestion-outcome created >= -30d")) as OpenWithWho[];
+    const told = await read(client, "(type=suggestion OR type=review-finding) created >= -30d"), outcomes = await read(client, "type=suggestion-outcome created >= -30d");
+    const open = openOf(told, outcomes) as OpenWithWho[];
+    await stampSettled(client);
     const byNote = new Map<string, OpenWithWho[]>();
     for (const s of open) byNote.set(s.note, [...(byNote.get(s.note) ?? []), s]);
     let written = 0;
