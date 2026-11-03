@@ -3,7 +3,7 @@
   "id": "lens",
   "version": 1,
   "name": "Lens",
-  "description": "One line in any note draws a live table of what a query holds, relative to that note: columns, computed columns, sums, groups, and cells that press to change a property.",
+  "description": "One line in any note draws a live table of what a query holds. Columns, computed columns, sums and groups, relative to that note; press a cell to change a property.",
   "demo": "demo",
   "scripts": [
     {

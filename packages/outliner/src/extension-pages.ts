@@ -59,6 +59,8 @@ export interface AvailableExtension {
   readonly door?: string;
   /** The screens it would add (PIE-1525), by name: a screen nobody has names this to install. */
   readonly screens?: readonly string[];
+  /** What installing it gives you (PIE-1549): its README's opening, what it adds, its demo notes, what it needs. */
+  readonly about: ExtensionAbout;
 }
 
 export interface ExtensionPagesOptions {
@@ -154,6 +156,39 @@ const ON_WORDS = (on: string | undefined): string => {
 const scheduleWords = (schedule: { every?: string; cron?: string; once?: "host" } | undefined) =>
   schedule ? `, ${schedule.every ? `every ${schedule.every}` : `on cron ${schedule.cron}`}${schedule.once === "host" ? " (once per host)" : ""}` : "";
 
+/**
+ * What an extension says about itself, read from its folder (PIE-1549): the same words before it's installed (the
+ * power bar's install row) as after (its row and its page). The door draws them; nothing is written again there.
+ */
+export interface ExtensionAbout {
+  /** Its README's opening: what comes before its first section heading, as words (inert, paragraphs unwrapped). */
+  readonly readme?: string;
+  /** What it adds, a list line each: the page's "What it adds" (`whatItAdds`). */
+  readonly adds: readonly string[];
+  /** The demo notes it writes under its page, by title (a demo that can't be read says why in `demoProblem`). */
+  readonly demo: readonly string[];
+  readonly demoProblem?: string;
+  /** What it reads from the host besides itself (its manifest's `env`), a line each. Secrets and settings are in `adds`. */
+  readonly needs: readonly string[];
+}
+
+/** An extension's `ExtensionAbout`, from its manifest and its folder. */
+export function extensionAbout(manifest: ExtensionManifest, directory: string): ExtensionAbout {
+  const readme = readText(join(directory, "README.md"));
+  const body = readme?.trim() ? readmeBody(readme).split("\n") : [];
+  const fenced = codeFenceLines(body);
+  const heading = body.findIndex((line, index) => fenced[index]! < 0 && /^#{1,6}\s/.test(line));
+  const opening = (heading < 0 ? body : body.slice(0, heading)).join("\n").trim();
+  const demo = readDemo(directory, manifest.demo);
+  return {
+    ...(opening ? { readme: opening } : {}),
+    adds: whatItAdds(manifest, directory),
+    demo: demo.notes.filter((note) => !note.parent).map((note) => words(firstLineWithoutPropertyTokens(note.text)) || note.key),
+    ...(demo.problem ? { demoProblem: words(demo.problem) } : {}),
+    needs: (manifest.env ?? []).map((name) => `the host's \`${name}\` (its process is given it when the service has it)`),
+  };
+}
+
 /** What a manifest adds, as list lines (the page's "What it adds"). */
 export function whatItAdds(manifest: ExtensionManifest, directory?: string): string[] {
   const out: string[] = [];
@@ -225,6 +260,8 @@ const STATE_WORDS = (entry: ExtensionEntry): string =>
 export class ExtensionPages {
   private queue: Promise<void> = Promise.resolve();
   private available: AvailableExtension[] = [];
+  /** Each installed extension's own words, as of the last sync (PIE-1549). */
+  private installedAbout: Record<string, ExtensionAbout> = {};
   /** Why the last write failed, if it did: said by `extensions.list`. */
   problem: string | undefined;
 
@@ -269,6 +306,11 @@ export class ExtensionPages {
   /** The repo's extensions not installed here, as of the last sync. */
   availableNow(): readonly AvailableExtension[] {
     return this.available;
+  }
+
+  /** Each installed extension's `ExtensionAbout`, by id, as of the last sync: the words its install row showed. */
+  abouts(): Record<string, ExtensionAbout> {
+    return this.installedAbout;
   }
 
   private lastPrint = "";
@@ -341,6 +383,7 @@ export class ExtensionPages {
           ...(manifest.door ? { door: manifest.door } : {}),
           ...(manifest.screens?.length ? { screens: manifest.screens.map((screen) => screen.name) } : {}),
           ...(manifest.description ? { description: manifest.description } : {}),
+          about: extensionAbout(manifest, join(root, name)),
         });
       } catch {
         // A built-in that doesn't parse isn't offered.
@@ -352,6 +395,10 @@ export class ExtensionPages {
   private async syncOnce(): Promise<void> {
     const listed = this.registry.list().extensions.filter((entry) => entry.state !== "shadowed" && !entry.partOf);
     this.available = this.readAvailable(new Set(listed.map((entry) => entry.id)));
+    this.installedAbout = Object.fromEntries(listed.flatMap((entry) => {
+      const loaded = this.registry.loaded(entry.id);
+      return loaded ? [[entry.id, extensionAbout(loaded.manifest, loaded.directory)]] : [];
+    }));
     const state = this.read();
     const restored = this.ruleNotes("was-on");
     for (const id of new Set(restored.map(note => note.extension))) {

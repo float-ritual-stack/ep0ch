@@ -32,7 +32,7 @@ import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { doorExtState, type ExtFacts } from "../setup/ext-links";
 import type { OwnedLink } from "../setup/links";
 import { openNote, QUERY_SCOPE, registerBarSource } from "./source";
-import { extensionList, extensionParts, PART_KINDS, partKind, scriptBindings, scriptActions, scriptNamed, type ExtensionEntry, type ExtensionList } from "../extensions";
+import { extensionList, extensionParts, PART_KINDS, partKind, scriptBindings, scriptActions, scriptNamed, type ExtensionAbout, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
 import { AGENTS } from "./ask-agent";
 import { settingsChip, settingsMarkdown, settingsNeedYou, settingsWords, shownValue } from "../extension-settings";
@@ -505,7 +505,7 @@ const SCREENS: BarSource = {
   },
 };
 
-interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make" | "settings" | "door"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string; scripts?: { name: string; about: string }[] }
+interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make" | "settings" | "door"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string }
 
 /** A description's first sentence: what an extension says it is, at a glance. A sentence ends before a capital (shout's "ends in !!! drawn as a band" is one). */
 const firstSentence = (text: string | undefined) => (text ?? "").replace(/\s+/g, " ").trim().match(/^.*?[.!?](?=\s+["'(\[*_`]*[\p{Lu}\d]|\s*$)/u)?.[0] ?? (text ?? "").trim();
@@ -522,18 +522,47 @@ function summaryOf(e: ExtensionEntry, l: ExtensionList): string {
   return part ? `${partKind(part.kind)} ${part.name}${part.about ? ` · ${firstSentence(part.about)}` : ""}` : "";
 }
 
-/** An installed extension as its preview reads it: its id and version, its state and settings, where it lives, its words, what it adds. */
-function extensionFacts(e: ExtensionEntry, then: string): string {
-  const parts = extensionParts(e), override = e.builtIn && overrideWords(e.id, e.builtIn);
+/**
+ * An extension's preview, installed or not (PIE-1549): its head line, what it says it is, its README's opening, what
+ * it adds, the demo notes it writes and what it needs, all the service's reading of its folder (`ExtensionAbout`), then
+ * the row's own lines and what ⏎ does. Without an about (a note's script has no folder), `adds` is what it serves.
+ */
+function extensionMarkdown(x: { head: string; before?: string[]; description?: string; about?: ExtensionAbout; adds?: string[]; after?: string[]; then: string }): string {
+  const a = x.about, adds = a?.adds ?? x.adds ?? [];
+  // The README often opens with the description in other words: said once, the README's (its first four words alike).
+  const said = (x.description ?? "").trim(), readme = a?.readme?.trim() ?? "";
+  const lead = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter(Boolean).slice(0, 4).join(" ");
+  const description = said && !(readme && lead(readme) === lead(said)) ? said : "";
+  const section = (title: string, lines: readonly string[]) => lines.length ? ["", title, ...lines] : [];
   return [
-    `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}`,
-    ...(e.error ? ["", `> [!warning] ${e.error}`] : []), ...(e.script && e.summary ? ["", e.summary] : []), "", e.description ?? "",
-    ...(e.settings ? ["", settingsWords(e.id, e.settings)] : []),
-    ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${partKind(p.kind)} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
-    ...(e.directory ? ["", `\`${e.directory}\``] : []),
-    // A copy of a built-in (PIE-1283): this copy runs, the built-in never does in place; both folders said.
-    ...(e.builtIn ? ["", override ? `${override}: this copy runs; the built-in is \`${e.builtIn.directory}\`` : `installed from the built-in \`${e.builtIn.directory}\``] : []), "", then,
+    x.head,
+    ...(x.before ?? []).flatMap(line => ["", line]),
+    ...(description ? ["", description] : []),
+    ...(readme ? ["", readme] : []),
+    ...section("It adds:", adds),
+    ...(a?.demoProblem ? ["", `Its demo can't be written: ${a.demoProblem}`] : section("Its demo notes, written under its page:", (a?.demo ?? []).map(t => `- ${t}`))),
+    ...section("It reads:", (a?.needs ?? []).map(n => `- ${n}`)),
+    ...(x.after ?? []).flatMap(line => ["", line]),
+    "", x.then,
   ].join("\n");
+}
+
+/** An installed extension as its preview reads it: its id and version, its state and settings, where it lives, and its own words (`extensionMarkdown`). */
+function extensionFacts(e: ExtensionEntry, then: string, about = extensionList()?.about?.[e.id]): string {
+  const override = e.builtIn && overrideWords(e.id, e.builtIn);
+  return extensionMarkdown({
+    head: `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}`,
+    before: [...(e.error ? [`> [!warning] ${e.error}`] : []), ...(e.script && e.summary ? [e.summary] : [])],
+    description: e.description, about,
+    adds: extensionParts(e).map(p => `- ${partKind(p.kind)} **${p.name}**${p.about ? ` · ${p.about}` : ""}`),
+    after: [
+      ...(e.settings ? [settingsWords(e.id, e.settings)] : []),
+      ...(e.directory ? [`\`${e.directory}\``] : []),
+      // A copy of a built-in (PIE-1283): this copy runs, the built-in never does in place; both folders said.
+      ...(e.builtIn ? [override ? `${override}: this copy runs; the built-in is \`${e.builtIn.directory}\`` : `installed from the built-in \`${e.builtIn.directory}\``] : []),
+    ],
+    then,
+  });
 }
 
 /**
@@ -591,7 +620,7 @@ const EXTENSIONS: BarSource = {
     const needing = installed.filter(e => settingsNeedYou(e.settings));
     for (const e of q.trim() ? installed.filter(e => e.settings) : needing) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: settingsChip(e.settings!), ...(q.trim() ? {} : { group: `settings that need you · ${needing.length}` }), oneLine: true, data: { kind: "settings", id: e.id } satisfies ExtRow });
     rows.push(...doorRows);
-    for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: firstSentence(a.description), group: `not installed · ${l.available!.length}`, oneLine: true, data: { kind: "install", id: a.id, about: a.description, scripts: a.scripts } satisfies ExtRow });
+    for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: firstSentence(a.description), group: `not installed · ${l.available!.length}`, oneLine: true, data: { kind: "install", id: a.id, about: a.description } satisfies ExtRow });
     // Removing one is offered once its name is typed, both ways, so the demo notes never go by a stray ⏎.
     if (q.trim()) for (const e of installed) {
       const notes = l.demos?.[e.id] ?? 0, name = e.name ?? e.id;
@@ -620,7 +649,11 @@ const EXTENSIONS: BarSource = {
     if (d.block) return { note: d.block };
     if (d.kind === "install") {
       const a = extensionList()?.available?.find(x => x.id === d.id);
-      return { markdown: [`**${row.label.replace(/^install /, "")}** \`${d.id}\`${a ? ` v${a.version}` : ""}`, "", d.about ?? "", "", ...(d.scripts ?? []).map(s => `Adds the script **${s.name}**: ${s.about}`), "", "⏎ installs it for every outline this host serves (`ep0ch ext add " + d.id + "`): its page goes under the outline's Extensions hub, with its README, what it adds and its demo notes."].join("\n") };
+      return { markdown: extensionMarkdown({
+        head: `**${a?.name ?? row.label.replace(/^install /, "")}** \`${d.id}\`${a ? ` v${a.version}` : ""} · not installed`,
+        description: a?.description ?? d.about, ...(a?.about ? { about: a.about } : {}),
+        then: `⏎ installs it for every outline this host serves (\`ep0ch ext add ${d.id}\`): its page goes under the outline's Extensions hub, with its README, what it adds and its demo notes.`,
+      }) };
     }
     if (d.kind === "remove") return { markdown: [`**${row.label}**`, "", !d.notes ? "Its folder goes, and its lines and actions stop working. Its page goes with it." : d.demo === "keep" ? "Its folder goes, and its lines and actions stop working. Its demo notes stay under its page." : "Its folder goes, and its demo notes go to Trash: the ones nobody changed (the rest are kept, and named). Trash can restore them.", "", `The same from a shell: \`ep0ch ext remove ${d.id}${d.demo === "remove" ? " --demo remove" : ""}\``].join("\n") };
     return { lines: [row.label, "", row.refused ?? ""] };

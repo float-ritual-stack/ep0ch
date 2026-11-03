@@ -3,7 +3,7 @@
   "id": "intake",
   "version": 1,
   "name": "Intake",
-  "description": "When a request arrives, what your outlines already hold on it, and any likely duplicate, written under it.",
+  "description": "Under each new request, what your outlines already hold on it and any likely duplicate.",
   "run": ["bun", "intake.ts"],
   "deadline": "5m",
   "demo": "demo",

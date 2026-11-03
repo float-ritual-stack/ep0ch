@@ -656,10 +656,11 @@ export class OutlinerServer {
   }
 
   /** `extensions.list`'s page fields: the hub, each extension's page, how many demo notes each has left, and the repo's extensions not installed here. */
-  private extensionPagesListed(): { hub?: string; pages: Record<string, string>; demos: Record<string, number>; disabledRules: Record<string, number>; available: readonly import("./extension-pages").AvailableExtension[]; pagesProblem?: string } {
+  private extensionPagesListed(): { hub?: string; pages: Record<string, string>; demos: Record<string, number>; disabledRules: Record<string, number>; available: readonly import("./extension-pages").AvailableExtension[]; about: Record<string, import("./extension-pages").ExtensionAbout>; pagesProblem?: string } {
     const hub = this.extensionPages.hub();
     return {
       ...(hub ? { hub } : {}), pages: this.extensionPages.pages(), demos: this.extensionPages.demoCounts(), disabledRules: this.extensionPages.disabledRules(), available: this.extensionPages.availableNow(),
+      about: this.extensionPages.abouts(),
       ...(this.extensionPages.problem ? { pagesProblem: this.extensionPages.problem } : {}),
     };
   }

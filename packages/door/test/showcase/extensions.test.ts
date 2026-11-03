@@ -184,6 +184,35 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   }, 20_000);
 
 
+  test("an extension shows what it adds before you install it (PIE-1549): its README's opening, each part with its words and key, its demo notes; installed, the same words", async () => {
+    const listed = await board.listExtensions(true);
+    const horoscope = listed.available!.find(a => a.id === "horoscope")!.about!, notify = listed.about!.notify!;
+    expect(horoscope.readme).toBeTruthy();
+    expect(horoscope.adds.length).toBeGreaterThan(0);
+    const flat = (text: string) => text.replace(/[│\s]+/g, " ");
+    for (const [query, label, about] of [["horoscope", "install Horoscope", horoscope], ["notifications hub", "Notifications hub", notify]] as const) {
+      await app.dispatch.press("bar.open", { scope: "&", query });
+      try {
+        const bar = app.bar!;
+        await bar.settled();
+        // The lit row is the one asked for; its preview arrives once read.
+        const drawn = (cols: number) => bar.draw(cols, 200).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "")).join("\n");
+        await until(() => flat(drawn(160)).includes("It adds:"), `${label}'s preview`).catch(e => { throw new Error(`${e.message}\n${drawn(160)}`); });
+        for (const cols of [160, 44]) {
+          const shown = flat(drawn(cols));
+          expect(shown).toContain(label);
+          // Its README's opening (no # title), then each part in the words its page has, its demo notes by title.
+          expect(shown).toContain(flat(about.readme!.split("\n")[0]!).replace(/[`*]/g, "").slice(0, 30));
+          expect(shown).not.toMatch(/^# /m);
+          // Its description and its README's opening in other words are said once.
+          if (label === "install Horoscope") expect(shown.split("A made-up horoscope for a sign").length - 1).toBe(cols === 160 ? 2 : 1); // the row (cut at 44) and the README, never the description again
+          for (const line of about.adds.filter(l => l.startsWith("- Action"))) expect(shown).toContain(flat(line).replace(/^- /, "").replace(/[`*]/g, "").slice(0, 24));
+          for (const title of about.demo) expect(shown).toContain(flat(title).slice(0, 30));
+        }
+      } finally { for (let i = 0; i < 3 && app.bar; i++) press({ kind: "esc" }); }
+    }
+  }, 30_000);
+
   test("structure (PIE-784): sort-blocks run by the person asks by= and order= in the power bar, chosen by keys, and lands as one order; an agent's extract is one step it undoes whole", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
