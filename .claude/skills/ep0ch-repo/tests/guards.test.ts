@@ -143,6 +143,30 @@ describe('guardrails refuse with the reason and the command to run', () => {
     expect(s.ran).toEqual(['gh pr merge 522 --merge'])
   })
 
+  test('the test-time budget: an agent\'s change to it is refused (Edit, Write and Bash), naming how Evan raises it; reads and commits run', async ($, on) => {
+    const s = sessionIn(on)
+    const edited: string[] = []
+    for (const tool of ['Edit', 'Write']) on('tool.call', { tool }, ($, e) => { edited.push(`${e.tool} ${(e as { file_path?: string }).file_path}`); return { result: {} } as never })
+    const file = '/work/ep0ch/scripts/test-budget.json'
+    for (const call of [{ tool: 'Edit', file_path: file, old_string: '"total": 600', new_string: '"total": 900' }, { tool: 'Write', file_path: file, content: '{}' }]) {
+      const { deny } = await $.tool.call(call as never)
+      expect(deny).toContain('only Evan raises it (PIE-1422)')
+      expect(deny).toContain('! bun scripts/test-budget.ts propose --log')
+    }
+    const writes = ['sed -i s/600/900/ scripts/test-budget.json', 'bun scripts/test-budget.ts propose --log n.log > scripts/test-budget.json',
+      'cd scripts && echo {} >> test-budget.json', "bash -c 'tee scripts/test-budget.json < /tmp/b'", 'cp /tmp/b.json scripts/test-budget.json', 'git checkout main -- scripts/test-budget.json']
+    for (const command of writes) expect((await bash($, command)).deny).toContain('only Evan raises it')
+    expect(s.ran).toEqual([])
+    expect(edited).toEqual([])
+    // Another file beside it, reading it, the comparison and committing Evan's raise all go through.
+    const reads = ['cat scripts/test-budget.json', 'git diff scripts/test-budget.json', 'git add scripts/test-budget.json && git commit -m "Evan raises the door budget"',
+      'bun scripts/test-budget.ts compare --log n.log --budget scripts/test-budget.json', 'cp scripts/test-budget.json /tmp/b.json']
+    for (const command of reads) expect((await bash($, command)).deny).toBeUndefined()
+    expect(s.ran).toEqual(reads)
+    expect((await $.tool.call({ tool: 'Edit', file_path: '/work/ep0ch/scripts/test-budget.ts', old_string: 'a', new_string: 'b' } as never)).deny).toBeUndefined()
+    expect(edited).toEqual(['Edit /work/ep0ch/scripts/test-budget.ts'])
+  })
+
   test('a slice into its wave branch takes its number later', async ($, on) => {
     const s = sessionIn(on, { main: 165, branch: 170, base: 'wave/margins' })
     expect((await bash($, 'gh pr merge 521 --merge')).deny).toBeUndefined()

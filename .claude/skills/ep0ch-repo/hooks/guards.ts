@@ -6,6 +6,7 @@
 
 import { type GuardContext, SHARED_MACHINE, bunTest, wholeSuiteRefusal } from './whole-suite'
 import { baseName, simpleCommands } from './shell'
+import { readsOnly } from './freshness'
 
 export { wholeSuiteRefusal }
 
@@ -97,7 +98,41 @@ export function guardOf(command: string, ctx: GuardContext): string | null {
     const why = refusalOf(words, ctx)
     if (why) return why
   }
-  return wholeSuiteRefusal(command, ctx)
+  return wholeSuiteRefusal(command, ctx) ?? budgetRefusal(command)
+}
+
+/** The test-time budget (PIE-1422): scripts/test-budget.json, which only Evan raises. */
+export const BUDGET_FILE = 'scripts/test-budget.json'
+export const BUDGET_REFUSAL = `${BUDGET_FILE} is the test-time budget, and only Evan raises it (PIE-1422): this repository's mod refuses ` +
+  "an agent's change to it, in every Claude session here, the way it refuses a PROTOCOL merge that isn't main's plus one. " +
+  'If the nightly is over budget, find the files that grew (its request lists them) and make them fast again. ' +
+  `Evan raises it himself, in his editor or with \`! bun scripts/test-budget.ts propose --log <the nightly's log> > ${BUDGET_FILE}\`; ` +
+  'a test that needs a budget writes a made-up one of its own and passes `--budget <file>`.'
+
+const namesBudget = (word: string) => /(^|[/>])test-budget\.json$/.test(word)
+/** Read-only uses of the budget beyond the sweep's list: git staging it, and the comparison reading it. */
+const budgetReader = (w: readonly string[]) =>
+  (baseName(w[0] ?? '') === 'git' && ['add', 'commit', 'diff', 'log', 'show', 'status', 'blame'].includes(w[1] ?? '')) ||
+  (baseName(w[0] ?? '') === 'bun' && /(^|\/)test-budget\.ts$/.test(w[1] ?? '') && ['compare', 'times', 'propose'].includes(w[2] ?? '')) ||
+  // A copy from it (to a scratch folder) leaves it as it was; onto it is a change.
+  (['cp', 'install'].includes(baseName(w[0] ?? '')) && !namesBudget(w.at(-1) ?? ''))
+
+/** Why a Bash command changes the test-time budget (a redirection onto it, or a command that isn't a read), or null. */
+export function budgetRefusal(command: string): string | null {
+  if (!command.includes('test-budget.json')) return null
+  for (const w of simpleCommands(command)) {
+    if (!w.some(namesBudget)) continue
+    const redirected = w.some((word, i) => (/^\d*>>?/.test(word) && namesBudget(word)) || (/^\d*>>?$/.test(w[i - 1] ?? '') && namesBudget(word)))
+    if (redirected) return BUDGET_REFUSAL
+    const words = w.filter((word, i) => !/^\d*[<>]/.test(word) && !/^\d*[<>]+$/.test(w[i - 1] ?? ''))
+    if (!readsOnly(words) && !budgetReader(words)) return BUDGET_REFUSAL
+  }
+  return null
+}
+
+/** Why an Edit or Write of `path` is refused: it is the test-time budget (in any checkout of this repository). */
+export function budgetEditRefusal(path: unknown): string | null {
+  return typeof path === 'string' && (path === BUDGET_FILE || path.endsWith(`/${BUDGET_FILE}`)) ? BUDGET_REFUSAL : null
 }
 
 export type Merge = { pr: string | null; repo: string | null }

@@ -1,7 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { pathsIn, type Rule, ruleContext, ruleOf, rulesFor } from './rules'
-import { guardOf, type Merge, mergesIn, protocolOf, protocolRefusal } from './guards'
+import { budgetEditRefusal, guardOf, type Merge, mergesIn, protocolOf, protocolRefusal } from './guards'
 import { installedRoot, landArgv, landedSaid, lookupFailed, mergedPr } from './landed'
 import { absolute, contentsOf, scratchRemovals, underScratch } from './scratch'
 import { DRAIN_EVERY_MS, DRAIN_FIRST_MS, DRAIN_LOOKUPS, drainKeyOf, drainPrompt, drainsFor } from './drain'
@@ -332,6 +332,14 @@ export const register: Register = (on) => {
     const why = guardOf(e.command, { hostname: '' })
     return why ? { deny: why } : next(e)
   })
+
+  // The test-time budget is Evan's to raise (PIE-1422): an agent's Edit or Write of it is refused, as a Bash write is (guardOf).
+  for (const tool of ['Edit', 'Write']) {
+    on('tool.call', { tool }, ($, e, next) => {
+      const why = budgetEditRefusal((e as { file_path?: unknown }).file_path)
+      return why ? { deny: why } : next(e)
+    })
+  }
 
   // A cleanup of scratch folders is never stopped for a permission prompt (hooks/scratch.ts): only a command that is
   // nothing but `rm -r` of folders under the scratch roots is answered; everything else goes to the normal prompt.

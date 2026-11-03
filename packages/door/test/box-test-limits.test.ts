@@ -27,7 +27,7 @@ const pids = (file: string) => lines(file).map(Number);
 let origin = "";
 const worktrees: string[] = [];
 const runs: ReturnType<typeof Bun.spawn>[] = [];
-const texts = new Set<{ err: string }>();
+const texts = new Set<{ err: string; out: string }>();
 /** The run dir a process of a run carries (its BOX_TEST_RUN_DIR), read while it lives. */
 const runDirOf = (pid: number) => readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").find(kv => kv.startsWith("BOX_TEST_RUN_DIR="))?.slice(17) ?? "";
 
@@ -51,10 +51,10 @@ function box(dir: string, tag: string, flags: string[] = [], env: Record<string,
     },
   });
   runs.push(p);
-  const text = { err: "" };
+  const text = { err: "", out: "" };
   texts.add(text);
   (async () => { for await (const c of p.stderr as unknown as AsyncIterable<Uint8Array>) text.err += new TextDecoder().decode(c); })();
-  (async () => { for await (const _ of p.stdout as unknown as AsyncIterable<Uint8Array>) { /* drained */ } })();
+  (async () => { for await (const c of p.stdout as unknown as AsyncIterable<Uint8Array>) text.out += new TextDecoder().decode(c); })();
   // Started means the stub's own mark and its daemon's pid are both there: the daemon writes its pid a moment after the
   // mark, and a reader of daemons() right after started() raced it on a loaded CI box (main red, Oct 19).
   return { p, text, started: () => lines(join(out, `${tag}.started`)).length > 0 && pids(join(out, `${tag}.daemons`)).length > 0, daemons: () => pids(join(out, `${tag}.daemons`)), go: () => writeFileSync(join(out, `${tag}.go`), "") };
@@ -77,9 +77,16 @@ beforeAll(() => {
     'echo $$ >> "$FIX_OUT/$FIX_TAG.started"',
     `setsid sh -c 'echo $$ >> "$FIX_OUT/$FIX_TAG.daemons"; exec sleep 600' </dev/null >/dev/null 2>&1 &`,
     'while [ ! -e "$FIX_OUT/$FIX_TAG.go" ]; do sleep 0.2; done',
+    // Its JUnit, as bun test writes one for box-test's --reporter-outfile (PIE-1422): a slow file and a quick one.
+    'for a in "$@"; do case $a in --reporter-outfile=*) j=${a#--reporter-outfile=};; esac; done',
+    `[ -z "$j" ] || printf '<testsuites><testsuite name="test/kiln.test.ts" file="test/kiln.test.ts" time="%s"><testcase name="fires" time="0.1" file="test/kiln.test.ts"/></testsuite><testsuite name="test/clay.test.ts" file="test/clay.test.ts" time="0.2"></testsuite></testsuites>' "\${FIX_KILN_SECS:-0.5}" > "$j"`,
     '[ -z "$FIX_FAIL" ] || exit 1',
     "",
   ].join("\n"));
+  // The budget at the commit: the real comparison, a made-up budget (any file 2 s, the package 10 s).
+  mkdirSync(join(seed, "scripts"));
+  writeFileSync(join(seed, "scripts/test-budget.ts"), readFileSync(join(real, "test-budget.ts")));
+  writeFileSync(join(seed, "scripts/test-budget.json"), JSON.stringify({ packages: { "outline-core": { total: 10, file: 2 } } }));
   sh(seed, "git", "init", "-q", "-b", "main");
   sh(seed, "bun", "install");
   sh(seed, "git", "add", "-A");
@@ -182,6 +189,23 @@ describe("scripts/box-test limits", () => {
     expect(r.text.err).not.toContain("LEAK");
     expect(alive(decoy.pid)).toBe(true);
     decoy.kill();
+  }, 360_000);
+
+  test("the run ends with the test-time budget: a file past its own is named, over test budget: investigate; within it says so", async () => {
+    const dir = worktree("wt-budget");
+    const slow = box(dir, "budget1", [], { FIX_KILN_SECS: "7.5" });
+    await until("the run to start", slow.started);
+    slow.go();
+    expect(await slow.p.exited).toBe(0);
+    expect(slow.text.out).toContain("━━ test time (scripts/test-budget.ts)");
+    expect(slow.text.out).toContain("test-budget: over test budget: investigate");
+    expect(slow.text.out).toContain("outline-core/test/kiln.test.ts  7.5 s of 2.0 s");
+    const quick = box(dir, "budget2");
+    await until("the second run to start", quick.started);
+    quick.go();
+    expect(await quick.p.exited).toBe(0);
+    expect(quick.text.out).toContain("test-budget: within test budget");
+    expect(quick.text.out).toContain("outline-core        0.7 s of 10.0 s (7%)");
   }, 360_000);
 
   test("a sweep kills orphans of runs whose dir is gone, and says how many", async () => {

@@ -7,7 +7,7 @@ serves every folder bound to an outline, and this one holds rules about this rep
 
 ## Guardrails
 
-A Bash call that breaks one of AGENTS.md's hard rules is refused. The refusal gives the reason and the command to run
+A Bash call that breaks one of AGENTS.md's hard rules is refused, and so is an Edit or Write of the test-time budget. The refusal gives the reason and the command to run
 instead (`hooks/guards.ts`):
 
 | Refused | Run instead |
@@ -18,6 +18,7 @@ instead (`hooks/guards.ts`):
 | `bun test --parallel` on float-2 | `scripts/agent-env <name> --test -- timeout 900 bun test <files>`; `scripts/box-test` |
 | a whole-suite `bun test` / `bun run test…` (no test file named) on float-box or float-2, outside `scripts/agent-env` | `scripts/box-test <package>`; a few files: `scripts/agent-env <name> --test -- timeout 900 bun test <files>` |
 | `gh pr merge` into main when the PR changes `PROTOCOL` to anything but main's plus one | the number to use, and the rebase |
+| an Edit, Write or Bash write of `scripts/test-budget.json` (reads, `git add`/`commit` and `scripts/test-budget.ts` still run) | make the files that grew fast again; Evan raises it himself (`! bun scripts/test-budget.ts propose --log <log> > scripts/test-budget.json`) |
 
 - The command is read the way a shell splits it (`hooks/shell.ts`): `;`, `&&` and pipes split it, wrappers such as
   `timeout`, `env`, `sudo`, `scripts/agent-env … --` and `bash -c '…'` are looked through, and quoted text and heredoc
