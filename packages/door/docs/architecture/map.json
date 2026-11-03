@@ -626,11 +626,12 @@
     {
       "id": "door.drawer", "name": "The drawer", "group": "door", "chapter": "terminal", "ladder": "provisional", "dependsOn": ["door.pty", "door.namedagent"],
       "does": "Tiles that travel with the person across screens (PIE-498): the host layer holds your drawer, a desk of its own, its tiles the drawer's tabs. Any tile goes in and out whole (tile.drawer, ^W a, a drag onto the chip or out of the drawer): a terminal's program keeps running, a reader keeps its note. Its first tab is the drawer's own program (EP0CH_DAILY_AGENT, else a shell, in the person's folder or the outline's); it can leave too, onto a screen still running, and the drawer starts a fresh one. A screen left with terminals running puts them in the drawer.",
-      "built": "One layout operation each side: the screen's take, the drawer desk's open, both asked first; the instance moves. A moved terminal keeps the key its program started under (PtyPane.keptKey, saved as kept), so a session's terminal host gives it back after an upgrade. Saved in drawer-tiles.json.",
+      "built": "The one carry (PIE-1547, carry.ts, shared with the glass and groups): the screen's take and the drawer desk's open asked together as one pure step over both layouts, what travels landed in that open; the instance moves. A moved terminal keeps the key its program started under (PtyPane.keptKey, saved as kept), so a session's terminal host gives it back after an upgrade. Saved in drawer-tiles.json.",
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 108, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 125, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 7558, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 7449, "m": "carry(dest: Desk, sel: string | undefined, how: CarryHow, actor: Actor)" },
+        { "r": "door", "p": "src/desk/carry.ts", "l": 39, "m": "export function carry<I>" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1406, "m": "private take(id: I, heir?" }
       ]
     },

@@ -80,8 +80,9 @@ import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
   shape as layoutShapeOf, peekSource, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
-  foldsBeside, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
+  foldsBeside, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
+import { carry, freeName, type Carried, type CarrySide } from "./carry";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
 import { lookFor, pageOf, type Look } from "../look";
@@ -322,23 +323,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   private gutters = new Map<number, Rect>();
   private placed: Placed = { rects: new Map(), nodes: new Map(), dividers: [] };
-  /**
-   * `inTile`'s tiles and a comment's pair: the tiles whose close gives the person's keys back to the tile that opened them
-   * (`Pane.openedFrom`, which `^` follows too: one record of who opened a tile).
-   */
-  private keysBack = new Set<number>();
-  /**
-   * The floats the person opened while typing in a terminal tile's program (PIE-1445): closing one gives the keys back to
-   * that program, as they were, not only to its tile.
-   */
-  private typingBack = new Set<number>();
   /** The tile on this desk that opened tile `id` (its `Pane.openedFrom`), if it is still here. */
   private openerOf(id: number): number | undefined {
     const up = this.panes.has(id) ? tileRegistry.openerOf(this.panes.get(id)!) : undefined;
     return up === undefined ? undefined : [...this.panes.keys()].find(i => this.tileId(i) === up);
   }
-  /** Tile `id` was opened by tile `at` and gives the keys back to it when it closes. */
-  private openedBy(id: number, at: number) { const p = this.panes.get(id); if (p) tileRegistry.setOpener(p, this.tileId(at)); this.keysBack.add(id); }
+  /**
+   * Tile `id` was opened by tile `at` and gives the keys back to it when it goes: the layout's `openedFrom` (its close and
+   * take answers name where the keys went, PIE-1547), mirrored on the pane for `^` and saved layouts. `typing`: the
+   * person was typing in `at`'s program, and goes back to typing in it (PIE-1445).
+   */
+  private openedBy(id: number, at: number, typing = false) {
+    const p = this.panes.get(id), r = this.ask({ op: "opened", tile: id, from: at, ...(typing ? { typing } : {}) }, USER);
+    if (p) tileRegistry.setOpener(p, this.tileId(at));
+    if (r.ok) this.commit(r);
+  }
   /** Its own overlays (the search, the layout picker, the policy panel): the first takes every key and click. */
   private readonly overlays = new Modes<Desk, ListPicker<any, Desk>>();
   /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
@@ -804,7 +803,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const facts = new Map<number, TileFacts>();
     return {
       ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : {}), self: this.layoutSelf(),
-      beside: this.besides, opened: this.opened, inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
+      beside: this.besides, opened: this.opened, ...(this.homeTile() !== undefined ? { home: this.homeTile() } : {}), inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
       ...this.handOut(),
       actor, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: who.held, here: w.address === this.keys().address && (w.focus !== null || w.typingIn !== null), ...(w.yolo ? { yolo: true } : {}) },
@@ -845,9 +844,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
     }
     this.noteFocus(by?.op === "focus" || by?.op === "tab");
+    this.keysWent(r.answer.keys as KeysWent | undefined);
     // A tile folded or opened is told (it keeps what it holds exactly).
     for (const id of new Set([...was.keys(), ...r.state.collapsed.keys()])) if (was.has(id) !== r.state.collapsed.has(id)) this.panes.get(id)?.folded?.(r.state.collapsed.has(id));
     return r;
+  }
+  /** Where the layout's answer says the keys went (PIE-1547): home leaves the edit they were in; back to a terminal they typed in, they type there again. */
+  private keysWent(went: KeysWent | undefined) {
+    if (!went) return;
+    if (went.by === "home") this.entered.clear();
+    const p = this.panes.get(this.focus);
+    if (went.typing && p instanceof PtyPane && p.running) { this.ptyIn = p; this.chord = null; }
   }
   /** Apply one layout operation for `actor`: the layout changes as one checked step, or the refusal is thrown. */
   private apply(op: Op<number>, actor: Actor = USER): Extract<Result<number>, { ok: true }> { return this.commit(this.ask(op, actor)); }
@@ -2178,8 +2185,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const had = this.focus;
     this.commit(r);
     if (made && this.isFloat(id) && (this.focus === id || peekSource(this.layout, id) !== undefined) && had !== id && this.panes.has(had)) {
-      this.openedBy(id, peekSource(this.layout, id) ?? had);
-      if (this.ptyIn && this.ptyIn === this.panes.get(had)) this.typingBack.add(id);
+      this.openedBy(id, peekSource(this.layout, id) ?? had, !!this.ptyIn && this.ptyIn === this.panes.get(had));
     }
     if (made) {
       if (rec) { rec.count = number!; rec.ids.push(id); }
@@ -3296,10 +3302,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   noteGone(p: Pane, _id: string) {
     const id = this.idOf(p);
     if (id === undefined || !madeFor(p)) return;
-    // The person's own new note: their keys go back where they were when it opened, as closing it with ^W x gives them.
-    const back = this.keysBackAfter(id, USER);
+    // The person's own new note: their keys go back where they were when it opened, as closing it with ^W x gives them (the close's answer).
     this.closeId(id);
-    if (!this.panes.has(id)) back();
     this.save(); this.redraw();
   }
 
@@ -5901,37 +5905,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.keepTrailPlace(t.id);
     const kind = this.panes.get(t.id)!.kind;
     const n = String(this.numberOf(t.id));
-    const into = this.openedInto(t.id), had = this.focus === t.id, back = this.keysBackAfter(t.id, actor);
     // Retiring the source's peeks belongs to the same undo as closing the source.
     const scope = TXN.getStore(), txn = scope?.txn ?? `close:${crypto.randomUUID()}`;
     TXN.run({ ...scope, txn }, () => { this.commit(r); this.dropTile(t.id, actor); });
     if (!scope?.txn) this.history.close(txn);
-    // The person's tile opened into a container (the board's detail) closed: their keys go to the top float, else the
-    // tile opens land in there now, else home.
-    if (into !== undefined && had && this.dispatch.standing(actor)) {
-      const next = this.floats.at(-1)?.id ?? this.activeIn(into);
-      if (next !== undefined) this.keysTo(next, actor); else this.goHome();
-    // A program's tile beside a reader (ctrl+e, ctrl+t), or a float opened from a tile, the person closed: their keys go
-    // back to that tile.
-    } else back();
+    // Where the person's keys went (the top float or the container's tile, home, or back to the tile it was opened from)
+    // is the close's answer, applied as it was committed (`commit`).
     this.save(); this.redraw();
     return { ...answer, pane: n, kind };
-  }
-
-  /**
-   * Before tile `id` closes: where the person's keys go once it's gone, run then. A tile that gives them back to its opener
-   * (`keysBack`: a program's tile beside its reader, a float they opened) gives them back when it had them; a float opened
-   * while they typed in a terminal's program puts them back in that program (PIE-1445), so the next key, Esc too, is its.
-   */
-  private keysBackAfter(id: number, actor: Actor): () => void {
-    const opener = this.keysBack.has(id) ? this.openerOf(id) : undefined, typing = this.typingBack.has(id), had = this.focus === id;
-    return () => {
-      this.keysBack.delete(id);
-      if (opener === undefined || !had || !this.dispatch.standing(actor) || !this.panes.has(opener)) return;
-      this.keysTo(opener, actor);
-      const p = this.panes.get(opener);
-      if (typing && p instanceof PtyPane && p.running && this.focus === opener) { this.ptyIn = p; this.chord = null; }
-    };
   }
 
   /** `closeTile` on a new note's tile holding its edit (PIE-591): the edit left or closed, then the tile closed. */
@@ -5953,11 +5934,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private shutDockOf(t: { name: string; id: number }, actor: Actor): TileDone {
     this.dispatch.check("tile", actor, { tile: t.name, way: "an agent doesn't close it" });
     const holder = chainOf(this.root, t.id).find(c => c.policy?.shuts)!;
-    const had = this.focus, inside = leaves(holder).includes(had);
     if (!dockOf(this.root, t.id) && holder.id) this.apply({ op: "pin", tile: t.id, on: false, container: holder.id }, actor);
     const d = dockOf(this.root, t.id);
     if (d?.open) this.apply({ op: "slide", tile: t.id, open: false }, actor);
-    if (inside && this.dispatch.standing(actor)) this.goHome(); else if (this.all().includes(had)) this.focus = had;
+    // The keys in the dock that shut went home in the slide's own answer (`commit` applies it); keys elsewhere never moved.
     this.save(); this.redraw();
     return { ...this.tileAnswer(t.id), pane: t.name };
   }
@@ -6696,7 +6676,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // Its keys come back to the reader when they were in the tile as it ended; a tile the person closed themselves
       // (^W x) gave them back to the reader as it closed (`openedFrom`), and they go on into the edit.
       const back = this.panes.has(id) ? this.focus === id : this.focus === at;
-      this.keysBack.delete(id);
       if (this.panes.has(id) && !keep) this.closeId(id);
       if (back && this.panes.has(at)) {
         this.keysTo(at);
@@ -6959,8 +6938,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.linking?.desk === this && this.linking.from === id) this.linking = null;
     for (const set of this.selected.values()) set.delete(id);
     for (const [k, v] of [...this.lastIn]) if (v === id) this.lastIn.delete(k);
-    // (keysBack is the closer's to read: a program's tile closed gives the keys back to its reader; takeOut clears it.)
-    this.typingBack.delete(id);
     this.panes.delete(id); this.unregistered.delete(id); this.sourced.delete(id); this.movedIn.delete(id);
     for (const r of this.opened.values()) { r.ids = r.ids.filter(i => i !== id); if (r.active === id) r.active = null; }
   }
@@ -7428,46 +7405,92 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   takeRefusal(sel: string | undefined, actor: Actor, heir = false): string | null {
     const t = this.tileNamed(sel, false);
     if (!t) return `no tile ${sel} on the ${this.title}`;
-    // A screen of a fixed shape that saves comes back only with every tile its spec names: they stay.
-    if (this.spec.saves && !this.spec.layouts && leafNames(this.spec.layout.root).includes(t.name) && !this.ctx?.hostLayer?.isDrawer(this)) return `${t.name} stays: the ${this.title} is laid out with it (its spec names it)`;
-    const r = this.ask({ op: "take", tile: t.id, ...(heir ? { heir: { id: this.nextId } } : {}) }, actor);
-    return r.ok ? null : r.refused;
+    return this.fixedRefusal(t) ?? refusal(this.layout, { op: "take", tile: t.id, ...(heir ? { heir: { id: this.nextId } } : {}) }, this.layoutCtx(actor));
+  }
+  /** A screen of a fixed shape that saves comes back only with every tile its spec names: they stay. */
+  private fixedRefusal(t: { name: string }): string | null {
+    return this.spec.saves && !this.spec.layouts && leafNames(this.spec.layout.root).includes(t.name) && !this.ctx?.hostLayer?.isDrawer(this) ? `${t.name} stays: the ${this.title} is laid out with it (its spec names it)` : null;
+  }
+
+  // ── one carry (PIE-1547): a tile moves whole to another layout ──
+
+  /** This desk as one side of a carry: its layout now, and the context its operations run with for `actor`. */ private carrySide(actor: Actor): CarrySide<number> { return { state: this.layout, ctx: this.layoutCtx(actor) }; }
+  /**
+   * Tile `sel` carried to `dest` as `how` says, asked of both layouts at once (`carry`): the plan, or why not. The pane
+   * that travels is the list beneath a reader in place (PIE-1516), as the layout saves it.
+   */
+  private planCarry(dest: Desk, sel: string | undefined, how: CarryHow, actor: Actor): { t: { name: string; id: number }; plan: Extract<Carried<number>, { ok: true }>; land: ReturnType<Desk["landingFor"]> } | string {
+    const t = this.tileNamed(sel, false);
+    if (!t) return `no tile ${sel} on the ${this.title}`;
+    const fixed = this.fixedRefusal(t);
+    if (fixed) return fixed;
+    let land: ReturnType<Desk["landingFor"]>;
+    try { land = dest.landingFor(how.to, how.where, how.floating); } catch (e) { return e instanceof Error ? e.message : String(e); }
+    const pane = this.panes.get(t.id)!, list = this.beneath.listOf(pane);
+    const goes = list && pane instanceof ReaderPane && !pane.editing && !pane.holdsKeys ? list : pane;
+    const plan = carry(this.carrySide(actor), dest.carrySide(actor), {
+      tile: t.id, ...(how.heir ? { heir: { id: this.nextId } } : {}),
+      land: { id: dest.nextId, kind: goes.kind, at: land.at, deliberate: pane.deliberate ?? false }, ...(how.floating ? { keys: false as const } : {}),
+    });
+    if (!plan.ok) return plan.side === "to" ? `${dest.layoutSelf().name} doesn't take ${t.name} there: ${plan.refused}` : plan.refused;
+    return { t, plan, land };
+  }
+  /** Why tile `sel` can't be carried to `dest` as `how` says, or null: what a drag shows before the release. */
+  carryRefusal(dest: Desk, sel: string | undefined, how: CarryHow, actor: Actor): string | null {
+    const p = this.planCarry(dest, sel, how, actor);
+    return typeof p === "string" ? p : null;
   }
   /**
-   * Tile `sel` leaves this screen whole (the layout's `take`), for the drawer or a screen from it: its instance goes,
-   * nothing of it ends (a terminal's program runs on, a reader keeps its note, its history and its draft).
+   * Tile `sel` goes to `dest` whole (PIE-1547): both layouts asked first, then this one's `take` and `dest`'s `open`
+   * committed, what travels landed in that open. Its instance moves and nothing of it ends (a terminal's program runs on,
+   * a reader keeps its note, history and draft); its links to and from this desk become links across. `keys` in the
+   * answer: the person's keys were in it and go with it (the caller's host shows them there: the drawer, a group).
    */
-  takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile {
-    const why = this.takeRefusal(sel, actor, !!heir);
-    if (why) throw new ActionRefused(why);
-    const t = this.tile(sel);
-    const pane = this.beneath.restore(t.id) ?? this.panes.get(t.id)!;   // a reader in place travels as its list (PIE-1516)
+  carry(dest: Desk, sel: string | undefined, how: CarryHow, actor: Actor): TileDone & { keys: boolean; moved: MovedTile } {
+    const p = this.planCarry(dest, sel, how, actor);
+    if (typeof p === "string") throw new ActionRefused(p);
+    const moved = this.carryOut(p.t, p.plan, how.heir);
+    const done = dest.carryIn(moved, p.plan, p.land);
+    if (p.plan.keys && moved.typing && moved.pane instanceof PtyPane && dest.focus === dest.idOf(moved.pane)) dest.ptyIn = moved.pane;
+    // What travels and couldn't land there is in the answer, and the action says it (`without`), never swallowed.
+    return { ...done, keys: p.plan.keys, moved, ...(p.plan.dropped.length ? { dropped: p.plan.dropped } : {}) };
+  }
+  /** This desk's half of a carry: its `take` committed, the tile's pane and its links across taken with it. */
+  private carryOut(t: { name: string; id: number }, plan: Extract<Carried<number>, { ok: true }>, heir?: Pane): MovedTile {
+    const pane = this.beneath.restore(t.id) ?? this.panes.get(t.id)!;
     // Its links go with it (a group's edge, PIE-696): where it opens into, and the tiles that open into it, are tiles of another desk now.
-    const links: ExtLink[] = [];
-    const into: [number, WireVerb, AltRule | undefined][] = [];
-    const agents = keepLinks ? this.layout.agents.get(t.id) : undefined, fold = keepLinks ? this.layout.collapsed.get(t.id) : undefined;
-    {
-      this.resolveExt();
-      for (const w of this.layout.wires) {
-        if (!keepLinks && w.verb !== "select") continue;
-        if (w.from === t.id && w.to !== t.id && this.panes.has(w.to)) links.push({ pane: this.panes.get(w.to), verb: w.verb, rule: w.rule, found: true });
-        if (w.to === t.id && w.from !== t.id) into.push([w.from, w.verb, w.rule]);
-      }
-      links.push(...(this.ext.get(t.id) ?? []).filter(w => keepLinks || w.verb === "select").map(w => ({ ...w })));
+    const links: ExtLink[] = [], into: [number, WireVerb, AltRule | undefined][] = [];
+    this.resolveExt();
+    for (const w of this.layout.wires) {
+      if (w.from === t.id && w.to !== t.id && this.panes.has(w.to)) links.push({ pane: this.panes.get(w.to), verb: w.verb, rule: w.rule, found: true });
+      if (w.to === t.id && w.from !== t.id) into.push([w.from, w.verb, w.rule]);
     }
+    // A tile whose opens land in itself keeps that wire (it travels in the open): no other open goes with it (one open wire a tile).
+    links.push(...(this.ext.get(t.id) ?? []).filter(w => !plan.travels.inPlace || w.verb !== "open").map(w => ({ ...w })));
     const spec = this.specOf(t.id);
-    const typing = pane === this.ptyIn && this.focus === t.id;
-    // A follower (a preview of a tile) leaving: bound to the tile it follows by identity (none here: to nothing).
-    this.bindFollows(t.id, pane);
-    const hid = this.nextId;
-    this.commit(this.ask({ op: "take", tile: t.id, ...(heir ? { heir: { id: hid } } : {}) }, actor));
+    const typing = pane === this.ptyIn && this.focus === t.id; this.bindFollows(t.id, pane);
+    // The tiles that give their keys back to it keep that, by identity, for when it comes back here (`carryIn`).
+    const owed = [...this.layout.openedFrom].filter(([, o]) => o.from === t.id).map(([k, o]) => ({ child: this.panes.get(k)!, typing: !!o.typing })); if (owed.length) keysOwed.set(pane, owed);
+    this.commit(plan.from);
     this.forgetTile(t.id, pane);
-    this.keysBack.delete(t.id);
     // Its heir takes its place and its name: a new tile of its kind, started as any tile joining a live desk.
-    if (heir) { this.put(heir); this.startTile(hid); }
+    if (heir) { const hid = this.put(heir); this.startTile(hid); }
     for (const [z, verb, rule] of into) this.addExt(z, { pane, verb, rule, found: true });
     this.save(); this.redraw();
-    return { pane, name: t.name, spec, from: this.title, typing, links, ...(agents ? { agents } : {}), ...(fold ? { fold: { ...fold } } : {}), ...(keepLinks && spec.link !== undefined && spec.link === spec.id ? { inPlace: true as const } : {}) };
+    return { pane, name: plan.name, spec, from: this.title, typing, links };
+  }
+  /** This desk's half of a carry: its `open` committed (what travels landed in it), the pane put and started here. */
+  private carryIn(moved: MovedTile, plan: Extract<Carried<number>, { ok: true }>, l: ReturnType<Desk["landingFor"]>): TileDone {
+    const id = this.put(moved.pane);
+    this.movedIn.add(id);
+    if (!isTileKind(moved.spec.kind)) this.unregistered.set(id, moved.spec);
+    this.commit(plan.to);
+    for (const o of keysOwed.get(moved.pane) ?? []) { const c = this.idOf(o.child); if (c !== undefined) this.openedBy(c, id, o.typing); }
+    this.startTile(id, true);
+    for (const w of moved.links ?? []) this.addExt(id, w);
+    this.relink();
+    this.save(); this.redraw();
+    return { ...this.tileAnswer(id), kind: moved.spec.kind, where: l.where, beside: l.base };
   }
   // ── picking tiles to gather into a group (PIE-696) ──
 
@@ -7554,20 +7577,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.tile(sel);
     const g = this.groupOf(into);
     if (this.panes.get(t.id) === g.pane) throw new ActionRefused(`${t.name} is the group: a group doesn't go into itself`);
-    const out = this.takeRefusal(t.name, actor);
-    if (out) throw new ActionRefused(out);
-    const kind = (this.panes.get(t.id) as { kind?: string } | undefined)?.kind ?? "tile";
-    const bad = g.desk.bringRefusal({ name: t.name, spec: { t: "leaf", kind } }, beside, where, actor);
-    if (bad) throw new ActionRefused(`${g.name} doesn't take ${t.name} there: ${bad}`);
-    const keys = t.id === this.focus && this.dispatch.standing(actor);
-    const moved = this.takeOut(t.name, actor, undefined, true);
-    let done: TileDone;
-    try { done = g.desk.bringIn(moved, beside, where, actor); }
-    catch (e) { try { this.bringIn(moved, undefined, undefined, actor); } catch { /* nowhere: said below */ } throw e; }
+    const done = this.carry(g.desk, t.name, { to: beside, where }, actor);
     // The person's keys were in it: they stay with it, now in the group.
-    if (keys) { this.focusTile(g.name, actor); g.desk.focusTile(String(done.tile), actor); }
+    if (done.keys) { this.focusTile(g.name, actor); g.desk.focusTile(String(done.tile), actor); }
     this.save(); this.redraw();
-    return { ...done, into: g.name, from: this.title };
+    return { ...withoutCarry(done), into: g.name, from: this.title };
   }
   /**
    * `layout.move out=true` on a tile of a group's screen: it goes back out onto the screen holding the group (PIE-696),
@@ -7593,19 +7607,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       try { return { ...this.moveTile(only, at === g ? undefined : at, where, undefined, actor), out: true }; }
       catch (e) { return { ...spilled, ...this.tileAnswer(this.tile(only).id), out: true, stayed: e instanceof Error ? e.message : String(e) }; }
     }
-    const out = inner.takeRefusal(name, actor);
-    if (out) throw new ActionRefused(out);
-    const kind = (inner.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
-    const bad = this.bringRefusal({ name, spec: { t: "leaf", kind } }, at, where, actor);
-    if (bad) throw new ActionRefused(`the ${this.title} doesn't take ${name} there: ${bad}`);
-    const keys = this.dispatch.standing(actor) && this.focus === gid && inner.focusName() === name;
-    const moved = inner.takeOut(name, actor, undefined, true);
-    let done: TileDone;
-    try { done = this.bringIn(moved, at, where, actor); }
-    catch (e) { try { inner.bringIn(moved, undefined, undefined, actor); } catch { /* nowhere */ } throw e; }
-    if (keys) this.focusTile(String(done.tile), actor);
+    const done = inner.carry(this, name, { to: at, where }, actor);
+    if (done.keys) this.focusTile(String(done.tile), actor);
     this.save(); this.redraw();
-    return { ...done, out: true, from: g };
+    return { ...withoutCarry(done), out: true, from: g };
   }
   /** The name of the tile the keys are in here. */
   focusName(): string { return this.nameOf(this.focus); }
@@ -7631,33 +7636,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const base = this.tile(to), w = where ?? (this.ctx?.hostLayer?.isDrawer(this) ? "tabs" : "right");
     return { at: placeOf(w, base.id), base: base.name, where: w };
   }
-  /** Why `moved` can't come into this screen there, or null (nothing is done). */
+  /** Why `moved` (a pane with no layout to leave: a new one, a screen's leftovers) can't come into this screen there, or null. */
   bringRefusal(moved: { name: string; spec: TileSpec }, to: string | undefined, where: Where | undefined, actor: Actor, floating?: Rect): string | null {
     let l: ReturnType<Desk["landingFor"]>;
     try { l = this.landingFor(to, where, floating); } catch (e) { return (e as Error).message; }
-    return refusal(this.layout, { op: "open", tile: this.nextId, kind: moved.spec.kind, name: moved.name, loose: true, at: l.at }, this.layoutCtx(actor));
+    return refusal(this.layout, { op: "open", tile: this.nextId, kind: moved.spec.kind, name: this.freeName(moved.name), at: l.at }, this.layoutCtx(actor));
   }
-  /** A tile moved here whole (`takeOut` on another screen, or the drawer): it joins this layout as it is, by the layout's open. */
+  /** `base`, else `base2` …: the name a tile arriving here takes, by the carry's one rule (`freeName`), the drawer's names counted. */
+  freeName(base: string): string { return freeName([...this.names.values(), ...this.otherNames()], base); }
+  /**
+   * A pane with no layout to leave arrives here (a new agent tab, a post-it on the glass, a screen's running tiles as it
+   * goes): by the layout's open, under a free name. Tiles that leave a layout go by `carry`.
+   */
   bringIn(moved: MovedTile, to: string | undefined, where: Where | undefined, actor: Actor, floating?: Rect): TileDone {
     const l = this.landingFor(to, where, floating), kind = moved.spec.kind;
-    const id = this.nextId;
-    const r = this.ask({ op: "open", tile: id, kind, name: moved.name, loose: true, deliberate: moved.pane.deliberate ?? false, ...(floating ? { keys: false } : {}), at: l.at }, actor);
+    const r = this.ask({ op: "open", tile: this.nextId, kind, name: this.freeName(moved.name), deliberate: moved.pane.deliberate ?? false, ...(floating ? { keys: false as const } : {}), at: l.at }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
-    this.put(moved.pane);
-    this.movedIn.add(id);
-    if (!isTileKind(kind)) this.unregistered.set(id, moved.spec);
-    this.commit(r);
-    this.startTile(id, true);
-    // What was said of it travels with it, as a group's gathering and spill carry it: an agent's limit, its spine, its links.
-    if (moved.agents) { try { this.apply({ op: "agents", tile: id, level: moved.agents }, USER); } catch { /* the group's own rule stands */ } }
-    if (moved.fold) { try { this.apply({ op: "collapse", tile: id, on: true, ...(moved.fold.dir === "h" ? { dir: "h" as const } : {}) }, USER); } catch { /* a place that can't fold it */ } }
-    for (const w of moved.links ?? []) this.addExt(id, w);
-    if (moved.inPlace) this.apply({ op: "link", tile: id, to: id, verb: "open" }, USER);   // its open wired to itself goes with it (PIE-1516)
-    this.relink();
-    // The terminal the person was typing in came with them: they type in it here.
-    if (moved.typing && this.dispatch.standing(actor) && moved.pane instanceof PtyPane && this.focus === id) this.ptyIn = moved.pane;
-    this.save(); this.redraw();
-    return { ...this.tileAnswer(id), kind, where: l.where, beside: l.base };
+    return this.carryIn(moved, { ok: true, from: r, to: r, name: moved.name, travels: {}, dropped: [], keys: false }, l);
   }
 
   /** The tile the person is dragging by its header now (a drop on the drawer takes it there), or null. */
@@ -8244,7 +8239,12 @@ export interface TileLine {
   mode?: "follows" | "held" | "pinned";
 }
 
-export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[]; agents?: AgentLevel; fold?: Fold; inPlace?: true }
+export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[] }
+/** The tiles a carried tile was the opener of (`openedFrom`), by identity: an opener that comes back gets them back. */ const keysOwed = new WeakMap<Pane, { child: Pane; typing: boolean }[]>();
+/** How a tile is carried (`Desk.carry`): beside `to`, `where` it; or `floating` there (the glass, no keys); `heir` takes its place. */
+export interface CarryHow { to?: string; where?: Where; floating?: Rect; heir?: Pane }
+/** A carry's answer as an action says it: the moved pane and the keys flag are the caller's, not the person's. */
+const withoutCarry = ({ keys: _k, moved: _m, ...done }: TileDone & { keys: boolean; moved: MovedTile }): TileDone => done;
 /** A link whose far end is on another desk of the family (a group's tile and one outside it): its pane, or its path until it is found. */
 /** What a tile's attachment is: a reader's comment, Sources, list or edit preview; a facets tile's Matches (PIE-1443). */
 type AttachedKind = Attachment;

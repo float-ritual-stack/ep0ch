@@ -1185,3 +1185,33 @@ export function spineOrder<I>(flow: Flow<I>, shown: number[], spines: ReadonlySe
   });
   return [...stacks.filter(i => edges.get(i)?.dir === "left"), ...shown.filter(i => !spines.has(i)), ...stacks.filter(i => edges.get(i)?.dir === "right")];
 }
+
+/** The tree as `view.subscribe` publishes it: each split's path and shares, each container's policy, each tile by name and id. */
+export function shape<I>(s: { tree: LNode<I> }, name: (id: I) => string, tileId: (id: I) => string): unknown {
+  const go = (n: LNode<I>, path: string): unknown => {
+    const pol = n.t !== "leaf" && n.policy ? { policy: n.policy } : {};
+    if (n.t === "leaf") return { tile: tileId(n.id), name: name(n.id) };
+    if (n.t === "tabs") return { tabs: n.ids.map(name), id: n.id, shown: name(n.ids[n.active]!), ...pol };
+    if (n.t === "dock") return { dock: n.edge, open: n.open, id: n.id, path, ...pol, kid: go(n.kid, path ? `${path}.0` : "0") };
+    const kids = n.kids.map((k, i) => go(k, path ? `${path}.${i}` : String(i)));
+    if (n.t === "flow") return { flow: true, id: n.id, path, ...(n.anchor !== undefined ? { wide: name(n.anchor) } : {}), ...pol, kids };
+    const sum = n.weights.reduce((a, w) => a + w, 0) || 1;
+    const shares = n.weights.map(w => Math.round((w / sum) * 1000) / 1000);
+    if (n.t === "columns") return { columns: n.source ?? null, id: n.id, path, shares, ...pol, kids };
+    return { split: n.dir, id: n.id, path, shares, ...pol, kids };
+  };
+  return go(s.tree, "");
+}
+/** The path of a container in the tree ("" the root, "1.0" its second kid's first kid; a dock's kid is its `.0`). */
+export function pathOf<I>(root: LNode<I>, target: LNode<I>, path = ""): string | null {
+  if (root === target) return path;
+  const kids = kidsOf(root);
+  for (let i = 0; i < kids.length; i++) { const p = pathOf(kids[i]!, target, path ? `${path}.${i}` : String(i)); if (p !== null) return p; }
+  return null;
+}
+/** The container at `path`, if there is one. */
+export function nodeAt<I>(root: LNode<I>, path: string): LNode<I> | null {
+  let n: LNode<I> = root;
+  for (const p of path.split(".").filter(Boolean)) { const k = kidsOf(n)[Number(p)]; if (!k) return null; n = k; }
+  return n;
+}

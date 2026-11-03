@@ -14,7 +14,6 @@ import type { TileSpec } from "./desk/tiles";
 import { keepOnScreen, type Dir } from "./desk/screen-layout";
 import { inside, type Hover } from "./hover";
 import { USER, type Actor } from "./socket";
-import { ActionRefused } from "./surface/actions";
 import type { Key } from "./term";
 
 export class FloatLayer {
@@ -53,12 +52,8 @@ export class FloatLayer {
     const d = this.host.desk!;
     if (from === d) return d.floatTile(name, actor, true);
     const heir = from.tileCount() === 1 ? makeTile({ t: "leaf", kind: "blank" }) : undefined;
-    const why = from.takeRefusal(name, actor, !!heir);
-    if (why) throw new ActionRefused(why);
-    const admission = d.bringRefusal({ name, spec: { t: "leaf", kind: from.pane(name)!.kind } }, undefined, undefined, actor, this.rectangle());
-    if (admission) throw new ActionRefused(admission);
-    const moved = from.takeOut(name, actor, heir);
-    const done = d.bringIn(moved, undefined, undefined, actor, this.rectangle());
+    // One carry (PIE-1547): both layouts asked first, then moved; it lands without the keys.
+    const { keys: _keys, moved: _moved, ...done } = from.carry(d, name, { floating: this.rectangle(), ...(heir ? { heir } : {}) }, actor);
     this.app.redraw(); return { ...done, floated: true, to: "glass" };
   }
   /** Close every float, keeping any tile the person is working in when an agent asks. */
