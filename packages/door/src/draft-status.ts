@@ -6,8 +6,8 @@
 import { Again } from "./arm";
 import { C, fg } from "./style";
 
-/** What a write under way is doing: asking how the properties will read, writing it, creating it. */
-export type DraftPhase = "checking" | "saving" | "creating";
+/** What a write under way is doing: asking how the properties will read, writing it, creating it, reading the current text back. */
+export type DraftPhase = "checking" | "saving" | "creating" | "reloading";
 
 export class DraftStatus {
   /** A write is under way: nothing may change or close the draft meanwhile. */
@@ -33,7 +33,7 @@ export class DraftStatus {
 
   /** What a write under way is doing, in words ("saving…"), or null when none is. */
   get doing(): string | null {
-    return this.phase === "saving" ? "saving…" : this.phase === "creating" ? "creating…" : this.phase === "checking" ? "checking properties…" : null;
+    return this.phase === "saving" ? "saving…" : this.phase === "creating" ? "creating…" : this.phase === "checking" ? "checking properties…" : this.phase === "reloading" ? "reloading…" : null;
   }
 
   /** The draft's state, for the edit frame's status line (`dirty`: it differs from what it started as). */

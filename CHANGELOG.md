@@ -10,12 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A comment's ctrl+r tells a failed read from a reload, and a tiny box still names the copy (PIE-1560)
+
+- **Offline, ctrl+r says so.** With the outline unreachable, reloading a posted comment's edit says `couldn't read it now · your text is kept · ctrl+r tries again`, and the conflict and your words stay. It no longer takes comments the door already holds for a reload.
+- **While ctrl+r reads, the draft holds still.** A paste through `act` then is refused with "try again in a moment" instead of being dropped when the words load.
+- **In a box a few rows tall** your typed text stays in view, with what ctrl+s said above it: not saved, the copy's file name (its two ends when a row can't hold it all) and `^R`. After ctrl+r it says the revision it loaded and names the copy.
+- **Run:** nothing; the door picks it up on its next start.
 ### ctrl+z takes a gather back from inside the group, and a refusal says what to press (PIE-1559, PIE-1569)
 
 - **Gather, then ctrl+z:** the keys are on the group after `^W G`, and ctrl+z undoes the gather, from the group or stepped into it, the same tiles back.
 - **`^W B` undoes the newest layout change on any layout,** the screen's, the drawer's or a group's, with your keys where they are: never a tile's own undo, never a key to a program.
 - **A change on the other side is named, with what takes it back:** `your drawer changed since (you rename); ^W B undoes it`.
 - **Run:** `ep0ch install --apply` (door code).
+
 
 ### Undo brings a tile back from the glass whole (PIE-1559)
 

@@ -339,10 +339,13 @@ export class DraftSession {
   async reload(): Promise<void> {
     if (!this.open) return;
     if (!this.target.reload) { this.status.say("nothing to reload"); return; }
+    if (this.draft.busy) return;
     let r: Awaited<ReturnType<NonNullable<DraftTarget["reload"]>>>;
+    // Keys and draft writes wait for it: what they'd add now the reload's rebase would drop (PIE-1560).
+    this.status.phase = "reloading";
     // A read that fails isn't a reload: the conflict stands and the draft says why (PIE-1560).
     try { r = await this.target.reload(this, { phase: p => { this.status.phase = p; this.env.redraw?.(); } }); }
-    catch (e) { this.status.say(`couldn't read ${this.target.what} now (${e instanceof Error ? e.message : String(e)}) · your text is kept · ctrl+r tries again`); return; }
+    catch (e) { this.status.say(`couldn't read it now · your text is kept · ctrl+r tries again (${e instanceof Error ? e.message : String(e)})`); return; }
     finally { this.status.phase = null; }
     if (typeof r === "string") this.status.say(r);
     else if (r) { this.status.say(r.said); return; }
@@ -899,7 +902,7 @@ export function commentEditTarget(o: {
   reread(): Promise<EditedMark | null>;
 }): DraftTarget {
   let mark = o.mark;
-  const what = mark.reply ? "reply" : "comment", label = `${mark.id.slice(0, 8)}-${what}-edit`;
+  const what = mark.reply ? "reply" : "comment", label = `${mark.id.slice(0, 8)}-${what}`;
   const no = (why: string, stale = false): Outcome => { o.refused?.(why, stale); return { ok: false, why, ...(stale ? { stale } : {}) }; };
   return {
     place: `remark:${mark.id}`, near: o.note.id, label,
@@ -937,7 +940,7 @@ export function commentEditTarget(o: {
       mark = now;
       s.settled();
       d.rebase({ id: now.id, text: now.body, revision: now.revision, properties: [], parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null });
-      return `loaded its words at revision ${now.revision}${copy ? ` · your earlier draft is at ${tidy(copy)}` : ""}`;
+      return `loaded revision ${now.revision}${copy ? ` · your earlier draft is at ${tidy(copy)}` : ""}`;
     },
   };
 }

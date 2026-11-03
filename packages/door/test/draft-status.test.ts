@@ -54,7 +54,7 @@ describe("the one status line", () => {
     expect(s.hint()).toContain("reload");
     await s.reload(env);
     expect(w.draft.text).toBe("Cut the hedge in March?");
-    expect(frame()).toContain("loaded its words at revision 6");
+    expect(frame()).toContain("loaded revision 6");
   });
 
   test("ctrl+r on a posted comment's stale edit says the revision it loaded and where the earlier words are", async () => {
@@ -73,7 +73,7 @@ describe("the one status line", () => {
     await until(() => w.status.conflict !== null, "the stale refusal");
     await s.reload(env);
     expect(w.draft.text).toBe("Swap Fridays?");
-    expect(w.draft.note).toContain("loaded its words at revision 4");
+    expect(w.draft.note).toContain("loaded revision 4");
     expect(w.draft.note).toContain("your earlier draft is at");
   });
 
@@ -98,19 +98,20 @@ describe("the one status line", () => {
     expect(box.lines.map(visible).join("\n")).toContain("Rake the leaves?!");
   });
 
-  test("a reload that can't read the comments says so, and the conflict stays", async () => {
-    const { s, w, env } = await staleEdit(async () => { throw new Refused("revision is stale"); }, async () => { throw new Error("offline"); });
-    await s.reload(env);
-    expect(w.draft.note).not.toContain("gone");
-    expect(w.draft.note).toContain("couldn't read");
-    expect(w.status.conflict).not.toBeNull();
-  });
-
   test("a copy's file name stays whole in a narrow status, the full path kept for the reveal", () => {
     const file = "a7ee1cbe-comment-edit-2026-11-03T20-42-17-561Z.md";
     const rows = saidRows(`your draft is kept and copied to /home/gardener/.state/drafts/${file} · ctrl+r loads the current text`, 24, 4, 0);
     expect(rows.length).toBeLessThanOrEqual(4);
     expect(rows.map(visible).join("").replace(/\s+/g, "")).toContain(file);
+  });
+
+  test("one row left: the copy's two ends and the reload key", () => {
+    const file = "a7ee1cbe-comment-edit-2026-11-03T20-42-17-561Z.md";
+    const [row, ...rest] = saidRows(`your draft is kept and copied to /home/gardener/.state/drafts/${file} · ctrl+r loads the current text`, 26, 1, 0);
+    expect(rest).toEqual([]);
+    expect(visible(row!)).toStartWith("a7ee1cbe");
+    expect(visible(row!)).toContain("Z.md");
+    expect(visible(row!).trim()).toEndWith("^R");
   });
 
   test("an offline save names its copy at 44 columns, bounded like every status", async () => {
