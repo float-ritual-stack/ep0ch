@@ -86,6 +86,8 @@ export function paint(s: string): string {
 }
 
 const ANSI_RE = /\x1b\[[\d;]*m/g;
+/** One colour code, kept whole when a string is cut into glyphs (splitVisible). */
+const SGR_PART = /(\x1b\[[\d;]*m)/;
 
 // ── presentation marks: a link's colour (src/refs.ts) and inline Markdown styles (src/inline.ts) ──
 // Placed in read-mode text before it's wrapped, turned into colour and SGR styles after (colourBody), so
@@ -226,16 +228,51 @@ export function balanceTags(lines: string[]): string[] {
 }
 
 /**
- * `s` (plain text, link tags and marks, no colour) split after its first `n` cells: the one cut of text to a width
+ * Fold one colour code into `style`, the state in effect: one code per foreground, background and attribute, a reset
+ * clearing it. Only the state is carried across a cut, never the codes that led to it: a cell wrapped row after row
+ * would otherwise carry each row's history into the next (PIE-1524 review: 1.57 MB for a 120-character path).
+ * Codes that set no colour or attribute (a private mark such as `\x1b[777;…m`) are not carried.
+ */
+function inEffect(style: Map<string, string>, code: string): void {
+  const ps = code.slice(2, -1).split(";").map(Number);
+  for (let i = 0; i < ps.length; i++) {
+    const p = ps[i]!;
+    if (!p) { style.clear(); continue; }
+    if (p === 38 || p === 48) {
+      const n = ps[i + 1] === 5 ? 2 : ps[i + 1] === 2 ? 4 : 0;
+      if (n) style.set(p === 38 ? "fg" : "bg", `\x1b[${ps.slice(i, i + 1 + n).join(";")}m`);
+      i += n; continue;
+    }
+    if (p === 39) style.delete("fg");
+    else if (p === 49) style.delete("bg");
+    else if ((p >= 30 && p <= 37) || (p >= 90 && p <= 97)) style.set("fg", `\x1b[${p}m`);
+    else if ((p >= 40 && p <= 47) || (p >= 100 && p <= 107)) style.set("bg", `\x1b[${p}m`);
+    else if (p === 1 || p === 2) style.set("weight", `\x1b[${p}m`);
+    else if (p === 22) style.delete("weight");
+    else if (p >= 3 && p <= 9) style.set(String(p), `\x1b[${p}m`);
+    else if (p >= 23 && p <= 29) style.delete(String(p - 20));
+  }
+}
+
+/**
+ * `s` (text, link tags, marks and colour codes) split after its first `n` cells: the one cut of text to a width
  * (PIE-1291). By glyph, never through a wide or joined one, and at least one glyph when `n` is 1 or more, so a loop of
  * cuts always moves on. A link open at the cut is closed in the head and re-opened in the tail; a tag that opens right
- * at the cut goes with the tail, one that closes there with the head.
+ * at the cut goes with the tail, one that closes there with the head. A colour code takes no room and is never cut
+ * (PIE-1524: a code span's colour cut in two drew `;204;146;214m` in a table cell); one at the cut goes with the tail,
+ * and the colours in effect at the cut are set again at the tail's start, so the rest of a styled word stays styled.
  */
 export function splitVisible(s: string, n: number): [string, string] {
-  const gs = graphemes(s);
+  const gs = s.includes("\x1b") ? s.split(SGR_PART).flatMap(p => (SGR_PART.test(p) ? [p] : graphemes(p))) : graphemes(s);
   let seen = 0, open = -1, i = 0;
+  const style = new Map<string, string>();
   for (; i < gs.length; i++) {
     const g = gs[i]!;
+    if (g.startsWith("\x1b[") && g.endsWith("m")) {
+      if (seen >= n && seen > 0) break;
+      inEffect(style, g);
+      continue;
+    }
     if (isTag(g)) {
       const end = g.codePointAt(0) === TAG_END;
       if (seen >= n && !end) break;
@@ -246,7 +283,11 @@ export function splitVisible(s: string, n: number): [string, string] {
     if (seen + gw > n && (seen > 0 || n < 1)) break;
     seen += gw;
   }
-  const head = gs.slice(0, i).join(""), tail = gs.slice(i).join("");
+  const head = gs.slice(0, i).join("");
+  // Codes at the cut fold into the state the tail opens with, so a tail cut again never repeats one.
+  // A value's mark (FULL_START, FULL_END) stays where it is.
+  for (; i < gs.length && SGR_PART.test(gs[i]!) && !gs[i]!.startsWith("\x1b[77"); i++) inEffect(style, gs[i]!);
+  const rest = gs.slice(i).join(""), tail = rest && [...style.values()].join("") + rest;
   if (open < 0) return [head, tail];
   return [head + LINK_END, tail ? linkTag(open) + tail : ""];
 }
@@ -326,7 +367,8 @@ export function headOf(s: string, n: number): string {
  * (`w` cells) over `s`.
  */
 export function tailFrom(s: string, n: number): string {
-  let out = "", seen = 0, state = "", link = "", full = "";
+  let out = "", seen = 0, link = "", full = "";
+  const state = new Map<string, string>();
   for (const part of s.split(DRAWN_PART)) {
     if (part.startsWith("\x1b")) {
       if (seen >= n) out += part;
@@ -334,7 +376,7 @@ export function tailFrom(s: string, n: number): string {
       // The part of a value still showing after the cut is its own again: its mark opens where the tail starts.
       else if (part.startsWith(FULL_START)) full = part;
       else if (part === FULL_END) full = "";
-      else if (part.endsWith("m")) state = part === RESET || part === "\x1b[m" ? "" : state + part;
+      else if (part.endsWith("m")) inEffect(state, part);
       continue;
     }
     for (const g of graphemes(part)) {
@@ -343,13 +385,14 @@ export function tailFrom(s: string, n: number): string {
       if (seen > n) out += " ".repeat(seen - n);
     }
   }
-  return link + state + full + out;
+  return link + [...state.values()].join("") + full + out;
 }
 
 /**
  * A hint (a row of key parts joined by " · ") cut to `w` cells: between parts, never inside a key's, ending
  * with `more` (a "? more" chip, or a plain " …"). When even the first part is too wide it's cut at its last
- * space that fits. `at`: the cell where `more` starts, so a click on it can be found. Short enough: as it is.
+ * space that fits. `at`: the cell where `more` starts, so a click on it can be found; hovering it reads the whole
+ * hint. Short enough: as it is.
  */
 export function fitHint(s: string, w: number, more = ` ${fg(C.dark)}…`): { text: string; at: number; cut: boolean } {
   if (width(s) <= w) return { text: s, at: -1, cut: false };
@@ -362,7 +405,8 @@ export function fitHint(s: string, w: number, more = ` ${fg(C.dark)}…`): { tex
     col += glyphWidth(gs[i]!);
   }
   const at = part > 0 ? part : space > 0 ? space : room;
-  return { text: fullText(s, headOf(s, at) + RESET + more + RESET), at, cut: true };
+  // The parts that fit keep their own marks, so each is still a click (PIE-1293); the `more` mark reads the whole hint.
+  return { text: headOf(s, at) + RESET + fullText(s, more + RESET) + RESET, at, cut: true };
 }
 const tagsIn = (rest: string) => rest.match(TAGS)?.join("") ?? "";
 
