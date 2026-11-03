@@ -56,6 +56,7 @@ Pi/OMP users can invoke `/outliner`; supported coding clients can use the projec
 
 ## Source boundaries
 
+- `actions.ts` declares every wire action once: host or outline, what a read-only copy answers, what an extension's grant may make of it, async-only, watchable, the whole-outline lane and the change event it broadcasts. The host's routing, the copy and extension gates, `handle`'s refusals, `Turns`, `QueryWatches` and `eventFor` read the rows; `server.ts` keeps the handlers and owns dispatch. A new action fails `bun run check` until it has a row, and `test/actions.test.ts` holds the table.
 - outline-core’s `query-expression.ts`, `query-properties.ts`, `query-order.ts` and `query-facets.ts` own the pure query grammar, evaluation, ordering and facet/group counts. The service’s `block-query.ts` normalizes requests and supplies relations; the door’s local facet sources call the same pure owners.
 
 - Door events use outline-core `src/door-open.ts`: `server.ts` carries `door.event` envelopes unchanged on its event stream, filtered by kind. `extension-rules.ts` matches a target note and calls the existing extension/script runtime (`input.trigger.event`); the service keeps no visit history.
@@ -435,7 +436,7 @@ One host serves every client of every outline on one event loop, and a client gi
   wrote (`temp.graph_dirty`), and the next read re-reads only those. So a statement's `.changes` from Bun counts the
   triggers' rows too: a check of how many rows an UPDATE matched reads `SELECT changes()` (`writeBlockText`).
 - Every request waits for its turn (`Turns` in `loop-watch.ts`): one per pass of the loop, the whole-outline reads
-  (`WHOLE_OUTLINE_READS`) after every other request. A new action that reads the whole outline joins that list.
+  (their `whole` row in `actions.ts`) after every other request. A new action that reads the whole outline says `whole: true`.
   Within a lane the next turn goes to whoever has used the loop least lately in that lane (a connection, an agent's
   actor id, the service's `own` jobs, the `watches`), so a person's request waits for one turn of a bulk job, not its
   whole queue, and a door's lane reads never count against its own note read.

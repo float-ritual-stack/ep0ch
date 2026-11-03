@@ -147,14 +147,14 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     expect(shape()).toBe("row(claude,col(tabs(tree,*now),draft,preview,middle),side)");
     // The tab set's header: a click on a tab's label shows it; alt+n and alt+p step through them.
     render();
-    const head = D().heads.find((h: any) => h.id === [...D().names].find(([, v]: any) => v === "tree")[0]);
+    const head = D().presses.kind("title").find((h: any) => h.id === [...D().names].find(([, v]: any) => v === "tree")[0]);
     mouse("down", head.from + 1, head.row); mouse("up", head.from + 1, head.row);
     expect(tile("tree").tabShown).toBe("tree");
     key(alt("n")); expect(tile("now").tabShown).toBe("now");
     key(alt("p")); expect(tile("tree").tabShown).toBe("tree");
     // A tab dragged out by its label to the outer right edge: a full-height column.
     render();
-    const nowHead = D().heads.find((h: any) => h.id === [...D().names].find(([, v]: any) => v === "now")[0]);
+    const nowHead = D().presses.kind("title").find((h: any) => h.id === [...D().names].find(([, v]: any) => v === "now")[0]);
     drag(nowHead.from + 1, nowHead.row, 199, 30);
     expect(shape()).toBe("row(claude,col(tree,draft,preview,middle),side,now)");
   });
@@ -364,7 +364,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     key({ kind: "tab" });
     expect(tile("tree").dock).toBe("shut");
     render();
-    const h = D().dockHits[0];                                        // a shut dock is a strip on its edge
+    const h = D().presses.kind("dock")[0];                                        // a shut dock is a strip on its edge
     mouse("down", h.from, h.row);
     expect(tile("tree").dock).toBe("open");
     expect(get().focus).toBe("tree");

@@ -212,10 +212,10 @@ export class ScreenTile implements Pane {
   /** Its controls on the header: full screen, in or out, and a group's spill. */
   headControls(_room: number, desk: DeskApi) {
     if (this.exhibit || this.problem || !this.framed) return null;
-    const run = (name: string, args: Record<string, unknown> = {}) => () => void desk.perform?.(name, args, USER, this);
+    const run = (name: string, args: Record<string, unknown> = {}) => ({ action: name, ...(Object.keys(args).length ? { args } : {}), run: () => void desk.perform?.(name, args, USER, this) });
     return [
-      ...(this.screen ? [{ text: "▲ full", sgr: fg(C.grey), press: run("mount.out") }] : [{ text: "■ spill", sgr: fg(C.grey), press: run("tile.group", { on: false }) }]),
-      { text: this.inside ? "◄ out" : "⏎ in", sgr: fg(this.inside ? C.yellow : C.grey), press: run("mount.enter", { on: !this.inside }) },
+      ...(this.screen ? [{ text: "▲ full", sgr: fg(C.grey), act: run("mount.out") }] : [{ text: "■ spill", sgr: fg(C.grey), act: run("tile.group", { on: false }) }]),
+      { text: this.inside ? "◄ out" : "⏎ in", sgr: fg(this.inside ? C.yellow : C.grey), act: run("mount.enter", { on: !this.inside }) },
     ];
   }
 

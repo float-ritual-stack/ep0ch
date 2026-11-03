@@ -22,8 +22,8 @@
 //   every TELL_EVERY_MS while a long one goes on.
 //
 // It doesn't know what it watches: the server passes how to answer a request (its own `handle`), so `blocks.query`,
-// `views.read`, `blocks.authored-links`, `references.backlinks` and `query.matches` are watched alike (outline-core WATCHABLE_ACTIONS).
-import { QUERIES_CHANGED, WATCHABLE_ACTIONS, WATCH_LIMITS, type OutlinerResponse, type QueryChange } from "@ep0ch/outline-core/protocol";
+// `views.read`, `blocks.authored-links`, `references.backlinks` and `query.matches` are watched alike (their `watch` row in actions.ts).
+import { QUERIES_CHANGED, WATCH_LIMITS, type OutlinerResponse, type QueryChange } from "@ep0ch/outline-core/protocol";
 
 /** Where a watch's changes go: the connection that asked (a socket). */
 export interface WatchConnection {
@@ -66,7 +66,6 @@ export interface ChangedNotes { blockId?: string; parentId?: string | null; prev
 /** In a pass taking longer than this, what changed so far is told without waiting for the rest. */
 const TELL_EVERY_MS = 100;
 
-export const isWatchable = (action: string): boolean => (WATCHABLE_ACTIONS as readonly string[]).includes(action);
 
 /** An answer's identity: everything in it but the service's sequence, which moves on every write. */
 function hashOf(response: OutlinerResponse): string {
