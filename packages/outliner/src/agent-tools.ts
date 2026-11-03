@@ -177,7 +177,7 @@ export interface ResolvedReference {
  * it. Its refusals teach (an ambiguous prefix's candidates, a miss's nearest ids); a title is refused, so a write never
  * lands on a guess.
  */
-async function resolveReference(client: AgentToolsClient, ref: string): Promise<{ block: Block; fragmentId?: string }> {
+export async function resolveReference(client: AgentToolsClient, ref: string): Promise<{ block: Block; fragmentId?: string }> {
   const text = typeof ref === "string" ? ref.trim() : "";
   if (!text) throw new WorkToolRefusal("Give a reference: a block id, ((id)), an id's first 8+ characters, [[page]] or a Work ID");
   const target = linkTarget(text);

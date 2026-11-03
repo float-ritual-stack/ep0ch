@@ -6,6 +6,38 @@ import { isSystemNote, systemNoteKind } from "./note-placement";
 
 const label = (block: Block) => `((${block.id}|${blockDisplayTitle(block).slice(0, 50).replace(/[|()]/g, " ").trim()}))`;
 
+/**
+ * Where a relative move (`step`) puts a note, as the place a move names (`before`, `after` or under `to`), from its
+ * siblings in order; a step it can't take is refused in the words every client says. The service's move and an agent's
+ * proposed move (the CLI at propose) both read it here.
+ */
+export function stepPlace(block: Pick<Block, "id" | "parentId" | "text" | "properties">, siblings: readonly Pick<Block, "id">[], step: string): { before?: string; after?: string; to?: string } {
+  const named = label(block as Block);
+  const i = siblings.findIndex(b => b.id === block.id);
+  switch (step) {
+    case "up":
+      if (i <= 0) throw new Error(`${named} is already first under its parent`);
+      return { before: siblings[i - 1]!.id };
+    case "down":
+      if (i >= siblings.length - 1) throw new Error(`${named} is already last under its parent`);
+      return { after: siblings[i + 1]!.id };
+    case "in":
+      if (i <= 0) throw new Error(`${named} has no note above it to go in under`);
+      return { to: siblings[i - 1]!.id };
+    case "out":
+      if (block.parentId === null) throw new Error(`${named} is at the top level: there is no outer level to go out to`);
+      return { after: block.parentId };
+    default: throw new Error("step is up, down, in or out");
+  }
+}
+
+/** Why a note isn't empty for a conditional trash (`ifEmpty`), or null: the store's trash and an agent's proposed one say it alike. */
+export function notEmptyWhy(id: string, text: string, children: number): string | null {
+  if (children > 0) return `Block is not empty: it has ${children} ${children === 1 ? "child" : "children"} now: ${id}`;
+  if (text.trim()) return `Block is not empty: it has text now: ${id}`;
+  return null;
+}
+
 /** No await between reading the intent's places and writing: every client gets the same atomic move. */
 export function moveNote(store: OutlinerStore, id: string, intent: NoteMoveIntent, expectedRevision: number, mutation?: MutationProvenance): Block & NoteMoveReceipt {
   return store.database.transaction((): Block & NoteMoveReceipt => {
@@ -26,24 +58,7 @@ export function moveNote(store: OutlinerStore, id: string, intent: NoteMoveInten
     let { to, parentId, before, after } = intent;
     const previous = store.children(block.parentId);
     const previousPosition = previous.findIndex(b => b.id === block.id);
-    if (intent.step) {
-      const i = previousPosition;
-      switch (intent.step) {
-        case "up":
-          if (i <= 0) throw new Error(`${label(block)} is already first under its parent`);
-          before = previous[i - 1]!.id; break;
-        case "down":
-          if (i >= previous.length - 1) throw new Error(`${label(block)} is already last under its parent`);
-          after = previous[i + 1]!.id; break;
-        case "in":
-          if (i <= 0) throw new Error(`${label(block)} has no note above it to go in under`);
-          to = previous[i - 1]!.id; break;
-        case "out":
-          if (block.parentId === null) throw new Error(`${label(block)} is at the top level: there is no outer level to go out to`);
-          after = block.parentId; break;
-        default: throw new Error("step is up, down, in or out");
-      }
-    }
+    if (intent.step) ({ to, before, after } = { to, before, after, ...stepPlace(block, previous, intent.step) });
     let beside: Block | undefined;
     if (before !== undefined || after !== undefined) {
       beside = named((before ?? after)!, `The note to go ${before !== undefined ? "before" : "after"}`);

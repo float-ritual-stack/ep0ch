@@ -59,6 +59,7 @@ import { seedDefaultWorkspace } from "./default-workspace";
 import { openSchema } from "./schema";
 import { openOutlineInstance, type OutlineInstance } from "./outline-instance";
 import { placeNewNote, type NewNoteIntent, type Placement } from "./note-placement";
+import { notEmptyWhy } from "./note-move";
 import { DETACHED_PAGE, markSnippet, quoteText, titleWords, type QuoteInput, type QuotedSubject, type QuoteSubject } from "./quote";
 import {
   BlockQueryError,
@@ -3187,11 +3188,9 @@ export class OutlinerStore {
         throw new Error(`Block changed since it was read: ${id}`);
       }
       if (ifEmpty) {
-        const { children } = this.database.query(
-          "SELECT COUNT(*) AS children FROM blocks WHERE parent_id = ? AND effective_deleted_root_id IS NULL",
-        ).get(id) as { children: number };
-        if (children > 0) throw new Error(`Block is not empty: it has ${children} ${children === 1 ? "child" : "children"} now: ${id}`);
-        if (current.text.trim()) throw new Error(`Block is not empty: it has text now: ${id}`);
+        const { children } = this.database.query("SELECT COUNT(*) AS children FROM blocks WHERE parent_id = ? AND effective_deleted_root_id IS NULL").get(id) as { children: number };
+        const why = notEmptyWhy(id, current.text, children);
+        if (why) throw new Error(why);
       }
       const subtree = new Set(this.subtreeIdsFromCurrentRead(id));
       if (this.roadmapMembersOfBatches([...subtree]).some(member => !subtree.has(member))) {
@@ -3973,6 +3972,7 @@ export class OutlinerStore {
    * (`intent.near`), else the top of the Inbox. The text may be empty (a note opened to be written); a first line of
    * only `[page::x]` is titled `x` (outline-core's page-title rule, applied by the server to every client write).
    */
+  /** Where `createNote` would put a note with this text now, writing nothing (`notes.create` with `dryRun`). */ placeNote(text: string, intent: NewNoteIntent): Placement { return this.placementFromCurrentRead(intent, text); }
   createNote(text: string, intent: NewNoteIntent, author: BlockAuthor = "user", provenance?: BlockProvenance): NewNoteReceipt {
     if (typeof text !== "string") throw new Error("Note text must be a string");
     return this.database.transaction((): NewNoteReceipt => {
