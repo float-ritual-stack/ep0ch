@@ -39,11 +39,15 @@ export interface AgentRow {
   lastWrite?: number | null; running?: string | null; behind?: boolean;
 }
 
-/** working, waiting (and why), idle: in claude's own words, coloured by whether it needs someone. */
+/**
+ * working, done, idle, or blocked and why, in claude's own words, coloured by whether it needs someone. A finished job
+ * (state done) is done whatever its status says; blocked only when claude names what it waits for (waitingFor).
+ */
 export function agentStatus(r: AgentRow): { word: string; tone: string } {
-  if (r.status === "waiting") return { word: `blocked: ${r.waitingFor || "waiting"}`, tone: "31;1" };
+  if (r.state === "done") return { word: "done", tone: "36" };
   if (r.status === "busy" || r.state === "working") return { word: "working", tone: "32" };
-  return { word: r.state === "done" ? "done" : r.status || "?", tone: "36" };
+  if (r.status === "waiting") return r.waitingFor ? { word: `blocked: ${r.waitingFor}`, tone: "31;1" } : { word: "waiting", tone: "33" };
+  return { word: r.status || "?", tone: "36" };
 }
 
 export function agentRows(rows: readonly AgentRow[], now = Date.now()): string[] {
@@ -110,12 +114,15 @@ export interface HealthRow { key: string; group: string; name: string; status: s
 interface DoctorJson { checks?: { group: string; name: string; status: string; detail: string; fix?: string }[] }
 interface LinkJson { links?: { machine: string; transport?: string; up: boolean; since?: string; direction?: string; error?: string }[] }
 interface SessionJson { pid: number; code?: { dir?: string; commit?: string }; place?: { outline?: string; machine?: string }; clients?: unknown[] }
+/** A machine whose doors come through another's link answers its link's record (`ep0ch session list --machine`): no code to compare. */
+interface LinkedDoors { machine: string; via?: string; doors: { key: string; outline: string; machine?: string; clients?: number; screen?: string; idle?: number | null }[] }
+export type MachineSessions = SessionJson[] | LinkedDoors;
 
 const TONE: Record<string, string> = { ok: "32", info: "90", behind: "33;1", unknown: "33", missing: "31;1" };
 const MARK: Record<string, string> = { ok: "✓", info: "·", behind: "!", unknown: "?", missing: "×" };
 
 /** Doctor's checks, the links and each machine's door sessions against main: one row each, worst first. */
-export function healthRows(o: { doctor: DoctorJson | null; doctorError?: string; links: LinkJson | null; sessions: { machine: string; rows: SessionJson[] | null; error?: string }[]; main: string | null }): HealthRow[] {
+export function healthRows(o: { doctor: DoctorJson | null; doctorError?: string; links: LinkJson | null; sessions: { machine: string; rows: MachineSessions | null; error?: string }[]; main: string | null }): HealthRow[] {
   const out: HealthRow[] = [];
   const add = (group: string, name: string, status: string, detail: string, fix?: string) => out.push({ key: safeKey(`${group}~${name}`), group, name, status, detail, ...(fix ? { fix } : {}) });
   if (o.doctor?.checks) for (const k of o.doctor.checks) add(k.group, k.name, k.status, k.detail, k.fix);
@@ -123,6 +130,11 @@ export function healthRows(o: { doctor: DoctorJson | null; doctorError?: string;
   for (const l of o.links?.links ?? []) add("links", l.machine, l.up ? "ok" : "behind", `${l.direction ?? ""} ${l.transport ?? "link"} ${l.up ? "up" : "down"}${l.since ? ` since ${l.since}` : ""}${l.error ? ` · ${l.error}` : ""}${l.up ? "" : ` · ${l.direction === "inbound" ? `ssh ${l.machine} ep0ch link status` : "ep0ch link status"} says why`}`.trim());
   for (const m of o.sessions) {
     if (!m.rows) { add("sessions", m.machine, "unknown", `ep0ch session list --machine ${m.machine} didn't answer${m.error ? `: ${m.error}` : ""}`); continue; }
+    if (!Array.isArray(m.rows)) {
+      const via = m.rows.via ? `through ${m.rows.via}'s link` : "through its link";
+      for (const d of m.rows.doors ?? []) add("sessions", `${d.key} (door on ${m.machine})`, "info", `${d.clients ?? 0} attached · ${d.screen ?? "?"} · ${via}; its code isn't said over the link · ssh ${m.machine} ep0ch session list`);
+      continue;
+    }
     for (const s of m.rows) {
       const name = `${s.place?.outline ?? "?"}${s.place?.machine ? `@${s.place.machine}` : ""} (door on ${m.machine})`;
       const commit = s.code?.commit ?? "";
@@ -139,9 +151,20 @@ export function healthLines(rows: readonly HealthRow[]): string[] {
   return rows.map(r => row(`${c(TONE[r.status] ?? "37", `${MARK[r.status] ?? "?"} ${pad(r.status, 7)}`)} ${c("33", pad(r.group, 9))} ${pad(r.name, 22)}${dim(`  ${r.detail.length > 90 ? `${r.detail.slice(0, 89)}…` : r.detail}${r.fix ? " · fix" : ""}`)}`, r.key));
 }
 
+/**
+ * Whether a check's fix is a command to run as it stands: the shell reads it (`sh -n`), it holds no `<placeholder>`, and
+ * each command it names is on PATH. Doctor's fixes are sometimes words ("first: name this machine …"); those are shown.
+ */
+export function runnable(fix: string, onPath: (name: string) => boolean = n => !!Bun.which(n)): boolean {
+  if (/<[^>]+>/.test(fix)) return false;
+  if (Bun.spawnSync(["sh", "-n", "-c", fix], { stdout: "ignore", stderr: "ignore" }).exitCode !== 0) return false;
+  const heads = fix.split(/&&|\|\||;|\|/).map(c => c.trim().replace(/^\(+/, "").split(/\s+/)[0] ?? "").filter(Boolean);
+  return heads.length > 0 && heads.every(h => /^[A-Za-z_][A-Za-z0-9_]*=/.test(h) || h.startsWith("/") ? true : onPath(h));
+}
+
 export function healthPreview(r: HealthRow): string {
   return [`${c(TONE[r.status] ?? "37", `${MARK[r.status] ?? "?"} ${r.status}`)}  ${c("33;1", `${r.group} · ${r.name}`)}`, "", ...r.detail.split(/;\s+|\s+·\s+/), "",
-    r.fix ? `${c("36;1", "fix (enter runs it):")}\n  ${r.fix}` : dim("nothing to run: this one is information")].join("\n");
+    r.fix ? `${c("36;1", runnable(r.fix) ? "fix (enter runs it):" : "fix (copy it: not a whole command):")}\n  ${r.fix}` : dim("nothing to run: this one is information")].join("\n");
 }
 
 // ── board ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -237,9 +260,12 @@ async function main(argv: string[]) {
         realExec(["git", "-C", repo, "rev-parse", "origin/main"]),
       ]);
       const l = json<LinkJson>(links);
-      const far = await Promise.all((l?.links ?? []).filter(x => x.up).map(async x => {
-        const r = await ep0ch(["session", "list", "--machine", x.machine, "--json"], { timeoutMs: 20_000 });
-        return { machine: x.machine, rows: json<SessionJson[]>(r), error: firstLine(r.err) };
+      // The machines with doors: each whose link is up here, and each whose doors come through another's (ep0ch where).
+      const where = json<{ elsewhere?: { machine: string }[] }>(await ep0ch(["where", "--json"]));
+      const machines = [...new Set([...(l?.links ?? []).filter(x => x.up).map(x => x.machine), ...(where?.elsewhere ?? []).map(x => x.machine)])];
+      const far = await Promise.all(machines.map(async machine => {
+        const r = await ep0ch(["session", "list", "--machine", machine, "--json"], { timeoutMs: 20_000 });
+        return { machine, rows: json<MachineSessions>(r), error: firstLine(r.err) };
       }));
       const rows = healthRows({ doctor: json<DoctorJson>(doc), doctorError: firstLine(doc.err), links: l, sessions: [{ machine: "here", rows: json<SessionJson[]>(here), error: firstLine(here.err) }, ...far], main: main.code === 0 ? main.out.trim() : null });
       writeFileSync(healthCache(), JSON.stringify(rows), { mode: 0o600 });
@@ -253,6 +279,7 @@ async function main(argv: string[]) {
       if (!r) { say(`no check ${arg} in the last list: ctrl-r reloads the channel`); return; }
       if (verb === "health-preview") { say(healthPreview(r)); return; }
       if (!r.fix) { console.error(`${r.group} · ${r.name}: nothing to run`); return pause(); }
+      if (!runnable(r.fix)) { console.error(`${r.group} · ${r.name}: the fix isn't a whole command, so nothing ran. Copy it:\n  ${r.fix}`); return; }
       console.error(`running: ${r.fix}`);
       // The fix is doctor's own command line, run as the person typed it (tv's execute mode hands it the terminal and exits).
       const p = Bun.spawn(["sh", "-c", r.fix], { stdio: ["inherit", "inherit", "inherit"] });

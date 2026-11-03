@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentCommand, agentStatus, healthRows, herdrPanes, newestMessages, prTicket, type AgentRow } from "../ext/television/lib/rows";
+import { agentCommand, agentStatus, healthRows, herdrPanes, newestMessages, prTicket, runnable, type AgentRow } from "../ext/television/lib/rows";
 import { machineChecks, type MachineHealth } from "../src/setup/machine-health";
 
 const EXT = join(import.meta.dir, "../ext/television");
@@ -48,6 +48,12 @@ describe("ep0ch-agents", () => {
     expect(agentCommand(rows[0]!, "stop")).toEqual({ argv: ["claude", "stop", "1a2b3c4d"] });
     for (const what of ["open", "restart", "stop"] as const) expect(agentCommand(rows[1]!, what)).toEqual({ refused: expect.stringContaining("it runs in Herdr pane") });
     expect(agentStatus(agent({ status: "idle", state: "done" })).word).toBe("done");
+  });
+  test("a finished job claude still calls waiting is done; blocked only with a reason claude gives", () => {
+    expect(agentStatus(agent({ status: "waiting", state: "done" }))).toEqual({ word: "done", tone: "36" });
+    expect(agentStatus(agent({ status: "waiting", state: null, waitingFor: null })).word).toBe("waiting");
+    expect(agentStatus(agent({ status: "waiting", state: null, waitingFor: null })).tone).not.toBe("31;1");
+    expect(agentStatus(agent({ status: "waiting", state: null, waitingFor: "permission prompt" }))).toEqual({ word: "blocked: permission prompt", tone: "31;1" });
   });
   test("the preview's messages are the transcript's newest, text only, oldest first", () => {
     const jsonl = [
@@ -106,6 +112,27 @@ describe("ep0ch-health", () => {
       ["garden (door on here)", "ok", undefined],
     ]);
   });
+  test("a machine whose doors come through another's link answers its doors record, not a list: each door is a row", async () => {
+    const linked = { ...answers,
+      "where --json": JSON.stringify({ elsewhere: [{ machine: "box-b", via: "box-a", doors: ["attic"] }] }),
+      "session list --machine box-b --json": JSON.stringify({ machine: "box-b", via: "box-a", addresses: [], doors: [{ key: "attic", outline: "attic", idle: 1000, clients: 2, screen: "desk", control: "/x/attic.sock" }], at: 1 }),
+    };
+    const r = await tv(["health"], linked);
+    expect([r.code, r.err]).toEqual([0, ""]);
+    const row = r.lines.map(shown).find(l => l.includes("attic"));
+    expect(row).toMatch(/·\s+info\s+sessions\s+attic \(door on box-b\)/);
+    expect(row).toContain("2 attached · desk · through box-a's link");
+  });
+  test("enter runs a fix only when it is a whole command; prose and placeholders are shown to copy", () => {
+    const which = (n: string) => ["ep0ch", "systemctl", "ln", "herdr"].includes(n);
+    expect(runnable("ep0ch install --apply", which)).toBe(true);
+    expect(runnable("systemctl --user restart seed-sync.service", which)).toBe(true);
+    expect(runnable("herdr plugin unlink x && herdr plugin link /y --enabled", which)).toBe(true);
+    expect(runnable("ep0ch agent ls; top -o %CPU (what's running)", which)).toBe(false);
+    expect(runnable("export EP0CH_PACKS=<the folder with the packs>", which)).toBe(false);
+    expect(runnable("first: name this machine for its backups (other machines mirror it)", which)).toBe(false);
+    expect(runnable("update the plugin (ep0ch install --apply)", which)).toBe(false);
+  });
   test("doctor that answers nothing readable is a row saying so, not an empty channel", () => {
     expect(healthRows({ doctor: null, doctorError: "boom", links: null, sessions: [], main: null })[0]).toMatchObject({ status: "missing", detail: expect.stringContaining("boom") });
   });
@@ -123,7 +150,7 @@ describe("doctor's machine checks", () => {
       ["user units", "behind", "systemctl --user restart seed-sync.service"],
       ["nightly", "behind", "tail -n 80 /s/run.log"],
       ["box-test", "info", undefined],
-      ["load", "behind", "ep0ch agent ls; top -o %CPU (what's running)"],
+      ["load", "behind", "ep0ch agent ls"],
     ]);
     expect(c[1]!.detail).toContain("red (exit 1, 2 red files) 3h ago");
   });

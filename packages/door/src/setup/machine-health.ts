@@ -86,10 +86,11 @@ export function machineChecks(m: MachineHealth): MachineCheck[] {
   if (!b.last) out.push({ name: "box-test", status: "info", detail: `${runs}; no run recorded (${b.file})` });
   else {
     const [at = "", sha = "", what = "", , secs = "", , code = "", target = ""] = b.last.cols;
-    out.push({ name: "box-test", status: "info", detail: `${runs}; last: ${what} at ${sha} on ${target} exit ${code} ${ago(m.now, at)}, ${secs}`, ...(b.running >= b.slots ? { fix: "ls -d /tmp/ep0ch-box-*  (each a run; a run past the cap waits for a slot)" } : {}) });
+    const full = b.running >= b.slots ? "; every slot taken: a run past the cap waits (ls -d /tmp/ep0ch-box-* lists them)" : "";
+    out.push({ name: "box-test", status: "info", detail: `${runs}; last: ${what} at ${sha} on ${target} exit ${code} ${ago(m.now, at)}, ${secs}${full}` });
   }
 
   const busy = m.load.five > m.load.cpus;
-  out.push({ name: "load", status: busy ? "behind" : "ok", detail: `${m.load.five.toFixed(2)} over 5 min on ${m.load.cpus} cpus${busy ? ": more runs than cpus" : ""}`, ...(busy ? { fix: "ep0ch agent ls; top -o %CPU (what's running)" } : {}) });
+  out.push({ name: "load", status: busy ? "behind" : "ok", detail: `${m.load.five.toFixed(2)} over 5 min on ${m.load.cpus} cpus${busy ? ": more runs than cpus; top -o %CPU shows what's running" : ""}`, ...(busy ? { fix: "ep0ch agent ls" } : {}) });
   return out;
 }
