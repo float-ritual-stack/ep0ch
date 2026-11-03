@@ -12,6 +12,7 @@ type CalloutBoard = { calloutTypes?: () => Promise<{ types: CalloutType[]; probl
 const CALLOUTS = outlineList<CalloutType, CalloutRegistry>(
   (b: CalloutBoard) => (typeof b.calloutTypes === "function" ? () => b.calloutTypes!().then(r => ({ items: r.types, problems: r.problems })) : undefined),
   calloutRegistry, BUILTIN_CALLOUT_REGISTRY,
+  { action: "callouts.types", pick: (r: { types: any[]; problems: string[] }) => ({ items: r.types, problems: r.problems }) },
 );
 
 /** The outline's callout types for this connection: the built-ins until (and unless) the service answers. */

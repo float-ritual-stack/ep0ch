@@ -480,7 +480,14 @@ export function tileSource(source: string | undefined): { source: TileSource; ar
  * render script's answer, drawn with the door's own primitives, its `list` as the one ListView), a title, and a hint.
  * The kind's code runs in the service (PIE-507's extensions), never in the door.
  */
-export interface ServiceFrame { lines?: string[]; view?: unknown; title?: string; hint?: string }
+export interface ServiceFrame {
+  lines?: string[]; view?: unknown; title?: string; hint?: string;
+  /**
+   * What a script's drawing read (PIE-1546): the notes, and whether it asked for machinery. A tool's bookkeeping change
+   * (`hidden`) draws it again only when it did, or read that note; absent, every change does.
+   */
+  read?: { ids: readonly string[]; machinery: boolean };
+}
 /** How a service-drawn tile asks for its content: the kind, its saved state (the tile's args), the room it has, and the desk it's on. */
 export type ServiceRender = (req: { kind: TileKindName; state: Record<string, unknown>; cols: number; rows: number; desk: DeskApi }) => Promise<ServiceFrame>;
 
@@ -529,7 +536,12 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
   /** Its args changed (the drawer's changes.open on the tab there already): the next frame asks the service again. */
   invalidate() { this.asked = ""; this.desk?.redraw(); }
   /** The outline changed: ask again once the burst is over (what the drawing read isn't known here; the service draws it cheaply). */
-  onEvent(desk: DeskApi) { this.schedule.pause(() => { const [c, r] = this.asked.split("x").map(Number); if (c && r) this.refresh(desk, c, r); }); }
+  onEvent(desk: DeskApi, e?: OutlineEvent) {
+    // A tool's bookkeeping a drawing never asked for and never read can't change it (PIE-1546).
+    const read = this.frame?.read;
+    if (e?.hidden && read && !read.machinery && !(e.blockId && read.ids.includes(e.blockId))) return;
+    this.schedule.pause(() => { const [c, r] = this.asked.split("x").map(Number); if (c && r) this.refresh(desk, c, r); });
+  }
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     // Asked once, and again when the room changed for a frame drawn to fit it (lines); a view is laid out here at any
     // width, so a tile drawn at two sizes in turn (a peek beside its own frame) never asks twice for it.

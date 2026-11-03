@@ -28,6 +28,7 @@ type StyleBoard = { styleSheets?: () => Promise<{ sheets: StyleSheet[]; problems
 const SHEETS = outlineList<StyleSheet, { sheets: readonly StyleSheet[] }>(
   (b: StyleBoard) => (typeof b.styleSheets === "function" ? () => b.styleSheets!().then(r => ({ items: r.sheets, problems: r.problems })) : undefined),
   items => ({ sheets: items }), { sheets: [] },
+  { action: "styles.list", pick: (r: { sheets: any[]; problems: string[] }) => ({ items: r.sheets, problems: r.problems }) },
 );
 
 /** The outline's style sheets for this connection (none until the service answers). */

@@ -2821,12 +2821,10 @@ export interface OutlinerEvent {
   undone?: { run: string };
   /** On a `queries.changed` event: the watches whose answer changed, or that were dropped. */
   changes?: QueryChange[];
-  /**
-   * The committed change this event reports, identical to its `changes.since`
-   * entry: one event per change (`view` for branch-local ranks). Absent on a
-   * `content` event for a request that committed nothing.
-   */
+  /** The committed change this event reports, as its `changes.since` entry: one event per change (`view` for branch-local ranks); none for a request that committed nothing. */
   change?: OutlinerChange;
+  /** On `content`: its note was stamped `[machine::…]` before and after (watch-machinery.ts): a list that hides machinery can't see it. */
+  hidden?: true;
 }
 
 /**

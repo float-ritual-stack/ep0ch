@@ -9,6 +9,7 @@ type HeadingBoard = { headingStyles?: () => Promise<{ styles: HeadingStyle[]; pr
 const HEADINGS = outlineList<HeadingStyle, HeadingStyleRegistry>(
   (b: HeadingBoard) => (typeof b.headingStyles === "function" ? () => b.headingStyles!().then(r => ({ items: r.styles, problems: r.problems })) : undefined),
   headingStyleRegistry, BUILTIN_HEADING_STYLE_REGISTRY,
+  { action: "headings.styles", pick: (r: { styles: any[]; problems: string[] }) => ({ items: r.styles, problems: r.problems }) },
 );
 
 /** The outline's heading styles for this connection: the built-ins until (and unless) the service answers. */

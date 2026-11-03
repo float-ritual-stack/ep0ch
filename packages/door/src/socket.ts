@@ -77,7 +77,7 @@ export function hostRequest<T = any>(path: string, action: string, params: Recor
  * A block as the service sends it: full (`text`), or projected without text (`title`, from blocks.read
  * or blocks.query `fields`), or compact (`preview`, from views.read `format: "tree"`).
  */
-interface WireBlock {
+export interface WireBlock {
   id: string; parentId?: string | null; position?: number; text?: string; title?: string; preview?: string; revision?: number;
   author?: string; actorId?: string;
   createdAt?: string; updatedAt?: string; deletedAt?: string | null; effectiveDeletedRootId?: string | null;
@@ -200,6 +200,11 @@ export interface OutlineEvent {
   /** The Resource a `resource-catalog` event names (a registration, a refresh). */
   resourceId?: string;
   change?: Change;
+  /**
+   * A change to a note a tool stamped `[machine::…]` before and after (the service says, PIE-1546): a list that leaves
+   * machinery out can't see it, so only what shows that very note (or asks for machinery) looks again.
+   */
+  hidden?: true;
   /** Replayed from `changes.since` after a reconnect, not live. */
   catchUp?: boolean;
   reason?: string;
@@ -1021,6 +1026,21 @@ export class SocketBoard implements Board {
       query: { limit, filters: [{ key, value }], sort: { field: "updated", direction: "desc" }, ...(machinery ? { machinery } : {}) },
     });
     return r.blocks.map(b => toMsg(b));
+  }
+
+  /** byProp's question as the service watches it (PIE-1546): asked once, then told when its answer changed. */
+  private byPropQuestion(key: string, value: string, limit: number) {
+    return { query: { limit, filters: [{ key, value }], sort: { field: "updated", direction: "desc" } } };
+  }
+  /** byProp, watched: the answer the service last gave this connection (a change elsewhere asks nothing). */
+  async byPropWatched(key: string, value: string, limit = 200): Promise<Msg[]> {
+    const shown = await this.watched.answer<Msg[]>("blocks.query", this.byPropQuestion(key, value, limit), (r: { blocks: WireBlock[] }) => r.blocks.map(b => toMsg(b)), "", { held: true });
+    if (shown.state === "error") throw new Error(shown.error);
+    return shown.value ?? [];
+  }
+  /** byPropWatched's answer as it stands, without waiting (undefined until the first is in). */
+  byPropShown(key: string, value: string, limit = 200): Msg[] | undefined {
+    return this.watched.read<Msg[]>("blocks.query", this.byPropQuestion(key, value, limit), (r: { blocks: WireBlock[] }) => r.blocks.map(b => toMsg(b)), "", { held: true }).value;
   }
 
   /**

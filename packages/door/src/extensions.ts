@@ -880,10 +880,10 @@ function kindEntry(t: ExtensionTileKind, actions: ActionSet<Record<string, ExtAr
       about: `${t.description ?? t.name} (extension ${t.extension}; drawn by the service from its ${of} script${Object.keys(t.args ?? {}).length ? `; ${Object.keys(t.args!).map(k => `${k}=`).join(" ")} are its props` : ""})`,
       args: t.args ?? {}, keyHint, keyActions: Object.fromEntries(t.actions.flatMap(a => (keyOf(a.key) ? [[keyOf(a.key)!, a.name]] : []))),
       render: async req => {
-        const r = await req.desk.ctx.board.request<{ markdown: string; view?: unknown }>("scripts.render", { of, props: propsOf(req.state), deadlineMs: 15_000 }, 20_000);
+        const r = await req.desk.ctx.board.request<{ markdown: string; view?: unknown; reads?: { id: string }[]; machinery?: true }>("scripts.render", { of, props: propsOf(req.state), deadlineMs: 15_000 }, 20_000);
         // The list's own title (PIE-1525: "outbox · 3 waiting on 2 people"), else the kind's name.
         const own = r.view && typeof r.view === "object" && typeof (r.view as { title?: unknown }).title === "string" ? oneLine((r.view as { title: string }).title) : "";
-        return { title: own || t.name, ...(r.view !== undefined ? { view: r.view } : { lines: r.markdown.split("\n") }) };
+        return { title: own || t.name, ...(r.view !== undefined ? { view: r.view } : { lines: r.markdown.split("\n") }), ...(r.reads ? { read: { ids: r.reads.map(x => x.id), machinery: r.machinery === true } } : {}) };
       },
     });
   }

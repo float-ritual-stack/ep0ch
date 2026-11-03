@@ -4,10 +4,11 @@
 // (every reader's default, PIE-867) can't see a stamped note, so QueryWatches skips it for such a change unless the
 // note is one it lists or names: this says which questions those are, and whether a change was to a stamped note.
 import { DEFAULT_MACHINERY, isMachinery } from "@ep0ch/outline-core/machinery";
+import { isMachineryBlindRead } from "./actions";
 import { normalizeBlockSearchQuery, queryReach } from "./block-query";
-import type { ChangedNotes } from "./query-watches";
+import type { ChangedNotes, QueryWatches } from "./query-watches";
 import type { OutlinerStore } from "./store";
-import type { BlockSearchQuery, OutlinerResponse } from "./types";
+import type { BlockSearchQuery, OutlinerEvent, OutlinerResponse } from "./types";
 import { parseVirtualBranchConfig, virtualBranchMembershipQuery } from "./virtual-branches";
 
 /** Which notes are stamped, as of each one's last change: a stamp put on or taken off is a change anyone may see. */
@@ -41,11 +42,13 @@ const readsAcross = (query: { predicate?: Parameters<typeof queryReach>[0] }) =>
  * When a watched question leaves machinery out, the notes a stamped note's change could still reach it through: the
  * ones its answer lists (and so their children: a change names its parent) and the ones it names. Undefined when it
  * may hold a stamped note, or counts the ones it left out (`machineryHidden`, `machineryLeftOut`: that count moves with
- * them). `blocks.query` (a script line's too) and `views.read` say; the other watched reads are evaluated after every
- * change, as before.
+ * them). `blocks.query` (a script line's too) and `views.read` say, and a read whose actions.ts row is `machineryBlind`
+ * (none); the other watched reads are evaluated after every change, as before.
  */
 export function machineryBlind(store: Pick<OutlinerStore, "get">, request: Record<string, unknown>, response: OutlinerResponse): ReadonlySet<string> | undefined {
   if (!response.ok || !response.result || typeof response.result !== "object") return undefined;
+  // Made from the text of what a machinery-hiding query matched (its row in actions.ts): no stamped note reaches it.
+  if (isMachineryBlindRead(request.action)) return new Set();
   const result = response.result as { blocks?: { id?: unknown }[]; machineryHidden?: unknown; machineryLeftOut?: unknown };
   if (!Array.isArray(result.blocks) || result.machineryHidden !== undefined || result.machineryLeftOut !== undefined) return undefined;
   const named: unknown[] = [];
@@ -71,4 +74,29 @@ export function machineryBlind(store: Pick<OutlinerStore, "get">, request: Recor
   const ids = new Set<string>();
   for (const id of [...named, ...result.blocks.map(block => block?.id)]) if (typeof id === "string" && id) ids.add(id);
   return ids;
+}
+
+/**
+ * Whether a read asks for notes tools stamped `[machine::…]`: a `blocks.query` that names `machine` or says
+ * `machinery: show|only`, or any read with `machinery: show|only` (`changes.since`, `views.read`…). A script's drawing
+ * that asked one sees them (PIE-1546), so a change to a stamped note draws it again; one that asked none doesn't.
+ */
+export function asksMachinery(request: Record<string, unknown>): boolean {
+  const query = request.action === "blocks.query" ? request.query as BlockSearchQuery | undefined : undefined;
+  if (query && typeof query === "object") {
+    if (query.countMachinery) return true;
+    try { return normalizeBlockSearchQuery({ ...query, machinery: query.machinery ?? DEFAULT_MACHINERY }).machinery !== "hide"; } catch { return false; }
+  }
+  return request.machinery === "show" || request.machinery === "only";
+}
+
+/**
+ * A change event on its way to the subscribers: the watched questions hear it (a content change with whether it stays
+ * among stamped notes), and one that does is said `hidden`, so a door's lists that leave machinery out skip it.
+ */
+export function watchesHear(store: Pick<OutlinerStore, "get" | "liveBlocks">, watches: Pick<QueryWatches, "changed">, event: OutlinerEvent): OutlinerEvent {
+  if (event.domain !== "content" && event.domain !== "view" && event.domain !== "resource-catalog") return event;
+  const touched = event.domain === "content" ? machineryChange(store, event.change) : undefined;
+  watches.changed(touched);
+  return touched?.machinery && event.change ? { ...event, hidden: true } : event;
 }
