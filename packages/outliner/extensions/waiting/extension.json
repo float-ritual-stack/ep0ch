@@ -3,7 +3,7 @@
   "id": "waiting",
   "version": 1,
   "name": "Waiting",
-  "description": "Waiting on others: every outbox item still waiting for an answer, grouped by who it waits on, the longest wait first; the main menu's O opens it beside a reader.",
+  "description": "Everything you're waiting on others for, grouped by who, the longest wait first. Every outbox item still waiting for an answer; the main menu's O opens it beside a reader.",
   "defaultOn": true,
   "demo": "demo",
   "scripts": [

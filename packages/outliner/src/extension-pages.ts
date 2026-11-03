@@ -59,6 +59,8 @@ export interface AvailableExtension {
   readonly door?: string;
   /** The screens it would add (PIE-1525), by name: a screen nobody has names this to install. */
   readonly screens?: readonly string[];
+  /** What installing it gives you (PIE-1549): its README's opening, what it adds, its demo notes, what it needs. */
+  readonly about: ExtensionAbout;
 }
 
 export interface ExtensionPagesOptions {
@@ -154,8 +156,44 @@ const ON_WORDS = (on: string | undefined): string => {
 const scheduleWords = (schedule: { every?: string; cron?: string; once?: "host" } | undefined) =>
   schedule ? `, ${schedule.every ? `every ${schedule.every}` : `on cron ${schedule.cron}`}${schedule.once === "host" ? " (once per host)" : ""}` : "";
 
+/**
+ * What an extension says about itself, read from its folder (PIE-1549): the same words before it's installed (the
+ * power bar's install row) as after (its row and its page). The door draws them; nothing is written again there.
+ */
+export interface ExtensionAbout {
+  /** Its README's opening: what comes before its first section heading, as words (inert, paragraphs unwrapped). */
+  readonly readme?: string;
+  /** What it adds, a list line each: the page's "What it adds" (`whatItAdds`). */
+  readonly adds: readonly string[];
+  /** The demo notes it writes under its page, by title (a demo that can't be read says why in `demoProblem`). */
+  readonly demo: readonly string[];
+  readonly demoProblem?: string;
+  /** What it reads from the host besides itself (its manifest's `env`), a line each. Secrets and settings are in `adds`. */
+  readonly needs: readonly string[];
+}
+
+/**
+ * An extension's `ExtensionAbout`, from its manifest and its folder. `installed` is false for the repo's copy, which
+ * install never takes config.json from: its settings say the command, not a path there.
+ */
+export function extensionAbout(manifest: ExtensionManifest, directory: string, installed = true): ExtensionAbout {
+  const readme = readText(join(directory, "README.md"));
+  const body = readme?.trim() ? readmeBody(readme).split("\n") : [];
+  const fenced = codeFenceLines(body);
+  const heading = body.findIndex((line, index) => fenced[index]! < 0 && /^#{1,6}\s/.test(line));
+  const opening = (heading < 0 ? body : body.slice(0, heading)).join("\n").trim();
+  const demo = readDemo(directory, manifest.demo);
+  return {
+    ...(opening ? { readme: opening } : {}),
+    adds: whatItAdds(manifest, directory, installed),
+    demo: demo.notes.filter((note) => !note.parent).map((note) => words(firstLineWithoutPropertyTokens(note.text)) || note.key),
+    ...(demo.problem ? { demoProblem: words(demo.problem) } : {}),
+    needs: (manifest.env ?? []).map((name) => `the host's \`${name}\` (its process is given it when the service has it)`),
+  };
+}
+
 /** What a manifest adds, as list lines (the page's "What it adds"). */
-export function whatItAdds(manifest: ExtensionManifest, directory?: string): string[] {
+export function whatItAdds(manifest: ExtensionManifest, directory?: string, installed = true): string[] {
   const out: string[] = [];
   for (const script of manifest.scripts ?? []) out.push(`- Script **${words(script.name)}** (\`${script.file}\`): ${words(script.about)}`);
   for (const handler of manifest.handlers ?? []) {
@@ -194,7 +232,9 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string): str
       return spec?.description ? `${words(spec.description).replace(/\.$/, "")}${fallen ? ` (${fallen})` : ""}` : fallen;
     };
     // A lead line saying where they're changed, then one item per setting: a bullet is one point (the write review's rule).
-    out.push(`- **Settings:** in the door ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`, or edit \`${directory ? join(directory, "config.json") : "config.json"}\`:`,
+    out.push(installed
+      ? `- **Settings:** in the door ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`, or edit \`${directory ? join(directory, "config.json") : "config.json"}\`:`
+      : `- **Settings,** once it's installed: ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`:`,
       ...Object.entries(settings).map(([key, spec]) => { const line = said(spec); return `  - \`${key}\`${line ? `: ${line}` : ""}`; }));
   }
   return out;
@@ -225,6 +265,8 @@ const STATE_WORDS = (entry: ExtensionEntry): string =>
 export class ExtensionPages {
   private queue: Promise<void> = Promise.resolve();
   private available: AvailableExtension[] = [];
+  /** Each installed extension's own words, as of the last sync (PIE-1549). */
+  private installedAbout: Record<string, ExtensionAbout> = {};
   /** Why the last write failed, if it did: said by `extensions.list`. */
   problem: string | undefined;
 
@@ -269,6 +311,11 @@ export class ExtensionPages {
   /** The repo's extensions not installed here, as of the last sync. */
   availableNow(): readonly AvailableExtension[] {
     return this.available;
+  }
+
+  /** Each installed extension's `ExtensionAbout`, by id, as of the last sync: the words its install row showed. */
+  abouts(): Record<string, ExtensionAbout> {
+    return this.installedAbout;
   }
 
   private lastPrint = "";
@@ -341,6 +388,7 @@ export class ExtensionPages {
           ...(manifest.door ? { door: manifest.door } : {}),
           ...(manifest.screens?.length ? { screens: manifest.screens.map((screen) => screen.name) } : {}),
           ...(manifest.description ? { description: manifest.description } : {}),
+          about: extensionAbout(manifest, join(root, name), false),
         });
       } catch {
         // A built-in that doesn't parse isn't offered.
@@ -352,6 +400,11 @@ export class ExtensionPages {
   private async syncOnce(): Promise<void> {
     const listed = this.registry.list().extensions.filter((entry) => entry.state !== "shadowed" && !entry.partOf);
     this.available = this.readAvailable(new Set(listed.map((entry) => entry.id)));
+    // A script (a note's, an outline file's) describes itself from its own block, never from the folder it sits in.
+    this.installedAbout = Object.fromEntries(listed.flatMap((entry) => {
+      const loaded = this.registry.loaded(entry.id);
+      return loaded && !entry.script && !loaded.script ? [[entry.id, extensionAbout(loaded.manifest, loaded.directory)]] : [];
+    }));
     const state = this.read();
     const restored = this.ruleNotes("was-on");
     for (const id of new Set(restored.map(note => note.extension))) {

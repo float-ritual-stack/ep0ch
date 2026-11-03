@@ -3,7 +3,7 @@
   "id": "neat",
   "version": 1,
   "name": "Neat",
-  "description": "Two pages side by side, or pages, notes and tiles sent to the far left and right (left= right=), the rest as spines; your terminals are left alone.",
+  "description": "Two pages side by side, everything else folded to spines. Send pages, notes or tiles to the far sides with left= and right=; your terminals are left alone.",
   "scripts": [
     {
       "name": "neat",

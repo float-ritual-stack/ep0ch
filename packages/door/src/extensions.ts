@@ -150,7 +150,13 @@ export interface RuleEntry {
 }
 export type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource };
 /** One of the repo's extensions that isn't installed here (`extensions.list`'s `available`): what installing would add. */
-export interface AvailableExtension { id: string; name: string; version: number; description?: string; scripts?: { name: string; file: string; about: string }[]; door?: string; /** The screens it would add, by name (PIE-1525). */ screens?: string[] }
+/**
+ * What an extension says about itself, read by the service from its folder (PIE-1549): its README's opening, what it
+ * adds (a list line each, its page's "What it adds"), the demo notes it writes and what it reads from the host. The
+ * same words before it's installed as after.
+ */
+export interface ExtensionAbout { readme?: string; adds: string[]; demo: string[]; demoProblem?: string; needs: string[] }
+export interface AvailableExtension { id: string; name: string; version: number; description?: string; scripts?: { name: string; file: string; about: string }[]; door?: string; /** The screens it would add, by name (PIE-1525). */ screens?: string[]; about?: ExtensionAbout }
 export interface ExtensionList {
   generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; barSources?: ExtensionBarSource[]; primitives?: string[]; targets?: string[]; rules?: RuleEntry[]; ruleProblems?: string[];
   /** The outline's Extensions hub, and each extension's page (README, what it adds, demo notes under it), by id. */
@@ -159,6 +165,8 @@ export interface ExtensionList {
   demos?: Record<string, number>;
   /** The repo's extensions not installed here: `extensions.install` adds one with its page and demo notes. */
   available?: AvailableExtension[];
+  /** Each installed extension's own words, by id (PIE-1549): what its install row said, for its row's preview. */
+  about?: Record<string, ExtensionAbout>;
   /** The service's resource providers (Jira's, and any extension's with a `kind: "resource"` handler). */
   resourceProviders?: ResourceProviderEntry[];
 }

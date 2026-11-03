@@ -3,7 +3,7 @@
   "id": "sysop",
   "version": 1,
   "name": "Sysop",
-  "description": "The boring infrastructure monk: every machine's memory, load, disk and failed units on one page, a glyph a day, and a page in the door before the kernel kills anything.",
+  "description": "Every machine's memory, load, disk and failed units on one page. The boring infrastructure monk: a glyph a day, and a page in the door before the kernel kills anything.",
   "demo": "demo",
   "run": [
     "bun",

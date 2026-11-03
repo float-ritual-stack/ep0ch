@@ -3,7 +3,7 @@
   "id": "structure",
   "version": 3,
   "name": "Structure",
-  "description": "One action for each tidy-up you'd do by hand: pull a passage into its own note, sort a list or a note's children.",
+  "description": "Pull a passage into its own note, or sort a list or a note's children, in one action each. The tidy-ups you'd otherwise do by hand.",
   "run": ["bun", "structure.ts"],
   "demo": "demo",
   "actions": [
