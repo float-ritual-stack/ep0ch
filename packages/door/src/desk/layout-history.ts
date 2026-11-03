@@ -30,6 +30,11 @@ export interface LayoutEntry {
   /** Actions that joined this entry (a transaction's count). */
   steps: number;
   at: number;
+  /**
+   * How it is taken back when rebuilding its shape can't (PIE-1559): a tile carried to another layout comes back the way it
+   * went, the same instance, and the entry on the other side goes with this one. Undo runs it in place of the rebuild.
+   */
+  back?: (actor: Actor) => void;
 }
 
 /** A transaction as the desk tracks it while it is open. */

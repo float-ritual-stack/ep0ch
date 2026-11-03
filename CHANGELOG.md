@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Undo brings a tile back from the glass whole (PIE-1559)
+
+- **`^W U` then ctrl+z:** the same tile comes back to its place on the screen and the glass is empty, with no second copy of it. Any carry undoes the same way.
+- **The tile keeps its name** on the glass: the blank left in its place has a name of its own.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### A program that exited in your drawer says so (PIE-1563)
 
 - **The drawer's foot follows it:** once its program ends, the foot reads `⏎ runs it again · esc or ^] back` instead of saying Esc is the program's.

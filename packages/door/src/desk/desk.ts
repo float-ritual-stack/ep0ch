@@ -1012,7 +1012,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     } else {
       const mine = actor.kind === "agent" ? this.history.last(party) : this.history.newest();
       if (!mine) throw new ActionRefused(actor.kind === "agent" && this.history.newest()
-        ? `the newest layout change is ${this.history.newest()!.party === "you" ? "the person's" : this.history.newest()!.party}'s; an agent undoes only its own`
+        ? `the newest layout change is ${this.history.newest()!.party === "you" ? "the person's" : `${this.history.newest()!.party}'s`}; an agent undoes only its own`
         : "nothing to undo on this screen's layout");
       entries = [mine];
     }
@@ -1049,6 +1049,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       try { this.apply({ op: "load", name: "the layout before" }, actor); }
       catch (e) { return { done, blocked: e instanceof ActionRefused ? e.message : String(e) }; }
       finally { this.replaying = false; }
+      // A carry comes back the way it went (`undoCarry`), never by a rebuild that would make a second tile.
+      if (entry.back) { try { entry.back(actor); } catch (e) { return { done, blocked: e instanceof ActionRefused ? e.message : String(e) }; } done.push(entry); continue; }
       this.rebuildTo(entry.before, keepFocus);
       this.layoutName = entry.before.name ?? null;
       this.madeBase = this.layoutName ? madeScreen(this.layoutName) ?? null : null;
@@ -1337,10 +1339,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const id = this.idOf(p);
     return id !== undefined && this.followers(id).some(p => p instanceof PreviewPane);
   }
-  /** This desk's tiles bound to follow `src`, a tile on another desk now (the drawer's, or the screen's). */
-  boundTo(src: Pane): Pane[] { return [...this.panes.values()].filter(q => boundSource.get(q) === src); }
-  /** The desk follower `p` is on: this one, or the drawer's or the screen's (its notes are read and drawn there). */
-  private homeOf(p: Pane): Desk { return this.idOf(p) !== undefined ? this : this.ctx?.hostLayer?.desks().find(d => d.idOf(p) !== undefined) ?? this; }
 
   // ── links across a group's edge (PIE-651, PIE-696): a tile in a group and one outside it, linked ──
 
@@ -2401,12 +2399,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return r?.active !== null && r?.active !== undefined && ids.includes(r.active) ? r.active : ids.at(-1);
   }
 
-  /** Keep the container's active reader aligned with the destination returned by placement. */
-  private openIntoContainer(key: string, m: Msg, fresh: boolean, actor: Actor, from = this.focus): number | undefined {
-    const landed = this.placeNote(m, { from, container: key, fresh, note: m.id }, actor);
-    if (landed?.desk === this) this.openedIn(key).active = landed.id;
-    return landed?.id;
-  }
   /** A new tile opened into container `key` takes three parts to its first tile's four. */
   private weightIn(key: string): number { const c = node(this.root, key); return ((c && "weights" in c ? c.weights[0] : undefined) ?? 4) * 0.75; }
   /** Both explicit opens and select-wire previews land through applyPlacement. */
@@ -4569,8 +4561,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (at && row) void at.desk.dispatch.press(row.action, row.args, row.tile);
   }
 
-  /** Whether the pending prefix is one with a panel (^W, ^W o, ^W O). */
-  private hasPanel(): boolean { return this.prefix === "wm" || this.prefix === "add" || this.prefix === "addtab"; }
   private stopPanelTimer() { if (this.panelTimer) clearTimeout(this.panelTimer); this.panelTimer = null; }
 
   /** Whether the pending prefix has waited long enough for its panel. */
@@ -5263,11 +5253,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!this.linkAccepts(pane)) return;
     const beside = this.linking.verb === "alt" && (!hit || x === r.col || x === r.col + r.cols - 1 || y === r.row || y === r.row + r.rows - 1);
     this.linkToPane(pane, beside);
-  }
-
-  linkHint(): string {
-    if (!this.linking) return "";
-    return "linking";
   }
 
   /** What placement hands out of this screen (PIE-1522): the drawer's to the screen shown's focused tile (`Ctx.screen`), and its own fresh action (`Ctx.freshAction`). */
@@ -6018,8 +6003,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = this.lastIn.get(c.id ?? h), ids = leaves(c).filter(id => this.panes.has(id));
     return at !== undefined && ids.includes(at) ? at : ids[0];
   }
-  /** The person's keys home (the spec's `home`); none, nothing moves. */
-  private goHome() { const h = this.homeTile(); if (h !== undefined && h !== this.focus) { this.keysTo(h); this.entered.clear(); } }
   /** Whether the keys are home now (in the home tile, or anywhere in the home container). */
   private atHome(): boolean {
     const h = this.spec.home;
@@ -7434,7 +7417,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pane = this.panes.get(t.id)!, list = this.beneath.listOf(pane);
     const goes = list && pane instanceof ReaderPane && !pane.editing && !pane.holdsKeys ? list : pane;
     const plan = carry(this.carrySide(actor), dest.carrySide(actor), {
-      tile: t.id, ...(how.heir ? { heir: { id: this.nextId } } : {}),
+      // An heir has a name of its own: the tile keeps its name where it goes, and `tile=<name>` still names it.
+      tile: t.id, ...(how.heir ? { heir: { id: this.nextId, name: this.autoName(how.heir.kind) } } : {}),
       land: { id: dest.nextId, kind: goes.kind, at: land.at, deliberate: pane.deliberate ?? false }, ...(how.floating ? { keys: false as const } : {}),
     });
     if (!plan.ok) return plan.side === "to" ? `${dest.layoutSelf().name} doesn't take ${t.name} there: ${plan.refused}` : plan.refused;
@@ -7454,11 +7438,27 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   carry(dest: Desk, sel: string | undefined, how: CarryHow, actor: Actor): TileDone & { keys: boolean; moved: MovedTile } {
     const p = this.planCarry(dest, sel, how, actor);
     if (typeof p === "string") throw new ActionRefused(p);
+    const hadHere = this.history.newest(), hadThere = dest.history.newest();
     const moved = this.carryOut(p.t, p.plan, how.heir);
     const done = dest.carryIn(moved, p.plan, p.land);
     if (p.plan.keys && moved.typing && moved.pane instanceof PtyPane && dest.focus === dest.idOf(moved.pane)) dest.ptyIn = moved.pane;
+    this.undoCarry(dest, moved.pane, how.heir, hadHere, hadThere);
     // What travels and couldn't land there is in the answer, and the action says it (`without`), never swallowed.
     return { ...done, keys: p.plan.keys, moved, ...(p.plan.dropped.length ? { dropped: p.plan.dropped } : {}) };
+  }
+  /** A carry undone (PIE-1559) comes back the way it went: the same instance home into its heir's tabs, then the shape before it, placing it by name. */
+  private undoCarry(dest: Desk, pane: Pane, heirPane: Pane | undefined, hadHere: LayoutEntry | null, hadThere: LayoutEntry | null) {
+    const mine = this.history.newest(), theirs = dest.history.newest() !== hadThere ? dest.history.newest() : null;
+    if (!mine || mine === hadHere) return;
+    mine.back = actor => {
+      this.history.take(mine); if (theirs) dest.history.take(theirs);
+      const name = dest.nameOfPane(pane), heir = heirPane ? this.idOf(heirPane) : undefined;
+      if (!name) throw new ActionRefused("the tile carried from here is gone; nothing to bring back");
+      this.replaying = dest.replaying = true;
+      try { dest.carry(this, name, heir !== undefined ? { to: this.nameOf(heir), where: "tabs" } : {}, actor); } finally { this.replaying = dest.replaying = false; }
+      this.rebuildTo(mine.before); this.settled = this.snapshotShape(); dest.settled = dest.snapshotShape();
+    };
+    if (theirs) theirs.back = mine.back;   // undoing either side's entry takes back both
   }
   /** This desk's half of a carry: its `take` committed, the tile's pane and its links across taken with it. */
   private carryOut(t: { name: string; id: number }, plan: Extract<Carried<number>, { ok: true }>, heir?: Pane): MovedTile {

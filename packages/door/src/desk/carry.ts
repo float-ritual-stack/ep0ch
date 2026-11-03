@@ -16,7 +16,7 @@ export interface CarryRequest<I> {
   /** The tile leaving `from`. */
   tile: I;
   /** A new tile takes its place in `from` (a screen's last tile lifted onto the glass leaves a blank). */
-  heir?: { id: I };
+  heir?: { id: I; name?: string };
   /** Where it lands in `to`, under the id `to` gives it. */
   land: { id: I; kind: string; at: At<I>; deliberate?: boolean };
   /** It lands without the person's keys, wherever they were (the glass). */
