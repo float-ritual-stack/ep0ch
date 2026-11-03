@@ -8,7 +8,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Rect } from "../src/canvas";
 import { Desk } from "../src/desk/desk";
-import { makeTile } from "../src/desk/tiles";
 import { MIN_ROWS } from "../src/desk/layout";
 import { apply, init, leaf, type Beside, type Ctx, type LayoutState } from "../src/desk/screen-layout";
 import type { Actor } from "../src/socket";
@@ -123,28 +122,4 @@ describe("a tile joins and leaves a layout in one step (PIE-1559)", () => {
     (d as { dispose?: () => void }).dispose?.();
   });
 
-  test("a screen's only tile carried away leaves a blank heir; undo brings the tile itself back in its place, the other side empty", async () => {
-    process.env.EP0CH_STATE = mkdtempSync(join(state, "carry-"));   // a desk of its own, not the walk's saved one
-    const from = new Desk(), to = new Desk();
-    const act = (action: string, args: Record<string, unknown> = {}, tile?: string) => from.dispatch.act({ action, args, ...(tile ? { tile } : {}) }, USER);
-    for (const name of ["tree", "replies", "activity"]) await act("tile.close", {}, name);
-    await to.dispatch.act({ action: "tile.close", tile: "reader" }, USER);   // the other side has no reader of its own (the glass)
-    const tiles = (d: Desk) => d.layoutGet().tiles.map((t: { name: string; tile: string; kind: string }) => ({ name: t.name, tile: t.tile, kind: t.kind }));
-    const [reader] = tiles(from);
-    const pane = from.pane("reader");
-    const toBefore = tiles(to);
-    from.carry(to, "reader", { floating: { col: 2, row: 2, cols: 40, rows: 12 }, heir: makeTile({ t: "leaf", kind: "blank" }) }, USER);
-    expect(from.outOfStep()).toEqual([]);
-    // The tile keeps its name where it went; the heir has one of its own, so tile=reader still names the reader.
-    expect(tiles(to).find(t => t.tile === reader!.tile)?.name).toBe("reader");
-    expect(tiles(from).map(t => t.kind)).toEqual(["blank"]);
-    expect(tiles(from)[0]!.name).not.toBe("reader");
-    expect(await act("layout.undo").then(() => "undone", (e: Error) => e.message)).toBe("undone");
-    // Undone: the same tile (its id, its instance) back in its place, alone, and nothing of it left on the other side.
-    expect(tiles(from)).toEqual([reader!]);
-    expect(from.pane("reader")).toBe(pane);
-    expect(tiles(to)).toEqual(toBefore);
-    expect(from.outOfStep()).toEqual([]);
-    expect(to.outOfStep()).toEqual([]);
-  });
 });

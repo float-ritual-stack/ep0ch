@@ -53,6 +53,7 @@ import { authorName, whoOf, USER, type Actor, type OutlineEvent, requesterOf } f
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
+import { adoptTile, groupWith, undoOrder, type Adopt, type AdoptHost } from "./undo-across";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
@@ -765,6 +766,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.redraw();
     return answer(r, { ...(sel === null ? { tile: "", name: "" } : this.tileAnswer(t.id)), n: t.n, id: t.id });
   }
+  /** Tile `rid` (its identity) leaves this desk whole to whoever asked (an undo across desks, PIE-1559): its instance, or undefined. */
+  releaseTile(rid: string): Pane | undefined { for (const d of this.descend()) { const hit = [...d.panes].find(([i]) => d.tileId(i) === rid); if (hit) { d.tileLeaves(hit[0], "carry"); return hit[1]; } } return undefined; }
+  private adoptHost(): AdoptHost { return { panes: this.panes, tileId: id => this.tileId(id), leave: id => this.tileLeaves(id, "carry"), self: this }; }
+  /** `run` as one transaction on this desk (and `also`), unless it's already in one: what one undo takes back whole (PIE-1559). */
+  private inTxn<T>(what: string, run: () => T, also?: Desk): T { const scope = TXN.getStore(), txn = scope?.txn ?? `${what}:${crypto.randomUUID()}`; try { return TXN.run({ ...scope, txn }, run); } finally { if (!scope?.txn) { this.history.close(txn); also?.history.close(txn); } } }
   /** Tile `sel` (the focused one left out), as an action names it: its number here and its id; refused when there's none. */
   tileRefOf(sel: string | undefined): { id: number; tile: string } { const t = this.tile(sel); return { id: t.id, tile: this.tileId(t.id) }; }
 
@@ -897,6 +903,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!this.replaying && prior && now && now.shape !== prior.shape) this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change");
     this.settled = now;
     this.focus = r.focus;
+    if (now) now.before.focus   /* the next change records the keys where this one left them (PIE-1559) */ = this.panes.has(this.focus) ? this.tileId(this.focus) : 0;
     const arrival = this.arrivals.get(r.focus);
     if (by?.actor.kind === "user" && (by.op === "focus" || by.op === "tab") && arrival) arrival.remaining = 0;
     for (const n of (r.answer.renamed as { from: string; to: string }[] | undefined) ?? []) this.ctx?.flash(`renamed ${n.from} to ${n.to}: tile names are shared with the drawer`);
@@ -1016,20 +1023,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         : "nothing to undo on this screen's layout");
       entries = [mine];
     }
-    const r = this.undoEntries(entries, actor);
-    if (!r.done.length) throw new ActionRefused(r.blocked!);
-    // A run's transaction is one undo, but its changes can have landed on more than one desk (neat puts a links tile in the
-    // drawer, and the run leaves the person's keys there): the same transaction is taken back on the others, whichever desk
-    // the key reached (PIE-1230). What a desk can't put back (the lock, a typing tile) is said, as a single desk says it.
-    let steps = r.done.reduce((n, e) => n + e.steps, 0), left = r.blocked;
-    for (const txn of new Set(r.done.flatMap(e => (e.txn ? [e.txn] : [])))) {
-      for (const d of this.relatives()) {
-        if (d === this || !d.history.forTxn(txn)) continue;
-        try { steps += d.undoLayout(actor, txn).steps; } catch (e) { left ??= e instanceof Error ? e.message : String(e); }
-      }
-    }
-    this.save(); this.redraw();
-    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: r.done[0]!.what, steps, ...(left ? { left } : {}) };
+    // A transaction is one undo on every desk it reached (neat's links tile in the drawer, PIE-1230; a carry's two
+    // layouts, PIE-1559): each is checked before any changes, then each is rebuilt, the tiles that moved between them
+    // kept by identity (`Adopt`), and each is saved.
+    const txns = new Set(entries.flatMap(e => (e.txn ? [e.txn] : [])));
+    const asked: [Desk, LayoutEntry[]][] = [[this, entries], ...this.relatives().filter(d => d !== this && [...txns].some(t => d.history.forTxn(t)))
+      .map(d => [d, [...txns].flatMap(t => d.history.entriesOf(t)).sort((a, b) => b.seq - a.seq)] as [Desk, LayoutEntry[]])];
+    for (const [d, es] of asked) { const why = d.undoRefusal(es, actor); if (why) throw new ActionRefused(why); }
+    const { plan, adopt } = undoOrder(asked, d => [...d.panes.keys()].map(i => d.tileId(i)));
+    let steps = 0;
+    for (const [d, es] of plan) { const r = d.undoEntries(es, actor, false, adopt); if (r.blocked) throw new ActionRefused(r.blocked); steps += r.done.reduce((n, e) => n + e.steps, 0); }
+    for (const p of adopt.pool.values()) { p.dispose?.(); tileRegistry.release(p); }   // claimed and never placed: ended, as a rebuild ends it
+    for (const [d] of plan) { d.save(); d.redraw(); }
+    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: entries[0]!.what, steps };
   }
 
   /**
@@ -1037,11 +1043,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * (nobody undoes over someone else), and the module's `load` check must allow it (a lock, the tile the person types in).
    * Stops at the first that doesn't, with why; what was undone is done.
    */
-  private undoEntries(entries: LayoutEntry[], actor: Actor, keepFocus = false): { done: LayoutEntry[]; blocked?: string } {
+  /** Why `entries` can't be taken back here now, or null: what `undoEntries` checks, asked first and changing nothing. */
+  private undoRefusal(entries: LayoutEntry[], actor: Actor): string | null {
+    if (this.keysHere() && this.holdsKeys()) return "you are typing; ctrl+z (layout.undo) puts it back when you are done";
+    if (actor.kind === "agent" && !entries.every(e => e.party === partyOf(actor) || e.owner === partyOf(actor))) return `the ${this.layoutSelf().name}'s change isn't yours: an agent undoes its own`;
+    for (const entry of entries) { const later = this.history.after(entry).find(e => entry.txn !== undefined ? e.txn !== entry.txn : e.party !== entry.party);
+      if (later) return `the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}`; }
+    return refusal(this.layout, { op: "load", name: "the layout before" }, this.layoutCtx(actor));
+  }
+  private undoEntries(entries: LayoutEntry[], actor: Actor, keepFocus = false, adopt?: Adopt): { done: LayoutEntry[]; blocked?: string } {
     const done: LayoutEntry[] = [];
     for (const entry of entries) {
       // Rebuilding clears what the person is in the middle of (an edit, a terminal): never under their typing.
-      if (this.holdsKeys()) return { done, blocked: "you are typing; ctrl+z (layout.undo) puts it back when you are done" };
+      if (this.keysHere() && this.holdsKeys()) return { done, blocked: "you are typing; ctrl+z (layout.undo) puts it back when you are done" };
       // Another run can share this actor: undoing under its later transaction would erase its layout.
       const later = this.history.after(entry).find(e => entry.txn !== undefined ? e.txn !== entry.txn : e.party !== entry.party);
       if (later) return { done, blocked: `the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}` };
@@ -1049,9 +1063,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       try { this.apply({ op: "load", name: "the layout before" }, actor); }
       catch (e) { return { done, blocked: e instanceof ActionRefused ? e.message : String(e) }; }
       finally { this.replaying = false; }
-      // A carry comes back the way it went (`undoCarry`), never by a rebuild that would make a second tile.
-      if (entry.back) { try { entry.back(actor); } catch (e) { return { done, blocked: e instanceof ActionRefused ? e.message : String(e) }; } done.push(entry); continue; }
-      this.rebuildTo(entry.before, keepFocus);
+      this.rebuildTo(entry.before, keepFocus, adopt);
       this.layoutName = entry.before.name ?? null;
       this.madeBase = this.layoutName ? madeScreen(this.layoutName) ?? null : null;
       this.settled = this.snapshotShape();
@@ -1062,13 +1074,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Rebuild the shape `spec`, keeping the tiles it names (as `layout.load` does), and no new entry. */
-  private rebuildTo(spec: LayoutSpec, keepFocus = false) {
+  private rebuildTo(spec: LayoutSpec, keepFocus = false, adopt?: Adopt) {
     this.replaying = true;
     this.startMotion(TXN.getStore()?.motion, "put back");
     // A rollback nobody asked for (a run that ended early) leaves the keys where the person put them, when that tile is still there.
     const here = keepFocus ? this.nameOf(this.focus) : undefined;
     const names = here ? new Set(this.all().map(id => this.nameOf(id))) : null;
-    try { this.entered.clear(); this.ptyIn = null; this.build(here && names!.has(here) ? { ...spec, focus: here } : spec, true); } finally { this.replaying = false; }
+    try { this.entered.clear(); this.ptyIn = null; this.build(here && names!.has(here) ? { ...spec, focus: here } : spec, true, false, false, adopt); } finally { this.replaying = false; }
   }
 
   /**
@@ -1117,7 +1129,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * it is; the ones the layout has no place for that hold work (a running program, an unsaved edit) are kept
    * in a shut dock on the right, and the rest are closed.
    */
-  private build(spec: LayoutSpec, reuse = false, restore = false, own = false): void {
+  private build(spec: LayoutSpec, reuse = false, restore = false, own = false, adopt?: Adopt): void {
     // A saved id is the tile's, split's or tab set's own only when this is desk.json coming back (`restore`) or
     // it was never given out here: a layout loaded from a screen note never hands a gone tile's id to another.
     const mine = (n: number, next: number) => n > 0 && (restore || n >= next);
@@ -1133,22 +1145,27 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const auto = (kind: string) => autoName({ names }, kind);
     if (!reuse) this.panes.clear();
     // Tiles of a retired built-in kind (RETIRED_KINDS): made with the rest, then left out below.
-    const retired: number[] = [], retiredRefs = new Set<string>();
+    const retired: number[] = [], retiredRefs = new Set<string>(), adopted: number[] = [];
     const tileOf = (saved: TileSpec) => {
       // A saved `detail` is a reader that starts held (PIE-705); a kind nobody registers here is made as a tile that says so (src/desk/tiles.ts makeTile).
       const l = canonSpec(saved);
       const kind = l.kind;
-      const o = reuse && l.name ? byName.get(l.name) : undefined;
+      // The tile itself by its identity before any by name (a carried one has another's name here, PIE-1559).
+      const mineById = reuse && l.id ? [...old.keys()].find(x => !used.has(x) && this.tileId(x) === l.id) : undefined;
+      const o = mineById ?? (reuse && l.name ? byName.get(l.name) : undefined);
       const p = o !== undefined ? old.get(o) : undefined;
+      const moved = o === undefined && adopt && l.id && adopt.claims.has(l.id) ? adoptTile(l.id, adopt, this.adoptHost(), old, used) : undefined;
       let id: number;
       if (o !== undefined && p && !used.has(o) && p.kind === kind && (!(p instanceof PtyPane) || !l.cmd || p.run.cmd.join(" ") === l.cmd.join(" "))) {
         id = o; names.set(id, l.name!);
+      } else if (moved) {
+        id = this.nextId++; this.panes.set(id, moved); this.movedIn.add(id); adopted.push(id); names.set(id, l.name && ![...names.values()].includes(l.name) ? l.name : auto(kind));
       } else {
         // A tile the host made for its own spec (the showcase's exhibits), else one of its kind.
         // A pane the host gave fills the slot it was given for (a spec's tile name, saved as the leaf's `slot`): the place,
         // whatever it is called now, never a program key.
         const given = !(own || restore) ? undefined : this.given.get(l.slot ?? l.name ?? "");
-        const pane = given ?? makeTile({ ...l, kind });
+        const pane = given ?? groupWith(l, adopt, this.adoptHost(), old, used) ?? makeTile({ ...l, kind });
         // A layout loaded again (not this door's own tile coming back) makes new tiles: a role it recorded was the old tile's, and
         // the drawer's program may be the only one with role agent.
         if (!given && !restore) tileRegistry.setRole(pane, undefined);
@@ -1218,6 +1235,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const kept: number[] = [];
     if (reuse) for (const [id, p] of old) {
       if (used.has(id)) continue;
+      // A tile another desk being put back names goes to it whole (to the pool), never kept here or ended.
+      if (adopt?.claims.has(this.tileId(id))) { const rid = this.tileId(id); this.tileLeaves(id, "carry"); adopt.pool.set(rid, p); continue; }
       if (this.holdsWork(p)) {
         const was = oldNames.get(id) ?? p.kind;
         names.set(id, [...names.values()].includes(was) ? auto(was) : was);
@@ -1267,7 +1286,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const f = typeof spec.focus === "string" ? [...names].find(([id, n]) => this.tileId(id) === (references.get(String(spec.focus)) ?? spec.focus) || n === spec.focus)?.[0] : ids[typeof spec.focus === "number" ? spec.focus : 0];
     this.focus = f !== undefined && ids.includes(f) ? f : ids[0]!;
     this.keysTo(this.focus);
-    if (this.ctx) { this.claimIds(); this.wireFollowers(); this.retiredSaid(); for (const id of fresh) this.startTile(id); }
+    if (this.ctx) { this.claimIds(); this.wireFollowers(); this.retiredSaid(); for (const id of fresh) this.startTile(id); for (const id of adopted) this.startTile(id, true); }
     this.settled = this.snapshotShape();
   }
   /** The keys on tile `id`, as the person's own: shown in its tab set (nothing else moves). */
@@ -5774,10 +5793,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const gathered = ids.map(id => [id, this.panes.get(id)!] as const);
     const focusIn = ids.includes(this.focus) ? this.nameOf(this.focus) : this.nameOf(ids[0]!);
     const g = new ScreenTile("screen", { ...(o.label ? { label: o.label } : {}), inner: { root: sub, focus: focusIn } }, undefined, given);
-    this.join(gid, g, r, { start: false });
-    for (const [id] of gathered) this.tileLeaves(id, "carry");
-    this.startTile(gid);
-    for (const [z, verb, x, rule] of into) this.addExt(z, { path: x, verb, rule });
+    this.inTxn("group", () => { this.join(gid, g, r, { start: false }); for (const [id] of gathered) this.tileLeaves(id, "carry"); this.startTile(gid); for (const [z, verb, x, rule] of into) this.addExt(z, { path: x, verb, rule }); });
     for (const id of ids) this.selected.forEach(set => set.delete(id));
     this.save(); this.redraw();
     return { ...this.tileAnswer(gid), grouped: [...given.keys()] };
@@ -5829,13 +5845,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!r.ok) throw new ActionRefused(r.refused);
     for (const x of out.tiles) { x.pane = inner.beneath.restore(x.id) ?? x.pane; inner.bindFollows(x.id, x.pane); }   // a reader in place comes out as its list (PIE-1516)
     for (const x of out.tiles) inner.tileLeaves(x.id, "carry");
-    this.joinAll(out.tiles.map(x => [ids.get(x.id)!, x.pane] as const), r, { start: false });
-    for (const x of out.tiles) this.movedIn.add(ids.get(x.id)!);
-    this.tileLeaves(t.id, "rebuilt");
-    for (const x of out.tiles) this.startTile(ids.get(x.id)!, true);
-    // A tile's link to one outside the group (or one outside to it) is across no edge now: the layout's own link.
-    for (const [id, e] of out.ext) if (ids.has(id)) for (const wire of e) this.addExt(ids.get(id)!, wire);
-    this.relink();
+    this.inTxn("spill", () => {
+      this.joinAll(out.tiles.map(x => [ids.get(x.id)!, x.pane] as const), r, { start: false }); for (const x of out.tiles) this.movedIn.add(ids.get(x.id)!);
+      this.tileLeaves(t.id, "rebuilt"); for (const x of out.tiles) this.startTile(ids.get(x.id)!, true);
+      for (const [id, e] of out.ext) if (ids.has(id)) for (const wire of e) this.addExt(ids.get(id)!, wire);   // a link across the group's edge is the layout's own now
+      this.relink();
+    });
     this.save(); this.redraw();
     return { ...answer, spilled: out.tiles.map(x => this.nameOf(ids.get(x.id)!)) };
   }
@@ -7438,27 +7453,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   carry(dest: Desk, sel: string | undefined, how: CarryHow, actor: Actor): TileDone & { keys: boolean; moved: MovedTile } {
     const p = this.planCarry(dest, sel, how, actor);
     if (typeof p === "string") throw new ActionRefused(p);
-    const hadHere = this.history.newest(), hadThere = dest.history.newest();
-    const moved = this.carryOut(p.t, p.plan, how.heir);
-    const done = dest.carryIn(moved, p.plan, p.land);
+    // Both halves, and the wires that ride along, are one transaction on both layouts (PIE-1559): one undo takes back
+    // both by the tile's identity (`undoLayout` across the desks holding it, `build`'s adopt), never a second tile.
+    const { moved, done } = this.inTxn("carry", () => { const moved = this.carryOut(p.t, p.plan, how.heir); return { moved, done: dest.carryIn(moved, p.plan, p.land) }; }, dest);
     if (p.plan.keys && moved.typing && moved.pane instanceof PtyPane && dest.focus === dest.idOf(moved.pane)) dest.ptyIn = moved.pane;
-    this.undoCarry(dest, moved.pane, how.heir, hadHere, hadThere);
     // What travels and couldn't land there is in the answer, and the action says it (`without`), never swallowed.
     return { ...done, keys: p.plan.keys, moved, ...(p.plan.dropped.length ? { dropped: p.plan.dropped } : {}) };
-  }
-  /** A carry undone (PIE-1559) comes back the way it went: the same instance home into its heir's tabs, then the shape before it, placing it by name. */
-  private undoCarry(dest: Desk, pane: Pane, heirPane: Pane | undefined, hadHere: LayoutEntry | null, hadThere: LayoutEntry | null) {
-    const mine = this.history.newest(), theirs = dest.history.newest() !== hadThere ? dest.history.newest() : null;
-    if (!mine || mine === hadHere) return;
-    mine.back = actor => {
-      this.history.take(mine); if (theirs) dest.history.take(theirs);
-      const name = dest.nameOfPane(pane), heir = heirPane ? this.idOf(heirPane) : undefined;
-      if (!name) throw new ActionRefused("the tile carried from here is gone; nothing to bring back");
-      this.replaying = dest.replaying = true;
-      try { dest.carry(this, name, heir !== undefined ? { to: this.nameOf(heir), where: "tabs" } : {}, actor); } finally { this.replaying = dest.replaying = false; }
-      this.rebuildTo(mine.before); this.settled = this.snapshotShape(); dest.settled = dest.snapshotShape();
-    };
-    if (theirs) theirs.back = mine.back;   // undoing either side's entry takes back both
   }
   /** This desk's half of a carry: its `take` committed, the tile's pane and its links across taken with it. */
   private carryOut(t: { name: string; id: number }, plan: Extract<Carried<number>, { ok: true }>, heir?: Pane): MovedTile {
