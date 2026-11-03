@@ -13,6 +13,7 @@ import { delimiter, join, resolve } from "node:path";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget } from "../discover";
 import { machineStatus, usedMachines } from "../machine";
 import { binDirOf, extFacts } from "./ext-links";
+export { doorExtState } from "./ext-links";
 import { skillLinkFacts } from "./skill-links";
 import { outlinerPlugin } from "../skills";
 import { packDir, packs } from "../packs";
@@ -622,6 +623,32 @@ function which(name: string, pathDirs: string[]): string | null {
   return null;
 }
 
+/** The folders install may link `ep0ch` in (plan.ts's candidates), each with whether it's on PATH, writable, and what's there now. */
+function linkDirsOf(home: string, pathDirs: string[]): Facts["linkDirs"] {
+  return linkCandidates(home).map(dir => {
+    const onPath = pathDirs.some(p => real(p) === real(dir));
+    let writable = false;
+    try { writable = statSync(dir).isDirectory(); accessSync(dir, constants.W_OK); } catch { writable = false; }
+    let existing: "link" | "broken-link" | "file" | undefined;
+    try { const l = lstatSync(join(dir, "ep0ch")); existing = l.isSymbolicLink() ? (existsSync(join(dir, "ep0ch")) ? "link" : "broken-link") : "file"; } catch { /* none */ }
+    return { dir, onPath, writable, ...(existing ? { existing } : {}) };
+  });
+}
+
+/**
+ * The door's userland extensions (`<door>/ext/<name>/`, ext-links.ts) as this machine sees them: each one's about and
+ * its links' state. One reading for install, doctor and the extensions screen (PIE-1537). `EP0CH_EXT_ROOT` names
+ * another folder of them (the showcase's, a scratch install).
+ */
+export function doorExtFacts(door: string, env: Env = process.env): NonNullable<Facts["ext"]> {
+  const home = resolve(env.HOME || homedir());
+  const pathDirs = (env.PATH ?? "").split(delimiter).filter(Boolean);
+  const found = which("ep0ch", pathDirs);
+  const bin = binDirOf(found, !!found && real(found) === real(join(door, "src/main.ts"))) ?? chooseLinkDir(linkDirsOf(home, pathDirs));
+  const record = join(env.EP0CH_STATE ?? defaultStateDir(env), "install-links.json");
+  return extFacts(env.EP0CH_EXT_ROOT?.trim() || join(door, "ext"), { env, home, bin, which: n => which(n, pathDirs), record });
+}
+
 /** Which of the facts' parts are still being gathered, for a progress line; each change is reported. */
 export interface GatherProgress { done: number; total: number; waiting: string[] }
 export interface GatherOptions {
@@ -674,14 +701,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
 
   const found = which("ep0ch", pathDirs);
   const target = found ? real(found) : null;
-  const linkDirs = linkCandidates(home).map(dir => {
-    const onPath = pathDirs.some(p => real(p) === real(dir));
-    let writable = false;
-    try { writable = statSync(dir).isDirectory(); accessSync(dir, constants.W_OK); } catch { writable = false; }
-    let existing: "link" | "broken-link" | "file" | undefined;
-    try { const l = lstatSync(join(dir, "ep0ch")); existing = l.isSymbolicLink() ? (existsSync(join(dir, "ep0ch")) ? "link" : "broken-link") : "file"; } catch { /* none */ }
-    return { dir, onPath, writable, ...(existing ? { existing } : {}) };
-  });
+  const linkDirs = linkDirsOf(home, pathDirs);
 
   const settingsPath = join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), "settings.json");
   let settingsDirs: string[] | null = null;
@@ -763,7 +783,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     sessions,
     mcp,
     publishers,
-    ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record }),
+    ext: doorExtFacts(repo.door, env),
     skills: skillLinkFacts({ door: repo.door, outliner: repo.outliner, env, home, record }),
     builtins: await part("the built-in extensions' installed copies", builtinCopies(repo.outliner, folder, env, home)),
     art: { dir: packDir(env), packs: packs(packDir(env)).length, fromEnv: !!env.EP0CH_PACKS },

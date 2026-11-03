@@ -75,5 +75,13 @@ export function extFacts(extRoot: string, o: { env: Env; home: string; bin: stri
   return { root: extRoot, exts, stale, ...(o.record ? { record: o.record } : {}) };
 }
 
+/** A door extension's state in a few words, for the extensions screen and the showcase: why none of its links are made, else how many are. */
+export function doorExtState(e: ExtFacts): { words: string; linked: boolean } {
+  if (e.problem) return { words: e.problem, linked: false };
+  const ours = e.links.filter(l => l.state === "ours").length;
+  if (ours === e.links.length) return { words: e.links.length ? "linked" : "nothing to link", linked: true };
+  return { words: `${ours} of ${e.links.length} linked`, linked: false };
+}
+
 /** The folder `ep0ch` is linked in, for `@bin`: where the link on PATH is when it's this checkout's, else none. */
 export const binDirOf = (found: string | null, pointsHere: boolean) => (found && pointsHere ? dirname(found) : null);

@@ -745,3 +745,20 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 });
+
+describe.skipIf(!outliner)("the showcase: the door's own extension folders (PIE-1537)", () => {
+  const h = useShowcaseScreen();
+  type Listed = { rows: { key: string; label: string; detail?: string; group?: string; chip?: string }[] };
+
+  test("the extensions screen lists each door ext folder with its about and its links' state; ⏎ says the state and the command", async () => {
+    // Its own group with nothing typed, each row its state and its about's first words (from its ext.json).
+    const listed = await h.app.act({ action: "bar.open", args: { scope: "extensions" }, as: "test-agent" }) as Listed;
+    const door = listed.rows.filter(r => r.key.startsWith("door:"));
+    expect(door.map(r => [r.label, r.chip, r.group])).toEqual([["kite", "door", "door extensions (packages/door/ext) · 2"], ["lantern", "door", "door extensions (packages/door/ext) · 2"]]);
+    expect(door[0]!.detail).toBe("0 of 2 linked · kite channels for the garden: the beds (kite-beds) and what's sown this week (kite-sown)");
+    expect(door[1]!.detail).toStartWith("lantern-showcase-tv isn't on PATH · lantern channels for the shed");
+    // ⏎, as the agent: the state and the command that links it; nothing is linked by the screen.
+    const picked = await h.app.act({ action: "bar.pick", args: { scope: "extensions", query: "kite", n: 1 }, as: "test-agent" });
+    expect(JSON.stringify(picked)).toContain("kite: 0 of 2 linked · ep0ch install --apply links it");
+  });
+});
