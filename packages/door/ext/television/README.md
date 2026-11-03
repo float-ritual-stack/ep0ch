@@ -55,6 +55,14 @@ one per action: `ep0ch-tv agents`, `ep0ch-tv health`, `ep0ch-tv board "<query>"`
 again by that key, so a stale line never acts on something else. The board's sources are queries in the views'
 grammar, in `cable/ep0ch-board.toml`: change them there.
 
+Every action that comes back to tv (`ctrl-g`, `ctrl-d`, `alt-r`, `alt-k`, herdr's `enter`) runs in tv's execute mode and
+ends `; exec ep0ch-tv again <channel>`, which starts tv on that channel again in the same process (PIE-1538). tv
+0.15.9's fork mode, the one meant to come back, ends tv at the key after its first action ("Error: channel closed",
+whatever the action runs, `true` included). Starting again costs what was typed, the row and the `ctrl-s` source: tv
+starts fresh. As the door's `ctrl+t` picker, `again` starts it `--inline` with its answer into the door's file
+(`EP0CH_PICK_OUT`), so `⏎` still answers after any number of actions. A new action that should come back to tv ends the
+same way; one that hands the terminal over (`launch`, `pane-attach`, `health-fix`) doesn't.
+
 ## Which outline
 
 The door's one rule: `--ws`, `EP0CH_WS`, the nearest `.ep0ch` from the folder tv runs in (a `.ep0ch`'s `machine`
