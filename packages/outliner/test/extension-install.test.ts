@@ -209,11 +209,11 @@ test("every extension the repo offers says what it is, for the row that installs
   expect(missing).toEqual([]);
 });
 
-async function removeFrom(root: string, name: string) {
-  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/cli.ts"), "ext", "remove", name], {
+async function removeFrom(root: string, args: string[], env: Record<string, string> = {}) {
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/cli.ts"), "ext", "remove", ...args], {
     cwd: root,
-    env: { ...process.env, EP0CH_OUTLINES: join(root, "outlines"), OUTLINER_EXTENSIONS_DIR: join(root, "user-extensions"),
-      EP0CH_SOCKET: join(root, "absent.sock"), XDG_CONFIG_HOME: join(root, "config") },
+    env: { ...process.env, EP0CH_WS: "", EP0CH_OUTLINES: join(root, "outlines"), OUTLINER_EXTENSIONS_DIR: join(root, "user-extensions"),
+      EP0CH_SOCKET: join(root, "absent.sock"), XDG_CONFIG_HOME: join(root, "config"), ...env },
     stdout: "pipe", stderr: "pipe",
   });
   const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -227,29 +227,46 @@ function outlineCopy(root: string, outline: string, id: string) {
   return dir;
 }
 
-test("ext remove without --outline-folder finds the one outline that has it and removes it there", async () => {
+test("ext remove without --outline-folder takes it from the outline it's run in (EP0CH_WS or .ep0ch)", async () => {
   const root = mkdtempSync(join(tmpdir(), "outliner-ext-remove-"));
   try {
     mkdirSync(join(root, "user-extensions"));
     const copy = outlineCopy(root, "garden-notes", "garden");
-    const result = await removeFrom(root, "garden");
+    const result = await removeFrom(root, ["garden"], { EP0CH_WS: "garden-notes" });
     expect(result.output).toContain(`removed ${copy}`);
     expect(result.output).toContain("garden-notes");
     expect(result.code).toBe(0);
     expect(existsSync(copy)).toBe(false);
+    // The nearest .ep0ch names it just as well.
+    const again = outlineCopy(root, "garden-notes", "garden"), project = join(root, "project");
+    mkdirSync(project);
+    writeFileSync(join(project, ".ep0ch"), 'ws = "garden-notes"\n');
+    const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/cli.ts"), "ext", "remove", "garden"], {
+      cwd: project, env: { ...process.env, EP0CH_WS: "", EP0CH_OUTLINES: join(root, "outlines"), OUTLINER_EXTENSIONS_DIR: join(root, "user-extensions"),
+        EP0CH_SOCKET: join(root, "absent.sock"), XDG_CONFIG_HOME: join(root, "config") }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(await child.exited).toBe(0);
+    expect(existsSync(again)).toBe(false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("ext remove refuses when several outlines have it, naming the command for each", async () => {
+test("ext remove never deletes another outline's copy: it names the command that would", async () => {
   const root = mkdtempSync(join(tmpdir(), "outliner-ext-remove-"));
   try {
     mkdirSync(join(root, "user-extensions"));
-    const one = outlineCopy(root, "garden-notes", "garden"), two = outlineCopy(root, "orchard", "garden");
-    const result = await removeFrom(root, "garden");
-    expect(result.code).toBe(1);
-    expect(result.output).toContain(`ext remove garden --outline-folder ${join(root, "outlines", "garden-notes")}`);
-    expect(result.output).toContain(`ext remove garden --outline-folder ${join(root, "outlines", "orchard")}`);
-    expect(existsSync(one) && existsSync(two)).toBe(true);
+    mkdirSync(join(root, "outlines", "garden-notes"), { recursive: true });
+    const other = outlineCopy(root, "orchard", "garden");
+    // Cleaning up garden-notes' demos after its folder went must leave orchard's install alone.
+    for (const args of [["garden"], ["garden", "--demo", "remove"]]) {
+      const result = await removeFrom(root, args, { EP0CH_WS: "garden-notes" });
+      expect(result.code).toBe(1);
+      expect(result.output).toContain(`ext remove garden --outline-folder ${join(root, "outlines", "orchard")}`);
+      expect(existsSync(other)).toBe(true);
+    }
+    // With no outline named, an outline's copy is still only named, never taken.
+    const unnamed = await removeFrom(root, ["garden"]);
+    expect(unnamed.code).toBe(1);
+    expect(existsSync(other)).toBe(true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -258,7 +275,7 @@ test("ext remove of a name nobody has says every folder it looked in", async () 
   try {
     mkdirSync(join(root, "user-extensions"));
     outlineCopy(root, "garden-notes", "other");
-    const result = await removeFrom(root, "garden");
+    const result = await removeFrom(root, ["garden"], { EP0CH_WS: "garden-notes" });
     expect(result.code).toBe(1);
     expect(result.output).toContain(join(root, "user-extensions"));
     expect(result.output).toContain(join(root, "outlines", "garden-notes", "extensions"));

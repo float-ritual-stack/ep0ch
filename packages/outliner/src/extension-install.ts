@@ -12,6 +12,7 @@ import { cleanExtensionText } from "./extension-records";
 import { BUILT_IN_EXTENSIONS, extensionRoots, overrideWords, type ExtensionsListResult } from "./extension-registry";
 import { type CopyUpdate, copyLine, copyRoots, INSTALL_RECORD, installedCopies, type InstalledCopy, newsWords, removeCommand, whereWords, writeInstallRecord } from "./extension-update";
 import { outlinesFolder } from "@ep0ch/outline-core/outline-location";
+import { invocationFolder, whichOutlineFor } from "./paths";
 import { defaultRegistryPath, userExtensionsDirectory, userExtensionsFolderInUse } from "./resource-extensions";
 
 /**
@@ -26,7 +27,7 @@ import { defaultRegistryPath, userExtensionsDirectory, userExtensionsFolderInUse
  *   `config.json` (from `config.example.json`, or an old
  *   `resource-extensions.json` entry: references only, never a secret).
  * - `remove <name>` deletes the folder (with `--outline-folder` the outline's; without, the user folder's copy, else
- *   the one outline's own that has it). Its records stay as blocks; its lines say no extension
+ *   the copy in the outline it's run in: --ws, EP0CH_WS, the nearest .ep0ch). Its records stay as blocks; its lines say no extension
  *   handles them.
  * - `ls` asks the running service (`extensions.list`): each folder's state and
  *   its error; without a service it reads the folders itself.
@@ -205,8 +206,8 @@ export async function ensureDefaultOnFor(workspaceRoot: string, readOnly = false
 
 /**
  * The folder `ext remove <id>` takes it out of. With `--outline-folder`, that outline's own. Without, the user folder
- * when it has a copy, else the one outline whose own folder has it (said by name). Several outlines with a copy and no
- * folder named is refused with the command for each; none says every folder looked in.
+ * when it has a copy, else the outline the command is run in (`--ws`, EP0CH_WS, the nearest `.ep0ch`; said by name).
+ * Another outline's copy is never taken: it is named with the command that would, and none says every folder looked in.
  */
 function removeRoot(id: string, outlineFolder: string | undefined): { root: string; where?: string } {
   const has = (root: string) => existsSync(join(root, id, "extension.json"));
@@ -216,19 +217,21 @@ function removeRoot(id: string, outlineFolder: string | undefined): { root: stri
     return { root };
   }
   // A scratch environment with no user folder is refused as before (targetRoot), never sent looking in ~/outlines.
-  const roots = copyRoots({
-    user: targetRoot(undefined),
-    outlines: outlinesFolder({ EP0CH_OUTLINES: process.env.EP0CH_OUTLINES }, homedir()),
-  });
-  const found = roots.filter((root) => has(root.path));
-  const user = found.find((root) => root.where === "user");
-  if (user) return { root: user.path };
-  if (found.length === 1) return { root: found[0]!.path, where: found[0]!.where };
-  if (found.length > 1) {
-    throw new Error(`${id} is installed in ${found.length} outlines' own folders; name one:\n${
-      found.map((root) => `  ep0ch ${removeCommand({ id, where: root.where, dir: join(root.path, id) })}`).join("\n")}`);
-  }
-  throw new Error(`No extension ${id} in ${roots.map((root) => root.path).join(", ") || "any extensions folder here"}`);
+  const user = targetRoot(undefined);
+  if (has(user)) return { root: user };
+  const outlines = outlinesFolder({ EP0CH_OUTLINES: process.env.EP0CH_OUTLINES }, homedir());
+  const which = whichOutlineFor(invocationFolder());
+  // An outline whose home is another machine has no folder here to take it from.
+  const here = which.kind === "named" && !which.machine ? which.name : undefined;
+  const own = here ? join(outlines, here, "extensions") : undefined;
+  if (own && has(own)) return { root: own, where: here! };
+  const looked = [user, ...(own ? [own] : [])];
+  const elsewhere = copyRoots({ user: null, outlines }).filter((root) => root.where !== here && has(root.path));
+  throw new Error([
+    `No extension ${id} in ${looked.join(" or ")}${here ? "" : " (no outline is named here: --ws <name>, EP0CH_WS or a .ep0ch)"}`,
+    ...(elsewhere.length ? [`${elsewhere.length === 1 ? "Another outline has" : "Other outlines have"} its own copy; to take ${elsewhere.length === 1 ? "it" : "one"} away:`,
+      ...elsewhere.map((root) => `  ep0ch ${removeCommand({ id, where: root.where, dir: join(root.path, id) })}`)] : []),
+  ].join("\n"));
 }
 
 export async function removeExtension(id: string, options: { outlineFolder?: string } = {}): Promise<string[]> {
