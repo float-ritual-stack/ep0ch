@@ -785,7 +785,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const COUNTS: Record<string, { looks: number; paints: number; host: number }> = {
     // Oct 28, float-box: 367 looks, 1,911 paints, 631 round trips (its `/` state: the bar's keys and the builds they end); 1,515
     // looks before a look read the paint it followed.
-    "echonet: messages": { looks: 460, paints: 2400, host: 790 },
+    // Nov 2 (PIE-1526): 368 looks, 2,104 paints, 828 round trips (823 to 832 across runs). The same keys (1,025 then 1,028) and
+    // builds (394 then 398) as Oct 28; each area read is the same 11 queries. What grew is how often the screen reads its areas
+    // again: once per burst of outline changes (EchoNet.changed), 21 times a run before #1162 and 27 now, as more of the probes'
+    // actions write (door.event, scripts.render). Spread over a week of merges (#1109 697, #1173 767, #1162 806, #1196 829).
+    "echonet: messages": { looks: 460, paints: 2400, host: 1040 },
     // 963, 5,587 and 2,167; 4,196 looks before. The paints: ~4 a build (setup down, enter, enter, each key painting) over ~600
     // builds, and one a probe's key over ~3,000 keys; the round trips ~2 a build, and one a key typed in the bar.
     "echonet: a message read": { looks: 1200, paints: 7000, host: 2710 },
