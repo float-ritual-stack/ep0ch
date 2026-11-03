@@ -11,6 +11,7 @@ export class HeldAsks extends ServiceList<HeldAsk, SocketBoard> {
   /** A content change, a held request changing (the service says so as an `extensions.agent` event) or a reconnect. */
   protected wants(e: OutlineEvent): boolean {
     const agent = e.domain === "resource-catalog" && e.action === "extensions.agent";
-    return e.change?.kind !== "draft" && (e.domain === "content" || agent || e.action === "reconnected" || e.action === "reset");
+    // A tool's bookkeeping (`hidden`, PIE-1546) holds no request.
+    return e.change?.kind !== "draft" && !e.hidden && (e.domain === "content" || agent || e.action === "reconnected" || e.action === "reset");
   }
 }

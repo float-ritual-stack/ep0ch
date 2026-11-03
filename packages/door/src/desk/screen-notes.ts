@@ -103,6 +103,16 @@ export function register(n: ScreenNote) {
 function unregister(name: string) { writes++; forgetScreen(name); notes.delete(name); }
 
 /**
+ * Where the door's loadScreenNotes reads (PIE-1546): the watched question, so the service says when a screen note
+ * changed and nothing else in the outline reads them again (only a reconnect does). `read` is told what was read.
+ */
+export const watchedScreens = (board: SocketBoard, read: (shown: string) => void): Pick<ScreenStore, "byProp"> => !board.watched ? board : {
+  byProp: async (key, value, limit) => { const found = await board.byPropWatched(key, value, limit); read(screenNotesShown(board) ?? ""); return found; },
+};
+/** The screen notes (ids and revisions) as the service last answered the watched question, or undefined before it has. */
+export const screenNotesShown = (board: SocketBoard): string | undefined => board.byPropShown?.("type", SCREEN_TYPE, 500)?.map(n => `${n.id}@${n.revision}`).join(",");
+
+/**
  * Read every screen note and register each (the door's start, a screen note changed, a reconnect): what came and
  * went since the last read, and what's wrong. A read that fails keeps what was registered and throws.
  */
@@ -133,12 +143,6 @@ export async function loadScreenNotes(board: Pick<ScreenStore, "byProp">): Promi
   problems = wrong;
   return { added, removed, changed, problems: wrong };
 }
-
-/**
- * Whether a change may concern the screen notes: any block made, edited, trashed, brought back or purged (an edit can
- * make a note a screen note, fix one, or rename it). The door reads them again once a burst of changes settles.
- */
-export const screenNotesAffected = (c: { kind: string }): boolean => ["create", "edit", "delete", "restore", "purge"].includes(c.kind);
 
 /**
  * Save `spec` as the screen note named `spec.name`: the note it already has, at the revision this door read (a note

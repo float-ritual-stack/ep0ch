@@ -32,6 +32,10 @@ interface Entry {
   used: number;
   /** After a refusal or a failure, when a read may ask again (a refused question isn't kept, so nothing tells it). */
   retryAt: number;
+  /** A list the door keeps for as long as it runs (the status bar's note, the waiting asks): never trimmed. */
+  held?: true;
+  /** The ask in flight, when one is. */
+  pending?: Promise<void>;
 }
 
 /** How long a refused or failed read waits before a read asks again. */
@@ -67,7 +71,7 @@ export class Watched {
    * The newest answer to `action` with `params`, `derive`d (it may ask more of the service), asked for in the
    * background the first time (and again after the connection was lost). Synchronous, for a renderer.
    */
-  read<T>(action: string, params: Record<string, unknown>, derive: (raw: any) => T | Promise<T>, extra = ""): Watching<T> {
+  read<T>(action: string, params: Record<string, unknown>, derive: (raw: any) => T | Promise<T>, extra = "", opts: { held?: boolean } = {}): Watching<T> {
     const signature = `${action}\0${stable(params)}\0${extra}`;
     let entry = this.entries.get(signature);
     if (!entry) {
@@ -76,15 +80,24 @@ export class Watched {
       this.byKey.set(entry.key, entry);
     }
     entry.used = ++this.clock;
+    if (opts.held) entry.held = true;
     this.trim(entry);
     if (!entry.registered && !entry.asking && Date.now() >= entry.retryAt) this.ask(entry);
     return entry.shown as Watching<T>;
   }
 
-  /** Past KEEP, the reads least recently drawn are forgotten (never `keep`, the one being read, nor one in flight). */
+  /** As `read`, once its first answer (or refusal) is in: for a caller that needs the answer rather than a frame of it. */
+  async answer<T>(action: string, params: Record<string, unknown>, derive: (raw: any) => T | Promise<T>, extra = "", opts: { held?: boolean } = {}): Promise<Watching<T>> {
+    const shown = this.read(action, params, derive, extra, opts);
+    if (shown.state !== "loading") return shown;
+    await this.entries.get(`${action}\0${stable(params)}\0${extra}`)?.pending;
+    return this.read(action, params, derive, extra, opts);
+  }
+
+  /** Past KEEP, the reads least recently drawn are forgotten (never `keep`, the one being read, one in flight, nor a held one). */
   private trim(keep: Entry) {
     if (this.entries.size <= KEEP) return;
-    const oldest = [...this.entries.values()].filter(e => e !== keep && !e.asking).sort((a, b) => a.used - b.used);
+    const oldest = [...this.entries.values()].filter(e => e !== keep && !e.asking && !e.held).sort((a, b) => a.used - b.used);
     for (const e of oldest.slice(0, this.entries.size - KEEP)) this.forget(e);
   }
 
@@ -104,12 +117,14 @@ export class Watched {
       try {
         const raw = await this.source.request<Record<string, unknown>>(entry.action, { ...entry.params, watch: entry.key, ...(generation !== undefined ? { generation } : {}) });
         // The generation is the answer's, known before deriving: a change told meanwhile is compared with it.
-        if (epoch === this.epoch && typeof raw?.generation === "number") entry.generation = raw.generation;
+        // A list answer (an array: `waiting.list`) carries none: the one asked for is the one it answered.
+        if (epoch === this.epoch) entry.generation = typeof raw?.generation === "number" ? raw.generation : generation ?? entry.generation;
         const value = await entry.derive(raw);
         entry.shown = { state: "ready", value };
       } catch (e) {
         entry.registered = false;
         entry.retryAt = Date.now() + RETRY_MS;
+        this.revive(entry);
         const error = e instanceof Error ? e.message : String(e);
         entry.shown = { state: "error", error, ...(entry.shown.value !== undefined ? { value: entry.shown.value } : {}) } as Watching<unknown>;
       } finally {
@@ -123,7 +138,8 @@ export class Watched {
       this.told();
     })();
     this.inFlight.add(asked);
-    void asked.finally(() => this.inFlight.delete(asked));
+    entry.pending = asked;
+    void asked.finally(() => { this.inFlight.delete(asked); if (entry.pending === asked) entry.pending = undefined; });
   }
 
   /**
@@ -135,17 +151,31 @@ export class Watched {
     for (const change of changes) {
       const entry = this.byKey.get(change.key);
       if (!entry) continue;
-      if (change.dropped) { entry.registered = false; entry.again = null; entry.generation = 0; entry.retryAt = Date.now() + RETRY_MS; continue; }
+      if (change.dropped) { entry.registered = false; entry.again = null; entry.generation = 0; entry.retryAt = Date.now() + RETRY_MS; this.revive(entry); continue; }
       if (change.generation <= entry.generation) continue;
       if (entry.asking) entry.again = Math.max(entry.again ?? 0, change.generation);
       else this.ask(entry, change.generation);
     }
   }
 
+  private stopped = false;
+  /** The board closed for good: nothing is asked again. */
+  stop() { this.stopped = true; }
+
   /** The connection closed: its watches ended with it. Each is registered again (from generation 0) when next read. */
   lost() {
     this.epoch += 1;
-    for (const entry of this.entries.values()) { entry.registered = false; entry.generation = 0; entry.again = null; }
+    for (const entry of this.entries.values()) { entry.registered = false; entry.generation = 0; entry.again = null; this.revive(entry); }
+  }
+
+  /**
+   * A held read (a list the door keeps, not one a frame draws) is asked again by itself once its watch is gone (the
+   * service let go of it past its bounds, it failed, the connection was lost): nothing draws it to ask again, and a
+   * list that stopped being told would stay as it was (PIE-1546 review).
+   */
+  private revive(entry: Entry) {
+    if (!entry.held || this.stopped) return;
+    setTimeout(() => { if (!this.stopped && this.byKey.get(entry.key) === entry && !entry.registered && !entry.asking) this.ask(entry); }, Math.max(0, entry.retryAt - Date.now())).unref?.();
   }
 
   /** Once every answer asked for so far has come (and any those asked for in turn), or `ms` passed. */

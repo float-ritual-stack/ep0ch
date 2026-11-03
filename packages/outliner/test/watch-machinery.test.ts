@@ -226,3 +226,90 @@ describe("which watches a machinery change reaches", () => {
     }
   });
 });
+
+// Round two (PIE-1546): what a door asked after every change. Its lists are watched reads now, blind to machinery, and a
+// tile's drawing (a script run that takes a second or more) no longer holds the rest of its connection behind it.
+describe("a door's lists and drawings (PIE-1546, round two)", () => {
+  test("the waiting asks are watched: a tool's bookkeeping evaluates nothing and is said hidden; a new ask is told", async () => {
+    const records = store.create("Records [page::records] [machine::record]");
+    store.create("Which compost bin? [type::task] [needs::sysop: which bin?]");
+    const server = new OutlinerServer(store, join(root, "service.sock"));
+    await server.start();
+    let evaluations = 0;
+    const handle = server.handle.bind(server);
+    (server as { handle: typeof server.handle }).handle = (request => {
+      if (request.id === "watch" && request.action === "waiting.list") evaluations += 1;
+      return handle(request);
+    }) as typeof server.handle;
+    const door = rawClient(join(root, "service.sock")), tool = rawClient(join(root, "service.sock")), sub = rawClient(join(root, "service.sock"));
+    try {
+      // The door's event connection, as SocketBoard.subscribe opens it.
+      expect((await sub.request({ action: "events.subscribe", client: { clientId: "door-1", role: "observer", contextId: "door-1", app: "door" } })).ok).toBe(true);
+      const first = await door.request({ action: "waiting.list", watch: "asks" });
+      expect(first.result.map((r: { reason: string }) => r.reason)).toEqual(["which bin?"]);
+      for (let i = 0; i < 5; i++) await tool.request({ action: "create", text: `soil sample ${i} [machine::record]`, parentId: records.id, author: "agent" });
+      await Bun.sleep(1300);
+      expect(evaluations).toBe(0);
+      const content = sub.events.filter((e: any) => e.action === "create");
+      expect(content.length).toBe(5);
+      expect(content.every((e: any) => e.hidden === true)).toBe(true);
+      await tool.request({ action: "create", text: "Lime or not? [type::task] [needs::sysop: lime?]", author: "user" });
+      const until = Date.now() + 3000;
+      while (!door.events.some(e => e.changes?.some(c => c.key === "asks")) && Date.now() < until) await Bun.sleep(20);
+      expect(door.events.some(e => e.changes?.some(c => c.key === "asks"))).toBe(true);
+      expect(sub.events.filter((e: any) => e.action === "create" && !e.hidden).length).toBe(1);
+    } finally {
+      door.socket.destroy(); tool.socket.destroy(); sub.socket.destroy();
+      await server.close();
+    }
+  });
+
+  test("a tile's drawing that takes a second holds none of its connection's other requests", async () => {
+    const server = new OutlinerServer(store, join(root, "service.sock"));
+    await server.start();
+    // A script's drawing that runs long off the loop, as the what-changed tile's did on pie (1 to 6 s).
+    (server.scriptRuns as unknown as { format: () => Promise<unknown> }).format = async () => { await Bun.sleep(1200); return { markdown: "drawn", reads: [], queries: [] }; };
+    const door = rawClient(join(root, "service.sock"));
+    try {
+      const started = performance.now();
+      const drawing = door.request({ action: "scripts.render", of: "what-changed", props: {}, deadlineMs: 5000 }).then(() => performance.now() - started);
+      const held = await door.request({ action: "agents.held" }).then(r => { expect(r.ok).toBe(true); return performance.now() - started; });
+      expect(held).toBeLessThan(500);
+      expect(await drawing).toBeGreaterThan(1100);
+    } finally {
+      door.socket.destroy();
+      await server.close();
+    }
+  });
+});
+
+// Review of round two (Codex, five stale views): the changes a stamped note's write still reaches.
+describe("what round two's machinery skips must still reach (PIE-1546 review)", () => {
+  test("trashing a stamped note takes its ordinary children along: the waiting asks under it go", async () => {
+    const log = store.create("Greenhouse log [machine::record]");
+    store.create("Vent or not? [type::task] [needs::sysop: vent?]", log.id);
+    const server = new OutlinerServer(store, join(root, "service.sock"));
+    await server.start();
+    const door = rawClient(join(root, "service.sock")), tool = rawClient(join(root, "service.sock"));
+    try {
+      expect((await door.request({ action: "waiting.list", watch: "asks" })).result.length).toBe(1);
+      expect((await tool.request({ action: "delete", blockId: log.id, mutation: { author: "agent", actorId: "keeper" } })).ok).toBe(true);
+      const until = Date.now() + 3000;
+      while (!door.events.some(e => e.changes?.some(c => c.key === "asks")) && Date.now() < until) await Bun.sleep(20);
+      const gen = door.events.flatMap(e => e.changes ?? []).find(c => c.key === "asks")?.generation;
+      expect(gen).toBeDefined();
+      expect((await door.request({ action: "waiting.list", watch: "asks", generation: gen })).result.length).toBe(0);
+    } finally { door.socket.destroy(); tool.socket.destroy(); await server.close(); }
+  });
+
+  test("a script's read sees machinery when its question does: a saved view that shows it, or one that reads other notes", async () => {
+    const { asksMachinery } = await import("../src/watch-machinery");
+    const shows = store.create("Every record [type::virtual-branch] [query::type=log] [machinery::show]");
+    const plain = store.create("Logs [type::virtual-branch] [query::type=log]");
+    expect(asksMachinery(store, { action: "views.read", viewId: shows.id })).toBe(true);
+    expect(asksMachinery(store, { action: "views.read", viewId: plain.id })).toBe(false);
+    expect(asksMachinery(store, { action: "blocks.query", query: { where: "type=bed AND child:status=done" } })).toBe(true);
+    expect(asksMachinery(store, { action: "blocks.query", query: { where: "type=bed" } })).toBe(false);
+    expect(asksMachinery(store, { action: "blocks.query", query: { where: "machine=record" } })).toBe(true);
+  });
+});

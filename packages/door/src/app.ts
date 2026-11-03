@@ -50,7 +50,7 @@ import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
 import { describeModules, hostDoorModules, releaseDoorModules, runningModules, unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, SCRIPT_RUN_ACTIONS, asScriptRun, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage, insertAnswer, oneLine } from "./extensions";
-import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
+import { loadScreenNotes, screenNotesShown, watchedScreens } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged, referenceWords } from "./refs";
 import { componentsChanged } from "./component-schemas";
@@ -655,6 +655,7 @@ export class App implements Ctx {
   /** `now`: the clock the status bar reads (a test's fake one). */
   constructor(private readonly term: AppTerm, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
     this.statusNote = new StatusBarNote(board, () => this.redraw(), text => this.flash(text, 12_000, { kind: "warning" }));
+    board.watched?.listen(() => { const now = screenNotesShown(board); if (this.screensSeen && now !== undefined && now !== this.screensShown && !this.screensLoading) this.screensSoon(); });
     this.started = now();
     this.speed = new SpeedMeter(now);
     // A Claude session running twice (PIE-1369): this machine's sessions and the outline's machine's, read while someone looks.
@@ -1073,9 +1074,7 @@ export class App implements Ctx {
       // Resource events aren't in the change feed, so none were replayed: projections are read again, and the
       // extensions (a restarted service may serve others) are listed again.
       if (!c && (e.action === "reconnected" || e.action === "reset")) { this.reconnects++; resourceChanged(null); void this.loadExtensions(); }
-      // A screen note made, changed or trashed (here, by another door or an agent), or anything after a reconnect: read them again.
-      if (c ? screenNotesAffected(c) : e.action === "reconnected" || e.action === "reset") this.screensSoon();
-      void this.statusNote.refresh(this.statusItems());
+      if (!c && (e.action === "reconnected" || e.action === "reset")) { this.screensSoon(); void this.statusNote.refresh(this.statusItems()); }
       invalidatePropertyErrors();
     }
     // What an extension wrote (a Jira ticket refreshed, PIE-445) isn't news unless the person asks for it.
@@ -1177,9 +1176,10 @@ export class App implements Ctx {
   }
   private screensLoading: Promise<void> | null = null;
   private screensAgain = false;
+  private screensShown = "";   // the screen notes as last read (screenNotesShown): the watched answer moving past them reads them again
   private async readScreens(): Promise<void> {
     try {
-      const r = await loadScreenNotes(this.board);
+      const r = await loadScreenNotes(watchedScreens(this.board, shown => { this.screensShown = shown; }));
       // A save or delete of this door's landed meanwhile: read again rather than take an older answer.
       if (r.stale) { this.screensAgain = true; return; }
       const said = [r.added.length ? `${r.added.join(", ")} added` : "", r.removed.length ? `${r.removed.join(", ")} gone` : ""].filter(Boolean);

@@ -18,6 +18,7 @@ import type { ExtensionWrites } from "./extension-writes";
 import { planPlace, type PlaceMode } from "./place";
 import { hostApi, type HostApi, type HostStep } from "./host-api";
 import { isJsxLanguage, runScript, type ScriptSiteGlobals } from "./script-runtime";
+import { asksMachinery } from "./watch-machinery";
 import { importedNames, linkScript, ScriptLinkError, type LinkedScript } from "./script-link";
 import { PRIMITIVE_TYPES, renderComponent, validateComponent, type ComponentOutput, type Primitive } from "./component-primitives";
 import { textRecord } from "./block-records";
@@ -81,7 +82,7 @@ export function slotProps(words: string | null | undefined): Record<string, stri
 }
 
 /** What a render-mode script drew, and what it read: the notes (with their revision when first read) and the queries (with their rows). */
-export interface ScriptRendered { markdown: string; /** The view it drew, when it returned one (PIE-981: a client that draws views draws this, and presses what it carries). */ view?: Primitive; reads: { id: string; revision: number | null }[]; queries: ScriptQueryRecord[]; /** It saw more than could be listed: its output depends on notes no list names. */ untracked?: true }
+export interface ScriptRendered { markdown: string; /** It asked for notes tools stamp `[machine::…]` (PIE-1546): a change to one may change what it draws. */ machinery?: true; /** The view it drew, when it returned one (PIE-981: a client that draws views draws this, and presses what it carries). */ view?: Primitive; reads: { id: string; revision: number | null }[]; queries: ScriptQueryRecord[]; /** It saw more than could be listed: its output depends on notes no list names. */ untracked?: true }
 
 /** One script run's view of the Site: the globals it reads, the path reader behind `resolve`, and the notes it read. */
 interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: HostApi["resolve"] }
@@ -185,6 +186,7 @@ export class ScriptRuns {
     const queries: ScriptRendered["queries"] = [];
     let untracked = false;
     let hiddenQueryRoot = false;
+    let machinery = false;
     const onRead = (ids: readonly string[]) => { for (const id of ids) if (!reads.has(id)) reads.set(id, this.store.get(id)?.revision ?? null); };
     const props = { ...input.site?.props, ...slotProps(input.argument) };
     // The script's note supplies self as well as code, so it follows the same visibility cut as an embed.
@@ -211,7 +213,7 @@ export class ScriptRuns {
         if (bound!.world.hiddenHits) untracked = true;
         return visible;
       };
-      const client: AgentToolsClient = bound ? {
+      const base: AgentToolsClient = bound ? {
         requireCompatibleService: () => this.client.requireCompatibleService(),
         request: async <T>(request: Parameters<AgentToolsClient["request"]>[0]): Promise<T> => {
           const root = request.action === "blocks.query" ? request.query.subtreeRootId : request.action === "views.read" ? request.viewId : undefined;
@@ -234,7 +236,12 @@ export class ScriptRuns {
           return this.client.request<T>(request);
         },
       } : this.client;
-      const api = hostApi(client, undefined, {
+      // What it asks is looked at on the way: one question that holds machinery is enough for its drawing to.
+      const looked: AgentToolsClient = { requireCompatibleService: () => base.requireCompatibleService(), request: <T>(request: Parameters<AgentToolsClient["request"]>[0], timeoutMs?: number) => {
+        if (!machinery && asksMachinery(this.store, request as unknown as Record<string, unknown>)) machinery = true;
+        return base.request<T>(request, timeoutMs);
+      } };
+      const api = hostApi(looked, undefined, {
         kind: "render", cutQueries: !!bound, visibleId, onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
       });
       // The notes it imports are read: an edit of one draws this again.
@@ -246,7 +253,7 @@ export class ScriptRuns {
       if (hiddenQueryRoot) return { markdown: "not shared", reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
       if (!result.ok) throw new Error(`${result.error.message}\n${RENDER_ERROR}`);
       const drew = result.value === undefined ? null : scriptView(result.value);
-      return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}) };
+      return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}), ...(machinery ? { machinery: true as const } : {}) };
     } catch (error) {
       // What it read before it failed goes with the error: a change to one of them (a module fixed) draws the line again.
       throw Object.assign(error instanceof Error ? error : new Error(String(error)), { reads: [...reads].map(([id, revision]) => ({ id, revision })), queries });
