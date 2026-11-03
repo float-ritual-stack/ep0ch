@@ -544,6 +544,16 @@ async function read(client: SuggestionClient, where: string, limit = 1000): Prom
   return (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, machinery: "show", limit } })).blocks;
 }
 
+async function readPaged(client: SuggestionClient, where: string, page: number): Promise<Block[]> {
+  const all: Block[] = [];
+  for (let offset = 0; ;) {
+    const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, machinery: "show", sort: "created", limit: page, offset } });
+    all.push(...found.blocks);
+    if (!found.more || found.nextOffset === undefined) return all;
+    offset = found.nextOffset;
+  }
+}
+
 const openOf = (suggestions: Block[], outcomes: Block[]): OpenSuggestion[] => {
   const settled = new Set(outcomes.map(o => propsOf(o.text).suggestion));
   // A backfill's findings were never told to anyone: nothing to follow.
@@ -650,10 +660,18 @@ async function stampFinding(client: SuggestionClient, id: string, props: Record<
 }
 
 /** Findings settled before their outcome was stamped on them, stamped from their outcome record, a few each pass. */
-async function stampSettled(client: SuggestionClient, told: readonly Block[], outcomes: readonly Block[]): Promise<void> {
-  const verdicts = new Map(outcomes.map(o => { const p = propsOf(o.text); return [p.suggestion, p] as const; }));
-  const due = told.filter(b => { const p = propsOf(b.text); return p.type === "review-finding" && !p.outcome && verdicts.has(b.id); }).slice(0, STAMP_PER_PASS);
-  for (const b of due) {
+export async function stampSettled(client: SuggestionClient, page = 1000): Promise<void> {
+  // Paged (PIE-1539 review): one capped read would hand every pass the same first page, and a finding past it would never
+  // be stamped. Every outcome is read; findings are read a page at a time until a pass's worth are due.
+  const verdicts = new Map((await readPaged(client, "type=suggestion-outcome", page)).map(o => { const p = propsOf(o.text); return [p.suggestion, p] as const; }));
+  const due: Block[] = [];
+  for (let offset = 0; due.length < STAMP_PER_PASS;) {
+    const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: "type=review-finding", machinery: "show", sort: "created", limit: page, offset } });
+    due.push(...found.blocks.filter(b => !propsOf(b.text).outcome && verdicts.has(b.id)));
+    if (!found.more || found.nextOffset === undefined) break;
+    offset = found.nextOffset;
+  }
+  for (const b of due.slice(0, STAMP_PER_PASS)) {
     const v = verdicts.get(b.id)!;
     await stampFinding(client, b.id, { outcome: v.outcome ?? "unknown", after: v.patched === "yes" ? fixOf(b.text).join(" ⋯ ") || "not kept" : "not kept", "settled-at": /revision (\d+)/.exec(v.because ?? "")?.[1] ?? "none" });
   }
@@ -668,7 +686,7 @@ export async function settleOpen(client: SuggestionClient, schemas: readonly Com
   try {
     const told = await read(client, "(type=suggestion OR type=review-finding) created >= -30d"), outcomes = await read(client, "type=suggestion-outcome created >= -30d");
     const open = openOf(told, outcomes) as OpenWithWho[];
-    await stampSettled(client, told, outcomes);
+    await stampSettled(client);
     const byNote = new Map<string, OpenWithWho[]>();
     for (const s of open) byNote.set(s.note, [...(byNote.get(s.note) ?? []), s]);
     let written = 0;

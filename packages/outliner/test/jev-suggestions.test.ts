@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { applyWrite } from "../src/mcp-write";
-import { afterOf, judgeSuggestion, problemOf, tallyAsk, settleOpen, writerOf } from "../src/jev-suggestions";
+import { afterOf, judgeSuggestion, problemOf, stampSettled, tallyAsk, settleOpen, writerOf } from "../src/jev-suggestions";
 import { scratchOutline } from "./scratch-outline";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
@@ -138,6 +138,23 @@ test("a suggestion nobody acted on within a day is ignored when the next pass se
 const schemas = [{ id: "graph-timeline", title: "Timeline (::graph-timeline)", group: "figures", source: { use: "::graph-timeline" } }, { id: "graph-check", title: "Checklist (::graph-check)", group: "figures", source: { use: "::graph-check" } }] as unknown as ComponentSchema[];
 const at = Date.parse("2026-10-25T10:00:00Z");
 const later = (hours: number, text: string, revision = 2) => ({ revision, savedAt: new Date(at + hours * 3600_000).toISOString(), text });
+
+// PIE-1539 review: one capped read handed every pass the same first page, so a settled finding past it was never stamped.
+test("settled findings are stamped past the first page of findings", async () => {
+  const { client, records } = await setup();
+  const mutation = { author: "agent" as const, actorId: "jev" };
+  const make = async (i: number, stamped: boolean) => {
+    const finding = await client.request<Block>({ action: "create", parentId: null, text: `fix: dense in Plot ${i} [type::review-finding] [note::plot-${i}] [said::the plot list runs on: split it]${stamped ? " [outcome::ignored]" : ""}`, mutation } as never);
+    await client.request({ action: "create", parentId: null, text: `outcome ${i} [type::suggestion-outcome] [suggestion::${finding.id}] [outcome::ignored] [because::nothing changed]`, mutation } as never);
+    return finding.id;
+  };
+  await make(1, true); await make(2, true);
+  const last = await make(3, false);
+  await stampSettled(client as never, 2);
+  const found = (await records("review-finding")).find(f => f.id === last)!;
+  expect(found).toMatchObject({ outcome: "ignored", after: "not kept", "settled-at": "none" });
+  expect(found.text.split("\n", 1)[0]).toStartWith("fix: the plot list runs on [type::review-finding]");
+});
 
 test("the rule: followed, different, ignored, still open, and a Kept margin thread", () => {
   const s = { component: "graph-timeline", at };
