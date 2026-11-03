@@ -343,10 +343,10 @@ export class MainMenu implements Screen {
       }
       if (row.length) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, row, { centre: true }));
     }
-    // The newscan line (PIE-867): every change since logon, and how many of them were by people; a click is the N key.
+    // The newscan line (PIE-867): every change since logon, how many by people, in the longest words that fit; a click is N.
     const total = ctx.eventsAll ?? ctx.events, people = ctx.whatChanged?.count(false) ?? ctx.events;
-    const news = total ? `|14changes on the outline since you logged on: ${total}${total !== people ? ` · ${people} by people` : ""} · ` : "";
-    const scan = `|08${news}last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`;
+    const by = total !== people ? ` · ${people} by people` : "", call = `last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`;
+    const scan = [`changes on the outline since you logged on: ${total}${by} · `, `changes since you logged on: ${total}${by} · `, `${total} changes${by} · `].map(n => `|08${total ? `|14${n}` : ""}${call}`).find(t => width(paint(t)) <= ctx.t.cols) ?? `|08${total ? `|14${total} changes · ` : ""}${call}`;
     if (total) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [[scan, char("N"), ITEMS.findIndex(i => i.key === "N")]], { centre: true }));
     else lines.push(center(paint(scan), ctx.t.cols));
     return { lines, placements: frame };

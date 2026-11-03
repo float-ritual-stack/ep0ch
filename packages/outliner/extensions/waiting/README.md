@@ -5,7 +5,7 @@ Waiting on others: every outbox item still waiting for an answer, grouped by who
 - **Open it:** O on the main menu, `ep0ch --screen waiting`, or `act screen.open name=waiting`.
   - The list sits beside a reader; j k pick a row and the reader shows it (the list's select wire).
   - ⏎ opens the item where opens land; / filters the rows.
-  - `^W o` opens the list as a tile anywhere (`act tile.open kind=waiting.list`).
+  - `act tile.open kind=waiting.list` opens the list as a tile anywhere (it takes no `^W o` key: O is never one, and W is What changed's).
 - **What waits:** a note with `[type::outbox-item]` and `[outbox::waiting]`.
   - `[waiting-on::Ada: which shelf do the jars go on?]`: the name before the colon is the group, the rest the question; without it, `[to::…]` and the title.
   - `[sent::2026-01-05 4:23 PM]` (a date as people write it) is when the wait began; without it, when the note was written.

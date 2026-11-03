@@ -16,7 +16,7 @@
   "tiles": [
     {
       "kind": "list",
-      "name": "Waiting",
+      "name": "Outbox waiting",
       "description": "the outbox items still waiting for an answer, by who they wait on, the longest wait first; j k pick (the reader beside shows it), ⏎ opens it, / filters",
       "render": "waiting",
       "replaces": [

@@ -9,6 +9,7 @@ import type { Msg } from "../src/board";
 import { nowPage, type PinnedReader } from "../src/hub/pinned";
 import { openScreen } from "../src/desk/screen-specs";
 import { screenNames } from "../src/desk/screen-spec";
+import { tileKind } from "../src/desk/tile-kinds";
 import { forgetScreenNotes, loadScreenNotes } from "../src/desk/screen-notes";
 import { MainMenu, menuItems } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -43,12 +44,20 @@ describe.skipIf(!outliner)("the float-hub views", () => {
 
   test("after a deploy, the main menu has O Waiting with no install step, at 80 columns without running off the edge", () => {
     expect(screenNames()).toContain("waiting");
+    // Its tile takes no ^W o key, so What changed keeps W (the README's ^W o W) and no door starts with a clash said.
+    expect(tileKind("what-changed.list")?.keys?.map(k => k.key)).toEqual(["W"]);
+    expect(tileKind("waiting.list")?.keys ?? []).toEqual([]);
     expect(rows()).toEqual(expect.arrayContaining(["O Waiting", "C Welcome"]));
     app.push(new MainMenu());
     const lines = top().render(app).lines.map(plain) as string[];
     const at = lines.findIndex(l => l.includes("O Waiting"));
     expect(at).toBeGreaterThan(0);
     for (const l of lines) expect(l.trimEnd().length).toBeLessThanOrEqual(80);
+    // A busy outline's newscan line (four-digit counts, machinery apart, a last call on record) fits 80 columns too.
+    const busy = Object.create(app, { eventsAll: { value: 1234 }, whatChanged: { value: { count: () => 567 } }, lastCall: { value: Date.parse("2026-10-30T21:15:00Z") } });
+    const scan = (top().render(busy).lines.map(plain) as string[]).find(l => l.includes("last call"))!;
+    expect(scan).toContain("1234");
+    expect(scan.trimEnd().length).toBeLessThanOrEqual(80);
   });
 
   test("O opens Waiting: with nothing waiting it says so, and the demo's made-up asks are never listed", async () => {
