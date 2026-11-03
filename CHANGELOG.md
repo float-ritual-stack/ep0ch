@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Jev's suggestions page: one row per finding, before and after (PIE-1539)
+
+- **Each row reads whole:** the problem Jev named, the passage as it was, the passage after the write that settled it, and followed or ignored (blank while still open). Open a row for Jev's whole advice.
+- **Settling stamps the finding** with `outcome`, `after` and `settled-at`, so one table joins what was said and what happened. Findings settled before this get their outcome, with `after: not kept`.
+- **One table replaces two:** "Each finding" and "What the writer did" become "What Jev said, and what happened"; pie's page upgrades itself on the next finding.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### The reader's keys come from one table (PIE-1527)
 
 - Every reader key, its hint and its line in `?` come from one table. A key you rebind can't be taken by an extension, and a custom binding with arguments works. shift+↑/↓ steps reading, and shift+⏎ and ctrl+⏎ act as ⏎.

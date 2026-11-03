@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { applyWrite } from "../src/mcp-write";
-import { judgeSuggestion, tallyAsk, settleOpen, writerOf } from "../src/jev-suggestions";
+import { afterOf, judgeSuggestion, problemOf, tallyAsk, settleOpen, writerOf } from "../src/jev-suggestions";
 import { scratchOutline } from "./scratch-outline";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
@@ -83,6 +83,13 @@ test("a write that gets a suggestion leaves a record, and later writes decide wh
   const [outcome] = await records("suggestion-outcome");
   expect(outcome).toMatchObject({ suggestion: fact!.id, note: note.id, outcome: "followed", component: "graph-timeline", writer: "loki", harness: "claude-code", day: today });
   expect((await records("jev-run")).find(r => r.run === today)).toMatchObject({ suggested: "1", agreed: "1", agreement: "1", different: "0", ignored: "0" });
+  // PIE-1539: the finding itself reads whole: its title is the problem, and settling stamped what the writer did, the
+  // passage after and the write that settled it, without making it news.
+  const [stamped] = await records("review-finding");
+  expect(stamped!.text.split("\n", 1)[0]).toStartWith(`fix: ${problemOf(fact!.said!)} [`);
+  expect(stamped).toMatchObject({ outcome: "followed", "settled-at": "2" });
+  expect(stamped!.after).toContain("::graph-timeline");
+  expect(store.require(fact!.id).updatedAt).toBe((await client.request<Block>({ action: "get", blockId: fact!.id })).updatedAt);
 
   // Another note whose next write adds another figure: a different figure, once the window has closed (the suggested one
   // could still follow). Settled once, however often the note is written.
@@ -96,6 +103,7 @@ test("a write that gets a suggestion leaves a record, and later writes decide wh
   const settled = (await records("suggestion-outcome")).filter(o => o.note === other.id);
   expect(settled).toHaveLength(1);
   expect(settled[0]).toMatchObject({ outcome: "different" });
+  expect((await records("review-finding")).find(f => f.note === other.id)).toMatchObject({ outcome: "different" });
   await agent("edit", { ref: other.id, expectedRevision: store.require(other.id).revision, text: `${CHECK.replace("Garden year", "Bed rotation")}\nmore` });
   expect((await records("suggestion-outcome")).filter(o => o.note === other.id)).toHaveLength(1);
 });
@@ -223,12 +231,12 @@ test("a kit finding is followed only when its own section draws the component", 
 // PIE-1388: pie's page was shaped by hand; a new section and column reach it on their own, added and never rewritten.
 test("an existing suggestions page gains the quiet writes' table, with when, keeping its own order", async () => {
   const { SUGGESTIONS_PAGE, upgradeSuggestionsPage } = await import("../src/jev-suggestions");
-  const old = SUGGESTIONS_PAGE.replace(/## Reviewed, nothing to fix\n[\s\S]*?\n::\n\n/, "").replace("columns: [note, said, passage, rubric, patch, writer]", "columns: [note, rubric, said, passage, writer, patch]");
+  const old = SUGGESTIONS_PAGE.replace(/## Reviewed, nothing to fix\n[\s\S]*?\n::\n\n/, "").replace("columns: [note, passage, after, outcome, writer]", "columns: [note, outcome, passage, after, writer]");
   expect(old).not.toContain("review-quiet");
   const up = upgradeSuggestionsPage(old);
-  expect(up).toContain("columns: [note, rubric, said, passage, writer, patch]");
+  expect(up).toContain("columns: [note, outcome, passage, after, writer]");
   expect(up).toContain("columns: [note, writer, revision, created]");
-  expect(up.indexOf("## Reviewed, nothing to fix")).toBeLessThan(up.indexOf("## What the writer did"));
+  expect(up.indexOf("## Reviewed, nothing to fix")).toBeLessThan(up.indexOf("## Was Jev right?"));
   expect(up.split("\n").filter(l => l === "::").length).toBe(old.split("\n").filter(l => l === "::").length + 1);
   expect(upgradeSuggestionsPage(up)).toBe(up);
   expect(upgradeSuggestionsPage(SUGGESTIONS_PAGE)).toBe(SUGGESTIONS_PAGE);
@@ -248,9 +256,41 @@ test("an existing suggestions page gains at: revision on its review tables, and 
 
 test("a review table that names its own at: keeps it, wherever it is written", async () => {
   const { SUGGESTIONS_PAGE, upgradeSuggestionsPage } = await import("../src/jev-suggestions");
-  const own = SUGGESTIONS_PAGE.split("\n").filter(l => l !== "at: revision").join("\n").replace("title: what each writer was told", "title: what each writer was told\nat: seen-at");
+  const own = SUGGESTIONS_PAGE.split("\n").filter(l => l !== "at: revision").join("\n").replace("title: the problem, the passage before and after, and what the writer did", "title: the problem, the passage before and after, and what the writer did\nat: seen-at");
   const up = upgradeSuggestionsPage(own);
   const first = up.split("::graph-table")[1]!;
   expect(first.slice(0, first.indexOf("\n::")).match(/^at:/gm)).toEqual(["at:"]);
   expect(first).toContain("at: seen-at");
+});
+
+// PIE-1539, Evan (Nov 3): "having a hard time telling what jev said, and what was changed as a result if anything".
+test("a finding's row names the problem in its own words, before Jev's advice", () => {
+  expect(problemOf("the title line is 74 characters (keep it under 70): make it a short name, \"Bed…\", and move the rest under it")).toBe("the title line is 74 characters (keep it under 70)");
+  expect(problemOf("the section \"Plan\" would read better as ::graph-tree: if it fits, outline_components graph-tree gives its properties")).toBe("the section \"Plan\" would read better as ::graph-tree");
+  expect(problemOf("the note builds a case before its point")).toBe("the note builds a case before its point");
+});
+
+test("the passage after: the section by its heading, the lines a write added nearest the finding, the patch, or unchanged", () => {
+  const before = ["Plot plan", "", "## Jobs", "- dig, sow and mulch the long bed before the frost", "", "## Notes", "- the hose leaks"].join("\n");
+  const split = before.replace("- dig, sow and mulch the long bed before the frost", "- dig the long bed\n- sow it\n- mulch before the frost");
+  // A section's finding: the section as it reads now.
+  expect(afterOf({ line: 3 }, before, split, {})).toBe("## Jobs - dig the long bed - sow it - mulch before the frost");
+  // A line's finding (no heading at that line): the lines the write added nearest it.
+  expect(afterOf({ line: 4 }, before, split, {})).toBe("- dig the long bed / - sow it / - mulch before the frost");
+  expect(afterOf({ line: 4 }, before, before.replace("- dig, sow and mulch the long bed before the frost\n", ""), {})).toBe("removed");
+  expect(afterOf({ line: 4, fix: ["- dig", "- sow"] }, before, split, { patched: true })).toBe("- dig ⋯ - sow");
+  expect(afterOf({ line: 4 }, before, undefined, {})).toBe("unchanged");
+});
+
+test("a page from before PIE-1539 gets the one joined table where its findings table was, and loses the outcome table", async () => {
+  const { SUGGESTIONS_PAGE, upgradeSuggestionsPage } = await import("../src/jev-suggestions");
+  const split = ["## Each finding, newest first", "::graph-table", "---", "title: what each writer was told", "query: type=review-finding NOT source=backfill", "machinery: show", "columns: [note, said, passage, rubric, patch, writer]", "link: note", "at: revision", "---", "::", ""].join("\n");
+  const did = ["## What the writer did", "::graph-table", "---", "title: followed, patched or ignored", "query: type=suggestion-outcome", "machinery: show", "columns: [note, outcome, because, said, patched, writer]", "---", "::", ""].join("\n");
+  const joined = SUGGESTIONS_PAGE.slice(SUGGESTIONS_PAGE.indexOf("## What Jev said"), SUGGESTIONS_PAGE.indexOf("## Reviewed, nothing to fix"));
+  const old = SUGGESTIONS_PAGE.replace(joined, split).replace("## Was Jev right?", `${did}## Was Jev right?`);
+  expect(old).toContain("## What the writer did");
+  const up = upgradeSuggestionsPage(old);
+  expect(up).toBe(SUGGESTIONS_PAGE);
+  expect(up).not.toContain("type=suggestion-outcome\n");
+  expect(upgradeSuggestionsPage(up)).toBe(up);
 });

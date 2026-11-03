@@ -25,8 +25,8 @@ describe.skipIf(!outliner)("showcase: at a revision (PIE-1433)", () => {
     expect(surface("note").revisionMode).toBeNull();
 
     // The person double-clicks the finding's row on the page: the note opens with revision 1 beside it.
-    await until(() => h.screen().split("\n").some(l => l.includes("Shed status") && l.includes("dense")), "the finding's row", 15_000);
-    const lines = h.screen().split("\n"), y = lines.findIndex(l => l.includes("Shed status") && l.includes("dense")), x = lines[y]!.indexOf("Shed status");
+    await until(() => h.screen().split("\n").some(l => l.includes("Shed status") && l.includes("fix: line")), "the finding's row", 15_000);
+    const lines = h.screen().split("\n"), y = lines.findIndex(l => l.includes("Shed status") && l.includes("fix: line")), x = lines[y]!.indexOf("Shed status");
     for (let i = 0; i < 2; i++) { h.press({ kind: "mouse", action: "down", button: 0, x, y } as never); h.press({ kind: "mouse", action: "up", button: 0, x, y } as never); }
     await until(() => h.screen().includes("REVISION 1 → 2 (now)"), "the compare beside the note", 15_000);
     const screen = h.screen();
