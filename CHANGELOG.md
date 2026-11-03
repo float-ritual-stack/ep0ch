@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One walk through every row container (PIE-1521)
+
+- j and k step through a collection, a figure's rows, a `::links` list, an inline list and an extension's list the same way: step within, say "past the edge", land first or last. One row-container interface replaces a branch per shape.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
+- **Fixes:**
+  - Hint-row clicks run the key's own action again on every screen, inside mounted screens too, and on a tile's foot and the BBS reader (PIE-1293).
+  - Extensions answer completion on query lines and hear what was picked (PIE-1508, PROTOCOL 306).
+
 ### A published page never prints a proposal's patch (PIE-1333)
 
 - A published page's inside list folds proposals and deliveries into one "N changes" line; each change is one line ("1 edit from @daddy, applied") linking to its diff.
