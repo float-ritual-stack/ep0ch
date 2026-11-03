@@ -328,7 +328,7 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     for (const c of " (now)") pane.key({ kind: "char", ch: c } as Key, desk);
     const typed = pane.draft!.text;
     await write(cards.gate.id, t => t.replace("It squeaks.", "It squeaks less."));
-    await until(() => pane.draft!.changedElsewhere, "the draft to be marked", 4000);
+    await until(() => pane.draft!.status.changedElsewhere, "the draft to be marked", 4000);
     expect(pane.draft!.text).toBe(typed);
     pane.key({ kind: "esc" } as Key, desk); pane.key({ kind: "esc" } as Key, desk);
     expect(pane.draft).toBeNull();

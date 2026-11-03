@@ -3,6 +3,7 @@
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
+import { draftView } from "../../src/draft-view";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../../src/app";
@@ -640,7 +641,7 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     await desk.dispatch.press("edit", {}, "reader");
     expect(rows().findIndex(l => l.includes(label))).toBe(y);
     const rd = desk.pane("reader") as ReaderPane;
-    expect(rd.surface.draft!.scrollFigure.total).toBeGreaterThan(rd.surface.draft!.scrollFigure.room);
+    expect(draftView(rd.surface.draft!).scrollFigure.total).toBeGreaterThan(draftView(rd.surface.draft!).scrollFigure.room);
     await desk.dispatch.press("draft.scroll", { by: 8 }, "reader");
     const edited = rows(), ey = edited.findIndex(l => /Cane \d+:/.test(l));
     const next = edited[ey]!.match(/Cane \d+:/)![0];

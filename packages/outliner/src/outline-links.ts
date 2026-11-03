@@ -15,11 +15,30 @@ import { blockReferenceDisplayText } from "./references";
 import type { OutlinerStore } from "./store";
 import type { BlockReferenceResolution, OutlinerRequest } from "./types";
 
+/** How often a machine that didn't answer is asked again (in the background), and how long it has to answer. */
+const SILENT_FOR_MS = 30_000;
+const PROBE_MS = 5_000;
+const FAIR_CHANCE_MS = 1_000;
+
 /** The host supplies stores; the per-outline server never opens another outline itself. */
 export class OutlineLinks {
   constructor(private names: () => string[], private open: (name: string) => Promise<OutlinerStore>, private folder: string) {}
 
   private mirrors = new Map<string, OutlineMirror<OutlinerClient>>();
+  /**
+   * Machines whose host didn't answer, read from their copies until it does (PIE-1546): a sleeping laptop's link
+   * accepts and never answers, and every link read waited out the whole deadline for it. Each is asked again in the
+   * background (`probe`) at most every SILENT_FOR_MS, and read live again once it answers.
+   */
+  private silent = new Map<string, { next: number; asking?: true }>();
+
+  private probe(machine: string, socket: string): void {
+    const silent = this.silent.get(machine);
+    if (!silent || silent.asking || silent.next > Date.now()) return;
+    silent.asking = true;
+    new OutlinerClient(socket, PROBE_MS).request<HostedOutlineList>({ action: "outlines.list" })
+      .then(() => { this.silent.delete(machine); }, () => { this.silent.set(machine, { next: Date.now() + SILENT_FOR_MS }); });
+  }
 
   async close() { await Promise.all([...this.mirrors.values()].map(m => m.close())); }
 
@@ -41,11 +60,8 @@ export class OutlineLinks {
         if (!mirror) {
           mirror = new OutlineMirror(outline, machine, config.folder, {
             schema: () => SCHEMA_VERSION,
-            attach: async (socket, name) => {
-              const client = new OutlinerClient(socket, 1000, name);
-              const index = await client.request<{ blocks: { updatedAt: string }[] }>({ action: "tree.index" });
-              return { board: client, newest: index.blocks.reduce((newest, b) => Math.max(newest, Date.parse(b.updatedAt)), 0), close() {} };
-            },
+            // The copy's own reads answer within the caller's deadline; the mirror reads its newest change itself.
+            attach: async (socket, name) => ({ board: new OutlinerClient(socket, 1000, name), close() {} }),
           });
           this.mirrors.set(key, mirror);
         }
@@ -62,12 +78,18 @@ export class OutlineLinks {
         return results.flatMap(r => r.status === "fulfilled" && r.value !== undefined ? [r.value] : []);
       };
       let names: string[];
+      if (this.silent.has(machine)) { this.probe(machine, layout.remote(machine).socket); return fallback(copies); }
+      const remaining = deadline - Date.now();
       try {
-        const remaining = deadline - Date.now();
         if (remaining <= 0) throw new Error("machine read deadline");
         const list = await new OutlinerClient(layout.remote(machine).socket, remaining).request<HostedOutlineList>({ action: "outlines.list" });
         names = list.outlines.map(o => o.name);
-      } catch { return fallback(copies); }
+        this.silent.delete(machine);
+      } catch {
+        // Only a machine given a fair second is silent: a read that spent its deadline on earlier lookups says nothing.
+        if (remaining >= FAIR_CHANCE_MS) this.silent.set(machine, { next: Date.now() + SILENT_FOR_MS });
+        return fallback(copies);
+      }
       const results = await Promise.all(names.map(async outline => {
         try {
           const remaining = deadline - Date.now();

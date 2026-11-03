@@ -144,6 +144,16 @@ export function withRowLimit<T>(lines: number, draw: () => T): T {
  * a title it leads (`PLOT-3 — Mend`, `PLOT-3 Mend`): an id followed by other text (`PC-12 / acceptance`) hangs
  * nothing (PIE-1302: the next row's indent landed inside the words).
  */
+/**
+ * `text` to fit `room` cells (PIE-1560): its words kept, each file path in it shortened to `…/<folder>/<file>` when the
+ * whole doesn't fit (to `…/<file>` when that is still wider than a `row`), so a status line that names a copy still
+ * names its file.
+ */
+export function fitPaths(text: string, room: number, row = Infinity): string {
+  if (width(text) <= room) return text;
+  return text.replace(/(?:~|\/)[^\s·]*\/([^\s/·]+)\/([^\s/·]+)/g, (_, dir: string, file: string) => width(`…/${dir}/${file}`) <= row ? `…/${dir}/${file}` : `…/${file}`);
+}
+
 export function rowLines(text: string, w: number, lines = rowLimit, { hang }: { hang?: number } = {}): string[] {
   if (w <= 0) return [""];
   if (lines <= 1) return [drawEllipsized(text, w)];

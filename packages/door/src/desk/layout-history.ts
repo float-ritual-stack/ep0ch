@@ -6,6 +6,7 @@
 import { partyOf, undoStamp } from "../steps";
 import type { Actor } from "../socket";
 import type { LayoutSpec } from "./tiles";
+import { savedNodes } from "./screen-spec";
 
 /** How long a transaction waits with nothing joining it before it closes (ms). */
 export const TXN_IDLE_MS = 60_000;
@@ -30,6 +31,12 @@ export interface LayoutEntry {
   /** Actions that joined this entry (a transaction's count). */
   steps: number;
   at: number;
+}
+
+/** The tiles a shape names by their identity (`t-…`), a group's own tiles included: what an undo keeps by instance (PIE-1559). */
+export function specTileIds(spec: LayoutSpec): string[] {
+  const walk = (n: unknown): string[] => savedNodes(n).flatMap(x => (x.t === "leaf" ? [...(typeof x.id === "string" && x.id.startsWith("t-") ? [x.id] : []), ...walk(x.inner?.root)] : []));
+  return [...walk(spec.root), ...(spec.floats ?? []).flatMap(f => walk(f.tile))];
 }
 
 /** A transaction as the desk tracks it while it is open. */

@@ -137,7 +137,7 @@ export class NoteForm {
         const box = field.type === "number" ? Math.min(10, room) : room;
         const cell = stringFrame(box + 2, { glyphs: LINE_BOX, pad: 0 });
         line(" ".repeat(labelWidth) + cell.top());
-        const drawn = d.render(box, 1)[0] ?? "";
+        const drawn = d.oneRow.render(box);
         const text = active && this.focus === index ? drawn : printable(visible(drawn));
         line(label + cell.row(tag(field.name, pad(text, box), shownLine("form.focus", { field: field.name }))));
         line(" ".repeat(labelWidth) + cell.bottom());

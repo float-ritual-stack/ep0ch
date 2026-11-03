@@ -1,3 +1,4 @@
+import { draftView } from "../../src/draft-view";
 import { proposed as asProposed } from "../wire";
 // PIE-439: the showcase screen, macros, asks and scripts. One of the showcase's test files (split from the one file, so a
 // section's test is a file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it.
@@ -189,17 +190,17 @@ describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () =
     await until(() => screen().includes("no agent answers @ask"), "the unknown ask explained");
     expect(d.text).toContain("@ask whats up");
     await until(() => d.answerFolds().length === 2 && d.text.includes("I find earlier related notes"), "both prior-art answers", 15000).catch(error => { throw new Error(`${error.message}\n${d.text}\n${JSON.stringify([...d.asks])}`); });
-    const narrow = d.render(48, 60).map(plain);
+    const narrow = draftView(d).render(48, 60).map(plain);
     expect(narrow.join("\n")).toContain("beside ▸");
     expect(narrow.every(line => Bun.stringWidth(line) <= 48)).toBe(true);
     expect(narrow.join("\n")).toContain("agents here:");
     const ask = "@ask whats up", askRow = d.lines.indexOf(ask);
     await stage.dispatch.press("draft.place", { line: askRow + 1, col: 1 }, tile);
     const raw = r.surface.render(48, 60, r.host(stage)).lines.map(plain), y = raw.findIndex(line => line.includes(ask));
-    expect(editorClick(d, d.frame!.col + ask.length, y)).toBe(true);
+    expect(editorClick(d, draftView(d).frame!.col + ask.length, y)).toBe(true);
     expect(d.col).toBe(ask.length);
     await stage.dispatch.press("draft.place", { line: askRow + 1, col: 1 }, tile);
-    editorClick(d, d.frame!.col + ask.length, y, true);
+    editorClick(d, draftView(d).frame!.col + ask.length, y, true);
     expect((await stage.dispatch.press("draft.copy", {}, tile) as { text: string }).text).toBe(ask);
     await stage.dispatch.press("draft.place", { line: d.lines.length, col: d.lines.at(-1)!.length + 1 }, tile);
     await stage.dispatch.press("draft.paste", { text: "\nOrdinary prose that runs beyond a narrow tile should keep its original paragraph ending\ncontinued.\n" }, tile);

@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { subject, type Msg } from "./board";
 import { strayWords } from "./stray";
 import { dayOf, keptNot, onDay } from "./unsent-compare";
+import { DraftStatus, type DraftPhase } from "./draft-status";
 import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type AnnotationProps, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
@@ -33,7 +34,13 @@ export type Outcome =
    * `stale`: the service refused it because what it was based on moved on (the draft is kept, copied to disk).
    * `again`: not refused, only held for a second save (a property change shown first).
    */
-  | { ok: false; why: string; stale?: boolean; again?: boolean };
+  | { ok: false; why: string; stale?: boolean; again?: boolean; said?: string };
+
+/**
+ * How a target reports while it writes (PIE-1560): the phase it's in (asking how the properties read, saving, creating;
+ * null once the write has landed or failed), for its session's one status line. A target never writes the draft's fields.
+ */
+export interface TargetReport { phase(p: DraftPhase | null): void }
 
 /** Where a draft goes when it's written: one adapter per kind of destination. */
 export interface DraftTarget {
@@ -57,9 +64,12 @@ export interface DraftTarget {
    * Write the text, recorded as `by` (`recordAs`); `asked` is who asked (pressed save, sent `edit.save`).
    * `away`: leaving by a click, which never confirms a second save.
    */
-  submit(s: DraftSession, by: Actor, how: { asked: Actor; away: boolean }): Promise<Outcome>;
-  /** ctrl+r after a stale refusal: start over from (or find the place again in) what the service has now. */
-  reload?(s: DraftSession): Promise<void>;
+  submit(s: DraftSession, by: Actor, how: { asked: Actor; away: boolean; confirmed: boolean; report: TargetReport }): Promise<Outcome>;
+  /**
+   * ctrl+r after a stale refusal: start over from (or find the place again in) what the service has now; what to say.
+   * `reloaded: false`: nothing was loaded (nothing newer, or it's gone), so the conflict stands. A read that fails throws.
+   */
+  reload?(s: DraftSession, report: TargetReport): Promise<string | { said: string; reloaded: false } | void>;
 }
 
 /** What a session asks of whoever hosts it: its connection (for the hold), a redraw, and what to say. */
@@ -180,6 +190,8 @@ export class DraftSession {
   get open() { return this.ended === null; }
   get dirty() { return this.draft.dirty; }
   get busy() { return this.draft.busy; }
+  /** Its one status line: the session writes it, from what its target reports and what its draft's keys say. */
+  get status(): DraftStatus { return this.draft.status; }
   /** Held on the service now (`drafts.hold`). */
   get held() { return !!this.hold && !this.ended; }
   get board() { return this.env.board ?? null; }
@@ -210,7 +222,7 @@ export class DraftSession {
    * Written: the session ends. A stale refusal keeps the draft as typed and copies it to disk (ctrl+r starts
    * over from what the service has now); any other refusal keeps it with the reason.
    */
-  async submit(actor: Actor = USER, away = false): Promise<Outcome> {
+  async submit(actor: Actor = USER, away = false, confirmed = false): Promise<Outcome> {
     if (!this.open) return { ok: false, why: "the draft is closed" };
     const d = this.draft;
     if (d.busy) return { ok: false, why: `the ${this.target.verb} is still landing` };
@@ -220,7 +232,8 @@ export class DraftSession {
     if (why) return { ok: false, why };
     this.submitting = true;
     let r: Awaited<ReturnType<DraftTarget["submit"]>>;
-    try { r = await this.target.submit(this, recordAs(d, actor), { asked: actor, away }); } finally { this.submitting = false; }
+    const report: TargetReport = { phase: p => { d.status.phase = p; this.env.redraw?.(); } };
+    try { r = await this.target.submit(this, recordAs(d, actor), { asked: actor, away, confirmed, report }); } finally { this.submitting = false; d.status.phase = null; }
     if (r.ok) {
       // Undo survives the save: an edit of this note opened again on what was written takes up its history, stopping
       // at the save to ask before it takes saved text back (PIE-1414).
@@ -228,11 +241,12 @@ export class DraftSession {
       if (this.open) this.end("written");
       return r;
     }
+    if (r.said !== undefined && this.open) { d.status.say(r.said); this.env.redraw?.(); }
     if (r.stale && this.open) {
-      d.conflict = r.why;
+      d.status.conflict = r.why;
       // (A target that already copied it and said so, the comment's, isn't copied twice.)
-      const copied = d.savedCopy && r.why.includes(tidy(d.savedCopy)) ? d.savedCopy : d.copyOut(this.target.label);
-      d.note = `your draft is kept and copied to ${copied}${this.target.reload ? ` · ctrl+r ${this.target.verb === "save" ? "loads the current text" : "finds it again"}` : ""}`;
+      const was = d.status.savedCopy, copied = was && r.why.includes(tidy(was)) ? was : d.copyOut(this.target.label);
+      d.status.say(`your draft is kept and copied to ${copied}${this.target.reload ? ` · ctrl+r ${this.target.verb === "save" ? "loads the current text" : "finds it again"}` : ""}`);
     }
     return r;
   }
@@ -293,7 +307,7 @@ export class DraftSession {
       if (!discard) throw new ActionRefused("there's unsaved text; discard=true puts it aside as unsent");
       const said = this.putAside();
       this.end("aside");
-      return { closed: true, keptAt: this.draft.savedCopy ?? undefined, said };
+      return { closed: true, keptAt: this.status.savedCopy ?? undefined, said };
     }
     this.end("closed");
     return { closed: true };
@@ -324,14 +338,20 @@ export class DraftSession {
   /** ctrl+r: after a stale refusal, start over from what the service has now (the target's way). */
   async reload(): Promise<void> {
     if (!this.open) return;
-    if (!this.target.reload) { this.draft.note = "nothing to reload"; return; }
-    await this.target.reload(this);
+    if (!this.target.reload) { this.status.say("nothing to reload"); return; }
+    let r: Awaited<ReturnType<NonNullable<DraftTarget["reload"]>>>;
+    // A read that fails isn't a reload: the conflict stands and the draft says why (PIE-1560).
+    try { r = await this.target.reload(this, { phase: p => { this.status.phase = p; this.env.redraw?.(); } }); }
+    catch (e) { this.status.say(`couldn't read ${this.target.what} now (${e instanceof Error ? e.message : String(e)}) · your text is kept · ctrl+r tries again`); return; }
+    finally { this.status.phase = null; }
+    if (typeof r === "string") this.status.say(r);
+    else if (r) { this.status.say(r.said); return; }
     this.settled();
     this.hold?.revise(this.draft.base);
   }
 
   /** The block or passage was found again after a stale refusal: the draft says so no longer. */
-  settled() { this.draft.conflict = null; this.draft.changedElsewhere = false; }
+  settled() { this.status.settled(); }
 
   /**
    * Replace the whole text (`edit.text`, `comment.write`, $EDITOR coming back). Text someone else changed last
@@ -341,7 +361,7 @@ export class DraftSession {
     const d = this.draft, last = d.lastWriter;
     const kept = d.dirty && last && !sameParty(last, actor) ? { at: d.copyOut(this.target.label), whose: last.kind === "user" ? "you" : agentLabel(last) } : null;
     d.replace(text, actor);
-    d.note = kept ? `${agentLabel(actor)} replaced the ${this.target.verb === "save" ? "draft" : "text"} · what ${kept.whose} had typed is at ${kept.at}` : "";
+    this.status.say(kept ? `${agentLabel(actor)} replaced the ${this.target.verb === "save" ? "draft" : "text"} · what ${kept.whose} had typed is at ${kept.at}` : "");
     return kept?.at ?? null;
   }
 
@@ -390,7 +410,7 @@ export class DraftSession {
   private restore(): boolean {
     const d = this.draft, u = unsent(this.target.place);
     if (!u) return false;
-    if (u.base !== d.base) { d.note = `you started an edit ${onDay(dayOf(u.at))} and didn't save; the note has changed since · your edit is kept (open the note's kept-edit line to compare it) · its copy is at ${tidy(u.copy ?? "")}`; return false; }
+    if (u.base !== d.base) { this.status.say(`you started an edit ${onDay(dayOf(u.at))} and didn't save; the note has changed since · your edit is kept (open the note's kept-edit line to compare it) · its copy is at ${tidy(u.copy ?? "")}`); return false; }
     unshelve(this.target.place);
     d.lines = u.text.split("\n");
     d.row = d.lines.length - 1; d.col = d.lines[d.row]!.length;
@@ -402,7 +422,7 @@ export class DraftSession {
     d.undos = (u.history?.undos ?? []).map(step => ({ ...step, open: false }));
     d.redos = u.history?.redos ?? [];
     d.patches = u.history?.patches ?? [];
-    d.note = `brought back your ${this.target.verb === "send" ? "words" : this.target.verb === "create" ? "new note" : "edit"} from ${dayOf(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`;
+    this.status.say(`brought back your ${this.target.verb === "send" ? "words" : this.target.verb === "create" ? "new note" : "edit"} from ${dayOf(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`);
     return true;
   }
 
@@ -532,7 +552,7 @@ export class DraftSession {
   describe() {
     const d = this.draft;
     return {
-      id: d.blockId, place: this.target.place, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.changedElsewhere, conflict: d.conflict, savedCopy: d.savedCopy, note: d.note || null,
+      id: d.blockId, place: this.target.place, baseRevision: d.base, dirty: d.dirty, changedElsewhere: d.status.changedElsewhere, conflict: d.status.conflict, savedCopy: d.status.savedCopy, note: d.note || null,
       openedBy: actorIdOf(this.openedBy), writers: d.writers.map(actorIdOf), held: this.held,
       cursor: { line: d.row + 1, col: d.col + 1 }, patches: d.patches.map(u => ({ id: u.patchId, by: actorIdOf(u.by) })), lit: d.flashes.map(f => f.label),
       // The open completion popup, as the last frame placed it (PIE-1511): under the caret, above it, or the sheet.
@@ -684,60 +704,60 @@ export function blockTarget(m: Msg, o: {
   redraw?(): void;
 }): DraftTarget {
   const redraw = () => o.redraw?.();
+  /** The text a "this save changes properties" warning was shown for; saving that same text again goes ahead. */
+  let warned: string | null = null;
   return {
     place: `edit:${m.id}`, back: "e brings it back", label: m.id.slice(0, 8), what: `the edit to “${subject(m)}”`,
     verb: "save", blockId: m.id, near: m.id, leaveWrites: true,
-    async submit(s, by, { asked, away }) {
+    async submit(s, by, { asked, away, confirmed, report }) {
       const d = s.draft;
       if (!d.dirty) return { ok: true, said: "nothing changed" };
       const text = d.text;
       // Ask the service how it will read the draft's [key::value] tokens before writing, when it can say.
       // Meanwhile the draft holds still: keys wait, and edit.text / edit.close / edit.reload are refused.
       // A new note being written (PIE-544) has no properties to lose: it's written at once.
-      if (d.propertyWarned !== text && !o.isNew) {
-        d.previewing = true; redraw();
+      if (warned !== text && !confirmed && !o.isNew) {
+        report.phase("checking");
         let next: PropertyList | null = null;
-        try { next = await o.board.previewPropertyList(text).catch(() => null); } finally { d.previewing = false; }
+        try { next = await o.board.previewPropertyList(text).catch(() => null); } finally { report.phase(null); }
         // Nothing should have changed it, but if the draft closed or its text moved on, this save is off.
         if (!s.open || d.text !== text) { redraw(); return { ok: false, why: "the draft changed while it was checked" }; }
         const change = next ? propertyChange(d.baseProps, next) : "";
         if (change) {
           // Leaving by a click isn't the second save a property change asks for: it's kept unsent.
-          if (away) { d.note = `it changes properties (${change}); ctrl+s twice saves it`; return { ok: false, why: d.note }; }
-          d.propertyWarned = text;
-          d.note = `this save changes properties: ${change} · ctrl+s again saves`;
-          redraw();
-          return { ok: false, why: d.note, again: true };
+          if (away) { const why = `it changes properties (${change}); ctrl+s twice saves it`; return { ok: false, why, said: why }; }
+          warned = text;
+          const why = `this save changes properties: ${change} · ctrl+s again saves`;
+          return { ok: false, why, said: why, again: true };
         }
       }
-      d.saving = true; d.note = "saving…"; redraw();
+      report.phase("saving");
       try {
         const saved = await o.board.update(m.id, text, d.base, by);
-        d.saving = false;
+        report.phase(null);
         // An edit put aside on an older revision can't come back over this one: it's left to its copy on disk.
         const old = unsent(`edit:${m.id}`);
         if (old && old.base < (saved.revision ?? Infinity)) unshelve(`edit:${m.id}`);
         o.saved?.(saved, by, asked, propertyChange(d.baseProps, propertyListOf(saved)));
         return { ok: true, revision: saved.revision, result: by };
       } catch (e) {
-        d.saving = false;
+        report.phase(null);
         if (e instanceof EditConflict) return { ok: false, stale: true, why: "changed elsewhere since you started · not saved" };
         const why = e instanceof Error ? e.message : String(e);
-        d.note = `not saved: ${why}`;
-        return { ok: false, why };
+        return { ok: false, why, said: `not saved: ${why}` };
       } finally { redraw(); }
     },
     async reload(s) {
       const d = s.draft;
-      if (!d.conflict && !d.changedElsewhere) { d.note = "nothing newer to load"; return; }
-      const copy = d.dirty ? d.copyOut(m.id.slice(0, 8)) : d.savedCopy;
+      if (!s.status.conflict && !s.status.changedElsewhere) return { said: "nothing newer to load", reloaded: false };
+      const copy = d.dirty ? d.copyOut(m.id.slice(0, 8)) : s.status.savedCopy;
       const now = await o.board.get(m.id);
       if (!s.open) return;
-      if (!now) { d.note = "the note is gone from the outline"; redraw(); return; }
+      redraw();
+      if (!now) return { said: "the note is gone from the outline", reloaded: false };
       o.reread?.(now);
       d.rebase(now);
-      if (copy) d.note = `loaded revision ${d.base} · your earlier draft is at ${copy}`;
-      redraw();
+      return copy ? `loaded revision ${d.base} · your earlier draft is at ${copy}` : d.note;
     },
   };
 }
@@ -815,10 +835,10 @@ export function commentTarget(o: {
     back, label,
     what: `the ${comment ? "comment" : "reply"} on ${title}`,
     verb: "send", leaveWrites: false,
-    async submit(s, by) {
+    async submit(s, by, { report }) {
       const d = s.draft, t = o.where();
       const body = d.text.trim();
-      if (!body) { d.note = "write the comment first"; return { ok: false, why: d.note }; }
+      if (!body) return { ok: false, why: "write the comment first", said: "write the comment first" };
       const k = key(t, body);
       if (o.out.peek(k).replacesUnsure && !sendAnyway.take(k)) {
         sendAnyway.arm(k);
@@ -826,18 +846,18 @@ export function commentTarget(o: {
       }
       sendAnyway.clear();
       const requestId = o.out.begin(k);
-      d.saving = true;
+      report.phase("saving");
       try {
         const b = o.board();
         const r = t.kind === "reply" ? await b.reply(requestId, t.thread.id, body, by)
           : o.note.resource ? await b.commentOnResource(requestId, o.note.resource, t.revision, body, t.kind === "quote" ? t.passage : null, by, t.props)
           : await b.comment(requestId, t.blockId, t.revision, body, t.kind === "quote" ? t.passage : null, by, t.props);
         o.out.done();
-        d.saving = false;
+        report.phase(null);
         await o.landed(r, t, body);
         return { ok: true, result: r };
       } catch (e) {
-        d.saving = false;
+        report.phase(null);
         const msg = e instanceof Error ? e.message : String(e);
         if (e instanceof Refused) {
           o.out.refused();
@@ -886,21 +906,21 @@ export function commentEditTarget(o: {
     back: `e on the ${what} brings it back`,
     what: `the edit to ${mark.author}'s ${what} on “${subject(o.note)}”`,
     verb: "save", leaveWrites: true,
-    async submit(s, by) {
+    async submit(s, by, { report }) {
       const d = s.draft;
       const body = d.text.trim();
       if (!body) return no(`a ${what} can't be emptied by an edit · change its words, or esc esc to leave it as it was`);
       // Nothing changed: the edit closes as a saved one does, nothing written.
       if (body === mark.body.trim()) { await o.landed({ id: mark.id, revision: mark.revision, body: mark.body, unchanged: true }); return { ok: true, said: "nothing changed" }; }
-      d.saving = true; d.note = "saving…";
+      report.phase("saving");
       try {
         const r = await o.board().updateComment(mark.id, mark.revision, body, by);
-        d.saving = false;
+        report.phase(null);
         mark = { ...mark, revision: r.revision, body: r.body };
         await o.landed(r);
         return { ok: true, revision: r.revision, result: r };
       } catch (e) {
-        d.saving = false;
+        report.phase(null);
         const msg = e instanceof Error ? e.message : String(e);
         if (e instanceof Refused && /revision is stale/i.test(msg)) return no(`the ${what} changed since you started editing · not saved`, true);
         if (e instanceof Refused) return no(`refused, not saved: ${msg} · your text is kept here and copied to ${tidy(d.copyOut(label))}`);
@@ -909,15 +929,15 @@ export function commentEditTarget(o: {
     },
     async reload(s) {
       const d = s.draft;
-      if (!d.conflict && !d.changedElsewhere) { d.note = "nothing newer to load"; return; }
-      const copy = d.dirty ? d.copyOut(label) : d.savedCopy;
+      if (!s.status.conflict && !s.status.changedElsewhere) return { said: "nothing newer to load", reloaded: false };
+      const copy = d.dirty ? d.copyOut(label) : s.status.savedCopy;
       const now = await o.reread();
       if (!s.open) return;
-      if (!now) { d.note = `the ${what} is gone from the outline`; return; }
+      if (!now) return { said: `the ${what} is gone from the outline`, reloaded: false };
       mark = now;
       s.settled();
       d.rebase({ id: now.id, text: now.body, revision: now.revision, properties: [], parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null });
-      d.note = `loaded its words at revision ${now.revision}${copy ? ` · your earlier draft is at ${tidy(copy)}` : ""}`;
+      return `loaded its words at revision ${now.revision}${copy ? ` · your earlier draft is at ${tidy(copy)}` : ""}`;
     },
   };
 }
@@ -943,18 +963,17 @@ export function cardTarget(o:
     label,
     what: card ? `the new card in ${o.lane}` : `the new note under “${subject(o.parent)}”`,
     verb: "create", leaveWrites: false,
-    async submit(s, by) {
+    async submit(s, by, { report }) {
       const d = s.draft;
-      d.saving = true; d.note = "creating…";
+      report.phase("creating");
       try {
         const result = await o.create(d.text, by);
-        d.saving = false;
+        report.phase(null);
         return { ok: true, result };
       } catch (e) {
-        d.saving = false;
+        report.phase(null);
         const why = e instanceof Error ? e.message : String(e);
-        d.note = `not created: ${why}${d.dirty ? ` · your text is kept (and copied to ${d.copyOut(label)})` : ""}`;
-        return { ok: false, why: `not created: ${why}` };
+        return { ok: false, why: `not created: ${why}`, said: `not created: ${why}${d.dirty ? ` · your text is kept (and copied to ${d.copyOut(label)})` : ""}` };
       }
     },
   };

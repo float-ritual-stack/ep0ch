@@ -17,7 +17,7 @@ import { draftRule, recordAs } from "../src/draft-session";
 import { startControl } from "../src/control";
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
-import { ACTOR_ID, SocketBoard, type Actor } from "../src/socket";
+import { ACTOR_ID, EditConflict, SocketBoard, type Actor } from "../src/socket";
 import { visible, width } from "../src/style";
 import { ActionRefused, ActionSet, asActor, lineWords, parseActArgs, traceActions, type ActionRun } from "../src/surface/actions";
 import { editHint } from "../src/surface/editor";
@@ -77,7 +77,7 @@ describe("the surface without a service", () => {
       // A long-lived note: the revision alone is wider than a narrow column.
       s.drafting!.dispose();
       s.startDraft({ ...s.msg!, revision: 1_234_567_890, text: TEXT }, h);
-      s.draft!.changedElsewhere = true;
+      s.draft!.status.changedElsewhere = true;
       views.push(["edit at a large revision", s.render(w, 20, h).lines]);
       s.drafting!.dispose();
       s.session = new CommentSession(s.msg!, [], "select");
@@ -188,6 +188,25 @@ describe("the surface without a service", () => {
     expect(() => agentActor("rm -rf /")).toThrow("an actor id");
   });
 
+  test("at 44 columns a refused save says not saved and names the copy's file, its folder shortened (PIE-1560)", async () => {
+    const h = host();
+    Object.assign(h.ctx.board, {
+      previewPropertyList: async () => [],
+      update: async (id: string) => { throw new EditConflict(id, "revision is stale"); },
+    });
+    const s = new NoteSurface();
+    s.show(note("Plan the allotment\nBeans."), h);
+    s.startDraft({ ...s.msg!, revision: 3 }, h);
+    for (const c of " soon") s.key(char(c), h);
+    await s.save(h);
+    const copy = s.draft!.status.savedCopy!;
+    const shown = s.render(44, 20, h).lines.map(visible);
+    expect(shown.every(l => width(l) <= 44)).toBe(true);
+    const all = shown.join("\n");
+    expect(all).toContain("not saved");
+    expect(all.replace(/\s+/g, "")).toContain(copy.split("/").at(-1)!);
+  });
+
   test("a save holds the draft still while the service previews its properties, and warns only for the text it read", async () => {
     let answer: (p: { key: string; value: string }[]) => void = () => {};
     const updates: string[] = [];
@@ -216,16 +235,16 @@ describe("the surface without a service", () => {
     expect(s.draft?.text).toBe(previewed);
     answer([]);
     await saving;
-    expect([s.draft?.propertyWarned, s.draft?.busy, updates]).toEqual([previewed, false, []]);
+    expect([s.draft?.busy, updates]).toEqual([false, []]);
     expect(s.draft?.note).toContain("-stage: queued");
 
     // Had the text moved on under the preview anyway, the save is off and no warning is kept for it.
-    s.draft!.propertyWarned = null;
+    s.key(char("?"), h);
     const again = s.save(h);
     s.draft!.replace("Plan the allotment [stage::queued] later\nBeans.");
     answer([]);
     await again;
-    expect([s.draft?.propertyWarned, updates]).toEqual([null, []]);
+    expect(updates).toEqual([]);
   });
 
   test("an agent never replaces a comment the person is writing: refused while they type, and while they don't (round 3, deferred)", () => withState(async () => {

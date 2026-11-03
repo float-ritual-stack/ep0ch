@@ -62,6 +62,15 @@ export class ScreenTile implements Pane {
   private saved: unknown;
   /** A group's tiles, given whole as it's made (from the screen it was gathered on), by name. */
   private given: ReadonlyMap<string, Pane> | null;
+  /** Let go of tile `rid` it holds, whole (an undo taking a gathered tile back out, PIE-1559): from its desk, or from what it was given. */
+  release(rid: string, known: (p: Pane) => string | undefined): Pane | undefined {
+    const inner = this.inner?.releaseTile(rid);
+    if (inner) return inner;
+    const hit = this.given ? [...this.given].find(([, p]) => known(p) === rid) : undefined;
+    if (!hit) return undefined;
+    this.given = new Map([...this.given!].filter(([n]) => n !== hit[0]));
+    return hit[1];
+  }
   /** Why it couldn't mount (no such screen or part): said in its place, its spec kept. */
   private problem: string | null = null;
   /** The person is in it (`mount.enter`): every key is the mounted screen's until ctrl+] or an Esc with nothing to close. */

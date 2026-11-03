@@ -32,8 +32,7 @@ export async function insertNoteLine(text: string, surface: NoteSurface, host: S
   const { line, start, inserted } = await pasteLine(text, session, actor);
   if (!keepDraft) {
     // Run explicitly inserts this line; handler lines also read as properties. No earlier draft is being saved.
-    session.draft.propertyWarned = session.draft.text;
-    const saved = await session.submit(actor);
+    const saved = await session.submit(actor, false, true);
     if (!saved.ok) throw new ActionRefused(saved.why);
     // The save closes the draft, so the reader must own the insertion's undo from here.
     surface.sourceHistory.push({ block, edits: [{ line, before: "", after: inserted }], patch: { start }, by: partyOf(actor), context: block });

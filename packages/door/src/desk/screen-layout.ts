@@ -1,5 +1,5 @@
 import { wrapReturn, type ReturnShell } from "./return-place";
-import { landing } from "./landing";
+import { besideAttempt, landing } from "./landing";
 import type { ListOpenWhere } from "@ep0ch/outline-core/list-row";
 import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
 import type { AltRule } from "./layout";
@@ -211,11 +211,14 @@ export type At<I = number> = (Place<I>
   | { kind: "next"; from: I }
   | { kind: "float"; rect?: Rect; near?: I }) & { restore?: ReturnShell[] };
 
+export { besideOrder, type Beside, type Prefers } from "./landing";
+import type { Beside } from "./landing";
+
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */
 export type Op<I = number> =
   | { op: "open"; placement: PlacementRequest<I>; tile: I; name?: string; kind?: string }
-  /** `unnamed`: an open that named no place (an agent's `tile.open` with neither tile= nor where=): too narrow to read beside its target, it floats (PIE-1444). */
-  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; deliberate?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[]; unnamed?: boolean; travels?: Travels }
+  /** `at` a `Beside`: the layout picks the side (`besideAt`, PIE-1559), the same for the person and an agent. */
+  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; deliberate?: boolean; at: At<I> | Beside<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[]; travels?: Travels }
   | { op: "close"; tile: I; gone?: boolean }
   | { op: "peek.release"; tile: I }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
@@ -416,6 +419,7 @@ export function refusal<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): string | 
 
 /** `op` run on a draft of `s`: the draft, or why it was refused. Every refusal `apply` gives is one of these. */
 function attempt<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Draft<I> | string {
+  if (op.op === "open" && "at" in op && op.at.kind === "beside") return besideAttempt(s, op, op.at, ctx, attempt);
   if (ctx.expected !== undefined) { const why = revisionRefusal(s, ctx.expected); if (why) return why; }
   const d = draftOf(s, ctx.person.focus);
   try {
@@ -884,7 +888,7 @@ export function serialize<I, L>(s: LayoutState<I>, leafOf: (id: I) => L, skip?: 
 export const FLOAT_MIN = { cols: 20, rows: 5 };
 /** A new float's least size where the screen has room: a note's reading width and a few paragraphs. */
 const FLOAT_READS = { cols: 64, rows: 20 };
-/** The least a tile an agent opens beside another reads at (PIE-1444): under it, an open that named no place floats, one that did is said (Step.tooNarrow). */
+/** The least a tile opened beside another reads at (PIE-1444, PIE-1559): under it, `besideAttempt` weighs the next place, then floats an open that named none or says so. */
 export const OPEN_READS = { cols: 28, rows: 6 };
 
 const AGENT_ORDER: Record<AgentLevel, number> = { free: 0, edit: 1, off: 2 };
@@ -1240,15 +1244,9 @@ class Step<I> {
     let name = op.name;
     if (name !== undefined && named(this.d, name) !== undefined) { if (op.loose) name = undefined; else refuse(`there's already a tile named ${name}`); }
     const label = name ?? `a new ${op.kind} tile`;
-    // An agent's tile too narrow to read beside its target (PIE-1444: 11 columns between five readers): naming no place
-    // (no tile, no where=), it goes below when that reads (`splitAxis`'s other side), else it floats; a place it named is
-    // where it goes, said. (Beside the tile the person types in, the typing guard answers instead: a float would cover it.)
-    const wide = this.takesKeys ? null : this.tooNarrow(op.at, op.tile);
-    const below: At<I> | null = wide && op.unnamed && op.at.kind === "split" && (op.at.dir === "left" || op.at.dir === "right") ? { ...op.at, dir: "down" } : null;
-    const roomBelow = below !== null && this.tooNarrow(below, op.tile) === null;
-    const narrow = roomBelow ? null : wide;
-    const floats = !!narrow && !!op.unnamed && !(op.at.kind === "split" && this.ctx.protectTyping && op.at.target === this.ctx.person.typingIn);
-    const at: At<I> = floats ? { kind: "float" } : roomBelow ? below! : op.at;
+    // Beside a tile, the place was weighed before this step (`besideAttempt`): here it is one place.
+    if (op.at.kind === "beside") throw new Error("a beside open is placed by besideAttempt");
+    const at: At<I> = op.at;
     this.into(op.kind, label, at);
     this.d.names.set(op.tile, name ?? autoName(this.d, op.kind));
     if (op.alt) this.d.altReaders.add(op.tile);
@@ -1280,28 +1278,7 @@ class Step<I> {
     if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
     for (const from of op.selectFrom ?? []) this.linkTo(from, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, "select");
     const dropped = !op.travels ? [] : landTravels(this.d, op.tile, op.travels, f => (!this.isFloat(op.tile) && foldsBeside(this.d.tree, op.tile) && foldFits(f, parentOf(this.d.tree, op.tile)?.parent.dir) ? this.foldSet(op.tile) : null));
-    this.d.answer = { tile: this.d.names.get(op.tile), ...(dropped.length ? { dropped } : {}), ...(!automatic ? { deliberate: op.deliberate ?? true } : {}), ...(op.link !== undefined ? { link: this.name(op.link) } : {}), ...(narrow ? { why: `${narrow}, ${floats ? "so it floats (layout.move tile=<it> to=<a tile> places it)" : this.stayedBeside(op, at)}` } : roomBelow ? { why: `${wide}, so it went below it`, where: "down" } : {}) };
-  }
-  /**
-   * Why a narrow open went beside its target anyway (PIE-1450): where it was asked to go, by the place the open named, or
-   * beside the tile the person types in, which a float would cover.
-   */
-  private stayedBeside(op: { unnamed?: boolean }, at: At<I>): string {
-    if (at.kind !== "split") return "where it was asked to go";
-    const place = `${({ left: "left of", right: "right of", up: "above", down: "below" } as const)[at.dir]} ${this.name(at.target)}`;
-    return op.unnamed ? `so it went ${place}: floating, it would cover the tile being typed in` : `and it went ${place}, as asked`;
-  }
-  /**
-   * How a new tile `id` at `at` would be too narrow (or short) to read, or null: as drawn after the split, under
-   * OPEN_READS. Only a split is measured; a tab, an edge, a container or a flow column has its own room.
-   */
-  private tooNarrow(at: At<I>, id: I): string | null {
-    if (at.kind !== "split" || !has(this.d.tree, at.target)) return null;
-    // Measured as it would be drawn: the split made on a copy of the tree, borders and all.
-    const tree = normalise(besideSlot(clone(this.d.tree), at.target, leaf(id), at.dir, at.weight ?? 0.5, !!at.pair));
-    const r = rects({ ...this.d, tree, zoom: null }, this.ctx.area).get(id);
-    if (!r || r.cols >= OPEN_READS.cols && r.rows >= OPEN_READS.rows) return null;
-    return `beside ${this.name(at.target)} it is ${r.cols}×${r.rows}, under the ${OPEN_READS.cols}×${OPEN_READS.rows} a tile reads at`;
+    this.d.answer = { tile: this.d.names.get(op.tile), ...(dropped.length ? { dropped } : {}), ...(!automatic ? { deliberate: op.deliberate ?? true } : {}), ...(op.link !== undefined ? { link: this.name(op.link) } : {}) };
   }
   /** The person's open found the column already open: back from there returns to where they opened it from. */
   private reach(id: I, from: I, keys = true) {

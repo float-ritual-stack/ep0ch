@@ -1410,7 +1410,7 @@ export class App implements Ctx {
     // An Esc the door reads while the person types in a program: one for something over it (the bar, a menu) is spent
     // there; one right after it is that one again, never the program's (PIE-1431). A screen that hands its terminal decoded
     // keys (the showcase's stage) meets it here; raw bytes meet it in the raw sink (escSpent).
-    const layers = this.keyLayers(), program = k.kind === "esc" ? layers.program : undefined;
+    const layers = this.keyLayers(), program = k.kind === "esc" && !layers.program?.exited ? layers.program : undefined;   // an exited one's Esc is the door's
     if (program) {
       if (!program.over && this.heldEsc()) return;
       if (program.over) this.escSpentAt = this.now();
@@ -1601,14 +1601,14 @@ export class App implements Ctx {
     // tiles that has no drawer (a desk with host=none) has the keys itself.
     if (this.drawer.keysIn && (this.drawer.entered || this.stack.length > 1 && !tilesOf(this.stack.at(-1)))) {
       const p = this.drawer.desk?.programKeys();
-      return p?.typing ? { over: door || !this.drawer.entered || p.over } : null;
+      return p?.typing || p?.exited ? { over: door || !this.drawer.entered || p.over, ...(p.exited ? { exited: true as const } : {}) } : null;
     }
     for (let i = this.stack.length - 1; i >= 0; i--) {
       const s = this.stack[i]!, d = tilesOf(s), above = door || i < this.stack.length - 1;
       if (!d) { if (s.rawKeys?.()) return { over: above }; continue; }
       const p = d.programKeys();
       // A screen that frames a desk (the showcase's stage) says whether the keys are in it at all.
-      return p.typing && (d === s || !!s.rawKeys?.()) ? { over: above || p.over } : null;
+      return (p.typing || p.exited) && (d === s || !!s.rawKeys?.()) ? { over: above || p.over, ...(p.exited ? { exited: true as const } : {}) } : null;
     }
     return null;
   }

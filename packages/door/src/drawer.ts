@@ -1294,7 +1294,9 @@ export class AgentDrawer {
     const title = this.dropHover ? `${chipStyle(C.yellow, C.black)} ⤓ release: ${this.dropHover} ${this.dropSays} ${bg(C.black)}` : head + lock + fg(C.dark) + " " + hint;
     // The fill runs to the edge and no further: a row that fits registers no cut-short value (PIE-1499).
     canvas.text(0, 0, fg(edge) + title + " " + "═".repeat(Math.max(0, cols - width(title) - 1)) + RESET, cols);
-    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + `drawer · ${drawerFoot(this.entered, this.entered && !!this.d?.programKeys().typing)}${fg(C.dark)}` + RESET, cols - 2);
+    // Whether a program has the person's keys, or has exited, is the owner's answer (App.person's `program`, PIE-1563), read, not asked again.
+    const program = this.entered ? this.host.person?.()?.program : undefined;
+    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + `drawer · ${drawerFoot(this.entered, !!program && !program.exited, !!program?.exited)}${fg(C.dark)}` + RESET, cols - 2);
     const placements = (this.hostFrame.placements ?? []).filter(pl => pl.row >= r.row + 1 && pl.row + pl.rows < r.row + r.rows);
     return { rect: r, lines: canvas.lines(), placements };
   }

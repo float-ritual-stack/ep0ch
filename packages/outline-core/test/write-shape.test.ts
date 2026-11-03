@@ -406,3 +406,17 @@ test("a plan row marked *next* is never told; a zoned [day::] time is an instant
   const q = writeShape(spaced).find(f => f.rule === "question")!;
   for (const p of q.patch!) expect(spaced.split(p.observed)).toHaveLength(2);
 });
+
+// Nov 3: a dated history line linking an email (`…/mail/u/0/?ui=2#inbox/…`) read as a question because the ? sat in
+// its address. An address, a code span and a link target are never the sentence's punctuation.
+test("a ? inside a link's address, a code span or a reference isn't a question", () => {
+  const note = (line: string) => `Garden plan\n\nThe beds are set for spring.\n\n## History\n- ${line}\n- Oct 6: seeds ordered.`;
+  expect(writeShape(note("Oct 5, Evan sent the scope: [email](https://mail.example.org/u/0/?ui=2#inbox/abc).")).map(f => f.rule)).not.toContain("question");
+  expect(writeShape(note("Oct 5, Evan ran `grep -c 'a?b'` on the list.")).map(f => f.rule)).not.toContain("question");
+  expect(writeShape(note("Oct 5, Evan wrote https://example.org/plan?draft=1 for the beds.")).map(f => f.rule)).not.toContain("question");
+  expect(writeShape(note("Evan, should the beds get compost first?")).map(f => f.rule)).toContain("question");
+  expect(writeShape(note("Oct 5, Evan ran ``a?b`` on the list.")).map(f => f.rule)).not.toContain("question");
+  // A label is read text, and a ? after an address is the sentence's.
+  expect(writeShape(note("Evan, is ((abcdefgh|this bed ready?))")).map(f => f.rule)).toContain("question");
+  expect(writeShape(note("Evan, use <https://example.org/plan>?")).map(f => f.rule)).toContain("question");
+});

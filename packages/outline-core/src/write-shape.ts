@@ -479,7 +479,7 @@ function questionPatch(lines: readonly string[], at: number, title: number, sent
 function askedSentence(line: string, judged: boolean): string {
   const words = line.replace(/^(?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])?[ \t]*(?:\[[ xX]\][ \t]*)?/, "").trim();
   const sentences = splitPoints(words, { clauses: false });
-  return sentences.find(x => asksEvan(x)) ?? sentences.find(x => /\?/.test(x)) ?? (judged ? sentences.at(-1)! : words);
+  return sentences.find(x => asksEvan(x)) ?? sentences.find(x => /\?/.test(proseOf(x))) ?? (judged ? sentences.at(-1)! : words);
 }
 
 /**
@@ -628,7 +628,7 @@ function endsAsking(lines: readonly string[], i: number): boolean {
   if (!words || /^(\*\*|__|\*|_)[^*_].*\1$/.test(words)) return false;
   const next = lines[i + 1];
   if (next !== undefined && next.slice(leadOf(next).quote.length).trim() && !leadOf(next).marker && !HEADING.test(next)) return false;
-  return /\?["'”)*_]*$/.test(splitPoints(words, { clauses: false }).at(-1)!.trim());
+  return /\?["'”)*_]*$/.test(proseOf(splitPoints(words, { clauses: false }).at(-1)!).trim());
 }
 
 /**
@@ -651,8 +651,14 @@ export const answeredBox = (line: string): boolean => {
 
 /** A line that asks Evan: names him and has a question mark or a decision word. A heuristic until PIE-1251's judgment replaces it. */
 export function asksEvan(line: string): boolean {
-  return /\bEvan\b/.test(line) && (/\?/.test(line) || /\b(?:decide|decision|should we|needs? (?:your|his)|approve|confirm|pick|choose|sign off)\b/i.test(line));
+  const words = proseOf(line);
+  return /\bEvan\b/.test(words) && (/\?/.test(words) || /\b(?:decide|decision|should we|needs? (?:your|his)|approve|confirm|pick|choose|sign off)\b/i.test(words));
 }
+
+/** A line's own words: a link's address, a bare URL, a code span and a reference target are never its punctuation. */
+const proseOf = (line: string): string =>
+  line.replace(/(`+)[\s\S]*?\1/g, " ").replace(/\]\([^)]*\)/g, "]").replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s<>]*[^\s<>?.,;:!)]/gi, " ")
+    .replace(/\(\([^)|]*(?:\|([^)]*))?\)\)/g, (_, label) => label ?? " ").replace(/\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g, (_, page, label) => label ?? page);
 
 /**
  * The findings for a write's answer, each worded as a gate. With `before` (the text the write changed), a finding the

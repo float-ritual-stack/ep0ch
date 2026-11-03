@@ -1,3 +1,4 @@
+import { draftView, type DraftFrame } from "../draft-view";
 import { attachedPlaceOf, type AttachedPlace } from "./attached";
 // Where a comment is written (PIE-770): the composer for a comment, a question, an explain or a reply sits where the
 // person is reading, never a screen of its own. Five placements, one editor:
@@ -17,7 +18,7 @@ import { scrollOff } from "../scroll";
 import { LINE_BOX, stringFrame } from "../canvas";
 import { C, fg, headOf, pad, RESET, tailFrom, width } from "../style";
 import { completerOf } from "./completer";
-import { renderEditor, type EditFrame } from "./editor";
+import { draftStatusHeight, renderEditor, type EditFrame } from "./editor";
 
 let setting: AttachedPlace = "inline";
 /** Use the placement kept from last time (the door's start) or just chosen (composer.place); anything else: inline. */
@@ -29,7 +30,7 @@ export const COMPOSER_TEXT_ROWS = 10;
 /** A composer drawn in a box: its rows, and where its text, controls and completion popup are in the box's cells. */
 export interface ComposerBox {
   lines: string[];
-  frame: NonNullable<Draft["frame"]> | null;
+  frame: DraftFrame | null;
   popup: { row: number; col?: number; anchor?: number; items: (number | null)[] } | null;
   width: number;
 }
@@ -41,23 +42,27 @@ export interface ComposerBox {
  */
 export function composerBody(d: Draft, frame0: EditFrame, W: number, rows: number, fill = false): ComposerBox {
   const iw = Math.max(4, W - 2), avail = Math.max(2, rows - 2);
-  const topOf = (x: EditFrame) => 1 + x.status.length + (x.by ? 1 : 0) + (x.context?.length ?? 0) + 1;
-  // A short reader keeps the text's rows: the quote goes first, then the status line.
+  // The draft's own status rows count too (PIE-1560), drawn at the box's inner width as renderEditor draws them.
+  const own = (x: EditFrame) => draftStatusHeight(d, x, iw);
+  const topOf = (x: EditFrame) => own(x) + 1 + x.status.length + (x.by ? 1 : 0) + (x.context?.length ?? 0) + 1;
+  // A short reader keeps a row of the text: the quote goes first, then the status line, then what the draft said, then its state.
   let f = frame0;
   if (topOf(f) + 1 > avail) f = { ...f, context: [] };
   if (topOf(f) + 1 > avail) f = { ...f, status: [] };
+  if (topOf(f) + 1 > avail && f.draftStatus) f = { ...f, draftStatus: { ...f.draftStatus, said: null } };
+  if (topOf(f) + 1 > avail && f.draftStatus) f = { ...f, draftStatus: { ...f.draftStatus, state: false } };
   const top = topOf(f);
-  const textRows = Math.max(1, d.layout(Math.max(4, iw - 2)).length);
+  const textRows = Math.max(1, draftView(d).layout(Math.max(4, iw - 2)).length);
   // Room for every row of text with the cursor's scroll-off below the last, so the view never scrolls while it fits.
   let room = Math.max(2, textRows + 1);
   while (room < COMPOSER_TEXT_ROWS && textRows - 1 + scrollOff(room) >= room) room++;
   room = Math.min(room, COMPOSER_TEXT_ROWS);
-  const want = top + (d.preview && f.preview ? Math.max(3, room) * 2 : room);
+  const want = top + (draftView(d).preview && f.preview ? Math.max(3, room) * 2 : room);
   const h = Math.max(top + 1, fill ? avail : Math.min(want, avail));
   const body = renderEditor(d, f, iw, h);
   // The rows under the text stay the box's, a place to keep writing.
   while (body.length < h) body.push("");
-  const frame = d.frame;
+  const frame = draftView(d).frame;
   const c = completerOf(d);
   return {
     lines: body,
@@ -79,7 +84,7 @@ export function composerBox(d: Draft, frame: EditFrame, W: number, rows: number,
  */
 export function placeBox(d: Draft, box: ComposerBox, row: number, col: number) {
   const f = box.frame;
-  d.frame = f && { ...f, row: f.row + row, col: f.col + col, controls: f.controls.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })), ...(f.links ? { links: f.links.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })) } : {}), ...(f.preview ? { preview: { ...f.preview, row: f.preview.row + row, placements: f.preview.placements?.map(p => ({ ...p, row: p.row + row, col: p.col + col })) } } : {}) };
+  draftView(d).frame = f && { ...f, row: f.row + row, col: f.col + col, controls: f.controls.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })), ...(f.links ? { links: f.links.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })) } : {}), ...(f.preview ? { preview: { ...f.preview, row: f.preview.row + row, placements: f.preview.placements?.map(p => ({ ...p, row: p.row + row, col: p.col + col })) } } : {}) };
   const c = completerOf(d);
   if (c) c.drawn = box.popup && { ...box.popup, row: box.popup.row + row, anchor: (box.popup.anchor ?? 0) + col, col: (box.popup.col ?? 0) + col };
 }

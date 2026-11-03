@@ -10,6 +10,49 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Undo brings a tile back from the glass whole (PIE-1559)
+
+- **`^W U` then ctrl+z:** the same tile comes back to its place on the screen and the glass is empty, with no second copy of it.
+- **Every move between layouts undoes whole:** a tile carried into or out of the drawer, two carries in one run, a group gathered or spilled. The same instances come back, wires and the tab you had shown too, and both layouts are saved. A change made since on either side is undone first, said by name.
+- **The tile keeps its name** on the glass: the blank left in its place has a name of its own.
+- **Run:** `ep0ch install --apply` (door code).
+
+### A posted comment's edit says what happened, and a narrow edit keeps "not saved" (PIE-1560)
+
+- **A comment's edit has the note edit's lifecycle.** While you edit a posted comment that changes elsewhere, it says `!! changed elsewhere`. A refused ctrl+s says `not saved` and where your words were copied, and ctrl+r (`^R reload` in its hint row) loads its words as they are now and names the copy.
+- **At 44 columns nothing important is cut.** The edit's state leads with `not saved` when it doesn't fit, and a copy's path keeps its file name, its folder shortened.
+- **Run:** nothing; the door picks it up on its next start.
+
+### pie's host keeps answering while the laptop sleeps (PIE-1546)
+
+- **No more 3-second queues behind the laptop's copies.** While the laptop was away, a backlinks or reference read in pie made the host snapshot every laptop copy at once (ten, two of them 50 MB) and ask each one for its whole index within a second. The big ones never made it, so none was kept, and the next read 15 seconds later did it all again, holding the loop for seconds each time.
+- **One snapshot at a time,** in a process, for every mirror (the host, the MCP gateway, the web client); a copy says its newest change from its file in one query, with no index read.
+- **A copy that couldn't be snapshotted waits for the next check** (15 s), as a changed one does, instead of being taken again on every read.
+- **A machine that doesn't answer is read from its copies at once,** asked again in the background every 30 s, and read live as soon as it answers; a links read no longer waits out the 1.5 s deadline every time.
+- **Run:** `ep0ch install --apply` on float-2 (host code only; no protocol or schema change).
+
+### A program that exited in your drawer says so (PIE-1563)
+
+- **The drawer's foot follows it:** once its program ends, the foot reads `⏎ runs it again · esc or ^] back` instead of saying Esc is the program's.
+- **Nobody is typing in a dead program:** you're no longer counted as typing there, so agents aren't held back by it.
+- **Run:** `ep0ch install --apply` (door code).
+
+### One draft view and one status line for every field (PIE-1560)
+
+- **An agent's patch never moves your place in a note's edit.** In raw text and in rich cells alike, the cursor stays on its row and a scrolled view on its top line while an agent's edit lands, before or after the edit was first drawn. Every field (the reader's edit, a comment, rich cells, a line field) now shares the one view module and the one status line.
+- **One status line, one writer.** Saving, checking properties, creating, a conflict and "changed elsewhere" are said by the draft session from what its target reports; the targets no longer write the draft's fields.
+- **The draft keeps only its text.** Its view lives in `src/draft-view.ts` (raw rows, a line field's one row, rich cells), its status in `src/draft-status.ts`; the side maps keyed by a draft are gone.
+- **Run:** nothing; the door picks it up on its next start.
+
+### A tile opened beside another lands by one rule, for you and an agent alike (PIE-1559)
+
+- **One question:** every open beside a tile (tile.open, tile.preview, pane.split, the keys window, the trail, the tune inspector, ctrl+t's picker) asks the layout once where it goes, and the layout weighs that opener's sides in order and takes the first that reads. No caller tries side after side any more.
+- **You and agents agree:** a tile.open naming no place goes beside, then below, then floats when neither reads, whoever runs it. Your own keys always name the tile, so they land as before.
+- **The trail asks first:** with no room to read beside a reader, the history picker opens straight away, with no trail opened and closed again.
+- **Nothing left behind:** a layout built again (an undo, a layout loaded) forgets every tile it drops, picks and "beside the edit" records included.
+- **A lift in a group ends** when an agent in yolo moves your keys off the group, as your own move does.
+- **Run:** `ep0ch install --apply` (door code only; no protocol or schema change).
+
 ### Pictures in door tiles: mermaid, SVG, and kitty images from programs (PIE-1555)
 
 - **Diagrams and SVG in notes:** a ```mermaid fence (drawn by pele), a ```svg fence and an `[img::*.svg]` draw as pictures sized to the tile, on a terminal with kitty graphics; elsewhere they stay text with a caption.
