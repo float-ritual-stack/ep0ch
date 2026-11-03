@@ -43,7 +43,7 @@ describe.skipIf(!outliner)("the facets tile, against a scratch outline", () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const make = (text: string) => board.request<any>("create", { parentId: null, text, author: "agent" });
+    const make = (text: string) => board.request("create", { parentId: null, text, author: "agent" });
     await make("Standup [job::meeting] [plot::garden/beds] [week::3] #yomama #needs-attention");
     await make("Retro [job::meeting] [plot::garden/paths] [week::5] #yomama");
     await make("Shed audit [job::task] [plot::house/shed] [week::9] #isfine #yomama");
@@ -138,7 +138,7 @@ describe.skipIf(!outliner)("the facets tile, against a scratch outline", () => {
     const note = (tile().notes as any[]).find(n => /Retro/.test(n.title));
     expect(await act("facets.open", { id: note.id })).toMatchObject({ id: note.id });
     expect(D().layoutGet().tiles.some((t: any) => t.showing?.id === note.id)).toBe(true);
-    await board.request<any>("create", { parentId: null, text: "Compost audit [job::task] #yomama", author: "agent" });
+    await board.request("create", { parentId: null, text: "Compost audit [job::task] #yomama", author: "agent" });
     await until(() => tile().notes.length === 4, "the new note under #yomama");
     await act("facets.clear");
   }, 20_000);

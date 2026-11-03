@@ -34,7 +34,7 @@ describe.skipIf(!outliner)("--screen <name> [<target>], through screen.open", ()
     const term = { info: { cols: 160, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.outline = scratch.name;
-    note = await board.request<Msg>("create", { parentId: null, text: "Seed potatoes\nChit them on the windowsill.", author: "agent" });
+    note = await board.request("create", { parentId: null, text: "Seed potatoes\nChit them on the windowsill.", author: "agent" });
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 

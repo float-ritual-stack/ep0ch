@@ -46,7 +46,7 @@ describe.skipIf(!outliner)("agents make outlines of their own", () => {
     await host.start();
     await host.create("pie-like");     // an existing work outline, which must stay as it is
     outlines = machineOutlines(undefined, () => {}, async name => boardOn(name) as any, [],
-      async () => (await hostRequest<{ outlines: { name: string }[] }>(host.sock, "outlines.list")).outlines.map(o => o.name).sort(), undefined, undefined, admin());
+      async () => (await hostRequest(host.sock, "outlines.list")).outlines.map(o => o.name).sort(), undefined, undefined, admin());
   }, 60_000);
   afterAll(async () => { setEnv({}); outlines?.close(); for (const b of boards) b.close(); await host.dispose(); });
 

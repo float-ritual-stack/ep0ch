@@ -183,12 +183,12 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
     switch (cmd.op) {
       case "snapshot": {
         if (cmd.out && machine) throw new Error("--out writes on the same machine; run ep0ch outline snapshot " + cmd.name + " --out <file> there, or use --link here and curl it");
-        const result = await hostRequest<import("@ep0ch/outline-core/protocol").OutlineSnapshot>(path, "outline.snapshot", { outline: cmd.name, ...(cmd.out ? { out: cmd.out } : {}), ...(cmd.ttl ? { ttl: cmd.ttl } : {}), mutation: { author: "user" } }, 120_000);
+        const result = await hostRequest(path, "outline.snapshot", { outline: cmd.name, ...(cmd.out ? { out: cmd.out } : {}), ...(cmd.ttl ? { ttl: cmd.ttl } : {}), mutation: { author: "user" } }, 120_000);
         print(result, result.curl ?? `saved ${result.bytes} bytes to ${result.path} · sha256 ${result.sha256}`);
         return 0;
       }
       case "status": {
-        const list = await hostRequest<{ defaultOutline?: string; outlines: HostedOutline[] }>(path, "outlines.list");
+        const list = await hostRequest(path, "outlines.list");
         const open = list.outlines.filter(o => o.open).map(o => o.name);
         const folder = cmd.machine ? (list.outlines[0] ? dirname(list.outlines[0].database) : null) : outlinesDir();
         const links = await linkStatus(outlinesDir());
@@ -197,7 +197,7 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
         return 0;
       }
       case "list": {
-        const list = await hostRequest<{ defaultOutline?: string; outlines: HostedOutline[] }>(path, "outlines.list");
+        const list = await hostRequest(path, "outlines.list");
         if (cmd.lines) { for (const o of list.outlines) out([o.name, cmd.machine ?? "", ""].join("\t")); return 0; }
         if (cmd.archived) {
           const archived = (list as { archived?: { name: string; about?: OutlineAbout }[] }).archived ?? [];
@@ -218,32 +218,32 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
         return 0;
       }
       case "create": {
-        const r = await hostRequest<HostedOutline>(path, "outlines.create", { name: cmd.name });
+        const r = await hostRequest(path, "outlines.create", { name: cmd.name });
         print(r, `created outline ${r.name}${on}`);
         return 0;
       }
       case "import": {
-        const r = await hostRequest<HostedOutline & { imported: { blocks: number; properties: number; pageAddresses: number; workIds: number } }>(path, "outlines.import", { path: cmd.path, name: cmd.name }, 600_000);
+        const r = await hostRequest(path, "outlines.import", { path: cmd.path, name: cmd.name }, 600_000);
         print(r, `imported ${cmd.path}${cmd.machine ? ` (a file on ${cmd.machine})` : ""} as outline ${r.name}${on}: ${r.imported.blocks} blocks, ${r.imported.properties} properties, ${r.imported.pageAddresses} page addresses, ${r.imported.workIds} work ids`);
         return 0;
       }
       case "stop": {
-        const r = await hostRequest<HostedOutline>(path, "outlines.close", { name: cmd.name });
+        const r = await hostRequest(path, "outlines.close", { name: cmd.name });
         print(r, `stopped outline ${r.name}; its database is released until its next request`);
         return 0;
       }
       case "archive": case "unarchive": {
-        const r = await hostRequest<{ name: string; archived: boolean; movedTo: string }>(path, `outlines.${cmd.op}`, { name: cmd.name });
+        const r = await hostRequest(path, cmd.op === "archive" ? "outlines.archive" : "outlines.unarchive", { name: cmd.name });
         print(r, r.archived ? `archived outline ${r.name}${on}: out of every list, its database kept in ${r.movedTo}; \`ep0ch outline unarchive ${r.name}\` brings it back` : `restored outline ${r.name}${on}`);
         return 0;
       }
       case "delete": {
-        const list = await hostRequest<{ outlines: HostedOutline[] }>(path, "outlines.list");
+        const list = await hostRequest(path, "outlines.list");
         const target = list.outlines.find(o => o.name === cmd.name);
         if (!target) { err(`ep0ch: no outline named "${cmd.name}" on this host${on}`); return 1; }
         const plan = deletionPlan(target, cmd.machine);
         if (!cmd.yes && !(await ask(`This will ${plan}. Delete? [y/N] `))) { err(`ep0ch: not deleted (pass --yes to ${plan})`); return 1; }
-        const r = await hostRequest<{ name: string; movedTo: string }>(path, "outlines.delete", { name: cmd.name });
+        const r = await hostRequest(path, "outlines.delete", { name: cmd.name });
         print(r, `moved outline ${r.name} to ${r.movedTo}`);
         return 0;
       }
@@ -364,7 +364,7 @@ export async function attachOutline(path: string, name: string, o: { machine?: s
       throw new Error(doorMissing({ outline: name, ...(o.machine ? { machine: o.machine, localHas: !!local?.includes(name) } : {}), ...(o.how ? { how: o.how } : {}), ...(o.via ? { via: o.via } : {}) }));
     }
   }
-  return hostRequest<{ outline: HostedOutline; created: boolean }>(path, "outlines.attach", { name, create: o.create });
+  return hostRequest(path, "outlines.attach", { name, create: o.create });
 }
 
 /**

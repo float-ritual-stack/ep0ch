@@ -3,7 +3,8 @@
 // that filter on their keys (refs.ts, projection.ts) don't import the binding and its tile kinds.
 
 /** An extension provider of Resources: `jira::` lines and `[jira::KEY]` tokens name its entities. */
-export interface ResourceProviderEntry { provider: string; key: string; label: string; keyPattern?: string; fields?: string[]; link?: string }
+/** A resource handler as `extensions.list` lists it (the wire contract's). */
+export type ResourceProviderEntry = import("@ep0ch/outliner/wire").WireAnswer<"extensions.list">["resourceProviders"][number];
 
 let providers: readonly ResourceProviderEntry[] = [];
 

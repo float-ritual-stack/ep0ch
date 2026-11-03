@@ -270,7 +270,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
   let key: (k: Key) => void = () => {};
   const B = () => BV.view(b);
   const ch = (c: string) => key({ kind: "char", ch: c });
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
   const frame = () => b.render(B().ctx).lines.map(plain);
   const rect = (name: string) => { b.render(B().ctx); return BV.rectOf(b, name) as { col: number; row: number; cols: number; rows: number }; };
@@ -312,7 +312,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     ids.draft = (await create(null, `Offer spare onion sets [type::outbox-item] [outbox::draft]\n${ref}`)).id;
     for (const t of ["Thank the swap hosts", "Post the swap photos"]) await create(null, `${t} [type::outbox-item] [outbox::done]\n${ref}`);
     ids.rota = (await create(null, `Rota for the stall\nfor ${ref}`)).id;
-    const day = (await board.request<any>("pages.follow", { address: "2026-03-14", author: "agent" })).block;
+    const day = (await board.request("pages.follow", { address: "2026-03-14", author: "agent" })).block;
     await create(day.id, `Market morning\n${ref}`);
     const notes = await create(null, "Allotment notes\nMondays and Thursdays.");
     const said = await board.comment("c-open", notes.id, notes.revision, `Bring labels to ${ref}`, { quote: "Mondays", start: notes.text.indexOf("Mondays") });

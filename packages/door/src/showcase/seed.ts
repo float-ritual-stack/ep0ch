@@ -24,7 +24,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { titleLine, type Msg } from "../board";
-import { USER, hostRequest, type Actor, SocketBoard } from "../socket";
+import { USER, hostRequest, type Actor, type RoadmapItemInput, SocketBoard } from "../socket";
 import { prop } from "../props";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
@@ -32,25 +32,22 @@ import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, installSy
 
 import { SEED, SEED_AGENT, SHOWCASE_MARK, type SeedName, WORK_PREFIX } from "./seed/names";
 
-/** The outliner's review, loaded by name: its sources are the outliner's to type-check (as mcp-write loads agent-tools). */
-interface WriteReviewModule {
-  outlineFacets(client: unknown): Promise<unknown[]>;
-  reviewWrite(input: { text: string; id: string; schemas: unknown; facets: unknown[]; jev: boolean }): Promise<{ review: unknown }>;
-}
+/** The outliner's review, loaded when the showcase is seeded; the door checks it against the outliner's own types. */
+type WriteReviewModule = typeof import("@ep0ch/outliner/write-review");
 const WRITE_REVIEW_MODULE = "@ep0ch/outliner/write-review";
 
 /** A note reviewed as an agent's write is, and the review kept (`suggestions.keep`): returns the suggestions page it made. */
 async function keepReview(board: SocketBoard, note: Msg): Promise<Msg> {
   const { outlineFacets, reviewWrite } = await import(WRITE_REVIEW_MODULE) as WriteReviewModule;
-  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.request<T>(action, params); } };
-  const schemas = (await board.request<{ schemas: unknown }>("components.schemas")).schemas;
+  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.send(action, params) as Promise<T>; } };
+  const schemas = (await board.request("components.schemas")).schemas;
   const { review } = await reviewWrite({ text: note.text, id: note.id, schemas, facets: await outlineFacets(client), jev: false });
   await board.request("suggestions.keep", { keep: { kind: "reviewed", at: { note: note.id, revision: note.revision ?? 1, actorId: "moss/claude-code@showcase", source: "write" }, title: SEED.writeReview, review } });
-  const [page] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-view=jev-suggestions" } })).blocks;
+  const [page] = (await board.request("blocks.query", { query: { where: "system-view=jev-suggestions" } })).blocks;
   // Beside the note, under the showcase's root, as every seeded note is: the page, the Records page its records went
   // under, and the rule that reads them (each made at the outline's top, which the tree lists above the showcase).
   const made = await Promise.all(["system-view=jev-suggestions", "system-records=true", "rule-name=review-records"].map(async where =>
-    (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where, machinery: "show" } })).blocks[0]?.id));
+    (await board.request("blocks.query", { query: { where, machinery: "show" } })).blocks[0]?.id));
   // At the end of the root's children: first, they'd push the notes other sections reveal out of the tree's view.
   const parent = note.parentId ?? null;
   for (const id of made) if (id) await board.move(id, parent, USER, parent ? (await board.children(parent)).filter(c => c.id !== id).length : 0);
@@ -70,13 +67,13 @@ const SEARCH_EVAL_MODULE = "@ep0ch/outliner/search-eval";
  */
 async function keepSearchEval(board: SocketBoard, root: Msg, cases: { query: string; expect: Msg }[]): Promise<{ page: Msg; report: Msg }> {
   const e = await import(SEARCH_EVAL_MODULE) as SearchEvalModule;
-  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.request<T>(action, params); } };
+  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.send(action, params) as Promise<T>; } };
   for (const c of cases) await e.keepCase(client, { query: c.query, outline: "showcase", expect: [c.expect.id], source: "agent-read" });
   const scores = SEARCH_EVAL_SCORES.map(s => ({ ...s }));
   const runs = scores.map(s => ({ model: s.model, promptRev: "goto-ranking.json:000000000000", prompt: [], results: [] }));
   const note = e.reportNote(scores, { "jev-1.13.0": SEARCH_EVAL_SWEEP }, { day: "2026-10-20", outlines: ["showcase"], promptRev: "goto-ranking.json:000000000000", current: "jev-1.13.0" });
   const id = await e.keepRun(client, scores, runs, note, "2026-10-20");
-  const [page] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-view=search-evals" } })).blocks;
+  const [page] = (await board.request("blocks.query", { query: { where: "system-view=search-evals" } })).blocks;
   await board.move(page!.id, root.id, USER);
   return { page: (await board.get(page!.id))!, report: (await board.get(id))! };
 }
@@ -128,7 +125,7 @@ export interface Seeded {
  */
 export async function seedRace(board: SocketBoard, note: Msg): Promise<{ note: Msg; race: Seeded["race"] }> {
   const at = note.text.indexOf(RACE_PATCH.winner.observed);
-  const patch = (actorId: string, span: { observed: string; replacement: string }, propose = false) => board.request<{ outcome: string; proposalId?: string; deduped?: boolean }>("draft.patch", {
+  const patch = (actorId: string, span: { observed: string; replacement: string }, propose = false) => board.request("draft.patch", {
     blockId: note.id, revision: note.revision, propose, mutation: { author: "agent", actorId },
     patches: [{ ...span, range: { start: at, end: at + span.observed.length }, unit: "utf16" }],
   });
@@ -142,7 +139,7 @@ export async function seedRace(board: SocketBoard, note: Msg): Promise<{ note: M
   const lost = await patch(RACE_AGENTS.loser, RACE_PATCH.loser, true);
   if (lost.outcome !== "proposed" || !lost.proposalId) throw new Error(`the showcase's race: @${RACE_AGENTS.loser}'s patch was ${lost.outcome}, not proposed`);
   const retry = await patch(RACE_AGENTS.loser, RACE_PATCH.loser, true);
-  return { note: (await board.get(note.id))!, race: { proposal: lost.proposalId, retry: { proposalId: retry.proposalId ?? "", ...(retry.deduped ? { deduped: true } : {}) } } };
+  return { note: (await board.get(note.id))!, race: { proposal: lost.proposalId, retry: { proposalId: retry.outcome === "proposed" ? retry.proposalId : "", ...(retry.outcome === "proposed" && retry.deduped ? { deduped: true } : {}) } } };
 }
 
 /** The Fantasia script's code (PIE-959). */
@@ -180,7 +177,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const cards: Msg[] = [];
   for (const c of CARDS) {
     // The allocator creates in queued, doing or review; a done card is moved there afterwards, as people do.
-    const r = await board.createRoadmapItem({ title: c.title, body: c.body, priority: c.priority, workStage: c.stage === "done" ? "review" : c.stage, project: "house", arc: c.arc, tracks: c.tracks }, SEED_AGENT);
+    const r = await board.createRoadmapItem({ title: c.title, body: c.body, priority: c.priority as RoadmapItemInput["priority"], workStage: (c.stage === "done" ? "review" : c.stage) as RoadmapItemInput["workStage"], project: "house", arc: c.arc, tracks: c.tracks }, SEED_AGENT);
     let card = r.block;
     if (c.stage === "done") {
       const { revision, tokens } = await board.propertyTokens(card.id, "work-stage");
@@ -745,7 +742,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.race = race.note;
   // What changed (PIE-647): three notes a scripted agent edits when the section opens.
   for (const [key, line] of LOGS) notes[key] = await make(notes.root.id, `${SEED[key]}\n${line} 0`);
-  const labels = await board.request<{ id: string; revision: number }>("create", { parentId: notes.root.id, text: LABELS_BEFORE, author: "agent", provenance: { actorId: "cowboy", taskId: "via:yolo" } });
+  const labels = await board.request("create", { parentId: notes.root.id, text: LABELS_BEFORE, author: "agent", provenance: { actorId: "cowboy", taskId: "via:yolo" } });
   notes.labels = await board.update(labels.id, LABELS, labels.revision!);
   {
     // Through the gateway's own write path, at propose: a patch that becomes a proposal, and a comment.
@@ -882,7 +879,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
     // Seen by: a whole-note mark per node it reached, as the tosser leaves them.
     for (const node of ECHO_SEEN_BY) await board.request("annotations.batch", {
       requestId: `showcase-seen-${node}-${post.id}`, author: "agent", provenance: { actorId: ECHO_TOSSER.id },
-      operations: [{ operationId: "seen", type: "block-comment", input: { blockId: post.id, expectedRevision: post.revision, source: "agent", body: `also in: ${node} (${SEED.echoArea})`, properties: { kind: "echo-seen-by", "echo.node": node, via: `echonet:${node}` } } }],
+      operations: [{ operationId: "seen", type: "block-comment", input: { blockId: post.id, expectedRevision: post.revision!, source: "agent", body: `also in: ${node} (${SEED.echoArea})`, properties: { kind: "echo-seen-by", "echo.node": node, via: `echonet:${node}` } } }],
     });
   }
   notes.echoPosted = await make(notes.root.id, `${SEED.echoPosted} [echo::plot.chat] [by::june]\nThree bins, by the gate. Posted to Plot chat by its tag, from wherever it's written.`);

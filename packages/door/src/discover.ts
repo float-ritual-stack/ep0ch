@@ -45,7 +45,7 @@ export const disk: LocationReader = {
 export async function hostLive(path: string, timeoutMs = 1500): Promise<(HostStatus & { abouts?: Record<string, OutlineAbout> }) | null> {
   if (!existsSync(path)) return null;
   try {
-    const list = await hostRequest<{ defaultOutline?: string; outlines: { name: string; about?: OutlineAbout }[] }>(path, "outlines.list", {}, timeoutMs);
+    const list = await hostRequest(path, "outlines.list", {}, timeoutMs);
     const abouts = Object.fromEntries(list.outlines.flatMap(o => o.about ? [[o.name, o.about]] : []));
     return { socket: path, ...(list.defaultOutline ? { defaultOutline: list.defaultOutline } : {}), outlines: list.outlines.map(o => o.name), ...(Object.keys(abouts).length ? { abouts } : {}) };
   } catch { return null; }

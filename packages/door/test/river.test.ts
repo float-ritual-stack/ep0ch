@@ -41,7 +41,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const e = log.entries.find((x: any) => x.block.id === id);
     return e && [e.author, e.actorId];
   };
-  const threads = (id: string) => other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: id }, includeResolved: true } });
+  const threads = (id: string) => other.request("annotations.list", { query: { subject: { kind: "block", blockId: id }, includeResolved: true } });
   const column = (n: number) => V().column(n);
   const surfaceOf = (n: number) => column(n).surface as any;
   // Screen text without colours (a failed toContain then prints something readable).

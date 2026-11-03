@@ -246,9 +246,9 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const e = await editing("Garden");
     try {
       const saved = (await board.get(e.id))!;
-      const pending = await agent.request<{proposalId: string}>("draft.patch", {blockId: e.id, revision: saved.revision, propose: true, patches: [{observed: "", replacement: "\nNew line."}], mutation: {author: "agent", actorId: "gardener"}});
+      const pending = await agent.request("draft.patch", {blockId: e.id, revision: saved.revision, propose: true, patches: [{observed: "", replacement: "\nNew line."}], mutation: {author: "agent", actorId: "gardener"}});
       e.d.replace("", undefined, undefined, true);
-      const result = await board.request<{outcome: string; message: string}>("draft.proposal.resolve", {proposalId: pending.proposalId, mutation: {author: "user"}});
+      const result = await board.request("draft.proposal.resolve", {proposalId: pending.proposalId, mutation: {author: "user"}});
       expect(result.outcome).toBe("open");
       expect(result.message).toContain("empty draft");
       expect(e.d.text).toBe("");
@@ -268,8 +268,8 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
       e.type(" here.");
       const before = e.d.text;
       const saved = (await board.get(e.id))!;
-      const pending = await agent.request<{proposalId: string}>("draft.patch", {blockId: e.id, revision: saved.revision, propose: true, patches, mutation: {author: "agent", actorId: "gardener"}});
-      const result = await board.request<{outcome: string; undo: string}>("draft.proposal.resolve", {proposalId: pending.proposalId, mutation: {author: "user"}});
+      const pending = await agent.request("draft.patch", {blockId: e.id, revision: saved.revision, propose: true, patches, mutation: {author: "agent", actorId: "gardener"}});
+      const result = await board.request("draft.proposal.resolve", {proposalId: pending.proposalId, mutation: {author: "user"}});
       expect(result.outcome).toBe("resolved");
       expect(e.d.text).toBe(before.replace("Remove this sentence.\n", ""));
       await board.request("extensions.undo", {undo: result.undo, mutation: {author: "user"}});
@@ -677,7 +677,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const since = board.lastSequence ?? 0;
     await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, { kind: "user" });
     expect((await board.get(e.id))!.text).toContain("the rake and the hoe");
-    const changes = (await board.request<any>("changes.since", { sequence: since, limit: 50 })).changes as any[];
+    const changes = (await board.request("changes.since", { sequence: since, limit: 50 })).changes as any[];
     expect(changes.find(c => c.blockId === e.id && c.kind === "edit")?.actor).toMatchObject({ author: "user", actorId: `${ACTOR_ID}+ext:tidy` });
   }, 30_000);
 
@@ -704,7 +704,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect(e.d.writers).toEqual([{ kind: "user" }, { kind: "agent", id: "ext:spacer" }]);
     await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, { kind: "user" });
     expect((await board.get(e.id))!.text).toBe("Bike shed\nthe pump and the tubes\n\nstill to list:\nlights");
-    const changes = (await board.request<any>("changes.since", { sequence: since, limit: 50 })).changes as any[];
+    const changes = (await board.request("changes.since", { sequence: since, limit: 50 })).changes as any[];
     expect(changes.filter(c => c.blockId === e.id && c.kind === "edit").at(-1)?.actor).toMatchObject({ author: "user", actorId: `${ACTOR_ID}+ext:spacer` });
     // Only the extension wrote it this time: still saved as the person's, naming the extension.
     const only = await editing("Tool wall\nthe  saw  and the plane\n");

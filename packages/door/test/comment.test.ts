@@ -114,7 +114,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
   };
   const create = (text: string) => board.request("create", { parentId: null, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
-  const threads = (id: string) => other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: id }, includeResolved: true } });
+  const threads = (id: string) => other.request("annotations.list", { query: { subject: { kind: "block", blockId: id }, includeResolved: true } });
   // "C": the passage picker (`passage.select`, as an agent or `act` opens it: the person's C with nothing selected writes
   // on the whole note, PIE-846); "m": the thread list.
   const open = async (id: string, key: "C" | "m" = "C") => {

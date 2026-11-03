@@ -281,7 +281,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     // @tidy applied an attributed edit: the line above it is tidied, by ext:tidy.
     const after = (await board.get(note.id))!;
     expect(after.text).toContain("\nwater the leeks\n@tidy");
-    const changes = await board.request<any>("changes.since", { sequence: 0, limit: 200 });
+    const changes = await board.request("changes.since", { sequence: 0, limit: 200 });
     expect(changes.changes.some((c: any) => c.blockId === note.id && c.actor?.actorId === "ext:tidy")).toBe(true);
   }, 30_000);
 
@@ -538,7 +538,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     const kept = (await board.children(spot.id)).filter(m => m.author === "ext:tarot");
     expect(kept).toHaveLength(2);
     // The writes stay the extension's; the feed records who asked beside them.
-    const changes = (await board.request<any>("changes.since", { sequence: since, limit: 200 })).changes as any[];
+    const changes = (await board.request("changes.since", { sequence: since, limit: 200 })).changes as any[];
     const asked = changes.filter(c => kept.some(k => k.id === c.blockId) && c.actor?.actorId === "ext:tarot").map(c => c.requestedBy);
     expect(asked).toEqual([{ author: "agent", actorId: AS }, { author: "user" }]);
     // Only the service writes as an extension: an agent can't name itself ext:<id> (E6).

@@ -38,7 +38,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const make = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+    const make = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
     const plot = await make(null, "Allotment plot 7");
     await make(plot.id, "Water the leeks [type::chore] [stage::todo]");
     await make(plot.id, "Net the brassicas [type::chore] [stage::todo]");

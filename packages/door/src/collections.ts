@@ -54,7 +54,8 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
   blocks?.seen?.({ binding: note ? { block: note, ...(component ? { component } : {}) } : undefined, n, key, title: answer.title, view, entered, about: answer.question.where,
     collection: { answer, async read(props) {
       const board = (site?.board ?? liveSource().board)!;
-      const { produced } = await board.request<{ produced: typeof answer }>("site.answer", siteRequest(note, { kind: "view", props }, site));
+      const { produced } = await board.request("site.answer", siteRequest(note, { kind: "view", props }, site));
+      if (produced?.kind !== "view") throw new Error("the service drew no view for this component");
       return produced;
     } },
     detail: { layout: answer.layout, layouts: answer.layouts, sort: answer.question.sort, group: answer.question.group, facets: answer.facets, truncated: answer.truncated, page: view.page + 1, pages },

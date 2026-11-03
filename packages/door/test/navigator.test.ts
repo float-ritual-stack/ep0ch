@@ -30,7 +30,7 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const make = async (text: string) => (await board.request<any>("create", { parentId: null, text, author: "agent" })).id as string;
+    const make = async (text: string) => (await board.request("create", { parentId: null, text, author: "agent" })).id as string;
     trellis = await make("Pea trellis [plot::beds] #garden\nNetting arrives **Thursday**; posts first.");
     seed = await make("Seed order [plot::beds] #garden\nForty packets of sugar snap.");
     await make("Shed roof [plot::shed]\nA quote for the felt.");
@@ -70,7 +70,7 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     await until(() => groups().length === 1, "unpinned");
     expect((await board.get(trellis))!.revision).toBe(before);
     // A note pinned only by its own [pinned::true], with the pins page there: unpinning takes the property off.
-    const own = (await board.request<any>("create", { parentId: null, text: "Cloche notes [plot::beds] [pinned::true]", author: "agent" })).id;
+    const own = (await board.request("create", { parentId: null, text: "Cloche notes [plot::beds] [pinned::true]", author: "agent" })).id;
     await until(() => groups()[0]?.startsWith("Pinned:") && groups()[0]!.includes("Cloche notes"), "pinned by its property");
     expect(await act("facets.pin", { id: own })).toMatchObject({ pinned: false });
     expect((await board.get(own))!.text).not.toContain("[pinned::true]");
@@ -78,7 +78,7 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
 
   test("every group can be reached: past the first page a group says how many more, and reading it lists them all (PIE-1448)", async () => {
     // 205 made-up notes from the last two days: the first page holds 200.
-    for (let i = 0; i < 205; i++) await board.request<any>("create", { parentId: null, text: `Seedling ${i} [tray::bulk]`, author: "agent" });
+    for (let i = 0; i < 205; i++) await board.request("create", { parentId: null, text: `Seedling ${i} [tray::bulk]`, author: "agent" });
     await act("facets.query", { text: "tray=bulk" });
     await until(() => tile().matched === 205, "the bulk notes");
     const today = () => tile().matches.groups.find((g: any) => g.label === "Today");
@@ -92,7 +92,7 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     const picked = today().notes[150].id;
     await act("facets.match", { id: picked });
     expect(tilePane().list.picked(AS)?.id).toBe(picked);
-    await board.request<any>("create", { parentId: null, text: "Seedling late [tray::bulk]", author: "agent" });
+    await board.request("create", { parentId: null, text: "Seedling late [tray::bulk]", author: "agent" });
     // The tile's count and its group's are two reads of the change: wait for both (box-test --each, under load, caught the group a read behind).
     await until(() => tile().matched === 206 && today().count === 206, "the new note counted");
     expect(today()).toMatchObject({ count: 206, more: 0 });
@@ -193,7 +193,7 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     const mine = (action: string, args: Record<string, unknown>, tile: string) => screen.dispatch.act({ action, args, tile }, USER);
     await mine("facets.day", { day: "" }, "facets");
     await until(() => !facets().day, "the day dropped");
-    const cal = (await board.request<any>("create", { parentId: null, text: "Garden month\n::graph-calendar\n---\nquery: plot=beds\ndate: updated\n---\n::", author: "agent" })).id;
+    const cal = (await board.request("create", { parentId: null, text: "Garden month\n::graph-calendar\n---\nquery: plot=beds\ndate: updated\n---\n::", author: "agent" })).id;
     await mine("tile.focus", {}, "reader");
     await mine("open", { id: cal }, "reader");
     await until(() => reader.msg?.id === cal && !reader.msg.partial, "the calendar note in the reader");

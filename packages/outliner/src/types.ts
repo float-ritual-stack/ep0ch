@@ -1587,7 +1587,7 @@ export interface ProjectedVisibleBlock extends ProjectedBlock {
   deletedDescendantCount?: number;
 }
 
-export interface ProjectedBlockCollection extends QuestionAnswerFields {
+export interface ProjectedBlockCollection extends QuestionAnswerFields, Pick<VisibleBlockCollection, "machineryHidden" | "machineryLeftOut"> {
   more?: boolean; nextOffset?: number;
   blocks: ProjectedVisibleBlock[];
   completeness: BlockCollectionCompleteness;

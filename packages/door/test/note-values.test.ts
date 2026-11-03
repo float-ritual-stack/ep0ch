@@ -23,7 +23,7 @@ describe.skipIf(!outliner)("values in the door's reader (PIE-533 S2)", () => {
   const flashes: string[] = [];
   const settle = { quiet: 150, max: 4000 };
   const drawn = async (id: string, width = 120) => (await drawNote(board, id, width, settle))!.map(l => visible(l).trimEnd()).join("\n");
-  const create = (text: string, parentId: string | null = null) => board.request<any>("create", { parentId, text, author: "agent" });
+  const create = (text: string, parentId: string | null = null) => board.request("create", { parentId, text, author: "agent" });
   const desk = () => ({
     ctx: { board, flash: (m: string) => flashes.push(m), redraw() {}, suspend: (run: () => void) => run(), t: { cellW: 9, cellH: 18 }, graphics: false },
     openFromTile() {}, focusKind() {}, redraw() {},

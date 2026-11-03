@@ -825,7 +825,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     const b = new SocketBoard(sock);
     await b.info();
     await b.installExtension("runbook");
-    plot = (await b.request<{ id: string }>("create", { parentId: null, text: "Allotment plot 7\nWater the leeks before noon", author: "agent" })).id;
+    plot = (await b.request("create", { parentId: null, text: "Allotment plot 7\nWater the leeks before noon", author: "agent" })).id;
     b.close();
     state = join(scratch.root, "door");
     env("EP0CH_STATE", state);
@@ -1505,7 +1505,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     const sock = await scratch.start();
     const b = new SocketBoard(sock);
     await b.info();
-    plot = (await b.request<{ id: string }>("create", { parentId: null, text: "Seed swap list\nBeans, chard", author: "agent" })).id;
+    plot = (await b.request("create", { parentId: null, text: "Seed swap list\nBeans, chard", author: "agent" })).id;
     b.close();
     env("EP0CH_STATE", join(scratch.root, "door"));
     env("EP0CH_SOCKET", sock); hostSock = sock;
@@ -1566,7 +1566,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     // A trail of three: the shed links the tools, the tools link the rake. The shed is long, its link far down.
     const b = new SocketBoard(hostSock);
     await b.info();
-    const make = async (text: string) => (await b.request<{ id: string }>("create", { parentId: null, text, author: "agent" })).id;
+    const make = async (text: string) => (await b.request("create", { parentId: null, text, author: "agent" })).id;
     const rake = await make("Rake\nTines up.");
     const tools = await make(`Tools\nSharp ones first. The rake: ((${rake})).`);
     const shed = await make(`Shed\n${Array.from({ length: 90 }, (_, i) => `Row ${i + 1} of the shed.`).join("\n")}\nThe tools are in ((${tools})).`);
@@ -2032,7 +2032,7 @@ describe.skipIf(!outliner)("one session per outline, two at once", () => {
     garden = placeFor(["--ws", "garden"], process.env, none) as Place;
     orchard = placeFor(["--ws", "orchard"], process.env, none) as Place;
     const board = new SocketBoard(host.sock, undefined, "garden");
-    gardenNote = (await board.request<{ id: string }>("create", { text: "Mint bed\nWater every morning.", author: "agent" })).id;
+    gardenNote = (await board.request("create", { text: "Mint bed\nWater every morning.", author: "agent" })).id;
     board.close();
     expect(await startSession(garden.dir, ["--ws", "garden", "--screen", "desk"])).toEqual({ ok: true });
     expect(await startSession(orchard.dir, ["--ws", "orchard", "--screen", "desk"])).toEqual({ ok: true });

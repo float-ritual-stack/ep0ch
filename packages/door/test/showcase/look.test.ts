@@ -1081,10 +1081,10 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     await app.act({ action: "section", args: { name: "artifacts" }, as: "test-agent" });
     await until(() => screen().includes("Orbit lamp pinned"), "the live and snapshot cards", 8000);
     const list = (await app.act({ action: "images", as: "test-agent" }) as any).images;
-    const live = await board.request<{ url: string }>("artifacts.show", { name: list[0].path });
-    const pinned = await board.request<{ url: string }>("artifacts.show", { name: list[1].path });
+    const live = await board.request("artifacts.show", { name: list[0].path });
+    const pinned = await board.request("artifacts.show", { name: list[1].path });
     expect(pinned.url).toContain("showcase-orbit%401/");
-    const file = await board.request<{ url: string; version: number }>("artifacts.show", { name: list[2].path });
+    const file = await board.request("artifacts.show", { name: list[2].path });
     expect(file.version).toBe(1);
     expect(await app.act({ action: "artifact.open", args: { n: 3 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: file.url, launched: false });
     expect(await app.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: pinned.url, launched: false });
@@ -1111,7 +1111,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       expect(shared.share.scope).toMatchObject({ kind: "artifact", name: "showcase-orbit" });
       const sy = rows.findIndex(l => l.includes("Orbit lamp") && !l.includes("pinned") && l.includes("[share]")), sx = rows[sy]!.indexOf("[share]") + 2;
       press({ kind: "mouse", action: "down", button: 0, x: sx, y: sy }); press({ kind: "mouse", action: "up", button: 0, x: sx, y: sy });
-      await untilAsync(async () => (await board.request<{ shares: { id: string }[] }>("shares.list")).shares.length === 2, "the click shared it again");
+      await untilAsync(async () => (await board.request("shares.list")).shares.length === 2, "the click shared it again");
       await board.request("shares.revoke", { all: true });
       expect(opened.length).toBe(2);
     } finally { external.run = run; if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display; if (ssh === undefined) delete process.env.SSH_CONNECTION; else process.env.SSH_CONNECTION = ssh; if (sshClient === undefined) delete process.env.SSH_CLIENT; else process.env.SSH_CLIENT = sshClient; if (tty === undefined) delete process.env.SSH_TTY; else process.env.SSH_TTY = tty; }
@@ -1122,7 +1122,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     const note = await board.createBlock(null, text);
     await app.act({ action: "open", tile: "reader", args: { id: note.id }, as: "test-agent" });
     await until(() => screen().includes("gone-lamp") && !screen().includes("reading…"), "the file card ready", 8000);
-    const last = await board.request<{ url: string }>("artifacts.show", { name: path });
+    const last = await board.request("artifacts.show", { name: path });
     rmSync(path);
     await until(() => screen().includes("file gone since"), "the deleted file's warning on its card", 10_000);
     expect(await app.act({ action: "artifact.open", args: { n: 1 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: last.url, launched: false });
@@ -1150,8 +1150,8 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       await remoteApp.act({ action: "section", args: { name: "artifacts" }, as: "test-agent" });
       const stage = (showcase as any).stage((showcase as any).sel).top;
       const images = (await remoteApp.act({ action: "images", as: "test-agent" }) as any).images;
-      const { url } = await board.request<{ url: string }>("artifacts.show", { name: images[1].path });
-      const file = await board.request<{ url: string }>("artifacts.show", { name: images[2].path });
+      const { url } = await board.request("artifacts.show", { name: images[1].path });
+      const file = await board.request("artifacts.show", { name: images[2].path });
       const otherBytes: string[] = [];
       const other = session.attach({ send(m) { if (m.t === "output") otherBytes.push(m.text); }, backlog: () => 0, onDrain() {}, close() {} }, { ...pressing.hello, remote: false, pid: 456 });
       const request = board.request.bind(board);

@@ -348,7 +348,7 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
   let key: (k: Key) => void = () => {};
   const n: Record<string, any> = {};
   const B = () => BV.view(b);
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const frame = () => b.render(B().ctx).lines.map(plain).join("\n");
 
   beforeAll(async () => {
@@ -450,9 +450,9 @@ const at = r.input.target.blockId;
 process.stdout.write(JSON.stringify({ ok: true, value: { writes: Array.from({ length: 20 }, (_, i) => ({ op: "create", parentId: at, text: "Made-up synced row " + i })) } }));`);
     const end = Date.now() + 15_000;
     while (!(await board.listExtensions(true))?.extensions.some(e => e.id === "syncrows" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
-    const rows = await board.request<any>("create", { parentId: null, text: "Synced rows", author: "user" });
+    const rows = await board.request("create", { parentId: null, text: "Synced rows", author: "user" });
     const since = Date.now() - 1;
-    const mine = await board.request<any>("create", { parentId: null, text: "Sort the seed packets", author: "user" });
+    const mine = await board.request("create", { parentId: null, text: "Sort the seed packets", author: "user" });
     // Many more extension writes after it than the list's first page holds (a poll that refreshed a lot).
     for (let i = 0; i < 6; i++) expect((await board.actExtension("syncrows", "sync", { blockId: rows.id })).written).toHaveLength(20);
     const first = await board.changedSince(since, 40);

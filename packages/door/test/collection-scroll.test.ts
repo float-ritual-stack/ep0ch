@@ -20,7 +20,7 @@ describe.skipIf(!outliner)("a collection scrolls and steps like a live table (PI
   const scratch = new Scratch();
   let board: SocketBoard, app: App, b: Desk;
   let key: (k: Key) => void = () => {};
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const B = () => BV.view(b);
   const frame = () => b.render(B().ctx).lines;
   const text = () => plain(frame().join("\n"));

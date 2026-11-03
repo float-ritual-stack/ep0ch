@@ -566,7 +566,8 @@ export class CommentSession {
     if (!t) return null;
     try {
       const r = await env.board.tldr(t.id, env.actor ?? USER);
-      env.flash(`@${r.asked ?? "margin"} is writing the TL;DR`);
+      const asked = "asked" in r ? r.asked : undefined;
+      env.flash(`@${asked ?? "margin"} is writing the TL;DR`);
       // It lands in the background: read the thread again until its new face is there (an agent's write isn't
       // always followed by an event this reader hears), for up to two minutes.
       // One wait per thread; it ends when the reader has gone to another note (the thread isn't in its comments).
@@ -582,7 +583,7 @@ export class CommentSession {
           }
         })().finally(() => this.waiting.delete(t.id));
       }
-      return r.asked ?? null;
+      return asked ?? null;
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
       this.error = why.startsWith("no TL;DR") ? why : `no TL;DR: ${why}`;

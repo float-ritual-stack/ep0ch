@@ -2376,8 +2376,9 @@ export class NoteSurface {
     if (isAnnotationBlock(m)) {
       const context = commentSubject(m.id, src);
       const target = context?.value;
-      const on = target ? tagged(drawn, target.kind === "block" ? { block: target.blockId } : { resourceRef: `resource:${target.resourceId}` },
-        target.kind === "block" ? presentLinks(`((${target.blockId}))`, false, src) : "Resource") : context?.error ?? "reading comment subject…";
+      // A comment on a file a note named before Resources (`legacy-file`) is on that note: the file's path names it.
+      const on = target ? tagged(drawn, target.kind === "block" ? { block: target.blockId } : target.kind === "resource" ? { resourceRef: `resource:${target.resourceId}` } : { block: target.sourceBlockId },
+        target.kind === "block" ? presentLinks(`((${target.blockId}))`, false, src) : target.kind === "resource" ? "Resource" : target.filePath) : context?.error ?? "reading comment subject…";
       const intro = drawIn("note", `on ${on}`, env);
       const outlinks = drawIn("note", "::outlinks", env, { note: m.id, tag: linkSink(drawn).tag });
       const withContext = withRows(rendered, [
@@ -2557,7 +2558,7 @@ export class NoteSurface {
       callout: this.calloutHook(m, lines, points, drawn),
       image: this.imageHook(m, lines, drawn),
       // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
-      ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request<ArtifactInfo>("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
+      ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
       folds: { points, folded: this.effectiveFolds(m), selected: this.foldSel, preview: new Set(points.filter(p => this.previews(p)).map(p => p.key)) },
       ...linkSink(drawn), note: m.id,
       ...additions,
@@ -4545,7 +4546,7 @@ export class NoteSurface {
         const first = sequenceStart(button), no = first ? d.refusedNow(d.requestIn(actRequestOf(lineWords(first)), press), actor) : null;
         if (no) throw new ActionRefused(`${button.label} can't run here: ${no}`);
         const invitation = INVITES.pressed(press);
-        const r = await host.ctx.board.request<import("../extensions").ExtensionActResult>("scripts.sequence", {
+        const r = await host.ctx.board.request("scripts.sequence", {
           blockId: note!.id, line: p.line, clientId: host.ctx.board.clientId, invitation, mutation: mutationFor(actor),
         });
         if (invitation && r.undo) INVITES.bind(invitation, r.undo);
@@ -6297,7 +6298,7 @@ export class NoteSurface {
 
   /** A link to this artifact alone for someone outside (PIE-1266), copied for the person; an agent is given it in the answer. */
   async shareArtifact(ref: ImageRef, ttl: string | undefined, host: SurfaceHost, actor: Actor): Promise<{ share: ShareSession; said?: string }> {
-    const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    const artifact = await host.ctx.board.request("artifacts.show", { name: ref.path });
     if (artifact.deploy) throw new ActionRefused(`${artifact.deploy.repo} is a repo: its site${artifact.url ? ` (${artifact.url})` : ""} is public already, and a share gives a stored artifact alone; artifact.open opens the site`);
     const started = await startShare(host.ctx.board, { artifact: artifact.version ? `${artifact.name}@${artifact.version}` : artifact.name, ...(ttl ? { ttl } : {}) }, actor);
     const { share } = started;
@@ -6307,7 +6308,7 @@ export class NoteSurface {
   }
 
   async openArtifact(ref: ImageRef, host: SurfaceHost): Promise<Outside> {
-    const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    const artifact = await host.ctx.board.request("artifacts.show", { name: ref.path });
     // A repo opens its live site; one that isn't live says why and the command that deploys it (PIE-1060).
     if (artifact.deploy && !artifact.url) throw new ActionRefused(`${artifact.deploy.repo} isn't live: ${artifact.deploy.said ?? artifact.deploy.state}${artifact.deploy.command ? `; run ${artifact.deploy.command}` : ""}`);
     if (!artifact.url) throw new ActionRefused("Set EP0CH_WEB_URL on the outline host to the web client's address (https://my.ep0ch.sh): an artifact opens as its page there.");
@@ -7456,7 +7457,7 @@ export class NoteSurface {
   }
 
   private async patchSource(block: string, revision: number, observed: string, replacement: string, start: number, host: SurfaceHost, actor: Actor) {
-    const result = await host.ctx.board.request<{ outcome: string; reason?: string }>("draft.patch", {
+    const result = await host.ctx.board.request("draft.patch", {
       blockId: block, revision, patches: [{ observed, replacement, range: { start, end: start + observed.length } }], mutation: mutationFor(actor),
     });
     if (result.outcome !== "applied") throw new ActionRefused(`text kept as a proposal · ${result.reason}`);

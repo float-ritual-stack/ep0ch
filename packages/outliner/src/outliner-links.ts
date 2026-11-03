@@ -817,7 +817,7 @@ export function createOutlinerTextLinker(
       const referenceRanges: TextRange[] = [];
       for (let index = 0; index < references.length; index += 1) {
         if (consumedReferences.has(index)) continue;
-        const reference = references[index];
+        const reference = references[index]!;
         let start = reference.start === undefined
           ? text.indexOf(reference.visible)
           : reference.start + referenceOffset;

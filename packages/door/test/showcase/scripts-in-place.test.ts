@@ -318,7 +318,7 @@ while (!(await read(this.id)).title.startsWith('Released')) await wait(20);
     await board.request("resources.projection.read", { blockId: template.block!.id, materialize: true });
     const deadline = Date.now() + 10_000;
     for (;;) {
-      const rendered = await board.request<{ text: string }>("notes.render", { blockId: page.block!.id, format: "html", audience: "public" });
+      const rendered = await board.request("notes.render", { blockId: page.block!.id, format: "html", audience: "public" });
       if ((rendered.text.match(/Seeds shown here: 1/g) ?? []).length >= 3 &&
         (rendered.text.match(/Shelf complete: true; children: 0/g) ?? []).length === 2) {
         expect(rendered.text).not.toContain("Seeds shown here: 2");

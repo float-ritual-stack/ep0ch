@@ -37,7 +37,7 @@ export async function reviewCommand(args: string[], io = { out: (s: string) => c
   if ("error" in source) { io.err(`ep0ch review backfill: ${source.error}`); return 1; }
   const into = opts["--into"] ? await boardFor(["--ws", opts["--into"], ...(opts["--into-machine"] ? ["--machine", opts["--into-machine"]] : [])]) : undefined;
   if (into && "error" in into) { source.close(); io.err(`ep0ch review backfill: --into: ${into.error}`); return 1; }
-  const client = (board: typeof source): Client => ({ request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.request<T>(action, params, 60_000); } });
+  const client = (board: typeof source): Client => ({ request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.send(action, params, 60_000) as Promise<T>; } });
   try {
     const { reviewBackfill, backfillSummary } = await import(BACKFILL) as Backfill;
     const report = await reviewBackfill(client(source), {

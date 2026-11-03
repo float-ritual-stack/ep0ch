@@ -220,7 +220,7 @@ describe("code span clicks in a scratch terminal", () => {
   beforeAll(async () => {
     board = new SocketBoard(await scratch.start());
     await board.info();
-    note = await board.request<Msg>("create", { parentId: null, author: "agent", text: SPAN_COPY });
+    note = await board.request("create", { parentId: null, author: "agent", text: SPAN_COPY });
     await board.comment("span-comment", note.id, note.revision!, "Try `comment-copy`.", { quote: "Paragraph `paragraph-copy`.", start: SPAN_COPY.indexOf("Paragraph `paragraph-copy`.") });
     writeFileSync(output, "");
     tmux("new-session", "-d", "-s", "spans", "-x", "120", "-y", "65", "bun", join(import.meta.dir, "../src/main.ts"), "--here", "--ws", "scratch", "--screen", "detail", note.id);

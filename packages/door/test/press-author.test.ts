@@ -52,7 +52,7 @@ describe.skipIf(!outliner)("who a pressed script's write is recorded as (PIE-146
     expect(entry).toMatchObject({ author: "user" });
     expect(entry!.actorId).toBeUndefined();
     expect(revisionByline(entry!)).toBe("by you · via script");
-    const feed = (await board.request<any>("changes.since", { sequence: 0, limit: 500 })).changes as any[];
+    const feed = (await board.request("changes.since", { sequence: 0, limit: 500 })).changes as any[];
     const change = feed.find(c => c.blockId === job.id && c.revision === before + 1);
     expect(change).toMatchObject({ actor: { author: "user" }, requestedBy: { author: "user" } });
 

@@ -399,7 +399,7 @@ if (scenario === "backlinks") {
   // PIE-442: a note many things link to, in the board's backlinks dock, as Detail shows it: this note and
   // resolved comments hidden, groups by kind with stage counts, open items first, one line each; then
   // everything shown, a kind and a filter. Its own scratch service, fictional notes.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   await board.request("work-ids.configure", { prefix: "HOME" });
   const swap = await mk(null, "Seed swap at the allotment [stage::queued]\nSaturday, by the water butts.");
   const ref = `((${swap.id}))`;
@@ -410,7 +410,7 @@ if (scenario === "backlinks") {
   const plot = await mk(null, "Plot 14 [page::Plot 14]");
   await mk(plot.id, `Rota for the stall\nCovers ${ref}.`);
   await mk(null, `Seed tins to bring\nLabelled for ${ref}.`);
-  const day = (await board.request<any>("pages.follow", { address: "2026-03-14", author: "agent" })).block;
+  const day = (await board.request("pages.follow", { address: "2026-03-14", author: "agent" })).block;
   await mk(day.id, `Market morning, then ${ref}`);
   await mk(null, `Garden club takeaways [type::meeting]\nWe agreed ${ref} goes ahead.`);
   const notes = await mk(null, "Allotment notes\nMondays and Thursdays.");
@@ -540,7 +540,7 @@ if (scenario === "scroll") {
   // PIE-411 on its own scratch service (fictional long notes): scroll indicators on tiled readers, a
   // float and the desk; a comment session opened by m shows in the frame and hints; an agent's edit
   // doesn't take the person's keys until they enter it.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const long = (t: string, st: string) => `${t} [stage::${st}]\n${Array.from({ length: 90 }, (_, i) => `${i % 12 === 0 ? `## Part ${i / 12 + 1}\n` : ""}${t} line ${i + 1}: the hose runs along the fence past the shed.`).join("\n")}`;
   const hub = await mk(null, "Garden board");
   await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
@@ -580,7 +580,7 @@ if (scenario === "scroll") {
 if (scenario === "complete") {
   // PIE-416 on its own scratch service (fictional notes): [[, (( and [file:: completion in the preview's
   // editor, and in a comment composer.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const { mkdirSync: md, writeFileSync: wf } = await import("node:fs");
   md(`${info.workspace}/notes/beds`, { recursive: true }); wf(`${info.workspace}/notes/plan.md`, "the plan\n"); wf(`${info.workspace}/notes/seeds.md`, "beans\n");
   await board.request("work-ids.configure", { prefix: "HOME" });
@@ -653,7 +653,7 @@ if (scenario === "select") {
   // PIE-419 on its own scratch service (a fictional planting note): a drag selects (the copy control
   // appears), the keyboard mode, an agent's selection in its own tint beside the person's, and the same
   // in cells video.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const hub = await mk(null, "Garden board");
   await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
   const beans = await mk(null, "Stake the beans\nCanes along the fence.");
@@ -690,7 +690,7 @@ if (scenario === "fold") {
   // PIE-410 on its own scratch service (a fictional planting note): fold a section by keys, a list item
   // by a click, and all sections at once; an edit elsewhere refreshes the reader and keeps the folds; an
   // agent unfolds through the registry; the desk's reader folds the same way.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const beds = Array.from({ length: 14 }, (_, i) => `- bed ${i + 1}: beans, then squash\n  - edge it with boards\n  - two barrows of compost\n    well rotted, from the far heap`).join("\n");
   const text = `Plan the allotment [stage::queued]\nWhat goes where this year.\n\n## Beds\n${beds}\n\n### Soil\nLoam, mostly; lime the brassica bed.\n\n## Water\nThe hose runs along the fence past the shed.\n\`\`\`\n# not a heading: code\n\`\`\`\n\n## Paths\n- woodchip between the beds\n- a wider one to the shed\n\n# Later\nMulch in autumn.`;
   const hub = await mk(null, "Garden board");
@@ -733,7 +733,7 @@ if (scenario === "steps") {
   // cycle); [ ] walks to a step inside an embed, ⏎ opens its status choice, x marks it done; a click opens
   // another's and sets it waiting; ctrl+z undoes; an agent sets a step and the header names it; a fragment
   // link is followed to the fragment.
-  const mk = (text: string) => board.request<any>("create", { parentId: null, text, author: "user" });
+  const mk = (text: string) => board.request("create", { parentId: null, text, author: "user" });
   const garden = await mk(["Allotment checklist", "## Spring ^spring", "1. [x] Turn the compost ^t-a1b2c3", "2. [ ] Sow the beans ^t-d4e5f6", "   Soak them overnight first.", "   - [~] Buy canes ^t-0a0b0c", "3. [!] Fix the water butt", "## Summer", "- [ ] Net the brassicas"].join("\n"));
   const hub = await mk("Hub of hubs");
   const plan = await mk(["Week plan", "This week:", `!((${garden.id}))`, "Just the beans:", `!((${garden.id}^t-d4e5f6))`, `!((${hub.id}))`, "- [ ] Ring the plot office", `Where it started: ((${garden.id}^spring)).`].join("\n"));
@@ -770,8 +770,8 @@ if (scenario === "elements") {
   // preview with the reading ruler under the current one, ⏎ on a figure row opens a detail, the comment
   // mark expands its thread inline with its controls (PIE-420), and an agent's focus mark in the detail is
   // tinted and named. The note ends with a literal region (PIE-422): markers hidden, its token plain.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
-  const plan = (await board.request<any>("pages.follow", { address: "Garden plan", author: "agent" })).block;
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const plan = (await board.request("pages.follow", { address: "Garden plan", author: "agent" })).block;
   const beans = await mk(null, "Stake the beans\nCanes along the fence.");
   const shed = await mk(null, "Paint the shed\nTwo coats, green.");
   await mk(null, "Water the seedlings [type::garden-job]");
@@ -814,7 +814,7 @@ if (scenario === "projection") {
   const { installTickets, SHOWCASE_TICKETS, ticketSource } = await import("../src/showcase/tickets/install");
   installTickets(join(scratch!.root, "config"), SHOWCASE_TICKETS);
   await ticketSource(board);
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   await mk(null, "Depot supplier call about ACME-12 [type::call]\nWhat we agreed about switching the depot's supplier.\njira:: --comments\nThe label printer problem is ACME-14.\njira:: --compact\nEither ACME-20 or ACME-21 covers the invoices; check which.\njira::\nACME-30 came up at the end.\njira::");
   await mk(null, "Rollout ticket [jira::ACME-12] [type::call]\nOur own notes under the ticket: book the van for the 14th.");
   const hub = await mk(null, "Calls board");
@@ -1090,7 +1090,7 @@ if (scenario === "comment") {
   await snap("9-found-again", 1200);
   press({ kind: "char", ch: "s", ctrl: true });
   await snap("10-sent-after-move", 1500);
-  const list = await other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: card.id }, includeResolved: true } });
+  const list = await other.request("annotations.list", { query: { subject: { kind: "block", blockId: card.id }, includeResolved: true } });
   for (const t of list) console.log(`${t.lifecycle} "${t.originalTarget.anchor.exact}" @${t.originalTarget.anchor.start}: ${t.body} (${t.replies.length} repl.)`);
   other.close(); board.close(); process.exit(0);
 }
@@ -1227,7 +1227,7 @@ if (scenario === "river-write") {
   console.log(`  unsaved: ${R.unsaved?.()} · columns: ${JSON.stringify(((R.describe?.() ?? {}) as { panes?: { name: string; cover?: string }[] }).panes?.map(c => [c.name, c.cover ?? "full"]))}`);
   const kept = R.keepDrafts?.() ?? [];
   console.log(`  kept: ${kept.join(", ")}`);
-  const list = await other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: beans.id }, includeResolved: true } });
+  const list = await other.request("annotations.list", { query: { subject: { kind: "block", blockId: beans.id }, includeResolved: true } });
   for (const t of list) console.log(`  ${t.lifecycle} "${t.originalTarget.anchor.exact}": ${t.body} (${t.block.author}/${t.block.actorId})`);
   other.close(); ctl.close(); board.close(); await scratch!.dispose(); process.exit(0);
 }

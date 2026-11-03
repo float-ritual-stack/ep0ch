@@ -136,13 +136,13 @@ export function referencesIn(text: string, src: Source | null | undefined): Map<
   }, c => changedSince(c.at, c.value ? [...refs.ids, ...[...c.value.values()].map(r => r.blockId)] : refs.ids))?.value ?? null;
 }
 
-type CommentSubject = { kind: "block"; blockId: string } | { kind: "resource"; resourceId: string };
-type CommentTarget = { representation: { subject: CommentSubject } };
+/** What a comment is on, as the service says it: a block, a Resource, or a file a note named before Resources (`legacy-file`). */
+type CommentSubject = import("@ep0ch/outliner/wire").WireAnswer<"annotations.get">["originalTarget"]["representation"]["subject"];
 const commentSubjects = new WeakMap<object, Map<string, Cached<CommentSubject>>>();
 /** The service owns a comment's subject, including replies whose parent is another comment. */
 export function commentSubject(id: string, src: Source | null) {
   return ask(commentSubjects, src, id, async board => {
-    const r = await board.request<{ originalTarget: CommentTarget; resolvedTarget: CommentTarget | null }>("annotations.get", { annotationId: id });
+    const r = await board.request("annotations.get", { annotationId: id });
     return (r.resolvedTarget ?? r.originalTarget).representation.subject;
   }, c => anyChangeSince(c.at));
 }

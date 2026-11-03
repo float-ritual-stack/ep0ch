@@ -109,7 +109,7 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     const sock = await scratch.start();
     env = { EP0CH_SOCKET: sock, EP0CH_WS: scratch.name };
     const board = new SocketBoard(sock, undefined, scratch.name);
-    const make = async (key: string, text: string, parentId: string | null = null) => { ids[key] = (await board.request<{ id: string }>("create", { parentId, text, author: "agent" })).id; };
+    const make = async (key: string, text: string, parentId: string | null = null) => { ids[key] = (await board.request("create", { parentId, text, author: "agent" })).id; };
     await make("plot", "Allotment plot [type::place]\nThe plot by the railway.");
     await make("order", "Seed order for the plot [type::errand] - [ctx::2026-03-09 @ 09:27:29 AM] [tag::seeds] [tag::spring]\nBroad beans.\nwhen:: before Friday\n- [ ] order the beans", ids.plot);
     await make("ask", "Ask the neighbour about netting\nShe has a spare roll.", ids.order);
@@ -220,7 +220,7 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
   // PIE-1277: a [key::value] on line 9 of a long note, found by --property-scope all and by a view that says so.
   test("find --property-scope all: a buried ask, its line and its step's state; a ticked step drops out", async () => {
     const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
-    const make = (text: string) => board.request<{ id: string; revision: number; text: string }>("create", { parentId: null, text, author: "agent" });
+    const make = (text: string) => board.request("create", { parentId: null, text, author: "agent" });
     const shed = await make(["Shed repairs", "", ...Array.from({ length: 6 }, (_, i) => `Board ${i + 1} is soft.`), "- [ ] Which stain? [asks::neighbour: pick the colour]"].join("\n"));
     const view = await make("Open asks [type::virtual-branch] [query::asks] [property-scope::all]");
     try {
@@ -248,7 +248,7 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
   // PIE-1460: a note a tool stamped [machine::…] is left out of a query, said with this command's flag, which finds it.
   test("find --machinery: hidden by default and said as the flag; show finds it under --query and --under; a view keeps its own", async () => {
     const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
-    const make = (text: string, parentId: string | null = null) => board.request<{ id: string }>("create", { parentId, text, author: "agent" });
+    const make = (text: string, parentId: string | null = null) => board.request("create", { parentId, text, author: "agent" });
     const shelf = await make("Potting shelf");
     const tally = await make("Tray count, written by a tool [type::tally] [machine::tray-counter]", shelf.id);
     try {

@@ -14,7 +14,7 @@ export type Watching<T> =
   | { state: "error"; value?: T; error: string };
 
 /** What a holder asks through: a connection's `request` (a SocketBoard, or a test's fake). */
-export interface WatchSource { request<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T> }
+export interface WatchSource { send(action: string, params?: Record<string, unknown>): Promise<unknown> }
 
 interface Entry {
   key: string;
@@ -102,7 +102,7 @@ export class Watched {
     const epoch = this.epoch;
     const asked = (async () => {
       try {
-        const raw = await this.source.request<Record<string, unknown>>(entry.action, { ...entry.params, watch: entry.key, ...(generation !== undefined ? { generation } : {}) });
+        const raw = (await this.source.send(entry.action, { ...entry.params, watch: entry.key, ...(generation !== undefined ? { generation } : {}) })) as Record<string, unknown>;
         // The generation is the answer's, known before deriving: a change told meanwhile is compared with it.
         if (epoch === this.epoch && typeof raw?.generation === "number") entry.generation = raw.generation;
         const value = await entry.derive(raw);

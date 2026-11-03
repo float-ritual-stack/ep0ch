@@ -27,8 +27,8 @@ export function registerArgKind(kind: ArgKind | (string & {}), values: KindValue
 export const argKind = (kind: string): KindValues | undefined => kinds.get(kind);
 
 registerArgKind("outline", async (typed, host) => {
-  const result = await hostRequest<{ outlines: { name: string; archived?: boolean }[] }>(host.ctx.board.path, "outlines.list");
-  return filtered(result.outlines.filter(o => !o.archived).map(o => ({ value: o.name, label: o.name })), typed, r => [r.label]);
+  const result = await hostRequest(host.ctx.board.path, "outlines.list");
+  return filtered(result.outlines.map(o => ({ value: o.name, label: o.name })), typed, r => [r.label]);
 });
 
 registerArgKind("tile", async (typed, host) => {

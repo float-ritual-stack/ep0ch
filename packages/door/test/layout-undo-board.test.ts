@@ -36,7 +36,7 @@ describe.skipIf(!outliner)("layout.undo on the board", () => {
   });
 
   test("a note opened into the board's readers is still there after a resize is undone", async () => {
-    const note = await board.request<{ id: string }>("create", { author: "user", text: "A note opened on the board" });
+    const note = await board.request("create", { author: "user", text: "A note opened on the board" });
     (app as any).lastInput = 0;
     await app.act({ action: "open", args: { id: note.id }, as: "history-agent" });
     const tilesOf = () => (desk.layoutGet() as { tiles: { name: string }[] }).tiles.map(t => t.name);

@@ -45,7 +45,7 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     env = { ...scratch.env, EP0CH_SOCKET: sock, EP0CH_STATE: join(scratch.root, "door") };
     const board = new SocketBoard(sock, undefined, scratch.name);
     try {
-      const make = async (text: string, parentId: string | null = null) => (await board.request<{ id: string }>("create", { parentId, text, author: "agent" })).id;
+      const make = async (text: string, parentId: string | null = null) => (await board.request("create", { parentId, text, author: "agent" })).id;
       note = await make("Seed order [type::errand]\nBroad beans, then the early peas.");
       await make("Ask about netting", note);
     } finally { board.close(); }
@@ -76,7 +76,7 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
       const first = (await call("outline_read", { ref: id })).record;
       expect(first.actor).toContain("planter/");
       await agent("edit", { ref: id, expectedRevision: first.revision, text: "Pear tree\nPruned." });
-      const history = await board.request<{ revisions: { actorId?: string; revision: number }[] }>("block.revisions", { blockId: id, latest: true });
+      const history = await board.request("block.revisions", { blockId: id, latest: true });
       expect(history.revisions[0]).toMatchObject({ actorId: "pruner", revision: first.revision + 1 });
       const newest = (await call("outline_read", { ref: id })).record;
       expect(newest).toMatchObject({ revision: first.revision + 1, actor: "pruner", author: "agent" });
@@ -339,8 +339,8 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
     let beds = "", peas = "";
     try {
-      beds = (await board.request<{ id: string }>("create", { parentId: null, text: "Bed rotation\nSquash moves to the north bed.", author: "user" })).id;
-      peas = (await board.request<{ id: string }>("create", { parentId: null, text: "Pea trellis\nTwine or mesh?", author: "user" })).id;
+      beds = (await board.request("create", { parentId: null, text: "Bed rotation\nSquash moves to the north bed.", author: "user" })).id;
+      peas = (await board.request("create", { parentId: null, text: "Pea trellis\nTwine or mesh?", author: "user" })).id;
     } finally { board.close(); }
     const revision = async (id: string) => JSON.parse(await outliner(["read", id, "--fields", "id,revision"])).blocks[0].revision as number;
     const comment = async (id: string, text: string, key: string, actor?: string) =>

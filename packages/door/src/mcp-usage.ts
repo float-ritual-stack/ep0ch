@@ -107,7 +107,7 @@ export async function usageCommand(args: string[], io: { write?: (s: string) => 
       const board = await boardFor(boardArgs);
       if ("error" in board) throw new Error(board.error);
       try {
-        const result = await board.request<BlockSizeCensus>("blocks.census");
+        const result = await board.request("blocks.census");
         if (json) out(JSON.stringify({ ...board.address, census: result }));
         else {
           out(`Block size census for ${board.address.outline}@${board.address.machine} (characters; current live blocks, latest writer)`);

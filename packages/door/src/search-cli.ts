@@ -81,7 +81,7 @@ export async function searchCommand(args: string[], io = { out: (s: string) => c
   const open = async (name: string) => boardFor(["--ws", name, ...machine]);
   const boards = new Map<string, Awaited<ReturnType<typeof boardFor>>>();
   const board = async (name: string) => { if (!boards.has(name)) boards.set(name, await open(name)); const b = boards.get(name)!; if ("error" in b) throw new Error(`${name}: ${b.error}`); return b; };
-  const client = (b: Exclude<Awaited<ReturnType<typeof boardFor>>, { error: string }>): Client => ({ request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return b.request<T>(action, params, 120_000); } });
+  const client = (b: Exclude<Awaited<ReturnType<typeof boardFor>>, { error: string }>): Client => ({ request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return b.send(action, params, 120_000) as Promise<T>; } });
   try {
     const e = await import(EVAL) as Eval;
     const into = verb === "eval" && opts["--snapshots"] && !opts["--into"] ? undefined as unknown as Client : client(await board(opts["--into"] ?? "pie"));

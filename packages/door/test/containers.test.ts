@@ -51,7 +51,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     delete process.env.VISUAL;
     board = new SocketBoard(await scratch.start());
     await board.info();
-    await board.request<any>("create", { parentId: null, text: "Turn the compost\nTwice this week.", author: "agent" });
+    await board.request("create", { parentId: null, text: "Turn the compost\nTwice this week.", author: "agent" });
     const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());

@@ -498,9 +498,9 @@ export async function hostFacts(folder: string, platform: Facts["platform"], hom
   // The commit its process started on, for install to compare with the one it ends on (PIE-1397).
   const runs = repoRoot && state?.active && state.pid ? await startedOn(state.pid, repoRoot) : undefined;
   if (!live) return { folder, socket, running: false, outlines: [], unit, unitTaken, ...(runs !== undefined ? { runs } : {}) };
-  const list = await hostRequest<{ outlines: HostedOutline[] }>(socket, "outlines.list", {}, 3000).catch(() => ({ outlines: [] as HostedOutline[] }));
+  const list = await hostRequest(socket, "outlines.list", {}, 3000).catch(() => ({ outlines: [] as HostedOutline[] }));
   const target = openOutlineToPing(list.outlines);
-  const p = target ? await hostRequest<Ping>(socket, "ping", { outline: target }, 1500).catch(() => null) : null;
+  const p = target ? await hostRequest(socket, "ping", { outline: target }, 1500).catch(() => null) : null;
   return { folder, socket, running: true, outlines: list.outlines, ...(p?.protocolVersion !== undefined ? { protocol: p.protocolVersion } : {}), unit, unitTaken, ...(runs !== undefined ? { runs } : {}) };
 }
 

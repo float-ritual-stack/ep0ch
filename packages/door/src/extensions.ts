@@ -26,7 +26,7 @@ import { hostname } from "node:os";
 import type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource, ExtensionSettings } from "@ep0ch/outline-core/protocol";
 import { settingsAction } from "./extension-settings";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
-import type { Actor, SocketBoard } from "./socket";
+import type { Actor, SocketBoard, WireAnswer } from "./socket";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { printable } from "./text";
 import { partyOf, UndoHistory } from "./steps";
@@ -46,160 +46,34 @@ import { shippedModules, useDoorModules } from "./door-modules";
 // The door modules the bound extensions name run on the door that hosts them (src/door-modules.ts): the App starts and ends them here.
 export { describeModules, hostDoorModules, releaseDoorModules, runningModules } from "./door-modules";
 
-/** One action an extension declares, as `extensions.list` names it. */
-export interface ExtensionAction {
-  id: string;
-  /** `ext.<extension>.<id>`: the door's action name. */
-  name: string;
-  label: string;
-  description?: string;
-  /**
-   * `block` (the default), `handler:<key>` (a line of that handler), `tile:<kind>` (a tile of that kind), `bar` (a
-   * power bar row's) or `outline` (no block: the outline as a whole; a scheduled action's, PIE-754).
-   */
-  on?: string;
-  key?: string;
-  effects?: string;
-  /** `keep`, which every output and component handler has. */
-  builtIn?: boolean;
-  /** What it asks for (PIE-784): the door asks the person for them, `act` takes them as `name=value`. */
-  args?: ExtensionActionArg[];
-  /**
-   * `block` (PIE-828): it also asks for the fields the block it runs on writes (`[form-field::…]`), which the service
-   * answers (`extensions.args` on that block); `act` takes them in `with=` as JSON.
-   */
-  fieldsFrom?: "block";
-}
-/** An argument an action declares (PIE-784), as `extensions.list` carries it. */
-export interface ExtensionActionArg {
-  // The form grammar's types (outline-core form-fields.ts), as the manifest's schema takes them: a `note` names a note.
-  name: string; type: FormFieldType; label?: string; description?: string;
-  options?: string[]; from?: "block" | "children" | "outline"; required?: boolean; default?: string; defaultProperty?: string;
-}
+// The wire types of `extensions.*` are the outline host's own (the wire contract, @ep0ch/outliner/wire): what the
+// service sends is what the door compiles against, so a field added or changed there fails the door's check (PIE-1375).
+/** What `extensions.list` answers: each extension with its handlers, actions, tile kinds, schedules and settings. */
+export type ExtensionList = WireAnswer<"extensions.list">;
+export type ExtensionEntry = ExtensionList["extensions"][number];
+/** One action an extension declares (`ext.<extension>.<id>` is the door's action name). */
+export type ExtensionAction = ExtensionEntry["actions"][number];
+/** An argument an action declares (PIE-784). */
+export type ExtensionActionArg = NonNullable<ExtensionAction["args"]>[number];
 /** An argument with its choices on a block and its value when not given (`extensions.args`). */
-export interface ExtensionArgChoice extends ExtensionActionArg {
-  choices?: string[]; value?: string;
-  /** One of the block's own fields (PIE-828): the door asks for every one the person didn't give. */
-  fromBlock?: true;
-}
-export interface ExtensionHandler { key: string; kind: string; effects: string; description?: string; fields?: string[] }
-export interface ExtensionAgent { name: string; description?: string; effects?: string; threads?: boolean }
-export interface ExtensionEntry {
-  facetSources?: { id: string; title: string; read: string }[];
-  scripts?: { name: string; file: string; about: string }[];
-  script?: { keys: readonly string[]; line?: number; blockId?: string; file?: string; code: string };
-  /** `name` and `version` are absent for a folder that never loaded (it serves nothing; `error` says why). */
-  id: string; name?: string; version?: number; description?: string; origin?: string;
-  /** A script's own words (its note's title, its extension's about); its `description` says where it is written. */
-  summary?: string;
-  /** `active`, `failed` (it may still serve its last good version), `disabled` or `shadowed`. */
-  state: string;
-  directory?: string;
-  error?: string;
-  handlers: ExtensionHandler[];
-  actions: ExtensionAction[];
-  agents?: ExtensionAgent[];
-  /** Its schedules (PIE-754): `action:<id>` or `handler:<key>`, every or cron, the next run and what the last did. */
-  schedules?: ExtensionScheduleEntry[];
-  /** Its settings (PIE-1343): config.json's path on the host, each field its configSchema declares and its state. */
-  settings?: ExtensionSettings;
-  /** A copy of one of the repo's built-ins (PIE-1283): the built-in's folder and this copy's state; this copy is what runs. */
-  builtIn?: { directory: string; state: "current" | "stale" | "forked" };
-  /** A script an extension ships: that extension's id (lists fold it under it). */
-  partOf?: string;
-  /** The door module its manifest names (PIE-1505, `"door": "glass"`): run in the door's process while it's served (src/door-modules.ts). */
-  door?: string;
-  /** Its screens (PIE-1525, `screens[]`): specs as data, registered while it's served and gone when it stops (bindScreens). */
-  screens?: unknown[];
-}
-export interface ExtensionScheduleEntry {
-  entry: string; every?: string; cron?: string; next: string; running?: boolean;
-  /** `"host"` (PIE-767): it runs in one outline of the host; `runsIn` names that outline when it isn't this one. */
-  once?: "host"; runsIn?: string;
-  last?: { at: string; ok: boolean; message?: string; error?: string; ms: number };
-}
+export type ExtensionArgChoice = WireAnswer<"extensions.args">["args"][number];
+export type ExtensionHandler = ExtensionEntry["handlers"][number];
+export type ExtensionAgent = NonNullable<ExtensionEntry["agents"]>[number];
+export type ExtensionScheduleEntry = NonNullable<ExtensionEntry["schedules"]>[number];
 /** A tile kind ready to register (`extensions.list`'s `tileKinds`). */
-export interface ExtensionTileKind {
-  kind: string; extension: string; name: string; description?: string;
-  /** A program in a terminal tile (`run`); or the render script the service draws it with (`render`), or the query its rows are (`view`): PIE-1506. */
-  command?: string[]; render?: string; view?: string;
-  cwd: string; host?: string; env: Record<string, string>;
-  actions: ExtensionAction[];
-  policy?: Policy;
-  accepts?: string[];
-  args?: Record<string, { type: string; description?: string }>;
-  save?: string;
-  /** Retired kinds this one serves in place of (PIE-1514): a saved tile of one opens as this kind. */
-  replaces?: string[];
-  /** What a tile of it holds while the person's keys are on it (PIE-1523): the keys, and an edit an agent is told of. */
-  holds?: ServiceHolds;
-}
-/**
- * A rule (PIE-600) as `extensions.list` names it: an extension's (`ext:<id>/<rule>`) or a rule note's
- * (`note:<id>`), what it matches, what it draws and what it runs. The service evaluates them; the door draws the
- * decorations a note's read carries (src/projection.ts).
- */
-export interface RuleEntry {
-  key: string; name: string; description?: string;
-  source: { kind: "extension"; extension: string; rule: string } | { kind: "note"; blockId: string };
-  match: { query?: string; view?: string; under?: string; text?: string; kind?: string };
-  decorate?: { place?: string; use?: string; code: boolean };
-  on?: { start?: string; stop?: string; change?: string; quiet: string };
-  matching?: number;
-  problem?: string;
-}
+export type ExtensionTileKind = ExtensionList["tileKinds"][number];
+/** A rule (PIE-600) as `extensions.list` names it: the service evaluates it; the door draws the decorations a read carries. */
+export type RuleEntry = ExtensionList["rules"][number];
 export type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource };
-/** One of the repo's extensions that isn't installed here (`extensions.list`'s `available`): what installing would add. */
-/**
- * What an extension says about itself, read by the service from its folder (PIE-1549): its README's opening, what it
- * adds (a list line each, its page's "What it adds"), the demo notes it writes and what it reads from the host. The
- * same words before it's installed as after.
- */
-export interface ExtensionAbout { readme?: string; adds: string[]; demo: string[]; demoProblem?: string; needs: string[] }
-export interface AvailableExtension { id: string; name: string; version: number; description?: string; scripts?: { name: string; file: string; about: string }[]; door?: string; /** The screens it would add, by name (PIE-1525). */ screens?: string[]; about?: ExtensionAbout }
-export interface ExtensionList {
-  generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; barSources?: ExtensionBarSource[]; primitives?: string[]; targets?: string[]; rules?: RuleEntry[]; ruleProblems?: string[];
-  /** The outline's Extensions hub, and each extension's page (README, what it adds, demo notes under it), by id. */
-  hub?: string; pages?: Record<string, string>;
-  /** How many of its demo notes each extension has left in the outline (none listed: none). */
-  demos?: Record<string, number>;
-  /** The repo's extensions not installed here: `extensions.install` adds one with its page and demo notes. */
-  available?: AvailableExtension[];
-  /** Each installed extension's own words, by id (PIE-1549): what its install row said, for its row's preview. */
-  about?: Record<string, ExtensionAbout>;
-  /** The service's resource providers (Jira's, and any extension's with a `kind: "resource"` handler). */
-  resourceProviders?: ResourceProviderEntry[];
-}
+/** What an extension says about itself (PIE-1549), the same words before it's installed as after. */
+export type ExtensionAbout = ExtensionList["about"][string];
+/** One of the repo's extensions that isn't installed here (`extensions.list`'s `available`). */
+export type AvailableExtension = ExtensionList["available"][number];
 /** What `extensions.install` answers: what it did, and the page it wrote (with the demo notes under it). */
-export interface ExtensionInstalled { id: string; lines: string[]; page?: string; hub?: string; state?: string; error?: string; rulesEnabled?: number }
+export type ExtensionInstalled = WireAnswer<"extensions.install">;
 /** What `extensions.uninstall` answers: whether a folder went, and what became of its demo notes. */
-export interface ExtensionUninstalled { id: string; lines: string[]; removed: boolean; rulesDisabled?: number; demo: { trashed: number; kept: string[]; left: number } }
-export interface ExtensionActResult {
-  confirmation?: { message: string; argument: string; value: string };
-  runbook?: RunbookPlan;
-  /** Scripts write as their author and keep run undo on their source (or their run note for files). */
-  writtenAs?: string;
-  undoOn?: string;
-  extension: string; action: string; message?: string; written: string[]; proposalId?: string;
-  /** Text for the clipboard (copy with a citation): the client copies it. */
-  copy?: string;
-  /** What to open once it answers (PIE-754): a block id, or a Resource ref (file:, web:, resource:). */
-  open?: string;
-  /** What to put at the person's cursor in the note it was about (PIE-1507): one undo step. */
-  insert?: { text: string };
-  /** With `open` (a block): its last change beside it, the reader's revision compare. */
-  compare?: boolean;
-  /** The passage it acted on, as the service checked it (moved when the text moved since it was read). */
-  passage?: Passage;
-  /** Its writes landed as one step (PIE-784): `extensions.undo` with this takes them back whole. */
-  undo?: string;
-  /** Why they aren't one undo step here (they went into a live draft, whose ctrl+z undoes them). */
-  undoNote?: string;
-  /** A script run's state when the service answered (PIE-1264): `running` when it outlasted the wait; `message` is its last word. */
-  state?: "running" | "done" | "failed" | "stopped";
-  /** What the script returned, whole, when `message` (one line) can't hold it. */
-  answer?: string;
-}
+export type ExtensionUninstalled = WireAnswer<"extensions.uninstall">;
+export type ExtensionActResult = WireAnswer<"extensions.act">;
 
 /** What an extension action needs from where it runs: the outline, and somewhere to say what happened. */
 export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; dispatch?: { act(req: { action: string; args?: Record<string, unknown>; tile?: string }, actor: Actor): Promise<unknown>; requestIn(req: { action: string; args?: Record<string, unknown>; tile?: string }, at: Press | undefined): { action: string; args?: Record<string, unknown>; tile?: string } }; noteInFront?(): string | null } }
@@ -880,7 +754,7 @@ function kindEntry(t: ExtensionTileKind, actions: ActionSet<Record<string, ExtAr
       about: `${t.description ?? t.name} (extension ${t.extension}; drawn by the service from its ${of} script${Object.keys(t.args ?? {}).length ? `; ${Object.keys(t.args!).map(k => `${k}=`).join(" ")} are its props` : ""})`,
       args: t.args ?? {}, keyHint, keyActions: Object.fromEntries(t.actions.flatMap(a => (keyOf(a.key) ? [[keyOf(a.key)!, a.name]] : []))),
       render: async req => {
-        const r = await req.desk.ctx.board.request<{ markdown: string; view?: unknown }>("scripts.render", { of, props: propsOf(req.state), deadlineMs: 15_000 }, 20_000);
+        const r = await req.desk.ctx.board.request("scripts.render", { of, props: propsOf(req.state), deadlineMs: 15_000 }, 20_000);
         // The list's own title (PIE-1525: "outbox · 3 waiting on 2 people"), else the kind's name.
         const own = r.view && typeof r.view === "object" && typeof (r.view as { title?: unknown }).title === "string" ? oneLine((r.view as { title: string }).title) : "";
         return { title: own || t.name, ...(r.view !== undefined ? { view: r.view } : { lines: r.markdown.split("\n") }) };
@@ -891,7 +765,7 @@ function kindEntry(t: ExtensionTileKind, actions: ActionSet<Record<string, ExtAr
   return serviceKind({
     ...shared,
     about: `${t.description ?? t.name} (extension ${t.extension}; its program runs in a terminal tile${t.args?.block ? "; note=<id> is its block, default the note shown where it's opened" : ""})`,
-    program: { command: t.command ?? [], cwd: t.cwd, env: t.env, args: t.args ?? {}, unavailable: unavailableHere(t), label: t.name, keys: keyHint },
+    program: { command: [...(t.command ?? [])], cwd: t.cwd, env: t.env, args: t.args ?? {}, unavailable: unavailableHere(t), label: t.name, keys: keyHint },
   });
 }
 

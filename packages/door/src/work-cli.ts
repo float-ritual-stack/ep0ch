@@ -55,7 +55,7 @@ export const WORK_USAGE = `  ep0ch work groom [--ws <name>] [--repo <dir>] [--si
 const SOLO = ["--json", "--no-jev", "--here", "--park", "--later", "--apply"];
 const VALUED = ["--repo", "--since", "--where", "--limit", "--into", "--into-machine", "--ws", "--machine", "--older-than", "--as"];
 
-const clientOf = (board: Board): Client => ({ request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.request<T>(action, params, 60_000); } });
+const clientOf = (board: Board): Client => ({ request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.send(action, params, 60_000) as Promise<T>; } });
 
 /** Merged pull requests on the checkout's first-parent history since `since` (`120d`): their ref and title. */
 async function mergedPullRequests(repo: string, since: string): Promise<{ ref: string; title: string; body?: string }[]> {

@@ -69,7 +69,7 @@ export type ExtensionsListed = Omit<ExtensionsListResult, "extensions"> & {
 
 /** One action's request as the wire carries it, without the envelope (`id`, `action`) a client adds. */
 export type WireRequest<A extends ActionName> = Extract<OutlinerRequest, { action: A }> extends never ? { action: A } : Extract<OutlinerRequest, { action: A }>;
-type WithoutEnvelope<T> = T extends unknown ? Omit<T, "id" | "action" | "outline"> : never;
+type WithoutEnvelope<T> = T extends unknown ? Omit<T, "id" | "action"> : never;
 /** What a client passes for `A`: its request's fields (a union for an action with several shapes). */
 export type WireParams<A extends ActionName> = WithoutEnvelope<WireRequest<A>>;
 /** The answer a successful `A` carries in `result`. */
@@ -364,3 +364,13 @@ export interface WireAnswers {
 type Missing = Exclude<ActionName, keyof WireAnswers>;
 type Closed<T extends never> = T;
 export type WireClosed = Closed<Missing>;
+
+// The parts of those answers a client names on its own, re-exported so it imports the contract from one place.
+export type { AuthoredLinkCompleteness, AuthoredLinkDiagnostic, AuthoredLinkGroup, AuthoredLinksSnapshot, AuthoredOutlink, AuthoredOutlinkResolution, AuthoredResourceLink, AuthoredResourceResolution } from "./authored-links";
+export type { AuthoredResourceReference } from "./resource-references";
+export type { ExtensionProjectionOutput, ResourceProjection, ResourceProjectionReadResult, ResourceProjectionStatus } from "./resource-projection";
+export type { Decoration, RuleListEntry } from "./extension-rules";
+export type { ResourceDescription } from "./resources";
+export type { LinkTargetFacets } from "./types";
+export type { ViewCreatePlan, ViewMovePlan, ViewWriteChange } from "./view-writes";
+export type { AnnotationAnchor, AnnotationRecord, AnnotationThread } from "./types";

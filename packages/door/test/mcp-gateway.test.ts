@@ -161,12 +161,12 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     board = new SocketBoard(sock);
     await board.info();
     await board.configureMcpAccess("read");
-    const made = await board.request<{ id: string }>("create", { parentId: null, text: "Lantern inventory\nThree brass lanterns by the shed door.", author: "agent" });
+    const made = await board.request("create", { parentId: null, text: "Lantern inventory\nThree brass lanterns by the shed door.", author: "agent" });
     note = { id: made.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: made.id }) };
     // A second outline on the same host, never granted: its notes stay out of reach.
     await hostRequest(sock, "outlines.create", { name: "quiet-pond" });
     const pond = new SocketBoard(sock, undefined, "quiet-pond");
-    const q = await pond.request<{ id: string }>("create", { parentId: null, text: "Pond survey\nFrogs counted at dusk.", author: "agent" });
+    const q = await pond.request("create", { parentId: null, text: "Pond survey\nFrogs counted at dusk.", author: "agent" });
     quiet = { id: q.id, uri: formatEp0chBlockUri({ outline: "quiet-pond", machine, blockId: q.id }) };
     pond.close();
 
@@ -509,8 +509,8 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
   });
 
   test("a record is sent once: body and properties, no text or header; a note naming itself isn't its own link or backlink", async () => {
-    const made = await board.request<{ id: string; revision: number }>("create", { parentId: null, text: "Kettle log", author: "agent" });
-    const self = await board.request<{ revision: number }>("update", { blockId: made.id, text: `Kettle log [shelf::top]\nDescaled again, see ((${made.id})) and ((${note.id})).`, expectedRevision: made.revision, mutation: { author: "agent", actorId: "test-agent" } });
+    const made = await board.request("create", { parentId: null, text: "Kettle log", author: "agent" });
+    const self = await board.request("update", { blockId: made.id, text: `Kettle log [shelf::top]\nDescaled again, see ((${made.id})) and ((${note.id})).`, expectedRevision: made.revision, mutation: { author: "agent", actorId: "test-agent" } });
     expect(self.revision).toBeGreaterThan(made.revision);
     const uri = formatEp0chBlockUri({ outline: scratch.name, machine, blockId: made.id });
     const read = JSON.parse((await tool("outline_read", { uri })).text);
@@ -553,9 +553,9 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
 
   test("a ref is the Claude mod's: an id, ((id)), [[page]] or Work ID, resolved in the named outline", async () => {
     await board.request("work-ids.configure", { prefix: "SHED" });
-    const made = await board.request<{ id: string; revision: number }>("create", { parentId: null, text: "Mend the wheelbarrow\nThe tyre is flat.", author: "agent" });
-    const { workId } = await board.request<{ workId: string }>("work-ids.allocate", { blockId: made.id, expectedRevision: made.revision });
-    const page = (await board.request<{ block: { id: string } }>("pages.follow", { address: "Tool shed", author: "agent" })).block;
+    const made = await board.request("create", { parentId: null, text: "Mend the wheelbarrow\nThe tyre is flat.", author: "agent" });
+    const { workId } = await board.request("work-ids.allocate", { blockId: made.id, expectedRevision: made.revision });
+    const page = (await board.request("pages.follow", { address: "Tool shed", author: "agent" })).block;
     for (const [ref, id] of [[workId, made.id], [`[[${workId}]]`, made.id], ["[[Tool shed]]", page.id], [made.id, made.id], [`((${made.id}))`, made.id]] as const) {
       const read = await tool("outline_read", { ref, outline: scratch.name });
       expect(read.isError).toBe(false);
@@ -567,14 +567,14 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     expect((await tool("outline_read", { ref: "Mend the wheelbarrow", outline: scratch.name })).text).toContain("titles aren't accepted");
     const missing = await tool("outline_read", { ref: "[[No such shed]]", outline: scratch.name });
     expect(missing.isError).toBe(true);
-    expect((await board.request<{ status: string }>("pages.resolve", { address: "No such shed" })).status).toBe("missing");
+    expect((await board.request("pages.resolve", { address: "No such shed" })).status).toBe("missing");
     // An outline this caller can't read isn't asked whether a page or Work ID exists in it.
     const refused = await tool("outline_read", { ref: "[[Pond survey]]", outline: "quiet-pond" });
     expect(refused.text).toContain("MCP access is none for quiet-pond");
   });
 
   test("record.backlinks and outline_links agree, property references included, in both directions", async () => {
-    const make = async (text: string) => board.request<{ id: string; revision: number }>("create", { parentId: null, text, author: "agent" });
+    const make = async (text: string) => board.request("create", { parentId: null, text, author: "agent" });
     const source = await make("Rain gauge readings");
     const proof = await make(`Gauge calibrated [source-block::${source.id}]`);
     // The source names the proof back: each is the other's link and backlink.
@@ -595,7 +595,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
   });
 
   test("outline_links cuts each group at limit and says per group whether it is whole, what it shows and the total", async () => {
-    const make = async (text: string) => board.request<{ id: string }>("create", { parentId: null, text, author: "agent" });
+    const make = async (text: string) => board.request("create", { parentId: null, text, author: "agent" });
     const [a, b] = [await make("Hose reel"), await make("Water butt")];
     const hub = await make(`Watering kit\nSee ((${a.id})) and ((${b.id})).`);
     await make(`Summer list\nCheck ((${hub.id})).`);
@@ -670,7 +670,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     const missing = await tool("outline_find", { query: "x", outline: "no-such-outline" });
     expect(missing.isError).toBe(true);
     expect(missing.text).not.toContain(scratch.outlines);
-    const hosted = await hostRequest<{ outlines: { name: string }[] }>(scratch.sock, "outlines.list");
+    const hosted = await hostRequest(scratch.sock, "outlines.list");
     expect(hosted.outlines.map(o => o.name)).not.toContain("no-such-outline");
 
     // Revoking is the outline's own setting, at once: the next read is refused.

@@ -26,7 +26,7 @@ describe.skipIf(!outliner)("showcase: sticky pad (PIE-1247)", () => {
     expect(padRows()).not.toContain("The rest of the plan");
     // The links tile follows the plan: the pad's link and embed, grouped by the anchor each aims at.
     await until(() => h.screen().includes("page link ^bed-j"), "the links tile's groups", 15_000);
-    const [source] = (await h.board.request<{ sources: { blockId: string; referenceGroups: unknown[] }[] }>("references.backlinks", { query: { targetBlockId: plan, limit: 10 } })).sources;
+    const [source] = (await h.board.request("references.backlinks", { query: { targetBlockId: plan, limit: 10 } })).sources;
     expect(source).toMatchObject({ blockId: pad, referenceGroups: [{ kind: "page", count: 1 }, { kind: "page", fragmentId: "bed-jobs", count: 1 }] });
 
     // An agent asks what `!((Raised beds` offers in the pad: the plan's figure (anchored), callout and list items.

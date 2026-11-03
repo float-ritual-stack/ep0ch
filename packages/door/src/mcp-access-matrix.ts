@@ -322,7 +322,7 @@ export function hostSource(path: string, machine: string): GrantSource {
   return {
     machine,
     async grants() {
-      const list = await hostRequest<{ outlines: { name: string }[] }>(path, "outlines.list", {}, 8_000);
+      const list = await hostRequest(path, "outlines.list", {}, 8_000);
       const out: Grant[] = [];
       for (const { name } of list.outlines) {
         const b = board(name);
@@ -336,7 +336,7 @@ export function hostSource(path: string, machine: string): GrantSource {
       const b = board(outline);
       try { await b.configureMcpAccess(level); } finally { b.close(); }
     },
-    files: () => hostRequest<McpAccessFiles>(path, "mcp.access.files", {}, 8_000),
+    files: () => hostRequest(path, "mcp.access.files", {}, 8_000),
   };
 }
 

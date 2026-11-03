@@ -41,7 +41,7 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
     process.env.EP0CH_STATE = join(scratch.root, "door");
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const mk = async (text: string) => board.request<any>("create", { parentId: null, text, author: "agent" });
+    const mk = async (text: string) => board.request("create", { parentId: null, text, author: "agent" });
     notes.tide = await mk("Tide table\nLow water at noon.");
     notes.boat = await mk(`Boat check\nBefore launch, read ((${notes.tide.id})).`);
     notes.trip = await mk(`Ferry trip\nPack light; first ((${notes.boat.id})).`);

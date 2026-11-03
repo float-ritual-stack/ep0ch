@@ -35,7 +35,7 @@ export interface PageResults { text: string; figures: number; cut: number; unans
 async function pageFigures(board: SocketBoard, text: string, note: string, site: UseSite = {}, depth = 0): Promise<ReturnType<typeof noteFigures>> {
   const figures = noteFigures(text, note).map(f => ({ ...f, source: { ...f.source, ...site } }));
   if (depth < MAX_USE_DEPTH) for (const call of useCallsOf(text)) {
-    const answer = await board.request<TemplateUseAnswer>("template.use", useRequest(note, call.line, site));
+    const answer = await board.request("template.use", useRequest(note, call.line, site));
     if (!answer.template) continue;
     const body = bodySite(answer);
     const expanded = await pageFigures(board, answer.template.text, answer.template.id, body, depth + 1);

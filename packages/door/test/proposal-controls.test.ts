@@ -27,7 +27,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     ctx: { board, flash: (m: string) => flashes.push(m), t: { cellW: 9, cellH: 16 }, graphics: false } as any,
     redraw() {}, navigate(m: Msg) { opened.push(m); },
   });
-  const create = async (text: string, parentId: string | null = null) => (await board.request<any>("create", { parentId, text, author: "user" })).id as string;
+  const create = async (text: string, parentId: string | null = null) => (await board.request("create", { parentId, text, author: "user" })).id as string;
   let shed = "", beds = "", view = "";
 
   /**
@@ -42,7 +42,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     const read = (await board.get(id))!;
     const observed = "The peas   climb  the net.", start = read.text.indexOf(observed);
     await board.update(id, gone ? read.text.replace(observed, "The peas sugar   climb  the net.") : read.text.replace(observed, `${observed} Mind the slugs.`), read.revision!);
-    const r = await agent.request<any>("draft.patch", {
+    const r = await agent.request("draft.patch", {
       blockId: id, revision: read.revision, propose: true, mutation: { author: "agent", actorId: "tidy" },
       patches: [{ observed, replacement: "The peas climb the net.", range: { start, end: start + observed.length }, unit: "utf16", before: read.text.slice(0, start), after: read.text.slice(start + observed.length, start + observed.length + 48) }],
     });

@@ -60,7 +60,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     return { isError: !!r.result.isError, text, json };
   };
   const farRecord = async (id: string) => (await boardOn(far, "attic-notes", FAR).records([id])).records[0]!;
-  const childrenOf = async (id: string) => (await boardOn(far, "attic-notes", FAR).request<{ text: string }[]>("children", { parentId: id })).map(c => c.text);
+  const childrenOf = async (id: string) => (await boardOn(far, "attic-notes", FAR).request("children", { parentId: id })).map(c => c.text);
   const pull = () => pullNetmail({ hub: "hub-box", machine: FAR, state: join(dir, "far-state"), env: pullEnv, open: async outline => boardOn(far, outline, FAR) });
   /** The laptop goes away: its forward ends and every ssh to it is refused. */
   const laptopAway = () => {
@@ -78,7 +78,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     await far.create("attic-notes");
     const attic = boardOn(far, "attic-notes", FAR);
     await attic.configureMcpAccess("full");
-    const make = async (key: string, text: string) => { ids[key] = (await attic.request<{ id: string }>("create", { parentId: null, text, author: "user" })).id; };
+    const make = async (key: string, text: string) => { ids[key] = (await attic.request("create", { parentId: null, text, author: "user" })).id; };
     await make("trunk", "Trunk contents [room::attic]\nOld maps of the canal.");
     await make("lamps", "Lamp list\nTwo oil lamps, one cracked.");
     await make("keys", "Key hook\nThree brass keys.");
@@ -154,7 +154,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     expect(stale.text).toContain(`revision ${read.revision}, now ${read.revision + 1}`);
     expect(stale.text).toContain("read it again and send the patch against the new text");
     expect((await farRecord(ids.lamps!)).text).toContain("none cracked");
-    const entries = await boardOn(far, "attic-notes", FAR).request<{ entries: { block: { id: string }; actorId?: string; sessionId?: string }[] }>("activity.recent", { since: "2000-01-01T00:00:00.000Z", author: "agent", actorId: "mcp:chat.example.test", limit: 50, kinds: ["text", "properties"] });
+    const entries = await boardOn(far, "attic-notes", FAR).request("activity.recent", { since: "2000-01-01T00:00:00.000Z", author: "agent", actorId: "mcp:chat.example.test", limit: 50, kinds: ["text", "properties"] });
     expect(entries.entries.filter(e => e.block.id === ids.lamps).map(e => ({ actorId: e.actorId, sessionId: e.sessionId }))).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{10}$`)) });
     const row = (await tool("list_outlines", {})).json.outlines[0];
     expect(row.queue.waiting).toBe(0);
@@ -289,7 +289,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     // A stand-in link that passes everything to the laptop's host but loses the answer to one create.
     const board = boardOn(far, "attic-notes", FAR);
     await board.configureMcpAccess(access);
-    const parent = await board.request<{ id: string; revision: number }>("create", { parentId: null, text: "Spare lamps", author: "user" });
+    const parent = await board.request("create", { parentId: null, text: "Spare lamps", author: "user" });
     const proxy = join(dir, `lossy-${access}.sock`);
     let lose = true;
     const server: Server = createServer(c => {

@@ -347,7 +347,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const e = log.entries.find((x: any) => x.block.id === id);
     return e && [e.author, e.actorId];
   };
-  const threads = (id: string) => other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: id }, includeResolved: true } });
+  const threads = (id: string) => other.request("annotations.list", { query: { subject: { kind: "block", blockId: id }, includeResolved: true } });
   const message = () => (app as any).message as string;
   const settled = () => until(() => !B().moving && B().lanes.every((l: any) => l.items && !l.want), "lanes", 8000);
 

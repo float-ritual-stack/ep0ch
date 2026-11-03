@@ -447,7 +447,7 @@ describe.skipIf(!outliner)("the drawer and the daily desk, against a scratch out
   beforeAll(async () => {
     board = new SocketBoard(await scratch.start());
     await board.info();
-    await board.request<any>("create", { parentId: null, text: "Compost rota", author: "agent" });
+    await board.request("create", { parentId: null, text: "Compost rota", author: "agent" });
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 

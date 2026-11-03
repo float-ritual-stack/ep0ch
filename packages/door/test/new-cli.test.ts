@@ -60,9 +60,9 @@ describe.skipIf(!outliner)("ep0ch new on an empty outline", () => {
   });
 
   test("fields draws the parent's and a short-id note's values", async () => {
-    const parent = await board.request<{ id: string }>("create", { parentId: null, text: "Beds\nconnectTo:: trellis", author: "user" });
+    const parent = await board.request("create", { parentId: null, text: "Beds\nconnectTo:: trellis", author: "user" });
     for (const of of ["parent", parent.id.slice(0, 8), `((${parent.id.slice(0, 8)}))`]) {
-      const child = await board.request<{ id: string }>("create", { parentId: parent.id, text: `Roll-up\n::fields{key=connectTo of=${of}}`, author: "user" });
+      const child = await board.request("create", { parentId: parent.id, text: `Roll-up\n::fields{key=connectTo of=${of}}`, author: "user" });
       const shown = await run(["show", child.id], env);
       expect(shown.code).toBe(0);
       expect(shown.out).toContain("trellis");
@@ -71,7 +71,7 @@ describe.skipIf(!outliner)("ep0ch new on an empty outline", () => {
   });
 
   test("a --near that's gone is refused with the command to run instead; no text is refused, naming the form", async () => {
-    const gone = await board.request<{ id: string }>("create", { parentId: null, text: "Old bed plan", author: "agent" });
+    const gone = await board.request("create", { parentId: null, text: "Old bed plan", author: "agent" });
     await board.trash(gone.id);
     const ok = await run(["new", "Beans up", "--near", gone.id], env);
     expect(ok.code).toBe(1);

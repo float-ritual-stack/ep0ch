@@ -60,7 +60,7 @@ describe.skipIf(!outliner)("starting an edit by key runs the edit action (PIE-51
     delete process.env.VISUAL;
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+    const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
     notes.hedge = await mk(null, "Trim the hedge [type::job] [area::yard] [stage::todo]\nBefore the birds nest.");
     await mk(null, "Sweep the path [type::job] [area::yard] [stage::done]");
     notes.yard = await mk(null, "Yard jobs");

@@ -55,12 +55,12 @@ await act("tile.open", { kind: "query", query: values.query ?? "type=review-find
 const drawing = setInterval(() => { try { (app as unknown as { paint(): void }).paint(); } catch { /* a frame that throws is the door's to report */ } }, 50);
 
 // The person: opens a note's children every second and saves a note of their own every five, through the door's board.
-const mine = await board.request<{ id: string; revision: number }>("create", { text: "Bench person's note", author: "user" });
+const mine = await board.request("create", { text: "Bench person's note", author: "user" });
 let revision = mine.revision, n = 0;
 const person = setInterval(() => {
   n += 1;
   if (values.note) void board.children(values.note).catch(() => {});
-  if (n % 5 === 0) void board.request<{ revision: number }>("update", { blockId: mine.id, text: `Bench person's note ${n}`, expectedRevision: revision, mutation: { author: "user" } })
+  if (n % 5 === 0) void board.request("update", { blockId: mine.id, text: `Bench person's note ${n}`, expectedRevision: revision, mutation: { author: "user" } })
     .then(r => { revision = r.revision; }, () => {});
 }, 1_000);
 

@@ -28,19 +28,10 @@ import { BOLD, C, fg, RESET, UNBOLD } from "./style";
 import { wrap } from "./text";
 import { buttonText } from "./surface/button";
 
-/** The statuses the service sends today; a newer one is drawn generically, with its reason. */
-export type ResourceProjectionStatus = "ready" | "stale" | "not-fetched" | "not-registered" | "ambiguous" | "no-key" | "not-run" | "unavailable";
-
-/**
- * What an extension's handler line ran to (pi-herdr-outliner PIE-507): inline output's markdown (inert), a
- * rich component's `{ data, view }` too (its markdown is the view's markdown rendering), and whether the block
- * or the extension changed since it ran.
- */
-export interface ExtensionOutput {
-  markdown: string; ranAt: string; title?: string;
-  component?: { data: unknown; view: unknown; placement?: "replace" };
-  inputsChanged?: true; versionChanged?: true;
-}
+/** The statuses the service sends (the wire contract's). */
+export type { ResourceProjectionStatus } from "@ep0ch/outliner/wire";
+/** What an extension's handler line ran to (the wire contract's): inline output's markdown, a rich component's `{ data, view }`. */
+export type ExtensionOutput = import("@ep0ch/outliner/wire").ExtensionProjectionOutput;
 /** Who asked an `@name` agent, as the service says it (`user`, `agent:<id>`, `system`), in the door's words. */
 export function askedBy(v: string): string {
   if (v === "user") return "you";
@@ -51,66 +42,17 @@ export function askedBy(v: string): string {
 /** An `@name` request line's state (PIE-501): queued, running, applied, proposed, replied, nothing, failed, and, once its proposal is settled, applied or dismissed (PIE-510)… drawn as the service words it. */
 export interface AgentRequestState { name: string; status: string; message?: string; proposalId?: string; requestedBy?: string }
 
-/** One projection, as `resources.projection.read` sends it (pi-herdr-outliner src/resource-projection.ts). */
-export interface ResourceProjection {
-  /** `line`: the index, in the note's whole text, of the line the projection follows. */
-  anchor: { kind: string; line: number; start: number; end: number };
-  provider: string;
-  label?: string;
-  propertyKey?: string;
-  options: { comments?: number; compact?: true; full?: true; unknown: readonly string[] };
-  status: ResourceProjectionStatus | (string & {});
-  reason?: string;
-  key?: string;
-  candidates?: readonly string[];
-  resolvedFrom?: { step: string; blockId: string; line: number };
-  resourceId?: string;
-  sourceId?: string;
-  summary?: string;
-  fields: readonly { label: string; value: string }[];
-  updatedAt?: string;
-  fetchedAt?: string;
-  externalUrl?: string;
-  /** How old the stored copy reads: `stale` past the provider's stale age (15 minutes for Jira). */
-  freshness?: string;
-  /** The service is fetching it now (the save's or the open's background fetch, or `r`). */
-  fetching?: boolean;
-  /** Why the service's last fetch failed ("no Jira credentials on this machine"). */
-  fetchError?: string;
-  /**
-   * The block the ticket is kept as (the extension's record, pi-herdr-outliner src/extension-records.ts),
-   * its comment blocks, and when the service last wrote or confirmed it.
-   */
-  record?: { blockId: string; pageBlockId: string; syncedAt: string; commentBlockIds: readonly string[] };
-  /**
-   * An extension's line (PIE-507): `data` (a record kept as a block: `record`), `output`, `component`, or
-   * `agent` (an `@name` request line). Absent on Jira's.
-   */
-  kind?: "data" | "output" | "component" | "agent" | (string & {});
-  /** The extension and handler that answer the line. */
-  extension?: { id: string; handler: string; effects: string; version?: number };
-  output?: ExtensionOutput;
-  agent?: AgentRequestState;
-}
+/** One projection, as `resources.projection.read` sends it (the wire contract's). */
+export type ResourceProjection = import("@ep0ch/outliner/wire").ResourceProjection;
 /**
  * What a rule matched in a note (PIE-600, outline-core `RuleHit`): the whole block, a construct (a heading, a
  * callout, a list, a rule, an image) or a line a text pattern hit. Lines are the note's whole-text lines; `end` is the
  * line after the last.
  */
 export interface RuleHit { at: "block" | "construct" | "text"; line: number; end: number; text: string; level?: number; kind?: string; captures?: string[]; span?: { start: number; end: number } }
-/**
- * A rule's decoration on a note (pi-herdr-outliner src/extension-rules.ts): view primitives the reader draws above or
- * below what matched, in its place, or around it. The note's text never changes; the reader's `R` shows it raw.
- */
-export interface Decoration {
-  rule: string; name: string;
-  source: { kind: "extension"; extension: string; rule: string } | { kind: "note"; blockId: string };
-  hit: RuleHit;
-  place: "prepend" | "append" | "replace" | "around" | (string & {});
-  status: "ready" | "stale" | "not-run" | "unavailable" | (string & {});
-  view?: unknown; title?: string; markdown?: string; ranAt?: string; fetching?: boolean; reason?: string;
-}
-export interface ResourceProjectionRead { blockId: string; revision: number; projections: ResourceProjection[]; decorations?: Decoration[] }
+/** A rule's decoration on a note (the wire contract's): view primitives the reader draws with what matched. */
+export type Decoration = import("@ep0ch/outliner/wire").Decoration;
+export type ResourceProjectionRead = import("@ep0ch/outliner/wire").ResourceProjectionReadResult;
 
 /**
  * The property keys that name a projection: the service's resource providers (`extensions.list`'s `resourceProviders`,

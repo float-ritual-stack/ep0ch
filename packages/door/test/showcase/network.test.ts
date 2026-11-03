@@ -232,7 +232,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     // Stored in the outline against the Resource, with the block that opened it as its reference context; never in the file.
     const touch = (await board.byProp("file", plan.file, 1, "show"))[0]!;
     const resourceId = String(resTile().showing.id).slice("resource:".length);
-    const stored = await board.request<any[]>("annotations.list", { query: { subject: { kind: "resource", resourceId }, includeResolved: true } });
+    const stored = await board.request("annotations.list", { query: { subject: { kind: "resource", resourceId }, includeResolved: true } });
     expect(stored).toHaveLength(2);
     expect(stored.every(t => t.originalTarget.referenceContext?.representation.subject.blockId === touch.id)).toBe(true);
     expect(stored.find(t => t.originalTarget.anchor.exact === quote)).toBeDefined();

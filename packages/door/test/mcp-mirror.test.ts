@@ -52,7 +52,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     garden = new SocketBoard(home.sock, undefined, "garden-notes");
     attic = new SocketBoard(home.sock, undefined, "attic-notes");
     await garden.configureMcpAccess("read");
-    const made = await garden.request<{ id: string }>("create", { parentId: null, text: "Seed swap list\nRunner beans for the allotment next door.", author: "agent" });
+    const made = await garden.request("create", { parentId: null, text: "Seed swap list\nRunner beans for the allotment next door.", author: "agent" });
     note = { id: made.id, uri: formatEp0chBlockUri({ outline: "garden-notes", machine: FAR, blockId: made.id }) };
     await attic.request("create", { parentId: null, text: "Trunk contents\nOld maps of the canal.", author: "agent" });
     await garden.request("pages.follow", { address: "Allotment plan", author: "agent" });
@@ -133,7 +133,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
   test("a newer copy is picked up at the next check; until then the one before answers", async () => {
     const before = JSON.parse((await tool("outline_read", { uri: note.uri })).text).reachability.asOf as string;
     await Bun.sleep(20);
-    const later = await garden.request<{ id: string }>("create", { parentId: null, text: "Frost dates\nLast frost due mid-April.", author: "agent" });
+    const later = await garden.request("create", { parentId: null, text: "Frost dates\nLast frost due mid-April.", author: "agent" });
     follow("garden-notes");
     const laterUri = formatEp0chBlockUri({ outline: "garden-notes", machine: FAR, blockId: later.id });
     expect((await tool("outline_read", { uri: laterUri })).isError).toBe(true);
@@ -162,7 +162,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     const resticDir = join(mirrorsFolder, ".restic", FAR);
     mkdirSync(resticDir, { recursive: true });
     await Bun.sleep(20);
-    const later = await garden.request<{ id: string }>("create", { parentId: null, text: "Compost turned\nTwice this week.", author: "agent" });
+    const later = await garden.request("create", { parentId: null, text: "Compost turned\nTwice this week.", author: "agent" });
     const source = new Database(join(home.outlines, "garden-notes.sqlite"), { readonly: true });
     try { source.run("VACUUM INTO ?", [join(resticDir, "garden-notes.sqlite")]); } finally { source.close(); }
     clock += 16_000;

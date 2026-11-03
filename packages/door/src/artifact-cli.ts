@@ -3,7 +3,7 @@ import { statSync } from "node:fs";
 import { boardFor, type Out } from "./notes-cli";
 import { resolveTarget } from "./discover";
 import { forwardTo } from "./machine";
-import { hostRequest } from "./socket";
+import { hostRequest, type WireAction, type WireArgs } from "./socket";
 import { protocolMismatch } from "@ep0ch/outline-core/protocol";
 
 export async function artifactCommand(input: string[], io: Out = { out: console.log, err: console.error }): Promise<number> {
@@ -25,7 +25,7 @@ export async function artifactCommand(input: string[], io: Out = { out: console.
     if (verb === "put") {
       const path = resolve(words[0]!), folder = statSync(path).isDirectory();
       const name = value("--name") ?? basename(path, folder ? undefined : extname(path));
-      const { upload } = await board.request<{ upload: string }>("artifacts.upload.begin", { name });
+      const { upload } = await board.request("artifacts.upload.begin", { name });
       const tar = Bun.spawn(["tar", "--format=ustar", "-cf", "-", "-C", folder ? path : dirname(path), folder ? "." : basename(path)], { stdout: "pipe", stderr: "pipe" });
       const errors = new Response(tar.stderr).text();
       try {
@@ -37,14 +37,14 @@ export async function artifactCommand(input: string[], io: Out = { out: console.
       } catch (error) { tar.kill(); await tar.exited; await board.request("artifacts.upload.abort", { upload }); throw error; }
     } else if (verb === "lease") {
       // A one-time link to send a file to the inbox (PIE-1267): the outline's, so the card lands in its note for today.
-      const lease = await board.request<import("@ep0ch/outline-core/protocol").UploadLease>("artifacts.lease", { ...(words[0] ? { name: words[0] } : {}), mutation: { author: "user" } });
+      const lease = await board.request("artifacts.lease", { ...(words[0] ? { name: words[0] } : {}), mutation: { author: "user" } });
       io.out(args.includes("--json") ? JSON.stringify(lease, null, 2) : lease.curl);
       if (!args.includes("--json")) io.err(`one upload${lease.name ? ` of ${lease.name}` : ""}, good until ${lease.expiresAt}; the card lands in ${lease.outline}'s note for today`);
       return 0;
     } else if (verb === "deploy") result = await board.request("artifacts.deploy", { repo: words[0], domain: value("--domain") }, 900_000);
     else if (verb === "backfill") result = await board.request("artifacts.backfill", { catalogue: words[0] }, 900_000);
-    else if (verb === "dns") result = await board.request("artifacts.dns", { name: words[0], to: value("--to") }, 240_000);
-    else result = await board.request(`artifacts.${verb === "ls" ? "list" : verb}`, { name: words[0] }, 240_000);
+    else if (verb === "dns") result = await board.request("artifacts.dns", { name: words[0] ?? "", to: value("--to") as "vercel" | "float-2" }, 240_000);
+    else result = await board.request(`artifacts.${verb === "ls" ? "list" : verb}` as "artifacts.list" | "artifacts.show" | "artifacts.rm" | "artifacts.versions" | "artifacts.snapshot", { name: words[0]! }, 240_000);
     io.out(JSON.stringify(result, null, 2)); return 0;
   } catch (error) { io.err(`ep0ch: ${(error as Error).message}`); return 1; }
   finally { board.close(); }
@@ -55,11 +55,11 @@ async function artifactHost(machine: string | undefined) {
   if ("error" in target) return target;
   try {
     const path = target.machine ? (await forwardTo(target.machine)).socket : target.path;
-    const ping = await hostRequest<{ protocolVersion: number }>(path, "ping");
+    const ping = await hostRequest(path, "ping");
     const mismatch = protocolMismatch(ping.protocolVersion, "this door");
     if (mismatch) return { error: mismatch };
     return {
-      request: <T = unknown>(action: string, params: Record<string, unknown> = {}, timeout?: number) => hostRequest<T>(path, action, params, timeout),
+      request: <A extends WireAction>(action: A, ...args: WireArgs<A>) => hostRequest(path, action, ...args),
       close() {},
     };
   } catch (error) { return { error: `ep0ch: ${(error as Error).message}` }; }

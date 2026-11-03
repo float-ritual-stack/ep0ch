@@ -237,7 +237,7 @@ describe("the service sends what an Outlink's target is", () => {
   afterAll(async () => { board?.close(); await scratch.dispose(); }, 20_000);
 
   test("authoredLinks carries each ready Outlink's kind, stage and dates, which the door's filters read", async () => {
-    const mk = (text: string) => board.request<any>("create", { parentId: null, text, author: "agent" });
+    const mk = (text: string) => board.request("create", { parentId: null, text, author: "agent" });
     const waiting = await mk("Ask Ana about bean seed [type::outbox-item] [outbox::waiting]");
     const done = await mk("Thank the swap hosts [type::outbox-item] [outbox::done]");
     const plain = await mk("Seed shelf");
@@ -253,7 +253,7 @@ describe("the service sends what an Outlink's target is", () => {
   }, 20_000);
 
   test("a note's children come with their kind and stage from blocks.facets; comments under it don't list as children", async () => {
-    const mk = (text: string, parentId: string | null = null) => board.request<any>("create", { parentId, text, author: "agent" });
+    const mk = (text: string, parentId: string | null = null) => board.request("create", { parentId, text, author: "agent" });
     const plan = await mk("Bean bed plan [type::project]");
     await mk("Ask about netting [type::outbox-item] [outbox::waiting]", plan.id);
     await mk("Dig the trench [work-stage::done]", plan.id);

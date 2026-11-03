@@ -113,7 +113,7 @@ function fieldOf(subject: SettingsSubject, key: string): SettingField {
 
 async function facet(subject: SettingsSubject, host: SurfaceHost, key: string): Promise<QuestionFacet | undefined> {
   if (!subject.collection) return undefined;
-  const answer = await host.ctx.board.request<QuestionAnswerFields>("blocks.query", { query: { ...subject.collection.question, facets: [key], facetValues: 1, limit: 1 }, fields: ["id"] });
+  const answer = await host.ctx.board.request("blocks.query", { query: { ...subject.collection.question, facets: [key], facetValues: 1, limit: 1 }, fields: ["id"] });
   return answer.facets?.find(f => f.key === key && f.count > 0);
 }
 

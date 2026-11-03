@@ -597,7 +597,7 @@ const PREVIEW_ROWS = 16;
 // matches): watched reads (src/watched.ts), told when their answer changed, so a redraw never asks and nothing is
 // asked again on a change that didn't touch it. One holder per connection: the inline components of every reader
 // share it.
-type LinksBoard = Pick<SocketBoard, "request" | "facets" | "toMsgs"> & { watched?: SocketBoard["watched"] };
+type LinksBoard = Pick<SocketBoard, "request" | "send" | "facets" | "toMsgs"> & { watched?: SocketBoard["watched"] };
 let source: LinksBoard | null = null;
 let redraw: () => void = () => {};
 let unlisten: () => void = () => {};

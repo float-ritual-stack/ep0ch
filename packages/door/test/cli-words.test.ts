@@ -251,7 +251,7 @@ describe("--screen detail <uri> on a host named by EP0CH_SOCKET", () => {
       expect(err).toContain("has no outline mistyped");
       expect(err).toContain("Nothing was created");
       expect(err).toContain("ep0ch --ws mistyped --create");
-      const { outlines } = await hostRequest<{ outlines: Array<{ name: string }> }>(sock, "outlines.list");
+      const { outlines } = await hostRequest(sock, "outlines.list");
       expect(outlines.map(o => o.name)).not.toContain("mistyped");
     } finally {
       await host.dispose();

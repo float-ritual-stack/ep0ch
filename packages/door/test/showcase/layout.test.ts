@@ -77,7 +77,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   test("spaced peeks leave blank gaps while their notes keep the natural wrapping width", async () => {
     await sc.dispatch.press("section", { name: "spacing" }); screen();
     const d = sc.tilesHere()!, original = d.layoutSpec();
-    const note = await board.request<{ id: string }>("create", { parentId: null, text: "Garden log\n" + "Seedlings fill the garden beds. ".repeat(80), author: "agent" });
+    const note = await board.request("create", { parentId: null, text: "Garden log\n" + "Seedlings fill the garden beds. ".repeat(80), author: "agent" });
     const kids = Array.from({ length: 5 }, (_, i) => ({ t: "leaf" as const, kind: "reader", name: `garden${i}`, note: note.id }));
     (d as any).build({ root: { t: "flow", kids, policy: { readable: 80, "min-width": 40 } }, focus: "garden4" }, false);
     try {
@@ -446,7 +446,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       await sc.dispatch.press("section", { name: "lift" });
       screen();
       const d = sc.tilesHere()!, original = d.layoutSpec();
-      const note = await board.request<any>("create", { parentId: null, text: "Lift log\n" + Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`).join("\n"), author: "agent" });
+      const note = await board.request("create", { parentId: null, text: "Lift log\n" + Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`).join("\n"), author: "agent" });
       const kids = ["brief", "other"].map(name => ({ t: "leaf" as const, kind: "reader", name, note: note.id }));
       (d as any).build({ root: cover === "flow" ? { t: "flow", kids, policy: { readable: 180 } } : { t: "split", dir: cover === "horizontal fold" ? "col" : "row", kids }, focus: "brief" }, false);
       try {

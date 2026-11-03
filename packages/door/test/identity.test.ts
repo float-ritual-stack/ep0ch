@@ -72,7 +72,7 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     delete process.env.VISUAL;
     board = new SocketBoard(await scratch.start());
     await board.info();
-    notes.shed = await board.request<any>("create", { parentId: null, text: "Mend the shed roof\nBuy tacks and felt.", author: "agent" });
+    notes.shed = await board.request("create", { parentId: null, text: "Mend the shed roof\nBuy tacks and felt.", author: "agent" });
     writeFileSync(join(state(), "draft.md"), "# Plot draft\n");
     const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});

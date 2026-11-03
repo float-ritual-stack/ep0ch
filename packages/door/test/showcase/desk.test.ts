@@ -333,7 +333,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await until(() => marks.proposals!.every(m => screen().includes(m)), "the proposals section");
     // Another retry now, at the revision @moss read: the same proposal back, still one beside the guide, the guide untouched.
     const at = RACE.indexOf(RACE_PATCH.loser.observed);
-    const again = await board.request<any>("draft.patch", { blockId: guide.id, revision: seeded.notes.race.revision! - 1, propose: true, mutation: { author: "agent", actorId: RACE_AGENTS.loser },
+    const again = await board.request("draft.patch", { blockId: guide.id, revision: seeded.notes.race.revision! - 1, propose: true, mutation: { author: "agent", actorId: RACE_AGENTS.loser },
       patches: [{ ...RACE_PATCH.loser, range: { start: at, end: at + RACE_PATCH.loser.observed.length }, unit: "utf16" }] });
     expect(again).toMatchObject({ outcome: "proposed", proposalId: seeded.race.proposal, deduped: true, beside: guide.id });
     expect((await board.get(guide.id))!.revision).toBe(guide.revision);
@@ -348,8 +348,8 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     writeFileSync(join(scratch.root, "config", "pi-herdr-outliner", "extensions", "tidy", "config.json"), JSON.stringify({config: {answer: ["bun", "-e", `await Bun.stdin.text(); console.log(JSON.stringify({patches: [{observed: "grow beans", replacement: "grow peas"}], message: "Kept Tuesday and changed beans to peas."}));`]}}));
     await board.listExtensions(true);
     const make = async () => {
-      const note = await board.request<any>("create", {text: "Resolution garden\ngrow beans\ndelivery Monday", author: "user"});
-      const proposal = await board.request<any>("draft.patch", {blockId: note.id, revision: note.revision, propose: true, patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "moss"}});
+      const note = await board.request("create", {text: "Resolution garden\ngrow beans\ndelivery Monday", author: "user"});
+      const proposal = await board.request("draft.patch", {blockId: note.id, revision: note.revision, propose: true, patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "moss"}});
       await board.update(note.id, note.text.replace("Monday", "Tuesday"), note.revision);
       return {note, proposal: proposal.proposalId};
     };

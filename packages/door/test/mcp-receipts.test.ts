@@ -75,7 +75,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     await here.create("garden-notes"); await here.create("quiet-notes"); await far.create("attic-notes");
     const garden = boardOn(here, "garden-notes", HERE), quiet = boardOn(here, "quiet-notes", HERE), attic = boardOn(far, "attic-notes", FAR);
     await garden.configureMcpAccess("full"); await quiet.configureMcpAccess("read"); await attic.configureMcpAccess("full");
-    const make = async (b: SocketBoard, key: string, text: string) => { ids[key] = (await b.request<{ id: string }>("create", { parentId: null, text, author: "user" })).id; };
+    const make = async (b: SocketBoard, key: string, text: string) => { ids[key] = (await b.request("create", { parentId: null, text, author: "user" })).id; };
     await make(garden, "a", "Compost turning [type::chore] [area::garden] [stage::todo]\nFork it over on Sunday.");
     await make(garden, "b", "Water the beans [type::chore] [area::garden] [stage::done]");
     await make(garden, "c", "Mend the shed door [type::chore] [area::shed] [stage::todo]");

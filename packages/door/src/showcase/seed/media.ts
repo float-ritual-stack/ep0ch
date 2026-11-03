@@ -103,10 +103,10 @@ export const SHOWCASE_ARTIFACTS = ["pulse-pad.jsx", "orbit-lamp.html"] as const;
 
 export async function placeArtifacts(board: SocketBoard): Promise<string> {
   // The showcase contacts no deployment account: its outline goes without the deploy rule, so its repo lines never clone.
-  const [rule] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "rule-name=deploy-artifact" } })).blocks;
+  const [rule] = (await board.request("blocks.query", { query: { where: "rule-name=deploy-artifact" } })).blocks;
   if (rule) await board.trash(rule.id);
   await board.request("artifacts.put", { name: "showcase-orbit", files: { "index.html": readFileSync(join(SHOWCASE_ASSETS, "artifacts", "orbit-lamp.html"), "utf8") } });
-  const frozen = await board.request<{ version: number }>("artifacts.snapshot", { name: "showcase-orbit" });
+  const frozen = await board.request("artifacts.snapshot", { name: "showcase-orbit" });
   return `showcase-orbit@${frozen.version}`;
 }
 

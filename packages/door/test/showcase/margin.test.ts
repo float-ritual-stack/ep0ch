@@ -79,7 +79,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     const onFile = await act(leaflet().name, { action: "ext.marginalia.highlight", quote: "Watch the thermometer, not the calendar." });
     expect(onFile.passage.subject).toBe(leaflet().showing.id);
     const resourceId = String(leaflet().showing.id).slice("resource:".length);
-    await waitFor(async () => (await board.request<any[]>("annotations.list", { query: { subject: { kind: "resource", resourceId }, includeResolved: true } })).some(t => t.properties?.kind?.[0] === "highlight"), "the leaflet's highlight", 5000);
+    await waitFor(async () => (await board.request("annotations.list", { query: { subject: { kind: "resource", resourceId }, includeResolved: true } })).some(t => t.properties?.kind?.[0] === "highlight"), "the leaflet's highlight", 5000);
     expect(readFileSync(MARGINALIA_FILE(), "utf8")).toBe(file);
     // The person: into the stage, a drag over words, a click on the toolbar's Highlight chip.
     press({ kind: "enter" });
@@ -398,7 +398,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     expect(listed).not.toContain(aside.id);
     // The note to self was never sent: nothing answered it.
     expect(thread.replies.filter(r => r.author !== "user")).toHaveLength(1);
-    const unread = async () => (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: UNREAD_REPLIES_QUERY, limit: 50 } })).blocks.map(b => b.id);
+    const unread = async () => (await board.request("blocks.query", { query: { where: UNREAD_REPLIES_QUERY, limit: 50 } })).blocks.map(b => b.id);
     expect(await unread()).toContain(answer.id);
     // A click on the question's card opens its thread: read now.
     const lines = screen().split("\n");

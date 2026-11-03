@@ -284,9 +284,9 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
     writeFileSync(claude, FAKE);
     chmodSync(claude, 0o755);
     // Two agent configs in the outline: the fake agent as fern, in the garden shed; and as moss, with an argument.
-    await board.request<any>("create", { parentId: null, text: `Fern, the shed's agent [agent-config::fern] [program::${fake}] [persona::fern] [folder::${join(work, "garden-shed")}]`, author: "agent" });
-    await board.request<any>("create", { parentId: null, text: `Claude, as installed here [agent-config::claude] [program::${claude}]`, author: "agent" });
-    await board.request<any>("create", { parentId: null, text: `Moss [agent-config::moss] [program::${fake}] [args::--quiet] [persona::moss]`, author: "agent" });
+    await board.request("create", { parentId: null, text: `Fern, the shed's agent [agent-config::fern] [program::${fake}] [persona::fern] [folder::${join(work, "garden-shed")}]`, author: "agent" });
+    await board.request("create", { parentId: null, text: `Claude, as installed here [agent-config::claude] [program::${claude}]`, author: "agent" });
+    await board.request("create", { parentId: null, text: `Moss [agent-config::moss] [program::${fake}] [args::--quiet] [persona::moss]`, author: "agent" });
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); rmSync(work, { recursive: true, force: true }); });
   beforeEach(() => {

@@ -225,7 +225,7 @@ describe("taking a value away (PIE-675, no service)", () => {
 describe.skipIf(!outliner)("the look on the desk, against a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard, note: any, style: any;
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "user" });
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "user" });
 
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");

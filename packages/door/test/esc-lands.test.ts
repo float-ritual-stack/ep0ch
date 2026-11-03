@@ -26,7 +26,7 @@ describe.skipIf(!outliner)("Esc lands where it was meant (PIE-1431)", () => {
   beforeAll(async () => {
     board = new SocketBoard(await scratch.start());
     await board.info();
-    await board.request<any>("create", { parentId: null, text: "Kettle descaling: vinegar, then rinse twice", author: "agent" });
+    await board.request("create", { parentId: null, text: "Kettle descaling: vinegar, then rinse twice", author: "agent" });
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
   beforeEach(() => {
@@ -256,7 +256,7 @@ describe.skipIf(!outliner)("one owner decides where a key goes: the walk at 177x
   beforeAll(async () => {
     board = new SocketBoard(await scratch.start());
     await board.info();
-    await board.request<any>("create", { parentId: null, text: "Kettle descaling: vinegar, then rinse twice", author: "agent" });
+    await board.request("create", { parentId: null, text: "Kettle descaling: vinegar, then rinse twice", author: "agent" });
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
   beforeEach(() => {
@@ -295,7 +295,7 @@ describe.skipIf(!outliner)("one owner decides where a key goes: the walk at 177x
       await app.dispatch.press("host.toggle", { open: true });
       await until(() => agent()?.running === true, "the drawer's agent runs");
       // His status bar has a group (a nested list): its chip opens a menu over the screen.
-      await board.request<any>("create", { parentId: null, text: "Walk status [status-bar::true]\n- brand\n- power\n- Tools\n  - theme\n  - video\n- drawer\n- clock", author: "agent" });
+      await board.request("create", { parentId: null, text: "Walk status [status-bar::true]\n- brand\n- power\n- Tools\n  - theme\n  - video\n- drawer\n- clock", author: "agent" });
       await app.statusNote.refresh(A.statusItems());
       await until(() => A.statusBoxes.some((b: any) => b.item.id?.startsWith("group:")), "the Tools group on the status bar");
       // Into kettle with the mouse, the drawer still open beside it.

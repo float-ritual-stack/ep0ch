@@ -39,7 +39,7 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
   /** The note's lens as the service drew it (its line's projection), once it holds `holds`. */
   const drawn = async (id: string, holds: string, ms = 15_000) => {
     for (const end = Date.now() + ms; ;) {
-      const read = await h.board.request<{ projections?: { output?: { markdown?: string } }[] }>("resources.projection.read", { blockId: id, materialize: true }).catch(() => null);
+      const read = await h.board.request("resources.projection.read", { blockId: id, materialize: true }).catch(() => null);
       const hit = (read?.projections ?? []).map(p => p.output?.markdown ?? "").find(m => m.includes(holds));
       if (hit) return hit;
       if (Date.now() > end) throw new Error(`${holds} never drew on ${id}; last: ${JSON.stringify(read?.projections?.map(p => p.output?.markdown ?? "(none)"))}`);

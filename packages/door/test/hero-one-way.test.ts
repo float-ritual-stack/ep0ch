@@ -27,7 +27,7 @@ describe.skipIf(!outliner)("one header picture, the note's own (PIE-1361)", () =
   const scratch = new Scratch();
   let board: SocketBoard;
   const pic = (name: string) => join(scratch.root, name);
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "user" });
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "user" });
   const text = async (id: string) => (await board.get(id))!.text as string;
 
   beforeAll(async () => {

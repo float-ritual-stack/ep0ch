@@ -20,7 +20,7 @@ describe.skipIf(!outliner)("pinning a reader", () => {
 
   beforeAll(async () => {
     board = new SocketBoard(await scratch.start());
-    const create = async (text: string) => (await board.get((await board.request<any>("create", { parentId: null, text, author: "agent" })).id))!;
+    const create = async (text: string) => (await board.get((await board.request("create", { parentId: null, text, author: "agent" })).id))!;
     one = await create("Seed packets");
   });
   afterAll(async () => { board?.close(); await scratch.dispose(); });

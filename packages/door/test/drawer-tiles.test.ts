@@ -39,7 +39,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     board = new SocketBoard(await scratch.start());
     await board.info();
     board.subscribe(e => listen?.(e));
-    await board.request<any>("create", { parentId: null, text: "Seed potatoes: chit them by the window", author: "agent" });
+    await board.request("create", { parentId: null, text: "Seed potatoes: chit them by the window", author: "agent" });
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
   beforeEach(() => {
@@ -1605,13 +1605,13 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     const d = await door();
     listen = e => d.app.event(e);
     try {
-      const note = await board.request<any>("create", { parentId: null, text: "Rhubarb: force it under a bucket", author: "agent" });
+      const note = await board.request("create", { parentId: null, text: "Rhubarb: force it under a bucket", author: "agent" });
       await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", note: note.id, name: "rhubarb" }, tile: "reader" }, USER);
       await until(() => (d.desk.pane("rhubarb") as any)?.msg?.id === note.id, "the detail shows it");
       await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
       await d.app.act({ action: "tile.drawer", args: {}, tile: "rhubarb", as: AS });
       // Changed by someone else while inDrawer: the reader in the drawer reads it again, as a shown one does.
-      const b = await board.request<any>("get", { blockId: note.id });
+      const b = await board.request("get", { blockId: note.id });
       await board.request("update", { blockId: note.id, text: "Rhubarb: forced, pick in March", expectedRevision: b.revision, mutation: { author: "agent", actorId: "test-other-writer" } });
       await until(() => /pick in March/.test((d.pane("rhubarb") as any)?.msg?.text ?? ""), "the reader in the drawer re-read");
       // The person's unsaved edit in it, inDrawer: quitting asks first, and a forced end copies the text to disk.
@@ -1654,8 +1654,8 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     const d = await door();
     listen = e => d.app.event(e);
     try {
-      const a = await board.request<any>("create", { parentId: null, text: "Leeks: earth them up", author: "agent" });
-      const b = await board.request<any>("create", { parentId: null, text: "Garlic: plant the cloves", author: "agent" });
+      const a = await board.request("create", { parentId: null, text: "Leeks: earth them up", author: "agent" });
+      const b = await board.request("create", { parentId: null, text: "Garlic: plant the cloves", author: "agent" });
       await d.desk.dispatch.act({ action: "tile.open", args: { kind: "preview", source: "tile:tree", name: "peek" }, tile: "reader" }, USER);
       const pv = d.desk.pane("peek") as any, tree = d.desk.pane("tree") as any;
       const pick = (desk: Desk, id: string) => desk.dispatch.act({ action: "tree.pick", args: { id }, tile: "tree" }, USER);
@@ -1755,7 +1755,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   test("a session handover: the person's edit in a reader in the drawer is checkpointed and comes back in the next daemon's drawer", async () => {
     const { Checkpoints, readCheckpoint, restore } = await import("../src/session/restore");
     const { MainMenu } = await import("../src/screens");
-    const note = await board.request<any>("create", { parentId: null, text: "Leeks: earth them up", author: "agent" });
+    const note = await board.request("create", { parentId: null, text: "Leeks: earth them up", author: "agent" });
     const term = (): any => ({ info: { cols: 140, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} });
     const one = new App(term(), board, Date.now(), () => {});
     one.push(new MainMenu());

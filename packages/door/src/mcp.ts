@@ -500,7 +500,7 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
 async function proposalIn(board: Board, id: string): Promise<ProposalSeen> {
   const r = await board.records([id]);
   if (r.records[0]) return proposalSeen(r.records[0].properties);
-  if (r.unavailable[0]?.status === "trashed") return proposalSeenInText((await board.request<{ text: string }>("get", { blockId: id })).text);
+  if (r.unavailable[0]?.status === "trashed") return proposalSeenInText((await board.request("get", { blockId: id })).text);
   return "missing";
 }
 
@@ -627,7 +627,7 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>, 
   const status = await requireReadAccess(outlines, target);
   if ("error" in status) return toolError(status.error);
   if (grep) {
-    const result = await board.request<import("@ep0ch/outline-core/text-search").GrepResult>("blocks.grep", { pattern: args.pattern, flags: args.flags, limit: args.limit, offset: args.offset });
+    const result = await board.request("blocks.grep", { pattern: String(args.pattern), flags: args.flags as string | undefined, limit: args.limit as number | undefined, offset: args.offset as number | undefined });
     return toolText({ outline: board.address.outline, machine: board.address.machine, ...served, ...result });
   }
   const query = stringField(args, "query")?.trim() ?? "";
@@ -945,8 +945,8 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
   if (target.home && name === "share_start") return toolError(awayShareRefusal(outlines, target, args));
   try {
     if (name === "outline_snapshot") {
-      const snapshot = await board.request<OutlineSnapshot>("outline.snapshot", {
-        ...(args.ttl !== undefined ? { ttl: args.ttl } : {}),
+      const snapshot = await board.request("outline.snapshot", {
+        ...(args.ttl !== undefined ? { ttl: args.ttl as string | number } : {}),
         // A copy has no web client of its own: its link is this machine's web client's, the signed-in one unless EP0CH_WEB_URL names another.
         ...(target.home ? { webUrl: webBase() ?? DEFAULT_WEB_ORIGIN } : caller?.sub !== STDIO_SUBJECT && process.env.EP0CH_WEB_URL ? { webUrl: process.env.EP0CH_WEB_URL.split(",")[0]!.trim() } : {}),
         mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" },
@@ -1032,7 +1032,7 @@ async function artifactTool(outlines: McpOutlines, name: string, args: Record<st
       files = { [`index.${args.kind}`]: args.content };
     }
     if (!files || typeof files !== "object" || Array.isArray(files) || Object.values(files).some(v => typeof v !== "string")) return toolError("files maps relative paths to UTF-8 text.");
-    return toolText(await board.request("artifacts.put", { name: args.name, files }, 240_000));
+    return toolText(await board.request("artifacts.put", { name: String(args.name), files: files as Record<string, string> }, 240_000));
   } catch (error) { return toolError((error as Error).message); }
 }
 
@@ -1043,7 +1043,7 @@ async function artifactTool(outlines: McpOutlines, name: string, args: Record<st
 async function uploadLease(outlines: McpOutlines, board: Board, args: Record<string, unknown>, caller: McpCaller): Promise<ToolResult> {
   if (args.name !== undefined && typeof args.name !== "string") return toolError("name is the artifact's name, e.g. orrery; leave it out to let the file name itself.");
   try {
-    const lease = await board.request<import("@ep0ch/outline-core/protocol").UploadLease>("artifacts.lease", { ...(args.name ? { name: args.name } : {}), mutation: { author: "agent", ...actorOf(caller) } });
+    const lease = await board.request("artifacts.lease", { ...(args.name ? { name: args.name } : {}), mutation: { author: "agent", ...actorOf(caller) } });
     outlines.log?.(`mcp artifact_upload_lease: ${actorOf(caller).actorId} (${caller.sub}) ${lease.id} for ${lease.outline}${lease.name ? ` as ${lease.name}` : ""} until ${lease.expiresAt}`);
     return toolText({
       id: lease.id, name: lease.name, outline: lease.outline, expiresAt: lease.expiresAt, url: lease.url, curl: lease.curl,
