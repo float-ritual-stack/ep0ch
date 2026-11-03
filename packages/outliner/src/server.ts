@@ -3226,7 +3226,7 @@ export class OutlinerServer {
             { position: request.position, requestId: request.requestId });
           break;
         case "notes.create":
-          result = this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance);
+          result = request.dryRun === true ? { placement: this.store.placeNote(titled(request.text ?? ""), readNewNoteIntent(request.intent)) } : this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance);
           break;
         case "notes.route": {
           // PIE-1010: the moves are ext:route's; who asked is recorded beside them.

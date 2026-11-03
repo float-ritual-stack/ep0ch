@@ -238,3 +238,47 @@ describe("the plain CLI's writes, attributed to an agent (outliner update|create
     expect(props).toEqual(expect.arrayContaining([expect.objectContaining({ key: "work-stage", value: "doing" }), expect.objectContaining({ key: "arc", value: "paths" })]));
   });
 });
+
+describe("the plain CLI's proposals carry what the write would have done (Codex on #1253)", () => {
+  const as = ["--author", "agent", "--actor", "verifier/claude-code@shed"];
+  const proposalText = (store: OutlinerStore, onId: string) => store.children(onId).map(b => b.text).join("\n");
+
+  test("a relative move (--step) proposes the place it would go, and a step that can't be taken is refused as at full", async () => {
+    const { store, cli } = await setup();
+    const bed = store.create("Bed");
+    const first = store.create("Garlic", bed.id);
+    const second = store.create("Onions", bed.id);
+    store.configureMcpAccess("propose");
+    const up = await cli(["move", "--id", second.id, "--step", "up", "--expected", String(second.revision), ...as]);
+    expect(up.exitCode).toBe(0);
+    expect(up.json).toMatchObject({ outcome: "proposed" });
+    expect(String((up.json as { said?: string }).said ?? "") + proposalText(store, second.id)).not.toContain("undefined");
+    expect(proposalText(store, second.id)).toContain(`before ${first.id}`);
+    expect(store.children(bed.id).map(b => b.id).slice(0, 2)).toEqual([first.id, second.id]);
+    const already = await cli(["move", "--id", first.id, "--step", "up", "--expected", String(first.revision), ...as]);
+    expect(already.exitCode).toBe(1);
+    expect(already.stderr).toContain("is already first under its parent");
+  });
+
+  test("delete --if-empty on a note with children is refused as at full, never proposed as trashing them too", async () => {
+    const { store, cli } = await setup();
+    const bed = store.create("");
+    store.create("Garlic", bed.id);
+    store.configureMcpAccess("propose");
+    const r = await cli(["delete", "--id", bed.id, "--if-empty", "--expected", String(bed.revision), ...as]);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("Block is not empty: it has 1 child now");
+    expect(store.children(bed.id).map(b => b.text)).toEqual(["Garlic"]);
+  });
+
+  test("new --near proposes the note under the parent it would land in, as at full", async () => {
+    const { store, cli } = await setup();
+    const bed = store.create("Bed");
+    store.configureMcpAccess("propose");
+    const r = await cli(["new", "--near", bed.id, "--text", "Water at dusk", ...as]);
+    expect({ exitCode: r.exitCode, stderr: r.stderr }).toMatchObject({ exitCode: 0 });
+    expect(r.json).toMatchObject({ outcome: "proposed" });
+    expect(proposalText(store, bed.id)).toContain("Water at dusk");
+    expect(store.children(bed.id).some(b => b.text === "Water at dusk")).toBe(false);
+  });
+});

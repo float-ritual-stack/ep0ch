@@ -2131,7 +2131,7 @@ export type OutlinerRequestAction =
       id: string;
       action: "notes.create";
       text?: string;
-      intent?: { kind: "note"; near?: string; nearOnly?: boolean };
+      intent?: { kind: "note"; near?: string; nearOnly?: boolean }; /** Only where it would go (`{ placement }`), writing nothing (PIE-1544). */ dryRun?: boolean;
       author?: BlockAuthor;
       provenance?: BlockProvenance;
     }
