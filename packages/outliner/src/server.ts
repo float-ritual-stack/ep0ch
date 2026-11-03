@@ -107,6 +107,7 @@ import {
 import { probeSocket } from "./socket-probe";
 import { actionOf, thisTurn, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { QueryWatches, type WatchConnection } from "./query-watches";
+import { machineryBlind, machineryChange } from "./watch-machinery";
 import { copyAnswers, eventOf, extensionMay, isAsyncOnly, isHostAction, isWatchable, isWholeOutlineRead, type NotHandledHere } from "./actions";
 import { LineWatches } from "./line-watches";
 import { WorkflowManager } from "./workflows";
@@ -458,6 +459,7 @@ export class OutlinerServer {
       timed: ms => { noteWork("queries.changed", ms); this.turns.charge("watches", ms, "blocks.query"); },
       // A pass waits its turn a watch at a time, behind interactive requests (PIE-1413).
       turn: action => this.turns.next(action, "watches"),
+      machineryBlind: (request, response) => machineryBlind(this.store, request, response),
     });
     this.lineWatches = new LineWatches(this.watches, { changed: blockId => { if (!this.stopping) void this.extensionCalls.refreshOutput(blockId, "open").catch(() => {}); } });
     this.workflows = new WorkflowManager(store);
@@ -964,7 +966,6 @@ export class OutlinerServer {
     }
   }
 
-
   private normalizeContextId(value: string): string {
     const contextId = value?.trim();
     if (
@@ -976,8 +977,6 @@ export class OutlinerServer {
     }
     return contextId;
   }
-
-
 
   private normalizeNavigationTarget(
     value: unknown,
@@ -3949,7 +3948,7 @@ export class OutlinerServer {
   private broadcast(event: OutlinerEvent): void {
     // What a write tells subscribers may change a watched answer.
     if (event.domain === "content" || event.domain === "view" || event.domain === "resource-catalog") {
-      this.watches.changed(event.domain === "content" ? event.change : undefined);
+      this.watches.changed(event.domain === "content" ? machineryChange(this.store, event.change) : undefined);
     }
     this.pruneDestroyedSubscribers();
     const envelope: OutlinerEventEnvelope = { event };
