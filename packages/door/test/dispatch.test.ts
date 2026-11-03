@@ -134,7 +134,7 @@ describe("the actor rule, for every action (PIE-514)", () => {
     };
     const touches = (names: string[], t: Touches) => { for (const n of names) expect({ n, t: of(n).touches }).toEqual({ n, t }); };
     // Moving the person's keys or screen: never while they type, never within the idle window.
-    touches(["tile.focus", "marks.next", "layout.load", "screen.open", "screen.back", "screen.help", "menu.select", "list.select", "host.toggle", "brief.step", "welcome.select", "waiting.pick", "message.next"], "screen");
+    touches(["tile.focus", "marks.next", "layout.load", "screen.open", "screen.back", "screen.help", "menu.select", "list.select", "host.toggle", "brief.step", "welcome.select", "message.next"], "screen");
     // Two sets answer to list.open: the BBS lists' (a screen's lit row) and the lists' own (PIE-747: a reader's moves what the person reads, a links tile's does not, by Registration.touchesAt).
     const scoped = (scope: string, name: string) => allActionSets().find(x => x.scope === scope)!.def(name)!;
     expect([scoped("list", "list.open").touches, scoped("listview", "list.open").touches, scoped("listview", "list.enter").person !== undefined]).toEqual(["screen", "tile", true]);

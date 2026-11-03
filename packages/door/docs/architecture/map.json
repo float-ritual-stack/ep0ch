@@ -168,8 +168,8 @@
       "does": "One socket serves several outlines by name (pie, a pilot outline, a sandbox); clients name the outline on each request.",
       "built": "OutlineHost answers outlines.list/create/import/attach/close/delete/pane and routes every other request to the named outline's server.",
       "refs": [
-        { "r": "outliner", "p": "src/outline-host.ts", "l": 198, "m": "export class OutlineHost" },
-        { "r": "outliner", "p": "src/outline-host.ts", "l": 94, "m": "const HOST_ACTIONS" }
+        { "r": "outliner", "p": "src/outline-host.ts", "l": 197, "m": "export class OutlineHost" },
+        { "r": "outliner", "p": "src/actions.ts", "l": 93, "m": "export const ACTIONS" }
       ],
       "questions": [ { "text": "Folder to outline is still worked out on each client (the door's discover.ts); an `outlines.resolve` on the host would say it once.", "finding": "A-F13", "route": "service track" } ]
     },

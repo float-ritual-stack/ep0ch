@@ -14,7 +14,7 @@ import { leaf, place, splitOf } from "../src/desk/layout";
 
 describe("a screen is a spec", () => {
   test("every screen the door knows is a spec, and reads back from data as it was written", () => {
-    expect(screenNames()).toEqual(expect.arrayContaining(["desk", "waiting", "welcome", "brief", "pinned"]));
+    expect(screenNames()).toEqual(expect.arrayContaining(["desk", "welcome", "brief", "pinned"]));
     for (const name of screenNames()) {
       const spec = screenSpec(name)!;
       const data = JSON.parse(JSON.stringify(specData(spec)));
@@ -23,7 +23,7 @@ describe("a screen is a spec", () => {
   });
 
   test("a screen made from its spec read back from data is that screen", () => {
-    for (const name of ["waiting", "welcome", "brief", "pinned"]) {
+    for (const name of ["welcome", "brief", "pinned"]) {
       const d = new Desk(readSpec(specData(screenSpec(name)!)));
       const peek = d.describe() as { kind: string; panes: { name: string; kind: string }[] };
       expect(peek.kind).toBe(name);

@@ -1688,6 +1688,37 @@ mark, do: { open: id } }`; `extension.json` declares `tiles: [{ kind: "list", na
 the drawer with `since` and `unseen` from its own count; `^W o W` opens one on the desk; a `what-changed:: since=…`
 line draws the same list in a note. No door code draws the rows.
 
+## A whole screen, and its main-menu row
+
+**What it is.** `screens[]` (PIE-1525) ships whole screens for the door: each a screen spec as data, the same shape a
+screen note holds (`name`, `title`, `layout`, and the optional `keys`, `hint`, `lands`…). The door registers each
+while the extension is served and forgets it when it stops: uninstalling takes the screen, installing brings it back,
+with no restart. [waiting](../../extensions/waiting) is the first: the main menu's O.
+
+```json
+"screens": [{
+  "name": "waiting", "title": "waiting on others", "lands": "reader",
+  "menu": { "key": "O", "label": "Waiting", "about": "outbox items still waiting, by who they wait on" },
+  "layout": { "focus": "waiting", "root": { "t": "split", "dir": "row", "ratio": 0.5,
+    "a": { "t": "leaf", "kind": "waiting.list", "name": "waiting", "wires": [{ "verb": "select", "to": "reader" }] },
+    "b": { "t": "leaf", "kind": "reader", "name": "reader" } } }
+}]
+```
+
+- **Opaque to the service:** it checks each has a name (a letter, then letters, digits, `.` `-` `_`) and no name is
+  declared twice, and passes the rest through on `extensions.list` (each extension's `screens`). The door's `readSpec`
+  reads it, as it reads a screen note's; a spec that doesn't read is said where extension problems are said.
+- **A name is one owner's:** a built-in's, another extension's or a screen note's name is refused, saying who holds it.
+  A screen note can't take an extension's screen's name either.
+- **`menu`** gives it a row on the main menu: `key` (one character), `label` (up to 16), `about` (the help screen's
+  words). The art has twelve slots; every other row joins its key line. A key another row holds (or V, H, ?) leaves
+  the row keyless, said, and a click still opens it. A screen a person made gets a row the same way
+  (`screen.menu key=Y label=Potting`, its ⋯ menu's "add to the main menu").
+- **Not installed:** `ep0ch --screen <name>` and `screen.open` for a screen an available extension adds answer with
+  the command that installs it (`extensions.list`'s `available[].screens`).
+- **Its tiles** are usually its own kinds (`waiting.list`); a kind it `replaces` keeps a layout saved with the old
+  built-in working.
+
 ## A door module
 
 **What it is.** A behaviour that answers the pointer and the keys within a frame can't wait on a socket, so it runs in

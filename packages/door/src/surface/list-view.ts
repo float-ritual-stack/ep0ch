@@ -352,13 +352,32 @@ export class ListView<S = unknown> {
    */
   draw(o: ListDrawOpts<S>): ListDrawn<S> {
     const drawn = this.drawList(o), shown = new Set(drawn.rowAt.filter(at => at !== null)).size;
-    if (shown || !o.primitive?.arrange) { this.shownRows = shown; this.wholePage = 0; }   // an arrangement (table, grid, lanes) counts its own (arranged)
+    if (shown || !o.primitive?.arrange) { this.shownRows = shown; this.wholePage = 0; this.steps = shown; }   // an arrangement (table, grid, lanes) counts its own (arranged)
     return drawn;
   }
   /** Rows the last draw showed: a page's step (pageBy). */
   private shownRows = 0;
-  /** Rows a page moves the pick (PgUp -1, PgDn 1, PIE-1293): the rows last shown, less one (pageRows), at least one. */
-  pageBy(dir: 1 | -1): number { return dir * (this.wholePage || pageRows(Math.max(2, this.shownRows))); }
+  /** The last draw's steps: its rows, a grid's rows of cards, a board's longest lane. */
+  private steps = 0;
+  /**
+   * Rows a page moves the pick (PgUp -1, PgDn 1, PIE-1293): the rows shown, less one (pageRows), at least one. A list
+   * drawn whole inside a reader that scrolls it (a collection in a note, PIE-1529) is shown only where the reader's
+   * window is: `inView` names the rows on screen now, and its page is the steps they make (a grid's rows of cards, a
+   * lane's run), never every row it drew nor an average of their heights.
+   */
+  pageBy(dir: 1 | -1, inView?: readonly { id: string; group?: string }[]): number {
+    const shown = inView?.length ? this.stepsIn(inView) : this.shownRows;
+    const whole = shown >= this.steps ? this.wholePage : 0;
+    return dir * (whole || pageRows(Math.max(2, shown)));
+  }
+  /** The steps `rows` make: one each in a list or a table, a grid's row of cards, a board's place down its lanes. */
+  private stepsIn(rows: readonly { id: string; group?: string }[]): number {
+    const all = this.pickable(PERSON), shape = this.shapes.get(PERSON);
+    const at = [...new Set(rows.map(v => all.findIndex(r => r.id === v.id && (v.group === undefined || r.group === v.group))).filter(i => i >= 0))];
+    if (shape?.arrange === "grid") return new Set(at.map(i => Math.floor(i / Math.max(1, this.columns)))).size;
+    if (shape?.arrange === "lanes" && this.lanes.length) return new Set(at.map(i => Math.max(0, ...this.lanes.map(l => l.findIndex(r => r.id === all[i]!.id))))).size;
+    return at.length;
+  }
   /** An arrangement whose whole page is in view: its steps, so PgDn lands on the next page; else 0. */
   private wholePage = 0;
 
@@ -531,7 +550,7 @@ export class ListView<S = unknown> {
     // A page here (PgUp PgDn) is the steps the room shows: a table's rows, a grid's rows of cards, a lane's longest run.
     const per = Math.max(1, this.columns), many = ordered.length, drawn = lines.length, longest = Math.max(0, ...this.lanes.map(l => ordered.filter(r => l.some(x => x.id === r.id)).length));
     const steps = node.arrange === "grid" ? Math.ceil(many / per) : node.arrange === "lanes" && longest ? longest : many;
-    this.shownRows = stepsShown(steps, drawn, o.room);
+    this.shownRows = stepsShown(steps, drawn, o.room); this.steps = steps;
     // The whole page in view: a page further is the next page's same place (PgDn turns it), not one row on.
     this.wholePage = steps > 0 && this.shownRows >= steps && pages > 1 ? steps : 0;
     return { lines, rowAt: lines.map(() => null), previewed: null, beside: false, listCols: o.cols };

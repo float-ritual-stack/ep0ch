@@ -120,4 +120,3 @@ export function answerWebSessions(store: WebSessions, request: Record<string, un
   }
 }
 
-export const WEB_SESSION_ACTIONS = ["web.sessions.start", "web.sessions.resolve", "web.sessions.list", "web.sessions.revoke"] as const;

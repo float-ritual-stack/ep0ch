@@ -21,7 +21,7 @@ import { mountKinds } from "./screen-tile";
 import { laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
 import { HUB_SOURCE } from "./lanes";
 import { riverColumnKind } from "../river/column";
-import { kindOf, registerTileKind, registerTileSource, terminalFacts, tileKind, tileSource, type KindFacts, type KindFactsAsk, type TileKind } from "./tile-kinds";
+import { kindOf, registerTileKind, registerTileSource, terminalFacts, tileKind, tileSource, type TileKind } from "./tile-kinds";
 import { dailyDraft, editor, shell } from "./tiles";
 import { words } from "../text";
 import { TREE_ACTIONS } from "./tree";
@@ -34,22 +34,10 @@ import { TRAIL_TILE } from "./trail-tile";
 import { COMMENT_TILE, SOURCES_TILE, LIST_PREVIEW_TILE, EDIT_PREVIEW_TILE, MATCHES_TILE } from "./attached-tile";
 import { recordFacts } from "./program-status";
 import { prop } from "../props";
+import { readerFacts } from "./reader-facts";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */
 /** A reader kind's parts, for a kind that is a reader with more (the glass extension's post-it, ext/glass). */
-/**
- * A reader's facts (PIE-1523): its trail (history), its pin, the edit it holds and the person's keys in it. Any kind
- * whose tiles are readers answers with it (a river column, the settings card, a screen's own reader).
- */
-export function readerFacts(p: Pane, ask: KindFactsAsk): KindFacts {
-  // A function, not a const: kinds made as their modules load (the settings card) take it through an import cycle.
-  if (!(p instanceof ReaderPane)) return {};
-  return {
-    history: true, lists: false, pinned: p.pinned, holdable: p.pinnable,
-    ...(p.holdsKeys ? { holdsKeys: true } : {}),
-    ...(p.editing && !(ask.leavesDraft && p.surface.drafting) ? { editing: sessionName(p) } : {}),
-  };
-}
 export const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "view" | "take" | "describe" | "facts"> = {
   previews: true,
   facts: readerFacts,
