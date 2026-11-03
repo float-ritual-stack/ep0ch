@@ -22,6 +22,7 @@ import type { JevReading } from "./jev";
 import type { RequestInput } from "./client";
 import { writeShape, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
+import { editHunks } from "@ep0ch/outline-core/edit-merge";
 import { figuresIn, type FigureFit, type FigureFitReading } from "./figure-fit";
 import { jevScope, kitIn, sectionsOf, type ReviewReading, type WriteReview } from "./write-review";
 import { chips, chipValue, writeRecord, type RecordCache, type RecordWho, type RecordWriter } from "./records";
@@ -197,8 +198,9 @@ const FINDINGS_SECTION = [
   "machinery: show",
   "columns: [note, passage, after, outcome, writer]",
   "link: note",
-  // A row opens the note at the revision the review read, beside how it is now (PIE-1433).
+  // A row opens the finding itself, with Jev's whole advice; its note cell opens the note at the revision the review read (PIE-1433).
   "at: revision",
+  "row: record",
   "sort: created",
   "direction: desc",
   "limit: 30",
@@ -211,7 +213,7 @@ export const SUGGESTIONS_PAGE = [
   "",
   "> [!summary] Every note an agent writes is reviewed: ship, or fix with the smallest fix.",
   "> Each row is one finding: the problem Jev named, the passage as it was, the passage after, and what the writer did (blank while it's still open).",
-  "> Open a row for Jev's whole advice. Mark a finding below: x when Jev was right, - (Reject) when it was wrong.",
+  "> Open a row for Jev's whole advice, or its note for the passage as Jev read it. Mark a finding below: x when Jev was right, - (Reject) when it was wrong.",
   "",
   "::graph-stat",
   "---",
@@ -321,6 +323,13 @@ export function upgradeSuggestionsPage(text: string): string {
     const did = sectionAt(lines, "## What the writer did");
     if (did) lines = [...lines.slice(0, did.from), ...lines.slice(did.to)];
   }
+  // The findings table from before rows opened the finding gets `row: record`, after its `at:` (or its `link: note`).
+  const found = sectionAt(lines, FINDINGS_HEADING);
+  if (found) {
+    const body = lines.slice(found.from, found.to), link = body.findIndex(l => l.trim() === "link: note");
+    const after = body.findIndex(l => l.startsWith("at:")) >= 0 ? body.findIndex(l => l.startsWith("at:")) : link;
+    if (link >= 0 && !body.some(l => l.startsWith("row:"))) lines = [...lines.slice(0, found.from + after + 1), "row: record", ...lines.slice(found.from + after + 1)];
+  }
   // A review table's `link: note` gets `at: revision` after it, unless its figure says `at:` already.
   let query = "", out: string[] = [];
   lines.forEach((l, i) => {
@@ -417,8 +426,6 @@ export interface OpenSuggestion {
   line?: number;
   /** The ready patch's new text, as its record keeps it (fixOf): a later write holding it applied the patch. */
   fix?: string[];
-  /** The record's own revision, which stamping its outcome on it is checked against (PIE-1539). */
-  recordRevision?: number;
 }
 
 /** What a later write's review said and read (PIE-1402): the keys it said, new or carried, and what Jev judged. */
@@ -543,7 +550,7 @@ const openOf = (suggestions: Block[], outcomes: Block[]): OpenSuggestion[] => {
   return suggestions.filter(b => !settled.has(b.id) && propsOf(b.text).source !== "backfill").map(b => {
     const p = propsOf(b.text);
     return {
-      id: b.id, recordRevision: b.revision, note: p.note!, revision: Number(p.revision), at: Date.parse(b.createdAt), component: p.component!, ...(p.thread && p.thread !== "none" ? { thread: p.thread } : {}), writer: p.writer, harness: p.harness, day: p.day,
+      id: b.id, note: p.note!, revision: Number(p.revision), at: Date.parse(b.createdAt), component: p.component!, ...(p.thread && p.thread !== "none" ? { thread: p.thread } : {}), writer: p.writer, harness: p.harness, day: p.day,
       ...(p.rule ? { rule: p.rule, key: p.key, line: Number(p.line) || undefined, rubric: p.rubric, title: p.title, passage: p.passage, said: p.said, fix: fixOf(b.text) } : {}),
     };
   }).filter(s => s.note && Number.isFinite(s.revision) && s.component);
@@ -588,7 +595,7 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
     }), JEV, { title: `${verdict.outcome}${verdict.patched ? " (patched)" : ""}: ${s.rubric ?? s.component} in ${s.title ?? "a note"}`.slice(0, 120) });
     if (s.rule) {
       const settledText = verdict.revision === undefined ? undefined : verdict.revision === s.revision ? baseline : after.find(w => w.revision === verdict.revision)?.text;
-      await stampFinding(client, s.id, s.recordRevision, { outcome: verdict.outcome, after: afterOf(s, baseline, settledText, verdict), "settled-at": verdict.revision ?? "none" });
+      await stampFinding(client, s.id, { outcome: verdict.outcome, after: afterOf(s, baseline, settledText, verdict), "settled-at": verdict.revision ?? "none" });
     }
     written++;
     await updateRun(client, s.day ?? dayOf(s.at), {}).catch(() => undefined);
@@ -603,8 +610,9 @@ const AFTER_MAX = 300;
 
 /**
  * What the passage a finding named reads like after the write that settled it (PIE-1539), so its row shows before and
- * after: the ready patch's text when it was applied; the section by its heading when the finding was about one; else the
- * lines that write added nearest the finding's line. `unchanged` when no write touched it.
+ * after: the ready patch's text when it was applied; the section by its heading when the finding was about one; else
+ * what the one change over the finding's line made of it (edit-merge's line hunks), so an edit elsewhere in the same
+ * write is never shown as its after. `removed` when that change only deleted, `unchanged` when no write touched it.
  */
 export function afterOf(s: Pick<OpenSuggestion, "line" | "fix">, baseline: string, text: string | undefined, verdict: Pick<Verdict, "patched">): string {
   if (text === undefined) return "unchanged";
@@ -612,22 +620,33 @@ export function afterOf(s: Pick<OpenSuggestion, "line" | "fix">, baseline: strin
   if (verdict.patched && s.fix?.length) return clip(s.fix.join(" ⋯ "));
   const section = s.line ? sectionsOf(baseline).find(x => x.line + 1 === s.line) : undefined;
   if (section) return clip(sectionsOf(text).find(x => x.heading === section.heading)?.text ?? "removed");
-  const had = new Set(baseline.split("\n")), lines = text.split("\n"), near = (s.line ?? 1) - 1;
-  const runs: { from: number; lines: string[] }[] = [];
-  lines.forEach((line, i) => {
-    if (had.has(line) || !line.trim()) return;
-    const last = runs.at(-1);
-    if (last && last.from + last.lines.length === i) last.lines.push(line); else runs.push({ from: i, lines: [line] });
-  });
-  const run = runs.sort((a, b) => Math.abs(a.from - near) - Math.abs(b.from - near))[0];
-  return run ? clip(run.lines.join(" / ")) : "removed";
+  const hunks = editHunks(baseline, text) ?? [];
+  const lines = baseline.split("\n"), at = (s.line ?? 0) - 1;
+  // The finding's line as a range of the baseline; one with no line is about the whole note: its first change.
+  const from = at >= 0 && at < lines.length ? lines.slice(0, at).join("\n").length + (at ? 1 : 0) : -1, to = from + (lines[at]?.length ?? 0) + 1;
+  const hunk = from < 0 ? hunks[0] : hunks.find(h => h.end > h.start && h.start < to && h.end > from);
+  if (!hunk) return from < 0 ? "unchanged" : clip(lines[at] ?? "");
+  return clip(hunk.text.split("\n").filter(l => l.trim()).join(" / "));
 }
 
-/** Stamps a finding with its outcome (PIE-1539): a stamp, so views sorted by update don't take it as news. Never throws. */
-async function stampFinding(client: SuggestionClient, id: string, revision: number | undefined, props: Record<string, string | number>): Promise<void> {
-  if (revision === undefined) return;
-  const operations = Object.entries(props).map(([key, value]) => ({ op: "append" as const, key, value: chipValue(String(value)) }));
-  await client.request({ action: "properties.patch", blockId: id, expectedRevision: revision, operations, mutation: { author: "agent", actorId: JEV.provenance!.actorId! }, keepUpdated: true } as RequestInput).catch(() => undefined);
+/**
+ * Stamps a finding with its outcome (PIE-1539), once: a stamp, so views sorted by update don't take it as news. A finding
+ * recorded before its title was its problem (`fix: dense in <note>`) is retitled from its own `said` first, so its row
+ * explains itself like a new one. Never throws.
+ */
+async function stampFinding(client: SuggestionClient, id: string, props: Record<string, string | number>): Promise<void> {
+  try {
+    const record = await client.request<Block | null>({ action: "get", blockId: id } as RequestInput);
+    if (!record || propsOf(record.text).outcome) return;
+    const mutation = { author: "agent" as const, actorId: JEV.provenance!.actorId! };
+    let revision = record.revision;
+    const head = record.text.split("\n", 1)[0]!, cut = head.indexOf(" [type::review-finding]"), said = propsOf(record.text).said;
+    const title = cut < 0 ? head : head.slice(0, cut);
+    const problem = said && said !== "none" ? `${/^consider:/.test(title) ? "consider" : "fix"}: ${problemOf(said)}`.slice(0, 120) : title;
+    if (cut >= 0 && problem !== title) revision = (await client.request<Block>({ action: "update", blockId: id, text: problem + record.text.slice(cut), expectedRevision: revision, mutation } as RequestInput)).revision;
+    const operations = Object.entries(props).map(([key, value]) => ({ op: "append" as const, key, value: chipValue(String(value)) }));
+    await client.request({ action: "properties.patch", blockId: id, expectedRevision: revision, operations, mutation, keepUpdated: true } as RequestInput);
+  } catch { /* a stamp that can't be made now is made by a later pass (stampSettled) */ }
 }
 
 /** Findings settled before their outcome was stamped on them, stamped from their outcome record, a few each pass. */
@@ -636,7 +655,7 @@ async function stampSettled(client: SuggestionClient, told: readonly Block[], ou
   const due = told.filter(b => { const p = propsOf(b.text); return p.type === "review-finding" && !p.outcome && verdicts.has(b.id); }).slice(0, STAMP_PER_PASS);
   for (const b of due) {
     const v = verdicts.get(b.id)!;
-    await stampFinding(client, b.id, b.revision, { outcome: v.outcome ?? "unknown", after: v.patched === "yes" ? fixOf(b.text).join(" ⋯ ") || "not kept" : "not kept", "settled-at": /revision (\d+)/.exec(v.because ?? "")?.[1] ?? "none" });
+    await stampFinding(client, b.id, { outcome: v.outcome ?? "unknown", after: v.patched === "yes" ? fixOf(b.text).join(" ⋯ ") || "not kept" : "not kept", "settled-at": /revision (\d+)/.exec(v.because ?? "")?.[1] ?? "none" });
   }
 }
 

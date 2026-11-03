@@ -136,11 +136,17 @@ export function tableOf(p: Props, items: readonly FigureItem[], titles?: Readonl
   // A cell naming a note (PIE-1388): drawn as its title, and the note it names kept beside it (`cellBlocks`), so a reader links it.
   const named = raw.map(r => r.map(v => { const id = cellBlockId(v); return id && titles?.[id] ? id : null; }));
   const rows = raw.map((r, i) => r.map((v, k) => (named[i]![k] ? titles![named[i]![k]!]! : v)));
+  // `link: <property>`: a row opens the note its property names (a record's `note`), where it names one; else its own.
+  const about = items.map(m => (typeof p.link === "string" && cellBlockId(itemField(m, p.link))) || m.id);
+  // `row: record` (PIE-1539): the row opens its own record (a review finding: what Jev said), and only the cell naming
+  // the linked note opens that note, at `at:`'s revision (`aboutBlocks`).
+  const own = p.row === "record" && typeof p.link === "string";
   return {
-    // `link: <property>`: a row opens the note its property names (a record's `note`), where it names one; else its own.
-    columns: cols, headers: p.headers ?? cols, rows, blocks: items.map(m => (typeof p.link === "string" && cellBlockId(itemField(m, p.link))) || m.id), titleColumn: Math.max(0, cols.indexOf("title")),
+    columns: cols, headers: p.headers ?? cols, rows, blocks: own ? items.map(m => m.id) : about, titleColumn: Math.max(0, cols.indexOf("title")),
+    ...(own ? { aboutBlocks: about } : {}),
     ...(named.some(r => r.some(Boolean)) ? { cellBlocks: named } : {}),
-    // `at: <property>` (PIE-1433): the revision a row's link opens its note at (a review record's `revision`), beside how it is now.
+    // `at: <property>` (PIE-1433): the revision a row's link opens its note at (a review record's `revision`), beside how it is now;
+    // with `row: record`, the revision the linked note's cell opens it at.
     ...(typeof p.at === "string" ? { rowRevisions: items.map(m => Number(itemField(m, p.at)) || null) } : {}),
   };
 }

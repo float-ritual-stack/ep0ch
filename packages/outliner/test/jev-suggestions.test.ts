@@ -114,8 +114,17 @@ test("a suggestion nobody acted on within a day is ignored when the next pass se
   expect(made.exitCode, made.stderr).toBe(0);
   const schemas = (await client.request<{ schemas: ComponentSchema[] }>({ action: "components.schemas" })).schemas;
   expect(await settleOpen(client, schemas, Date.now())).toBe(0);
+  // A finding from before PIE-1539 is titled by its rubric ("fix: format in Garden year"): settling it names the problem
+  // from what Jev said, so its row reads on its own.
+  const [found] = await records("review-finding");
+  const cut = found!.text.indexOf(" [type::review-finding]");
+  const old = await client.request<Block>({ action: "get", blockId: found!.id });
+  await client.request({ action: "update", blockId: found!.id, text: `fix: format in Garden year${found!.text.slice(cut)}`, expectedRevision: old.revision, mutation: { author: "user" } });
   expect(await settleOpen(client, schemas, Date.now() + 25 * 60 * 60 * 1000)).toBe(1);
   expect(await records("suggestion-outcome")).toEqual([expect.objectContaining({ outcome: "ignored", note: made.json.id })]);
+  const [retitled] = await records("review-finding");
+  expect(retitled!.text.split("\n", 1)[0]).toStartWith(`fix: ${problemOf(found!.said!)} [type::review-finding]`);
+  expect(retitled).toMatchObject({ outcome: "ignored", after: "unchanged" });
 
   // The day's run: one note per day with the lab's run-level keys; quiet and unavailable asks are counted on it.
   const day = new Date("2026-10-20T10:00:00Z");
@@ -280,6 +289,21 @@ test("the passage after: the section by its heading, the lines a write added nea
   expect(afterOf({ line: 4 }, before, before.replace("- dig, sow and mulch the long bed before the frost\n", ""), {})).toBe("removed");
   expect(afterOf({ line: 4, fix: ["- dig", "- sow"] }, before, split, { patched: true })).toBe("- dig ⋯ - sow");
   expect(afterOf({ line: 4 }, before, undefined, {})).toBe("unchanged");
+  // Only the change at the finding's passage counts (PIE-1539 review): the flagged line deleted and another edited
+  // elsewhere is "removed", never the other edit.
+  const elsewhere = before.replace("- dig, sow and mulch the long bed before the frost\n", "").replace("- the hose leaks", "- the hose is fixed");
+  expect(afterOf({ line: 4 }, before, elsewhere, {})).toBe("removed");
+  // An edit somewhere else entirely leaves the flagged line as it was.
+  expect(afterOf({ line: 4 }, before, before.replace("- the hose leaks", "- the hose is fixed"), {})).toBe("- dig, sow and mulch the long bed before the frost");
+});
+
+test("a page with the joined table from before rows opened the finding gains row: record, once", async () => {
+  const { SUGGESTIONS_PAGE, upgradeSuggestionsPage } = await import("../src/jev-suggestions");
+  const old = SUGGESTIONS_PAGE.split("\n").filter(l => l !== "row: record").join("\n");
+  expect(old).not.toContain("row: record");
+  const up = upgradeSuggestionsPage(old);
+  expect(up).toBe(SUGGESTIONS_PAGE);
+  expect(upgradeSuggestionsPage(up)).toBe(up);
 });
 
 test("a page from before PIE-1539 gets the one joined table where its findings table was, and loses the outcome table", async () => {
