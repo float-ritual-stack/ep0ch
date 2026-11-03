@@ -116,7 +116,7 @@ function lineOfList(w: RowWorld<any>, key: string | undefined): number | undefin
   return undefined;
 }
 
-/** The container drawn in the block on note line `line`: a collection, else the first (j) or last (k) inline list there. Null when it draws no rows. */
+/** The container drawn in the block on note line `line`: a collection, else the first (j) or last (k) inline list there, else a list view's rows. Null when it draws no rows. */
 export function rowContainerOn<E extends RowElement>(w: RowWorld<E>, line: number, by: 1 | -1): RowContainer | null {
   for (const e of w.elems) {
     const l = collection(w, e.link?.listRow?.key);
@@ -124,7 +124,13 @@ export function rowContainerOn<E extends RowElement>(w: RowWorld<E>, line: numbe
   }
   const inline = w.elems.filter(e => e.link?.inlineList && w.lineOf(e) === line);
   const place = by > 0 ? inline[0] : inline.at(-1);
-  return place ? inlineContainer(w, place, undefined) : null;
+  if (place) return inlineContainer(w, place, undefined);
+  // A list whose rows aren't an inline list (an extension's list view): its view lands, as from its control.
+  for (const e of w.elems) {
+    const key = e.link?.listRow?.key, l = e.link?.listRow?.row !== undefined && w.lineOf(e) === line ? w.lists.find(l => l.key === key) : undefined;
+    if (l) return listContainer(w, l, line);
+  }
+  return null;
 }
 
 /** A collection no note line names (a saved view opened as its own note is only its rows): the walk's last resort, j landing on the kept pick. */

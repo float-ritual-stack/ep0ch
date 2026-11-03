@@ -99,6 +99,13 @@ describe("row containers", () => {
     expect(rowContainerAt(world())!.step(1)).toBe("moved");
     expect(rowContainerAt(world())!.step(1)).toBe("edge");
     expect(picked).toEqual(["Spade", "Fork"]);
+    // A walk landing on its block (j from above, or esc then j) goes in at its first row; k from below at its last.
+    rowContainerOn(world(), 7, 1)!.land("first");
+    rowContainerOn(world(), 7, -1)!.land("last");
+    expect(picked).toEqual(["Spade", "Fork", "Spade", "Fork"]);
+    // A ::links list is a ListView too, but its rows are an inline list: that one lands.
+    expect(rowContainerOn(world(), 3, 1)!.land("first")).toBe(true);
+    expect(d.at.at(-1)).toBe("Letter 1");
   });
 
   test("off every container there is none; a figure drawing no rows keeps its control", () => {
