@@ -544,11 +544,13 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await until(() => !s.folded.size, "unfolded by f");
     expect(screen()).toContain("Carrots by the shed");
     // The mouse: a click on the heading folds it (press and release on the same cell).
-    const col = paneOf(r) as any, row = col.rows.findIndex((h: any) => h.fold);
+    const col = paneOf(r) as any, row = col.rows.findIndex((h: any) => h.targets?.some((t: any) => "fold" in t));
     expect(row).toBeGreaterThanOrEqual(0);
     const y = row + col.headRows;
-    col.mouse({ kind: "mouse", action: "down", button: 0, x: 2, y }, 2, y, river);
-    col.mouse({ kind: "mouse", action: "up", button: 0, x: 2, y }, 2, y, river);
+    // Every press target on the note's rows is one index the surface presses (PIE-1543).
+    const x = col.rows[row].targets.find((t: any) => "fold" in t).from;
+    col.mouse({ kind: "mouse", action: "down", button: 0, x, y }, x, y, river);
+    col.mouse({ kind: "mouse", action: "up", button: 0, x, y }, x, y, river);
     await until(() => s.folded.size === 1, "folded by a click");
     text = screen();
     expect(text).not.toContain("Carrots by the shed");

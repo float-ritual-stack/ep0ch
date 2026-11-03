@@ -3,7 +3,7 @@
   "id": "facet-garden",
   "version": 1,
   "name": "Garden seed facets",
-  "description": "A made-up seed catalogue demonstrating facet sources outside the outline.",
+  "description": "A made-up seed catalogue, to try facet sources that read from outside the outline.",
   "run": ["bun", "seeds.ts"],
   "actions": [{ "id": "rows", "label": "Read seed catalogue", "on": "outline", "effects": "read" }],
   "facetSources": [{ "id": "seeds", "title": "Garden seeds", "read": "rows" }]

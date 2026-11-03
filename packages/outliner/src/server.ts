@@ -660,15 +660,6 @@ export class OutlinerServer {
     this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
   }
 
-  /** `extensions.list`'s page fields: the hub, each extension's page, how many demo notes each has left, and the repo's extensions not installed here. */
-  private extensionPagesListed(): { hub?: string; pages: Record<string, string>; demos: Record<string, number>; disabledRules: Record<string, number>; available: readonly import("./extension-pages").AvailableExtension[]; pagesProblem?: string } {
-    const hub = this.extensionPages.hub();
-    return {
-      ...(hub ? { hub } : {}), pages: this.extensionPages.pages(), demos: this.extensionPages.demoCounts(), disabledRules: this.extensionPages.disabledRules(), available: this.extensionPages.availableNow(),
-      ...(this.extensionPages.problem ? { pagesProblem: this.extensionPages.problem } : {}),
-    };
-  }
-
   /**
    * A script's `act("ext.<id>.<action>", args)`: `extensions.act` as the calling run's requester asks it, at its MCP
    * access, with `block=` (or `blockId=`) and `line=` taken from the args. A script it starts is waited for, so the
@@ -2480,7 +2471,7 @@ export class OutlinerServer {
             return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}), ...(keys.length ? { keys } : {}), ...(held ? { held } : {}), ...(settings ? { settings } : {}) };
           }));
           // Resource providers: the folders' (listed) and the legacy registry's.
-          result = { ...listed, extensions, resourceProviders: this.resourceProviders, grants: this.agentRequests.grants(), ...this.extensionRules.list(), ...this.extensionPagesListed() };
+          result = { ...listed, extensions, resourceProviders: this.resourceProviders, grants: this.agentRequests.grants(), ...this.extensionRules.list(), ...this.extensionPages.listed() };
         } else if (request.action === "extensions.schedule.run") {
           // Run a schedule now (PIE-754), recorded like any run of it.
           if (typeof request.extension !== "string" || typeof request.entry !== "string") throw new Error("extensions.schedule.run needs extension and entry (action:<id> or handler:<key>)");
@@ -3226,7 +3217,7 @@ export class OutlinerServer {
             { position: request.position, requestId: request.requestId });
           break;
         case "notes.create":
-          result = this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance);
+          result = request.dryRun === true ? { placement: this.store.placeNote(titled(request.text ?? ""), readNewNoteIntent(request.intent)) } : this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance);
           break;
         case "notes.route": {
           // PIE-1010: the moves are ext:route's; who asked is recorded beside them.

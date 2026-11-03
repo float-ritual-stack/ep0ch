@@ -1,6 +1,6 @@
 /*
  * The write gate (PIE-1544, ADR 0005): the one place that decides what an agent's write becomes. Every surface an agent
- * writes through asks it — the MCP gateway and stdio server, the Claude mod and the CLI's agent operations, a script's
+ * writes through asks it — the MCP gateway and stdio server, the Claude mod and the CLI's agent operations, the CLI's plain writes with --author agent, a script's
  * tools and place(), scripts.run, the netmail drain — passing who is calling and its cap as data. It answers the level
  * the caller writes at and what the write becomes: applied, proposed as a patch beside the note, proposed as a comment
  * on it, or refused, with the words every surface says. Pure: no I/O; the caller reads `mcp.access.status` (yolo

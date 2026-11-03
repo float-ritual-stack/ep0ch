@@ -2,12 +2,13 @@
 // Extensions hub, a page per installed extension, demo notes written once as the extension, install and uninstall.
 // Everything is made up.
 import { afterEach, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { readDemo, rewriteDemoReferences } from "../src/extension-demo";
-import { actionArgTables, inertDocument, unwrapParagraphs } from "../src/extension-pages";
+import { actionArgTables, extensionAbout, inertDocument, unwrapParagraphs, type ExtensionAbout } from "../src/extension-pages";
+import { loadExtensionManifest } from "../src/extension-manifest";
 import { figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
@@ -17,7 +18,7 @@ import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
-interface Listed { hub?: string; pages: Record<string, string>; available: { id: string; name: string }[]; extensions: { id: string; state: string }[] }
+interface Listed { hub?: string; pages: Record<string, string>; available: { id: string; name: string; about: ExtensionAbout }[]; about: Record<string, ExtensionAbout>; extensions: { id: string; state: string }[] }
 
 async function setup() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-ext-pages-")));
@@ -131,6 +132,56 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   expect(after.kind === "changes" && before.kind === "changes" ? after.changes.length - before.changes.length : -1).toBe(0);
   expect(await children(listed.pages.notify!)).toHaveLength(3);
   void client;
+});
+
+test("an extension not installed says what installing it gives you, in the words its row has once installed (PIE-1549)", async () => {
+  const { list, client } = await setup();
+  const listed = await list();
+  const about = (id: string) => listed.available.find((entry) => entry.id === id)!.about;
+  // Its README's opening (no # title, no later sections), what it adds with each part's own words and key.
+  expect(about("moon").readme).toStartWith("The moon's phase on a date, written into the note as a real block.");
+  expect(about("moon").readme).not.toContain("# Moon");
+  expect(about("moon").readme).not.toMatch(/^## /m);
+  expect(about("moon").adds.some((line) => line.startsWith("- `moon::` lines:"))).toBe(true);
+  expect(about("marginalia").adds).toContain("- Action **Highlight** (`ext.marginalia.highlight`, on selected words, key `h`, writes): Highlight the passage, in a tone");
+  // The demo notes it would write, by title; what it reads from the host.
+  expect(about("lens").demo.length).toBeGreaterThan(0);
+  expect(about("moon").demo).toEqual([]);
+  expect(about("sysop").needs.some((line) => line.includes("`SSH_AUTH_SOCK`"))).toBe(true);
+  // Installed, the same reading of its folder: what the install row said is what its row says.
+  expect(listed.about.runbook!.adds).toContain("- Action **Run this step** (`ext.runbook.run-step`, on a `run::` line, key `x`, writes)");
+  expect(listed.about.runbook!.demo).toContain("Ship the demo widget");
+  const before = about("moon");
+  await client.request({ action: "extensions.install", extension: "moon" });
+  expect((await list()).about.moon).toEqual(before);
+  // Settings before install name what to set and the command once it's installed, never the repo copy's config.json.
+  const marginalia = about("marginalia").adds.find((line) => line.startsWith("- **Settings,** once it's installed"))!;
+  expect(marginalia).toContain("ext.marginalia.settings");
+  expect(marginalia).not.toContain("config.json");
+  expect(about("marginalia").adds.join("\n")).not.toContain(join(import.meta.dir, "..", "extensions"));
+  expect(listed.about.notify!.adds.find((line) => line.startsWith("- **Settings:**"))).toContain("config.json");
+});
+
+test("a note's script describes itself from its note, never from the folder's README (PIE-1549)", async () => {
+  const { outline, list, client } = await setup();
+  writeFileSync(join(outline, "README.md"), "# Not the script\n\nThe project's own README.\n");
+  await client.request({ action: "create", parentId: null, text: ["Errand board [script::errand-board] [mode::render]", "```js", "return 1", "```"].join("\n"), author: "user" });
+  const listed = await list();
+  const script = (listed.extensions as { id: string; script?: unknown }[]).find((entry) => entry.script);
+  expect(script).toBeDefined();
+  expect(listed.about[script!.id]).toBeUndefined();
+  expect(JSON.stringify(listed.about)).not.toContain("The project's own README");
+});
+
+test("every built-in says what it is in one short sentence, and its README opens with what it does (PIE-1549)", () => {
+  const root = join(import.meta.dir, "..", "extensions");
+  for (const name of readdirSync(root).sort()) {
+    const { manifest } = loadExtensionManifest({ manifestRaw: readFileSync(join(root, name, "extension.json"), "utf8"), configRaw: "{}", origin: "user", directory: join(root, name), expectedId: name, idFrom: "the folder's name" }, { checkConfig: false });
+    // The row shows the first sentence: one that ends before a capital, as the door's firstSentence reads it.
+    const first = (manifest.description ?? "").match(/^.*?[.!?](?=\s+["'(\[*_`]*[\p{Lu}\d]|\s*$)/u)?.[0] ?? manifest.description ?? "";
+    expect({ name, first, short: first.length > 0 && first.length <= 100 }).toEqual({ name, first, short: true });
+    expect({ name, readme: !!extensionAbout(manifest, join(root, name)).readme }).toEqual({ name, readme: true });
+  }
 });
 
 test("install from the repo, reinstall keeps your edits and adds nothing twice, uninstall asks what becomes of the demo", async () => {

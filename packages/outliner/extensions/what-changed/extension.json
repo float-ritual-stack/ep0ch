@@ -3,7 +3,7 @@
   "id": "what-changed",
   "version": 1,
   "name": "What changed",
-  "description": "The notes others changed since you last looked, newest first: who, what and when; ⏎ opens the note. The door's +N new (alt+o) opens it in your drawer.",
+  "description": "The notes others changed since you last looked, newest first. Who, what and when; ⏎ opens the note, and the door's +N new (alt+o) opens it in your drawer.",
   "defaultOn": true,
   "run": [
     "bun",
