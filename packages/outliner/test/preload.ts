@@ -1,10 +1,15 @@
 // Every test service reads extensions only from folders a test gives it: never the owner's real
 // ~/.config/pi-herdr-outliner/extensions (its code and secrets). A test that wants a user folder sets
 // OUTLINER_EXTENSIONS_DIR itself.
+import { afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import "../../../scripts/fake-ssh-owner";
 import "../../../scripts/host-free-guard";
+import { runTestCleanups } from "./test-cleanups";
+
+// A preload's hook runs after every test of every file: the shared helpers' cleanups (test/test-cleanups.ts).
+afterEach(runTestCleanups);
 
 process.env.OUTLINER_EXTENSIONS_DIR ??= join(tmpdir(), `outliner-test-no-user-extensions-${process.pid}`);
 
