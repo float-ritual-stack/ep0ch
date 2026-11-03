@@ -1,7 +1,9 @@
-// One search scheduler (PIE-1382): what asks the host as the person types or the outline changes (the power bar's
-// sources, the completer's lookup, a query tile's reload) goes through a `SearchSchedule`, which owns the pause, the
-// latest-wins rule and stopping what a newer ask replaced. A path holds no timer or generation counter of its own: it
-// begins a turn, asks with the turn's `signal`, and keeps an answer only while the turn is `alive`.
+// One search scheduler (PIE-1382): what asks the host as the person types or the outline changes goes through a
+// `SearchSchedule`, which owns the pause, the latest-wins rule and stopping what a newer ask replaced. Its users: the
+// power bar's sources, the completer's lookup, a query tile's reload, and every read again after an outline change
+// (the board's lanes, Matches, the links tile, the tree, a reader pinned to a page, a list the service answers;
+// PIE-1395). A path holds no timer or generation counter of its own: it begins a turn, asks with the turn's `signal`
+// (where the request takes one), and keeps an answer only while the turn is `alive`.
 // The clock is one for the door: tests swap in a `FakeSearchClock` and run the pauses out on their own time.
 
 /** When a pause runs out: the door's real timers, or a test's fake. `after` answers a function that cancels it. */
@@ -77,6 +79,9 @@ export class SearchSchedule {
   turn: SearchTurn | null = null;
   private paused: { run: () => void; cancel: () => void } | null = null;
   constructor(readonly pauseMs: number) {}
+
+  /** A pause is waiting to run (a burst still coming in): what was read may already be older than the outline. */
+  get waiting(): boolean { return this.paused !== null; }
 
   /** A new turn: the one before it ends (its requests aborted) and a waiting pause is dropped. */
   begin(): SearchTurn {

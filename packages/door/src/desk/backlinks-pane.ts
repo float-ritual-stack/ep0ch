@@ -3,6 +3,7 @@ import { waitingText } from "../text";
 import { standsAsPerson } from "../surface/dispatch";
 import { NOBODY } from "../whereabouts";
 import { outlineBoards, readTarget } from "./outline-boards";
+import { SearchSchedule } from "../search-schedule";
 // The links tile (kind `backlinks`, PIE-432, PIE-442): the links of a note, its *subject*, in the shared links model
 // (src/links.ts): its Outlinks, its Resources, its Backlinks and its
 // Children (PIE-693: the notes under it, a thread's replies), the backlinks grouped, filtered and sorted as Detail
@@ -161,8 +162,8 @@ export class BacklinksPane implements Pane {
   /** The status line's controls as last drawn (for clicks), and how many rows it took. */
   private controls: StatusSeg[] = [];
   private head = 1;
-  private reload: Timer | null = null;
-  private asked = 0;
+  /** Its reads (PIE-1395): a burst of outline changes reads once, a pause after the last; a newer read ends the one before, and only its answers are kept. */
+  private readonly search = new SearchSchedule(500);
   private openedFor: string | null = null;
   /** Given the keys before its rows were read: the selected row shows once they are (and as whom). */
   private showOnLoad: Actor | null = null;
@@ -338,28 +339,28 @@ export class BacklinksPane implements Pane {
     this.target = m;
     if (!keepSel) { this.data = null; this.authored = { kind: "loading" }; this.sel = 0; this.list.view.reset(); }
     this.problem = "";
-    const n = ++this.asked;
+    const turn = this.search.begin();
     if (!m) return;
     const board = m.address ? (await outlineBoards(desk.ctx).on(m.address)).board : desk.ctx.board;
-    if (n !== this.asked) return;
+    if (!turn.alive()) return;
     if (!keepSel) { this.children = { kind: "loading" }; this.parents = { kind: "loading" }; }
     if (this.groups.includes("children")) void this.loadChildren(m, desk);
     if (this.groups.includes("parents")) void this.loadParents(m, desk);
     // Its authored links (Outlinks, Resources) come beside the backlinks; the list draws each as it lands.
     void board.request("blocks.authored-links", { ownerBlockId: m.id }).then(v => {
-      if (n !== this.asked) return;
+      if (!turn.alive()) return;
       const before = rowKey(this.rows()[this.sel]);
       this.keepSel(() => { this.authored = { kind: "ready", value: v }; }, !keepSel && !this.data);
       // The selection moved onto a link that came with them: shown, as moving to it would, while the list has the keys.
       if (this.data && rowKey(this.rows()[this.sel]) !== before && desk.hasFocus?.(this)) this.showSelected(desk, USER);
       desk.redraw();
     },
-      (e: Error) => { if (n === this.asked) { this.authored = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
+      (e: Error) => { if (turn.alive()) { this.authored = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
     // A tile that doesn't list Backlinks doesn't ask for them: an empty collection stands in, so a slow or failed
     // backlinks read never holds up (or hides) the groups it does list.
     const backlinks = this.groups.includes("backlinks") ? board.backlinks(m.id) : Promise.resolve<BacklinkCollection>({ targetBlockId: m.id, sources: [], completeness: { kind: "complete" } } as BacklinkCollection);
     return backlinks.then(data => {
-      if (n !== this.asked) return;
+      if (!turn.alive()) return;
       // A re-read keeps the selected row: the one selected now, not when it was asked (the person may have moved since).
       const was = keepSel ? rowKey(this.rows()[this.sel]) : undefined;
       this.data = data;
@@ -371,7 +372,7 @@ export class BacklinksPane implements Pane {
       this.showOnLoad = null;
       if (by) this.showSelected(desk, by);
       desk.redraw();
-    }, (e: Error) => { if (n === this.asked) { this.problem = `couldn't ask for backlinks: ${e.message}`; this.data = null; desk.redraw(); } });
+    }, (e: Error) => { if (turn.alive()) { this.problem = `couldn't ask for backlinks: ${e.message}`; this.data = null; desk.redraw(); } });
   }
 
   /** The notes under `m` and their facets (the Children group), drawn as they land, the selection kept. */
@@ -412,10 +413,9 @@ export class BacklinksPane implements Pane {
   /** Something changed in the outline: the list is asked again (once per burst), its selection kept. A draft isn't a change to what links here. */
   onEvent(desk: DeskApi, e?: OutlineEvent) {
     if (!this.target || e?.change?.kind === "draft") return;
-    if (this.reload) clearTimeout(this.reload);
-    this.reload = setTimeout(() => { this.reload = null; void this.load(this.target, desk, true); }, 500);
+    this.search.pause(() => void this.load(this.target, desk, true));
   }
-  dispose() { if (this.reload) clearTimeout(this.reload); }
+  dispose() { this.search.cancel(); }
 
   /** The selected backlink's first occurrence, as quoted text on one line ("" for anything else). */
   snippet(): string {

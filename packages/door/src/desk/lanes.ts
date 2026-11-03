@@ -40,6 +40,7 @@ import { ReaderPane, type Pane } from "./panes";
 import type { ColumnsHost, SourceModel, TileSource } from "./tile-kinds";
 import { CHECKLIST_STATUSES, isChecklistStatus, stepClosed, stepDone } from "@ep0ch/outline-core/checklist-marks";
 import { STEP_CHOICES, STEP_BOXES, statusWord, stepTitle } from "../steps";
+import { SearchSchedule, type SearchTurn } from "../search-schedule";
 
 /** A lane: a query tile of the board's hub (its view, cards, cursor and read). */
 type Lane = QueryPane;
@@ -83,7 +84,8 @@ export class Lanes implements SourceModel {
   lastMove: { card: string; to: string; result: string; by?: string } | null = null;
   /** Lanes waiting to be asked again, gathered from change records and read together. */
   private dirtyLanes = new Set<Lane>();
-  private reload: Timer | null = null;
+  /** The burst's pause and its turn (PIE-1395): the lanes are marked read again once the changes stop, on the door's one clock. */
+  private readonly reload = new SearchSchedule(150);
   /** How the board has refreshed, for `peek` and tests: whole-board reloads vs lanes asked again. */
   refreshes = { full: 0, lanes: 0, readers: 0, skipped: 0 };
   /** Names of the lanes asked again, oldest first (tests and `peek`). */
@@ -197,7 +199,7 @@ export class Lanes implements SourceModel {
   unsaved() { return !!this.composer?.session.dirty; }
   keepDrafts() { const c = this.composer; return c?.session.dirty ? [c.session.keep()] : []; }
   save(): LanesSaved { const l = this.laneTile(); return { hubs: this.hubs, ...(l ? { lane: l.name } : {}) }; }
-  dispose() { if (this.reload) clearTimeout(this.reload); }
+  dispose() { this.reload.cancel(); }
   draftBlock(actor: Actor): string | null { return this.selectedCardOr(actor); }
 
   onEvent(e: OutlineEvent) {
@@ -358,7 +360,7 @@ export class Lanes implements SourceModel {
 
   /** Everything again: after a reconnect the door couldn't catch up on. Drafts are kept, only marked. */
   private reloadAll() {
-    if (this.reload) clearTimeout(this.reload);
+    this.reload.cancel();
     if (this.hub) this.loadLanes();
     for (const r of this.readers()) {
       const m = r.msg;
@@ -421,7 +423,7 @@ export class Lanes implements SourceModel {
    * The settled burst's plans: each changed block's lanes asked of the service, or, past PLAN_BURST blocks (a backfill,
    * an import: PIE-1413, a plan of every lane per record), every lane read again once instead.
    */
-  private plan() {
+  private plan(turn: SearchTurn) {
     const ids = [...this.planning];
     this.planning.clear();
     const ready = () => this.lanes.filter(l => l.read?.status === "ready");
@@ -430,8 +432,10 @@ export class Lanes implements SourceModel {
       const others = ready().filter(l => !l.items?.some(m => m.id === id));
       if (!others.length) continue;
       this.host.ctx.board.planMoves(others.map(l => l.view), id).then(r => {
-        this.markLanes(others.filter(l => r.plans.get(l.view)?.kind === "already"));
-      }, () => this.markLanes(this.lanes));
+        if (turn.alive()) this.markLanes(others.filter(l => r.plans.get(l.view)?.kind === "already"));
+        // A newer burst settled first (not put away: that turn is alive): this block is planned again after it.
+        else if (this.reload.turn?.alive()) { this.planning.add(id); this.armReload(); }
+      }, () => { if (turn.alive()) this.markLanes(this.lanes); });
     }
   }
 
@@ -470,14 +474,13 @@ export class Lanes implements SourceModel {
 
   /** In 150 ms of quiet: the burst's plans asked, then the lanes marked read again. */
   private armReload() {
-    if (this.reload) clearTimeout(this.reload);
-    this.reload = setTimeout(() => {
-      this.reload = null;
-      if (this.planning.size) this.plan();
+    this.reload.pause(() => {
+      const turn = this.reload.begin();
+      if (this.planning.size) this.plan(turn);
       const which = this.lanes.filter(l => this.dirtyLanes.has(l));
       this.dirtyLanes.clear();
       if (which.length) this.loadLanes(which.length === this.lanes.length ? this.lanes : which, "changed");
-    }, 150);
+    });
   }
 
   /** A lane's `[summary-properties::…]` decides the summary for the cards it lists (the selected lane first). */

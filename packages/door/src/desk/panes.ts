@@ -32,6 +32,7 @@ import type { TileKindName } from "./tile-kinds";
 import type { ListPicker } from "../surface/picker";
 import { newNoteOffer, type KeySpot } from "../new-note";
 import { prop } from "../props";
+import { SearchSchedule } from "../search-schedule";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
 export interface PaneView { wide?: { row: number; col: number; cols: number }[]; frame?: Rect; headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
@@ -481,7 +482,8 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   /** Its page didn't resolve when last asked (no note has `[page::…]` yet): it says so, and asks again as the outline changes. */
   pageMissing = false;
-  private pageAsk: Timer | null = null;
+  /** Its page asks (PIE-1395): a burst of outline changes asks once, a pause after the last; only the newest answer is shown. */
+  private readonly pageAsk = new SearchSchedule(400);
   /**
    * Ask for the page it's pinned to and show it (`pinnedTo`). It asks again as the outline changes (onEvent): a page that
    * isn't there yet is waited for, and an address that moves to another note (`[page::today]` on today's) is followed.
@@ -489,8 +491,9 @@ export class ReaderPane implements Pane, AttachedOwner {
   async resolvePin(desk: DeskApi) {
     const page = this.pinPage;
     if (!page) return;
+    const turn = this.pageAsk.begin();
     const res = await this.context(desk).board.resolvePage(page).catch(() => null);
-    if (this.pinPage !== page) return;
+    if (!turn.alive() || this.pinPage !== page) return;
     this.pageMissing = !(res?.status === "resolved" && res.block);
     if (res?.block && !this.pageMissing) this.pinnedTo(res.block, desk);
     desk.redraw();
@@ -507,7 +510,7 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   unsaved() { return this.surface.unsaved(); }
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
-  dispose() { if (this.pageAsk) clearTimeout(this.pageAsk); this.offOutlineEvents?.(); this.surface.dispose(); }
+  dispose() { this.pageAsk.cancel(); this.offOutlineEvents?.(); this.surface.dispose(); }
   /**
    * A reader the person owns is a "detail" (the glossary's word: it keeps the note opened into it), which a host may
    * label ("detail 1" in the board's readers row); one its screen owns is a "reader". The pin chip says whether it's pinned.
@@ -751,8 +754,7 @@ export class ReaderPane implements Pane, AttachedOwner {
     this.surface.onEvent(this.host(desk));
     // Pinned to a page: the outline changed, so ask again (it may have arrived, or moved to another note).
     if (!this.pinPage) return;
-    if (this.pageAsk) clearTimeout(this.pageAsk);
-    this.pageAsk = setTimeout(() => { this.pageAsk = null; void this.resolvePin(desk); }, 400);
+    this.pageAsk.pause(() => void this.resolvePin(desk));
   }
   /** The draft, comment session or property panel holding the reader's keys, or null while reading. */
   sessionOf() { return this.surface.sessionOf(); }
