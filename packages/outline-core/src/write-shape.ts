@@ -657,7 +657,8 @@ export function asksEvan(line: string): boolean {
 
 /** A line's own words: a link's address, a bare URL, a code span and a reference target are never its punctuation. */
 const proseOf = (line: string): string =>
-  line.replace(/`[^`]*`/g, " ").replace(/\]\([^)]*\)/g, "]").replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, " ").replace(/\(\([^)]*\)\)|\[\[[^\]]*\]\]/g, " ");
+  line.replace(/(`+)[\s\S]*?\1/g, " ").replace(/\]\([^)]*\)/g, "]").replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s<>]*[^\s<>?.,;:!)]/gi, " ")
+    .replace(/\(\([^)|]*(?:\|([^)]*))?\)\)/g, (_, label) => label ?? " ").replace(/\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g, (_, page, label) => label ?? page);
 
 /**
  * The findings for a write's answer, each worded as a gate. With `before` (the text the write changed), a finding the

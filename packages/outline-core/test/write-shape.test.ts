@@ -415,4 +415,8 @@ test("a ? inside a link's address, a code span or a reference isn't a question",
   expect(writeShape(note("Oct 5, Evan ran `grep -c 'a?b'` on the list.")).map(f => f.rule)).not.toContain("question");
   expect(writeShape(note("Oct 5, Evan wrote https://example.org/plan?draft=1 for the beds.")).map(f => f.rule)).not.toContain("question");
   expect(writeShape(note("Evan, should the beds get compost first?")).map(f => f.rule)).toContain("question");
+  expect(writeShape(note("Oct 5, Evan ran ``a?b`` on the list.")).map(f => f.rule)).not.toContain("question");
+  // A label is read text, and a ? after an address is the sentence's.
+  expect(writeShape(note("Evan, is ((abcdefgh|this bed ready?))")).map(f => f.rule)).toContain("question");
+  expect(writeShape(note("Evan, use <https://example.org/plan>?")).map(f => f.rule)).toContain("question");
 });
