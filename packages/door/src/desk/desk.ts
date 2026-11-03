@@ -69,7 +69,7 @@ import { join } from "node:path";
 import { hyperBindings, hyperLabel, hyperOn } from "../hyper";
 import { scriptBindings } from "../extensions";
 import { containerKeys, leafNames, slotNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
-import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
+import { saveScreenNote, ScreenConflict, screenNote, screenNotes, trashScreenNote } from "./screen-notes";
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme } from "../theme";
 import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term";
@@ -6511,8 +6511,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (refused) throw new ActionRefused(refused);
     name = screenSlug(title);
     // A screen as data (specData): this one's spec with the layout as it is now, never the file it keeps itself in.
-    const { saves: _saves, stays: _stays, ...rest } = this.spec;
-    const spec: ScreenSpec = { ...rest, name, title, layout: this.layoutSpec() };
+    const { saves: _saves, stays: _stays, menu: _menu, ...rest } = this.spec, menu = screenNote(name)?.spec.menu;   // its menu row is its note's (screen.menu, menu-rows.ts), never the copy it opened with
+    const spec: ScreenSpec = { ...rest, name, title, layout: this.layoutSpec(), ...(menu ? { menu } : {}) };
     // The shape written, as it is now: a change made while the note is being written is still a change.
     const shape = this.shapeNow();
     let saved;

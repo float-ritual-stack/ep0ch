@@ -82,14 +82,21 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     ch("j"); ch("j"); ch("j");
     await until(() => screen().includes("The body of the ask."), "j picks the next; the reader follows");
     expect(read()).toBe(brook.id);
+    // The ask shown is answered (marked done, here by an agent): the list moves to the next row, and the reader with it.
+    const shown = (await board.get(brook.id))!;
+    await board.update(brook.id, shown.text.replace("[outbox::waiting]", "[outbox::done]"), shown.revision!, { kind: "agent", id: "test-agent" });
+    await until(() => !screen().includes("Brook · 1 waiting"), "Brook's ask gone from the list", 8000);
+    await until(() => !!read() && read() !== brook.id && read() === list().subject(), "the reader on the list's new pick", 8000);
   });
 
   test("an agent picks by list.pick, said on screen; waiting.pick names the action that works", async () => {
     (app as any).lastInput = 0;                                                     // the person is idle
     // The lists' one set: an agent's pick is its own (the person's stays where they left it), answered with the row.
+    const before = (top().pane("reader") as any).msg?.id;
+    expect(before).not.toBe(ada.id);
     const picked = await app.act({ action: "list.pick", tile: "waiting", args: { id: ada.id }, as: "test-agent" });
     expect(JSON.stringify(picked)).toContain(ada.id);
-    expect((top().pane("reader") as any).msg?.id).toBe(brook.id);
+    expect((top().pane("reader") as any).msg?.id).toBe(before);
     await expect(app.act({ action: "waiting.pick", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/list\.pick/);
     ch("q");
   });
@@ -106,7 +113,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     expect(rows()).toContain("O Waiting");
     await app.act({ action: "screen.open", args: { name: "O" } });
     expect(top().name).toBe("waiting");
-    await until(() => screen().includes("outbox · 4 waiting on 3"), "the same list again");
+    await until(() => screen().includes("outbox · 3 waiting on 2"), "the same list again");
     ch("q");
   });
 
@@ -116,6 +123,9 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     expect(top().name === "blank" || top().name === "potting-bench").toBe(true);
     const r = await app.act({ action: "screen.menu", args: { key: "y", label: "Potting" } }) as any;
     expect(r).toMatchObject({ screen: "potting-bench", menu: { key: "Y", label: "Potting" } });
+    expect(rows()).toContain("Y Potting");
+    // Saving the screen again keeps its row: the note owns it, never a copy the open screen held from before.
+    await app.act({ action: "screen.save", args: { name: "Potting bench" } });
     expect(rows()).toContain("Y Potting");
     // Another door on the outline reads the screen notes afresh: the row is in the note.
     forgetScreenNotes();
@@ -128,6 +138,8 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     expect(rows()).toContain("Potting");
     expect((new MainMenu().describe() as any).problems?.[0]).toMatch(/C is Welcome's/);
     await app.act({ action: "screen.menu", args: { name: "potting-bench", off: true } });
+    expect(rows().some(r => r.includes("Potting"))).toBe(false);
+    await app.act({ action: "screen.save", args: { name: "Potting bench" } });
     expect(rows().some(r => r.includes("Potting"))).toBe(false);
     ch("q");
   });

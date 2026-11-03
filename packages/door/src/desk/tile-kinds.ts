@@ -545,8 +545,9 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
           // The first list is the tile's: its rows go to the one ListView, which keeps the pick and the filter across redraws.
           if (this.listNode) { const v = new ListView("other"); v.set(listRowsOf(node)); return v.draw({ primitive: node, cols: width, lines: 2, focused: false, selection: false, empty: node.empty }).lines; }
           this.listNode = node;
+          const was = this.list.picked()?.id;
           this.list.set(listRowsOf(node));
-          this.showFirst(desk);
+          this.showFirst(desk, was);
           const d = this.list.draw({ primitive: node, cols: width, lines: 2, focused, selection: true, room: h, empty: node.empty ?? "nothing here" });
           return d.lines.map((l, i) => markRow(d.rowAt[i] ?? null) + l);
         },
@@ -557,15 +558,18 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
     const lines = drawn.map((l, i) => (marked[i] ? l.slice(marked[i]![0].length) : l));
     return { lines: lines.slice(0, h) };
   }
-  /** The row last handed to the previews by itself (showFirst), so a redraw never asks twice. */
+  /** The row last handed to the previews (a pick, or showFirst), so a redraw never asks twice. */
   private shownFirst: string | null = null;
   /**
-   * The picked row, to the previews its select wire feeds while they show nothing yet (PIE-1525: Waiting's reader shows
-   * the longest wait as it opens), as the tree does with its first row; a reader already showing something keeps it.
+   * The picked row, to the previews its select wire feeds (PIE-1525), through the same path a pick takes: while they show
+   * nothing yet (Waiting's reader shows the longest wait as it opens, as the tree shows its first row), and when the
+   * rows that came back moved the pick off the row they showed (that ask was answered and left the list).
    */
-  private showFirst(desk: DeskApi) {
+  private showFirst(desk: DeskApi, was: string | undefined) {
     const row = this.list.picked();
-    if (!row || row.id === this.shownFirst || !listOpenTarget(row)?.block || desk.shownNow?.(this) === false || !desk.previewsEmpty?.(this)) return;
+    if (!row || row.id === this.shownFirst || !listOpenTarget(row)?.block || desk.shownNow?.(this) === false) return;
+    const moved = was !== undefined && was === this.shownFirst && row.id !== was;
+    if (!moved && !desk.previewsEmpty?.(this)) return;
     this.shownFirst = row.id;
     void this.listHost(desk).picked(this.handle(desk), row);
   }
@@ -576,7 +580,7 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
     return { n: 1, key: "service", title: this.title(), view: this.list, entered: !!desk.hasFocus?.(this), describeRow: (row, n) => ({ n, ...(listOpenTarget(row)?.block ? { id: listOpenTarget(row)!.block! } : {}) }) };
   }
   listHost(desk: DeskApi): ListHost {
-    const show = async (row: ListViewRow, by: Actor) => { const id = listOpenTarget(row)?.block; const m = id ? await desk.ctx.board.get(id) : null; if (m && desk.showFrom && this.list.picked()?.id === row.id) desk.showFrom(this, m, by); desk.redraw(); };
+    const show = async (row: ListViewRow, by: Actor) => { if (by.kind !== "agent") this.shownFirst = row.id; const id = listOpenTarget(row)?.block; const m = id ? await desk.ctx.board.get(id) : null; if (m && desk.showFrom && this.list.picked()?.id === row.id) desk.showFrom(this, m, by); desk.redraw(); };
     return {
       lists: () => (this.listNode ? [this.handle(desk)] : []),
       current: () => "service",
