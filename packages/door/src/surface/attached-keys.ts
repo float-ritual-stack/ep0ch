@@ -40,7 +40,8 @@ export const COLUMN_MOVE_KEYS = keyTable("river column moves", "moving a river c
 export const LIST_MOVE_KEYS = TREE_MOVE_KEYS.map(binding => ({ ...binding, action: "note.move" }));
 
 export const REPLIES_KEYS: readonly ModeKey[] = keyTable("replies", "a note's replies, t in a reader", [
-  row("esc", "note.thread.close", "close replies"), row("q", "note.thread.close", "close replies"), row("t", "note.thread.close", "close replies"),
+  // A way back (PIE-1533): esc and alt+← (the reader's back) leave the replies for the note, as q and t do.
+  row("esc", "note.thread.close", "close replies"), row("alt+left", "note.thread.close", "close replies"), row("q", "note.thread.close", "close replies"), row("t", "note.thread.close", "close replies"),
   row("j", "note.thread.pick", "select", { by: 1 }), row("down", "note.thread.pick", "select", { by: 1 }), row("k", "note.thread.pick", "select", { by: -1 }), row("up", "note.thread.pick", "select", { by: -1 }),
   ...["enter", "shift+enter", "ctrl+enter"].map(key => say(row(key, "note.thread.open", "open"), "read the selected post")), row("alt+enter", "note.thread.open", "open beside", { fresh: true }),
   row("b", "note.thread.groups", "links"), row("T", "note.thread.full", "full list"),

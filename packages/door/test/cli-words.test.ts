@@ -14,6 +14,7 @@ import { renderHelp } from "../src/cli-help";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { hostRequest } from "../src/socket";
 import { ScratchHost } from "./scratch";
+import { earlyScreenRefusal } from "../src/screens";
 
 const MAIN = join(resolve(import.meta.dir, ".."), "src/main.ts");
 const dir = mkdtempSync(join(tmpdir(), "ep0ch-words-"));
@@ -28,13 +29,21 @@ function ep0ch(...args: string[]) {
 }
 
 describe("--screen never silently does nothing", () => {
-  test("an unknown screen with --showcase is refused before the showcase starts, with a command that works", () => {
-    const r = ep0ch("--showcase", "--screen", "No Such Screen");
+  test("a name no screen could have is refused before the showcase starts, with a command that works", () => {
+    const r = ep0ch("--showcase", "--screen", "!!!");
     expect(r.code).toBe(2);
-    expect(r.err).toContain('no screen "No Such Screen"');
+    expect(r.err).toContain('no screen "!!!"');
     expect(r.err).toContain("try ep0ch --screen ");
     expect(r.out).not.toContain("door → the showcase");
   }, 60_000);
+
+  test("an extension's screen or a made one is the door's to find, the showcase's too (PIE-1533)", () => {
+    // Waiting is an extension's screen; "daily test" is a title a person's screen note may have. Neither is known before
+    // the outline is read, so neither is refused here: the door opens it, or says it has none once it has read the outline.
+    for (const name of ["waiting", "daily test"]) expect(earlyScreenRefusal(name)).toBeNull();
+    expect(earlyScreenRefusal("desk")).toBeNull();
+    expect(earlyScreenRefusal("!!!")).toContain('no screen "!!!"');
+  });
 });
 
 describe("a word ep0ch doesn't know", () => {
