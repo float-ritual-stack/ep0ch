@@ -77,13 +77,7 @@ export class RemoteOutline {
     this.now = options.now ?? Date.now;
     this.mirror = new OutlineMirror<CopySocket>(this.outline, this.machine, options.mirrors, {
       label: "web mirror", log: this.log, now: this.now, schema: () => SCHEMA_VERSION,
-      attach: async (socket, outline) => {
-        const client = new OutlinerClient(socket, 90_000, outline);
-        const index = await client.request<{ blocks: { updatedAt?: number }[] }>({ action: "tree.index" });
-        let newest = 0;
-        for (const block of index.blocks) if (Number.isFinite(block.updatedAt) && block.updatedAt! > newest) newest = block.updatedAt!;
-        return { board: { socket }, newest, close: () => {} };
-      },
+      attach: async socket => ({ board: { socket }, close: () => {} }),
     });
   }
 
