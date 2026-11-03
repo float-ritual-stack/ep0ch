@@ -431,11 +431,12 @@ export class Lanes implements SourceModel {
     for (const id of ids) {
       const others = ready().filter(l => !l.items?.some(m => m.id === id));
       if (!others.length) continue;
+      // A newer burst settled first (not put away: that turn is alive): this block is planned again after it, answered or failed.
+      const again = () => { if (this.reload.turn?.alive()) { this.planning.add(id); this.armReload(); } };
       this.host.ctx.board.planMoves(others.map(l => l.view), id).then(r => {
         if (turn.alive()) this.markLanes(others.filter(l => r.plans.get(l.view)?.kind === "already"));
-        // A newer burst settled first (not put away: that turn is alive): this block is planned again after it.
-        else if (this.reload.turn?.alive()) { this.planning.add(id); this.armReload(); }
-      }, () => { if (turn.alive()) this.markLanes(this.lanes); });
+        else again();
+      }, () => { if (turn.alive()) this.markLanes(this.lanes); else again(); });
     }
   }
 

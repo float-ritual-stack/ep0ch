@@ -281,6 +281,29 @@ describe("every reload in the door goes through a SearchSchedule (PIE-1395)", ()
     burst(() => (lanes as any).markLanes([lane]), 150, () => reads, () => lanes.dispose());
   });
 
+  test("a lane plan a newer burst replaced is planned again with it, whether it answered or failed", async () => {
+    const lane = new QueryPane("v1", "#garden");
+    lane.read = { status: "ready", items: [], limit: 200, truncated: false, errors: [] } as never;
+    lane.items = [];
+    const plans: { id: string; settle: (ok: boolean) => void }[] = [];
+    const board = { get: async () => null, planMoves: (_v: string[], id: string) => new Promise((res, rej) => plans.push({ id, settle: ok => ok ? res({ revision: 1, plans: new Map() }) : rej(new Error("socket dropped")) })) };
+    const host = { ctx: { board, workspace: "w", flash() {} }, supplied: () => [lane], focusedPane: () => null, redraw() {}, save() {} };
+    const lanes = new Lanes(host as never, "c", null);
+    await Bun.sleep(0);
+    lanes.loadLanes = async () => {};
+    for (const ok of [true, false]) {
+      plans.length = 0;
+      (lanes as any).planning.add("b1"); (lanes as any).armReload(); clock.advance(150);
+      (lanes as any).planning.add("b2"); (lanes as any).armReload(); clock.advance(150);
+      expect(plans.map(p => p.id)).toEqual(["b1", "b2"]);
+      plans[0]!.settle(ok);
+      await Bun.sleep(0);
+      clock.advance(150);
+      expect({ ok, asked: plans.map(p => p.id) }).toEqual({ ok, asked: ["b1", "b2", "b1"] });
+    }
+    lanes.dispose();
+  });
+
   test("a list the service answers (the held asks)", async () => {
     let reads = 0;
     const list = new HeldAsks();
