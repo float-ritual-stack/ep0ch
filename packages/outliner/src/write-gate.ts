@@ -68,6 +68,10 @@ const AT_PROPOSE: Readonly<Record<string, Exclude<Becomes, "refused"> | { fullOn
   outline_proposal_resolve: { fullOnly: "settles a proposal", queued: "applied" },
   view_order: { fullOnly: "reorders a view" },
   artifact_deploy: { fullOnly: "deploys a site" },
+  // The CLI's operations with no tool definition (the mod's hooks run them): a file touch makes and updates its own
+  // note, which no proposal carries; figure-fit's comment mode only comments, as outline_comment does.
+  touch_file: { fullOnly: "writes a file-touch note" },
+  figure_fit: "applied",
   // A script's reach past the outline (host-api.ts): no proposal can carry it.
   act: { fullOnly: "dispatches door actions" },
   sh: { fullOnly: "runs commands" },

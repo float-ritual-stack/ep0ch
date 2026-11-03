@@ -801,10 +801,20 @@ async function gatedAgentOperation(operation: AgentOperationName, input: Record<
   const { AGENT_TOOL_DEFINITIONS } = await import("@ep0ch/outline-core/agent-tool-definitions");
   // outline_reply's edit is its own operation; the tool takes it back as `edit`.
   const definition = AGENT_TOOL_DEFINITIONS.find(d => d.operation === (operation === "edit-comment" ? "reply" : operation));
-  if (!definition?.writes || !actor) return run(client, operation, input, actor);
-  const [{ effectiveLevel }, { agentWrite }, { canonicalLocalMachineName }] = await Promise.all([import("./write-gate"), import("./agent-write"), import("./machine-name")]);
+  // Whether this call writes: its definition says, else the operation does (a file touch always; figure-fit when it
+  // comments); a view's order is a write only when it is given ids. Every write asks the gate (PIE-1544).
+  const writes = operation === "view-order" ? Array.isArray(input.ids) && input.ids.length > 0
+    : operation === "touch-file" ? true : operation === "figure-fit" ? input.comment === true : !!definition?.writes;
+  if (!writes || !actor) return run(client, operation, input, actor);
+  const [{ effectiveLevel, gate }, { agentWrite }, { canonicalLocalMachineName }] = await Promise.all([import("./write-gate"), import("./agent-write"), import("./machine-name")]);
   const status = await client.request<McpAccessStatus>({ action: "mcp.access.status" });
   const { level } = effectiveLevel(status, { local: true });
+  const where = paths.outline ? { where: { outline: paths.outline, machine: paths.machine ?? canonicalLocalMachineName() } } : {};
+  if (!definition) {
+    const decided = gate({ tool: operation.replace(/-/g, "_"), level, ...where });
+    if (decided.becomes === "refused") throw new Error(decided.why);
+    return run(client, operation, input, actor);
+  }
   // The operation's own check (ref and its aliases) first, so the gate's write names the block as the operation would.
   const { AGENT_OPERATION_SPECS } = await import("./agent-tool-specs");
   const { checkToolArgs } = await import("@ep0ch/outline-core/tool-args");
@@ -814,7 +824,7 @@ async function gatedAgentOperation(operation: AgentOperationName, input: Record<
   const given = checked?.ok ? checked.args : input;
   const { mark, ...rest } = given;
   const args = operation === "edit-comment" ? { ...rest, edit: mark } : operation === "view-order" ? { ...given, ref: given.ref ?? given.view } : given;
-  return agentWrite(client, { definition, args, command: { operation, input } }, actor, level, paths.outline ? { where: { outline: paths.outline, machine: paths.machine ?? canonicalLocalMachineName() } } : {});
+  return agentWrite(client, { definition, args, command: { operation, input } }, actor, level, where);
 }
 
 /**

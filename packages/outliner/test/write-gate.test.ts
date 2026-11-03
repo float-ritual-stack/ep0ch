@@ -112,6 +112,29 @@ describe("the Claude mod's path (outliner agent <op>)", () => {
     expect(store.require(note.id).text).toBe("Seed list\n\nTomatoes, beans.");
   });
 
+  test("every writing operation asks the gate: a file touch and figure-fit's comments too; a read of a view's order doesn't", async () => {
+    const { store, agent } = await setup();
+    const note = store.create("Seed list\n\nTomatoes, beans.");
+    const touch = { path: "/garden/plan.md", project: "garden", session: "s-1", added: 2, removed: 0 };
+    const notesBefore = store.require(note.id).revision;
+    store.configureMcpAccess("propose");
+    const proposing = await agent("touch-file", touch);
+    expect(proposing.exitCode).toBe(1);
+    expect(proposing.stderr).toContain("touch_file writes a file-touch note and can't be proposed: it needs full access (this outline's is propose).");
+    store.configureMcpAccess("read");
+    const words = noWritesWords("read", { outline: "garden", machine: "shed" });
+    const reading = await agent("touch-file", touch);
+    expect(reading.exitCode).toBe(1);
+    expect(reading.stderr).toContain(words);
+    const swept = await agent("figure-fit", { under: note.id, comment: true });
+    expect(swept.exitCode).toBe(1);
+    expect(swept.stderr).toContain(words);
+    // Without comment figure-fit only reads, and a view's order without ids is a read: both answer at read.
+    expect((await agent("figure-fit", { under: note.id })).exitCode).toBe(0);
+    expect(store.require(note.id).revision).toBe(notesBefore);
+    expect((await agent("find", { query: "type=file-touch" })).json).toMatchObject({ blocks: [] });
+  });
+
   test("an outline whose owner never set a level takes a local session's writes as before", async () => {
     const { store, agent } = await setup();
     const note = store.create("Seed list\n\nTomatoes, beans.");
