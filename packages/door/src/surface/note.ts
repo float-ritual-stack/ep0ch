@@ -4588,6 +4588,8 @@ export class NoteSurface {
       return true;
     }
     if (row.pick) return this.pickKey(row, k, host);
+    // r with several proposals in view, none current and none named by the binding, asks which (PIE-1533): [ ] goes to one's [resolve], r again resolves it.
+    if (row.action === "proposal.resolve" && !row.args?.block && !row.args?.id) { const t = this.resolveTarget(); if (t && "several" in t) { this.setElem(t.first); host.ctx.flash(`${t.several.length} proposals in view · r again resolves this one · ] then r offers the next`); host.redraw(); return true; } }
     // A row of the person's keymap carries its arguments as words, as `act` does: typed as the wire's are (a refusal is said).
     try { void this.runKey(row.action as keyof NoteActionArgs & string, (READER_KEYS.includes(row) ? row.args ?? {} : coerceActionArgs(row.action, NOTE_ACTIONS.argsOf(row.action) ?? {}, row.args ?? {})) as never, host, !!row.quiet); } catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e)); }
     return true;
@@ -4602,7 +4604,7 @@ export class NoteSurface {
       case "outline": return !!m && isOutlineNote(m);
       case "parent": return !!m?.parentId;
       case "preview": return host.attachment === "list-preview" && !!this.previewPoint();
-      case "resolvable": return !!m && this.proposalOperations(this.currentProposal() ?? m.id).includes("resolve");
+      case "resolvable": return !!this.resolveTarget();
       case "proposal": return !!m && (isOpenProposal(m) || !!this.currentProposal());
       case "element": return !!this.cur || this.link >= 0;
       case "tinted": return !!this.focusMark;
@@ -9046,6 +9048,19 @@ export class NoteSurface {
     return this.inView()?.link?.proposal?.id;
   }
 
+  /**
+   * What `r` resolves (PIE-1533): the current proposal, else the one shown, else the only one whose [resolve] is in view.
+   * Several in view: `several`, and the [resolve] to offer: the first below the current element (] walked on), else the first.
+   */
+  resolveTarget(): { id: string } | { several: string[]; first: Element } | null {
+    const m = this.msg, d = this.drawn, named = m && (this.currentProposal() ?? (isOpenProposal(m) ? m.id : undefined));
+    if (!m || named) return named && this.proposalOperations(named).includes("resolve") ? { id: named } : null;
+    const at = this.elems.find(e => e.key === this.cur)?.row ?? -1;
+    const shown = d ? this.elems.filter(e => e.link?.proposal?.op === "resolve" && e.row - d.top >= d.scroll && e.row - d.top < d.scroll + d.room) : [];
+    const ids = [...new Set(shown.map(e => e.link!.proposal!.id))];
+    return ids.length === 1 ? { id: ids[0]! } : ids.length ? { several: ids, first: shown.find(e => e.row > at) ?? shown[0]! } : null;
+  }
+
   /** The keys a proposal's element offers, for the hint: `X` alone when it can't be applied (it was drawn with no `[apply]`). */
   /** Notes whose old edits the person unfolded ([show] on the "1 old edit" chip). */
   private oldUnsentShown = new Set<string>();
@@ -9528,6 +9543,13 @@ export function draftPreviewDoc(text: string, w: number, src: Source | null = nu
   return NoteSurface.draftPreviewDoc(text, w, src, links);
 }
 
+/** The proposal `proposal.resolve` acts on with no id (NoteSurface.resolveTarget): several in view are refused with their ids. */
+function resolveTargetOf(surface?: NoteSurface): string {
+  const t = surface?.resolveTarget();
+  if (t && "several" in t) throw new ActionRefused(`${t.several.length} proposals in view; say which: block=${t.several.join(" or block=")}`);
+  return t?.id ?? proposalTarget(undefined, surface);
+}
+
 /** The proposal `proposal.apply` or `proposal.dismiss` acts on: `id`, else the one whose embed or control is the current element, else the open proposal shown. */
 function proposalTarget(id: string | undefined, surface?: NoteSurface): string {
   const shown = surface?.msg && isOpenProposal(surface.msg) ? surface.msg.id : undefined;
@@ -9839,7 +9861,7 @@ const PROPOSAL_DEFS = {
     args: { block: { type: "string", optional: true, about: "proposal block id" }, id: { type: "string", optional: true, about: "proposal block id" } },
     examples: [{ act: "proposal.resolve block=5c2e8b17-4a90-4d3f-b6e1-9f07a3d2c845", does: "resolves the intended edit against the current text" }],
     async run({ block, id }, { surface, host }: { surface?: NoteSurface; host: Pick<SurfaceHost, "ctx" | "redraw"> }, actor) {
-      const target = proposalTarget(block ?? id, surface);
+      const target = block ?? id ?? resolveTargetOf(surface);
       host.ctx.flash("asking the agent to resolve the proposal");
       try {
         const result = await host.ctx.board.resolveProposal(target, actor);
