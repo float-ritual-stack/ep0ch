@@ -26,6 +26,7 @@ import type { Bound } from "./site-answer";
 import { queryRelations, type QueryRelationKind, type ValueBinder } from "./block-query";
 import { parseVirtualBranchConfig, virtualBranchMembershipQuery } from "./virtual-branches";
 import { StillCounting } from "./site-budget";
+import { BLOCK_ID_SOURCE } from "@ep0ch/outline-core/addressable-resource";
 
 type Props = Record<string, any>;
 
@@ -59,7 +60,7 @@ export function unknowable(store: ProducerStore, world: Bound["world"], ids: rea
   const relations = queryRelations(expression);
   if (!relations.size) return out;
   // A note the question names (`linkedfrom:((id))`) is one it consults whether or not it matches (a `NOT` answers from it too).
-  const named = [...expression.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi)].map(found => found[0].toLowerCase());
+  const named = [...expression.matchAll(new RegExp(BLOCK_ID_SOURCE, "gi"))].map(found => found[0].toLowerCase());
   for (const id of named) world.deps.add(id);
   const all = named.some(id => world.hidden.has(id));
   const checked = all ? [] : ids.slice(0, MAX_CHECKED);

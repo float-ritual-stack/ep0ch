@@ -5,7 +5,7 @@ import { servingSession } from "./session/session-term";
 import type { Ctx } from "./app";
 import { qualifiedReference, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import type { AuthoredResourceLink } from "./authored";
-import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { parseEp0chBlockUri, isBlockId } from "@ep0ch/outline-core/addressable-resource";
 // Opening what a Markdown link names, as Detail does (pi-herdr-outliner src/detail-controller.ts
 // `link.open`, src/open-external.ts, src/outliner-links.ts): an http(s) address opens in the system's
 // browser; a pi-outliner:// link to a block, a page or a Work ID opens in the door like `((…))` and `[[…]]`;
@@ -85,7 +85,7 @@ export function destinationOf(url: string, env: Record<string, string | undefine
       const match = ours && p.pathname.match(/^\/pub\/(?:o\/([^/]+)\/(?:p\/)?|p\/)([^/]+)\/?$/);
       if (match) {
         const value = decodeURIComponent(match[2]!);
-        return { target: { ...(match[1] ? { outline: decodeURIComponent(match[1]) } : {}), ...(BLOCK_ID.test(value) && /^[0-9a-f-]{36}$/i.test(value) ? { block: value } : { page: value }), ...(p.hash ? { fragment: p.hash.slice(1) } : {}) } };
+        return { target: { ...(match[1] ? { outline: decodeURIComponent(match[1]) } : {}), ...(isBlockId(value) ? { block: value } : { page: value }), ...(p.hash ? { fragment: p.hash.slice(1) } : {}) } };
       }
       return { web: p.href };
     } catch { return { refused: `not a web address: ${u}` }; }

@@ -2,6 +2,8 @@
 // through every site that once carried its own copy, so a regex that creeps back into one of them fails here.
 import { describe, expect, test } from "bun:test";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
+import { blockIdMatcher, isBlockId } from "@ep0ch/outline-core/addressable-resource";
+import { cellBlockId } from "@ep0ch/outline-core/figure-live";
 import { outputHeader } from "@ep0ch/outline-core/output-region";
 import { age, ageSince } from "@ep0ch/outline-core/age";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
@@ -169,5 +171,22 @@ describe("how old something is: one unit and rounding, age's", () => {
   test("a moment a few seconds back is just now; a time that isn't one is no age", () => {
     expect(age(4_000, "ago")).toBe("just now");
     expect(ageSince("not a date", now, "ago")).toBe("");
+  });
+});
+
+describe("a block id: one shape, outline-core's (PIE-1375)", () => {
+  // Its version digit is 0 and its variant 1: no id the outline mints, though it has a UUID's look. The loose copies
+  // (bookmarks, mentions, figure cells, the door's links, publish, a component's links) once took it as a block.
+  const LOOKALIKE = "3b8e6c21-5f4a-0d7b-1c02-a1e8d4f7b650";
+  const MENTIONS = "../../outliner/src/mentions";
+  test("the outline's own ids are block ids everywhere, and a lookalike nowhere", async () => {
+    const { extractMentionReferences } = await import(MENTIONS) as { extractMentionReferences(text: string): { kind: string; value: string }[] };
+    for (const [id, is] of [[ID, true], [ID.toUpperCase(), true], [LOOKALIKE, false]] as const) {
+      expect(isBlockId(id)).toBe(is);
+      expect(referencedBlock(id)?.blockId === id).toBe(is);
+      expect(cellBlockId(`((${id}))`) === id).toBe(is);
+      expect([...`see ${id} here`.matchAll(blockIdMatcher())].length).toBe(is ? 1 : 0);
+      expect(extractMentionReferences(`ping ${id}`).some(r => r.kind === "block" && r.value === id.toLowerCase())).toBe(is);
+    }
   });
 });

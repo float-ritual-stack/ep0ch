@@ -27,6 +27,7 @@ import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, pairValues, problemWords, reade
 import type { SiteAnswer, SiteLink, SiteValue } from "@ep0ch/outline-core/site";
 import type { ListRow } from "@ep0ch/outline-core/list-row";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
+import { blockIdMatcher } from "@ep0ch/outline-core/addressable-resource";
 
 export function listOpenTarget(row: Pick<ListRow, "do">): LinkTarget | null {
   if (!row.do || !("open" in row.do)) return null;
@@ -99,7 +100,7 @@ function ask<T>(by: WeakMap<object, Map<string, Cached<T>>>, src: Source | null 
   return entry;
 }
 
-const BLOCK_ID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+const BLOCK_ID = blockIdMatcher();
 /**
  * The references a note's text holds, in one canonical form: every `((…))`, and each bare block id (a
  * `[related-to::<id>]` value) as `((id))`. The note's links, its body and its property panel all look

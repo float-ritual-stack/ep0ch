@@ -38,10 +38,11 @@ import type {
   AnnotationReferenceContext,
   ResourceTarget,
 } from "./types";
+import { blockIdMatcher } from "@ep0ch/outline-core/addressable-resource";
 
 const OUTLINER_SCHEME = "pi-outliner:";
 const BLOCK_ID_PATTERN = /^[A-Za-z0-9_-]{8,}$/;
-const BLOCK_ID_TOKEN_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+const BLOCK_ID_TOKEN_PATTERN = blockIdMatcher();
 
 const TERMINAL_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 

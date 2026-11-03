@@ -3010,7 +3010,7 @@ function fileChip(source: string, index: PublishedIndex, basePath: string): stri
 }
 
 /** A block id as an address (`/p/<id>`), told from a page name before anything is asked. */
-const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BLOCK_ID = BLOCK_ID_PATTERN;
 /** A folder page counts what's inside the first this many children (it lists MAX_LISTED_CHILDREN, publish-inside.ts). */
 /** Recent replies lists at most this many. */
 const MAX_RECENT_REPLIES = 60;

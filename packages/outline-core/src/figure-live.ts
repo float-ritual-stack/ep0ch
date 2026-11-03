@@ -35,6 +35,7 @@ import { isChecklistStatus, type ChecklistStatus } from "./checklist-marks";
 import { valueOf, type BlockRecord } from "./block-record";
 import { viewField } from "./view-fields";
 import { addCell, dayOf, dayState, decisionState, isoOf, localDay, monthOf, today, uptimeDays, type Cells, type Props } from "./figure-props";
+import { BLOCK_ID_SOURCE } from "./addressable-resource";
 
 /** One result as a live figure reads it: its note, its title and properties, and when it was made and changed. */
 /** A note a live figure draws: `properties` are its block-scope properties as a record holds them (read with `valueOf`, never as a key → value map). */
@@ -54,7 +55,7 @@ export interface FigureAnswer {
 }
 
 /** A value that is a note's id, as records write them (`note::<uuid>`), or a reference to one. */
-const CELL_ID = /^(?:\(\()?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\)\))?$/;
+const CELL_ID = new RegExp(String.raw`^(?:\(\()?(${BLOCK_ID_SOURCE})(?:\)\))?$`, "i");
 /** The note id a cell's value names, if it names one. */
 export const cellBlockId = (value: string): string | undefined => CELL_ID.exec(value.trim())?.[1];
 

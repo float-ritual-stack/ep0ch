@@ -1,11 +1,17 @@
 import { isMachineName, isOutlineName } from "./outline-location";
 
 export const EP0CH_URI_SCHEME = "ep0ch";
-export const BLOCK_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** A block id's shape, for a pattern built around it: a UUID (v1 to v8), as the outline mints them (PIE-1375). */
+export const BLOCK_ID_SOURCE = String.raw`[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`;
+export const BLOCK_ID_PATTERN = new RegExp(`^${BLOCK_ID_SOURCE}$`, "i");
+/** Whether `value` is a block id (any case). The one test: every client and the service ask it. */
+export const isBlockId = (value: unknown): value is string => typeof value === "string" && BLOCK_ID_PATTERN.test(value);
+/** A matcher for every block id written in a text as a word (`\b…\b`, any case): a fresh one each call, a /g regex keeps its place. */
+export const blockIdMatcher = (): RegExp => new RegExp(String.raw`\b${BLOCK_ID_SOURCE}\b`, "gi");
 export const FRAGMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 const EP0CH_BLOCK_URI = /^ep0ch:\/\/([^@/?#]+)@([^/?#]+)\/b\/([^/?#]+)(?:#([^?#]*))?$/;
-const BLOCK_REFERENCE_HEAD_PATTERN = /^\(\(([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?=\)\)|\|)/i;
+const BLOCK_REFERENCE_HEAD_PATTERN = new RegExp(String.raw`^\(\((${BLOCK_ID_SOURCE})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?=\)\)|\|)`, "i");
 
 export interface Ep0chBlockUri {
   outline: string;

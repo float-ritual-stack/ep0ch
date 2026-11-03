@@ -1,10 +1,10 @@
 import { blockDisplayTitle } from "./references";
 import type { Block } from "./types";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
 export const BOOKMARK_TYPE = "bookmark";
 export const BOOKMARKS_SYSTEM_VIEW = "bookmarks";
-const CANONICAL_BLOCK_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CANONICAL_BLOCK_ID_PATTERN = BLOCK_ID_PATTERN;
 
 export interface BookmarkRecord {
   record: Block;

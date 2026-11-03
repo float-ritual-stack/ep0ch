@@ -5,6 +5,7 @@ import type {
   ComputedProducerDeclarationSnapshot,
   ResourceRevisionRef,
 } from "./resources";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
 export type { ComputedProducerDeclarationSnapshot } from "./resources";
 
@@ -14,8 +15,7 @@ const MAX_FAILURE_MESSAGE_LENGTH = 4_096;
 const PRINTABLE_IDENTIFIER = /^[\x21-\x7e]+$/;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 const MEDIA_TYPE = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const UUID_PATTERN = BLOCK_ID_PATTERN;
 
 export const DEFAULT_MAX_COMPUTED_INPUT_BYTES = 256 * 1024;
 export const DEFAULT_MAX_COMPUTED_OUTPUT_BYTES = 1024 * 1024;

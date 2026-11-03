@@ -489,6 +489,7 @@ function extensionRecordRow(row: ExtensionRecordDbRow): ExtensionRecordRow {
 
 export { AGENT_REQUEST_STATUSES, type AgentRequestStatus } from "./schema";
 import type { AgentRequestStatus } from "./schema";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
 /** One `@name` request line and what its agent did (`agent_requests`). */
 export interface AgentRequestRow {
@@ -647,8 +648,7 @@ const RESERVED_ROADMAP_PROPERTY_KEYS: Record<string, true> = {
   "work-id": true,
 };
 
-const CANONICAL_BLOCK_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CANONICAL_BLOCK_ID_PATTERN = BLOCK_ID_PATTERN;
 
 function normalizeRoadmapText(value: unknown, label: string): string {
   if (typeof value !== "string") throw new Error(`${label} must be a string`);
