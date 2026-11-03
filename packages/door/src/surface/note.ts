@@ -4238,7 +4238,7 @@ export class NoteSurface {
       holdsKeys: () => !!sm() && this.modes.active(sm()!), tileKeys: () => true,
       actions: { place: "sources.place", move: "sources.move" }, closed: "S opens the Sources inspector",
       chip: () => chipOf({ col: sm()!.rect.x, row: sm()!.rect.y, cols: sm()!.rect.w, rows: sm()!.rect.h }, sm()!.place),
-      placed: () => { sm()!.reveal = true; },
+      placed: (want, host, _side, was) => { sm()!.reveal = true; if (was === "tile" && want !== "tile") this.focusSources(host, true); },
     }, {
       kind: "settings", noun: "settings", owner: card, mode: "panel", persist: "settings-place.json",
       draw: (cols, rows, row, col) => this.renderSettings(cols, rows, row, col),
@@ -6177,7 +6177,7 @@ export class NoteSurface {
     // An image's caption control (PIE-532): the image becomes the `[ ]` position, and the control's action runs.
     if (link.role === "image" && link.image) { this.pressImage(link.image, host); return true; }
     // A row of an inline ::links (PIE-693), as a links tile's row (PIE-794, one list model): a click selects it (the [ ]
-    // position; its preview and a preview linked to this reader follow), a second click on it soon after opens it (⏎),
+    // position; its preview and a preview linked to this reader follow), a second click on it, however long after, opens it (⏎, PIE-1541),
     // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
     const lbk = link.listRow;
     // A figure's row is a list row like any other (Evan, Oct 21: a click selects and previews; it never opens at once).
@@ -6186,7 +6186,7 @@ export class NoteSurface {
     if (e && (lbk?.row || e.link?.inlineList) && !link.cell && !host.opensOnClick?.(link)) {
       const i = this.elems.indexOf(e), inline = e.link?.inlineList;
       const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
-      const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was });
+      const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was, untimed: e.key === was && !host.focusing });
       if (lbk?.row) {
         const n = this.listViews.get(lbk.key)!.indexOf(PERSON, { id: lbk.row, group: lbk.group }) + 1;
         void this.runList(g === "open" || fresh ? "list.open" : "list.pick", { list: lbk.key, n, ...(fresh ? { where: "new" } : {}) }, host);
