@@ -6382,7 +6382,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     p.personClickAt = Date.now();
     if (!p.running && p.exited !== null) { p.restart(); return { ...this.tileAnswer(this.tile(name).id), restarted: true }; }
     if (!p.running) throw new ActionRefused(`${name}'s program hasn't started`);
-    this.ptyIn = p; this.chord = null;
+    this.ptyIn = p; this.chord = null; if (this.ctx.hostLayer?.isDrawer(this)) this.ctx.hostLayer.enteredTab?.(p);   // in the drawer, the drawer takes the keys in (PIE-1526)
     // Said by what its header calls it (the drawer's own tile: what runs in it, never its tile name).
     const said = (p as Pane).headName?.() ?? name;
     if (send) { p.input(send); this.ctx.flash(`sent ctrl+] to ${said}`); }

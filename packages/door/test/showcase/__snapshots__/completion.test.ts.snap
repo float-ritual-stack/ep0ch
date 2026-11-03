@@ -1,7 +1,7 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
 exports[`showcase: completion (PIE-1339) the popup reads and inserts the same at 120 and 80 columns, through keys, mouse and act (PIE-1478): reference popup at 120 1`] = `
-"┌─  ────────────────────────────────────────────────────────────────────────────────┐
+"┌───────────────────────────────────────────────────────────────────────────────────┐
 │ » Greenhouse meeting, October  Kitchen … block █│  Greenhouse meeting, October · …│
 │     ^a10  We agreed to water the seedl… anchor █│ ◆ line 1 · the line that links …│
 │     ^decision  # Decision  Greenhouse … anchor █│                                 │
@@ -18,7 +18,7 @@ exports[`showcase: completion (PIE-1339) the popup reads and inserts the same at
 `;
 
 exports[`showcase: completion (PIE-1339) the popup reads and inserts the same at 120 and 80 columns, through keys, mouse and act (PIE-1478): reference popup at 80 1`] = `
-"┌─  ─────────────────────────────────────────────┐
+"┌────────────────────────────────────────────────┐
 │ » Greenhouse meeting, October  Kitchen … block █
 │     ^a10  We agreed to water the seedl… anchor █
 │     ^decision  # Decision  Greenhouse … anchor █
