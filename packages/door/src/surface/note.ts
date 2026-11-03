@@ -886,7 +886,7 @@ export class NoteSurface {
   /** A press landed in the draft's text: a drag from it selects there. */
   private editPress = false;
   /** Bring the comment being written into view at the next paint (it opened, the person typed, it moved: PIE-770). */
-  private revealComposer = false; private composerDrawn = 0;
+  private revealComposer = false; private composerDrawn = 0; private composerAsked: number | null = null;
   /** The rows of the comment's passage in the last paint, in the reader's cells (a floating box goes beside them). */
   private composerRows: [number, number] | null = null;
   /** Where the last paint put a floating or popup composer (PIE-785), in the note's cells under its header image, and the room it had. */
@@ -2023,7 +2023,7 @@ export class NoteSurface {
         bringIn(b - a <= room || !writingIn ? [a, b] : [a + (box.box.frame?.row ?? 0) + writingIn.views.raw.cursorRow, a + (box.box.frame?.row ?? 0) + writingIn.views.raw.cursorRow + 1]);
       } else if (comp.passage) bringIn([top + comp.passage[0], top + comp.passage[1]]);
     }
-    this.revealComposer = false;
+    if (this.revealComposer && this.composerAsked !== null) this.composerAsked = this.scroll; this.revealComposer = false;
     const sm = this.sourcesMode, inline = laid.sourcesInline;
     if (sm?.place === "inline" && inline && sm.reveal) {
       bringIn([top + inline.at, top + inline.at + inline.rows]); sm.reveal = false;
@@ -2369,7 +2369,7 @@ export class NoteSurface {
     // choice (PIE-472) under its step.
     // The comment being written inline (PIE-770) is a box of rows under its passage, after an expanded thread's.
     const inlineRect = attachedRect("inline", bw, h - top, { min: { cols: 24, rows: 8 } });
-    const inlineBox = writing?.cs.place === "inline" ? composerBox(writing.d, writing.f, Math.min(inlineRect.cols, 96), Math.max(5, Math.min(inlineRect.rows, h - top + 2))) : null; if (inlineBox && inlineBox.lines.length !== this.composerDrawn) { this.composerDrawn = inlineBox.lines.length; this.revealComposer = true; /* what the draft said grew its box: the text stays in view (PIE-1560) */ }
+    const inlineBox = writing?.cs.place === "inline" ? composerBox(writing.d, writing.f, Math.min(inlineRect.cols, 96), Math.max(5, Math.min(inlineRect.rows, h - top + 2))) : null; if (inlineBox && inlineBox.lines.length !== this.composerDrawn) { this.composerDrawn = inlineBox.lines.length; if (this.composerAsked === this.scroll) this.revealComposer = true; this.composerAsked = null; /* what a key asked for grew its box, the note where it was then: the text stays in view; a resize or a wheel never moves the note (PIE-1560) */ }
     const threads = this.threadPanels(m, rendered, noteLines, bw, mcols === 0, inlineBox?.lines, host, drawn);
     const sm = this.sourcesMode;
     const sourceRect = attachedRect("inline", bw, Math.min(20, h - top - 2));
@@ -4130,7 +4130,7 @@ export class NoteSurface {
     if (s.mode !== "compose" && s.place === "tile" && !s.busy && k.kind === "char" && k.ctrl && k.ch === "g") { void this.runKey("comment.grip", {}, host, true); return true; }
     // Typing brings an inline composer (rows of the note) back into view after the wheel took the note elsewhere. A
     // floating, split or popup one is in view already: the note stays where it was scrolled (PIE-846).
-    if (s.mode === "compose" && s.place === "inline") this.revealComposer = true;
+    if (s.mode === "compose" && s.place === "inline") { this.revealComposer = true; this.composerAsked = this.scroll; }
     const verb = s.mode === "threads" && !s.busy && s.threads[s.sel] ? ATTENTION_KEYS[ch(k) ?? ""] : undefined;
     if (verb) { void this.runKey(verb, { thread: s.threads[s.sel]!.id, ...(ch(k) === "T" ? { remove: true } : {}) }, host, true); return true; }
     // e edits the current thread's comment in the same editor (PIE-763); a reply's words: its [Edit] on the expanded thread.
@@ -8906,7 +8906,7 @@ export class NoteSurface {
 
   env(host: SurfaceHost, actor: Actor) { return this.commentEnv(host, actor); }
   /** Bring the comment being written into view at the next paint (comment.place). */
-  revealComposerNext() { this.revealComposer = true; }
+  revealComposerNext() { this.revealComposer = true; this.composerAsked = this.scroll; }
   closeSession() { this.session = null; }
   /** A link with no element drawn for it (folded away, not laid out yet): followed where ⏎ on it would go. */
   followLink(l: Link, host: SurfaceHost, fresh = false) { return this.followTarget(l, host, { link: true, fresh }); }
@@ -9209,7 +9209,7 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
       const w = surface.drafting ?? (surface.session?.mode === "compose" ? surface.session.writing : null);
       if (!w) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
       const d = w.draft;
-      if (d.busy) throw new ActionRefused("the save is still landing");
+      if (d.busy) throw new ActionRefused(d.status.phase === "reloading" ? "the draft is reloading and its text is about to change · try again in a moment" : "the save is still landing");
       // The person's draft is theirs: its cursor, view and preview move only by their keys and mouse (the session's rule).
       const r = await w.act(name, args, actor);
       // The person's copy reaches their clipboard, as the reader's select.copy does; an agent's is only returned.
@@ -9540,7 +9540,7 @@ async function saveDraft(surface: NoteSurface, host: SurfaceHost, actor: Actor) 
 async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor) {
   const s = surface.session;
   if (!s || s.mode !== "compose" || !s.composer) throw new ActionRefused("no comment is being written here; comment.write first");
-  const kind = s.target?.kind;
+  const kind = s.target?.kind; if (actor.kind !== "agent") surface.revealComposerNext();
   await s.send(surface.env(host, actor));
   if (s.error || s.mode === "compose") throw new ActionRefused(s.error ?? s.composer?.note ?? "not sent");
   surface.noteAgent(actor, kind === "reply" ? "replied to a comment" : kind === "edit" ? "edited a comment" : "commented on this note");
@@ -11013,7 +11013,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run(_, { surface, host }, actor) {
       const s = surface.session;
       if (!s || s.mode !== "compose" || !s.composer) throw new ActionRefused("no comment is being written here");
-      await s.reload(surface.env(host, actor));
+      if (actor.kind !== "agent") surface.revealComposerNext(); await s.reload(surface.env(host, actor));
       if (s.error) throw new ActionRefused(s.error);
       host.redraw();
       return { mode: s.mode, note: s.note || s.composer?.note || null };

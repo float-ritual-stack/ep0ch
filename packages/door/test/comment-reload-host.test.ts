@@ -81,6 +81,43 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     expect(shown).toContain(file.slice(-6));
   }, 30_000);
 
+  test("wheeled away from an inline comment edit, a resize leaves the note where it was scrolled", async () => {
+    const body = Array.from({ length: 120 }, (_, i) => `row ${i + 1} of the long plan`).join("\n");
+    const id = (await board.request("create", { parentId: null, text: `Long plan\n${body}`, author: "user" })).id as string;
+    const m = (await board.get(id))!;
+    await board.comment(`req-${id}`, id, m.revision!, "Which rows first?", null);
+    const s = new NoteSurface(), h = host();
+    s.show(m, h);
+    await s.loadComments(h);
+    s.key(char("m"), h);
+    await until(() => s.session?.mode === "threads" && s.session.threads.length === 1, "the thread list");
+    s.key(char("e"), h);
+    await until(() => !!s.session?.composer, "the comment's edit");
+    s.key(char("!"), h);
+    s.render(80, 24, h);
+    // The wheel, away from the box; then the tile shrinks, and the box with it. No key was pressed.
+    (s as any).scroll = 60;
+    s.render(80, 24, h);
+    const at = (s as any).scroll;
+    s.render(80, 8, h);
+    expect((s as any).scroll).toBeGreaterThan(at - 3);
+  }, 30_000);
+
+  test("a draft write while a reload's read is out is refused with what to do, and nothing is lost", async () => {
+    const { s, h, d } = await refused("Late paste");
+    const comments = board.comments.bind(board);
+    let release = () => {};
+    const gate = new Promise<void>(r => { release = r; });
+    board.comments = (async (...a: Parameters<typeof comments>) => { await gate; return comments(...a); }) as typeof board.comments;
+    const reload = s.act("comment.reload", {}, h, USER);
+    await until(() => !!s.session?.busy, "the reload's read");
+    await expect(s.act("draft.paste", { text: "?" }, h, USER)).rejects.toThrow("try again");
+    board.comments = comments as typeof board.comments;
+    release();
+    await reload;
+    expect(d.text).toBe("How deep should the bed be?");
+  }, 30_000);
+
   // Last: it stops the host.
   test("with the host stopped ctrl+r says it couldn't read, keeps the text and the conflict", async () => {
     const { s, h, d } = await refused("Stopped host");
